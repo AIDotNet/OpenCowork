@@ -40,9 +40,9 @@ export function registerApiProxyHandlers(): void {
         resolve({ statusCode: 0, error: err.message })
       })
 
-      httpReq.setTimeout(10000, () => {
+      httpReq.setTimeout(15000, () => {
         httpReq.destroy()
-        resolve({ statusCode: 0, error: 'Request timed out (10s)' })
+        resolve({ statusCode: 0, error: 'Request timed out (15s)' })
       })
 
       if (body) httpReq.write(body)

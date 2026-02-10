@@ -21,6 +21,7 @@ import { parseSubAgentMeta } from '@renderer/lib/agent/sub-agents/create-tool'
 import { ToolCallCard } from './ToolCallCard'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { MONO_FONT } from '@renderer/lib/constants'
 
 // --- SubAgent icon mapping ---
 const subAgentIcons: Record<string, React.ReactNode> = {
@@ -53,6 +54,8 @@ function CopyOutputBtn({ text }: { text: string }): React.JSX.Element {
 interface SubAgentCardProps {
   /** The SubAgent tool name (CodeSearch, CodeReview, Planner) */
   name: string
+  /** The tool_use block id, used to match live state for parallel same-name SubAgent calls */
+  toolUseId: string
   /** Input passed by parent agent */
   input: Record<string, unknown>
   /** Final output (from completed tool_use result), undefined while running */
@@ -61,16 +64,15 @@ interface SubAgentCardProps {
   isLive?: boolean
 }
 
-export function SubAgentCard({ name, input, output, isLive = false }: SubAgentCardProps): React.JSX.Element {
+export function SubAgentCard({ name, toolUseId, input, output, isLive = false }: SubAgentCardProps): React.JSX.Element {
   const [toolsExpanded, setToolsExpanded] = React.useState(true)
   const [outputExpanded, setOutputExpanded] = React.useState(false)
 
-  // Live state from agent store (only meaningful during execution)
-  const activeSubAgent = useAgentStore((s) => s.activeSubAgent)
+  // Live state from agent store — match by toolUseId for precise identification
+  const activeSubAgents = useAgentStore((s) => s.activeSubAgents)
   const completedSubAgents = useAgentStore((s) => s.completedSubAgents)
-  // Try active first, then fall back to completed (handles sequential SubAgent calls)
   const live = isLive
-    ? (activeSubAgent?.name === name ? activeSubAgent : completedSubAgents[name] ?? null)
+    ? (activeSubAgents[toolUseId] ?? completedSubAgents[toolUseId] ?? null)
     : null
 
   // Parse embedded metadata from historical output
@@ -259,7 +261,20 @@ export function SubAgentCard({ name, input, output, isLive = false }: SubAgentCa
       {live && live.streamingText && (
         <div className="border-t border-violet-500/10 px-4 py-2.5 max-h-64 overflow-y-auto">
           <div className="prose prose-xs dark:prose-invert max-w-none text-[12px] leading-relaxed">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code: ({ className, children, ...props }) => (
+                  <code
+                    className={cn(className, 'font-mono')}
+                    style={{ fontFamily: MONO_FONT }}
+                    {...props}
+                  >
+                    {children}
+                  </code>
+                )
+              }}
+            >
               {live.streamingText}
             </ReactMarkdown>
           </div>
@@ -286,7 +301,20 @@ export function SubAgentCard({ name, input, output, isLive = false }: SubAgentCa
             <CollapsibleContent>
               <div className="px-4 pb-3 max-h-80 overflow-y-auto">
                 <div className="prose prose-xs dark:prose-invert max-w-none text-[12px] leading-relaxed">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      code: ({ className, children, ...props }) => (
+                        <code
+                          className={cn(className, 'font-mono')}
+                          style={{ fontFamily: MONO_FONT }}
+                          {...props}
+                        >
+                          {children}
+                        </code>
+                      )
+                    }}
+                  >
                     {histText}
                   </ReactMarkdown>
                 </div>

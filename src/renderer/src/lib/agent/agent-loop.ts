@@ -38,7 +38,7 @@ export async function* runAgentLoop(
     let currentToolArgs = ''
     let currentToolId = ''
     let currentToolName = ''
-    let stopReason = ''
+    // stopReason from message_end is not used at loop level
 
     try {
       const stream = provider.sendMessage(
@@ -95,11 +95,11 @@ export async function* runAgentLoop(
               requiresApproval,
             }
             toolCalls.push(tc)
+            yield { type: 'tool_use_generated', toolUseBlock: { id: toolUseBlock.id, name: currentToolName, input: toolInput } }
             break
           }
 
           case 'message_end':
-            stopReason = event.stopReason ?? ''
             if (event.usage) {
               yield { type: 'message_end', usage: event.usage }
             }
@@ -133,8 +133,6 @@ export async function* runAgentLoop(
     }
     conversationMessages.push(assistantMsg)
 
-    yield { type: 'iteration_end', stopReason }
-
     // 2. No tool calls → done
     if (toolCalls.length === 0) {
       yield { type: 'loop_end', reason: 'completed' }
@@ -164,7 +162,7 @@ export async function* runAgentLoop(
       const startedAt = Date.now()
       yield { type: 'tool_call_start', toolCall: { ...tc, status: 'running', startedAt } }
 
-      const output = await toolRegistry.execute(tc.name, tc.input, toolCtx)
+      const output = await toolRegistry.execute(tc.name, tc.input, { ...toolCtx, currentToolUseId: tc.id })
 
       yield { type: 'tool_call_result', toolCall: { ...tc, status: 'completed', output, startedAt, completedAt: Date.now() } }
 
@@ -183,6 +181,15 @@ export async function* runAgentLoop(
       createdAt: Date.now(),
     }
     conversationMessages.push(toolResultMsg)
+
+    // Notify UI about tool results so it can sync to chat store
+    yield {
+      type: 'iteration_end',
+      stopReason: 'tool_use',
+      toolResults: toolResults
+        .filter((b) => b.type === 'tool_result')
+        .map((b) => ({ toolUseId: (b as { toolUseId: string }).toolUseId, content: (b as { content: string }).content, isError: (b as { isError?: boolean }).isError })),
+    }
   }
 
   yield { type: 'loop_end', reason: 'max_iterations' }

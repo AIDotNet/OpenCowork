@@ -6,6 +6,7 @@ import { cn } from '@renderer/lib/utils'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { MONO_FONT } from '@renderer/lib/constants'
 
 interface ToolCallCardProps {
   name: string
@@ -91,7 +92,12 @@ function OutputBlock({ output }: { output: string }): React.JSX.Element {
         <p className="text-xs font-medium text-muted-foreground">Output</p>
         <CopyBtn text={output} />
       </div>
-      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs font-mono">{displayed}</pre>
+      <pre
+        className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs font-mono"
+        style={{ fontFamily: MONO_FONT }}
+      >
+        {displayed}
+      </pre>
       {isLong && (
         <button
           onClick={() => setExpanded(!expanded)}
@@ -136,7 +142,16 @@ function ReadOutputBlock({ output, filePath }: { output: string; filePath: strin
         language={lang}
         style={oneDark}
         showLineNumbers
-        customStyle={{ margin: 0, padding: '0.5rem', borderRadius: '0.375rem', fontSize: '11px', maxHeight: '300px', overflow: 'auto' }}
+        customStyle={{
+          margin: 0,
+          padding: '0.5rem',
+          borderRadius: '0.375rem',
+          fontSize: '11px',
+          maxHeight: '300px',
+          overflow: 'auto',
+          fontFamily: MONO_FONT
+        }}
+        codeTagProps={{ style: { fontFamily: 'inherit' } }}
       >
         {displayed}
       </SyntaxHighlighter>
@@ -180,7 +195,10 @@ function BashOutputBlock({ command, output }: { command: string; output: string 
         <span className="text-[9px] text-muted-foreground/30">{lineCount} lines</span>
         <CopyBtn text={text} />
       </div>
-      <div className="rounded-md border bg-zinc-950 overflow-auto max-h-72 text-[11px] font-mono">
+      <div
+        className="rounded-md border bg-zinc-950 overflow-auto max-h-72 text-[11px] font-mono"
+        style={{ fontFamily: MONO_FONT }}
+      >
         <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-zinc-800 text-green-400/80">
           <span className="select-none text-green-500/60">$</span>
           <span>{command}</span>
@@ -251,7 +269,10 @@ function GrepOutputBlock({ output, pattern }: { output: string; pattern?: string
         <span className="text-[9px] text-muted-foreground/40">{parsed.length} matches in {groups.length} files</span>
         <CopyBtn text={output} />
       </div>
-      <div className="rounded-md border bg-zinc-950 overflow-auto max-h-72 text-[11px] font-mono divide-y divide-zinc-800">
+      <div
+        className="rounded-md border bg-zinc-950 overflow-auto max-h-72 text-[11px] font-mono divide-y divide-zinc-800"
+        style={{ fontFamily: MONO_FONT }}
+      >
         {groups.map(([file, matches]) => (
           <div key={file} className="px-2 py-1.5">
             <div
@@ -291,7 +312,10 @@ function GlobOutputBlock({ output }: { output: string }): React.JSX.Element {
         <span className="text-[9px] text-muted-foreground/40">{parsed.length} files</span>
         <CopyBtn text={parsed.join('\n')} />
       </div>
-      <div className="rounded-md border bg-zinc-950 overflow-auto max-h-48 px-3 py-2 text-[11px] font-mono text-zinc-400 space-y-0.5">
+      <div
+        className="rounded-md border bg-zinc-950 overflow-auto max-h-48 px-3 py-2 text-[11px] font-mono text-zinc-400 space-y-0.5"
+        style={{ fontFamily: MONO_FONT }}
+      >
         {parsed.map((p, i) => (
           <div
             key={i}
@@ -327,7 +351,10 @@ function LSOutputBlock({ output }: { output: string }): React.JSX.Element {
         <span className="text-[9px] text-muted-foreground/40">{dirs.length} folders · {files.length} files</span>
         <CopyBtn text={parsed.map((e) => e.name).join('\n')} />
       </div>
-      <div className="rounded-md border bg-zinc-950 overflow-auto max-h-48 px-3 py-2 text-[11px] font-mono space-y-0.5">
+      <div
+        className="rounded-md border bg-zinc-950 overflow-auto max-h-48 px-3 py-2 text-[11px] font-mono space-y-0.5"
+        style={{ fontFamily: MONO_FONT }}
+      >
         {dirs.map((e) => (
           <div key={e.name} className="flex items-center gap-1.5 text-amber-400/70">
             <Folder className="size-3 shrink-0" />
@@ -579,7 +606,10 @@ function DiffBlock({ oldStr, newStr, filePath }: { oldStr: string; newStr: strin
           {added > 0 && <span className="text-green-400/60">+{added}</span>}
         </span>
       </div>
-      <div className="rounded-md border bg-zinc-950 overflow-auto max-h-64 text-[11px] font-mono leading-relaxed">
+      <div
+        className="rounded-md border bg-zinc-950 overflow-auto max-h-64 text-[11px] font-mono leading-relaxed"
+        style={{ fontFamily: MONO_FONT }}
+      >
         {chunks.map((chunk, ci) => {
           if (chunk.type === 'lines') {
             return chunk.lines.map((line, li) => renderLine(line, ci * 1000 + li))
@@ -701,7 +731,16 @@ export function ToolCallCard({
               <SyntaxHighlighter
                 language={detectLang(String(input.file_path ?? input.path ?? ''))}
                 style={oneDark}
-                customStyle={{ margin: 0, padding: '0.5rem', borderRadius: '0.375rem', fontSize: '11px', maxHeight: '200px', overflow: 'auto' }}
+                customStyle={{
+                  margin: 0,
+                  padding: '0.5rem',
+                  borderRadius: '0.375rem',
+                  fontSize: '11px',
+                  maxHeight: '200px',
+                  overflow: 'auto',
+                  fontFamily: MONO_FONT
+                }}
+                codeTagProps={{ style: { fontFamily: 'inherit' } }}
               >
                 {String(input.content)}
               </SyntaxHighlighter>
@@ -721,7 +760,16 @@ export function ToolCallCard({
               <SyntaxHighlighter
                 language="json"
                 style={oneDark}
-                customStyle={{ margin: 0, padding: '0.5rem', borderRadius: '0.375rem', fontSize: '11px', maxHeight: '160px', overflow: 'auto' }}
+                customStyle={{
+                  margin: 0,
+                  padding: '0.5rem',
+                  borderRadius: '0.375rem',
+                  fontSize: '11px',
+                  maxHeight: '160px',
+                  overflow: 'auto',
+                  fontFamily: MONO_FONT
+                }}
+                codeTagProps={{ style: { fontFamily: 'inherit' } }}
               >
                 {JSON.stringify(input, null, 2)}
               </SyntaxHighlighter>

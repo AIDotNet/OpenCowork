@@ -13,10 +13,10 @@ import type { SubAgentRunConfig, SubAgentResult } from './types'
  * to the parent via onApprovalNeeded callback.
  */
 export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentResult> {
-  const { definition, parentProvider, toolContext, input, onEvent, onApprovalNeeded } = config
+  const { definition, parentProvider, toolContext, input, toolUseId, onEvent, onApprovalNeeded } = config
 
   // Emit start event
-  onEvent?.({ type: 'sub_agent_start', subAgentName: definition.name, input })
+  onEvent?.({ type: 'sub_agent_start', subAgentName: definition.name, toolUseId, input })
 
   // 1. Build inner tool definitions (subset of parent's tools)
   const allDefs = toolRegistry.getDefinitions()
@@ -70,12 +70,12 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
       switch (event.type) {
         case 'text_delta':
           output += event.text
-          onEvent?.({ type: 'sub_agent_text_delta', subAgentName: definition.name, text: event.text })
+          onEvent?.({ type: 'sub_agent_text_delta', subAgentName: definition.name, toolUseId, text: event.text })
           break
 
         case 'iteration_start':
           iterations = event.iteration
-          onEvent?.({ type: 'sub_agent_iteration', subAgentName: definition.name, iteration: event.iteration })
+          onEvent?.({ type: 'sub_agent_iteration', subAgentName: definition.name, toolUseId, iteration: event.iteration })
           break
 
         case 'message_end':
@@ -88,7 +88,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
         case 'tool_call_start':
         case 'tool_call_result':
           if (event.type === 'tool_call_result') toolCallCount++
-          onEvent?.({ type: 'sub_agent_tool_call', subAgentName: definition.name, toolCall: event.toolCall })
+          onEvent?.({ type: 'sub_agent_tool_call', subAgentName: definition.name, toolUseId, toolCall: event.toolCall })
           break
 
         case 'error':
@@ -100,7 +100,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
             usage: totalUsage,
             error: event.error.message,
           }
-          onEvent?.({ type: 'sub_agent_end', subAgentName: definition.name, result })
+          onEvent?.({ type: 'sub_agent_end', subAgentName: definition.name, toolUseId, result })
           return result
       }
     }
@@ -114,7 +114,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
       usage: totalUsage,
       error: errMsg,
     }
-    onEvent?.({ type: 'sub_agent_end', subAgentName: definition.name, result })
+    onEvent?.({ type: 'sub_agent_end', subAgentName: definition.name, toolUseId, result })
     return result
   }
 
@@ -131,7 +131,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
     usage: totalUsage,
   }
 
-  onEvent?.({ type: 'sub_agent_end', subAgentName: definition.name, result })
+  onEvent?.({ type: 'sub_agent_end', subAgentName: definition.name, toolUseId, result })
   return result
 }
 

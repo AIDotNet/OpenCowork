@@ -37,8 +37,7 @@ export function buildSystemPrompt(options: {
       `You have access to the user's local filesystem and can execute shell commands.`,
       `Follow a Plan-Act-Observe loop: understand the request, plan your approach, use tools to act, then observe results before continuing.`,
       `Always read files before editing them. Use the Edit tool for precise changes — never rewrite entire files unless creating new ones.`,
-      `When running shell commands, explain what you're doing and why.`,
-      `If a task requires multiple steps, use the TodoWrite tool to create a plan and update it as you progress.`
+      `When running shell commands, explain what you're doing and why.`
     )
   } else {
     parts.push(
@@ -48,6 +47,33 @@ export function buildSystemPrompt(options: {
       `Prefer editing existing files over rewriting them entirely.`
     )
   }
+
+  // Task planning instructions (both modes)
+  parts.push(
+    `\n## Task Planning (IMPORTANT)`,
+    `You MUST use the **TodoWrite** tool to create a structured task plan when:`,
+    `- The user's request involves **2 or more distinct steps** (e.g. "review this project", "refactor this module", "add a feature")`,
+    `- The task requires **exploring, then acting** (e.g. understand structure → identify issues → fix them)`,
+    `- The task involves **multiple files or components**`,
+    `- The user asks for a **review, analysis, audit, or summary** of a codebase`,
+    `- The task will take **more than one tool call** to complete`,
+    `\n### How to use TodoWrite`,
+    `1. **Before starting work**, call TodoWrite to create your plan with all steps as \`pending\`. Mark the first step as \`in_progress\`.`,
+    `2. **As you complete each step**, call TodoWrite again to update: mark completed steps as \`completed\`, and the next step as \`in_progress\`.`,
+    `3. **If you discover new work**, add new todo items to the list.`,
+    `4. Keep todo items **concise and actionable** (e.g. "Read main entry point", "Fix XSS vulnerability in auth module", "Add input validation").`,
+    `5. Use priorities: \`high\` for critical/blocking items, \`medium\` for normal work, \`low\` for nice-to-have improvements.`,
+    `\nExample — when asked "review this project for security issues":`,
+    '```',
+    `TodoWrite({ todos: [`,
+    `  { id: "1", content: "Explore project structure", status: "in_progress", priority: "high" },`,
+    `  { id: "2", content: "Review authentication & authorization", status: "pending", priority: "high" },`,
+    `  { id: "3", content: "Check input validation & sanitization", status: "pending", priority: "high" },`,
+    `  { id: "4", content: "Analyze dependency security", status: "pending", priority: "medium" },`,
+    `  { id: "5", content: "Summarize findings & recommendations", status: "pending", priority: "medium" },`,
+    `]})`,
+    '```'
+  )
 
   // Working folder context
   if (workingFolder) {
@@ -84,6 +110,29 @@ export function buildSystemPrompt(options: {
         `- Prefer SubAgents over doing many sequential Glob/Grep/Read calls yourself when the search is open-ended.`
       )
     }
+  }
+
+  // Agent Teams guidelines
+  const teamToolNames = ['TeamCreate', 'TaskCreate', 'TaskUpdate', 'TaskList', 'SpawnTeammate', 'TeamSendMessage', 'TeamDelete']
+  const hasTeamTools = teamToolNames.some((n) => toolDefs.some((t) => t.name === n))
+  if (hasTeamTools) {
+    parts.push(
+      `\n## Agent Teams`,
+      `You can create and manage a team of parallel agents using the Team tools:`,
+      `- **TeamCreate**: Create a new team for parallel collaboration`,
+      `- **TaskCreate**: Define tasks for the team to work on`,
+      `- **TaskUpdate**: Update task status or assign owners`,
+      `- **TaskList**: View all tasks and their status`,
+      `- **SpawnTeammate**: Launch a new teammate agent that works independently`,
+      `- **TeamSendMessage**: Communicate with teammates (direct, broadcast, shutdown)`,
+      `- **TeamDelete**: Clean up the team when done`,
+      `\n### When to use Agent Teams`,
+      `- Use teams when a task can be broken into **independent parallel subtasks** (e.g. reviewing multiple modules, testing different features).`,
+      `- Use the **Plan First, Parallelize Second** approach: plan the work, break it into tasks, then spawn teammates to execute in parallel.`,
+      `- Each teammate gets its own context window — keep task descriptions clear and self-contained.`,
+      `- Avoid assigning two teammates to edit the same file to prevent conflicts.`,
+      `- For simple sequential tasks, prefer SubAgents or doing the work yourself instead of creating a team.`
+    )
   }
 
   // Output format

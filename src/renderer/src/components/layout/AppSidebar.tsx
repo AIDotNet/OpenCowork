@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { nanoid } from 'nanoid'
-import { Plus, MessageSquare, Trash2, Eraser, Search, Briefcase, Code2, Download, Copy, X, Pin, PinOff, Pencil, Upload } from 'lucide-react'
+import { Plus, MessageSquare, Trash2, Eraser, Search, Briefcase, Code2, Download, Copy, X, Pin, PinOff, Pencil, Upload, Users } from 'lucide-react'
 import {
   Sidebar,
   SidebarContent,
@@ -30,6 +30,7 @@ import { Button } from '@renderer/components/ui/button'
 import { toast } from 'sonner'
 import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { useTeamStore } from '@renderer/stores/team-store'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
 
 const modeIcons: Record<SessionMode, React.ReactNode> = {
@@ -49,6 +50,7 @@ export function AppSidebar(): React.JSX.Element {
   const updateSessionMode = useChatStore((s) => s.updateSessionMode)
   const togglePinSession = useChatStore((s) => s.togglePinSession)
   const mode = useUIStore((s) => s.mode)
+  const activeTeam = useTeamStore((s) => s.activeTeam)
   const [search, setSearch] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -117,10 +119,12 @@ export function AppSidebar(): React.JSX.Element {
   return (
     <Sidebar side="left" variant="sidebar" collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2.5 px-1">
-          <div className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-primary-foreground text-[10px] font-bold tracking-tight shadow-sm">
-            OC
-          </div>
+        <div className="flex items-center gap-2.5 px-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+          <img
+            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230ea5e9'/%3E%3Ccircle cx='35' cy='40' r='14' fill='%23fff'/%3E%3Ccircle cx='65' cy='40' r='14' fill='%23fff' opacity='.85'/%3E%3Cpath d='M25 68 Q50 85 75 68' stroke='%23fff' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"
+            alt="OpenCowork"
+            className="size-7 rounded-lg shadow-sm"
+          />
           <span className="text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
             OpenCowork
           </span>
@@ -128,6 +132,44 @@ export function AppSidebar(): React.JSX.Element {
       </SidebarHeader>
 
       <SidebarContent>
+        {/* Active Team Group */}
+        {activeTeam && (
+          <SidebarGroup>
+            <SidebarGroupLabel>
+              <span className="flex items-center gap-1.5 text-cyan-500">
+                <Users className="size-3" />
+                {activeTeam.name}
+              </span>
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {activeTeam.members.map((member) => (
+                  <SidebarMenuItem key={member.id}>
+                    <SidebarMenuButton
+                      tooltip={`${member.name} — ${member.status}`}
+                    >
+                      <span className={`size-2 rounded-full shrink-0 ${
+                        member.status === 'working' ? 'bg-green-500' :
+                        member.status === 'idle' ? 'bg-cyan-400' :
+                        member.status === 'waiting' ? 'bg-amber-400' : 'bg-muted-foreground/30'
+                      }`} />
+                      <span className="truncate text-cyan-600 dark:text-cyan-400">{member.name}</span>
+                      <span className="ml-auto shrink-0 rounded bg-muted px-1 py-px text-[8px] text-muted-foreground/40">
+                        {member.status}
+                      </span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+                {activeTeam.members.length === 0 && (
+                  <div className="px-2 py-2 text-center text-[10px] text-muted-foreground/40 group-data-[collapsible=icon]:hidden">
+                    No teammates yet
+                  </div>
+                )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         <SidebarGroup>
           <SidebarGroupLabel>
             Conversations
@@ -369,12 +411,13 @@ export function AppSidebar(): React.JSX.Element {
       </SidebarContent>
 
       <SidebarFooter>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 group-data-[collapsible=icon]:justify-center">
           <Button
             variant="outline"
             size="sm"
-            className="flex-1 gap-2 rounded-lg group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0 transition-all duration-200 hover:shadow-sm"
+            className="flex-1 gap-2 rounded-lg group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:shadow-none transition-all duration-200 hover:shadow-sm"
             onClick={handleNewSession}
+            title="New Chat"
           >
             <Plus className="size-4" />
             <span className="group-data-[collapsible=icon]:hidden">New Chat</span>
@@ -382,7 +425,7 @@ export function AppSidebar(): React.JSX.Element {
           <Button
             variant="ghost"
             size="sm"
-            className="size-8 shrink-0 p-0 group-data-[collapsible=icon]:size-8"
+            className="size-8 shrink-0 p-0 group-data-[collapsible=icon]:hidden"
             title="Import session (JSON)"
             onClick={() => {
               const input = document.createElement('input')

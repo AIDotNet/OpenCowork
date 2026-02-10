@@ -174,7 +174,11 @@ export function SettingsDialog(): React.JSX.Element {
             <Select
               value={modelPresets[settings.provider]?.includes(settings.model) ? settings.model : '__custom__'}
               onValueChange={(v) => {
-                if (v !== '__custom__') settings.updateSettings({ model: v })
+                if (v === '__custom__') {
+                  settings.updateSettings({ model: '' })
+                } else {
+                  settings.updateSettings({ model: v })
+                }
               }}
             >
               <SelectTrigger className="w-full text-xs">

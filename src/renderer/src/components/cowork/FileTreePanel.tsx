@@ -23,6 +23,7 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { cn } from '@renderer/lib/utils'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { MONO_FONT } from '@renderer/lib/constants'
 
 // --- Types ---
 
@@ -382,7 +383,16 @@ export function FileTreePanel(): React.JSX.Element {
               language={detectLang(preview.name)}
               style={oneDark}
               showLineNumbers
-              customStyle={{ margin: 0, padding: '0.4rem', borderRadius: '0.375rem', fontSize: '10px', maxHeight: '250px', overflow: 'auto' }}
+              customStyle={{
+                margin: 0,
+                padding: '0.4rem',
+                borderRadius: '0.375rem',
+                fontSize: '10px',
+                maxHeight: '250px',
+                overflow: 'auto',
+                fontFamily: MONO_FONT
+              }}
+              codeTagProps={{ style: { fontFamily: 'inherit' } }}
             >
               {preview.content}
             </SyntaxHighlighter>

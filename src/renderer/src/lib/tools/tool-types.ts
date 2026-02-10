@@ -6,6 +6,8 @@ export interface ToolContext {
   workingFolder?: string
   signal: AbortSignal
   ipc: IPCClient
+  /** The tool_use block id currently being executed (set by agent-loop) */
+  currentToolUseId?: string
 }
 
 export interface IPCClient {

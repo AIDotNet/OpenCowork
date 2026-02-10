@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 export type AppMode = 'chat' | 'cowork' | 'code'
-export type RightPanelTab = 'steps' | 'artifacts' | 'context' | 'skills' | 'files'
+export type RightPanelTab = 'steps' | 'team' | 'artifacts' | 'context' | 'skills' | 'files'
 
 interface UIStore {
   mode: AppMode

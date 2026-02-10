@@ -9,6 +9,7 @@ const approvalResolvers = new Map<string, (approved: boolean) => void>()
 
 interface SubAgentState {
   name: string
+  toolUseId: string
   isRunning: boolean
   iteration: number
   toolCalls: ToolCallState[]
@@ -25,9 +26,9 @@ interface AgentStore {
   pendingToolCalls: ToolCallState[]
   executedToolCalls: ToolCallState[]
 
-  // SubAgent state
-  activeSubAgent: SubAgentState | null
-  /** Completed SubAgent results keyed by name — survives until clearToolCalls */
+  // SubAgent state keyed by toolUseId (supports multiple same-name SubAgent calls)
+  activeSubAgents: Record<string, SubAgentState>
+  /** Completed SubAgent results keyed by toolUseId — survives until clearToolCalls */
   completedSubAgents: Record<string, SubAgentState>
 
   /** Tool names approved by user during this session — auto-approve on repeat */
@@ -55,7 +56,7 @@ export const useAgentStore = create<AgentStore>()(
     currentLoopId: null,
     pendingToolCalls: [],
     executedToolCalls: [],
-    activeSubAgent: null,
+    activeSubAgents: {},
     completedSubAgents: {},
     approvedToolNames: [],
 
@@ -101,18 +102,16 @@ export const useAgentStore = create<AgentStore>()(
     },
 
     clearToolCalls: () =>
-      set({ pendingToolCalls: [], executedToolCalls: [], activeSubAgent: null, completedSubAgents: {}, approvedToolNames: [] }),
+      set({ pendingToolCalls: [], executedToolCalls: [], activeSubAgents: {}, completedSubAgents: {}, approvedToolNames: [] }),
 
     handleSubAgentEvent: (event) => {
       set((state) => {
+        const id = event.toolUseId
         switch (event.type) {
           case 'sub_agent_start':
-            // Archive previous SubAgent if it exists
-            if (state.activeSubAgent && !state.activeSubAgent.isRunning) {
-              state.completedSubAgents[state.activeSubAgent.name] = state.activeSubAgent
-            }
-            state.activeSubAgent = {
+            state.activeSubAgents[id] = {
               name: event.subAgentName,
+              toolUseId: id,
               isRunning: true,
               iteration: 0,
               toolCalls: [],
@@ -121,34 +120,38 @@ export const useAgentStore = create<AgentStore>()(
               completedAt: null,
             }
             break
-          case 'sub_agent_iteration':
-            if (state.activeSubAgent) {
-              state.activeSubAgent.iteration = event.iteration
-            }
+          case 'sub_agent_iteration': {
+            const sa = state.activeSubAgents[id]
+            if (sa) sa.iteration = event.iteration
             break
-          case 'sub_agent_tool_call':
-            if (state.activeSubAgent) {
-              const existing = state.activeSubAgent.toolCalls.find((t) => t.id === event.toolCall.id)
+          }
+          case 'sub_agent_tool_call': {
+            const sa = state.activeSubAgents[id]
+            if (sa) {
+              const existing = sa.toolCalls.find((t) => t.id === event.toolCall.id)
               if (existing) {
                 Object.assign(existing, event.toolCall)
               } else {
-                state.activeSubAgent.toolCalls.push(event.toolCall)
+                sa.toolCalls.push(event.toolCall)
               }
             }
             break
-          case 'sub_agent_text_delta':
-            if (state.activeSubAgent) {
-              state.activeSubAgent.streamingText += event.text
+          }
+          case 'sub_agent_text_delta': {
+            const sa = state.activeSubAgents[id]
+            if (sa) sa.streamingText += event.text
+            break
+          }
+          case 'sub_agent_end': {
+            const sa = state.activeSubAgents[id]
+            if (sa) {
+              sa.isRunning = false
+              sa.completedAt = Date.now()
+              state.completedSubAgents[id] = sa
+              delete state.activeSubAgents[id]
             }
             break
-          case 'sub_agent_end':
-            if (state.activeSubAgent) {
-              state.activeSubAgent.isRunning = false
-              state.activeSubAgent.completedAt = Date.now()
-              // Also archive to completedSubAgents immediately
-              state.completedSubAgents[state.activeSubAgent.name] = state.activeSubAgent
-            }
-            break
+          }
         }
       })
     },

@@ -41,6 +41,8 @@ export interface SubAgentRunConfig {
   toolContext: ToolContext
   /** Input from parent's tool_use call */
   input: Record<string, unknown>
+  /** The tool_use block id from the parent agent, used to distinguish multiple same-name SubAgent calls */
+  toolUseId: string
   /** Callback for progress events (so parent can yield them to UI) */
   onEvent?: (event: SubAgentEvent) => void
   /** Callback for tool approval (bubbled up from inner loop for write tools) */
@@ -66,11 +68,11 @@ export interface SubAgentResult {
 // --- SubAgent Events (yielded to parent/UI) ---
 
 export type SubAgentEvent =
-  | { type: 'sub_agent_start'; subAgentName: string; input: Record<string, unknown> }
-  | { type: 'sub_agent_tool_call'; subAgentName: string; toolCall: ToolCallState }
-  | { type: 'sub_agent_text_delta'; subAgentName: string; text: string }
-  | { type: 'sub_agent_iteration'; subAgentName: string; iteration: number }
-  | { type: 'sub_agent_end'; subAgentName: string; result: SubAgentResult }
+  | { type: 'sub_agent_start'; subAgentName: string; toolUseId: string; input: Record<string, unknown> }
+  | { type: 'sub_agent_tool_call'; subAgentName: string; toolUseId: string; toolCall: ToolCallState }
+  | { type: 'sub_agent_text_delta'; subAgentName: string; toolUseId: string; text: string }
+  | { type: 'sub_agent_iteration'; subAgentName: string; toolUseId: string; iteration: number }
+  | { type: 'sub_agent_end'; subAgentName: string; toolUseId: string; result: SubAgentResult }
 
 // --- Read-only tools that SubAgents can auto-approve ---
 

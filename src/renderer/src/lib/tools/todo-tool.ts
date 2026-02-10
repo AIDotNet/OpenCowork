@@ -17,7 +17,7 @@ const todoReadHandler: ToolHandler = {
 const todoWriteHandler: ToolHandler = {
   definition: {
     name: 'TodoWrite',
-    description: 'Create and manage a structured task list',
+    description: 'Create or update a structured task plan. MUST be called as the FIRST tool when a task involves multiple steps. Call again to update status as you progress. The task list is displayed in the Steps panel for the user to track progress.',
     inputSchema: {
       type: 'object',
       properties: {

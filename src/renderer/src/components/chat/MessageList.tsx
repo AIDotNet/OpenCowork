@@ -149,73 +149,75 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
   }
 
   return (
-    <div className="relative flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl space-y-6 p-4">
-        {messages.length > 1 && !streamingMessageId && (
-          <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 gap-1.5 text-[10px] text-muted-foreground"
-              onClick={handleCopyAll}
-            >
-              {copiedAll ? <Check className="size-3" /> : <ClipboardCopy className="size-3" />}
-              {copiedAll ? 'Copied!' : 'Copy All'}
-            </Button>
-          </div>
-        )}
-        {messages.map((msg, idx) => {
-          // Hide intermediate user messages that only contain tool_result blocks
-          // (they are API-level responses, not real user input — output already shown in ToolCallCard)
-          if (msg.role === 'user' && Array.isArray(msg.content)) {
-            const hasOnlyToolResults = msg.content.every((b) => b.type === 'tool_result')
-            if (hasOnlyToolResults) return null
-          }
-          // Check if this is the last *real* user message (exclude tool_result-only messages)
-          const isRealUserMsg = (m: typeof msg): boolean =>
-            m.role === 'user' && (typeof m.content === 'string' || m.content.some((b) => b.type === 'text'))
-          const isLastUser = !streamingMessageId && isRealUserMsg(msg) &&
-            !messages.slice(idx + 1).some((m) => isRealUserMsg(m))
-          // Build tool results map for assistant messages (from next user message)
-          let toolResults: Map<string, { content: string; isError?: boolean }> | undefined
-          if (msg.role === 'assistant' && Array.isArray(msg.content)) {
-            const nextMsg = messages[idx + 1]
-            if (nextMsg && nextMsg.role === 'user' && Array.isArray(nextMsg.content)) {
-              toolResults = new Map()
-              for (const block of nextMsg.content) {
-                if (block.type === 'tool_result') {
-                  toolResults.set(block.toolUseId, { content: block.content, isError: block.isError })
+    <div className="relative flex-1">
+      <div className="absolute inset-0 overflow-y-auto">
+        <div className="mx-auto max-w-3xl space-y-6 p-4">
+          {messages.length > 1 && !streamingMessageId && (
+            <div className="flex justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1.5 text-[10px] text-muted-foreground"
+                onClick={handleCopyAll}
+              >
+                {copiedAll ? <Check className="size-3" /> : <ClipboardCopy className="size-3" />}
+                {copiedAll ? 'Copied!' : 'Copy All'}
+              </Button>
+            </div>
+          )}
+          {messages.map((msg, idx) => {
+            // Hide intermediate user messages that only contain tool_result blocks
+            // (they are API-level responses, not real user input — output already shown in ToolCallCard)
+            if (msg.role === 'user' && Array.isArray(msg.content)) {
+              const hasOnlyToolResults = msg.content.every((b) => b.type === 'tool_result')
+              if (hasOnlyToolResults) return null
+            }
+            // Check if this is the last *real* user message (exclude tool_result-only messages)
+            const isRealUserMsg = (m: typeof msg): boolean =>
+              m.role === 'user' && (typeof m.content === 'string' || m.content.some((b) => b.type === 'text'))
+            const isLastUser = !streamingMessageId && isRealUserMsg(msg) &&
+              !messages.slice(idx + 1).some((m) => isRealUserMsg(m))
+            // Build tool results map for assistant messages (from next user message)
+            let toolResults: Map<string, { content: string; isError?: boolean }> | undefined
+            if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+              const nextMsg = messages[idx + 1]
+              if (nextMsg && nextMsg.role === 'user' && Array.isArray(nextMsg.content)) {
+                toolResults = new Map()
+                for (const block of nextMsg.content) {
+                  if (block.type === 'tool_result') {
+                    toolResults.set(block.toolUseId, { content: block.content, isError: block.isError })
+                  }
                 }
               }
             }
-          }
-          return (
-            <MessageItem
-              key={msg.id}
-              message={msg}
-              isStreaming={msg.id === streamingMessageId}
-              isLastUserMessage={isLastUser}
-              onEditUserMessage={onEditUserMessage}
-              toolResults={toolResults}
-            />
-          )
-        })}
-        {!streamingMessageId && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && onRetry && (
-          <div className="flex justify-center">
-            <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground" onClick={onRetry}>
-              <RefreshCw className="size-3" />
-              Retry
-            </Button>
-          </div>
-        )}
-        <div ref={bottomRef} />
+            return (
+              <MessageItem
+                key={msg.id}
+                message={msg}
+                isStreaming={msg.id === streamingMessageId}
+                isLastUserMessage={isLastUser}
+                onEditUserMessage={onEditUserMessage}
+                toolResults={toolResults}
+              />
+            )
+          })}
+          {!streamingMessageId && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && onRetry && (
+            <div className="flex justify-center">
+              <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground" onClick={onRetry}>
+                <RefreshCw className="size-3" />
+                Retry
+              </Button>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
       </div>
 
       {/* Scroll to bottom button */}
       {!isAtBottom && messages.length > 0 && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full border bg-background/90 backdrop-blur-sm px-3 py-1.5 text-xs text-muted-foreground shadow-lg hover:text-foreground hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5"
+          className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 flex items-center gap-1.5 rounded-full border bg-background/90 backdrop-blur-sm px-3 py-1.5 text-xs text-muted-foreground shadow-lg hover:text-foreground hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5"
         >
           <ArrowDown className="size-3" />
           Scroll to bottom

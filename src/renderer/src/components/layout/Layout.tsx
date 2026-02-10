@@ -35,7 +35,8 @@ export function Layout(): React.JSX.Element {
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const { sendMessage, stopStreaming, retryLastMessage, editAndResend } = useChatActions()
 
-  const activeSubAgent = useAgentStore((s) => s.activeSubAgent)
+  const activeSubAgents = useAgentStore((s) => s.activeSubAgents)
+  const runningSubAgents = Object.values(activeSubAgents).filter((sa) => sa.isRunning)
 
   // Update window title (show pending approvals + streaming state + SubAgent)
   useEffect(() => {
@@ -44,13 +45,13 @@ export function Layout(): React.JSX.Element {
       : 'OpenCowork'
     const prefix = pendingToolCalls.length > 0
       ? `(${pendingToolCalls.length} pending) `
-      : activeSubAgent?.isRunning
-        ? `🧠 ${activeSubAgent.name} | `
+      : runningSubAgents.length > 0
+        ? `🧠 ${runningSubAgents.map((sa) => sa.name).join(', ')} | `
         : streamingMessageId
           ? '⏳ '
           : ''
     document.title = `${prefix}${base}`
-  }, [activeSession?.title, pendingToolCalls.length, streamingMessageId, activeSubAgent?.isRunning, activeSubAgent?.name])
+  }, [activeSession?.title, pendingToolCalls.length, streamingMessageId, runningSubAgents])
 
   // Sync UI mode when switching to a session with a different mode
   useEffect(() => {
@@ -196,7 +197,7 @@ export function Layout(): React.JSX.Element {
         e.preventDefault()
         const ui = useUIStore.getState()
         if (!ui.rightPanelOpen) { ui.setRightPanelOpen(true); return }
-        const tabs: Array<'steps' | 'files' | 'artifacts' | 'context' | 'skills'> = ['steps', 'files', 'artifacts', 'context', 'skills']
+        const tabs: Array<'steps' | 'team' | 'files' | 'artifacts' | 'context' | 'skills'> = ['steps', 'team', 'files', 'artifacts', 'context', 'skills']
         const idx = tabs.indexOf(ui.rightPanelTab)
         ui.setRightPanelTab(tabs[(idx + 1) % tabs.length])
         return
@@ -297,11 +298,11 @@ export function Layout(): React.JSX.Element {
       <SidebarProvider open={leftSidebarOpen} onOpenChange={setLeftSidebarOpen}>
         <AppSidebar />
         <SidebarInset>
-          <div className="flex h-screen flex-col">
+          <div className="flex h-screen min-w-0 flex-col overflow-hidden">
             <TopBar />
             <div className="flex flex-1 overflow-hidden">
               {/* Center: Chat Area */}
-              <div className="flex flex-1 flex-col bg-gradient-to-b from-background to-muted/20">
+              <div className="flex min-w-0 flex-1 flex-col bg-gradient-to-b from-background to-muted/20">
                 <MessageList onRetry={retryLastMessage} onEditUserMessage={editAndResend} />
                 <InputArea
                   onSend={sendMessage}

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { MessageSquare, Briefcase, Code2, Settings, PanelRightOpen, PanelRightClose, Sun, Moon, Keyboard, Loader2, Brain, ChevronDown, Check } from 'lucide-react'
+import { MessageSquare, Briefcase, Code2, Settings, PanelRightOpen, PanelRightClose, Sun, Moon, Keyboard, Loader2, Brain, ChevronDown, Check, Users } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { SidebarTrigger } from '@renderer/components/ui/sidebar'
@@ -8,6 +8,7 @@ import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
+import { useTeamStore } from '@renderer/stores/team-store'
 import { cn } from '@renderer/lib/utils'
 import { useTheme } from 'next-themes'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
@@ -84,7 +85,9 @@ export function TopBar(): React.JSX.Element {
   const isAgentRunning = useAgentStore((s) => s.isRunning)
   const pendingApprovals = useAgentStore((s) => s.pendingToolCalls).length
   const errorCount = useAgentStore((s) => s.executedToolCalls.filter((t) => t.status === 'error').length)
-  const activeSubAgent = useAgentStore((s) => s.activeSubAgent)
+  const activeSubAgents = useAgentStore((s) => s.activeSubAgents)
+  const runningSubAgents = Object.values(activeSubAgents).filter((sa) => sa.isRunning)
+  const activeTeam = useTeamStore((s) => s.activeTeam)
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const isWorking = !!streamingMessageId || isAgentRunning
 
@@ -131,12 +134,12 @@ export function TopBar(): React.JSX.Element {
   }
 
   return (
-    <header className="titlebar-drag flex h-10 shrink-0 items-center gap-2 border-b bg-background/80 backdrop-blur-md pl-4">
-      <SidebarTrigger className="titlebar-no-drag -ml-1" />
-      <Separator orientation="vertical" className="mr-2 h-4" />
+    <header className="titlebar-drag relative flex h-10 w-full shrink-0 items-center gap-2 overflow-hidden border-b bg-background/80 backdrop-blur-md pl-4 pr-[132px]">
+      <SidebarTrigger className="titlebar-no-drag shrink-0 -ml-1" />
+      <Separator orientation="vertical" className="shrink-0 mr-2 h-4" />
 
       {/* Mode Selector */}
-      <div className="titlebar-no-drag flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
+      <div className="titlebar-no-drag flex shrink-0 items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
         {modes.map((m, i) => (
           <Tooltip key={m.value}>
             <TooltipTrigger asChild>
@@ -161,7 +164,7 @@ export function TopBar(): React.JSX.Element {
       </div>
 
       {/* Session Title */}
-      <div className="flex-1 flex items-center justify-center min-w-0 px-4">
+      <div className="flex-1 flex items-center justify-center min-w-0 overflow-hidden">
         {activeSession && (
           editing ? (
             <input
@@ -173,12 +176,12 @@ export function TopBar(): React.JSX.Element {
                 if (e.key === 'Enter') handleSaveTitle()
                 if (e.key === 'Escape') setEditing(false)
               }}
-              className="titlebar-no-drag h-6 max-w-[300px] w-full rounded-md border bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
+              className="titlebar-no-drag h-6 w-full max-w-full rounded-md border bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
             />
           ) : (
             <button
               onClick={handleStartRename}
-              className="titlebar-no-drag flex items-center gap-2 truncate rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200 max-w-[400px]"
+              className="titlebar-no-drag flex items-center gap-2 truncate rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200 max-w-full"
               title="Click to rename"
             >
               {isWorking && (
@@ -210,6 +213,8 @@ export function TopBar(): React.JSX.Element {
         )}
       </div>
 
+      {/* Right-side controls — must not shrink */}
+      <div className="flex shrink-0 items-center gap-1">
       {/* Right Panel Toggle (cowork & code modes) */}
       {mode !== 'chat' && (
         <Tooltip>
@@ -251,11 +256,26 @@ export function TopBar(): React.JSX.Element {
       )}
 
       {/* SubAgent indicator */}
-      {activeSubAgent?.isRunning && (
+      {runningSubAgents.length > 0 && (
         <span className="titlebar-no-drag flex items-center gap-1 rounded bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-medium text-violet-500">
           <Brain className="size-3 animate-pulse" />
-          {activeSubAgent.name}
+          {runningSubAgents.map((sa) => sa.name).join(', ')}
         </span>
+      )}
+
+      {/* Team indicator */}
+      {activeTeam && (
+        <button
+          onClick={() => {
+            const ui = useUIStore.getState()
+            ui.setRightPanelOpen(true)
+            ui.setRightPanelTab('team')
+          }}
+          className="titlebar-no-drag flex items-center gap-1 rounded bg-cyan-500/10 px-1.5 py-0.5 text-[9px] font-medium text-cyan-500 hover:bg-cyan-500/20 transition-colors"
+        >
+          <Users className="size-3" />
+          {activeTeam.name} · {activeTeam.members.length}
+        </button>
       )}
 
       {/* Error count indicator */}
@@ -312,8 +332,12 @@ export function TopBar(): React.JSX.Element {
         <TooltipContent>Settings (Ctrl+,)</TooltipContent>
       </Tooltip>
 
-      {/* Window Controls */}
-      <WindowControls />
+      </div>
+
+      {/* Window Controls — fixed to top-right so they are never clipped */}
+      <div className="absolute right-0 top-0 z-10">
+        <WindowControls />
+      </div>
     </header>
   )
 }

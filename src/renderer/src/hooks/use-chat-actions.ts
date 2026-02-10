@@ -9,6 +9,7 @@ import { runAgentLoop } from '@renderer/lib/agent/agent-loop'
 import { toolRegistry } from '@renderer/lib/agent/tool-registry'
 import { buildSystemPrompt } from '@renderer/lib/agent/system-prompt'
 import { subAgentEvents } from '@renderer/lib/agent/sub-agents/events'
+import { abortAllTeammates } from '@renderer/lib/agent/teams/teammate-runner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { createProvider } from '@renderer/lib/api/provider'
 import type { UnifiedMessage, ProviderConfig } from '@renderer/lib/api/types'
@@ -119,6 +120,9 @@ export function useChatActions() {
         useAgentStore.getState().handleSubAgentEvent(event)
       })
 
+      // NOTE: Team events are handled by a persistent global subscription
+      // in register.ts — not scoped here, because teammate loops outlive the lead's loop.
+
       // Request notification permission on first agent run
       if (Notification.permission === 'default') {
         Notification.requestPermission().catch(() => {})
@@ -150,6 +154,16 @@ export function useChatActions() {
               useChatStore.getState().appendTextDelta(sessionId!, assistantMsgId, event.text)
               break
 
+            case 'tool_use_generated':
+              // Append tool_use block to the current assistant message so UI can render ToolCallCard/SubAgentCard
+              useChatStore.getState().appendToolUse(sessionId!, assistantMsgId, {
+                type: 'tool_use',
+                id: event.toolUseBlock.id,
+                name: event.toolUseBlock.name,
+                input: event.toolUseBlock.input,
+              })
+              break
+
             case 'tool_call_start':
               useAgentStore.getState().addToolCall(event.toolCall)
               break
@@ -165,6 +179,25 @@ export function useChatActions() {
                 error: event.toolCall.error,
                 completedAt: event.toolCall.completedAt,
               })
+              break
+
+            case 'iteration_end':
+              // When an iteration ends with tool results, append tool_result user message.
+              // The next iteration's text/tool_use will continue appending to the same assistant message.
+              if (event.toolResults && event.toolResults.length > 0) {
+                const toolResultMsg: UnifiedMessage = {
+                  id: nanoid(),
+                  role: 'user',
+                  content: event.toolResults.map((tr) => ({
+                    type: 'tool_result' as const,
+                    toolUseId: tr.toolUseId,
+                    content: tr.content,
+                    isError: tr.isError,
+                  })),
+                  createdAt: Date.now(),
+                }
+                useChatStore.getState().addMessage(sessionId!, toolResultMsg)
+              }
               break
 
             case 'message_end':
@@ -204,6 +237,8 @@ export function useChatActions() {
     abortRef.current = null
     useChatStore.getState().setStreamingMessageId(null)
     useAgentStore.getState().abort()
+    // Also stop all running teammate agent loops
+    abortAllTeammates()
   }, [])
 
   const retryLastMessage = useCallback(async () => {

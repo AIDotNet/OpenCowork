@@ -20,8 +20,12 @@ import { Bot, Copy, Check, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import type { ContentBlock } from '@renderer/lib/api/types'
 import { ToolCallCard } from './ToolCallCard'
 import { SubAgentCard } from './SubAgentCard'
+import { TodoCard } from './TodoCard'
+import { TeamEventCard } from './TeamEventCard'
 import { subAgentRegistry } from '@renderer/lib/agent/sub-agents/registry'
+import { TEAM_TOOL_NAMES } from '@renderer/lib/agent/teams/register'
 import { useAgentStore } from '@renderer/stores/agent-store'
+import { MONO_FONT } from '@renderer/lib/constants'
 
 SyntaxHighlighter.registerLanguage('typescript', typescript)
 SyntaxHighlighter.registerLanguage('ts', typescript)
@@ -80,7 +84,20 @@ function CodeBlock({ language, children }: { language?: string; children: string
       <SyntaxHighlighter
         language={language || 'text'}
         style={oneDark}
-        customStyle={{ margin: 0, padding: '14px', fontSize: '12px', background: 'transparent' }}
+        customStyle={{
+          margin: 0,
+          padding: '14px',
+          fontSize: '12px',
+          lineHeight: '1.5',
+          background: 'transparent',
+          fontFamily: MONO_FONT
+        }}
+        codeTagProps={{
+          style: {
+            fontFamily: 'inherit',
+            fontSize: 'inherit'
+          }
+        }}
         className="!bg-[hsl(var(--muted))] text-xs"
       >
         {code}
@@ -110,7 +127,11 @@ function MarkdownContent({ text }: { text: string }): React.JSX.Element {
           const isInline = !match && !className
           if (isInline) {
             return (
-              <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono" {...props}>
+              <code
+                className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono"
+                style={{ fontFamily: MONO_FONT }}
+                {...props}
+              >
                 {children}
               </code>
             )
@@ -185,6 +206,28 @@ export function AssistantMessage({ content, isStreaming, usage, toolResults }: A
               )
             case 'tool_use':
               if (toolsCollapsed) return null
+              // Render TodoWrite as inline task card
+              if (block.name === 'TodoWrite') {
+                return (
+                  <TodoCard
+                    key={block.id}
+                    input={block.input}
+                    isLive={!!isStreaming}
+                  />
+                )
+              }
+              // Render Team tools as event cards
+              if (TEAM_TOOL_NAMES.has(block.name)) {
+                const result = toolResults?.get(block.id)
+                return (
+                  <TeamEventCard
+                    key={block.id}
+                    name={block.name}
+                    input={block.input}
+                    output={result?.content}
+                  />
+                )
+              }
               // Render SubAgent tools as workspace cards
               if (subAgentRegistry.has(block.name)) {
                 const result = toolResults?.get(block.id)
@@ -192,6 +235,7 @@ export function AssistantMessage({ content, isStreaming, usage, toolResults }: A
                   <SubAgentCard
                     key={block.id}
                     name={block.name}
+                    toolUseId={block.id}
                     input={block.input}
                     output={result?.content}
                     isLive={!!isStreaming}

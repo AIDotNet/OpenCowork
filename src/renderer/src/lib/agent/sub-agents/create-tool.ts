@@ -80,6 +80,7 @@ export function createSubAgentTool(
         parentProvider: providerGetter(),
         toolContext: ctx,
         input,
+        toolUseId: ctx.currentToolUseId ?? '',
         onEvent,
       })
 

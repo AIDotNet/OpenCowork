@@ -1,8 +1,9 @@
-import { Sparkles, FolderOpen, Search, Terminal, ListChecks, Brain } from 'lucide-react'
+import { Sparkles, FolderOpen, Search, Terminal, ListChecks, Brain, Users } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Separator } from '@renderer/components/ui/separator'
 import { toolRegistry } from '@renderer/lib/agent/tool-registry'
 import { subAgentRegistry } from '@renderer/lib/agent/sub-agents/registry'
+import { TEAM_TOOL_NAMES } from '@renderer/lib/agent/teams/register'
 import type { ToolDefinition } from '@renderer/lib/api/types'
 
 const categoryMap: Record<string, { label: string; icon: React.ReactNode }> = {
@@ -46,8 +47,9 @@ export function SkillsPanel(): React.JSX.Element {
   SUB_AGENT_NAMES.clear()
   for (const sa of subAgents) SUB_AGENT_NAMES.add(sa.name)
 
-  // Regular tools only (exclude SubAgent tools from the main list)
-  const tools = allTools.filter((t) => !SUB_AGENT_NAMES.has(t.name))
+  // Regular tools only (exclude SubAgent and Team tools from the main list)
+  const tools = allTools.filter((t) => !SUB_AGENT_NAMES.has(t.name) && !TEAM_TOOL_NAMES.has(t.name))
+  const teamTools = allTools.filter((t) => TEAM_TOOL_NAMES.has(t.name))
 
   if (tools.length === 0 && subAgents.length === 0) {
     return (
@@ -134,6 +136,34 @@ export function SkillsPanel(): React.JSX.Element {
                     <span key={t} className="rounded bg-violet-500/5 px-1 py-px text-[9px] font-mono text-violet-400/60">{t}</span>
                   ))}
                 </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {teamTools.length > 0 && (
+        <>
+          <Separator />
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-medium text-cyan-500 uppercase tracking-wider flex items-center gap-1.5">
+              <Users className="size-3.5" />
+              Team Tools
+            </h4>
+            <Badge variant="secondary" className="text-[10px]">
+              {teamTools.length}
+            </Badge>
+          </div>
+          <ul className="space-y-0.5">
+            {teamTools.map((tool) => (
+              <li key={tool.name} className="rounded-md px-2 py-1.5 hover:bg-muted/50">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs font-medium text-cyan-500">{tool.name}</p>
+                  <span className="rounded bg-cyan-500/10 px-1 py-px text-[8px] text-cyan-500">team</span>
+                  {['SpawnTeammate', 'TeamDelete'].includes(tool.name) && <span className="rounded bg-amber-500/10 px-1 py-px text-[8px] text-amber-500">approval</span>}
+                </div>
+                <p className="text-[10px] text-muted-foreground line-clamp-2">
+                  {tool.description}
+                </p>
               </li>
             ))}
           </ul>

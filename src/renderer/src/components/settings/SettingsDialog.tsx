@@ -37,6 +37,18 @@ const defaultModels: Record<ProviderType, string> = {
   'openai-responses': 'gpt-4o',
 }
 
+const fastModelPresets: Record<ProviderType, string[]> = {
+  anthropic: ['claude-3-5-haiku-20241022', 'claude-sonnet-4-20250514'],
+  'openai-chat': ['gpt-4o-mini', 'gpt-4o', 'o3-mini'],
+  'openai-responses': ['gpt-4o-mini', 'gpt-4o', 'o3-mini'],
+}
+
+const defaultFastModels: Record<ProviderType, string> = {
+  anthropic: 'claude-3-5-haiku-20241022',
+  'openai-chat': 'gpt-4o-mini',
+  'openai-responses': 'gpt-4o-mini',
+}
+
 export function SettingsDialog(): React.JSX.Element {
   const open = useUIStore((s) => s.settingsOpen)
   const setOpen = useUIStore((s) => s.setSettingsOpen)
@@ -97,7 +109,7 @@ export function SettingsDialog(): React.JSX.Element {
             <label className="text-sm font-medium">API Provider</label>
             <Select
               value={settings.provider}
-              onValueChange={(v: ProviderType) => settings.updateSettings({ provider: v, model: defaultModels[v] })}
+              onValueChange={(v: ProviderType) => settings.updateSettings({ provider: v, model: defaultModels[v], fastModel: defaultFastModels[v] })}
             >
               <SelectTrigger className="w-full text-xs">
                 <SelectValue />
@@ -196,6 +208,42 @@ export function SettingsDialog(): React.JSX.Element {
                 placeholder="Enter custom model name"
                 value={settings.model}
                 onChange={(e) => settings.updateSettings({ model: e.target.value })}
+                className="text-xs"
+              />
+            )}
+          </section>
+
+          {/* Fast Model */}
+          <section className="space-y-2">
+            <label className="text-sm font-medium">Fast Model</label>
+            <p className="text-[10px] text-muted-foreground/60">
+              Used for session title generation and SubAgent tasks (cheaper & faster)
+            </p>
+            <Select
+              value={fastModelPresets[settings.provider]?.includes(settings.fastModel) ? settings.fastModel : '__custom__'}
+              onValueChange={(v) => {
+                if (v === '__custom__') {
+                  settings.updateSettings({ fastModel: '' })
+                } else {
+                  settings.updateSettings({ fastModel: v })
+                }
+              }}
+            >
+              <SelectTrigger className="w-full text-xs">
+                <SelectValue placeholder="Select a fast model" />
+              </SelectTrigger>
+              <SelectContent>
+                {fastModelPresets[settings.provider]?.map((m) => (
+                  <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>
+                ))}
+                <SelectItem value="__custom__" className="text-xs">Custom...</SelectItem>
+              </SelectContent>
+            </Select>
+            {!fastModelPresets[settings.provider]?.includes(settings.fastModel) && (
+              <Input
+                placeholder="Enter custom fast model name"
+                value={settings.fastModel}
+                onChange={(e) => settings.updateSettings({ fastModel: e.target.value })}
                 className="text-xs"
               />
             )}
@@ -334,6 +382,7 @@ export function SettingsDialog(): React.JSX.Element {
                   provider: 'anthropic',
                   baseUrl: '',
                   model: 'claude-sonnet-4-20250514',
+                  fastModel: 'claude-3-5-haiku-20241022',
                   maxTokens: 32000,
                   temperature: 0.7,
                   systemPrompt: '',

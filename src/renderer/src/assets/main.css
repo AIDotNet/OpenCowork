@@ -125,23 +125,34 @@
   }
 }
 
-/* Custom scrollbars */
+/* Custom scrollbars — thin, auto-hide style */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.7 0 0 / 0.2) transparent;
+}
+.dark * {
+  scrollbar-color: oklch(0.5 0 0 / 0.25) transparent;
+}
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: oklch(0.7 0 0 / 0.25);
+  background: oklch(0.7 0 0 / 0.15);
   border-radius: 999px;
+  transition: background 0.2s;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: oklch(0.6 0 0 / 0.4);
 }
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 .dark ::-webkit-scrollbar-thumb {
-  background: oklch(0.5 0 0 / 0.3);
+  background: oklch(0.5 0 0 / 0.2);
 }
 .dark ::-webkit-scrollbar-thumb:hover {
   background: oklch(0.6 0 0 / 0.45);

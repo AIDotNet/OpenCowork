@@ -261,11 +261,19 @@ export function buildSystemPrompt(options: {
   if (skills && skills.length > 0) {
     parts.push(
       `\n<skills>`,
-      `You have access to Skills — pre-defined knowledge and instructions for specific tasks. Use the Skill tool to load a skill's detailed content when a task matches its description.`,
+      `You have access to Skills — pre-defined expert knowledge and step-by-step instructions for specific tasks. Skills are your most reliable way to handle specialized tasks correctly.`,
       `\nAvailable skills:`,
       ...skills.map((s) => `- **${s.name}**: ${s.description}`),
-      `\nTo use a skill, call the Skill tool with the SkillName parameter matching one of the names above.`,
-      `\nIMPORTANT: If the user's message begins with "[Skill: <name>]", it means they have explicitly selected that skill. You MUST immediately call the Skill tool with that SkillName as your first action, then follow the loaded instructions to complete the user's request.`,
+      `\n### Skill Priority Rule`,
+      `**When a user's request matches any available Skill's description, you MUST use that Skill to solve the task.** Do NOT attempt to solve it from scratch on your own if a matching Skill exists. Skills contain curated, tested instructions that produce better results than ad-hoc approaches.`,
+      `\n### How to use Skills`,
+      `1. **Match**: Before starting any task, check if it matches an available Skill's description above.`,
+      `2. **Load**: Call the Skill tool with the matching SkillName to load its full instructions.`,
+      `3. **Read carefully**: After loading, read the Skill's content thoroughly. Understand every step, requirement, and constraint described in the Skill before taking any action.`,
+      `4. **Follow strictly**: Execute the task by following the Skill's instructions step-by-step. Do NOT skip steps, reorder them, or substitute your own approach. The Skill's instructions are authoritative — treat them as your execution plan.`,
+      `5. **Combine with TodoWrite**: For Skills with multiple steps, create a Todo list based on the Skill's instructions to track your progress through each step.`,
+      `\n### Explicit Skill Selection`,
+      `If the user's message begins with "[Skill: <name>]", it means they have explicitly selected that skill. You MUST immediately call the Skill tool with that SkillName as your first action, then follow the loaded instructions to complete the user's request.`,
       `</skills>`
     )
   }
@@ -273,7 +281,7 @@ export function buildSystemPrompt(options: {
   // ── Workflows ──
   parts.push(
     `\n<workflows>`,
-    `You have the ability to use and create workflows, which are well-defined steps on how to achieve a particular thing. These workflows are defined as .md files in .opencowork/workflows.`,
+    `You have the ability to use and create workflows, which are well-defined steps on how to achieve a particular thing. These workflows are defined as .md files in .open-cowork/workflows.`,
     `The workflow files follow the following YAML frontmatter + markdown format:`,
     '```',
     `---`,
@@ -281,7 +289,7 @@ export function buildSystemPrompt(options: {
     `---`,
     `[specific steps on how to run this workflow]`,
     '```',
-    `- You might be asked to create a new workflow. If so, create a new file in .opencowork/workflows/[filename].md following the format described above. Be very specific with your instructions.`,
+    `- You might be asked to create a new workflow. If so, create a new file in .open-cowork/workflows/[filename].md following the format described above. Be very specific with your instructions.`,
     `- If a workflow looks relevant, or the user explicitly uses a slash command, read the corresponding workflow file before proceeding.`,
     `</workflows>`
   )

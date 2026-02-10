@@ -24,12 +24,20 @@ Extract and analyze legal documents, contracts, and agreements.
    pip install pymupdf
    ```
 
-2. Extract text from the legal document:
+2. Extract text from the legal document.
+
+   **On Linux/macOS (bash):**
    ```bash
-   python ~/open-cowork/skills/pdf-legal/scripts/extract_text.py "INPUT_FILE_PATH"
+   python ~/.open-cowork/skills/pdf-legal/scripts/extract_text.py "INPUT_FILE_PATH"
+   ```
+   **On Windows (PowerShell) — use the expanded absolute path:**
+   ```powershell
+   python "$HOME\.open-cowork\skills\pdf-legal\scripts\extract_text.py" "INPUT_FILE_PATH"
    ```
 
-3. Read the extracted `.txt` file using the Read tool.
+   The script prints extracted text directly to stdout.
+
+3. Read the shell output (or use the Read tool if saved to file).
 
 4. Produce a structured legal review:
 
@@ -69,8 +77,14 @@ Extract and analyze legal documents, contracts, and agreements.
    ```
 
 5. (Optional) Search for specific clauses by keyword:
+
+   **On Linux/macOS:**
    ```bash
-   python ~/open-cowork/skills/pdf-legal/scripts/search_clauses.py "INPUT_FILE_PATH" termination confidential indemnif
+   python ~/.open-cowork/skills/pdf-legal/scripts/search_clauses.py "INPUT_FILE_PATH" termination confidential indemnif
+   ```
+   **On Windows (PowerShell):**
+   ```powershell
+   python "$HOME\.open-cowork\skills\pdf-legal\scripts\search_clauses.py" "INPUT_FILE_PATH" termination confidential indemnif
    ```
    Multiple keywords can be passed as separate arguments.
 

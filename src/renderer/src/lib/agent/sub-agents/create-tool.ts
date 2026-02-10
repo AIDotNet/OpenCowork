@@ -3,13 +3,13 @@ import type { SubAgentDefinition, SubAgentEvent } from './types'
 import type { ToolCallState } from '../types'
 import { runSubAgent } from './runner'
 import { subAgentEvents } from './events'
-import type { ProviderConfig } from '../../api/types'
+import type { ProviderConfig, TokenUsage } from '../../api/types'
 
 /** Metadata embedded in SubAgent output for historical rendering */
 export interface SubAgentMeta {
   iterations: number
   elapsed: number
-  usage: { inputTokens: number; outputTokens: number }
+  usage: TokenUsage
   toolCalls: Array<{
     id: string
     name: string

@@ -1,4 +1,4 @@
-import type { ProviderConfig } from '../../api/types'
+import type { ProviderConfig, TokenUsage } from '../../api/types'
 import type { ToolCallState } from '../types'
 import type { ToolContext } from '../../tools/tool-types'
 
@@ -60,7 +60,7 @@ export interface SubAgentResult {
   /** Number of LLM iterations */
   iterations: number
   /** Aggregated token usage */
-  usage: { inputTokens: number; outputTokens: number }
+  usage: TokenUsage
   /** Error message if failed */
   error?: string
 }

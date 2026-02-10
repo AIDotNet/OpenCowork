@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as os from 'os'
 import { is } from '@electron-toolkit/utils'
 
-const SKILLS_DIR = path.join(os.homedir(), 'open-cowork', 'skills')
+const SKILLS_DIR = path.join(os.homedir(), '.open-cowork', 'skills')
 const SKILLS_FILENAME = 'SKILL.md'
 
 /**
@@ -20,7 +20,7 @@ function getBundledSkillsDir(): string {
 }
 
 /**
- * Copy built-in skills from resources/skills/ to ~/open-cowork/skills/.
+ * Copy built-in skills from resources/skills/ to ~/.open-cowork/skills/.
  * Only copies a skill if its directory does not already exist in the target,
  * so user modifications are preserved.
  */
@@ -78,7 +78,7 @@ export interface SkillInfo {
  */
 function extractDescription(content: string, fallback: string): string {
   // Try to parse YAML frontmatter first
-  const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/)
+  const fmMatch = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/)
   if (fmMatch) {
     const fmBlock = fmMatch[1]
     const descMatch = fmBlock.match(/^description:\s*(.+)$/m)
@@ -110,7 +110,7 @@ export function registerSkillsHandlers(): void {
   ensureBuiltinSkills()
 
   /**
-   * skills:list — scan ~/open-cowork/skills/ and return all available skills.
+   * skills:list — scan ~/.open-cowork/skills/ and return all available skills.
    * Each subdirectory containing a SKILL.md is treated as a skill.
    */
   ipcMain.handle('skills:list', async (): Promise<SkillInfo[]> => {
@@ -147,8 +147,14 @@ export function registerSkillsHandlers(): void {
       if (!fs.existsSync(mdPath)) {
         return { error: `Skill "${args.name}" not found at ${mdPath}` }
       }
-      const content = fs.readFileSync(mdPath, 'utf-8')
-      return { content }
+      const raw = fs.readFileSync(mdPath, 'utf-8')
+      console.log('[Skills:load] raw length:', raw.length, 'first 80 chars:', JSON.stringify(raw.slice(0, 80)))
+      console.log('[Skills:load] has frontmatter:', /^---/.test(raw), 'line ending hex:', Buffer.from(raw.slice(0, 10)).toString('hex'))
+      // Strip YAML frontmatter so AI only sees actionable instructions
+      // Use \r?\n to handle both LF and CRLF line endings
+      const content = raw.replace(/^---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n)?/, '')
+      console.log('[Skills:load] stripped length:', content.trimStart().length, 'first 80 chars:', JSON.stringify(content.trimStart().slice(0, 80)))
+      return { content: content.trimStart() }
     } catch (err) {
       return { error: String(err) }
     }

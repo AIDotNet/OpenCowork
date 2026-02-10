@@ -19,8 +19,20 @@ export const IPC = {
   FS_GLOB: 'fs:glob',
   FS_GREP: 'fs:grep',
 
+  // File Watching
+  FS_WATCH_FILE: 'fs:watch-file',
+  FS_UNWATCH_FILE: 'fs:unwatch-file',
+  FS_FILE_CHANGED: 'fs:file-changed',
+
   // Shell
   SHELL_EXEC: 'shell:exec',
+
+  // Process Management
+  PROCESS_SPAWN: 'process:spawn',
+  PROCESS_KILL: 'process:kill',
+  PROCESS_STATUS: 'process:status',
+  PROCESS_LIST: 'process:list',
+  PROCESS_OUTPUT: 'process:output',
 
   // Settings
   SETTINGS_GET: 'settings:get',

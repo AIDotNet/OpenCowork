@@ -169,10 +169,13 @@ export function ContextPanel(): React.JSX.Element {
                     if (m.usage) {
                       acc.input += m.usage.inputTokens
                       acc.output += m.usage.outputTokens
+                      if (m.usage.cacheCreationTokens) acc.cacheCreation += m.usage.cacheCreationTokens
+                      if (m.usage.cacheReadTokens) acc.cacheRead += m.usage.cacheReadTokens
+                      if (m.usage.reasoningTokens) acc.reasoning += m.usage.reasoningTokens
                     }
                     return acc
                   },
-                  { input: 0, output: 0 }
+                  { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, reasoning: 0 }
                 )
                 if (totals.input + totals.output === 0) return null
                 // Pricing per million tokens (USD)
@@ -200,7 +203,13 @@ export function ContextPanel(): React.JSX.Element {
                 }
                 const priceKey = Object.keys(pricing).find((k) => model.includes(k))
                 const price = priceKey ? pricing[priceKey] : null
-                const cost = price ? (totals.input * price.input + totals.output * price.output) / 1_000_000 : null
+                // Anthropic cache pricing: cache_read = 10% of input price, cache_creation = 25% extra
+                const hasCache = totals.cacheCreation > 0 || totals.cacheRead > 0
+                const cost = price
+                  ? hasCache
+                    ? ((totals.input - totals.cacheRead) * price.input + totals.cacheRead * price.input * 0.1 + totals.cacheCreation * price.input * 1.25 + totals.output * price.output) / 1_000_000
+                    : (totals.input * price.input + totals.output * price.output) / 1_000_000
+                  : null
                 const ctxKey = Object.keys(contextLimits).find((k) => model.includes(k))
                 const ctxLimit = ctxKey ? contextLimits[ctxKey] : null
                 const totalTokens = totals.input + totals.output
@@ -214,6 +223,8 @@ export function ContextPanel(): React.JSX.Element {
                         {totalTokens.toLocaleString()} tokens
                         <span className="text-muted-foreground/50"> ({totals.input.toLocaleString()}↓ {totals.output.toLocaleString()}↑)</span>
                         {cost !== null && <span className="text-muted-foreground/50"> · ~${cost < 0.01 ? '<0.01' : cost.toFixed(2)}</span>}
+                        {totals.cacheRead > 0 && <span className="text-green-500/60"> · {totals.cacheRead.toLocaleString()} cached</span>}
+                        {totals.reasoning > 0 && <span className="text-blue-500/60"> · {totals.reasoning.toLocaleString()} reasoning</span>}
                       </span>
                     </div>
                     {pct !== null && (

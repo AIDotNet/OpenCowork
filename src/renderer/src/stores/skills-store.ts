@@ -9,7 +9,7 @@ export interface SkillInfo {
 interface SkillsStore {
   skills: SkillInfo[]
   loading: boolean
-  /** Fetch available skills from ~/open-cowork/skills/ via IPC */
+  /** Fetch available skills from ~/.open-cowork/skills/ via IPC */
   loadSkills: () => Promise<void>
 }
 

@@ -21,15 +21,27 @@ Extract text from PDF files and produce structured summaries.
    pip install pymupdf
    ```
 
-2. Extract text from the PDF using the bundled script:
+2. Extract text from the PDF using the bundled script (installed at `~/.open-cowork/skills/`).
+
+   **On Linux/macOS (bash):**
    ```bash
-   python ~/open-cowork/skills/pdf-summary/scripts/extract_text.py "INPUT_FILE_PATH"
+   python ~/.open-cowork/skills/pdf-summary/scripts/extract_text.py "INPUT_FILE_PATH"
    ```
-   This outputs `INPUT_FILE_PATH.txt` with page-separated text. Optionally specify a custom output path as a second argument.
 
-3. Read the extracted `.txt` file using the Read tool.
+   **On Windows (PowerShell) — you MUST use the expanded absolute path, NOT `$Env:USERPROFILE` inside quotes:**
+   ```powershell
+   python "$HOME\.open-cowork\skills\pdf-summary\scripts\extract_text.py" "INPUT_FILE_PATH"
+   ```
+   Or use the fully resolved path directly, e.g.:
+   ```powershell
+   python "C:\Users\USERNAME\.open-cowork\skills\pdf-summary\scripts\extract_text.py" "INPUT_FILE_PATH"
+   ```
+   **IMPORTANT:** Replace `USERNAME` with the actual Windows username. You can discover it via `$Env:USERPROFILE` or `whoami` first, then construct the full path as a plain string.
 
-4. Produce a summary in this structure:
+   The script prints extracted text directly to stdout (page-separated). You do NOT need to read a separate file — just use the shell output.
+   Options: `--quiet` (no page markers), `--save` (also write a .txt file), `--password <pwd>` (encrypted PDF).
+
+3. Produce a summary based on the extracted text in this structure:
    - **Document**: title or filename
    - **Pages**: total count
    - **Executive Summary**: 2–3 sentence overview

@@ -5,6 +5,7 @@ import type {
   ToolDefinition,
   UnifiedMessage,
   ContentBlock,
+  TokenUsage,
 } from './types'
 import { ipcStreamRequest } from '../ipc/api-stream'
 import { registerProvider } from './provider'
@@ -32,6 +33,11 @@ class AnthropicProvider implements APIProvider {
     const url = `${baseUrl}/v1/messages`
 
     let toolInputBuffer = ''
+    // Anthropic splits usage across two events:
+    // - message_start → input_tokens, cache_creation_input_tokens, cache_read_input_tokens
+    // - message_delta → output_tokens
+    // We accumulate the message_start usage and merge it into message_end.
+    const pendingUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
 
     for await (const sse of ipcStreamRequest({
       url,
@@ -54,9 +60,20 @@ class AnthropicProvider implements APIProvider {
       }
 
       switch (data.type) {
-        case 'message_start':
+        case 'message_start': {
+          const msgUsage = data.message?.usage
+          if (msgUsage) {
+            pendingUsage.inputTokens = msgUsage.input_tokens ?? 0
+            if (msgUsage.cache_creation_input_tokens) {
+              pendingUsage.cacheCreationTokens = msgUsage.cache_creation_input_tokens
+            }
+            if (msgUsage.cache_read_input_tokens) {
+              pendingUsage.cacheReadTokens = msgUsage.cache_read_input_tokens
+            }
+          }
           yield { type: 'message_start' }
           break
+        }
 
         case 'content_block_start':
           if (data.content_block.type === 'tool_use') {
@@ -93,13 +110,11 @@ class AnthropicProvider implements APIProvider {
           break
 
         case 'message_delta':
+          pendingUsage.outputTokens = data.usage?.output_tokens ?? 0
           yield {
             type: 'message_end',
             stopReason: data.delta.stop_reason,
-            usage: {
-              inputTokens: 0,
-              outputTokens: data.usage?.output_tokens ?? 0,
-            },
+            usage: { ...pendingUsage },
           }
           break
 

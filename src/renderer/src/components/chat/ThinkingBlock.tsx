@@ -17,6 +17,7 @@ export function ThinkingBlock({ thinking, isStreaming = false, startedAt, comple
 
   const [expanded, setExpanded] = useState(false)
   const wasThinkingRef = useRef(isThinking)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const [liveElapsed, setLiveElapsed] = useState(0)
 
   // Live timer while thinking
@@ -38,6 +39,13 @@ export function ThinkingBlock({ thinking, isStreaming = false, startedAt, comple
     }
     wasThinkingRef.current = isThinking
   }, [isThinking])
+
+  // Auto-scroll to bottom while thinking is streaming
+  useEffect(() => {
+    if (isThinking && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [isThinking, thinking])
 
   // Compute duration label from persisted timestamps
   const persistedDuration = startedAt && completedAt
@@ -66,7 +74,10 @@ export function ThinkingBlock({ thinking, isStreaming = false, startedAt, comple
       </button>
 
       {expanded && (
-        <div className="mt-1.5 pl-0.5 text-sm text-muted-foreground/80 leading-relaxed">
+        <div
+          ref={scrollRef}
+          className="mt-1.5 pl-0.5 text-sm text-muted-foreground/80 leading-relaxed max-h-80 overflow-y-auto"
+        >
           <Markdown
             remarkPlugins={[remarkGfm]}
             components={{

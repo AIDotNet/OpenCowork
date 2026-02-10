@@ -32,8 +32,10 @@ interface ChatStore {
   duplicateSession: (sessionId: string) => string | null
   togglePinSession: (sessionId: string) => void
   restoreSession: (session: Session) => void
+  clearAllSessions: () => void
   removeLastAssistantMessage: (sessionId: string) => string | null
   removeLastUserMessage: (sessionId: string) => void
+  truncateMessagesFrom: (sessionId: string, fromIndex: number) => void
 
   // Message operations
   addMessage: (sessionId: string, msg: UnifiedMessage) => void
@@ -42,6 +44,7 @@ interface ChatStore {
   appendThinkingDelta: (sessionId: string, msgId: string, thinking: string) => void
   completeThinking: (sessionId: string, msgId: string) => void
   appendToolUse: (sessionId: string, msgId: string, toolUse: ToolUseBlock) => void
+  updateToolUseInput: (sessionId: string, msgId: string, toolUseId: string, input: Record<string, unknown>) => void
 
   // Streaming state
   streamingMessageId: string | null
@@ -131,6 +134,13 @@ export const useChatStore = create<ChatStore>()(
       })
     },
 
+    clearAllSessions: () => {
+      set((state) => {
+        state.sessions = []
+        state.activeSessionId = null
+      })
+    },
+
     clearSessionMessages: (sessionId) => {
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
@@ -183,6 +193,16 @@ export const useChatStore = create<ChatStore>()(
         if (!session || session.messages.length === 0) return
         const lastMsg = session.messages[session.messages.length - 1]
         if (lastMsg.role === 'user') session.messages.pop()
+      })
+    },
+
+    truncateMessagesFrom: (sessionId, fromIndex) => {
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (session && fromIndex >= 0 && fromIndex < session.messages.length) {
+          session.messages.splice(fromIndex)
+          session.updatedAt = Date.now()
+        }
       })
     },
 
@@ -278,6 +298,20 @@ export const useChatStore = create<ChatStore>()(
         } else {
           ;(msg.content as ContentBlock[]).push(toolUse)
         }
+      })
+    },
+
+    updateToolUseInput: (sessionId, msgId, toolUseId, input) => {
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (!session) return
+        const msg = session.messages.find((m) => m.id === msgId)
+        if (!msg || typeof msg.content === 'string') return
+
+        const block = (msg.content as ContentBlock[]).find(
+          (b) => b.type === 'tool_use' && (b as ToolUseBlock).id === toolUseId
+        ) as ToolUseBlock | undefined
+        if (block) block.input = input
       })
     },
 

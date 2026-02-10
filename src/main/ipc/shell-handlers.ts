@@ -14,6 +14,13 @@ export function registerShellHandlers(): void {
             cwd: args.cwd || process.cwd(),
             timeout,
             maxBuffer: 1024 * 1024 * 10, // 10MB
+            encoding: 'utf8',
+            env: {
+              ...process.env,
+              // Force Python to use UTF-8 for stdin/stdout/stderr
+              PYTHONIOENCODING: 'utf-8',
+              PYTHONUTF8: '1',
+            },
           },
           (error, stdout, stderr) => {
             resolve({

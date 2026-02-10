@@ -63,8 +63,11 @@ class OpenAIChatProvider implements APIProvider {
           yield {
             type: 'message_end',
             usage: {
-              inputTokens: data.usage.prompt_tokens,
-              outputTokens: data.usage.completion_tokens,
+              inputTokens: data.usage.prompt_tokens ?? 0,
+              outputTokens: data.usage.completion_tokens ?? 0,
+              ...(data.usage.completion_tokens_details?.reasoning_tokens
+                ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
+                : {}),
             },
           }
         }

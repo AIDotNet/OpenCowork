@@ -6,11 +6,13 @@ import { ErrorBoundary } from './components/error-boundary'
 import { useSettingsStore } from './stores/settings-store'
 import { registerAllTools } from './lib/tools'
 import { registerAllProviders } from './lib/api'
+import { registerAllViewers } from './lib/preview/register-viewers'
 import { toast } from 'sonner'
 
-// Register all built-in tools and API providers at startup
+// Register all built-in tools, API providers, and viewers at startup
 registerAllTools()
 registerAllProviders()
+registerAllViewers()
 
 function App(): React.JSX.Element {
   const theme = useSettingsStore((s) => s.theme)

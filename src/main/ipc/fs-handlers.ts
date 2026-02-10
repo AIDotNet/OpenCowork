@@ -139,4 +139,48 @@ export function registerFsHandlers(): void {
       return { error: String(err) }
     }
   })
+
+  // File watching
+  const watchers = new Map<string, fs.FSWatcher>()
+  const debounceTimers = new Map<string, NodeJS.Timeout>()
+
+  ipcMain.handle('fs:watch-file', async (_event, args: { path: string }) => {
+    const filePath = args.path
+    if (watchers.has(filePath)) return { success: true }
+    try {
+      const watcher = fs.watch(filePath, () => {
+        const existing = debounceTimers.get(filePath)
+        if (existing) clearTimeout(existing)
+        debounceTimers.set(
+          filePath,
+          setTimeout(() => {
+            debounceTimers.delete(filePath)
+            const win = BrowserWindow.getAllWindows()[0]
+            if (win && !win.isDestroyed()) {
+              win.webContents.send('fs:file-changed', { path: filePath })
+            }
+          }, 300)
+        )
+      })
+      watchers.set(filePath, watcher)
+      return { success: true }
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  ipcMain.handle('fs:unwatch-file', async (_event, args: { path: string }) => {
+    const filePath = args.path
+    const watcher = watchers.get(filePath)
+    if (watcher) {
+      watcher.close()
+      watchers.delete(filePath)
+    }
+    const timer = debounceTimers.get(filePath)
+    if (timer) {
+      clearTimeout(timer)
+      debounceTimers.delete(filePath)
+    }
+    return { success: true }
+  })
 }

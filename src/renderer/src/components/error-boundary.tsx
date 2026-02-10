@@ -3,6 +3,7 @@ import { Component } from 'react'
 interface Props {
   children: React.ReactNode
   fallback?: React.ReactNode
+  renderFallback?: (error: Error | null, reset: () => void) => React.ReactNode
 }
 
 interface State {
@@ -38,6 +39,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): React.ReactNode {
     if (this.state.hasError) {
+      const reset = (): void => this.setState({ hasError: false, error: null, errorInfo: null })
+      if (this.props.renderFallback) return this.props.renderFallback(this.state.error, reset)
       if (this.props.fallback) return this.props.fallback
 
       return (

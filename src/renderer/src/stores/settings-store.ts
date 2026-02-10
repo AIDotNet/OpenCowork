@@ -7,6 +7,7 @@ interface SettingsStore {
   apiKey: string
   baseUrl: string
   model: string
+  fastModel: string
   maxTokens: number
   temperature: number
   systemPrompt: string
@@ -24,6 +25,7 @@ export const useSettingsStore = create<SettingsStore>()(
       apiKey: '',
       baseUrl: '',
       model: 'claude-sonnet-4-20250514',
+      fastModel: 'claude-3-5-haiku-20241022',
       maxTokens: 32000,
       temperature: 0.7,
       systemPrompt: '',
@@ -40,6 +42,7 @@ export const useSettingsStore = create<SettingsStore>()(
         provider: state.provider,
         baseUrl: state.baseUrl,
         model: state.model,
+        fastModel: state.fastModel,
         maxTokens: state.maxTokens,
         temperature: state.temperature,
         systemPrompt: state.systemPrompt,

@@ -12,7 +12,8 @@ import { subAgentEvents } from '@renderer/lib/agent/sub-agents/events'
 import { abortAllTeammates } from '@renderer/lib/agent/teams/teammate-runner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { createProvider } from '@renderer/lib/api/provider'
-import type { UnifiedMessage, ProviderConfig } from '@renderer/lib/api/types'
+import { generateSessionTitle } from '@renderer/lib/api/generate-title'
+import type { UnifiedMessage, ProviderConfig, TokenUsage } from '@renderer/lib/api/types'
 import type { AgentLoopConfig } from '@renderer/lib/agent/types'
 
 export function useChatActions() {
@@ -48,11 +49,15 @@ export function useChatActions() {
     }
     chatStore.addMessage(sessionId, userMsg)
 
-    // Auto-title: use first user message as session title
+    // Auto-title: fire-and-forget AI title generation for the first message
     const session = chatStore.sessions.find((s) => s.id === sessionId)
     if (session && session.title === 'New Conversation') {
-      const title = text.length > 40 ? text.slice(0, 40) + '...' : text
-      chatStore.updateSessionTitle(sessionId, title)
+      const capturedSessionId = sessionId
+      generateSessionTitle(text).then((aiTitle) => {
+        if (aiTitle) {
+          useChatStore.getState().updateSessionTitle(capturedSessionId, aiTitle)
+        }
+      }).catch(() => { /* keep default title on failure */ })
     }
 
     // Create assistant placeholder message
@@ -94,7 +99,7 @@ export function useChatActions() {
     } else {
       // Cowork / Code mode: agent loop with tools
       const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-      // Load available skills from ~/open-cowork/skills/
+      // Load available skills from ~/.open-cowork/skills/
       const skills = await ipcClient.invoke('skills:list') as { name: string; description: string }[]
 
       const agentSystemPrompt = buildSystemPrompt({
@@ -151,6 +156,9 @@ export function useChatActions() {
         )
 
         let thinkingDone = false
+        // Accumulate usage across all iterations — each API call reports its own
+        // input/output tokens; we sum them for accurate cost tracking.
+        const accumulatedUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
         for await (const event of loop) {
           if (abortController.signal.aborted) break
 
@@ -164,13 +172,42 @@ export function useChatActions() {
               useChatStore.getState().appendTextDelta(sessionId!, assistantMsgId, event.text)
               break
 
-            case 'tool_use_generated':
+            case 'tool_use_streaming_start':
               if (!thinkingDone) { thinkingDone = true; useChatStore.getState().completeThinking(sessionId!, assistantMsgId) }
-              // Append tool_use block to the current assistant message so UI can render ToolCallCard/SubAgentCard
+              // Immediately show tool card with name while args are still streaming
               useChatStore.getState().appendToolUse(sessionId!, assistantMsgId, {
                 type: 'tool_use',
-                id: event.toolUseBlock.id,
-                name: event.toolUseBlock.name,
+                id: event.toolCallId,
+                name: event.toolName,
+                input: {},
+              })
+              useAgentStore.getState().addToolCall({
+                id: event.toolCallId,
+                name: event.toolName,
+                input: {},
+                status: 'streaming',
+                requiresApproval: false,
+              })
+              break
+
+            case 'tool_use_args_delta':
+              // Real-time partial args update via partial-json parsing
+              useChatStore.getState().updateToolUseInput(
+                sessionId!, assistantMsgId,
+                event.toolCallId, event.partialInput,
+              )
+              useAgentStore.getState().updateToolCall(event.toolCallId, {
+                input: event.partialInput,
+              })
+              break
+
+            case 'tool_use_generated':
+              // Args fully streamed — update the existing block's input (final)
+              useChatStore.getState().updateToolUseInput(
+                sessionId!, assistantMsgId,
+                event.toolUseBlock.id, event.toolUseBlock.input,
+              )
+              useAgentStore.getState().updateToolCall(event.toolUseBlock.id, {
                 input: event.toolUseBlock.input,
               })
               break
@@ -179,9 +216,16 @@ export function useChatActions() {
               useAgentStore.getState().addToolCall(event.toolCall)
               break
 
-            case 'tool_call_approval_needed':
-              useAgentStore.getState().addToolCall(event.toolCall)
+            case 'tool_call_approval_needed': {
+              // Skip adding to pendingToolCalls when auto-approve is active —
+              // the callback will return true immediately, so no dialog needed.
+              const willAutoApprove = useSettingsStore.getState().autoApprove ||
+                useAgentStore.getState().approvedToolNames.includes(event.toolCall.name)
+              if (!willAutoApprove) {
+                useAgentStore.getState().addToolCall(event.toolCall)
+              }
               break
+            }
 
             case 'tool_call_result':
               useAgentStore.getState().updateToolCall(event.toolCall.id, {
@@ -193,6 +237,8 @@ export function useChatActions() {
               break
 
             case 'iteration_end':
+              // Reset so the next iteration's thinking block gets properly completed
+              thinkingDone = false
               // When an iteration ends with tool results, append tool_result user message.
               // The next iteration's text/tool_use will continue appending to the same assistant message.
               if (event.toolResults && event.toolResults.length > 0) {
@@ -214,7 +260,8 @@ export function useChatActions() {
             case 'message_end':
               if (!thinkingDone) { thinkingDone = true; useChatStore.getState().completeThinking(sessionId!, assistantMsgId) }
               if (event.usage) {
-                useChatStore.getState().updateMessage(sessionId!, assistantMsgId, { usage: event.usage })
+                mergeUsage(accumulatedUsage, event.usage)
+                useChatStore.getState().updateMessage(sessionId!, assistantMsgId, { usage: { ...accumulatedUsage } })
               }
               break
 
@@ -269,10 +316,19 @@ export function useChatActions() {
     const chatStore = useChatStore.getState()
     const sessionId = chatStore.activeSessionId
     if (!sessionId) return
-    // Remove the last assistant message (response to the user message being edited)
-    chatStore.removeLastAssistantMessage(sessionId)
-    // Remove the last user message (the one being edited)
-    chatStore.removeLastUserMessage(sessionId)
+    const messages = chatStore.getSessionMessages(sessionId)
+    // Find the last real user message (has text content, not just tool_result blocks)
+    let editIdx = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role === 'user') {
+        if (typeof m.content === 'string') { editIdx = i; break }
+        if (m.content.some((b) => b.type === 'text')) { editIdx = i; break }
+      }
+    }
+    if (editIdx < 0) return
+    // Truncate from the edited message onward (removes it + all subsequent messages)
+    chatStore.truncateMessagesFrom(sessionId, editIdx)
     // Re-send with edited content
     await sendMessage(newContent)
   }, [sendMessage])
@@ -334,5 +390,23 @@ async function runSimpleChat(
     }
   } finally {
     useChatStore.getState().setStreamingMessageId(null)
+  }
+}
+
+/**
+ * Merge incoming TokenUsage into an accumulator (mutates target).
+ * Sums inputTokens, outputTokens, and optional cache/reasoning fields.
+ */
+function mergeUsage(target: TokenUsage, incoming: TokenUsage): void {
+  target.inputTokens += incoming.inputTokens
+  target.outputTokens += incoming.outputTokens
+  if (incoming.cacheCreationTokens) {
+    target.cacheCreationTokens = (target.cacheCreationTokens ?? 0) + incoming.cacheCreationTokens
+  }
+  if (incoming.cacheReadTokens) {
+    target.cacheReadTokens = (target.cacheReadTokens ?? 0) + incoming.cacheReadTokens
+  }
+  if (incoming.reasoningTokens) {
+    target.reasoningTokens = (target.reasoningTokens ?? 0) + incoming.reasoningTokens
   }
 }

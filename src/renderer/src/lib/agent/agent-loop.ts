@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid'
+import { parse as parsePartialJSON } from 'partial-json'
 import type { UnifiedMessage, ContentBlock, ToolUseBlock } from '../api/types'
 import { createProvider } from '../api/provider'
 import { toolRegistry } from './tool-registry'
@@ -79,10 +80,19 @@ export async function* runAgentLoop(
             currentToolId = event.toolCallId!
             currentToolName = event.toolName!
             currentToolArgs = ''
+            // Immediately notify UI so it can render the tool card while args stream
+            yield { type: 'tool_use_streaming_start', toolCallId: currentToolId, toolName: currentToolName }
             break
 
           case 'tool_call_delta':
             currentToolArgs += event.argumentsDelta ?? ''
+            // Try partial-json parse so UI can show args in real-time
+            try {
+              const partial = parsePartialJSON(currentToolArgs)
+              if (partial && typeof partial === 'object' && !Array.isArray(partial)) {
+                yield { type: 'tool_use_args_delta', toolCallId: currentToolId, partialInput: partial as Record<string, unknown> }
+              }
+            } catch { /* incomplete JSON not yet parsable — skip */ }
             break
 
           case 'tool_call_end': {

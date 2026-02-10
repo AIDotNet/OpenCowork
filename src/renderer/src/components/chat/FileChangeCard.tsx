@@ -132,6 +132,8 @@ function StatusIndicator({ status }: { status: FileChangeCardProps['status'] }):
       return <CheckCircle2 className="size-3.5 text-green-500 shrink-0" />
     case 'pending_approval':
       return <Loader2 className="size-3.5 animate-spin text-amber-500 shrink-0" />
+    case 'streaming':
+      return <Loader2 className="size-3.5 animate-spin text-violet-500 shrink-0" />
     default:
       return null
   }
@@ -314,6 +316,7 @@ export function FileChangeCard({
 
   // Determine border color based on status
   const borderColor =
+    status === 'streaming' ? 'border-violet-500/30' :
     status === 'running' ? 'border-blue-500/30' :
     status === 'error' || (isOutputError && !isSuccess) ? 'border-destructive/30' :
     name === 'Write' ? 'border-green-500/20' :
@@ -331,8 +334,8 @@ export function FileChangeCard({
         )}
       >
         <FileIcon name={name} />
-        <span className="text-xs font-medium truncate min-w-0 flex-1" title={filePath}>
-          {fileName(filePath)}
+        <span className="text-xs font-medium truncate min-w-0 flex-1" title={filePath || undefined}>
+          {filePath ? fileName(filePath) : <span className="text-muted-foreground/50 italic animate-pulse">receiving...</span>}
         </span>
         <span className="text-[10px] text-muted-foreground/40 font-mono truncate max-w-[120px] hidden sm:block" title={filePath}>
           {shortPath(filePath)}

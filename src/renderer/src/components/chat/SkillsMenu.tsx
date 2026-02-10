@@ -87,7 +87,7 @@ export function SkillsMenu({ onSelectSkill, disabled = false }: SkillsMenuProps)
                   <div className="px-2 py-4 text-center text-xs text-muted-foreground">
                     <p>No skills installed</p>
                     <p className="mt-1 text-[10px] opacity-70">
-                      ~/open-cowork/skills/
+                      ~/.open-cowork/skills/
                     </p>
                   </div>
                 ) : (

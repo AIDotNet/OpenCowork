@@ -17,7 +17,7 @@ import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust'
 import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
 import { Avatar, AvatarFallback } from '@renderer/components/ui/avatar'
 import { Bot, Copy, Check, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
-import type { ContentBlock } from '@renderer/lib/api/types'
+import type { ContentBlock, TokenUsage } from '@renderer/lib/api/types'
 import { ToolCallCard } from './ToolCallCard'
 import { FileChangeCard } from './FileChangeCard'
 import { SubAgentCard } from './SubAgentCard'
@@ -52,7 +52,7 @@ SyntaxHighlighter.registerLanguage('go', go)
 interface AssistantMessageProps {
   content: string | ContentBlock[]
   isStreaming?: boolean
-  usage?: { inputTokens: number; outputTokens: number }
+  usage?: TokenUsage
   /** Map of toolUseId → output for completed tool results (from next user message) */
   toolResults?: Map<string, { content: string; isError?: boolean }>
 }
@@ -334,7 +334,7 @@ export function AssistantMessage({ content, isStreaming, usage, toolResults }: A
         {!isStreaming && plainText && (
           <p className="mt-1 text-[10px] text-muted-foreground/40">
             {plainText.split(/\s+/).filter(Boolean).length} words
-            {usage && ` · ${usage.inputTokens + usage.outputTokens} tokens (${usage.inputTokens} in / ${usage.outputTokens} out)`}
+            {usage && ` · ${usage.inputTokens + usage.outputTokens} tokens (${usage.inputTokens} in / ${usage.outputTokens} out${usage.cacheReadTokens ? ` / ${usage.cacheReadTokens} cached` : ''}${usage.reasoningTokens ? ` / ${usage.reasoningTokens} reasoning` : ''})`}
           </p>
         )}
       </div>

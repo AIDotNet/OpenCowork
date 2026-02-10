@@ -601,6 +601,168 @@ function DiffBlock({ oldStr, newStr, filePath }: { oldStr: string; newStr: strin
   )
 }
 
+/** Structured input field row */
+function InputField({ label, value, mono, icon }: { label: string; value: string; mono?: boolean; icon?: React.ReactNode }): React.JSX.Element | null {
+  if (!value) return null
+  return (
+    <div className="flex items-start gap-2 text-[12px]">
+      <span className="shrink-0 text-muted-foreground/50 min-w-[70px] text-right select-none flex items-center justify-end gap-1">
+        {icon}{label}
+      </span>
+      <span className={cn('break-all', mono && 'font-mono text-[11px]')} style={mono ? { fontFamily: MONO_FONT } : undefined}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+/** Render tool input as structured UI instead of raw JSON */
+function StructuredInput({ name, input }: { name: string; input: Record<string, unknown> }): React.JSX.Element {
+  // Bash: command in terminal-style block + description/timeout as fields
+  if (name === 'Bash') {
+    const command = String(input.command ?? '')
+    const description = input.description ? String(input.description) : null
+    const timeout = input.timeout ? String(input.timeout) : null
+    return (
+      <div className="space-y-1.5">
+        {description && (
+          <p className="text-xs text-muted-foreground/60 italic">{description}</p>
+        )}
+        <div
+          className="rounded-md border bg-zinc-950 text-[11px] font-mono overflow-auto max-h-40"
+          style={{ fontFamily: MONO_FONT }}
+        >
+          <div className="flex items-start gap-1.5 px-3 py-2 text-green-400/80">
+            <span className="select-none text-green-500/60 shrink-0">$</span>
+            <span className="whitespace-pre-wrap break-all">{command}</span>
+          </div>
+        </div>
+        {timeout && (
+          <span className="text-[10px] text-muted-foreground/40">timeout: {timeout}ms</span>
+        )}
+      </div>
+    )
+  }
+
+  // Read: file path + optional offset/limit
+  if (name === 'Read') {
+    const filePath = String(input.file_path ?? input.path ?? '')
+    const offset = input.offset != null ? String(input.offset) : null
+    const limit = input.limit != null ? String(input.limit) : null
+    return (
+      <div className="space-y-0.5">
+        <div className="flex items-center gap-1.5 text-xs">
+          <FileCode className="size-3 text-blue-400" />
+          <span className="font-mono text-[11px] break-all" style={{ fontFamily: MONO_FONT }}>{filePath}</span>
+        </div>
+        {(offset || limit) && (
+          <div className="flex items-center gap-2 pl-[18px]">
+            {offset && <span className="text-[10px] text-muted-foreground/40">offset: {offset}</span>}
+            {limit && <span className="text-[10px] text-muted-foreground/40">limit: {limit}</span>}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // LS: path
+  if (name === 'LS') {
+    const path = String(input.path ?? '')
+    return (
+      <div className="flex items-center gap-1.5 text-xs">
+        <Folder className="size-3 text-amber-400" />
+        <span className="font-mono text-[11px] break-all" style={{ fontFamily: MONO_FONT }}>{path}</span>
+      </div>
+    )
+  }
+
+  // Delete: file path
+  if (name === 'Delete') {
+    const filePath = String(input.file_path ?? input.path ?? '')
+    return (
+      <div className="flex items-center gap-1.5 text-xs">
+        <File className="size-3 text-red-400" />
+        <span className="font-mono text-[11px] break-all text-red-400/70" style={{ fontFamily: MONO_FONT }}>{filePath}</span>
+      </div>
+    )
+  }
+
+  // Glob: pattern + optional path
+  if (name === 'Glob') {
+    const pattern = String(input.pattern ?? '')
+    const path = input.path ? String(input.path) : null
+    return (
+      <div className="space-y-0.5">
+        <div className="flex items-center gap-1.5 text-xs">
+          <FolderTree className="size-3 text-amber-400" />
+          <span className="font-mono text-[11px] text-amber-400/80" style={{ fontFamily: MONO_FONT }}>{pattern}</span>
+        </div>
+        {path && (
+          <div className="pl-[18px]">
+            <span className="text-[10px] text-muted-foreground/40 font-mono" style={{ fontFamily: MONO_FONT }}>in {path}</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Grep: pattern + path + optional include
+  if (name === 'Grep') {
+    const pattern = String(input.pattern ?? '')
+    const path = input.path ? String(input.path) : null
+    const include = input.include ? String(input.include) : null
+    return (
+      <div className="space-y-0.5">
+        <div className="flex items-center gap-1.5 text-xs">
+          <Search className="size-3 text-amber-400" />
+          <span className="font-mono text-[11px] text-amber-400/80" style={{ fontFamily: MONO_FONT }}>/{pattern}/</span>
+        </div>
+        {(path || include) && (
+          <div className="flex items-center gap-2 pl-[18px]">
+            {path && <span className="text-[10px] text-muted-foreground/40 font-mono" style={{ fontFamily: MONO_FONT }}>in {path}</span>}
+            {include && <span className="text-[10px] text-muted-foreground/40 font-mono" style={{ fontFamily: MONO_FONT }}>include: {include}</span>}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // SubAgents (CodeSearch, CodeReview, Planner)
+  if (name === 'CodeSearch' || name === 'CodeReview' || name === 'Planner') {
+    const fields: Array<{ label: string; value: string }> = []
+    for (const [k, v] of Object.entries(input)) {
+      if (v != null && v !== '') fields.push({ label: k, value: String(v) })
+    }
+    return (
+      <div className="space-y-0.5">
+        {fields.map((f) => (
+          <InputField key={f.label} label={f.label} value={f.value.length > 200 ? f.value.slice(0, 200) + '…' : f.value} />
+        ))}
+      </div>
+    )
+  }
+
+  // Generic fallback: structured key-value pairs instead of raw JSON
+  const entries = Object.entries(input).filter(([, v]) => v != null && v !== '')
+  if (entries.length === 0) return <></>
+  return (
+    <div className="space-y-0.5">
+      {entries.map(([key, value]) => {
+        const str = typeof value === 'string' ? value : JSON.stringify(value)
+        const isLong = str.length > 300
+        return (
+          <InputField
+            key={key}
+            label={key}
+            value={isLong ? str.slice(0, 300) + '…' : str}
+            mono={typeof value !== 'string'}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
 // Tools that auto-expand when they have output (mutation/action tools)
 const EXPAND_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'Delete', 'Bash', 'TodoWrite'])
 
@@ -630,6 +792,13 @@ function ToolStatusDot({ status }: { status: ToolCallCardProps['status'] }): Rea
         <span className="relative flex size-3.5 shrink-0 items-center justify-center">
           <span className="absolute size-2.5 rounded-full bg-amber-500/30 animate-ping" />
           <span className="size-2.5 rounded-full bg-amber-500" />
+        </span>
+      )
+    case 'streaming':
+      return (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <span className="absolute size-2.5 rounded-full bg-violet-500/30 animate-ping" />
+          <span className="size-2.5 rounded-full bg-violet-500" />
         </span>
       )
     default:
@@ -662,7 +831,7 @@ export function ToolCallCard({
   const elapsed = startedAt && completedAt ? ((completedAt - startedAt) / 1000).toFixed(1) + 's' : null
 
   return (
-    <div className="my-5">
+    <div className="my-5 min-w-0 overflow-hidden">
       {/* Header — click to toggle */}
       <button
         onClick={() => setOpen((v) => !v)}
@@ -670,7 +839,10 @@ export function ToolCallCard({
       >
         <ToolStatusDot status={status} />
         <span className="font-medium">{name}</span>
-        {summary && !open && (
+        {status === 'streaming' && (
+          <span className="text-violet-400/70 text-[10px] animate-pulse">receiving args...</span>
+        )}
+        {status !== 'streaming' && summary && !open && (
           <span className="truncate text-muted-foreground/50 max-w-[300px]">{summary}</span>
         )}
         {elapsed && (
@@ -686,7 +858,7 @@ export function ToolCallCard({
 
       {/* Expanded details */}
       {open && (
-        <div className="mt-1.5 space-y-2 pl-5">
+        <div className="mt-1.5 space-y-2 pl-5 min-w-0 overflow-hidden">
           {/* Diff view for Edit tools */}
           {(name === 'Edit' || name === 'MultiEdit') && !!input.old_string && !!input.new_string && (
             <DiffBlock
@@ -726,6 +898,7 @@ export function ToolCallCard({
               <SyntaxHighlighter
                 language={detectLang(String(input.file_path ?? input.path ?? ''))}
                 style={oneDark}
+                wrapLongLines
                 customStyle={{
                   margin: 0,
                   padding: '0.5rem',
@@ -745,30 +918,9 @@ export function ToolCallCard({
           {name === 'TodoWrite' && Array.isArray(input.todos) && (
             <TodoInputBlock input={input} />
           )}
-          {/* Input (for non-Edit/Write/Todo or if no diff data) */}
+          {/* Structured Input — tool-specific rendering */}
           {!((name === 'Edit' && !!input.old_string) || (name === 'MultiEdit' && (!!input.old_string || Array.isArray(input.edits))) || (name === 'Write' && !!input.content) || (name === 'TodoWrite' && Array.isArray(input.todos))) && (
-            <div>
-              <div className="mb-1 flex items-center">
-                <p className="text-xs font-medium text-muted-foreground">Input</p>
-                <CopyBtn text={JSON.stringify(input, null, 2)} />
-              </div>
-              <SyntaxHighlighter
-                language="json"
-                style={oneDark}
-                customStyle={{
-                  margin: 0,
-                  padding: '0.5rem',
-                  borderRadius: '0.375rem',
-                  fontSize: '11px',
-                  maxHeight: '160px',
-                  overflow: 'auto',
-                  fontFamily: MONO_FONT
-                }}
-                codeTagProps={{ style: { fontFamily: 'inherit' } }}
-              >
-                {JSON.stringify(input, null, 2)}
-              </SyntaxHighlighter>
-            </div>
+            <StructuredInput name={name} input={input} />
           )}
           {/* Output — tool-specific rendering */}
           {output && name === 'Read' && (

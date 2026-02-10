@@ -5,6 +5,7 @@ import { registerBashTools } from './bash-tool'
 import { registerBuiltinSubAgents } from '../agent/sub-agents/builtin'
 import { registerTeamTools } from '../agent/teams/register'
 import { registerSkillTools } from './skill-tool'
+import { registerPreviewTools } from './preview-tool'
 
 /**
  * Register all built-in tools with the global tool registry.
@@ -20,6 +21,7 @@ export function registerAllTools(): void {
   registerSearchTools()
   registerBashTools()
   registerSkillTools()
+  registerPreviewTools()
 
   // SubAgents (registered as tools so the main agent can invoke them)
   registerBuiltinSubAgents()

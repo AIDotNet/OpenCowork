@@ -1,8 +1,8 @@
-import type { ProviderConfig, ToolDefinition, UnifiedMessage } from '../api/types'
+import type { ProviderConfig, ToolDefinition, UnifiedMessage, TokenUsage } from '../api/types'
 
 // --- Tool Call Runtime State ---
 
-export type ToolCallStatus = 'pending_approval' | 'running' | 'completed' | 'error'
+export type ToolCallStatus = 'streaming' | 'pending_approval' | 'running' | 'completed' | 'error'
 
 export interface ToolCallState {
   id: string
@@ -65,7 +65,9 @@ export type AgentEvent =
   | { type: 'iteration_start'; iteration: number }
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; thinking: string }
-  | { type: 'message_end'; usage?: { inputTokens: number; outputTokens: number } }
+  | { type: 'message_end'; usage?: TokenUsage }
+  | { type: 'tool_use_streaming_start'; toolCallId: string; toolName: string }
+  | { type: 'tool_use_args_delta'; toolCallId: string; partialInput: Record<string, unknown> }
   | { type: 'tool_use_generated'; toolUseBlock: { id: string; name: string; input: Record<string, unknown> } }
   | { type: 'tool_call_start'; toolCall: ToolCallState }
   | { type: 'tool_call_approval_needed'; toolCall: ToolCallState }

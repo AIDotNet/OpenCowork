@@ -24,31 +24,50 @@ Extract tables, form fields, and structured data from PDF files.
    ```
    > `tabula-py` requires Java Runtime (JRE). If unavailable, fall back to raw text extraction.
 
-2. Run the table extraction script:
+2. Run the table extraction script.
+
+   **On Linux/macOS (bash):**
    ```bash
-   python ~/open-cowork/skills/pdf-data-extract/scripts/extract_tables.py "INPUT_FILE_PATH"
+   python ~/.open-cowork/skills/pdf-data-extract/scripts/extract_tables.py "INPUT_FILE_PATH"
    ```
-   For CSV output instead of Markdown:
+   **On Windows (PowerShell) — use the expanded absolute path:**
+   ```powershell
+   python "$HOME\.open-cowork\skills\pdf-data-extract\scripts\extract_tables.py" "INPUT_FILE_PATH"
+   ```
+
+   For CSV output instead of Markdown, add `--csv`:
    ```bash
-   python ~/open-cowork/skills/pdf-data-extract/scripts/extract_tables.py "INPUT_FILE_PATH" --csv
+   python ~/.open-cowork/skills/pdf-data-extract/scripts/extract_tables.py "INPUT_FILE_PATH" --csv
    ```
 
 ### Extract form fields
 
 For fillable PDF forms:
+
+**On Linux/macOS (bash):**
 ```bash
-python ~/open-cowork/skills/pdf-data-extract/scripts/extract_form_fields.py "INPUT_FILE_PATH"
+python ~/.open-cowork/skills/pdf-data-extract/scripts/extract_form_fields.py "INPUT_FILE_PATH"
 ```
-For JSON output:
+**On Windows (PowerShell):**
+```powershell
+python "$HOME\.open-cowork\skills\pdf-data-extract\scripts\extract_form_fields.py" "INPUT_FILE_PATH"
+```
+For JSON output, add `--json`:
 ```bash
-python ~/open-cowork/skills/pdf-data-extract/scripts/extract_form_fields.py "INPUT_FILE_PATH" --json
+python ~/.open-cowork/skills/pdf-data-extract/scripts/extract_form_fields.py "INPUT_FILE_PATH" --json
 ```
 
 ### Fallback: raw text extraction
 
 If tabula is unavailable or the data is not in table format:
+
+**On Linux/macOS:**
 ```bash
-python ~/open-cowork/skills/pdf-data-extract/scripts/extract_text.py "INPUT_FILE_PATH"
+python ~/.open-cowork/skills/pdf-data-extract/scripts/extract_text.py "INPUT_FILE_PATH"
+```
+**On Windows (PowerShell):**
+```powershell
+python "$HOME\.open-cowork\skills\pdf-data-extract\scripts\extract_text.py" "INPUT_FILE_PATH"
 ```
 Then parse the text output to identify patterns (key-value pairs, repeated structures) and convert to the requested format.
 

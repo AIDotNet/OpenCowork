@@ -22,12 +22,22 @@ Extract and analyze academic/scientific PDF papers.
    pip install pymupdf
    ```
 
-2. Extract text from the paper:
+2. Extract text from the paper.
+
+   **On Linux/macOS (bash):**
    ```bash
-   python ~/open-cowork/skills/pdf-academic/scripts/extract_text.py "INPUT_FILE_PATH"
+   python ~/.open-cowork/skills/pdf-academic/scripts/extract_text.py "INPUT_FILE_PATH"
    ```
 
-3. Read the extracted `.txt` file using the Read tool.
+   **On Windows (PowerShell) — use the expanded absolute path:**
+   ```powershell
+   python "$HOME\.open-cowork\skills\pdf-academic\scripts\extract_text.py" "INPUT_FILE_PATH"
+   ```
+   Or use the fully resolved path, e.g.: `python "C:\Users\USERNAME\.open-cowork\skills\pdf-academic\scripts\extract_text.py" "INPUT_FILE_PATH"`
+
+   The script prints extracted text directly to stdout. You do NOT need to read a separate file — just use the shell output.
+
+3. Read the shell output (or use the Read tool if saved to file).
 
 4. Produce a structured analysis:
 
@@ -61,8 +71,14 @@ Extract and analyze academic/scientific PDF papers.
    ```
 
 5. (Optional) Extract only the references section:
+
+   **On Linux/macOS:**
    ```bash
-   python ~/open-cowork/skills/pdf-academic/scripts/extract_references.py "INPUT_FILE_PATH"
+   python ~/.open-cowork/skills/pdf-academic/scripts/extract_references.py "INPUT_FILE_PATH"
+   ```
+   **On Windows (PowerShell):**
+   ```powershell
+   python "$HOME\.open-cowork\skills\pdf-academic\scripts\extract_references.py" "INPUT_FILE_PATH"
    ```
 
 ## Edge cases

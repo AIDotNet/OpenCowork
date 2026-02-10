@@ -34,6 +34,7 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const streamingMessageId = useChatStore((s) => s.streamingMessageId)
   const mode = useUIStore((s) => s.mode)
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null)
   const bottomRef = React.useRef<HTMLDivElement>(null)
   const [isAtBottom, setIsAtBottom] = React.useState(true)
 
@@ -49,14 +50,20 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
       : JSON.stringify(streamingMsg.content).length
     : 0
 
-  // Track if user is at bottom via IntersectionObserver
+  // Track if user is near the bottom via scroll position (more reliable than IntersectionObserver)
   React.useEffect(() => {
-    const el = bottomRef.current
-    if (!el) return
-    const observer = new IntersectionObserver(([entry]) => setIsAtBottom(entry.isIntersecting), { threshold: 0.1 })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const handleScroll = (): void => {
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+      setIsAtBottom(distanceFromBottom <= 16)
+    }
+
+    handleScroll()
+    container.addEventListener('scroll', handleScroll)
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [messages.length])
 
   // Auto-scroll to bottom on new messages and during streaming (only if at bottom)
   React.useEffect(() => {
@@ -150,7 +157,7 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
 
   return (
     <div className="relative flex-1">
-      <div className="absolute inset-0 overflow-y-auto">
+      <div ref={scrollContainerRef} className="absolute inset-0 overflow-y-auto">
         <div className="mx-auto max-w-3xl space-y-6 p-4">
           {messages.length > 1 && !streamingMessageId && (
             <div className="flex justify-end">

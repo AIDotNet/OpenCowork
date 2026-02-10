@@ -1,5 +1,18 @@
 // ===== Unified API Type System =====
 
+// --- Token Usage ---
+
+export interface TokenUsage {
+  inputTokens: number
+  outputTokens: number
+  /** Anthropic prompt caching: tokens written to cache */
+  cacheCreationTokens?: number
+  /** Anthropic prompt caching: tokens read from cache */
+  cacheReadTokens?: number
+  /** Reasoning model (o3/o4-mini etc.) internal thinking tokens */
+  reasoningTokens?: number
+}
+
 // --- Content Blocks ---
 
 export interface TextBlock {
@@ -42,7 +55,7 @@ export interface UnifiedMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string | ContentBlock[]
   createdAt: number
-  usage?: { inputTokens: number; outputTokens: number }
+  usage?: TokenUsage
 }
 
 // --- Streaming Events ---
@@ -66,7 +79,7 @@ export interface StreamEvent {
   argumentsDelta?: string
   toolCallInput?: Record<string, unknown>
   stopReason?: string
-  usage?: { inputTokens: number; outputTokens: number }
+  usage?: TokenUsage
   error?: { type: string; message: string }
 }
 

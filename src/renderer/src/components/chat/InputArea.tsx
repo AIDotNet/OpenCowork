@@ -50,9 +50,9 @@ export function InputArea({
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const mode = useUIStore((s) => s.mode)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const messages = useChatStore((s) => {
+  const hasMessages = useChatStore((s) => {
     const session = s.sessions.find((sess) => sess.id === s.activeSessionId)
-    return session?.messages ?? []
+    return (session?.messages.length ?? 0) > 0
   })
   const clearSessionMessages = useChatStore((s) => s.clearSessionMessages)
   const hasApiKey = !!apiKey
@@ -203,7 +203,7 @@ export function InputArea({
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               placeholder={placeholders[mode] ?? 'Type a message...'}
-              className="min-h-[60px] max-h-[300px] w-full resize-none border-0 bg-transparent p-1 shadow-none focus-visible:ring-0 text-base md:text-sm"
+              className="min-h-[60px] max-h-[300px] w-full resize-none border-0 bg-background dark:bg-background p-1 shadow-none focus-visible:ring-0 text-base md:text-sm"
               rows={1}
               disabled={disabled}
             />
@@ -251,7 +251,7 @@ export function InputArea({
               )}
 
               {/* Clear messages */}
-              {messages.length > 0 && !isStreaming && (
+              {hasMessages && !isStreaming && (
                 <AlertDialog>
                   <Tooltip>
                     <AlertDialogTrigger asChild>

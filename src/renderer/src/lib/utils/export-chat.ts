@@ -54,7 +54,10 @@ export function sessionToMarkdown(session: Session): string {
     lines.push(contentToMarkdown(msg.content))
     if (msg.usage) {
       lines.push('')
-      lines.push(`<sub>Tokens: ${msg.usage.inputTokens} in / ${msg.usage.outputTokens} out</sub>`)
+      const extras: string[] = []
+      if (msg.usage.cacheReadTokens) extras.push(`${msg.usage.cacheReadTokens} cached`)
+      if (msg.usage.reasoningTokens) extras.push(`${msg.usage.reasoningTokens} reasoning`)
+      lines.push(`<sub>Tokens: ${msg.usage.inputTokens} in / ${msg.usage.outputTokens} out${extras.length > 0 ? ` / ${extras.join(' / ')}` : ''}</sub>`)
     }
     lines.push('')
   }
@@ -62,15 +65,24 @@ export function sessionToMarkdown(session: Session): string {
   // Total token usage summary
   const totals = session.messages.reduce(
     (acc, m) => {
-      if (m.usage) { acc.input += m.usage.inputTokens; acc.output += m.usage.outputTokens }
+      if (m.usage) {
+        acc.input += m.usage.inputTokens; acc.output += m.usage.outputTokens
+        if (m.usage.cacheReadTokens) acc.cacheRead += m.usage.cacheReadTokens
+        if (m.usage.cacheCreationTokens) acc.cacheCreation += m.usage.cacheCreationTokens
+        if (m.usage.reasoningTokens) acc.reasoning += m.usage.reasoningTokens
+      }
       return acc
     },
-    { input: 0, output: 0 }
+    { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, reasoning: 0 }
   )
   if (totals.input + totals.output > 0) {
     lines.push('---')
     lines.push('')
-    lines.push(`**Total tokens**: ${totals.input + totals.output} (${totals.input} input + ${totals.output} output)`)
+    const totalExtras: string[] = []
+    if (totals.cacheRead > 0) totalExtras.push(`${totals.cacheRead} cache read`)
+    if (totals.cacheCreation > 0) totalExtras.push(`${totals.cacheCreation} cache write`)
+    if (totals.reasoning > 0) totalExtras.push(`${totals.reasoning} reasoning`)
+    lines.push(`**Total tokens**: ${totals.input + totals.output} (${totals.input} input + ${totals.output} output${totalExtras.length > 0 ? ` | ${totalExtras.join(', ')}` : ''})`)
     lines.push('')
   }
 

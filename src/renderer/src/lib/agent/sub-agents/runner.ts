@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid'
 import { runAgentLoop } from '../agent-loop'
 import { toolRegistry } from '../tool-registry'
 import type { AgentLoopConfig } from '../types'
-import type { UnifiedMessage, ProviderConfig } from '../../api/types'
+import type { UnifiedMessage, ProviderConfig, TokenUsage } from '../../api/types'
 import type { SubAgentRunConfig, SubAgentResult } from './types'
 
 /**
@@ -48,7 +48,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
   let output = ''
   let toolCallCount = 0
   let iterations = 0
-  const totalUsage = { inputTokens: 0, outputTokens: 0 }
+  const totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
 
   try {
     const loop = runAgentLoop(
@@ -82,6 +82,15 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
           if (event.usage) {
             totalUsage.inputTokens += event.usage.inputTokens
             totalUsage.outputTokens += event.usage.outputTokens
+            if (event.usage.cacheCreationTokens) {
+              totalUsage.cacheCreationTokens = (totalUsage.cacheCreationTokens ?? 0) + event.usage.cacheCreationTokens
+            }
+            if (event.usage.cacheReadTokens) {
+              totalUsage.cacheReadTokens = (totalUsage.cacheReadTokens ?? 0) + event.usage.cacheReadTokens
+            }
+            if (event.usage.reasoningTokens) {
+              totalUsage.reasoningTokens = (totalUsage.reasoningTokens ?? 0) + event.usage.reasoningTokens
+            }
           }
           break
 

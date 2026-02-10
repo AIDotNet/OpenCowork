@@ -1,13 +1,20 @@
 import { useState, useCallback } from 'react'
-import { FileText, FilePen, CheckCircle2, XCircle, Copy, Check, Eye, Trash2 } from 'lucide-react'
+import { FileText, FilePen, CheckCircle2, XCircle, Copy, Check, Eye, Trash2, Table2 } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Separator } from '@renderer/components/ui/separator'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 
 const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit'])
-const READ_TOOLS = new Set(['Read'])
 const DELETE_TOOLS = new Set(['Delete'])
+
+const PREVIEWABLE_EXTENSIONS = new Set(['.html', '.htm'])
+const SPREADSHEET_EXTENSIONS = new Set(['.csv', '.tsv', '.xls', '.xlsx'])
+
+function getFileExtension(filePath: string): string {
+  const dot = filePath.lastIndexOf('.')
+  return dot >= 0 ? filePath.slice(dot).toLowerCase() : ''
+}
 
 export function ArtifactsPanel(): React.JSX.Element {
   const executedToolCalls = useAgentStore((s) => s.executedToolCalls)
@@ -21,10 +28,9 @@ export function ArtifactsPanel(): React.JSX.Element {
   }, [])
 
   const fileOps = executedToolCalls.filter((tc) => FILE_TOOLS.has(tc.name))
-  const readOps = executedToolCalls.filter((tc) => READ_TOOLS.has(tc.name))
   const deleteOps = executedToolCalls.filter((tc) => DELETE_TOOLS.has(tc.name))
 
-  if (fileOps.length === 0 && readOps.length === 0 && deleteOps.length === 0) {
+  if (fileOps.length === 0 && deleteOps.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <FileText className="mb-3 size-8 text-muted-foreground/40" />
@@ -78,13 +84,21 @@ export function ArtifactsPanel(): React.JSX.Element {
           const fileName = filePath.split(/[\\/]/).pop() || filePath
           const isError = tc.status === 'error'
           const isCopied = copiedId === tc.id
+          const ext = getFileExtension(filePath)
+          const isPreviewable = PREVIEWABLE_EXTENSIONS.has(ext) || SPREADSHEET_EXTENSIONS.has(ext)
 
           return (
             <button
               key={tc.id}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 transition-colors group"
-              onClick={() => handleCopyPath(tc.id, filePath)}
-              title={`${filePath}\nClick to copy path`}
+              onClick={() => {
+                if (isPreviewable) {
+                  useUIStore.getState().openFilePreview(filePath)
+                } else {
+                  handleCopyPath(tc.id, filePath)
+                }
+              }}
+              title={isPreviewable ? `${filePath}\nClick to preview` : `${filePath}\nClick to copy path`}
             >
               {ops.has('Write') ? (
                 <FileText className="size-3.5 shrink-0 text-blue-500" />
@@ -98,66 +112,49 @@ export function ArtifactsPanel(): React.JSX.Element {
                   {count > 1 && <span className="shrink-0 text-muted-foreground/30">{count}×</span>}
                 </div>
               </div>
-              {isCopied ? (
-                <Check className="size-3 shrink-0 text-green-500" />
-              ) : isError ? (
-                <XCircle className="size-3.5 shrink-0 text-destructive" />
-              ) : (
-                <>
-                  <CheckCircle2 className="size-3.5 shrink-0 text-green-500 group-hover:hidden" />
-                  <Copy className="size-3.5 shrink-0 text-muted-foreground hidden group-hover:block" />
-                </>
-              )}
+              <div className="flex items-center gap-0.5 shrink-0">
+                {PREVIEWABLE_EXTENSIONS.has(ext) && (
+                  <Eye className="size-3.5 shrink-0 text-blue-500" />
+                )}
+                {SPREADSHEET_EXTENSIONS.has(ext) && (
+                  <Table2 className="size-3.5 shrink-0 text-green-500" />
+                )}
+                {isPreviewable && (
+                  <button
+                    className="size-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleCopyPath(tc.id, filePath)
+                    }}
+                    title="Copy path"
+                  >
+                    {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                  </button>
+                )}
+                {!isPreviewable && (
+                  <>
+                    {isCopied ? (
+                      <Check className="size-3 shrink-0 text-green-500" />
+                    ) : isError ? (
+                      <XCircle className="size-3.5 shrink-0 text-destructive" />
+                    ) : (
+                      <>
+                        <CheckCircle2 className="size-3.5 shrink-0 text-green-500 group-hover:hidden" />
+                        <Copy className="size-3.5 shrink-0 text-muted-foreground hidden group-hover:block" />
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
             </button>
           )
         })}
       </div>
 
-      {/* Viewed Files */}
-      {readOps.length > 0 && (
-        <>
-          {fileOps.length > 0 && <Separator className="my-2" />}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Viewed Files
-              </h4>
-              <Badge variant="secondary" className="text-[10px] gap-0.5">
-                <Eye className="size-2.5" />
-                {new Set(readOps.map((tc) => String(tc.input.file_path ?? tc.input.path ?? ''))).size}
-              </Badge>
-            </div>
-            <div className="space-y-0.5">
-              {Array.from(new Set(readOps.map((tc) => String(tc.input.file_path ?? tc.input.path ?? '')))).map((fp) => {
-                const fileName = fp.split(/[\\/]/).pop() || fp
-                return (
-                  <button
-                    key={fp}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 transition-colors group"
-                    onClick={() => handleCopyPath(fp, fp)}
-                    title={`${fp}\nClick to copy path`}
-                  >
-                    <Eye className="size-3.5 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium text-xs">{fileName}</div>
-                      <div className="truncate text-[10px] text-muted-foreground/50">{fp}</div>
-                    </div>
-                    {copiedId === fp ? (
-                      <Check className="size-3 shrink-0 text-green-500" />
-                    ) : (
-                      <Copy className="size-3.5 shrink-0 text-muted-foreground hidden group-hover:block" />
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        </>
-      )}
       {/* Deleted Files */}
       {deleteOps.length > 0 && (
         <>
-          {(fileOps.length > 0 || readOps.length > 0) && <Separator className="my-2" />}
+          {fileOps.length > 0 && <Separator className="my-2" />}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">

@@ -92,8 +92,11 @@ class OpenAIResponsesProvider implements APIProvider {
             stopReason: data.response.status,
             usage: data.response.usage
               ? {
-                  inputTokens: data.response.usage.input_tokens,
-                  outputTokens: data.response.usage.output_tokens,
+                  inputTokens: data.response.usage.input_tokens ?? 0,
+                  outputTokens: data.response.usage.output_tokens ?? 0,
+                  ...(data.response.usage.output_tokens_details?.reasoning_tokens
+                    ? { reasoningTokens: data.response.usage.output_tokens_details.reasoning_tokens }
+                    : {}),
                 }
               : undefined,
           }

@@ -71,6 +71,32 @@ export const useAgentStore = create<AgentStore>()(
 
     addToolCall: (tc) => {
       set((state) => {
+        // Idempotent: if already exists (e.g. from streaming phase), update in-place
+        const execIdx = state.executedToolCalls.findIndex((t) => t.id === tc.id)
+        if (execIdx !== -1) {
+          if (tc.status === 'pending_approval') {
+            // Move from executed → pending
+            const [moved] = state.executedToolCalls.splice(execIdx, 1)
+            Object.assign(moved, tc)
+            state.pendingToolCalls.push(moved)
+          } else {
+            Object.assign(state.executedToolCalls[execIdx], tc)
+          }
+          return
+        }
+        const pendIdx = state.pendingToolCalls.findIndex((t) => t.id === tc.id)
+        if (pendIdx !== -1) {
+          if (tc.status !== 'pending_approval') {
+            // Move from pending → executed
+            const [moved] = state.pendingToolCalls.splice(pendIdx, 1)
+            Object.assign(moved, tc)
+            state.executedToolCalls.push(moved)
+          } else {
+            Object.assign(state.pendingToolCalls[pendIdx], tc)
+          }
+          return
+        }
+        // New entry
         if (tc.status === 'pending_approval') {
           state.pendingToolCalls.push(tc)
         } else {

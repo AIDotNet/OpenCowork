@@ -21,7 +21,7 @@ export function registerBuiltinSubAgents(): void {
       type: s.provider,
       apiKey: s.apiKey,
       baseUrl: s.baseUrl || undefined,
-      model: s.model,
+      model: s.fastModel || s.model,
       maxTokens: s.maxTokens,
       temperature: s.temperature,
     }

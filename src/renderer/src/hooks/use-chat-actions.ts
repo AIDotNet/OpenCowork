@@ -8,6 +8,7 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { runAgentLoop } from '@renderer/lib/agent/agent-loop'
 import { toolRegistry } from '@renderer/lib/agent/tool-registry'
 import { buildSystemPrompt } from '@renderer/lib/agent/system-prompt'
+import { subAgentEvents } from '@renderer/lib/agent/sub-agents/events'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { createProvider } from '@renderer/lib/api/provider'
 import type { UnifiedMessage, ProviderConfig } from '@renderer/lib/api/types'
@@ -82,7 +83,13 @@ export function useChatActions() {
 
     if (mode === 'chat') {
       // Simple chat mode: single API call, no tools
-      await runSimpleChat(sessionId, assistantMsgId, providerConfig, abortController.signal)
+      const chatSystemPrompt = [
+        'You are OpenCowork, a helpful AI assistant. Be concise, accurate, and friendly.',
+        'Use markdown formatting in your responses. Use code blocks with language identifiers for code.',
+        settings.systemPrompt ? `\n## Additional Instructions\n${settings.systemPrompt}` : '',
+      ].filter(Boolean).join('\n')
+      const chatConfig: ProviderConfig = { ...providerConfig, systemPrompt: chatSystemPrompt }
+      await runSimpleChat(sessionId, assistantMsgId, chatConfig, abortController.signal)
     } else {
       // Cowork / Code mode: agent loop with tools
       const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
@@ -107,13 +114,32 @@ export function useChatActions() {
       agentStore.setRunning(true)
       agentStore.clearToolCalls()
 
+      // Subscribe to SubAgent events during agent loop
+      const unsubSubAgent = subAgentEvents.on((event) => {
+        useAgentStore.getState().handleSubAgentEvent(event)
+      })
+
+      // Request notification permission on first agent run
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {})
+      }
+
       try {
         const messages = useChatStore.getState().getSessionMessages(sessionId)
         const loop = runAgentLoop(
           messages.slice(0, -1), // Exclude the empty assistant placeholder
           loopConfig,
           { workingFolder: session?.workingFolder, signal: abortController.signal, ipc: ipcClient },
-          async (tc) => agentStore.requestApproval(tc.id)
+          async (tc) => {
+            const autoApprove = useSettingsStore.getState().autoApprove
+            if (autoApprove) return true
+            // Per-session tool approval memory: skip re-approval for previously approved tools
+            const approved = useAgentStore.getState().approvedToolNames
+            if (approved.includes(tc.name)) return true
+            const result = await agentStore.requestApproval(tc.id)
+            if (result) useAgentStore.getState().addApprovedTool(tc.name)
+            return result
+          }
         )
 
         for await (const event of loop) {
@@ -161,9 +187,14 @@ export function useChatActions() {
           useChatStore.getState().appendTextDelta(sessionId!, assistantMsgId, `\n\n> **Error:** ${errMsg}`)
         }
       } finally {
+        unsubSubAgent()
         agentStore.setRunning(false)
         chatStore.setStreamingMessageId(null)
         abortRef.current = null
+        // Notify when agent finishes and window is not focused
+        if (!document.hasFocus() && Notification.permission === 'granted') {
+          new Notification('OpenCowork', { body: 'Agent finished working', silent: true })
+        }
       }
     }
   }, [])
@@ -187,7 +218,19 @@ export function useChatActions() {
     }
   }, [sendMessage])
 
-  return { sendMessage, stopStreaming, retryLastMessage }
+  const editAndResend = useCallback(async (newContent: string) => {
+    const chatStore = useChatStore.getState()
+    const sessionId = chatStore.activeSessionId
+    if (!sessionId) return
+    // Remove the last assistant message (response to the user message being edited)
+    chatStore.removeLastAssistantMessage(sessionId)
+    // Remove the last user message (the one being edited)
+    chatStore.removeLastUserMessage(sessionId)
+    // Re-send with edited content
+    await sendMessage(newContent)
+  }, [sendMessage])
+
+  return { sendMessage, stopStreaming, retryLastMessage, editAndResend }
 }
 
 /**

@@ -15,14 +15,27 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     show: false,
+    frame: false,
     autoHideMenuBar: true,
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
     }
   })
+
+  // Window control IPC handlers
+  ipcMain.handle('window:minimize', () => mainWindow.minimize())
+  ipcMain.handle('window:maximize', () => {
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    else mainWindow.maximize()
+  })
+  ipcMain.handle('window:close', () => mainWindow.close())
+  ipcMain.handle('window:isMaximized', () => mainWindow.isMaximized())
+
+  // Forward maximize state changes to renderer
+  mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximized', true))
+  mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximized', false))
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()

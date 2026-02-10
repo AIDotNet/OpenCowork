@@ -12,6 +12,7 @@ interface SettingsStore {
   systemPrompt: string
   theme: 'light' | 'dark' | 'system'
   language: 'en' | 'zh'
+  autoApprove: boolean
 
   updateSettings: (patch: Partial<Omit<SettingsStore, 'updateSettings'>>) => void
 }
@@ -28,6 +29,7 @@ export const useSettingsStore = create<SettingsStore>()(
       systemPrompt: '',
       theme: 'system',
       language: 'en',
+      autoApprove: false,
 
       updateSettings: (patch) => set(patch),
     }),
@@ -43,6 +45,7 @@ export const useSettingsStore = create<SettingsStore>()(
         systemPrompt: state.systemPrompt,
         theme: state.theme,
         language: state.language,
+        autoApprove: state.autoApprove,
         // NOTE: apiKey is intentionally excluded from localStorage persistence.
         // In production, it should be stored securely in the main process.
       }),

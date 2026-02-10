@@ -1,10 +1,23 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { ToolCallState } from '../lib/agent/types'
+import type { SubAgentEvent } from '../lib/agent/sub-agents/types'
 
 // Approval resolvers live outside the store — they hold non-serializable
 // callbacks and don't need to trigger React re-renders.
 const approvalResolvers = new Map<string, (approved: boolean) => void>()
+
+interface SubAgentState {
+  name: string
+  isRunning: boolean
+  iteration: number
+  toolCalls: ToolCallState[]
+  streamingText: string
+  startedAt: number
+  completedAt: number | null
+}
+
+export type { SubAgentState }
 
 interface AgentStore {
   isRunning: boolean
@@ -12,12 +25,24 @@ interface AgentStore {
   pendingToolCalls: ToolCallState[]
   executedToolCalls: ToolCallState[]
 
+  // SubAgent state
+  activeSubAgent: SubAgentState | null
+  /** Completed SubAgent results keyed by name — survives until clearToolCalls */
+  completedSubAgents: Record<string, SubAgentState>
+
+  /** Tool names approved by user during this session — auto-approve on repeat */
+  approvedToolNames: string[]
+  addApprovedTool: (name: string) => void
+
   setRunning: (running: boolean) => void
   setCurrentLoopId: (id: string | null) => void
   addToolCall: (tc: ToolCallState) => void
   updateToolCall: (id: string, patch: Partial<ToolCallState>) => void
   clearToolCalls: () => void
   abort: () => void
+
+  // SubAgent events
+  handleSubAgentEvent: (event: SubAgentEvent) => void
 
   // Approval flow
   requestApproval: (toolCallId: string) => Promise<boolean>
@@ -30,6 +55,9 @@ export const useAgentStore = create<AgentStore>()(
     currentLoopId: null,
     pendingToolCalls: [],
     executedToolCalls: [],
+    activeSubAgent: null,
+    completedSubAgents: {},
+    approvedToolNames: [],
 
     setRunning: (running) => set({ isRunning: running }),
 
@@ -64,8 +92,66 @@ export const useAgentStore = create<AgentStore>()(
       })
     },
 
+    addApprovedTool: (name) => {
+      set((state) => {
+        if (!state.approvedToolNames.includes(name)) {
+          state.approvedToolNames.push(name)
+        }
+      })
+    },
+
     clearToolCalls: () =>
-      set({ pendingToolCalls: [], executedToolCalls: [] }),
+      set({ pendingToolCalls: [], executedToolCalls: [], activeSubAgent: null, completedSubAgents: {}, approvedToolNames: [] }),
+
+    handleSubAgentEvent: (event) => {
+      set((state) => {
+        switch (event.type) {
+          case 'sub_agent_start':
+            // Archive previous SubAgent if it exists
+            if (state.activeSubAgent && !state.activeSubAgent.isRunning) {
+              state.completedSubAgents[state.activeSubAgent.name] = state.activeSubAgent
+            }
+            state.activeSubAgent = {
+              name: event.subAgentName,
+              isRunning: true,
+              iteration: 0,
+              toolCalls: [],
+              streamingText: '',
+              startedAt: Date.now(),
+              completedAt: null,
+            }
+            break
+          case 'sub_agent_iteration':
+            if (state.activeSubAgent) {
+              state.activeSubAgent.iteration = event.iteration
+            }
+            break
+          case 'sub_agent_tool_call':
+            if (state.activeSubAgent) {
+              const existing = state.activeSubAgent.toolCalls.find((t) => t.id === event.toolCall.id)
+              if (existing) {
+                Object.assign(existing, event.toolCall)
+              } else {
+                state.activeSubAgent.toolCalls.push(event.toolCall)
+              }
+            }
+            break
+          case 'sub_agent_text_delta':
+            if (state.activeSubAgent) {
+              state.activeSubAgent.streamingText += event.text
+            }
+            break
+          case 'sub_agent_end':
+            if (state.activeSubAgent) {
+              state.activeSubAgent.isRunning = false
+              state.activeSubAgent.completedAt = Date.now()
+              // Also archive to completedSubAgents immediately
+              state.completedSubAgents[state.activeSubAgent.name] = state.activeSubAgent
+            }
+            break
+        }
+      })
+    },
 
     abort: () => {
       set({ isRunning: false, currentLoopId: null })

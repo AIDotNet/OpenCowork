@@ -120,5 +120,47 @@
   }
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(0.7 0 0 / 0.25);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.6 0 0 / 0.4);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: oklch(0.5 0 0 / 0.3);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.6 0 0 / 0.45);
+}
+
+/* Selection */
+::selection {
+  background: oklch(0.65 0.15 250 / 0.3);
+}
+
+/* Smooth global transitions */
+* {
+  scroll-behavior: smooth;
+}
+
+/* Title bar drag region */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
 }

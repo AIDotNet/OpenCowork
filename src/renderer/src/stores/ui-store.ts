@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 export type AppMode = 'chat' | 'cowork' | 'code'
-export type RightPanelTab = 'steps' | 'artifacts' | 'context' | 'skills'
+export type RightPanelTab = 'steps' | 'artifacts' | 'context' | 'skills' | 'files'
 
 interface UIStore {
   mode: AppMode
@@ -20,6 +20,13 @@ interface UIStore {
 
   settingsOpen: boolean
   setSettingsOpen: (open: boolean) => void
+
+  shortcutsOpen: boolean
+  setShortcutsOpen: (open: boolean) => void
+
+  /** Text to insert into chat input (consumed by InputArea) */
+  pendingInsertText: string | null
+  setPendingInsertText: (text: string | null) => void
 }
 
 export const useUIStore = create<UIStore>((set) => ({
@@ -39,4 +46,10 @@ export const useUIStore = create<UIStore>((set) => ({
 
   settingsOpen: false,
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+
+  shortcutsOpen: false,
+  setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
+
+  pendingInsertText: null,
+  setPendingInsertText: (text) => set({ pendingInsertText: text }),
 }))

@@ -14,6 +14,7 @@ export interface Session {
   createdAt: number
   updatedAt: number
   workingFolder?: string
+  pinned?: boolean
 }
 
 interface ChatStore {
@@ -25,8 +26,12 @@ interface ChatStore {
   deleteSession: (id: string) => void
   setActiveSession: (id: string | null) => void
   updateSessionTitle: (id: string, title: string) => void
+  updateSessionMode: (id: string, mode: SessionMode) => void
   setWorkingFolder: (sessionId: string, folder: string) => void
   clearSessionMessages: (sessionId: string) => void
+  duplicateSession: (sessionId: string) => string | null
+  togglePinSession: (sessionId: string) => void
+  restoreSession: (session: Session) => void
   removeLastAssistantMessage: (sessionId: string) => string | null
   removeLastUserMessage: (sessionId: string) => void
 
@@ -91,10 +96,36 @@ export const useChatStore = create<ChatStore>()(
       })
     },
 
+    updateSessionMode: (id, mode) => {
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === id)
+        if (session) {
+          session.mode = mode
+          session.updatedAt = Date.now()
+        }
+      })
+    },
+
     setWorkingFolder: (sessionId, folder) => {
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (session) session.workingFolder = folder
+      })
+    },
+
+    togglePinSession: (sessionId) => {
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (session) {
+          session.pinned = !session.pinned
+        }
+      })
+    },
+
+    restoreSession: (session) => {
+      set((state) => {
+        state.sessions.push(session)
+        state.activeSessionId = session.id
       })
     },
 
@@ -107,6 +138,26 @@ export const useChatStore = create<ChatStore>()(
           session.updatedAt = Date.now()
         }
       })
+    },
+
+    duplicateSession: (sessionId) => {
+      const source = get().sessions.find((s) => s.id === sessionId)
+      if (!source) return null
+      const newId = nanoid()
+      const now = Date.now()
+      set((state) => {
+        state.sessions.push({
+          id: newId,
+          title: `${source.title} (copy)`,
+          mode: source.mode,
+          messages: JSON.parse(JSON.stringify(source.messages)),
+          createdAt: now,
+          updatedAt: now,
+          workingFolder: source.workingFolder,
+        })
+        state.activeSessionId = newId
+      })
+      return newId
     },
 
     removeLastAssistantMessage: (sessionId) => {

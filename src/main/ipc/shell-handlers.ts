@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, shell } from 'electron'
 import { exec } from 'child_process'
 
 export function registerShellHandlers(): void {
@@ -34,4 +34,14 @@ export function registerShellHandlers(): void {
       })
     }
   )
+
+  ipcMain.handle('shell:openPath', async (_event, folderPath: string) => {
+    return shell.openPath(folderPath)
+  })
+
+  ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+    if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+      return shell.openExternal(url)
+    }
+  })
 }

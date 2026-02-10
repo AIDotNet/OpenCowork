@@ -6,6 +6,7 @@ import { ErrorBoundary } from './components/error-boundary'
 import { useSettingsStore } from './stores/settings-store'
 import { registerAllTools } from './lib/tools'
 import { registerAllProviders } from './lib/api'
+import { toast } from 'sonner'
 
 // Register all built-in tools and API providers at startup
 registerAllTools()
@@ -26,6 +27,18 @@ function App(): React.JSX.Element {
       .catch(() => {
         // Ignore — main process may not have a stored key yet
       })
+  }, [])
+
+  // Global unhandled promise rejection handler
+  useEffect(() => {
+    const handler = (e: PromiseRejectionEvent): void => {
+      console.error('[Unhandled Rejection]', e.reason)
+      toast.error('Unhandled Error', {
+        description: e.reason?.message || String(e.reason),
+      })
+    }
+    window.addEventListener('unhandledrejection', handler)
+    return () => window.removeEventListener('unhandledrejection', handler)
   }, [])
 
   return (

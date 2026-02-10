@@ -100,6 +100,9 @@ export async function* runAgentLoop(
 
           case 'message_end':
             stopReason = event.stopReason ?? ''
+            if (event.usage) {
+              yield { type: 'message_end', usage: event.usage }
+            }
             break
 
           case 'error':

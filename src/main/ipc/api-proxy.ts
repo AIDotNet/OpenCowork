@@ -12,6 +12,44 @@ interface APIStreamRequest {
 }
 
 export function registerApiProxyHandlers(): void {
+  // Handle non-streaming API requests (e.g., test connection)
+  ipcMain.handle('api:request', async (_event, req: Omit<APIStreamRequest, 'requestId'>) => {
+    const { url, method, headers, body } = req
+    const parsedUrl = new URL(url)
+    const isHttps = parsedUrl.protocol === 'https:'
+    const httpModule = isHttps ? https : http
+
+    return new Promise((resolve) => {
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (isHttps ? 443 : 80),
+        path: parsedUrl.pathname + parsedUrl.search,
+        method,
+        headers,
+      }
+
+      const httpReq = httpModule.request(options, (res) => {
+        let responseBody = ''
+        res.on('data', (chunk: Buffer) => { responseBody += chunk.toString() })
+        res.on('end', () => {
+          resolve({ statusCode: res.statusCode, body: responseBody.slice(0, 2000) })
+        })
+      })
+
+      httpReq.on('error', (err) => {
+        resolve({ statusCode: 0, error: err.message })
+      })
+
+      httpReq.setTimeout(10000, () => {
+        httpReq.destroy()
+        resolve({ statusCode: 0, error: 'Request timed out (10s)' })
+      })
+
+      if (body) httpReq.write(body)
+      httpReq.end()
+    })
+  })
+
   // Handle streaming API requests from renderer
   ipcMain.on('api:stream-request', (event, req: APIStreamRequest) => {
     const { requestId, url, method, headers, body } = req

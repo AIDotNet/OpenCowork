@@ -33,6 +33,7 @@ export type AgentEvent =
   | { type: 'loop_start' }
   | { type: 'iteration_start'; iteration: number }
   | { type: 'text_delta'; text: string }
+  | { type: 'message_end'; usage?: { inputTokens: number; outputTokens: number } }
   | { type: 'tool_call_start'; toolCall: ToolCallState }
   | { type: 'tool_call_approval_needed'; toolCall: ToolCallState }
   | { type: 'tool_call_result'; toolCall: ToolCallState }

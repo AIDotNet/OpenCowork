@@ -4,6 +4,7 @@ import { toolRegistry } from '../tool-registry'
 import type { AgentLoopConfig } from '../types'
 import type { UnifiedMessage, ProviderConfig, TokenUsage } from '../../api/types'
 import type { SubAgentRunConfig, SubAgentResult } from './types'
+import { ipcClient } from '../../ipc/ipc-client'
 
 /**
  * Run a SubAgent — executes an inner agent loop with a focused system prompt
@@ -18,9 +19,10 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
   // Emit start event
   onEvent?.({ type: 'sub_agent_start', subAgentName: definition.name, toolUseId, input })
 
-  // 1. Build inner tool definitions (subset of parent's tools)
+  // 1. Build inner tool definitions (subset of parent's tools + always include Skill)
   const allDefs = toolRegistry.getDefinitions()
   const allowedSet = new Set(definition.allowedTools)
+  allowedSet.add('Skill') // All SubAgents get Skill access by default
   const innerTools = allDefs.filter((t) => allowedSet.has(t.name))
 
   // 2. Build provider config (optionally override model/temperature)
@@ -34,17 +36,29 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
   // 3. Build initial user message from SubAgent input
   const userMessage = formatInputAsMessage(definition.name, input)
 
-  // 4. Build inner loop config
+  // 4. Fetch available skills and append to system prompt
+  let systemPrompt = definition.systemPrompt
+  try {
+    const skills = await ipcClient.invoke('skills:list') as { name: string; description: string }[]
+    if (Array.isArray(skills) && skills.length > 0) {
+      const skillLines = skills.map((s) => `- **${s.name}**: ${s.description}`).join('\n')
+      systemPrompt += `\n\n<skills_priority_rule>\n**CRITICAL — READ THIS FIRST:**\nYou have access to the **Skill** tool. Before using ANY of your core tools, check the list below. If the user's task matches a Skill's description (e.g. web searching, web scraping, PDF analysis), you **MUST** call the Skill tool FIRST to load its expert instructions, then follow those instructions strictly.\n\nDo NOT attempt to solve tasks covered by a Skill using only your core tools. Skills contain curated scripts and workflows that produce far better results.\n\n**Retry on failure**: If a Skill's script fails (e.g. missing dependency, import error), fix the issue (install the dependency) and then **re-run the exact same script command**. NEVER replace a Skill's script with your own inline code (\`python -c "..."\`) or ad-hoc scripts.\n\nAvailable skills:\n${skillLines}\n</skills_priority_rule>`
+    }
+  } catch {
+    // Skills unavailable — proceed without them
+  }
+
+  // 5. Build inner loop config
   const loopConfig: AgentLoopConfig = {
     maxIterations: definition.maxIterations,
     provider: innerProvider,
     tools: innerTools,
-    systemPrompt: definition.systemPrompt,
+    systemPrompt,
     workingFolder: toolContext.workingFolder,
     signal: toolContext.signal,
   }
 
-  // 5. Run inner agent loop
+  // 6. Run inner agent loop
   let output = ''
   let toolCallCount = 0
   let iterations = 0
@@ -127,7 +141,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
     return result
   }
 
-  // 6. Format output
+  // 7. Format output
   const finalOutput = definition.formatOutput
     ? definition.formatOutput({ success: true, output, toolCallCount, iterations, usage: totalUsage })
     : output
@@ -146,7 +160,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
 
 // --- Helpers ---
 
-const READ_ONLY_SET = new Set(['Read', 'LS', 'Glob', 'Grep', 'TodoRead'])
+const READ_ONLY_SET = new Set(['Read', 'LS', 'Glob', 'Grep', 'TodoRead', 'Skill'])
 
 function isReadOnly(toolName: string): boolean {
   return READ_ONLY_SET.has(toolName)

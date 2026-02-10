@@ -16,6 +16,7 @@ import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust'
 import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
 import { Avatar, AvatarFallback } from '@renderer/components/ui/avatar'
+import { useTypewriter } from '@renderer/hooks/use-typewriter'
 import { Bot, Copy, Check, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import type { ContentBlock, TokenUsage } from '@renderer/lib/api/types'
 import { ToolCallCard } from './ToolCallCard'
@@ -148,6 +149,11 @@ function MarkdownContent({ text }: { text: string }): React.JSX.Element {
   )
 }
 
+function StreamingMarkdownContent({ text, isStreaming }: { text: string; isStreaming: boolean }): React.JSX.Element {
+  const displayed = useTypewriter(text, isStreaming)
+  return <MarkdownContent text={displayed} />
+}
+
 export function AssistantMessage({ content, isStreaming, usage, toolResults }: AssistantMessageProps): React.JSX.Element {
   const [toolsCollapsed, setToolsCollapsed] = useState(false)
 
@@ -180,13 +186,16 @@ export function AssistantMessage({ content, isStreaming, usage, toolResults }: A
     if (typeof content === 'string') {
       return (
         <div className="prose prose-sm dark:prose-invert max-w-none">
-          <MarkdownContent text={content} />
+          <StreamingMarkdownContent text={content} isStreaming={!!isStreaming} />
           {isStreaming && <span className="inline-block w-1.5 h-4 bg-foreground/70 animate-pulse ml-0.5" />}
         </div>
       )
     }
 
     const toolCount = content.filter((b) => b.type === 'tool_use').length
+    const lastTextIdx = isStreaming
+      ? content.reduce((acc: number, b, idx) => (b.type === 'text' ? idx : acc), -1)
+      : -1
 
     return (
       <div className="space-y-2">
@@ -214,7 +223,7 @@ export function AssistantMessage({ content, isStreaming, usage, toolResults }: A
             case 'text':
               return (
                 <div key={i} className="prose prose-sm dark:prose-invert max-w-none">
-                  <MarkdownContent text={block.text} />
+                  <StreamingMarkdownContent text={block.text} isStreaming={i === lastTextIdx} />
                 </div>
               )
             case 'tool_use':

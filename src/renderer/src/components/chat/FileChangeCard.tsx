@@ -256,34 +256,42 @@ function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): Rea
 
 // ── New File Content View ────────────────────────────────────────
 
-function NewFileContent({ content, filePath }: { content: string; filePath: string }): React.JSX.Element {
+function NewFileContent({ content, filePath, isStreaming }: { content: string; filePath: string; isStreaming?: boolean }): React.JSX.Element {
   const lang = detectLang(filePath)
   const lines = content.split('\n').length
-  const truncated = lines > 50
+  const truncated = !isStreaming && lines > 50
   const displayed = truncated ? content.split('\n').slice(0, 50).join('\n') : content
   const [expanded, setExpanded] = React.useState(false)
+  const codeRef = React.useRef<HTMLDivElement>(null)
+
+  // During streaming, auto-scroll the code block to show latest generated lines
+  React.useEffect(() => {
+    if (isStreaming && codeRef.current) {
+      codeRef.current.scrollTop = codeRef.current.scrollHeight
+    }
+  }, [isStreaming, content])
 
   return (
     <div>
-      <SyntaxHighlighter
-        language={lang}
-        style={oneDark}
-        customStyle={{
-          margin: 0,
-          padding: '0.5rem',
-          fontSize: '11px',
-          maxHeight: expanded ? '600px' : '200px',
-          overflow: 'auto',
-          background: 'transparent',
-          fontFamily: MONO_FONT,
-        }}
-        codeTagProps={{ style: { fontFamily: 'inherit' } }}
-        showLineNumbers
-        lineNumberStyle={{ minWidth: '2em', paddingRight: '0.5em', color: 'rgba(74,222,128,0.3)', userSelect: 'none' }}
-        lineProps={() => ({ style: { background: 'rgba(74,222,128,0.05)' } })}
-      >
-        {expanded ? content : displayed}
-      </SyntaxHighlighter>
+      <div ref={codeRef} style={{ maxHeight: isStreaming ? '400px' : expanded ? '600px' : '200px', overflow: 'auto' }}>
+        <SyntaxHighlighter
+          language={lang}
+          style={oneDark}
+          customStyle={{
+            margin: 0,
+            padding: '0.5rem',
+            fontSize: '11px',
+            background: 'transparent',
+            fontFamily: MONO_FONT,
+          }}
+          codeTagProps={{ style: { fontFamily: 'inherit' } }}
+          showLineNumbers
+          lineNumberStyle={{ minWidth: '2em', paddingRight: '0.5em', color: 'rgba(74,222,128,0.3)', userSelect: 'none' }}
+          lineProps={() => ({ style: { background: 'rgba(74,222,128,0.05)' } })}
+        >
+          {expanded || isStreaming ? content : displayed}
+        </SyntaxHighlighter>
+      </div>
       {truncated && !expanded && (
         <button
           onClick={() => setExpanded(true)}
@@ -308,6 +316,15 @@ export function FileChangeCard({
   completedAt,
 }: FileChangeCardProps): React.JSX.Element {
   const [collapsed, setCollapsed] = React.useState(false)
+
+  // Auto-collapse when tool completes successfully
+  const prevStatusRef = React.useRef(status)
+  React.useEffect(() => {
+    if (prevStatusRef.current !== 'completed' && status === 'completed' && !error) {
+      setCollapsed(true)
+    }
+    prevStatusRef.current = status
+  }, [status, error])
 
   const filePath = String(input.file_path ?? input.path ?? '')
   const elapsed = startedAt && completedAt ? ((completedAt - startedAt) / 1000).toFixed(1) + 's' : null
@@ -375,7 +392,7 @@ export function FileChangeCard({
 
           {/* Write: new file content */}
           {name === 'Write' && !!input.content && (
-            <NewFileContent content={String(input.content)} filePath={filePath} />
+            <NewFileContent content={String(input.content)} filePath={filePath} isStreaming={status === 'streaming'} />
           )}
 
           {/* Delete: minimal indicator */}

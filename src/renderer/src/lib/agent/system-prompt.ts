@@ -42,15 +42,23 @@ export function buildSystemPrompt(options: {
   }
 
   // ── Environment Context ──
-  const platform = typeof navigator !== 'undefined' ? navigator.platform : 'unknown'
-  const shell = platform.startsWith('Win') ? 'PowerShell' : 'bash'
+  const rawPlatform = typeof navigator !== 'undefined' ? navigator.platform : 'unknown'
+  const osName = rawPlatform.startsWith('Win')
+    ? 'Windows'
+    : rawPlatform.startsWith('Mac')
+      ? 'macOS'
+      : rawPlatform.startsWith('Linux')
+        ? 'Linux'
+        : rawPlatform
+  const shell = rawPlatform.startsWith('Win') ? 'PowerShell' : 'bash'
   const now = new Date()
+  const isoDate = now.toISOString().slice(0, 10) // YYYY-MM-DD
+  const readableDate = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
   parts.push(
     `\n## Environment`,
-    `- Platform: ${platform}`,
+    `- Operating System: ${osName}`,
     `- Shell: ${shell}`,
-    `- Date: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
-    `- Time: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+    `- Today's Date: ${isoDate} (${readableDate})`
   )
 
   // ── Communication Style ──
@@ -98,6 +106,30 @@ export function buildSystemPrompt(options: {
     )
   }
 
+  // ── Skills (placed early for high attention) ──
+  if (skills && skills.length > 0) {
+    parts.push(
+      `\n<skills>`,
+      `## SKILL SYSTEM — READ BEFORE ACTING`,
+      `You have access to **Skills** — pre-defined expert scripts and step-by-step instructions for specialized tasks. Skills are your MOST RELIABLE way to handle these tasks.`,
+      `\n**Available skills:**`,
+      ...skills.map((s) => `- **${s.name}**: ${s.description}`),
+      `\n### ⚠️ MANDATORY Skill Priority Rule`,
+      `**BEFORE using Shell, Read, Write, or ANY other tool, check if the user's request matches a Skill above.**`,
+      `If it matches, your FIRST tool call MUST be the **Skill** tool to load its instructions. Do NOT attempt to solve it yourself with ad-hoc code — even if you know how. Skills contain curated scripts with proper encoding handling, error recovery, and output formatting that ad-hoc approaches will miss.`,
+      `\n### How to use Skills`,
+      `1. **Match**: Before starting any task, check if it matches an available Skill's description above.`,
+      `2. **Load**: Call the Skill tool with the matching SkillName to load its full instructions. This MUST be your first tool call for matching tasks.`,
+      `3. **Read carefully**: After loading, read the Skill's content thoroughly before taking any action.`,
+      `4. **Follow strictly**: Execute the Skill's instructions step-by-step. Do NOT skip steps, reorder them, or substitute your own approach.`,
+      `5. **Retry on failure**: If a Skill's script fails (e.g. missing dependency), fix the issue (install the dependency) and then **re-run the exact same script command**. NEVER replace a Skill's script with your own inline code (\`python -c "..."\`) or ad-hoc scripts.`,
+      `6. **Combine with TodoWrite**: For Skills with multiple steps, create a Todo list to track progress.`,
+      `\n### Explicit Skill Selection`,
+      `If the user's message begins with "[Skill: <name>]", immediately call the Skill tool with that SkillName as your first action.`,
+      `</skills>`
+    )
+  }
+
   // ── Tool Calling Guidelines ──
   parts.push(
     `\n<tool_calling>`,
@@ -114,6 +146,7 @@ export function buildSystemPrompt(options: {
     `- You can call multiple tools in parallel; prioritize calling independent tools simultaneously whenever possible.`,
     `- Batch independent actions into parallel tool calls and keep dependent or destructive commands sequential.`,
     `- IMPORTANT: If you need to explore the codebase to gather context, and the task does not involve a single file or function which is provided by name, you should use the CodeSearch SubAgent first instead of running many sequential search commands.`,
+    `- **SKILL-FIRST RULE**: If the user's request involves web scraping, web searching, PDF analysis, or any other task that matches an available Skill, you MUST call the Skill tool FIRST before using any other tool. Do NOT write ad-hoc code for tasks covered by Skills.`,
     `</tool_calling>`
   )
 
@@ -254,27 +287,6 @@ export function buildSystemPrompt(options: {
       `- **Graceful shutdown**: Use TeamSendMessage with type "shutdown_request" to ask a teammate to finish their current work and stop. This is preferred over hard-stopping which interrupts mid-tool-call.`,
       `- **Task dependencies**: Tasks with \`depends_on\` won't be auto-claimed until all dependency tasks are completed.`,
       `- **Monitoring**: Use TeamStatus at any time for a non-blocking snapshot of team progress. Use TaskList to check task-specific status.`
-    )
-  }
-
-  // ── Skills ──
-  if (skills && skills.length > 0) {
-    parts.push(
-      `\n<skills>`,
-      `You have access to Skills — pre-defined expert knowledge and step-by-step instructions for specific tasks. Skills are your most reliable way to handle specialized tasks correctly.`,
-      `\nAvailable skills:`,
-      ...skills.map((s) => `- **${s.name}**: ${s.description}`),
-      `\n### Skill Priority Rule`,
-      `**When a user's request matches any available Skill's description, you MUST use that Skill to solve the task.** Do NOT attempt to solve it from scratch on your own if a matching Skill exists. Skills contain curated, tested instructions that produce better results than ad-hoc approaches.`,
-      `\n### How to use Skills`,
-      `1. **Match**: Before starting any task, check if it matches an available Skill's description above.`,
-      `2. **Load**: Call the Skill tool with the matching SkillName to load its full instructions.`,
-      `3. **Read carefully**: After loading, read the Skill's content thoroughly. Understand every step, requirement, and constraint described in the Skill before taking any action.`,
-      `4. **Follow strictly**: Execute the task by following the Skill's instructions step-by-step. Do NOT skip steps, reorder them, or substitute your own approach. The Skill's instructions are authoritative — treat them as your execution plan.`,
-      `5. **Combine with TodoWrite**: For Skills with multiple steps, create a Todo list based on the Skill's instructions to track your progress through each step.`,
-      `\n### Explicit Skill Selection`,
-      `If the user's message begins with "[Skill: <name>]", it means they have explicitly selected that skill. You MUST immediately call the Skill tool with that SkillName as your first action, then follow the loaded instructions to complete the user's request.`,
-      `</skills>`
     )
   }
 

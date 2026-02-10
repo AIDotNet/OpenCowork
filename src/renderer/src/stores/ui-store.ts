@@ -6,7 +6,7 @@ export type AppMode = 'chat' | 'cowork' | 'code'
 
 export type RightPanelTab = 'steps' | 'team' | 'artifacts' | 'context' | 'skills' | 'files'
 
-export type PreviewSource = 'file' | 'dev-server'
+export type PreviewSource = 'file' | 'dev-server' | 'markdown'
 
 export interface PreviewPanelState {
   source: PreviewSource
@@ -15,6 +15,10 @@ export interface PreviewPanelState {
   viewerType: string
   port?: number
   projectDir?: string
+  /** In-memory markdown content (used when source is 'markdown') */
+  markdownContent?: string
+  /** Title for markdown preview */
+  markdownTitle?: string
 }
 
 
@@ -96,6 +100,7 @@ interface UIStore {
   previewPanelState: PreviewPanelState | null
   openFilePreview: (filePath: string, viewMode?: 'preview' | 'code') => void
   openDevServerPreview: (projectDir: string, port: number) => void
+  openMarkdownPreview: (title: string, content: string) => void
   closePreviewPanel: () => void
   setPreviewViewMode: (mode: 'preview' | 'code') => void
 }
@@ -176,6 +181,7 @@ export const useUIStore = create<UIStore>((set) => ({
         viewerType,
       },
       leftSidebarOpen: false,
+      rightPanelOpen: false,
     })
   },
   openDevServerPreview: (projectDir, port) => set({
@@ -187,6 +193,18 @@ export const useUIStore = create<UIStore>((set) => ({
       viewerType: 'dev-server',
       port,
       projectDir,
+    },
+    leftSidebarOpen: false,
+  }),
+  openMarkdownPreview: (title, content) => set({
+    previewPanelOpen: true,
+    previewPanelState: {
+      source: 'markdown',
+      filePath: '',
+      viewMode: 'preview',
+      viewerType: 'markdown',
+      markdownContent: content,
+      markdownTitle: title,
     },
     leftSidebarOpen: false,
   }),

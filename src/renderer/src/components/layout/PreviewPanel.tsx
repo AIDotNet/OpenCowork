@@ -1,11 +1,13 @@
 import { useCallback, useState } from 'react'
-import { X, Code2, Eye, RefreshCw, Save } from 'lucide-react'
+import { X, Code2, Eye, RefreshCw, Save, Copy, Check, Bot } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useFileWatcher } from '@renderer/hooks/use-file-watcher'
 import { viewerRegistry } from '@renderer/lib/preview/viewer-registry'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +24,7 @@ export function PreviewPanel(): React.JSX.Element {
   const closePreviewPanel = useUIStore((s) => s.closePreviewPanel)
   const setViewMode = useUIStore((s) => s.setPreviewViewMode)
 
+  const isMarkdown = state?.source === 'markdown'
   const filePath = state?.source === 'file' ? state.filePath : null
   const { content, setContent, reload } = useFileWatcher(filePath)
   const [modified, setModified] = useState(false)
@@ -73,22 +76,34 @@ export function PreviewPanel(): React.JSX.Element {
     }
   }, [pendingClose, closePreviewPanel])
 
+  const [copied, setCopied] = useState(false)
+  const handleCopyMarkdown = useCallback(() => {
+    if (state?.markdownContent) {
+      navigator.clipboard.writeText(state.markdownContent)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }
+  }, [state?.markdownContent])
+
   if (!state) return <div />
 
   const viewerDef = viewerRegistry.getByType(state.viewerType)
   const ViewerComponent = viewerDef?.component
 
-  const fileName = state.filePath ? state.filePath.split(/[\\/]/).pop() || state.filePath : 'Dev Server'
+  const fileName = isMarkdown
+    ? (state.markdownTitle || 'Markdown Preview')
+    : state.filePath ? state.filePath.split(/[\/]/).pop() || state.filePath : 'Dev Server'
 
   return (
     <div className="flex min-w-0 flex-1 flex-col border-l bg-background">
       {/* Header */}
       <div className="flex h-10 items-center gap-2 border-b px-3">
+        {isMarkdown && <Bot className="size-3.5 text-violet-500 shrink-0" />}
         <span className="truncate text-xs font-medium">{fileName}</span>
         {modified && <span className="text-[10px] text-amber-500">modified</span>}
         <div className="flex-1" />
 
-        {/* View mode toggle */}
+        {/* View mode toggle (file HTML only) */}
         {state.source === 'file' && state.viewerType === 'html' && (
           <div className="flex items-center rounded-md border p-0.5">
             <Button
@@ -110,14 +125,25 @@ export function PreviewPanel(): React.JSX.Element {
           </div>
         )}
 
-        {modified && (
+        {/* Markdown copy button */}
+        {isMarkdown && (
+          <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={handleCopyMarkdown}>
+            {copied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
+        )}
+
+        {/* File-specific buttons */}
+        {!isMarkdown && modified && (
           <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={handleSave}>
             <Save className="size-3" /> Save
           </Button>
         )}
-        <Button variant="ghost" size="sm" className="h-6 px-1" onClick={reload}>
-          <RefreshCw className="size-3" />
-        </Button>
+        {!isMarkdown && (
+          <Button variant="ghost" size="sm" className="h-6 px-1" onClick={reload}>
+            <RefreshCw className="size-3" />
+          </Button>
+        )}
         <Button variant="ghost" size="sm" className="h-6 px-1" onClick={handleClose}>
           <X className="size-3.5" />
         </Button>
@@ -125,7 +151,15 @@ export function PreviewPanel(): React.JSX.Element {
 
       {/* Viewer content */}
       <div className="flex-1 overflow-hidden">
-        {ViewerComponent ? (
+        {isMarkdown ? (
+          <div className="size-full overflow-y-auto p-6">
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {state.markdownContent || ''}
+              </ReactMarkdown>
+            </div>
+          </div>
+        ) : ViewerComponent ? (
           <ViewerComponent
             filePath={state.filePath}
             content={content}

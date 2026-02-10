@@ -118,8 +118,14 @@ export function SubAgentCard({ name, toolUseId, input, output, isLive = false }:
   // Query/task description from input
   const queryText = String(input.query ?? input.task ?? input.target ?? '')
 
-  const handleOpenDetail = (): void => {
-    useUIStore.getState().openDetailPanel({ type: 'subagent', toolUseId })
+  const handleOpenPreview = (): void => {
+    // Get the best available text content
+    const previewText = live?.streamingText || histText || ''
+    if (previewText) {
+      useUIStore.getState().openMarkdownPreview(`${name} — Result`, previewText)
+    } else {
+      useUIStore.getState().openDetailPanel({ type: 'subagent', toolUseId })
+    }
   }
 
   return (
@@ -184,7 +190,7 @@ export function SubAgentCard({ name, toolUseId, input, output, isLive = false }:
           )}
         </div>
         <button
-          onClick={(e) => { e.stopPropagation(); handleOpenDetail() }}
+          onClick={(e) => { e.stopPropagation(); handleOpenPreview() }}
           className="rounded-md p-1 text-muted-foreground/30 hover:text-violet-500 hover:bg-violet-500/10 transition-colors shrink-0"
           title="View details"
         >

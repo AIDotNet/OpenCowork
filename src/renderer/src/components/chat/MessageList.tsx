@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { useAgentStore } from '@renderer/stores/agent-store'
 import { MessageItem } from './MessageItem'
 import { MessageSquare, Briefcase, Code2, RefreshCw, ArrowDown, ClipboardCopy, Check } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
@@ -37,6 +38,8 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
   const scrollContainerRef = React.useRef<HTMLDivElement>(null)
   const bottomRef = React.useRef<HTMLDivElement>(null)
   const [isAtBottom, setIsAtBottom] = React.useState(true)
+  const isStreamingRef = React.useRef(false)
+  isStreamingRef.current = !!streamingMessageId
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const messages = activeSession?.messages ?? []
@@ -50,14 +53,27 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
       : JSON.stringify(streamingMsg.content).length
     : 0
 
-  // Track if user is near the bottom via scroll position (more reliable than IntersectionObserver)
+  // Track tool call state changes as additional scroll trigger
+  // (tool cards render/expand during streaming → running → completed transitions)
+  const executedToolCalls = useAgentStore((s) => s.executedToolCalls)
+  const pendingToolCalls = useAgentStore((s) => s.pendingToolCalls)
+  const toolCallFingerprint = React.useMemo(() => {
+    const parts: string[] = []
+    for (const tc of executedToolCalls) parts.push(`${tc.id}:${tc.status}`)
+    for (const tc of pendingToolCalls) parts.push(`${tc.id}:${tc.status}`)
+    return parts.join(',')
+  }, [executedToolCalls, pendingToolCalls])
+
+  // Track if user is near the bottom via scroll position
+  // Use larger threshold during streaming so rapid content growth doesn't break auto-scroll
   React.useEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
 
     const handleScroll = (): void => {
       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-      setIsAtBottom(distanceFromBottom <= 16)
+      const threshold = isStreamingRef.current ? 150 : 16
+      setIsAtBottom(distanceFromBottom <= threshold)
     }
 
     handleScroll()
@@ -65,15 +81,47 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
     return () => container.removeEventListener('scroll', handleScroll)
   }, [messages.length])
 
-  // Auto-scroll to bottom on new messages and during streaming (only if at bottom)
+  // Auto-scroll to bottom on new messages, streaming content, and tool call state changes
   React.useEffect(() => {
-    if (isAtBottom) {
+    if (!isAtBottom) return
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    if (isStreamingRef.current) {
+      // Instant scroll during streaming — smooth animation can't keep up with rapid updates
+      container.scrollTop = container.scrollHeight
+    } else {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages.length, streamingMessageId, streamContentLen, isAtBottom])
+  }, [messages.length, streamingMessageId, streamContentLen, toolCallFingerprint, isAtBottom])
+
+  // Follow DOM height changes during streaming (covers typewriter-driven growth
+  // that happens between store updates and is not caught by streamContentLen).
+  React.useEffect(() => {
+    if (!streamingMessageId) return
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    let lastHeight = container.scrollHeight
+    let rafId: number
+
+    const follow = (): void => {
+      const h = container.scrollHeight
+      if (h !== lastHeight) {
+        lastHeight = h
+        const dist = h - container.scrollTop - container.clientHeight
+        if (dist <= 150) container.scrollTop = h
+      }
+      rafId = requestAnimationFrame(follow)
+    }
+
+    rafId = requestAnimationFrame(follow)
+    return () => cancelAnimationFrame(rafId)
+  }, [streamingMessageId])
 
   const scrollToBottom = React.useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const container = scrollContainerRef.current
+    if (container) container.scrollTop = container.scrollHeight
   }, [])
 
   if (messages.length === 0) {

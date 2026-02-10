@@ -5,21 +5,25 @@ const openPreviewHandler: ToolHandler = {
   definition: {
     name: 'OpenPreview',
     description:
-      'Open a file in the preview panel for the user to view. ' +
-      'Supports HTML files (rendered preview), CSV/TSV spreadsheets (editable table), ' +
-      'and any text file (syntax-highlighted code view). ' +
-      'Use this after creating or editing a file to show the result to the user.',
+      'Open a file in the preview panel so the user can see it immediately. ' +
+      'IMPORTANT: You MUST call this tool right after creating or editing any of these file types:\n' +
+      '- HTML files (.html/.htm): renders a live preview in an iframe, great for data visualizations (ECharts, D3, Chart.js), interactive pages, reports, dashboards, etc.\n' +
+      '- Spreadsheet files (.csv/.tsv): shows an editable table view with undo/redo and search.\n' +
+      '- Any other text/code file: displays with syntax highlighting via Monaco Editor.\n\n' +
+      'When the user asks you to create a chart, visualization, single-page app, report, or any visual output, ' +
+      'prefer generating a self-contained HTML file (with inline CSS/JS and CDN libraries like ECharts, Chart.js, D3, etc.), ' +
+      'then immediately call OpenPreview to show the result. This gives the user instant visual feedback without leaving the app.',
     inputSchema: {
       type: 'object',
       properties: {
         file_path: {
           type: 'string',
-          description: 'Absolute path to the file to preview',
+          description: 'Absolute path to the file to preview. Must be an existing file on disk.',
         },
         view_mode: {
           type: 'string',
           enum: ['preview', 'code'],
-          description: 'View mode: "preview" for rendered view (HTML), "code" for source code. Defaults to auto-detect.',
+          description: 'View mode: "preview" for rendered HTML view, "code" for source code with syntax highlighting. Defaults based on file type (HTML→preview, others→code).',
         },
       },
       required: ['file_path'],

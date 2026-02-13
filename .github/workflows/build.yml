@@ -96,6 +96,8 @@ jobs:
             platform: win
           - os: macos-latest
             platform: mac
+          - os: ubuntu-latest
+            platform: linux
 
     runs-on: ${{ matrix.os }}
 
@@ -114,7 +116,12 @@ jobs:
       # macOS 需要 Python setuptools (node-gyp 依赖)
       - name: Install Python setuptools (macOS)
         if: matrix.platform == 'mac'
-        run: python3 -m pip install setuptools
+        run: python3 -m pip install setuptools --break-system-packages
+
+      # Linux 需要构建原生模块的依赖
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential
 
       - name: Install dependencies
         run: npm ci
@@ -159,6 +166,18 @@ jobs:
             dist/*.dmg
             dist/*.dmg.blockmap
             dist/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Linux artifacts
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-cowork-linux
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.snap
           if-no-files-found: error
           retention-days: 30
 

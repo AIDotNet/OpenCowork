@@ -66,16 +66,13 @@ jobs:
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
             echo "release_body=$(printf '%s' '手动触发构建' | base64 -w 0)" >> "$GITHUB_OUTPUT"
 
-            # 尝试获取已有 Release 的 ID
-            EXISTING_ID=$(gh release view "$TAG" --json id --jq '.id' 2>/dev/null || true)
-            if [ -n "$EXISTING_ID" ]; then
-              echo "release_id=${EXISTING_ID}" >> "$GITHUB_OUTPUT"
-              echo "✅ Found existing Release: ${TAG} (ID: ${EXISTING_ID})"
+            # 尝试查找已有 Release
+            if gh release view "$TAG" > /dev/null 2>&1; then
+              echo "✅ Found existing Release: ${TAG}"
             else
               # 创建 draft Release
-              NEW_ID=$(gh release create "$TAG" --title "Release ${TAG}" --notes "手动触发构建" --draft --json id --jq '.id')
-              echo "release_id=${NEW_ID}" >> "$GITHUB_OUTPUT"
-              echo "✅ Created draft Release: ${TAG} (ID: ${NEW_ID})"
+              gh release create "$TAG" --title "Release ${TAG}" --notes "手动触发构建" --draft
+              echo "✅ Created draft Release: ${TAG}"
             fi
           fi
 

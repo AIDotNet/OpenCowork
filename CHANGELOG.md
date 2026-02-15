@@ -3,6 +3,27 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+-
+## [0.1.5] - 2026-02-15
+
+### Added
+- **Plan Mode pipeline** — new Plan panel, Zustand store, and Enter/ExitPlanMode tools enforce plan-first workflows, write plans to session `.plan/*.md` files, and surface status inside the cowork panel.
+- **AskUserQuestion tool & card** — reactive chat card that collects single/multi-select answers (with "Other" free text) and streams results back to the tool call without blocking the UI.
+- **Dynamic context injection** — first user turn in Cowork/Code modes automatically includes task/plan/file context, reducing repeated instructions for the agent loop.
+- **Persistent plans & tasks tables** — SQLite schema, DAO modules, and IPC handlers store plans/tasks per session for reliable restarts.
+- **Shell execution upgrades** — UTF-8 normalization on Windows, binary-output detection, truncation safeguards, and live `shell:output` streaming via exec IDs.
+- **Provider preset refresh** — latest OpenRouter/Xiaomi models with thinking configs and pricing metadata plus lazy Monaco-powered fallback viewer for file previews.
+
+### Changed
+- Agent loop and chat actions honor plan-mode tool allowlists, auto-register MCP/plugin tools per session, and inject richer debug metadata.
+- Right panel layout (Steps, Plan, Artifacts, preview) updated for plan awareness; Command Palette/AppSidebar and localization strings synced with the new workflow.
+- Settings pages and provider labels expanded for AskUser/Plan terminology, with improved animated transitions and syntax highlighting lazily loaded as needed.
+
+### Fixed
+- Session teardown now clears running-state flags, AskUser pending questions, auto-triggered teammate queues, and plan-mode toggles to avoid leaking into future runs.
+- SQLite racing conditions in sessions/tasks/plans DAO layers resolved, ensuring foreign-key safe inserts/updates and consistent IPC responses.
+- Shell tool no longer crashes on binary output or garbled encoding; chat tool cards correctly render long tool inputs/outputs with truncation markers.
+
 ---
 
 ## [0.1.4] - 2026-02-14

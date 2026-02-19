@@ -20,6 +20,13 @@ import { ModelSwitcher } from './ModelSwitcher'
 import { usePluginStore } from '@renderer/stores/plugin-store'
 import { useMcpStore } from '@renderer/stores/mcp-store'
 import {
+  getPendingSessionMessages,
+  removePendingSessionMessage,
+  subscribePendingSessionMessages,
+  updatePendingSessionMessageText,
+  type PendingSessionMessageItem
+} from '@renderer/hooks/use-chat-actions'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -183,6 +190,7 @@ interface InputHistoryDraft {
   selectedSkill: string | null
 }
 
+const EMPTY_QUEUED_MESSAGES: PendingSessionMessageItem[] = []
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024 // 20 MB
 const INPUT_HISTORY_LIMIT = 30
@@ -269,6 +277,51 @@ export function InputArea({
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const mode = useUIStore((s) => s.mode)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const queuedMessages = React.useSyncExternalStore(
+    subscribePendingSessionMessages,
+    () => (activeSessionId ? getPendingSessionMessages(activeSessionId) : EMPTY_QUEUED_MESSAGES),
+    () => EMPTY_QUEUED_MESSAGES
+  )
+  const [editingQueueItemId, setEditingQueueItemId] = React.useState<string | null>(null)
+  const [editingQueueText, setEditingQueueText] = React.useState('')
+
+  const startEditQueuedMessage = React.useCallback((msg: PendingSessionMessageItem) => {
+    setEditingQueueItemId(msg.id)
+    setEditingQueueText(msg.text)
+  }, [])
+
+  const cancelEditQueuedMessage = React.useCallback(() => {
+    setEditingQueueItemId(null)
+    setEditingQueueText('')
+  }, [])
+
+  const removeQueuedMessage = React.useCallback((id: string) => {
+    if (!activeSessionId) return
+    removePendingSessionMessage(activeSessionId, id)
+    if (editingQueueItemId === id) {
+      setEditingQueueItemId(null)
+      setEditingQueueText('')
+    }
+  }, [activeSessionId, editingQueueItemId])
+
+  const saveQueuedMessage = React.useCallback((id: string) => {
+    if (!activeSessionId) return
+    const current = queuedMessages.find((msg) => msg.id === id)
+    if (!current) return
+
+    const nextText = editingQueueText.trim()
+    if (!nextText && current.images.length === 0) {
+      removePendingSessionMessage(activeSessionId, id)
+      setEditingQueueItemId(null)
+      setEditingQueueText('')
+      return
+    }
+
+    updatePendingSessionMessageText(activeSessionId, id, nextText)
+    setEditingQueueItemId(null)
+    setEditingQueueText('')
+  }, [activeSessionId, queuedMessages, editingQueueText])
+
   const getHistoryKey = React.useCallback(() => activeSessionId ?? PENDING_HISTORY_KEY, [activeSessionId])
   const updateSessionHistory = React.useCallback((updater: (prev: InputHistoryEntry[]) => InputHistoryEntry[]) => {
     const historyKey = getHistoryKey()
@@ -377,6 +430,18 @@ export function InputArea({
   }, [activeSessionId])
 
   React.useEffect(() => {
+    setEditingQueueItemId(null)
+    setEditingQueueText('')
+  }, [activeSessionId])
+
+  React.useEffect(() => {
+    if (!editingQueueItemId) return
+    if (queuedMessages.some((msg) => msg.id === editingQueueItemId)) return
+    setEditingQueueItemId(null)
+    setEditingQueueText('')
+  }, [queuedMessages, editingQueueItemId])
+
+  React.useEffect(() => {
     const prevSessionId = prevSessionIdRef.current
     if (!prevSessionId && activeSessionId) {
       const pendingHistory = historyBySessionRef.current[PENDING_HISTORY_KEY]
@@ -481,7 +546,6 @@ export function InputArea({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (isStreaming) return
       handleSend()
       return
     }
@@ -603,6 +667,94 @@ export function InputArea({
 
       <div className="mx-auto max-w-3xl">
         <div className={`relative rounded-2xl border bg-background shadow-lg transition-shadow focus-within:shadow-xl focus-within:ring-1 focus-within:ring-ring/20 ${dragging ? 'ring-2 ring-primary/50' : ''}`}>
+          {/* Queued message list (while current run is processing) */}
+          {queuedMessages.length > 0 && (
+            <div className="px-3 pt-3 pb-1">
+              <div className="mb-2 flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 px-2.5 py-1.5">
+                <span className="text-xs font-medium text-primary">
+                  {t('input.queueTitle', { defaultValue: '排队消息' })} · {queuedMessages.length}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {t('input.queueHint', { defaultValue: '当前任务结束后按顺序发送' })}
+                </span>
+              </div>
+              <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                {queuedMessages.map((msg) => {
+                  const isEditing = editingQueueItemId === msg.id
+                  return (
+                    <div key={msg.id} className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
+                      <div className="mb-1 flex items-center justify-end">
+                        <div className="flex items-center gap-1">
+                          {isEditing ? (
+                            <>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-[10px]"
+                                onClick={() => saveQueuedMessage(msg.id)}
+                              >
+                                {t('action.save', { ns: 'common', defaultValue: '保存' })}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-[10px]"
+                                onClick={cancelEditQueuedMessage}
+                              >
+                                {t('action.cancel', { ns: 'common' })}
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-[10px]"
+                              onClick={() => startEditQueuedMessage(msg)}
+                            >
+                              {t('action.edit', { ns: 'common', defaultValue: '编辑' })}
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] text-destructive hover:text-destructive"
+                            onClick={() => removeQueuedMessage(msg.id)}
+                          >
+                            {t('action.delete', { ns: 'common', defaultValue: '删除' })}
+                          </Button>
+                        </div>
+                      </div>
+                      {isEditing ? (
+                        <Textarea
+                          value={editingQueueText}
+                          onChange={(e) => setEditingQueueText(e.target.value)}
+                          className="min-h-[56px] max-h-36 resize-none border-border/70 bg-background text-xs"
+                          rows={2}
+                        />
+                      ) : (
+                        <div className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words pr-1 text-xs leading-relaxed">
+                          {msg.text || t('input.queueImageOnly', { defaultValue: '[仅图片]' })}
+                        </div>
+                      )}
+                      {msg.images.length > 0 && (
+                        <p className="mt-1 text-[10px] text-muted-foreground">
+                          {t('input.queueImageCount', {
+                            defaultValue: '{{count}} 张图片',
+                            count: msg.images.length
+                          })}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Skill tag */}
           {selectedSkill && (
             <div className="px-3 pt-3 pb-0">
@@ -737,7 +889,7 @@ export function InputArea({
                       size="icon"
                       className="size-8 rounded-lg text-muted-foreground hover:text-foreground"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={disabled || isStreaming}
+                      disabled={disabled}
                     >
                       <ImagePlus className="size-4" />
                     </Button>
@@ -894,13 +1046,13 @@ export function InputArea({
               )}
 
               {/* Send / Stop button */}
-              {isStreaming ? (
+              {isStreaming && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       variant="destructive"
-                      size="sm"
-                      className="h-8 rounded-lg px-3"
+                      size="icon"
+                      className="size-8 rounded-lg"
                       onClick={onStop}
                     >
                       <Spinner className="size-4 text-white" />
@@ -908,22 +1060,25 @@ export function InputArea({
                   </TooltipTrigger>
                   <TooltipContent>{t('input.stopTooltip')}</TooltipContent>
                 </Tooltip>
-              ) : (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      className="h-8 rounded-lg px-3 bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-sm"
-                      onClick={handleSend}
-                      disabled={(!text.trim() && attachedImages.length === 0) || disabled || needsWorkingFolder}
-                    >
-                      <span>{t('action.start', { ns: 'common' })}</span>
-                      <Send className="size-3.5 ml-1.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('input.sendTooltip')}</TooltipContent>
-                </Tooltip>
               )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    className="h-8 rounded-lg px-3 bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-sm"
+                    onClick={handleSend}
+                    disabled={(!text.trim() && attachedImages.length === 0) || disabled || needsWorkingFolder}
+                  >
+                    <span>{t('action.start', { ns: 'common' })}</span>
+                    <Send className="size-3.5 ml-1.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isStreaming
+                    ? t('input.sendTooltipWhileRunning', { defaultValue: 'Send after current run' })
+                    : t('input.sendTooltip')}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </div>

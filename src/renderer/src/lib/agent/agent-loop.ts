@@ -51,7 +51,9 @@ export async function* runAgentLoop(
         yield { type: 'context_compression_start' }
         try {
           const originalCount = conversationMessages.length
-          conversationMessages = await cc.compressFn(conversationMessages)
+          const compressedMessages = await cc.compressFn(conversationMessages)
+          // Keep loop-local history mutable even if external stores freeze shared arrays.
+          conversationMessages = [...compressedMessages]
           yield {
             type: 'context_compressed',
             originalCount,
@@ -63,7 +65,7 @@ export async function* runAgentLoop(
         }
       } else if (shouldPreCompress(lastInputTokens, cc.config)) {
         // Lightweight pre-compression: clear stale tool results + thinking blocks (no API call)
-        conversationMessages = preCompressMessages(conversationMessages)
+        conversationMessages = [...preCompressMessages(conversationMessages)]
       }
     }
     if (config.signal.aborted) {

@@ -42,10 +42,146 @@ import { registerMcpTools, unregisterMcpTools, isMcpToolsRegistered } from '@ren
 /** Per-session abort controllers — module-level so concurrent sessions don't overwrite each other */
 const sessionAbortControllers = new Map<string, AbortController>()
 
+type MessageSource = 'team' | 'queued'
+
+interface QueuedSessionMessage {
+  id: string
+  text: string
+  images?: ImageAttachment[]
+  source?: MessageSource
+  createdAt: number
+}
+
+/** Per-session pending user sends while the agent is already running. */
+const pendingSessionMessages = new Map<string, QueuedSessionMessage[]>()
+const pendingSessionMessageViews = new Map<string, PendingSessionMessageItem[]>()
+const pendingSessionMessageListeners = new Set<() => void>()
+
+const QUEUED_MESSAGE_SYSTEM_REMIND = `<system-remind>
+A new user message was queued while you were still processing the previous request.
+This message was inserted after that run finished.
+Treat the following user query as the latest instruction and respond to it directly.
+</system-remind>`
+
+const QUEUED_IMAGE_ONLY_TEXT = '[User attached images without additional text.]'
+
+function cloneImageAttachments(images?: ImageAttachment[]): ImageAttachment[] | undefined {
+  if (!images || images.length === 0) return undefined
+  return images.map((img) => ({ ...img }))
+}
+
+function notifyPendingSessionMessageListeners(): void {
+  for (const listener of pendingSessionMessageListeners) {
+    listener()
+  }
+}
+
+function replaceSessionPendingMessages(sessionId: string, next: QueuedSessionMessage[]): void {
+  if (next.length === 0) {
+    pendingSessionMessages.delete(sessionId)
+    pendingSessionMessageViews.delete(sessionId)
+  } else {
+    pendingSessionMessages.set(sessionId, next)
+    pendingSessionMessageViews.set(sessionId, next.map(toPendingItem))
+  }
+  notifyPendingSessionMessageListeners()
+}
+
+export interface PendingSessionMessageItem {
+  id: string
+  text: string
+  images: ImageAttachment[]
+  createdAt: number
+}
+
+const EMPTY_PENDING_SESSION_MESSAGES: PendingSessionMessageItem[] = []
+
+function toPendingItem(msg: QueuedSessionMessage): PendingSessionMessageItem {
+  return {
+    id: msg.id,
+    text: msg.text,
+    images: cloneImageAttachments(msg.images) ?? [],
+    createdAt: msg.createdAt,
+  }
+}
+
+export function subscribePendingSessionMessages(listener: () => void): () => void {
+  pendingSessionMessageListeners.add(listener)
+  return () => {
+    pendingSessionMessageListeners.delete(listener)
+  }
+}
+
+export function getPendingSessionMessages(sessionId: string): PendingSessionMessageItem[] {
+  return pendingSessionMessageViews.get(sessionId) ?? EMPTY_PENDING_SESSION_MESSAGES
+}
+
+export function updatePendingSessionMessageText(sessionId: string, messageId: string, text: string): boolean {
+  const queue = pendingSessionMessages.get(sessionId)
+  if (!queue || queue.length === 0) return false
+  let changed = false
+  const next = queue.map((msg) => {
+    if (msg.id !== messageId) return msg
+    changed = true
+    return { ...msg, text }
+  })
+  if (!changed) return false
+  replaceSessionPendingMessages(sessionId, next)
+  return true
+}
+
+export function removePendingSessionMessage(sessionId: string, messageId: string): boolean {
+  const queue = pendingSessionMessages.get(sessionId)
+  if (!queue || queue.length === 0) return false
+  const next = queue.filter((msg) => msg.id !== messageId)
+  if (next.length === queue.length) return false
+  replaceSessionPendingMessages(sessionId, next)
+  return true
+}
+
+function hasActiveSessionRun(sessionId: string): boolean {
+  const hasAbortController = sessionAbortControllers.has(sessionId)
+  const hasStreamingMessage = Boolean(useChatStore.getState().streamingMessages[sessionId])
+  return hasAbortController || hasStreamingMessage
+}
+
+function enqueuePendingSessionMessage(
+  sessionId: string,
+  msg: Omit<QueuedSessionMessage, 'id' | 'createdAt'>
+): number {
+  const queue = pendingSessionMessages.get(sessionId) ?? []
+  const next = [
+    ...queue,
+    {
+      id: nanoid(),
+      createdAt: Date.now(),
+      text: msg.text,
+      images: cloneImageAttachments(msg.images),
+      source: msg.source,
+    },
+  ]
+  replaceSessionPendingMessages(sessionId, next)
+  return next.length
+}
+
+function dequeuePendingSessionMessage(sessionId: string): QueuedSessionMessage | null {
+  const queue = pendingSessionMessages.get(sessionId)
+  if (!queue || queue.length === 0) return null
+  const [head, ...rest] = queue
+  replaceSessionPendingMessages(sessionId, rest)
+  return {
+    ...head,
+    text: head.text,
+    images: cloneImageAttachments(head.images),
+  }
+}
+
 // ── Team lead auto-trigger: teammate messages → new agent turn ──
 
 /** Module-level ref to the latest sendMessage function from the hook */
-let _sendMessageFn: ((text: string, images?: ImageAttachment[], source?: 'team') => Promise<void>) | null = null
+let _sendMessageFn:
+  | ((text: string, images?: ImageAttachment[], source?: MessageSource, targetSessionId?: string) => Promise<void>)
+  | null = null
 
 /** Queue of teammate messages to lead waiting to be processed */
 const pendingLeadMessages: { from: string; content: string }[] = []
@@ -158,6 +294,25 @@ function drainLeadMessages(): void {
   const text = parts.join('\n\n')
   _autoTriggerCount++
   _sendMessageFn(text, undefined, 'team')
+}
+
+function dispatchNextQueuedMessage(sessionId: string): void {
+  if (!_sendMessageFn) return
+
+  const sessionExists = useChatStore.getState().sessions.some((s) => s.id === sessionId)
+  if (!sessionExists) {
+    replaceSessionPendingMessages(sessionId, [])
+    return
+  }
+
+  if (hasActiveSessionRun(sessionId)) return
+
+  const next = dequeuePendingSessionMessage(sessionId)
+  if (!next) return
+
+  setTimeout(() => {
+    void _sendMessageFn?.(next.text, next.images, next.source ?? 'queued', sessionId)
+  }, 0)
 }
 
 /**
@@ -276,8 +431,24 @@ function createStreamDeltaBuffer(sessionId: string, assistantMsgId: string): Str
   }
 }
 
-export function useChatActions() {
-  const sendMessage = useCallback(async (text: string, images?: ImageAttachment[], source?: 'team') => {
+export function useChatActions(): {
+  sendMessage: (
+    text: string,
+    images?: ImageAttachment[],
+    source?: MessageSource,
+    targetSessionId?: string
+  ) => Promise<void>
+  stopStreaming: () => void
+  retryLastMessage: () => Promise<void>
+  editAndResend: (newContent: string) => Promise<void>
+  manualCompressContext: (focusPrompt?: string) => Promise<void>
+} {
+  const sendMessage = useCallback(async (
+    text: string,
+    images?: ImageAttachment[],
+    source?: MessageSource,
+    targetSessionId?: string
+  ): Promise<void> => {
     // Reset auto-trigger counter and unpause when user manually sends a message
     if (source !== 'team') {
       _autoTriggerCount = 0
@@ -327,27 +498,44 @@ export function useChatActions() {
       return
     }
 
+    if (targetSessionId && !chatStore.sessions.some((s) => s.id === targetSessionId)) {
+      replaceSessionPendingMessages(targetSessionId, [])
+      return
+    }
+
     // Ensure we have an active session
-    let sessionId = chatStore.activeSessionId
+    let sessionId = targetSessionId ?? chatStore.activeSessionId
     if (!sessionId) {
       sessionId = chatStore.createSession(uiStore.mode)
     }
     await chatStore.loadSessionMessages(sessionId)
+
+    const hasActiveRun = hasActiveSessionRun(sessionId)
+    const statusIsRunning = useAgentStore.getState().runningSessions[sessionId] === 'running'
+    const shouldQueue = hasActiveRun || (statusIsRunning && source !== 'queued')
+
+    if (shouldQueue) {
+      enqueuePendingSessionMessage(sessionId, { text, images, source })
+      return
+    }
+
     // After a manual abort, stale errored/orphaned tool blocks can remain at tail
     // and break the next request. Clean them before appending new user input.
-    if (useAgentStore.getState().runningSessions[sessionId] !== 'running') {
-      chatStore.sanitizeToolErrorsForResend(sessionId)
-    }
+    chatStore.sanitizeToolErrorsForResend(sessionId)
     baseProviderConfig.sessionId = sessionId
 
+    const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+    const sessionMode = sessionSnapshot?.mode ?? uiStore.mode
+
     // Check if this is the first user message in the session
-    const currentSession = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-    const isFirstUserMessage = currentSession ? currentSession.messages.filter(m => m.role === 'user').length === 0 : true
-    
+    const isFirstUserMessage = sessionSnapshot
+      ? sessionSnapshot.messages.filter((m) => m.role === 'user').length === 0
+      : true
+
     // Build dynamic context for first message in cowork/code mode (skip for team notifications)
-    const currentMode = uiStore.mode
+    const currentMode = sessionMode
     const shouldInjectContext = isFirstUserMessage && (currentMode === 'cowork' || currentMode === 'code') && !source
-    
+
     let dynamicContext = ''
     if (shouldInjectContext) {
       const { buildDynamicContext } = await import('@renderer/lib/agent/dynamic-context')
@@ -356,8 +544,28 @@ export function useChatActions() {
 
     // Add user message (multi-modal when images attached, with optional dynamic context)
     let userContent: string | ContentBlock[]
-    
-    if (images && images.length > 0) {
+    const isQueuedInsertion = source === 'queued'
+    const normalizedText = text.trim()
+    const textForUserBlock = normalizedText || (images && images.length > 0 ? QUEUED_IMAGE_ONLY_TEXT : '')
+
+    if (isQueuedInsertion) {
+      const queuedBlocks: ContentBlock[] = [
+        { type: 'text', text: QUEUED_MESSAGE_SYSTEM_REMIND },
+        { type: 'text', text: textForUserBlock || text }
+      ]
+      if (images && images.length > 0) {
+        queuedBlocks.push(
+          ...images.map((img) => {
+            const base64 = img.dataUrl.replace(/^data:[^;]+;base64,/, '')
+            return {
+              type: 'image' as const,
+              source: { type: 'base64' as const, mediaType: img.mediaType, data: base64 }
+            }
+          })
+        )
+      }
+      userContent = queuedBlocks
+    } else if (images && images.length > 0) {
       // Images present: always use ContentBlock[] format
       userContent = [
         ...images.map((img) => {
@@ -383,7 +591,7 @@ export function useChatActions() {
       // No images, no dynamic context: use simple string
       userContent = text
     }
-    
+
     const userMsg: UnifiedMessage = {
       id: nanoid(),
       role: 'user',
@@ -428,7 +636,7 @@ export function useChatActions() {
     const abortController = new AbortController()
     sessionAbortControllers.set(sessionId, abortController)
 
-    const mode = uiStore.mode
+    const mode = sessionMode
 
     if (mode === 'chat') {
       // Simple chat mode: single API call, no tools
@@ -449,6 +657,7 @@ export function useChatActions() {
       } finally {
         agentStore.setSessionStatus(sessionId, 'completed')
         sessionAbortControllers.delete(sessionId)
+        dispatchNextQueuedMessage(sessionId)
       }
     } else {
       // Cowork / Code mode: agent loop with tools
@@ -862,6 +1071,7 @@ export function useChatActions() {
           (s) => s === 'running'
         )
         agentStore.setRunning(hasOtherRunning)
+        dispatchNextQueuedMessage(sessionId)
         // Notify when agent finishes and window is not focused
         if (!document.hasFocus() && Notification.permission === 'granted') {
           new Notification('OpenCowork', { body: 'Agent finished working', silent: true })

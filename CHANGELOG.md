@@ -3,7 +3,30 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
--
+## [0.1.6] - 2026-02-19
+
+### Added
+- **Crash logging pipeline** — new `src/main/crash-logger.ts` persists structured JSONL crash events to `~/.open-cowork/logs/crash-YYYY-MM-DD.log`, including process/runtime metadata and normalized payload snapshots.
+- **Main-process crash/lifecycle hooks** — `uncaughtException`, `unhandledRejection`, `child-process-gone`, `render-process-gone`, `unresponsive`, and failed main-frame loads are now captured and written to crash logs.
+- **Background command sessions** — bash commands can run as managed background processes with session/tool metadata, live output streaming, and stdin write support (`process:write`).
+- **Interactive terminal controls in UI** — TopBar badges + DetailPanel terminal view + ToolCallCard actions now support opening, stopping, sending Ctrl+C, and sending stdin to running background commands.
+- **Composer input history** — Input area now supports per-session up/down history recall (text + image attachments + draft restoration).
+
+### Changed
+- Bash tool now auto-detects long-running commands and runs them in background by default, with `run_in_background` and `force_foreground` controls.
+- Provider resolution now supports per-model protocol override (`model.type`), base URL normalization by protocol, and builtin model merging that preserves user-enabled flags while syncing preset metadata.
+- Builtin provider lineup expanded with coding-oriented presets (Moonshot/Qwen/Baidu/MiniMax) and refreshed model catalogs in presets (including GPT-5.* / Codex variants and updated thinking configs).
+- Agent/tool observability improved with foreground shell exec tracking, richer process state in store, and clearer status surfacing in panel components.
+
+### Fixed
+- **OpenAI Responses tools schema** now uses the correct Responses format (`type/name/description/parameters/strict`) instead of Chat-style nested `function`, fixing `Missing required parameter: 'tools[0].name'`.
+- OpenAI-compatible chat streaming now exits safely for providers that do not terminate SSE after `tool_calls`/`stop`, preventing hangs in tool argument streaming.
+- Agent loop now handles partial/malformed tool argument streams more robustly and finalizes dangling tool calls defensively when providers miss explicit `tool_call_end`.
+- `Write` tool now performs explicit input validation and surfaces IPC write failures as tool errors instead of silently returning ambiguous success payloads.
+- Session cleanup now tears down session-bound background processes to avoid orphaned runtime state.
+
+---
+
 ## [0.1.5] - 2026-02-15
 
 ### Added

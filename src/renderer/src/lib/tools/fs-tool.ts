@@ -40,12 +40,12 @@ const readHandler: ToolHandler = {
 const writeHandler: ToolHandler = {
   definition: {
     name: 'Write',
-    description: 'Write content to a file',
+    description: 'Writes a file to the local filesystem.\n\nUsage:\n- This tool will overwrite the existing file if there is one at the provided path.\n- If this is an existing file, you MUST use the Read tool first to read the file\'s contents. This tool will fail if you did not read the file first.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.\n- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.',
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the file' },
-        content: { type: 'string', description: 'Content to write' },
+        file_path: { type: 'string', description: 'The absolute path to the file to write (must be absolute, not relative)' },
+        content: { type: 'string', description: 'The content to write to the file' },
       },
       required: ['file_path', 'content'],
     },
@@ -79,14 +79,23 @@ const writeHandler: ToolHandler = {
 const editHandler: ToolHandler = {
   definition: {
     name: 'Edit',
-    description: 'Perform exact string replacement in a file',
+    description: 'Performs exact string replacements in files. \n\nUsage:\n- You must use your `Read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. \n- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: spaces + line number + tab. Everything after that tab is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`. \n- Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.',
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string' },
-        old_string: { type: 'string' },
-        new_string: { type: 'string' },
-        replace_all: { type: 'boolean', description: 'Replace all occurrences (default false)' },
+        file_path: {
+          type: 'string',
+          description: 'The absolute path to the file to modify'
+        },
+        old_string: {
+          type: 'string',
+          description: "The text to replace"
+        },
+        new_string: {
+          type: 'string',
+          description: "The text to replace it with (must be different from old_string)"
+        },
+        replace_all: { type: 'boolean', description: 'Replace all occurences of old_string (default false)' },
       },
       required: ['file_path', 'old_string', 'new_string'],
     },
@@ -112,6 +121,134 @@ const editHandler: ToolHandler = {
     }
 
     await ctx.ipc.invoke(IPC.FS_WRITE_FILE, { path: input.file_path, content: updated })
+    return JSON.stringify({ success: true })
+  },
+  requiresApproval: (input, ctx) => {
+    const filePath = String(input.file_path)
+    if (!ctx.workingFolder) return true
+    return !filePath.startsWith(ctx.workingFolder)
+  },
+}
+
+const multiEditHandler: ToolHandler = {
+  definition: {
+    name: 'MultiEdit',
+    description:
+      'This is a tool for making multiple edits to a single file in one operation. It is built on top of the Edit tool and allows you to perform multiple find-and-replace operations efficiently. Prefer this tool over the Edit tool when you need to make multiple edits to the same file.\n\nBefore using this tool:\n\n1. Use the Read tool to understand the file\'s contents and context\n2. Verify the directory path is correct\n\nTo make multiple file edits, provide the following:\n1. file_path: The absolute path to the file to modify (must be absolute, not relative)\n2. edits: An array of edit operations to perform, where each edit contains:\n   - old_string: The text to replace (must match the file contents exactly, including all whitespace and indentation)\n   - new_string: The edited text to replace the old_string\n   - replace_all: Replace all occurences of old_string. This parameter is optional and defaults to false.\n\nIMPORTANT:\n- All edits are applied in sequence, in the order they are provided\n- Each edit operates on the result of the previous edit\n- All edits must be valid for the operation to succeed - if any edit fails, none will be applied\n- This tool is ideal when you need to make several changes to different parts of the same file\n- For Jupyter notebooks (.ipynb files), use the NotebookEdit instead\n\nCRITICAL REQUIREMENTS:\n1. All edits follow the same requirements as the single Edit tool\n2. The edits are atomic - either all succeed or none are applied\n3. Plan your edits carefully to avoid conflicts between sequential operations\n\nWARNING:\n- The tool will fail if edits.old_string doesn\'t match the file contents exactly (including whitespace)\n- The tool will fail if edits.old_string and edits.new_string are the same\n- Since edits are applied in sequence, ensure that earlier edits don\'t affect the text that later edits are trying to find\n\nWhen making edits:\n- Ensure all edits result in idiomatic, correct code\n- Do not leave the code in a broken state\n- Always use absolute file paths (starting with /)\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\n\nIf you want to create a new file, use:\n- A new file path, including dir name if needed\n- First edit: empty old_string and the new file\'s contents as new_string\n- Subsequent edits: normal edit operations on the created content',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: {
+          type: 'string',
+          description: 'The absolute path to the file to modify',
+        },
+        edits: {
+          type: 'array',
+          description: 'Array of edit operations to perform sequentially on the file',
+          minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              old_string: {
+                type: 'string',
+                description: 'The text to replace',
+              },
+              new_string: {
+                type: 'string',
+                description: 'The text to replace it with',
+              },
+              replace_all: {
+                type: 'boolean',
+                default: false,
+                description: 'Replace all occurences of old_string (default false).',
+              },
+            },
+            required: ['old_string', 'new_string'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['file_path', 'edits'],
+    },
+  },
+  execute: async (input, ctx) => {
+    const filePath = typeof input.file_path === 'string' ? input.file_path : ''
+    if (!filePath) {
+      throw new Error('MultiEdit requires a non-empty "file_path" string')
+    }
+
+    if (!Array.isArray(input.edits) || input.edits.length === 0) {
+      throw new Error('MultiEdit requires a non-empty "edits" array')
+    }
+
+    const readResult = await ctx.ipc.invoke(IPC.FS_READ_FILE, { path: filePath })
+
+    let content: string
+    if (typeof readResult === 'string') {
+      const readError = tryParseReadError(readResult)
+      if (readError) {
+        if (readError.includes('ENOENT')) {
+          content = ''
+        } else {
+          throw new Error(`MultiEdit read failed: ${readError}`)
+        }
+      } else {
+        content = readResult
+      }
+    } else if (!readResult) {
+      content = ''
+    } else if (typeof readResult === 'object' && (readResult as { type?: unknown }).type === 'image') {
+      throw new Error('MultiEdit only supports text files')
+    } else {
+      content = String(readResult)
+    }
+
+    let updatedContent = content
+
+    for (let i = 0; i < input.edits.length; i += 1) {
+      const edit = input.edits[i]
+      if (!edit || typeof edit !== 'object') {
+        throw new Error(`MultiEdit edits[${i}] must be an object`)
+      }
+
+      const oldStr = (edit as { old_string?: unknown }).old_string
+      const newStr = (edit as { new_string?: unknown }).new_string
+      const replaceAll = Boolean((edit as { replace_all?: unknown }).replace_all)
+
+      if (typeof newStr !== 'string') {
+        throw new Error(`MultiEdit edits[${i}] requires a string new_string`)
+      }
+      if (typeof oldStr !== 'string') {
+        throw new Error(`MultiEdit edits[${i}] requires an old_string string`)
+      }
+      if (oldStr === newStr) {
+        return JSON.stringify({ error: `MultiEdit edits[${i}] old_string and new_string must differ` })
+      }
+
+      if (replaceAll) {
+        if (oldStr.length === 0) {
+          throw new Error(`MultiEdit edits[${i}] cannot use replace_all with an empty old_string`)
+        }
+        if (!updatedContent.includes(oldStr)) {
+          return JSON.stringify({ error: `MultiEdit edits[${i}] old_string not found in file` })
+        }
+        updatedContent = updatedContent.split(oldStr).join(newStr)
+      } else {
+        if (oldStr.length === 0) {
+          // Append at beginning when old_string is empty (supports new file creation)
+          updatedContent = newStr + updatedContent
+          continue
+        }
+        const idx = updatedContent.indexOf(oldStr)
+        if (idx === -1) {
+          return JSON.stringify({ error: `MultiEdit edits[${i}] old_string not found in file` })
+        }
+        updatedContent =
+          updatedContent.slice(0, idx) + newStr + updatedContent.slice(idx + oldStr.length)
+      }
+    }
+
+    await ctx.ipc.invoke(IPC.FS_WRITE_FILE, { path: filePath, content: updatedContent })
     return JSON.stringify({ success: true })
   },
   requiresApproval: (input, ctx) => {
@@ -152,6 +289,7 @@ export function registerFsTools(): void {
   toolRegistry.register(readHandler)
   toolRegistry.register(writeHandler)
   toolRegistry.register(editHandler)
+  toolRegistry.register(multiEditHandler)
   toolRegistry.register(lsHandler)
 }
 
@@ -159,4 +297,20 @@ function isErrorResult(value: unknown): value is { error: string } {
   if (!value || typeof value !== 'object') return false
   const error = (value as { error?: unknown }).error
   return typeof error === 'string' && error.length > 0
+}
+
+function tryParseReadError(value: string): string | null {
+  if (!value.trim().startsWith('{')) return null
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    const entries = Object.entries(parsed)
+    if (entries.length !== 1) return null
+    const errorEntry = entries[0]
+    if (errorEntry[0] !== 'error') return null
+    const errVal = errorEntry[1]
+    return typeof errVal === 'string' && errVal.length > 0 ? errVal : null
+  } catch {
+    return null
+  }
 }

@@ -82,8 +82,8 @@ export interface UnifiedMessage {
   createdAt: number
   usage?: TokenUsage
   debugInfo?: RequestDebugInfo
-  /** When set to 'team', the message is a teammate notification, not real user input. */
-  source?: 'team'
+  /** Optional source marker for non-manual message insertion paths. */
+  source?: 'team' | 'queued'
 }
 
 // --- Streaming Events ---

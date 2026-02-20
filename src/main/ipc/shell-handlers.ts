@@ -88,6 +88,8 @@ export function registerShellHandlers(): void {
             // Force Python to use UTF-8 for stdin/stdout/stderr
             PYTHONIOENCODING: 'utf-8',
             PYTHONUTF8: '1',
+            // Disable Python output buffering so streaming output arrives in real-time
+            PYTHONUNBUFFERED: '1',
           },
         })
 

@@ -213,6 +213,18 @@
     "remove": "移除",
     "noPlugins": "未配置插件",
     "selectToConfig": "选择一个插件开始配置",
+    "security": "安全与权限",
+    "allowReadHome": "读取主目录",
+    "allowReadHomeDesc": "允许读取主目录 (~) 下的文件",
+    "readablePaths": "允许读取的路径",
+    "readablePathsDesc": "白名单：指定插件可以读取的目录",
+    "addPath": "添加",
+    "allowShell": "Shell 执行",
+    "allowShellDesc": "允许执行终端命令（高风险）",
+    "allowWriteOutside": "写入工作目录外",
+    "allowWriteOutsideDesc": "允许在插件目录之外写入文件",
+    "allowSubAgents": "子代理工具",
+    "allowSubAgentsDesc": "允许使用 Task 等子代理工具",
     "feishu": {
       "appId": "App ID",
       "appSecret": "App Secret"

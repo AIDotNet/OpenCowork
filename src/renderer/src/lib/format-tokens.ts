@@ -57,5 +57,5 @@ export function formatCost(cost: number): string {
  */
 export function estimateTokens(text: string): number {
   if (!text) return 0
-  return encode(text).length
+  return encode(text, { allowedSpecial: 'all' }).length
 }

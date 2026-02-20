@@ -213,6 +213,18 @@
     "remove": "Remove",
     "noPlugins": "No plugins configured",
     "selectToConfig": "Select a plugin to configure",
+    "security": "Security & Permissions",
+    "allowReadHome": "Read Home Directory",
+    "allowReadHomeDesc": "Allow reading files under your home directory (~)",
+    "readablePaths": "Allowed Read Paths",
+    "readablePathsDesc": "Whitelist specific directories the plugin can read",
+    "addPath": "Add",
+    "allowShell": "Shell Execution",
+    "allowShellDesc": "Allow executing terminal commands (high risk)",
+    "allowWriteOutside": "Write Outside Working Dir",
+    "allowWriteOutsideDesc": "Allow writing files outside the plugin directory",
+    "allowSubAgents": "Sub-Agent Tools",
+    "allowSubAgentsDesc": "Allow using Task and other sub-agent tools",
     "feishu": {
       "appId": "App ID",
       "appSecret": "App Secret"

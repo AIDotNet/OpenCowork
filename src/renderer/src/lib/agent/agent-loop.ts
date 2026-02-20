@@ -178,7 +178,7 @@ export async function* runAgentLoop(
               toolArgsById.delete(endToolId)
               toolNamesById.delete(endToolId)
 
-              const requiresApproval = toolRegistry.checkRequiresApproval(
+              const requiresApproval = config.forceApproval || toolRegistry.checkRequiresApproval(
                 endToolName,
                 toolInput,
                 toolCtx
@@ -224,7 +224,7 @@ export async function* runAgentLoop(
           for (const [danglingToolId, argsText] of toolArgsById) {
             const danglingName = toolNamesById.get(danglingToolId) || currentToolName
             const danglingInput = parseToolInputSnapshot(argsText, danglingName) ?? safeParseJSON(argsText)
-            const requiresApproval = toolRegistry.checkRequiresApproval(
+            const requiresApproval = config.forceApproval || toolRegistry.checkRequiresApproval(
               danglingName,
               danglingInput,
               toolCtx

@@ -16,6 +16,7 @@ import { teamEvents } from '@renderer/lib/agent/teams/events'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { clearPendingQuestions } from '@renderer/lib/tools/ask-user-tool'
+
 import { PLAN_MODE_ALLOWED_TOOLS } from '@renderer/lib/tools/plan-tool'
 import { usePlanStore } from '@renderer/stores/plan-store'
 import { createProvider } from '@renderer/lib/api/provider'
@@ -57,11 +58,11 @@ const pendingSessionMessages = new Map<string, QueuedSessionMessage[]>()
 const pendingSessionMessageViews = new Map<string, PendingSessionMessageItem[]>()
 const pendingSessionMessageListeners = new Set<() => void>()
 
-const QUEUED_MESSAGE_SYSTEM_REMIND = `<system-remind>
+const QUEUED_MESSAGE_SYSTEM_REMIND = `<system-reminder>
 A new user message was queued while you were still processing the previous request.
 This message was inserted after that run finished.
 Treat the following user query as the latest instruction and respond to it directly.
-</system-remind>`
+</system-reminder>`
 
 const QUEUED_IMAGE_ONLY_TEXT = '[User attached images without additional text.]'
 
@@ -174,6 +175,11 @@ function dequeuePendingSessionMessage(sessionId: string): QueuedSessionMessage |
     text: head.text,
     images: cloneImageAttachments(head.images),
   }
+}
+
+function hasPendingSessionMessages(sessionId: string): boolean {
+  const queue = pendingSessionMessages.get(sessionId)
+  return !!queue && queue.length > 0
 }
 
 // ── Team lead auto-trigger: teammate messages → new agent turn ──
@@ -499,8 +505,16 @@ export function useChatActions(): {
     }
 
     if (targetSessionId && !chatStore.sessions.some((s) => s.id === targetSessionId)) {
-      replaceSessionPendingMessages(targetSessionId, [])
-      return
+      // Session may have been created externally (e.g. plugin auto-reply in main process).
+      // Try reloading from DB before giving up.
+      console.log(`[sendMessage] Session ${targetSessionId} not in store, reloading from DB...`)
+      await useChatStore.getState().loadFromDb()
+      const refreshedStore = useChatStore.getState()
+      if (!refreshedStore.sessions.some((s) => s.id === targetSessionId)) {
+        console.warn(`[sendMessage] Session ${targetSessionId} still not found after DB reload, aborting`)
+        replaceSessionPendingMessages(targetSessionId, [])
+        return
+      }
     }
 
     // Ensure we have an active session
@@ -524,17 +538,27 @@ export function useChatActions(): {
     chatStore.sanitizeToolErrorsForResend(sessionId)
     baseProviderConfig.sessionId = sessionId
 
+    // Override provider config if session has a bound provider+model (e.g. plugin sessions)
+    const sessionForProvider = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+    if (sessionForProvider?.providerId && sessionForProvider?.modelId) {
+      const sessionProviderConfig = useProviderStore.getState().getProviderConfigById(
+        sessionForProvider.providerId, sessionForProvider.modelId
+      )
+      if (sessionProviderConfig?.apiKey) {
+        baseProviderConfig.type = sessionProviderConfig.type
+        baseProviderConfig.apiKey = sessionProviderConfig.apiKey
+        baseProviderConfig.baseUrl = sessionProviderConfig.baseUrl
+        baseProviderConfig.model = sessionProviderConfig.model
+        baseProviderConfig.requiresApiKey = sessionProviderConfig.requiresApiKey
+      }
+    }
+
     const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
     const sessionMode = sessionSnapshot?.mode ?? uiStore.mode
 
-    // Check if this is the first user message in the session
-    const isFirstUserMessage = sessionSnapshot
-      ? sessionSnapshot.messages.filter((m) => m.role === 'user').length === 0
-      : true
-
-    // Build dynamic context for first message in cowork/code mode (skip for team notifications)
+    // Build dynamic context for every message in cowork/code mode (skip for team notifications)
     const currentMode = sessionMode
-    const shouldInjectContext = isFirstUserMessage && (currentMode === 'cowork' || currentMode === 'code') && !source
+    const shouldInjectContext = (currentMode === 'cowork' || currentMode === 'code') && !source
 
     let dynamicContext = ''
     if (shouldInjectContext) {
@@ -703,10 +727,22 @@ export function useChatActions(): {
             pluginLines.push(`  Plugin instructions: ${p.userSystemPrompt.trim()}`)
           }
         }
+        // Check if any active plugin is Feishu (has file/image send capability)
+        const hasFeishuPlugin = activePlugins.some((p) => p.type === 'feishu-bot')
+
         pluginLines.push(
           '',
           'Use the plugin_id parameter when calling Plugin* tools (PluginSendMessage, PluginReplyMessage, PluginGetGroupMessages, PluginListGroups, PluginSummarizeGroup).',
-          'Always confirm with the user before sending messages on their behalf.'
+          'Always confirm with the user before sending messages on their behalf.',
+          '',
+          '### Generating & Delivering Files via Plugins',
+          'When the user asks you to generate reports, documents, or any deliverable and wants it sent to a chat:',
+          '1. **Write the file** using the Write tool (e.g. `report.md`, `analysis.csv`, `summary.html`).',
+          hasFeishuPlugin
+            ? '2. **Send the file** using FeishuSendFile (for Feishu chats) or share key content via PluginSendMessage (for other platforms).'
+            : '2. **Share the content** via PluginSendMessage, or inform the user where the file was saved.',
+          '3. **Provide a brief summary** in your response so the user knows what was generated.',
+          'Prefer writing to a file + sending it over pasting long content (>30 lines) directly in chat messages.'
         )
         const pluginSection = pluginLines.join('\n')
         userPrompt = userPrompt ? `${userPrompt}\n${pluginSection}` : pluginSection
@@ -732,6 +768,30 @@ export function useChatActions(): {
         )
         const mcpSection = mcpLines.join('\n')
         userPrompt = userPrompt ? `${userPrompt}\n${mcpSection}` : mcpSection
+      }
+
+      // Plugin session context: inject reply instructions when this session belongs to a plugin
+      if (session?.pluginId && session?.externalChatId) {
+        const pluginMeta = usePluginStore.getState().plugins.find((p) => p.id === session.pluginId)
+        const chatId = session.externalChatId.replace(/^plugin:[^:]+:chat:/, '')
+        const isFeishu = pluginMeta?.type === 'feishu-bot'
+        const pluginCtx = [
+          `\n## Plugin Auto-Reply Context`,
+          `This session is handling messages from plugin **${pluginMeta?.name ?? session.pluginId}** (plugin_id: \`${session.pluginId}\`).`,
+          `Chat ID: \`${chatId}\``,
+          `Your response will be streamed directly to the user in real-time via the plugin.`,
+          `Just respond naturally — the streaming pipeline handles delivery automatically.`,
+          `If you need to send an additional message, use PluginSendMessage with plugin_id="${session.pluginId}" and chat_id="${chatId}".`,
+          isFeishu ? [
+            `\n### Feishu Media Tools`,
+            `You can send images and files to this chat:`,
+            `- **FeishuSendImage**: Send an image file (screenshot, generated image, etc.)`,
+            `- **FeishuSendFile**: Send a file (PDF, document, spreadsheet, etc.)`,
+            `Both require plugin_id="${session.pluginId}" and chat_id="${chatId}".`,
+          ].join('\n') : '',
+          pluginMeta?.userSystemPrompt?.trim() ? `\nPlugin-specific instructions: ${pluginMeta.userSystemPrompt.trim()}` : '',
+        ].filter(Boolean).join('\n')
+        userPrompt = userPrompt ? `${userPrompt}\n${pluginCtx}` : pluginCtx
       }
 
       const agentSystemPrompt = buildSystemPrompt({
@@ -821,6 +881,12 @@ export function useChatActions(): {
 
       let streamDeltaBuffer: StreamDeltaBuffer | null = null
 
+      // Extract plugin context from session so tools like CronAdd can auto-inject plugin routing
+      const sessionPluginId = session?.pluginId
+      const sessionPluginChatId = session?.externalChatId
+        ? session.externalChatId.replace(/^plugin:[^:]+:chat:/, '')
+        : undefined
+
       try {
         const messages = useChatStore.getState().getSessionMessages(sessionId)
         const loop = runAgentLoop(
@@ -830,7 +896,11 @@ export function useChatActions(): {
             sessionId,
             workingFolder: session?.workingFolder,
             signal: abortController.signal,
-            ipc: ipcClient
+            ipc: ipcClient,
+            ...(sessionPluginId && sessionPluginChatId && {
+              pluginId: sessionPluginId,
+              pluginChatId: sessionPluginChatId,
+            }),
           },
           async (tc) => {
             const autoApprove = useSettingsStore.getState().autoApprove
@@ -973,6 +1043,14 @@ export function useChatActions(): {
                 }
                 useChatStore.getState().addMessage(sessionId!, toolResultMsg)
               }
+              // If there are queued user messages, abort the loop now.
+              // At this point tools have finished and tool_results are appended,
+              // so aborting here prevents the next API request from starting
+              // and lets the finally block dispatch the queued message immediately.
+              if (hasPendingSessionMessages(sessionId!)) {
+                console.log(`[ChatActions] Queued message detected at iteration_end, aborting loop for session ${sessionId}`)
+                abortController.abort()
+              }
               break
 
             case 'message_end':
@@ -1095,7 +1173,10 @@ export function useChatActions(): {
     }
   }, [])
 
-  // Keep module-level ref updated for team lead auto-trigger
+  // Cron session delivery is now handled by cron-agent-runner.ts (deliveryMode='session')
+  // No cron event subscription needed here.
+
+  // Keep module-level ref updated for team lead auto-trigger + plugin auto-reply
   _sendMessageFn = sendMessage
 
   const stopStreaming = useCallback(() => {
@@ -1230,6 +1311,20 @@ export function useChatActions(): {
     if (!config) {
       toast.error('无法压缩', { description: '未配置 AI 服务商' })
       return
+    }
+
+    // Override with session-bound provider if available
+    const compressSession = chatStore.sessions.find((s) => s.id === sessionId)
+    if (compressSession?.providerId && compressSession?.modelId) {
+      const sessionProviderConfig = useProviderStore.getState().getProviderConfigById(
+        compressSession.providerId, compressSession.modelId
+      )
+      if (sessionProviderConfig?.apiKey) {
+        config.type = sessionProviderConfig.type
+        config.apiKey = sessionProviderConfig.apiKey
+        config.baseUrl = sessionProviderConfig.baseUrl
+        config.model = sessionProviderConfig.model
+      }
     }
 
     toast.info('正在压缩上下文...', { description: '使用主模型生成详细记忆摘要' })
@@ -1402,9 +1497,21 @@ async function runSimpleChat(
 }
 
 /**
- * Merge incoming TokenUsage into an accumulator (mutates target).
- * Sums inputTokens, outputTokens, and optional cache/reasoning fields.
+ * Trigger sendMessage from outside the hook (e.g. plugin auto-reply).
+ * Must be called after useChatActions has mounted at least once.
  */
+export function triggerSendMessage(
+  text: string,
+  targetSessionId: string,
+  images?: ImageAttachment[]
+): void {
+  if (!_sendMessageFn) {
+    console.error('[triggerSendMessage] sendMessage not initialized yet')
+    return
+  }
+  void _sendMessageFn(text, images, undefined, targetSessionId)
+}
+
 function mergeUsage(target: TokenUsage, incoming: TokenUsage): void {
   target.inputTokens += incoming.inputTokens
   target.outputTokens += incoming.outputTokens

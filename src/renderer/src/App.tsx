@@ -12,8 +12,18 @@ import { registerAllTools } from './lib/tools'
 import { registerAllProviders } from './lib/api'
 import { registerAllViewers } from './lib/preview/register-viewers'
 import { initPluginEventListener } from './stores/plugin-store'
+import { usePluginAutoReply } from './hooks/use-plugin-auto-reply'
 import { toast } from 'sonner'
 import i18n from './locales'
+import { cronEvents } from './lib/tools/cron-events'
+import { useCronStore } from './stores/cron-store'
+import { ipcClient } from './lib/ipc/ipc-client'
+import { runCronAgent } from './lib/tools/cron-agent-runner'
+import { useChatStore as _useChatStore } from './stores/chat-store'
+import { NotifyToastContainer } from './components/notify/NotifyWindow'
+import { useNotifyStore } from './stores/notify-store'
+import { nanoid } from 'nanoid'
+import type { UnifiedMessage } from './lib/api/types'
 
 // Register synchronous providers and viewers immediately at startup
 registerAllProviders()
@@ -29,10 +39,14 @@ initPluginEventListener()
 function App(): React.JSX.Element {
   const theme = useSettingsStore((s) => s.theme)
 
-  // Load sessions from SQLite and API key from secure main process storage on startup
+  // Initialize plugin auto-reply agent loop listener
+  usePluginAutoReply()
+
+  // Load sessions, plans, and cron jobs from SQLite on startup
   useEffect(() => {
     useChatStore.getState().loadFromDb()
     usePlanStore.getState().loadPlansFromDb()
+    useCronStore.getState().loadJobs().catch(() => {})
     window.electron.ipcRenderer
       .invoke('settings:get', 'apiKey')
       .then((key) => {
@@ -43,6 +57,115 @@ function App(): React.JSX.Element {
       .catch(() => {
         // Ignore — main process may not have a stored key yet
       })
+  }, [])
+
+  // Forward cron:fired IPC events to the renderer-side event bus
+  useEffect(() => {
+    const offFired = ipcClient.on('cron:fired', (data: unknown) => {
+      const d = data as {
+        jobId: string
+        name?: string
+        prompt?: string
+        agentId?: string | null
+        model?: string | null
+        workingFolder?: string | null
+        deliveryMode?: string
+        deliveryTarget?: string | null
+        maxIterations?: number
+        pluginId?: string | null
+        pluginChatId?: string | null
+        error?: string
+      }
+      cronEvents.emit({ type: 'fired', ...d })
+      useCronStore.getState().updateJob(d.jobId, { lastFiredAt: Date.now() })
+
+      // Launch Agent autonomously
+      if (d.prompt) {
+        runCronAgent({
+          jobId: d.jobId,
+          prompt: d.prompt,
+          agentId: d.agentId,
+          model: d.model,
+          workingFolder: d.workingFolder,
+          deliveryMode: d.deliveryMode,
+          deliveryTarget: d.deliveryTarget,
+          maxIterations: d.maxIterations,
+          pluginId: d.pluginId,
+          pluginChatId: d.pluginChatId,
+        })
+      }
+    })
+
+    const offRemoved = ipcClient.on('cron:job-removed', (data: unknown) => {
+      const d = data as { jobId: string; reason: string }
+      cronEvents.emit({ type: 'job_removed', jobId: d.jobId, reason: d.reason as 'delete_after_run' | 'manual' })
+      useCronStore.getState().removeJob(d.jobId)
+    })
+
+    // notify:session-message — inject a message into a session from the Notify tool
+    const offNotify = ipcClient.on('notify:session-message', (data: unknown) => {
+      const d = data as { sessionId: string; title: string; body: string }
+      const sessions = _useChatStore.getState().sessions
+      if (!sessions.some((s) => s.id === d.sessionId)) return
+      const msg: UnifiedMessage = {
+        id: nanoid(),
+        role: 'user',
+        content: `<system-reminder>\n**${d.title}**\n</system-reminder>\n\n${d.body}`,
+        createdAt: Date.now(),
+      }
+      _useChatStore.getState().addMessage(d.sessionId, msg)
+    })
+
+    // notify:toast — in-app toast notification from main process
+    const offToast = ipcClient.on('notify:toast', (data: unknown) => {
+      const d = data as { title: string; body: string; type?: string; duration?: number; persistent?: boolean }
+      useNotifyStore.getState().push(
+        d.title,
+        d.body,
+        {
+          type: (d.type as 'info' | 'success' | 'warning' | 'error') ?? 'info',
+          duration: d.duration ?? 5000,
+          persistent: d.persistent ?? false,
+        },
+      )
+    })
+
+    // Subscribe to cron run_finished events for session delivery
+    const offRunFinished = cronEvents.on((event) => {
+      if (event.type !== 'run_finished') return
+      const job = useCronStore.getState().jobs.find((j) => j.id === event.jobId)
+      if (!job || job.deliveryMode !== 'session') return
+
+      const targetSessionId = job.deliveryTarget || _useChatStore.getState().activeSessionId
+      if (!targetSessionId) return
+      const sessions = _useChatStore.getState().sessions
+      if (!sessions.some((s) => s.id === targetSessionId)) return
+
+      const statusLabel = event.status === 'success' ? '✅ 成功' : event.status === 'error' ? '❌ 失败' : '⚠️ 中止'
+      const content = [
+        `<system-reminder>`,
+        `Cron 任务 "${job.name}" 执行完成 (${statusLabel}, ${event.toolCallCount} tool calls)`,
+        `</system-reminder>`,
+        '',
+        event.error ? `**Error:** ${event.error}` : (event.outputSummary || '(no output)'),
+      ].join('\n')
+
+      const msg: UnifiedMessage = {
+        id: nanoid(),
+        role: 'user',
+        content,
+        createdAt: Date.now(),
+      }
+      _useChatStore.getState().addMessage(targetSessionId, msg)
+    })
+
+    return () => {
+      offFired()
+      offRemoved()
+      offNotify()
+      offToast()
+      offRunFinished()
+    }
   }, [])
 
   // Sync i18n language with settings store
@@ -69,8 +192,9 @@ function App(): React.JSX.Element {
     <ErrorBoundary>
       <ThemeProvider defaultTheme={theme}>
         <Layout />
-        <Toaster position="bottom-right" theme="system" richColors />
+        <Toaster position="bottom-left" theme="system" richColors />
         <ConfirmDialogProvider />
+        <NotifyToastContainer />
       </ThemeProvider>
     </ErrorBoundary>
   )

@@ -64,6 +64,7 @@ interface SessionListItem {
   updatedAt: number
   pinned?: boolean
   messageCount: number
+  pluginId?: string
 }
 
 export function AppSidebar(): React.JSX.Element {
@@ -82,6 +83,7 @@ export function AppSidebar(): React.JSX.Element {
             session.pinned ? 1 : 0,
             session.messageCount,
             session.messagesLoaded ? 1 : 0,
+            session.pluginId ?? '',
           ].join('|')
         )
         .join('¦')
@@ -97,6 +99,7 @@ export function AppSidebar(): React.JSX.Element {
         updatedAt: session.updatedAt,
         pinned: session.pinned,
         messageCount: session.messageCount,
+        pluginId: session.pluginId,
       })),
     [sessionDigest]
   )
@@ -228,7 +231,11 @@ export function AppSidebar(): React.JSX.Element {
     })
     : sorted
 
-  // Group by date
+  // Separate plugin sessions from regular sessions
+  const regularFiltered = filtered.filter((s) => !s.pluginId)
+  const pluginFiltered = filtered.filter((s) => !!s.pluginId)
+
+  // Group regular sessions by date
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const yesterdayStart = todayStart - 86400000
@@ -236,16 +243,18 @@ export function AppSidebar(): React.JSX.Element {
   const monthStart = todayStart - 30 * 86400000
 
   const groups: { label: string; items: typeof filtered }[] = []
-  const today = filtered.filter((s) => s.createdAt >= todayStart)
-  const yesterday = filtered.filter((s) => s.createdAt >= yesterdayStart && s.createdAt < todayStart)
-  const thisWeek = filtered.filter((s) => s.createdAt >= weekStart && s.createdAt < yesterdayStart)
-  const thisMonth = filtered.filter((s) => s.createdAt >= monthStart && s.createdAt < weekStart)
-  const older = filtered.filter((s) => s.createdAt < monthStart)
+  const today = regularFiltered.filter((s) => s.createdAt >= todayStart)
+  const yesterday = regularFiltered.filter((s) => s.createdAt >= yesterdayStart && s.createdAt < todayStart)
+  const thisWeek = regularFiltered.filter((s) => s.createdAt >= weekStart && s.createdAt < yesterdayStart)
+  const thisMonth = regularFiltered.filter((s) => s.createdAt >= monthStart && s.createdAt < weekStart)
+  const older = regularFiltered.filter((s) => s.createdAt < monthStart)
   if (today.length) groups.push({ label: t('sidebar.today'), items: today })
   if (yesterday.length) groups.push({ label: t('sidebar.yesterday'), items: yesterday })
   if (thisWeek.length) groups.push({ label: t('sidebar.thisWeek'), items: thisWeek })
   if (thisMonth.length) groups.push({ label: t('sidebar.thisMonth'), items: thisMonth })
   if (older.length) groups.push({ label: t('sidebar.older'), items: older })
+  // Plugin sessions as a separate group at the bottom
+  if (pluginFiltered.length) groups.push({ label: t('sidebar.pluginSessions'), items: pluginFiltered })
 
   return (
     <>

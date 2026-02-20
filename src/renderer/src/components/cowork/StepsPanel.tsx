@@ -62,7 +62,7 @@ export function StepsPanel(): React.JSX.Element {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
       {/* Plan-linked tasks */}
       {plan && planTasks.length > 0 && (
         <div className="space-y-3">

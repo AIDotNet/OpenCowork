@@ -3,7 +3,9 @@ import type {
   PluginEvent,
   MessagingPluginService,
   ServiceFactory,
+  WsMessageParser,
 } from './plugin-types'
+import type { BasePluginService } from './base-plugin-service'
 
 /**
  * PluginManager — manages plugin service lifecycle with a factory registry pattern.
@@ -11,12 +13,18 @@ import type {
  */
 export class PluginManager {
   private factories = new Map<string, ServiceFactory>()
+  private parsers = new Map<string, WsMessageParser>()
   private services = new Map<string, MessagingPluginService>()
   private statuses = new Map<string, 'running' | 'stopped' | 'error'>()
 
   /** Register a service factory for a plugin type */
   registerFactory(type: string, factory: ServiceFactory): void {
     this.factories.set(type, factory)
+  }
+
+  /** Register a WS message parser for a plugin type */
+  registerParser(type: string, parser: WsMessageParser): void {
+    this.parsers.set(type, parser)
   }
 
   /** Start a plugin instance — creates service via factory, calls .start() */
@@ -37,6 +45,13 @@ export class PluginManager {
     }
 
     const service = factory(instance, notify)
+
+    // Wire parser if the service extends BasePluginService
+    const parser = this.parsers.get(instance.type)
+    if (parser && typeof (service as BasePluginService).setParser === 'function') {
+      ;(service as BasePluginService).setParser(parser)
+    }
+
     this.services.set(instance.id, service)
     this.statuses.set(instance.id, 'stopped')
 

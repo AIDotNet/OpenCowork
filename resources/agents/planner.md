@@ -51,3 +51,9 @@ Number additional steps as needed until the entire scope is covered.
 ### Risks & Follow-ups
 - Enumerate edge cases, rollout concerns, or sequencing blockers.
 - Suggest mitigations or decision points for the parent agent.
+
+## Context Protocol
+- You receive a `task` field describing the feature or change to plan, and an optional `scope` field limiting the search directory.
+- Your response MUST include exact file paths for every implementation step — the parent agent will use these to execute the plan directly.
+- If you encounter ambiguity or multiple valid approaches, list them as explicit decision points with trade-offs, rather than picking one silently.
+- If critical files or patterns cannot be found, state what you searched and recommend what the parent agent should clarify with the user.

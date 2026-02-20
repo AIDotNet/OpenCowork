@@ -12,6 +12,7 @@
     "thisWeek": "本周",
     "thisMonth": "本月",
     "older": "更早",
+    "pluginSessions": "插件会话",
     "pinned": "已置顶",
     "renameSession": "重命名会话：",
     "newChat": "新建对话",
@@ -110,7 +111,8 @@
     "files": "文件",
     "artifacts": "产物",
     "context": "上下文",
-    "skills": "技能"
+    "skills": "技能",
+    "cron": "定时"
   },
   "detailPanel": {
     "team": "团队",

@@ -208,6 +208,9 @@ interface AgentStore {
   /** Per-session agent running state for sidebar indicators */
   runningSessions: Record<string, 'running' | 'completed'>
 
+  /** Per-session tool-call cache — stores tool calls when switching away from a session */
+  sessionToolCallsCache: Record<string, { pending: ToolCallState[]; executed: ToolCallState[] }>
+
   // SubAgent state keyed by toolUseId (supports multiple same-name SubAgent calls)
   activeSubAgents: Record<string, SubAgentState>
   /** Completed SubAgent results keyed by toolUseId — survives until clearToolCalls */
@@ -244,6 +247,8 @@ interface AgentStore {
   setCurrentLoopId: (id: string | null) => void
   /** Update per-session status. 'completed' auto-clears after ~3 s. null removes entry. */
   setSessionStatus: (sessionId: string, status: 'running' | 'completed' | null) => void
+  /** Switch active tool-call context: save current tool calls for prevSession, restore for nextSession */
+  switchToolCallSession: (prevSessionId: string | null, nextSessionId: string | null) => void
   addToolCall: (tc: ToolCallState) => void
   updateToolCall: (id: string, patch: Partial<ToolCallState>) => void
   clearToolCalls: () => void
@@ -272,6 +277,7 @@ export const useAgentStore = create<AgentStore>()(
       pendingToolCalls: [],
       executedToolCalls: [],
       runningSessions: {},
+      sessionToolCallsCache: {},
       activeSubAgents: {},
       completedSubAgents: {},
       subAgentHistory: [],
@@ -301,6 +307,22 @@ export const useAgentStore = create<AgentStore>()(
             })
           }, 3000)
         }
+      },
+
+      switchToolCallSession: (prevSessionId, nextSessionId) => {
+        set((state) => {
+          // Save current tool calls to cache for the previous session
+          if (prevSessionId) {
+            state.sessionToolCallsCache[prevSessionId] = {
+              pending: [...state.pendingToolCalls],
+              executed: [...state.executedToolCalls],
+            }
+          }
+          // Restore tool calls from cache for the next session (or clear)
+          const cached = nextSessionId ? state.sessionToolCallsCache[nextSessionId] : undefined
+          state.pendingToolCalls = cached?.pending ?? []
+          state.executedToolCalls = cached?.executed ?? []
+        })
       },
 
       addToolCall: (tc) => {
@@ -665,6 +687,9 @@ export const useAgentStore = create<AgentStore>()(
           // Remove history entries belonging to the session
           state.subAgentHistory = state.subAgentHistory.filter((sa) => sa.sessionId !== sessionId)
           trimSubAgentHistory(state.subAgentHistory)
+
+          // Remove cached tool calls for this session
+          delete state.sessionToolCallsCache[sessionId]
 
           // Remove background processes bound to this session
           for (const [key, process] of Object.entries(state.backgroundProcesses)) {

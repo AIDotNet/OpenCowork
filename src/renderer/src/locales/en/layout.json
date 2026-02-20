@@ -12,6 +12,7 @@
     "thisWeek": "This Week",
     "thisMonth": "This Month",
     "older": "Older",
+    "pluginSessions": "Plugin Sessions",
     "pinned": "pinned",
     "renameSession": "Rename session:",
     "newChat": "New Chat",
@@ -110,7 +111,8 @@
     "files": "Files",
     "artifacts": "Artifacts",
     "context": "Context",
-    "skills": "Skills"
+    "skills": "Skills",
+    "cron": "Cron"
   },
   "detailPanel": {
     "team": "Team",

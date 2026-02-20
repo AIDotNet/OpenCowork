@@ -150,8 +150,8 @@ export function PreviewPanel(): React.JSX.Element {
         {modified && <span className="text-[10px] text-amber-500">{t('preview.modified')}</span>}
         <div className="flex-1" />
 
-        {/* View mode toggle (file HTML only) */}
-        {state.source === 'file' && state.viewerType === 'html' && (
+        {/* View mode toggle (file HTML / Markdown) */}
+        {state.source === 'file' && (state.viewerType === 'html' || state.viewerType === 'markdown') && (
           <div className="flex items-center rounded-md border p-0.5">
             <Button
               variant={state.viewMode === 'preview' ? 'secondary' : 'ghost'}

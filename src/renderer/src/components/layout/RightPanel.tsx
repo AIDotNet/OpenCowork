@@ -1,4 +1,4 @@
-import { ListChecks, FileOutput, Database, Sparkles, FolderTree, Users, ClipboardList } from 'lucide-react'
+import { ListChecks, FileOutput, Database, Sparkles, FolderTree, Users, ClipboardList, Clock } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { Separator } from '@renderer/components/ui/separator'
 import { useUIStore, type RightPanelTab } from '@renderer/stores/ui-store'
@@ -11,10 +11,12 @@ import { SkillsPanel } from '@renderer/components/cowork/SkillsPanel'
 import { FileTreePanel } from '@renderer/components/cowork/FileTreePanel'
 import { TeamPanel } from '@renderer/components/cowork/TeamPanel'
 import { PlanPanel } from '@renderer/components/cowork/PlanPanel'
+import { CronPanel } from '@renderer/components/cowork/CronPanel'
 import { usePlanStore } from '@renderer/stores/plan-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
+import { useCronStore } from '@renderer/stores/cron-store'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@renderer/lib/utils'
 import { AnimatePresence } from 'motion/react'
@@ -30,6 +32,7 @@ const tabDefs: { value: RightPanelTab; labelKey: string; icon: React.ReactNode }
   { value: 'artifacts', labelKey: 'artifacts', icon: <FileOutput className="size-4" /> },
   { value: 'context', labelKey: 'context', icon: <Database className="size-4" /> },
   { value: 'skills', labelKey: 'skills', icon: <Sparkles className="size-4" /> },
+  { value: 'cron', labelKey: 'cron', icon: <Clock className="size-4" /> },
 ]
 
 export function RightPanel({ compact = false }: { compact?: boolean }): React.JSX.Element {
@@ -40,6 +43,8 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const todos = useTaskStore((s) => s.todos)
   const activeTeam = useTeamStore((s) => s.activeTeam)
   const teamToolsEnabled = useSettingsStore((s) => s.teamToolsEnabled)
+  const cronJobCount = useCronStore((s) => s.jobs.length)
+  const cronEnabledCount = useCronStore((s) => s.jobs.filter((j) => j.enabled).length)
 
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const runningCommandCount = useAgentStore((s) =>
@@ -59,6 +64,8 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const visibleTabs = tabDefs
     .filter((t) => teamToolsEnabled || t.value !== 'team')
     .filter((t) => (hasPlan || planMode) || t.value !== 'plan')
+    .filter((t) => t.value !== 'cron' || cronJobCount > 0 || tab === 'cron')
+    // Note: cronJobCount includes ALL jobs (enabled + disabled) so the tab stays visible
 
   const badgeCounts: Partial<Record<RightPanelTab, number>> = {
     steps: todos.length,
@@ -66,6 +73,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
     team: activeTeam ? activeTeam.members.length : 0,
     artifacts: executedToolCalls.filter((tc) => ALL_FILE_TOOLS.has(tc.name)).length,
     context: runningCommandCount,
+    cron: cronEnabledCount,
   }
 
   return (
@@ -142,6 +150,12 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
           {tab === 'plan' && (
             <FadeIn key="plan" className="h-full">
               <PlanPanel />
+            </FadeIn>
+          )}
+
+          {tab === 'cron' && (
+            <FadeIn key="cron" className="h-full">
+              <CronPanel />
             </FadeIn>
           )}
         </AnimatePresence>

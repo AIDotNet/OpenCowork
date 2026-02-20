@@ -4,7 +4,7 @@ import { create } from 'zustand'
 
 export type AppMode = 'chat' | 'cowork' | 'code'
 
-export type RightPanelTab = 'steps' | 'team' | 'artifacts' | 'context' | 'skills' | 'files' | 'plan'
+export type RightPanelTab = 'steps' | 'team' | 'artifacts' | 'context' | 'skills' | 'files' | 'plan' | 'cron'
 
 export type PreviewSource = 'file' | 'dev-server' | 'markdown'
 
@@ -196,15 +196,25 @@ export const useUIStore = create<UIStore>((set) => ({
     const ext = filePath.lastIndexOf('.') >= 0 ? filePath.slice(filePath.lastIndexOf('.')).toLowerCase() : ''
     const previewExts = new Set(['.html', '.htm'])
     const spreadsheetExts = new Set(['.csv', '.tsv', '.xls', '.xlsx'])
+    const markdownExts = new Set(['.md', '.mdx', '.markdown'])
+    const imageExts = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico'])
+    const docxExts = new Set(['.docx'])
+    const pdfExts = new Set(['.pdf'])
     let viewerType = 'fallback'
     if (previewExts.has(ext)) viewerType = 'html'
     else if (spreadsheetExts.has(ext)) viewerType = 'spreadsheet'
+    else if (markdownExts.has(ext)) viewerType = 'markdown'
+    else if (imageExts.has(ext)) viewerType = 'image'
+    else if (docxExts.has(ext)) viewerType = 'docx'
+    else if (pdfExts.has(ext)) viewerType = 'pdf'
+    const previewTypes = new Set(['html', 'markdown', 'docx', 'pdf', 'image', 'spreadsheet'])
+    const defaultMode = previewTypes.has(viewerType) ? 'preview' : 'code'
     set({
       previewPanelOpen: true,
       previewPanelState: {
         source: 'file',
         filePath,
-        viewMode: viewMode ?? (viewerType === 'html' ? 'preview' : 'code'),
+        viewMode: viewMode ?? defaultMode,
         viewerType,
       },
       leftSidebarOpen: false,

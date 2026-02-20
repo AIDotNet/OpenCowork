@@ -8,6 +8,8 @@ import { registerSkillTools } from './skill-tool'
 import { registerPreviewTools } from './preview-tool'
 import { registerAskUserTools } from './ask-user-tool'
 import { registerPlanTools } from './plan-tool'
+import { registerCronTools } from './cron-tool'
+import { registerNotifyTool } from './notify-tool'
 
 /**
  * Register all built-in tools with the global tool registry.
@@ -34,6 +36,8 @@ export async function registerAllTools(): Promise<void> {
   registerPreviewTools()
   registerAskUserTools()
   registerPlanTools()
+  registerCronTools()
+  registerNotifyTool()
 
   // SubAgents (loaded from ~/.open-cowork/agents/*.md via IPC, then registered as unified Task tool)
   await registerBuiltinSubAgents()

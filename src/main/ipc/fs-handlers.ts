@@ -187,6 +187,30 @@ export function registerFsHandlers(): void {
     }
   )
 
+  // Binary file read (returns base64)
+  ipcMain.handle('fs:read-file-binary', async (_event, args: { path: string }) => {
+    try {
+      const buffer = fs.readFileSync(args.path)
+      return { data: buffer.toString('base64') }
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  // Binary file write (accepts base64)
+  ipcMain.handle('fs:write-file-binary', async (_event, args: { path: string; data: string }) => {
+    try {
+      const dir = path.dirname(args.path)
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+      }
+      fs.writeFileSync(args.path, Buffer.from(args.data, 'base64'))
+      return { success: true }
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
   // File watching
   const watchers = new Map<string, fs.FSWatcher>()
   const debounceTimers = new Map<string, NodeJS.Timeout>()

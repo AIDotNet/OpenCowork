@@ -64,6 +64,9 @@ export interface AgentLoopConfig {
     /** Compress messages using the main model. Returns the compressed message array. */
     compressFn: (messages: UnifiedMessage[]) => Promise<UnifiedMessage[]>
   }
+  /** Force all tool calls through the approval callback, even if the tool declares requiresApproval=false.
+   *  Used by plugin auto-reply to enforce security permissions on all tools. */
+  forceApproval?: boolean
 }
 
 // --- Agent Loop Events ---

@@ -97,6 +97,8 @@ interface ProviderStore {
   getActiveProvider: () => AIProvider | null
   getActiveModelConfig: () => AIModelConfig | null
   getActiveProviderConfig: () => ProviderConfig | null
+  /** Build a ProviderConfig for a specific provider+model (used by plugin/session overrides) */
+  getProviderConfigById: (providerId: string, modelId: string) => ProviderConfig | null
   getFastProviderConfig: () => ProviderConfig | null
   /** Clamp user maxTokens to model's maxOutputTokens if exceeded */
   getEffectiveMaxTokens: (userMaxTokens: number, modelId?: string) => number
@@ -239,6 +241,23 @@ export const useProviderStore = create<ProviderStore>()(
           apiKey: provider.apiKey,
           baseUrl: normalizedBaseUrl,
           model: activeModelId,
+          requiresApiKey: provider.requiresApiKey,
+        }
+      },
+
+      getProviderConfigById: (providerId, modelId) => {
+        const provider = get().providers.find((p) => p.id === providerId)
+        if (!provider) return null
+        const model = provider.models.find((m) => m.id === modelId)
+        const requestType = model?.type ?? provider.type
+        const normalizedBaseUrl = provider.baseUrl
+          ? normalizeProviderBaseUrl(provider.baseUrl, requestType)
+          : undefined
+        return {
+          type: requestType,
+          apiKey: provider.apiKey,
+          baseUrl: normalizedBaseUrl,
+          model: modelId,
           requiresApiKey: provider.requiresApiKey,
         }
       },

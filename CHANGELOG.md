@@ -3,6 +3,31 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.1.8] - 2026-02-20
+
+### Added
+- **Multi-platform messaging plugins** — new Discord, Telegram, WeCom (企业微信), and WhatsApp provider implementations, each with WebSocket message parsing, API wrappers, and service classes. All providers extend a shared `BasePluginService` + `WebSocketTransport` abstraction for consistent lifecycle management and auto-reconnect.
+- **Plugin auto-reply pipeline** — `auto-reply.ts` routes incoming plugin messages to per-user/per-group sessions and triggers the Agent Loop for autonomous replies; renderer-side `use-plugin-auto-reply` hook manages the full approval + execution flow.
+- **Cron scheduling system** — persistent `node-cron` scheduler (`cron-scheduler.ts`) with SQLite-backed job storage, IPC handlers, and renderer tools (`CronAdd`/`CronUpdate`/`CronDelete`/`CronList`). Supports one-shot (`at`), fixed-interval (`every`), and cron-expression schedules. Dedicated `CronAgent` sub-agent runs tasks autonomously on trigger.
+- **Cron management UI** — full `CronPanel` in the cowork sidebar with job list, status badges, run history, and inline editing controls.
+- **Notify tool & toast system** — `Notify` tool sends desktop toast notifications or injects messages into sessions; `NotifyWindow` renders a standalone overlay with progress bars, auto-dismiss, and pin support.
+- **Browser Session Crawler skill** — Playwright-based crawling skill that reuses Chrome/Edge login sessions, with pre-built scripts for Xiaohongshu and Zhihu.
+- **Extended file preview viewers** — new DOCX, PDF, image, and Markdown viewers registered alongside the existing spreadsheet viewer.
+- **Feishu rich messaging API** — expanded `feishu-api.ts` with group list, message history, user info, and reply capabilities.
+
+### Changed
+- **Plugin architecture refactored** — extracted `BasePluginService` base class and `WebSocketTransport` utility; DingTalk and Feishu services migrated to the shared abstraction with dedicated `WsMessageParser` modules.
+- **Plugin settings UI overhauled** — `PluginPanel` redesigned with per-provider configuration forms, auto-reply toggles, connection status indicators, and group/contact management for all six providers.
+- **System prompt enhancements** — dynamic context injection expanded; agent loop and sub-agent definitions updated for cron and plugin awareness.
+- **Spreadsheet viewer improved** — richer rendering and interaction in `spreadsheet-viewer.tsx`.
+- Locales (EN + ZH) updated with cron, notify, and new plugin strings.
+
+### Fixed
+- **Feishu WebSocket stability** — message parsing extracted to dedicated `parse-ws-message.ts`, improving reconnect reliability and error isolation.
+- **DingTalk message parsing** — separated into standalone parser module for cleaner error handling.
+
+---
+
 ## [0.1.7] - 2026-02-19
 
 ### Added

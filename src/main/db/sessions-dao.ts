@@ -10,6 +10,8 @@ export interface SessionRow {
   working_folder: string | null
   pinned: number
   plugin_id: string | null
+  provider_id: string | null
+  model_id: string | null
   message_count?: number
 }
 
@@ -20,7 +22,6 @@ export function listSessions(): SessionRow[] {
       `SELECT s.*,
               (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
          FROM sessions s
-        WHERE s.plugin_id IS NULL
         ORDER BY s.updated_at DESC`
     )
     .all() as SessionRow[]
@@ -41,11 +42,13 @@ export function createSession(session: {
   workingFolder?: string
   pinned?: boolean
   pluginId?: string
+  providerId?: string
+  modelId?: string
 }): void {
   const db = getDb()
   db.prepare(
-    `INSERT INTO sessions (id, title, icon, mode, created_at, updated_at, working_folder, pinned, plugin_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO sessions (id, title, icon, mode, created_at, updated_at, working_folder, pinned, plugin_id, provider_id, model_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     session.id,
     session.title,
@@ -55,7 +58,9 @@ export function createSession(session: {
     session.updatedAt,
     session.workingFolder ?? null,
     session.pinned ? 1 : 0,
-    session.pluginId ?? null
+    session.pluginId ?? null,
+    session.providerId ?? null,
+    session.modelId ?? null
   )
 }
 
@@ -69,6 +74,8 @@ export function updateSession(
     workingFolder: string | null
     pinned: boolean
     pluginId: string | null
+    providerId: string | null
+    modelId: string | null
   }>
 ): void {
   const db = getDb()
@@ -102,6 +109,14 @@ export function updateSession(
   if (patch.pluginId !== undefined) {
     sets.push('plugin_id = ?')
     values.push(patch.pluginId)
+  }
+  if (patch.providerId !== undefined) {
+    sets.push('provider_id = ?')
+    values.push(patch.providerId)
+  }
+  if (patch.modelId !== undefined) {
+    sets.push('model_id = ?')
+    values.push(patch.modelId)
   }
 
   if (sets.length === 0) return

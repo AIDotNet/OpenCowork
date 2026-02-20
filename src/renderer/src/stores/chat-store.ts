@@ -29,6 +29,14 @@ export interface Session {
   updatedAt: number
   workingFolder?: string
   pinned?: boolean
+  /** Plugin ID if this session was created by auto-reply pipeline */
+  pluginId?: string
+  /** Composite key: plugin:{id}:chat:{chatId} */
+  externalChatId?: string
+  /** Bound provider ID (null = use global active provider) */
+  providerId?: string
+  /** Bound model ID (null = use global active model) */
+  modelId?: string
 }
 
 // --- DB persistence helpers (fire-and-forget) ---
@@ -43,6 +51,8 @@ function dbCreateSession(s: Session): void {
     updatedAt: s.updatedAt,
     workingFolder: s.workingFolder,
     pinned: s.pinned,
+    providerId: s.providerId,
+    modelId: s.modelId,
   }).catch(() => {})
 }
 
@@ -174,6 +184,10 @@ interface SessionRow {
   working_folder: string | null
   pinned: number
   message_count?: number
+  plugin_id?: string | null
+  external_chat_id?: string | null
+  provider_id?: string | null
+  model_id?: string | null
 }
 
 interface MessageRow {
@@ -200,6 +214,10 @@ function rowToSession(row: SessionRow, messages: UnifiedMessage[] = []): Session
     updatedAt: row.updated_at,
     workingFolder: row.working_folder ?? undefined,
     pinned: row.pinned === 1,
+    pluginId: row.plugin_id ?? undefined,
+    externalChatId: row.external_chat_id ?? undefined,
+    providerId: row.provider_id ?? undefined,
+    modelId: row.model_id ?? undefined,
   }
 }
 
@@ -396,13 +414,20 @@ export const useChatStore = create<ChatStore>()(
     },
 
     setActiveSession: (id) => {
+      const prevId = get().activeSessionId
       set((state) => {
         state.activeSessionId = id
         // Sync convenience field to the new active session's streaming state
         state.streamingMessageId = id ? (state.streamingMessages[id] ?? null) : null
       })
+      // Switch per-session tool calls in agent-store
+      useAgentStore.getState().switchToolCallSession(prevId, id)
+      // Load tasks for the new session
       if (id) {
+        void useTaskStore.getState().loadTasksForSession(id)
         void get().loadSessionMessages(id)
+      } else {
+        useTaskStore.getState().clearTasks()
       }
     },
 

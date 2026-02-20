@@ -28,8 +28,8 @@ function extractPlainText(content: string | ContentBlock[]): string {
       .join('\n')
   }
   
-  // Filter out <system-remind>...</system-remind> tags
-  return text.replace(/<system-remind>[\s\S]*?<\/system-remind>\s*/g, '').trim()
+  // Filter out <system-reminder>...</system-reminder> tags (also legacy <system-remind>)
+  return text.replace(/<system-remind(?:er)?>[\s\S]*?<\/system-remind(?:er)?>\s*/g, '').trim()
 }
 
 // Helper: Extract images from ContentBlock[]

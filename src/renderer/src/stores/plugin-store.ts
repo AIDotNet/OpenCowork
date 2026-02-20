@@ -49,26 +49,29 @@ interface PluginStore {
   getActivePlugins: () => PluginInstance[]
 }
 
-// Incoming event listener — initialized once
-let _eventListenerActive = false
+// Use window-level flags so HMR module reloads don't re-register listeners
+declare global {
+  interface Window {
+    __pluginListenerActive?: boolean
+    __pluginDispatchedIds?: Set<string>
+  }
+}
 
 export function initPluginEventListener(): void {
-  if (_eventListenerActive) return
-  _eventListenerActive = true
+  if (window.__pluginListenerActive) return
+  window.__pluginListenerActive = true
+  if (!window.__pluginDispatchedIds) window.__pluginDispatchedIds = new Set<string>()
 
   ipcClient.on(IPC.PLUGIN_INCOMING_MESSAGE, (...args: unknown[]) => {
-    // ipcClient.on handler already strips the IPC event — first arg is the data
     const data = args[0] as PluginIncomingEvent
     if (!data || !data.pluginId) return
 
-    // Update status if it's a status change
     if (data.type === 'status_change') {
       const status = data.data as 'running' | 'stopped' | 'error'
       usePluginStore.setState((s) => ({
         pluginStatuses: { ...s.pluginStatuses, [data.pluginId]: status },
       }))
     }
-    // Log incoming messages for now — future: route to plugin session
     if (data.type === 'incoming_message') {
       console.log(`[Plugin:${data.pluginId}] Incoming message:`, data.data)
     }
@@ -78,6 +81,37 @@ export function initPluginEventListener(): void {
         pluginStatuses: { ...s.pluginStatuses, [data.pluginId]: 'error' },
       }))
     }
+  })
+
+  // Listen for auto-reply session tasks from main process
+  ipcClient.on(IPC.PLUGIN_SESSION_TASK, (...args: unknown[]) => {
+    const task = args[0] as {
+      sessionId: string
+      pluginId: string
+      pluginType: string
+      chatId: string
+      content: string
+      messageId?: string
+    }
+    if (!task || !task.sessionId) return
+
+    // Dedup by messageId — use window-level Set that survives HMR module reloads
+    if (task.messageId) {
+      const seen = window.__pluginDispatchedIds!
+      if (seen.has(task.messageId)) {
+        console.log(`[Plugin] Skipping duplicate task for messageId=${task.messageId}`)
+        return
+      }
+      seen.add(task.messageId)
+      if (seen.size > 200) {
+        const first = seen.values().next().value
+        if (first) seen.delete(first)
+      }
+    }
+
+    window.dispatchEvent(
+      new CustomEvent('plugin:auto-reply-task', { detail: task })
+    )
   })
 }
 
@@ -101,26 +135,33 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
   loadPlugins: async () => {
     try {
       const plugins = (await ipcClient.invoke(IPC.PLUGIN_LIST)) as PluginInstance[]
-      set({ plugins: Array.isArray(plugins) ? plugins : [] })
-    } catch {
+      const arr = Array.isArray(plugins) ? plugins : []
+      console.log(`[PluginStore] Loaded ${arr.length} plugins:`, arr.map((p) => `${p.type}(${p.id})`))
+      // Auto-activate all enabled plugins
+      const enabledIds = arr.filter((p) => p.enabled).map((p) => p.id)
+      set({ plugins: arr, activePluginIds: enabledIds })
+    } catch (err) {
+      console.error('[PluginStore] Failed to load plugins:', err)
       set({ plugins: [] })
     }
   },
 
   addPlugin: async (type, name, config, systemPrompt) => {
-    const descriptor = get().providers.find((p) => p.type === type)
     const id = nanoid()
     const instance: PluginInstance = {
       id,
       type,
       name,
       enabled: true,
-      userSystemPrompt: systemPrompt ?? descriptor?.defaultSystemPrompt ?? '',
+      userSystemPrompt: systemPrompt ?? '',
       config,
       createdAt: Date.now(),
     }
     await ipcClient.invoke(IPC.PLUGIN_ADD, instance)
-    set((s) => ({ plugins: [...s.plugins, instance] }))
+    set((s) => ({
+      plugins: [...s.plugins, instance],
+      activePluginIds: [...s.activePluginIds, id],
+    }))
     return id
   },
 
@@ -145,9 +186,16 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
     if (!plugin) return
     const enabled = !plugin.enabled
     await get().updatePlugin(id, { enabled })
-    if (!enabled) {
+    if (enabled) {
+      // Auto-activate when enabling
+      set((s) => ({
+        activePluginIds: s.activePluginIds.includes(id)
+          ? s.activePluginIds
+          : [...s.activePluginIds, id],
+      }))
+    } else {
       await get().stopPlugin(id)
-      // Also deactivate if it was active
+      // Deactivate when disabling
       set((s) => ({
         activePluginIds: s.activePluginIds.filter((pid) => pid !== id),
       }))

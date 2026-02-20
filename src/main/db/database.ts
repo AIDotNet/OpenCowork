@@ -66,12 +66,26 @@ export function getDb(): Database.Database {
   // Ensure plugin_id index exists
   db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_plugin ON sessions(plugin_id)`)
 
+  // Migration: add external_chat_id column for per-user/per-group plugin sessions
+  try {
+    db.exec(`ALTER TABLE sessions ADD COLUMN external_chat_id TEXT`)
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Ensure external_chat_id index exists
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_external_chat ON sessions(external_chat_id)`)
+
   // Migration: add plan_id column to sessions if missing
   try {
     db.exec(`ALTER TABLE sessions ADD COLUMN plan_id TEXT`)
   } catch {
     // Column already exists — ignore
   }
+
+  // Migration: add provider_id and model_id columns for per-session provider binding
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN provider_id TEXT`) } catch { /* exists */ }
+  try { db.exec(`ALTER TABLE sessions ADD COLUMN model_id TEXT`) } catch { /* exists */ }
 
   // --- Plans table ---
   db.exec(`
@@ -115,6 +129,55 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks(plan_id);
   `)
+
+  // --- Cron Jobs table ---
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cron_jobs (
+      id               TEXT PRIMARY KEY,
+      name             TEXT NOT NULL,
+
+      schedule_kind    TEXT NOT NULL,
+      schedule_at      INTEGER,
+      schedule_every   INTEGER,
+      schedule_expr    TEXT,
+      schedule_tz      TEXT DEFAULT 'UTC',
+
+      prompt           TEXT NOT NULL,
+      agent_id         TEXT,
+      model            TEXT,
+      working_folder   TEXT,
+
+      delivery_mode    TEXT DEFAULT 'desktop',
+      delivery_target  TEXT,
+
+      enabled          INTEGER DEFAULT 1,
+      delete_after_run INTEGER DEFAULT 0,
+      max_iterations   INTEGER DEFAULT 15,
+
+      last_fired_at    INTEGER,
+      fire_count       INTEGER DEFAULT 0,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS cron_runs (
+      id               TEXT PRIMARY KEY,
+      job_id           TEXT NOT NULL,
+      started_at       INTEGER NOT NULL,
+      finished_at      INTEGER,
+      status           TEXT DEFAULT 'running',
+      tool_call_count  INTEGER DEFAULT 0,
+      output_summary   TEXT,
+      error            TEXT,
+      FOREIGN KEY (job_id) REFERENCES cron_jobs(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cron_runs_job ON cron_runs(job_id, started_at);
+  `)
+
+  // Migration: add plugin columns to cron_jobs if missing
+  try { db.exec(`ALTER TABLE cron_jobs ADD COLUMN plugin_id TEXT`) } catch { /* exists */ }
+  try { db.exec(`ALTER TABLE cron_jobs ADD COLUMN plugin_chat_id TEXT`) } catch { /* exists */ }
 
   return db
 }

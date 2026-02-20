@@ -1,62 +1,45 @@
 import type {
-  MessagingPluginService,
   PluginInstance,
   PluginEvent,
   PluginMessage,
   PluginGroup,
+  MessagingPluginService,
 } from '../../plugin-types'
+import { BasePluginService } from '../../base-plugin-service'
 import { DingTalkApi } from './dingtalk-api'
 
-export class DingTalkService implements MessagingPluginService {
-  readonly pluginId: string
+export class DingTalkService extends BasePluginService {
   readonly pluginType = 'dingtalk-bot'
+  private api!: DingTalkApi
 
-  private api: DingTalkApi
-  private pollingTimer: NodeJS.Timeout | null = null
-  private running = false
-  private _instance: PluginInstance
-  private _notify: (event: PluginEvent) => void
-
-  constructor(instance: PluginInstance, notify: (event: PluginEvent) => void) {
-    this._instance = instance
-    this._notify = notify
-    this.pluginId = instance.id
-    this.api = new DingTalkApi(instance.config.appKey, instance.config.appSecret)
+  /** DingTalk stream API: obtain dynamic WS URL via gateway connection */
+  protected async resolveWsUrl(): Promise<string | null> {
+    try {
+      const { appKey, appSecret } = this._instance.config
+      const res = await fetch('https://api.dingtalk.com/v1.0/gateway/connections/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: appKey, clientSecret: appSecret }),
+      })
+      const data = (await res.json()) as { endpoint?: string; ticket?: string }
+      if (data.endpoint && data.ticket) {
+        return `${data.endpoint}?ticket=${data.ticket}`
+      }
+      console.warn('[DingTalk] Gateway did not return WS endpoint:', data)
+      return null
+    } catch (err) {
+      console.error('[DingTalk] Failed to obtain WS URL:', err)
+      return null
+    }
   }
 
-  /** Access stored instance (for config refresh, reconnect, etc.) */
-  get instance(): PluginInstance {
-    return this._instance
-  }
-
-  /** Emit a plugin event to the renderer */
-  protected emit(event: PluginEvent): void {
-    this._notify(event)
-  }
-
-  async start(): Promise<void> {
-    // Validate config before calling API
+  protected async onStart(): Promise<void> {
     const { appKey, appSecret } = this._instance.config
     if (!appKey || !appSecret) {
       throw new Error('Missing required config: App Key and App Secret must be provided')
     }
+    this.api = new DingTalkApi(appKey, appSecret)
     await this.api.ensureToken()
-    this.running = true
-    // TODO: Start Stream mode / event subscription for incoming messages
-    console.log(`[DingTalkService] Started for plugin ${this.pluginId}`)
-  }
-
-  async stop(): Promise<void> {
-    if (this.pollingTimer) {
-      clearInterval(this.pollingTimer)
-      this.pollingTimer = null
-    }
-    this.running = false
-    console.log(`[DingTalkService] Stopped for plugin ${this.pluginId}`)
-  }
-
-  isRunning(): boolean {
-    return this.running
   }
 
   async sendMessage(chatId: string, content: string): Promise<{ messageId: string }> {
@@ -64,7 +47,6 @@ export class DingTalkService implements MessagingPluginService {
   }
 
   async replyMessage(messageId: string, content: string): Promise<{ messageId: string }> {
-    // DingTalk reply needs conversation context — pass empty for now
     return this.api.replyMessage(messageId, content, '')
   }
 

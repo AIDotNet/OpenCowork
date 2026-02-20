@@ -66,7 +66,7 @@ export function SkillsPanel(): React.JSX.Element {
   const groups = groupTools(tools)
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           {t('skills.builtInTools')}

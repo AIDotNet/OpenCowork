@@ -14,8 +14,31 @@ export interface PluginProviderDescriptor {
   displayName: string
   description: string
   icon: string
+  builtin?: boolean
   configSchema: ConfigFieldSchema[]
-  defaultSystemPrompt?: string
+}
+
+export interface PluginFeatures {
+  autoReply: boolean
+  streamingReply: boolean
+  autoStart: boolean
+}
+
+/** Security permissions for a plugin instance */
+export interface PluginPermissions {
+  allowReadHome: boolean
+  readablePathPrefixes: string[]
+  allowWriteOutside: boolean
+  allowShell: boolean
+  allowSubAgents: boolean
+}
+
+export const DEFAULT_PLUGIN_PERMISSIONS: PluginPermissions = {
+  allowReadHome: false,
+  readablePathPrefixes: [],
+  allowWriteOutside: false,
+  allowShell: false,
+  allowSubAgents: true,
 }
 
 export interface PluginInstance {
@@ -23,9 +46,18 @@ export interface PluginInstance {
   type: string
   name: string
   enabled: boolean
+  builtin?: boolean
   userSystemPrompt: string
   config: Record<string, string>
   createdAt: number
+  /** Provider ID for this plugin's auto-reply agent (null = use global active provider) */
+  providerId?: string | null
+  /** Model override for this plugin's auto-reply agent (null = use global default) */
+  model?: string | null
+  /** Feature toggles */
+  features?: PluginFeatures
+  /** Security permissions (defaults applied if missing) */
+  permissions?: PluginPermissions
 }
 
 export interface PluginMessage {

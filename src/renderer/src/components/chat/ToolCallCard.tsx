@@ -17,7 +17,9 @@ import {
   File,
   ListChecks,
   Circle,
-  CircleDot
+  CircleDot,
+  Clock,
+  Bot
 } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
@@ -90,6 +92,16 @@ export function inputSummary(name: string, input: Record<string, unknown>): stri
   if (name === 'TaskUpdate' && input.taskId) return `#${input.taskId}${input.status ? ` → ${input.status}` : ''}`
   if (name === 'TaskGet' && input.taskId) return `#${input.taskId}`
   if (name === 'TaskList') return 'list tasks'
+  if (name === 'CronAdd') {
+    const n = input.name ? String(input.name) : ''
+    const sched = input.schedule as { kind?: string; expr?: string } | undefined
+    const kindLabel = sched?.kind ?? ''
+    const expr = sched?.expr ?? ''
+    return n ? `${n} (${kindLabel}${expr ? ` ${expr}` : ''})` : kindLabel
+  }
+  if (name === 'CronUpdate' && input.jobId) return `update: ${String(input.jobId)}`
+  if (name === 'CronRemove' && input.jobId) return `remove: ${String(input.jobId)}`
+  if (name === 'CronList') return 'list cron jobs'
   if (name === 'AskUserQuestion') {
     const qs = input.questions as Array<{ question?: string }> | undefined
     if (qs && qs.length > 0) return String(qs[0].question ?? '').slice(0, 60)
@@ -1152,6 +1164,99 @@ function StructuredInput({
     )
   }
 
+  // CronAdd: schedule kind + name + prompt
+  if (name === 'CronAdd') {
+    const jobName = input.name ? String(input.name) : null
+    const schedule = input.schedule as { kind?: string; at?: string; every?: number; expr?: string; tz?: string } | undefined
+    const prompt = input.prompt ? String(input.prompt) : null
+    const deleteAfterRun = Boolean(input.deleteAfterRun)
+    const agentId = input.agentId ? String(input.agentId) : null
+    const kindLabels: Record<string, string> = { at: '一次性', every: '间隔', cron: 'Cron' }
+    const kindColors: Record<string, string> = {
+      at: 'bg-amber-500/10 text-amber-400',
+      every: 'bg-cyan-500/10 text-cyan-400',
+      cron: 'bg-violet-500/10 text-violet-400',
+    }
+    const kind = schedule?.kind ?? 'cron'
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5 text-xs">
+          <Clock className="size-3 text-blue-400" />
+          {schedule?.expr && (
+            <span className="font-mono text-[11px] text-blue-400/80" style={{ fontFamily: MONO_FONT }}>
+              {schedule.expr}
+            </span>
+          )}
+          {schedule?.every && (
+            <span className="font-mono text-[11px] text-cyan-400/80" style={{ fontFamily: MONO_FONT }}>
+              every {schedule.every >= 3600000 ? `${(schedule.every / 3600000).toFixed(1)}h` : `${Math.round(schedule.every / 60000)}m`}
+            </span>
+          )}
+          {schedule?.at && (
+            <span className="font-mono text-[11px] text-amber-400/80" style={{ fontFamily: MONO_FONT }}>
+              {String(schedule.at).slice(0, 19)}
+            </span>
+          )}
+          <span className={cn('text-[9px] px-1 rounded', kindColors[kind] ?? 'bg-zinc-700/60 text-zinc-400')}>
+            {kindLabels[kind] ?? kind}
+          </span>
+          {deleteAfterRun && <span className="text-[9px] px-1 rounded bg-amber-500/10 text-amber-400/80">auto-delete</span>}
+          {schedule?.tz && schedule.tz !== 'UTC' && (
+            <span className="text-[9px] text-muted-foreground/40">{schedule.tz}</span>
+          )}
+        </div>
+        {jobName && <p className="text-xs text-muted-foreground/60 italic pl-[18px]">{jobName}</p>}
+        {prompt && (
+          <div className="pl-[18px] flex items-center gap-1.5">
+            <Bot className="size-2.5 text-violet-400" />
+            <span className="text-[10px] text-violet-400/70 truncate max-w-[260px]">{prompt.slice(0, 100)}</span>
+          </div>
+        )}
+        {agentId && agentId !== 'CronAgent' && (
+          <div className="pl-[18px]">
+            <span className="text-[9px] px-1 rounded bg-violet-500/10 text-violet-400">agent: {agentId}</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // CronUpdate: jobId + patch summary
+  if (name === 'CronUpdate') {
+    const jobId = String(input.jobId ?? '')
+    return (
+      <div className="flex items-center gap-1.5 text-xs">
+        <Clock className="size-3 text-blue-400/70" />
+        <span className="font-mono text-[11px] text-blue-400/70" style={{ fontFamily: MONO_FONT }}>
+          {jobId}
+        </span>
+        <span className="text-[9px] text-muted-foreground/50">patch</span>
+      </div>
+    )
+  }
+
+  // CronRemove / CronList: simple display
+  if (name === 'CronRemove') {
+    const jobId = String(input.jobId ?? '')
+    return (
+      <div className="flex items-center gap-1.5 text-xs">
+        <Clock className="size-3 text-muted-foreground/50" />
+        <span className="font-mono text-[11px] text-muted-foreground/70" style={{ fontFamily: MONO_FONT }}>
+          {jobId}
+        </span>
+      </div>
+    )
+  }
+
+  if (name === 'CronList') {
+    return (
+      <div className="flex items-center gap-1.5 text-xs">
+        <Clock className="size-3 text-muted-foreground/50" />
+        <span className="text-muted-foreground/60">list all scheduled cron jobs</span>
+      </div>
+    )
+  }
+
   // Generic fallback: structured key-value pairs instead of raw JSON
   const entries = Object.entries(input).filter(([, v]) => v != null && v !== '')
   if (entries.length === 0) return <></>
@@ -1267,7 +1372,7 @@ export function ToolCallCard({
 }: ToolCallCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   // Auto-expand for errors and mutation tools with output; keep read-heavy tools collapsed
-  const shouldAutoExpand = status === 'error' || (!!output && EXPAND_TOOLS.has(name))
+  const shouldAutoExpand = status === 'error' || (!!output && EXPAND_TOOLS.has(name)) || (name === 'Bash' && status === 'running')
   const [open, setOpen] = React.useState(shouldAutoExpand)
 
   React.useEffect(() => {
@@ -1392,9 +1497,9 @@ export function ToolCallCard({
               filePath={String(input.file_path ?? input.path ?? '')}
             />
           )}
-          {output && name === 'Bash' && outputAsString(output) && (
+          {name === 'Bash' && (status === 'running' || outputAsString(output)) && (
             <BashOutputBlock
-              output={outputAsString(output)!}
+              output={outputAsString(output) ?? ''}
               toolUseId={toolUseId}
               status={status}
             />

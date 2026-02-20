@@ -242,6 +242,8 @@ export function InputArea({
   const historyDraftRef = React.useRef<InputHistoryDraft | null>(null)
   const historyBySessionRef = React.useRef<Record<string, InputHistoryEntry[]>>({})
   const prevSessionIdRef = React.useRef<string | null>(null)
+  /** Per-session input draft (text + images + skill) */
+  const draftBySessionRef = React.useRef<Record<string, { text: string; images: ImageAttachment[]; skill: string | null }>>({})
   const activeProvider = useProviderStore((s) => {
     const { providers, activeProviderId } = s
     if (!activeProviderId) return null
@@ -443,6 +445,23 @@ export function InputArea({
 
   React.useEffect(() => {
     const prevSessionId = prevSessionIdRef.current
+
+    // Save current draft to the previous session before switching
+    if (prevSessionId) {
+      draftBySessionRef.current[prevSessionId] = {
+        text,
+        images: cloneImages(attachedImages),
+        skill: selectedSkill,
+      }
+    }
+
+    // Restore draft from the new session (or clear)
+    const draft = activeSessionId ? draftBySessionRef.current[activeSessionId] : undefined
+    setText(draft?.text ?? '')
+    setAttachedImages(draft?.images ? cloneImages(draft.images) : [])
+    setSelectedSkill(draft?.skill ?? null)
+    requestAnimationFrame(() => resizeTextarea())
+
     if (!prevSessionId && activeSessionId) {
       const pendingHistory = historyBySessionRef.current[PENDING_HISTORY_KEY]
       if (pendingHistory && pendingHistory.length > 0 && !historyBySessionRef.current[activeSessionId]) {
@@ -455,6 +474,7 @@ export function InputArea({
     setHistoryCursor(null)
     historyDraftRef.current = null
     prevSessionIdRef.current = activeSessionId
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId])
 
   // Consume pendingInsertText from FileTree clicks

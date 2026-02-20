@@ -9,7 +9,7 @@ import { useUIStore } from '@renderer/stores/ui-store'
 const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit'])
 const DELETE_TOOLS = new Set(['Delete'])
 
-const PREVIEWABLE_EXTENSIONS = new Set(['.html', '.htm'])
+const PREVIEWABLE_EXTENSIONS = new Set(['.html', '.htm', '.md', '.mdx', '.markdown', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico', '.docx', '.pdf'])
 const SPREADSHEET_EXTENSIONS = new Set(['.csv', '.tsv', '.xls', '.xlsx'])
 
 function getFileExtension(filePath: string): string {
@@ -64,7 +64,7 @@ export function ArtifactsPanel(): React.JSX.Element {
   const uniqueFiles = Array.from(fileMap.values())
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           {t('artifacts.modifiedFiles')}

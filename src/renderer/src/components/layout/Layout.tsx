@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
@@ -85,6 +85,17 @@ export function Layout(): React.JSX.Element {
       useUIStore.getState().setMode(activeSessionMode)
     }
   }, [activeSessionId, activeSessionMode, mode])
+
+  // Close detail/preview panels when switching sessions (they are session-specific)
+  const prevActiveSessionRef = useRef<string | null>(null)
+  useEffect(() => {
+    const prev = prevActiveSessionRef.current
+    prevActiveSessionRef.current = activeSessionId
+    if (prev !== null && prev !== activeSessionId) {
+      useUIStore.getState().closeDetailPanel()
+      useUIStore.getState().closePreviewPanel()
+    }
+  }, [activeSessionId])
 
   const pendingApproval = pendingToolCalls[0] ?? null
   const createSession = useChatStore((s) => s.createSession)
@@ -235,7 +246,7 @@ export function Layout(): React.JSX.Element {
         e.preventDefault()
         const ui = useUIStore.getState()
         if (!ui.rightPanelOpen) { ui.setRightPanelOpen(true); return }
-        const tabs: Array<'steps' | 'plan' | 'team' | 'files' | 'artifacts' | 'context' | 'skills'> = ['steps', 'plan', 'team', 'files', 'artifacts', 'context', 'skills']
+        const tabs: Array<'steps' | 'plan' | 'team' | 'files' | 'artifacts' | 'context' | 'skills' | 'cron'> = ['steps', 'plan', 'team', 'files', 'artifacts', 'context', 'skills', 'cron']
         const idx = tabs.indexOf(ui.rightPanelTab)
         ui.setRightPanelTab(tabs[(idx + 1) % tabs.length])
         return

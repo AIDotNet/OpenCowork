@@ -55,4 +55,9 @@ For each finding provide:
 - **Issue**: concise explanation anchored in the code
 - **Suggestion**: practical fix or mitigation
 
-Conclude with a summary listing total findings per severity and a brief quality assessment (e.g., “Overall solid except for missing error handling in auth flow”).
+Conclude with a summary listing total findings per severity and a brief quality assessment (e.g., "Overall solid except for missing error handling in auth flow").
+
+## Context Protocol
+- You receive a `task` field describing the review scope (files, modules, or focus area), and an optional `scope` field limiting the search directory.
+- Your response MUST reference concrete file paths with line ranges for every finding — the parent agent should be able to locate and fix issues without re-reading files.
+- If the review scope is too broad or files cannot be found, explicitly state what was reviewed and what was skipped, so the parent agent knows the coverage boundary.

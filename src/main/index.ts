@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, Menu, Tray } from 'electron'
 
 import { join } from 'path'
 import { mkdirSync } from 'fs'
+import { homedir } from 'os'
 
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
@@ -20,19 +21,43 @@ import { registerAgentsHandlers } from './ipc/agents-handlers'
 import { registerProcessManagerHandlers, killAllManagedProcesses } from './ipc/process-manager'
 import { registerDbHandlers } from './ipc/db-handlers'
 import { registerConfigHandlers } from './ipc/secure-key-store'
-import { registerPluginHandlers } from './ipc/plugin-handlers'
+import { registerPluginHandlers, autoStartPlugins } from './ipc/plugin-handlers'
 import { PluginManager } from './plugins/plugin-manager'
 import { registerMcpHandlers } from './ipc/mcp-handlers'
+import { registerCronHandlers } from './ipc/cron-handlers'
+import { registerNotifyHandlers } from './ipc/notify-handlers'
+import { loadPersistedJobs, cancelAllJobs } from './cron/cron-scheduler'
 import { McpManager } from './mcp/mcp-manager'
 import { closeDb } from './db/database'
 import { writeCrashLog, getCrashLogDir } from './crash-logger'
 
 import { createFeishuService } from './plugins/providers/feishu/feishu-service'
 import { createDingTalkService } from './plugins/providers/dingtalk/dingtalk-service'
+import { parseDingTalkWsMessage } from './plugins/providers/dingtalk/parse-ws-message'
+import { createTelegramService } from './plugins/providers/telegram/telegram-service'
+import { parseTelegramWsMessage } from './plugins/providers/telegram/parse-ws-message'
+import { createDiscordService } from './plugins/providers/discord/discord-service'
+import { parseDiscordWsMessage } from './plugins/providers/discord/parse-ws-message'
+import { createWhatsAppService } from './plugins/providers/whatsapp/whatsapp-service'
+import { parseWhatsAppWsMessage } from './plugins/providers/whatsapp/parse-ws-message'
+import { createWeComService } from './plugins/providers/wecom/wecom-service'
+import { parseWeComWsMessage } from './plugins/providers/wecom/parse-ws-message'
+import { setPluginManager } from './plugins/auto-reply'
 
 const pluginManager = new PluginManager()
+setPluginManager(pluginManager)
 pluginManager.registerFactory('feishu-bot', createFeishuService)
+// Feishu uses official SDK WSClient — no generic parser needed
 pluginManager.registerFactory('dingtalk-bot', createDingTalkService)
+pluginManager.registerParser('dingtalk-bot', parseDingTalkWsMessage)
+pluginManager.registerFactory('telegram-bot', createTelegramService)
+pluginManager.registerParser('telegram-bot', parseTelegramWsMessage)
+pluginManager.registerFactory('discord-bot', createDiscordService)
+pluginManager.registerParser('discord-bot', parseDiscordWsMessage)
+pluginManager.registerFactory('whatsapp-bot', createWhatsAppService)
+pluginManager.registerParser('whatsapp-bot', parseWhatsAppWsMessage)
+pluginManager.registerFactory('wecom-bot', createWeComService)
+pluginManager.registerParser('wecom-bot', parseWeComWsMessage)
 
 const mcpManager = new McpManager()
 
@@ -354,6 +379,8 @@ if (gotSingleInstanceLock) {
 
   ipcMain.on('ping', () => console.log('pong'))
 
+  ipcMain.handle('app:homedir', () => homedir())
+
 
 
   // Register IPC handlers
@@ -373,10 +400,18 @@ if (gotSingleInstanceLock) {
   registerConfigHandlers()
   registerPluginHandlers(pluginManager)
   registerMcpHandlers(mcpManager)
+  registerCronHandlers()
+  loadPersistedJobs()
+  registerNotifyHandlers()
+
+  // Auto-start plugins with autoStart feature enabled
+  void autoStartPlugins(pluginManager)
 
 
 
   createWindow()
+
+
 
   createTray()
 
@@ -409,6 +444,7 @@ app.on('window-all-closed', () => {
   pluginManager.stopAll()
   mcpManager.disconnectAll()
   killAllManagedProcesses()
+  cancelAllJobs()
   closeDb()
   if (process.platform !== 'darwin') {
     app.quit()

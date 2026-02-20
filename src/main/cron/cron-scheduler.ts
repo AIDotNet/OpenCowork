@@ -18,6 +18,7 @@ export interface CronJobRecord {
   agent_id: string | null
   model: string | null
   working_folder: string | null
+  session_id: string | null
 
   delivery_mode: 'desktop' | 'session' | 'none'
   delivery_target: string | null
@@ -131,6 +132,7 @@ function onJobFired(job: CronJobRecord): void {
       agentId: job.agent_id,
       model: job.model,
       workingFolder: job.working_folder,
+      sessionId: job.session_id,
       deliveryMode: job.delivery_mode,
       deliveryTarget: job.delivery_target,
       maxIterations: job.max_iterations,

@@ -77,6 +77,8 @@ function getProviderConfig(providerId?: string | null, modelOverride?: string | 
 
 export interface CronAgentRunOptions {
   jobId: string
+  name?: string
+  sessionId?: string | null
   prompt: string
   agentId?: string | null
   model?: string | null
@@ -133,6 +135,8 @@ async function _runCronAgentAsync(
 ): Promise<void> {
   const {
     jobId,
+    name,
+    sessionId,
     prompt,
     agentId,
     model: modelOverride,
@@ -297,7 +301,7 @@ Begin working on this task now.`
     log('start', prompt.slice(0, 200))
     emitProgress('initializing')
 
-    const loop = runAgentLoop([userMessage], loopConfig, toolCtx, async (_tc) => {
+    const loop = runAgentLoop([userMessage], loopConfig, toolCtx, async () => {
       // Auto-approve all tools — cron agents run unattended
       return true
     })
@@ -358,6 +362,10 @@ Begin working on this task now.`
     runId,
     status,
     toolCallCount,
+    jobName: name,
+    sessionId: sessionId ?? null,
+    deliveryMode: _deliveryMode,
+    deliveryTarget: deliveryTarget ?? null,
     outputSummary,
     error,
   })

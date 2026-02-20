@@ -1,5 +1,6 @@
 type CronFiredEvent = {
   jobId: string
+  sessionId?: string | null
   name?: string
   prompt?: string
   agentId?: string | null
@@ -8,6 +9,8 @@ type CronFiredEvent = {
   deliveryMode?: string
   deliveryTarget?: string | null
   maxIterations?: number
+  pluginId?: string | null
+  pluginChatId?: string | null
   error?: string
 }
 
@@ -35,6 +38,10 @@ type CronRunFinishedEvent = {
   runId: string
   status: 'success' | 'error' | 'aborted'
   toolCallCount: number
+  jobName?: string
+  sessionId?: string | null
+  deliveryMode?: string
+  deliveryTarget?: string | null
   outputSummary?: string
   error?: string
 }

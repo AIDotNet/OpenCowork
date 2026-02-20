@@ -146,6 +146,10 @@ function hasActiveSessionRun(sessionId: string): boolean {
   return hasAbortController || hasStreamingMessage
 }
 
+export function hasActiveSessionRunForSession(sessionId: string): boolean {
+  return hasActiveSessionRun(sessionId)
+}
+
 function enqueuePendingSessionMessage(
   sessionId: string,
   msg: Omit<QueuedSessionMessage, 'id' | 'createdAt'>
@@ -180,6 +184,10 @@ function dequeuePendingSessionMessage(sessionId: string): QueuedSessionMessage |
 function hasPendingSessionMessages(sessionId: string): boolean {
   const queue = pendingSessionMessages.get(sessionId)
   return !!queue && queue.length > 0
+}
+
+export function hasPendingSessionMessagesForSession(sessionId: string): boolean {
+  return hasPendingSessionMessages(sessionId)
 }
 
 // ── Team lead auto-trigger: teammate messages → new agent turn ──
@@ -302,23 +310,28 @@ function drainLeadMessages(): void {
   _sendMessageFn(text, undefined, 'team')
 }
 
-function dispatchNextQueuedMessage(sessionId: string): void {
-  if (!_sendMessageFn) return
+function dispatchNextQueuedMessage(sessionId: string): boolean {
+  if (!_sendMessageFn) return false
 
   const sessionExists = useChatStore.getState().sessions.some((s) => s.id === sessionId)
   if (!sessionExists) {
     replaceSessionPendingMessages(sessionId, [])
-    return
+    return false
   }
 
-  if (hasActiveSessionRun(sessionId)) return
+  if (hasActiveSessionRun(sessionId)) return false
 
   const next = dequeuePendingSessionMessage(sessionId)
-  if (!next) return
+  if (!next) return false
 
   setTimeout(() => {
     void _sendMessageFn?.(next.text, next.images, next.source ?? 'queued', sessionId)
   }, 0)
+  return true
+}
+
+export function dispatchNextQueuedMessageForSession(sessionId: string): boolean {
+  return dispatchNextQueuedMessage(sessionId)
 }
 
 /**
@@ -357,7 +370,9 @@ export function abortSession(sessionId: string): void {
   }
 }
 
-const STREAM_DELTA_FLUSH_MS = 16
+// 60fps flush causes expensive markdown + layout work during panel resizing.
+// 33ms keeps streaming smooth while lowering render/reflow pressure.
+const STREAM_DELTA_FLUSH_MS = 33
 
 interface StreamDeltaBuffer {
   pushThinking: (chunk: string) => void

@@ -27,6 +27,11 @@ import type { PluginPermissions } from '@renderer/lib/plugins/types'
 import type { UnifiedMessage, ProviderConfig } from '@renderer/lib/api/types'
 import type { AgentLoopConfig } from '@renderer/lib/agent/types'
 import type { ToolContext } from '@renderer/lib/tools/tool-types'
+import {
+  hasActiveSessionRunForSession,
+  hasPendingSessionMessagesForSession,
+  dispatchNextQueuedMessageForSession
+} from '@renderer/hooks/use-chat-actions'
 
 interface PluginAutoReplyTask {
   sessionId: string
@@ -49,6 +54,7 @@ declare global {
     __pluginAutoReplyListenerActive?: boolean
     __pluginAutoReplyActiveSessions?: Set<string>
     __pluginAutoReplyQueue?: Map<string, PluginAutoReplyTask[]>
+    __pluginAutoReplyResumeTimers?: Map<string, ReturnType<typeof setTimeout>>
   }
 }
 
@@ -66,6 +72,13 @@ function getSessionQueue(): Map<string, PluginAutoReplyTask[]> {
   return window.__pluginAutoReplyQueue
 }
 
+function getResumeTimers(): Map<string, ReturnType<typeof setTimeout>> {
+  if (!window.__pluginAutoReplyResumeTimers) {
+    window.__pluginAutoReplyResumeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  }
+  return window.__pluginAutoReplyResumeTimers
+}
+
 function enqueueTask(sessionId: string, task: PluginAutoReplyTask): void {
   const queue = getSessionQueue()
   const existing = queue.get(sessionId) ?? []
@@ -81,6 +94,60 @@ function dequeueTask(sessionId: string): PluginAutoReplyTask | undefined {
   const next = existing.shift()!
   if (existing.length === 0) queue.delete(sessionId)
   return next
+}
+
+function hasQueuedPluginTasks(sessionId: string): boolean {
+  const queue = getSessionQueue().get(sessionId)
+  return !!queue && queue.length > 0
+}
+
+function clearResumeTimer(sessionId: string): void {
+  const timers = getResumeTimers()
+  const timer = timers.get(sessionId)
+  if (timer) {
+    clearTimeout(timer)
+    timers.delete(sessionId)
+  }
+}
+
+function shouldYieldToMainSessionQueue(sessionId: string): boolean {
+  return hasActiveSessionRunForSession(sessionId) || hasPendingSessionMessagesForSession(sessionId)
+}
+
+function nudgeMainSessionQueue(sessionId: string): boolean {
+  if (!hasPendingSessionMessagesForSession(sessionId)) return false
+  return dispatchNextQueuedMessageForSession(sessionId)
+}
+
+function schedulePluginQueueResume(sessionId: string, delayMs = 220): void {
+  if (!hasQueuedPluginTasks(sessionId)) {
+    clearResumeTimer(sessionId)
+    return
+  }
+  const timers = getResumeTimers()
+  const existing = timers.get(sessionId)
+  if (existing) clearTimeout(existing)
+  const timer = setTimeout(() => {
+    timers.delete(sessionId)
+    void resumePluginQueueWhenIdle(sessionId)
+  }, delayMs)
+  timers.set(sessionId, timer)
+}
+
+function resumePluginQueueWhenIdle(sessionId: string): void {
+  if (getActiveSessions().has(sessionId)) return
+  if (!hasQueuedPluginTasks(sessionId)) return
+
+  const dispatchedQueuedUserMessage = nudgeMainSessionQueue(sessionId)
+  if (dispatchedQueuedUserMessage || shouldYieldToMainSessionQueue(sessionId)) {
+    schedulePluginQueueResume(sessionId)
+    return
+  }
+
+  const next = dequeueTask(sessionId)
+  if (!next) return
+  console.log(`[PluginAutoReply] Resuming queued plugin task for session ${sessionId}`)
+  void handlePluginAutoReply(next)
 }
 
 function getProviderConfig(providerId?: string | null, modelOverride?: string | null): ProviderConfig | null {
@@ -146,11 +213,21 @@ async function handlePluginAutoReply(task: PluginAutoReplyTask): Promise<void> {
 
   const activeSessions = getActiveSessions()
 
-  // Queue if this session already has an active agent run
+  // Queue if this session already has an active plugin auto-reply run
   if (activeSessions.has(sessionId)) {
     enqueueTask(sessionId, task)
     return
   }
+
+  // Yield to the main session queue/run first, then resume plugin queue when session is idle.
+  if (shouldYieldToMainSessionQueue(sessionId)) {
+    enqueueTask(sessionId, task)
+    const dispatchedQueuedUserMessage = nudgeMainSessionQueue(sessionId)
+    schedulePluginQueueResume(sessionId, dispatchedQueuedUserMessage ? 120 : 220)
+    return
+  }
+
+  clearResumeTimer(sessionId)
   activeSessions.add(sessionId)
 
   try {
@@ -165,11 +242,18 @@ async function handlePluginAutoReply(task: PluginAutoReplyTask): Promise<void> {
     }
   } finally {
     activeSessions.delete(sessionId)
-    // Process next queued task for this session
-    const next = dequeueTask(sessionId)
-    if (next) {
-      console.log(`[PluginAutoReply] Dispatching queued task for session ${sessionId}`)
-      void handlePluginAutoReply(next)
+    if (hasQueuedPluginTasks(sessionId)) {
+      // Always let the main queue run first if there are pending user messages.
+      const dispatchedQueuedUserMessage = nudgeMainSessionQueue(sessionId)
+      if (dispatchedQueuedUserMessage || shouldYieldToMainSessionQueue(sessionId)) {
+        schedulePluginQueueResume(sessionId, dispatchedQueuedUserMessage ? 120 : 220)
+      } else {
+        const next = dequeueTask(sessionId)
+        if (next) {
+          console.log(`[PluginAutoReply] Dispatching queued plugin task for session ${sessionId}`)
+          void handlePluginAutoReply(next)
+        }
+      }
     }
   }
 }
@@ -557,6 +641,12 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
             createdAt: Date.now(),
           }
           useChatStore.getState().addMessage(sessionId, toolResultMsg)
+        }
+        // If new messages are waiting for this session, stop before issuing the
+        // next API request so queued messages can be handled first.
+        if (hasQueuedPluginTasks(sessionId) || hasPendingSessionMessagesForSession(sessionId)) {
+          console.log(`[PluginAutoReply] Queued message detected at iteration_end, aborting run for session ${sessionId}`)
+          ac.abort()
         }
         break
 

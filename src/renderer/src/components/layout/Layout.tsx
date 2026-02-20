@@ -25,7 +25,7 @@ import { useChatActions } from '@renderer/hooks/use-chat-actions'
 import { toast } from 'sonner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence } from 'motion/react'
 import { PageTransition, PanelTransition } from '@renderer/components/animate-ui'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -50,6 +50,7 @@ export function Layout(): React.JSX.Element {
   const { activeSessionTitle, activeSessionMode, activeWorkingFolder } = activeSessionView
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const streamingMessageId = useChatStore((s) => s.streamingMessageId)
+  const isStreaming = !!streamingMessageId
   const pendingToolCalls = useAgentStore((s) => s.pendingToolCalls)
   const resolveApproval = useAgentStore((s) => s.resolveApproval)
   const initBackgroundProcessTracking = useAgentStore((s) => s.initBackgroundProcessTracking)
@@ -409,10 +410,8 @@ export function Layout(): React.JSX.Element {
                 )}>
                   <div className="flex flex-1 overflow-hidden">
                     {/* Center: Chat Area */}
-                    <motion.div
-                      layout
+                    <div
                       className="flex min-w-0 flex-1 flex-col bg-gradient-to-b from-background to-muted/20"
-                      transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                     >
                       <MessageList onRetry={retryLastMessage} onEditUserMessage={editAndResend} />
                       <InputArea
@@ -420,14 +419,18 @@ export function Layout(): React.JSX.Element {
                         onStop={stopStreaming}
                         onSelectFolder={mode !== 'chat' ? handleSelectFolder : undefined}
                         workingFolder={activeWorkingFolder}
-                        isStreaming={!!streamingMessageId}
+                        isStreaming={isStreaming}
                       />
-                    </motion.div>
+                    </div>
 
                     {/* Preview Panel */}
                     <AnimatePresence>
                       {previewPanelOpen && (
-                        <PanelTransition side="right" className="h-full border-l border-border/50 shadow-sm z-10">
+                        <PanelTransition
+                          side="right"
+                          disabled={isStreaming}
+                          className="h-full border-l border-border/50 shadow-sm z-10"
+                        >
                           <PreviewPanel />
                         </PanelTransition>
                       )}
@@ -436,7 +439,11 @@ export function Layout(): React.JSX.Element {
                     {/* Middle: Detail Panel */}
                     <AnimatePresence>
                       {detailPanelOpen && (
-                        <PanelTransition side="right" className="h-full border-l border-border/50 shadow-sm z-10">
+                        <PanelTransition
+                          side="right"
+                          disabled={isStreaming}
+                          className="h-full border-l border-border/50 shadow-sm z-10"
+                        >
                           <DetailPanel />
                         </PanelTransition>
                       )}
@@ -445,7 +452,7 @@ export function Layout(): React.JSX.Element {
                     {/* Right: Cowork/Code Panel */}
                     <AnimatePresence>
                       {mode !== 'chat' && rightPanelOpen && (
-                        <PanelTransition side="right" className="h-full z-0">
+                        <PanelTransition side="right" disabled={isStreaming} className="h-full z-0">
                           <RightPanel compact={previewPanelOpen} />
                         </PanelTransition>
                       )}

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, HTMLMotionProps } from 'motion/react'
-import { ReactNode, ElementType, forwardRef } from 'react'
+import { ReactNode, ElementType, forwardRef, type JSX } from 'react'
 import { cn } from '@renderer/lib/utils'
 
 // ─── Types ───
@@ -60,8 +60,8 @@ FadeIn.displayName = 'FadeIn'
  * SlideIn - Slide and fade from a direction
  */
 export const SlideIn = forwardRef<HTMLDivElement, SlideProps>(
-  ({ children, className, direction = 'up', offset = 10, delay = 0, duration = 0.3, as: Component = motion.div, ...props }, ref) => {
-    const getInitial = () => {
+  ({ children, className, direction = 'up', offset = 10, delay = 0, as: Component = motion.div, ...props }, ref) => {
+    const getInitial = (): { opacity: number; x?: number; y?: number } => {
       switch (direction) {
         case 'up': return { opacity: 0, y: offset }
         case 'down': return { opacity: 0, y: -offset }
@@ -91,7 +91,7 @@ SlideIn.displayName = 'SlideIn'
  * ScaleIn - Scale up from center
  */
 export const ScaleIn = forwardRef<HTMLDivElement, BaseTransitionProps>(
-  ({ children, className, delay = 0, duration = 0.2, as: Component = motion.div, ...props }, ref) => {
+  ({ children, className, delay = 0, as: Component = motion.div, ...props }, ref) => {
     return (
       <Component
         ref={ref}
@@ -139,7 +139,15 @@ PageTransition.displayName = 'PageTransition'
 /**
  * StaggerContainer - Orchestrate children animations
  */
-export const StaggerContainer = ({ children, className, delay = 0.05 }: { children: ReactNode; className?: string, delay?: number }) => {
+export const StaggerContainer = ({
+  children,
+  className,
+  delay = 0.05
+}: {
+  children: ReactNode
+  className?: string
+  delay?: number
+}): JSX.Element => {
   return (
     <motion.div
       initial="hidden"
@@ -164,7 +172,13 @@ export const StaggerContainer = ({ children, className, delay = 0.05 }: { childr
 /**
  * StaggerItem - Child of StaggerContainer
  */
-export const StaggerItem = ({ children, className }: { children: ReactNode; className?: string }) => {
+export const StaggerItem = ({
+  children,
+  className
+}: {
+  children: ReactNode
+  className?: string
+}): JSX.Element => {
   return (
     <motion.div
       variants={{
@@ -182,10 +196,31 @@ export const StaggerItem = ({ children, className }: { children: ReactNode; clas
  * PanelTransition - Smooth width and opacity transition for side panels
  * Ensures siblings resize smoothly
  */
-export const PanelTransition = forwardRef<HTMLDivElement, BaseTransitionProps & { side?: 'left' | 'right' }>(
-  ({ children, className, side = 'right', delay = 0, duration = 0.3, as: Component = motion.div, ...props }, ref) => {
+export const PanelTransition = forwardRef<
+  HTMLDivElement,
+  BaseTransitionProps & { side?: 'left' | 'right'; disabled?: boolean }
+>(
+  ({
+    children,
+    className,
+    side = 'right',
+    disabled = false,
+    delay = 0,
+    as: Component = motion.div,
+    ...props
+  }, ref) => {
     const xInitial = side === 'right' ? 20 : -20
-    
+
+    if (disabled) {
+      return (
+        <Component ref={ref} className={cn('overflow-hidden', className)} {...props}>
+          <div className="h-full w-max">
+            {children}
+          </div>
+        </Component>
+      )
+    }
+
     return (
       <Component
         ref={ref}

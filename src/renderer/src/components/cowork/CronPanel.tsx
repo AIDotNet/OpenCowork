@@ -34,6 +34,7 @@ import {
   type CronAgentLogEntry,
   type CronSchedule,
 } from '@renderer/stores/cron-store'
+import { useChatStore } from '@renderer/stores/chat-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { abortCronAgent } from '@renderer/lib/tools/cron-agent-runner'
@@ -72,9 +73,10 @@ function formatDuration(ms: number): string {
 // ── Elapsed Timer (updates every second) ─────────────────────────
 
 function ElapsedTimer({ startedAt }: { startedAt: number }): React.JSX.Element {
-  const [elapsed, setElapsed] = React.useState(Date.now() - startedAt)
+  const [elapsed, setElapsed] = React.useState(0)
 
   React.useEffect(() => {
+    setElapsed(Date.now() - startedAt)
     const interval = setInterval(() => setElapsed(Date.now() - startedAt), 1000)
     return () => clearInterval(interval)
   }, [startedAt])
@@ -619,16 +621,32 @@ function HistoryRunCard({
   )
 }
 
-function CronHistoryView({ jobs, runs }: { jobs: CronJobEntry[]; runs: CronRunEntry[] }): React.JSX.Element {
+function CronHistoryView({
+  jobs,
+  runs,
+  sessionId,
+}: {
+  jobs: CronJobEntry[]
+  runs: CronRunEntry[]
+  sessionId: string | null
+}): React.JSX.Element {
   const loadRuns = useCronStore((s) => s.loadRuns)
   const [filterJobId, setFilterJobId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [showFilter, setShowFilter] = React.useState(false)
 
   React.useEffect(() => {
+    setFilterJobId(null)
+  }, [sessionId])
+
+  React.useEffect(() => {
+    if (!sessionId) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
-    loadRuns(filterJobId ?? undefined).finally(() => setLoading(false))
-  }, [filterJobId, loadRuns])
+    loadRuns(filterJobId ?? undefined, sessionId).finally(() => setLoading(false))
+  }, [filterJobId, loadRuns, sessionId])
 
   const jobName = (id: string): string => {
     const found = jobs.find((j) => j.id === id)
@@ -747,6 +765,7 @@ function CronHistoryView({ jobs, runs }: { jobs: CronJobEntry[]; runs: CronRunEn
 type CronView = 'tasks' | 'history'
 
 export function CronPanel(): React.JSX.Element {
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
   const jobs = useCronStore((s) => s.jobs)
   const runs = useCronStore((s) => s.runs)
   const loadJobs = useCronStore((s) => s.loadJobs)
@@ -762,7 +781,10 @@ export function CronPanel(): React.JSX.Element {
   const handleRefresh = async (): Promise<void> => {
     setRefreshing(true)
     try {
-      await Promise.all([loadJobs(), loadRuns()])
+      await Promise.all([
+        loadJobs(activeSessionId),
+        loadRuns(undefined, activeSessionId),
+      ])
     } finally {
       setRefreshing(false)
     }
@@ -770,10 +792,10 @@ export function CronPanel(): React.JSX.Element {
 
   // Load runs when switching to history view
   React.useEffect(() => {
-    if (view === 'history') {
-      loadRuns()
+    if (view === 'history' && activeSessionId) {
+      loadRuns(undefined, activeSessionId)
     }
-  }, [view, loadRuns])
+  }, [view, loadRuns, activeSessionId])
 
   const handleToggle = async (id: string, enabled: boolean): Promise<void> => {
     const result = await ipcClient.invoke(IPC.CRON_TOGGLE, { jobId: id, enabled }) as { error?: string }
@@ -915,9 +937,8 @@ export function CronPanel(): React.JSX.Element {
 
       {/* === History View === */}
       {view === 'history' && (
-        <CronHistoryView jobs={jobs} runs={runs} />
+        <CronHistoryView jobs={jobs} runs={runs} sessionId={activeSessionId} />
       )}
     </div>
   )
 }
-

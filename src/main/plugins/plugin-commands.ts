@@ -8,7 +8,7 @@
  * Supported commands:
  *   /help     — Show available commands and basic usage
  *   /new      — Clear current session history (fresh conversation)
- *   /init     — Generate AGENTS.md in the plugin working directory
+ *   /init     — Analyze codebase and generate AGENTS.md via agent loop
  *   /status   — Show current plugin status, model, and session info
  *   /compress — Compress context by clearing stale tool results and thinking blocks
  *   /stats   — Show token usage statistics for the current session
@@ -36,6 +36,12 @@ export interface CommandContext {
 interface CommandResult {
   handled: boolean
   reply?: string
+  /**
+   * When set, the command is NOT fully handled — instead the message content
+   * is rewritten to this value and passed through to the agent loop.
+   * This allows commands like /init to delegate work to the full agent.
+   */
+  rewriteContent?: string
 }
 
 type CommandHandler = (ctx: CommandContext, args: string) => CommandResult
@@ -84,9 +90,13 @@ function stripAtMention(content: string): string {
 
 /**
  * Try to handle a slash command from the incoming message.
- * Returns true if the message was a command and was handled (skip agent loop).
+ * Returns:
+ *   - `true`    — command was fully handled (skip agent loop)
+ *   - `false`   — not a command, proceed normally
+ *   - `string`  — command rewrote the message content; pass this string
+ *                  to the agent loop instead of the original message
  */
-export function tryHandleCommand(ctx: CommandContext): boolean {
+export function tryHandleCommand(ctx: CommandContext): boolean | string {
   const raw = ctx.data.content?.trim()
   if (!raw) return false
 
@@ -105,6 +115,22 @@ export function tryHandleCommand(ctx: CommandContext): boolean {
   if (!handler) return false
 
   const result = handler(ctx, args)
+
+  // Command wants to delegate to the agent loop with rewritten content
+  if (result.rewriteContent) {
+    // Send an optional acknowledgment reply before handing off to the agent
+    if (result.reply) {
+      const service = ctx.pluginManager.getService(ctx.pluginId)
+      if (service) {
+        service.sendMessage(ctx.chatId, result.reply).catch((err) => {
+          console.error(`[PluginCommand] Failed to send ack for /${cmd}:`, err)
+        })
+      }
+    }
+    console.log(`[PluginCommand] /${cmd} delegating to agent loop for plugin ${ctx.pluginId} chat ${ctx.chatId}`)
+    return result.rewriteContent
+  }
+
   if (!result.handled) return false
 
   // Send reply via plugin service
@@ -131,7 +157,7 @@ function handleHelp(_ctx: CommandContext, _args: string): CommandResult {
     '',
     '/help      — 显示此帮助信息',
     '/new       — 清空当前会话，开始新对话',
-    '/init      — 初始化 AGENTS.md 配置文件',
+    '/init      — 分析项目并生成 AGENTS.md（AI 自动分析）',
     '/status    — 查看当前状态信息',
     '/stats     — 查看 Token 用量统计',
     '/compress  — 压缩上下文（清理旧工具结果和思考过程）',
@@ -173,35 +199,22 @@ function handleNew(ctx: CommandContext, _args: string): CommandResult {
 
 function handleInit(ctx: CommandContext, _args: string): CommandResult {
   const agentsPath = path.join(ctx.pluginWorkDir, 'AGENTS.md')
+  const hasExisting = fs.existsSync(agentsPath)
 
-  try {
-    // Ensure working directory exists
-    if (!fs.existsSync(ctx.pluginWorkDir)) {
-      fs.mkdirSync(ctx.pluginWorkDir, { recursive: true })
-    }
+  // Ensure working directory exists
+  if (!fs.existsSync(ctx.pluginWorkDir)) {
+    fs.mkdirSync(ctx.pluginWorkDir, { recursive: true })
+  }
 
-    const defaultContent = buildDefaultAgentsMd(ctx)
-    fs.writeFileSync(agentsPath, defaultContent, 'utf-8')
+  // Build the agent prompt for codebase analysis and AGENTS.md generation
+  const initPrompt = buildInitAgentPrompt(ctx.pluginWorkDir, agentsPath, hasExisting)
 
-    console.log(`[PluginCommand] Created AGENTS.md at ${agentsPath}`)
-    return {
-      handled: true,
-      reply: [
-        '✅ AGENTS.md 已初始化。',
-        `📁 路径: ${agentsPath}`,
-        '',
-        '你可以编辑此文件来自定义 AI 助手的行为、角色和指令。',
-        'You can edit this file to customize the AI assistant\'s behavior, role, and instructions.',
-        '',
-        '修改后发送任意消息即可生效（无需重启）。',
-      ].join('\n'),
-    }
-  } catch (err) {
-    console.error('[PluginCommand] Failed to create AGENTS.md:', err)
-    return {
-      handled: true,
-      reply: '❌ 创建 AGENTS.md 失败。\nFailed to create AGENTS.md.',
-    }
+  return {
+    handled: false,
+    reply: hasExisting
+      ? `🔄 正在分析项目并更新 AGENTS.md...\nAnalyzing project and updating AGENTS.md...`
+      : `🔍 正在分析项目结构，生成 AGENTS.md...\nAnalyzing project structure to generate AGENTS.md...`,
+    rewriteContent: initPrompt,
   }
 }
 
@@ -470,35 +483,57 @@ function handleStats(ctx: CommandContext, _args: string): CommandResult {
   }
 }
 
-// ── AGENTS.md Template ──
+// ── /init Agent Prompt Builder ──
 
-function buildDefaultAgentsMd(ctx: CommandContext): string {
-  return `# AGENTS.md
+function buildInitAgentPrompt(workDir: string, agentsPath: string, hasExisting: boolean): string {
+  const existingNote = hasExisting
+    ? `There is already an AGENTS.md at \`${agentsPath}\`. Read it first and suggest improvements — preserve any user-customized sections while enhancing the auto-generated parts.`
+    : `No AGENTS.md exists yet. Create a new one at \`${agentsPath}\`.`
 
-This file configures the AI assistant's behavior for this plugin session.
-The assistant will follow these instructions when responding to messages.
+  return `[System Command: /init]
 
-## Role
+Please analyze the codebase in \`${workDir}\` and ${hasExisting ? 'update' : 'create'} an AGENTS.md file.
 
-You are a helpful AI assistant connected via the **${ctx.pluginType}** messaging platform.
-Respond concisely and helpfully. Use the user's language.
+${existingNote}
 
-## Guidelines
+**Your task:**
+1. Explore the project structure using Glob, Grep, and Read tools. Look at package.json, README.md, config files, source entry points, and key modules.
+2. Identify the tech stack, build system, common commands (build, lint, test, dev), and project architecture.
+3. ${hasExisting ? 'Update' : 'Write'} the AGENTS.md file at \`${agentsPath}\` with the following structure:
 
-- Be concise and direct in responses
-- Use the same language as the user (auto-detect)
-- When asked to generate files or reports, use the Write tool and deliver via the plugin
-- For complex tasks, break them down into steps and use available tools
-- Respect user privacy — never share session data across chats
+\`\`\`
+# AGENTS.md
 
-## Tools
+This file provides guidance to the AI assistant when working with code in this repository.
 
-You have access to file system tools (Read, Write, Edit, Glob, Grep), shell execution, and sub-agents for code search and review.
-Use them proactively when the task requires it.
+## Commands
+[Common commands: build, lint, test, dev, etc. Include how to run a single test if applicable.]
+
+## Architecture
+[High-level code architecture and structure — the "big picture" that requires reading multiple files to understand. Focus on entry points, data flow, key patterns, and module responsibilities.]
+
+## Conventions
+[Project-specific conventions: naming, file organization, import patterns, error handling, etc. Only include things that are NOT obvious from the code.]
 
 ## Custom Instructions
+[Preserve any existing custom instructions from the user, or leave a placeholder for them to fill in.]
+\`\`\`
 
-<!-- Add your custom instructions below this line -->
+**Rules:**
+- Do NOT repeat information that can be easily discovered by reading a single file.
+- Do NOT include generic development practices or obvious instructions.
+- Do NOT list every component or file — focus on architecture and relationships.
+- Do NOT make up information — only include what you can verify from the codebase.
+- If there's a README.md, incorporate its important parts (don't duplicate verbatim).
+- If there are existing rule files (.cursorrules, .cursor/rules/, .github/copilot-instructions.md, CLAUDE.md), incorporate their important parts.
+- Keep it concise and actionable — this file should help an AI assistant be productive quickly.
+- Prefix the file with:
 
-`
+\`\`\`
+# AGENTS.md
+
+This file provides guidance to the AI assistant when working with code in this repository.
+\`\`\`
+
+After writing the file, confirm completion with a brief summary of what was generated.`
 }

@@ -216,10 +216,18 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
   },
 
-  clearTasks: () => set({ tasks: [], todos: [] }),
+  clearTasks: () => set({ tasks: [], todos: [], currentSessionId: null }),
 
   deleteSessionTasks: (sessionId) => {
-    set({ tasks: [], todos: [] })
+    set((state) => {
+      const remaining = state.tasks.filter((task) => task.sessionId !== sessionId)
+      if (remaining.length === state.tasks.length) return {}
+      return {
+        tasks: remaining,
+        todos: remaining,
+        currentSessionId: state.currentSessionId === sessionId ? null : state.currentSessionId,
+      }
+    })
     dbDeleteTasksBySession(sessionId)
   },
 

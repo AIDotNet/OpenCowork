@@ -38,15 +38,15 @@ initPluginEventListener()
 
 function App(): React.JSX.Element {
   const theme = useSettingsStore((s) => s.theme)
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
 
   // Initialize plugin auto-reply agent loop listener
   usePluginAutoReply()
 
-  // Load sessions, plans, and cron jobs from SQLite on startup
+  // Load sessions and plans from SQLite on startup
   useEffect(() => {
     useChatStore.getState().loadFromDb()
     usePlanStore.getState().loadPlansFromDb()
-    useCronStore.getState().loadJobs().catch(() => {})
     window.electron.ipcRenderer
       .invoke('settings:get', 'apiKey')
       .then((key) => {
@@ -59,11 +59,18 @@ function App(): React.JSX.Element {
       })
   }, [])
 
+  // Cron data is session-bound: reload when active session changes.
+  useEffect(() => {
+    void useCronStore.getState().loadJobs(activeSessionId)
+    void useCronStore.getState().loadRuns(undefined, activeSessionId)
+  }, [activeSessionId])
+
   // Forward cron:fired IPC events to the renderer-side event bus
   useEffect(() => {
     const offFired = ipcClient.on('cron:fired', (data: unknown) => {
       const d = data as {
         jobId: string
+        sessionId?: string | null
         name?: string
         prompt?: string
         agentId?: string | null
@@ -83,6 +90,8 @@ function App(): React.JSX.Element {
       if (d.prompt) {
         runCronAgent({
           jobId: d.jobId,
+          name: d.name,
+          sessionId: d.sessionId ?? null,
           prompt: d.prompt,
           agentId: d.agentId,
           model: d.model,
@@ -133,10 +142,9 @@ function App(): React.JSX.Element {
     // Subscribe to cron run_finished events for session delivery
     const offRunFinished = cronEvents.on((event) => {
       if (event.type !== 'run_finished') return
-      const job = useCronStore.getState().jobs.find((j) => j.id === event.jobId)
-      if (!job || job.deliveryMode !== 'session') return
+      if (event.deliveryMode !== 'session') return
 
-      const targetSessionId = job.deliveryTarget || _useChatStore.getState().activeSessionId
+      const targetSessionId = event.deliveryTarget || event.sessionId || _useChatStore.getState().activeSessionId
       if (!targetSessionId) return
       const sessions = _useChatStore.getState().sessions
       if (!sessions.some((s) => s.id === targetSessionId)) return
@@ -144,7 +152,7 @@ function App(): React.JSX.Element {
       const statusLabel = event.status === 'success' ? '✅ 成功' : event.status === 'error' ? '❌ 失败' : '⚠️ 中止'
       const content = [
         `<system-reminder>`,
-        `Cron 任务 "${job.name}" 执行完成 (${statusLabel}, ${event.toolCallCount} tool calls)`,
+        `Cron 任务 "${event.jobName || event.jobId}" 执行完成 (${statusLabel}, ${event.toolCallCount} tool calls)`,
         `</system-reminder>`,
         '',
         event.error ? `**Error:** ${event.error}` : (event.outputSummary || '(no output)'),

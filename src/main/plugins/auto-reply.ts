@@ -87,7 +87,7 @@ export function handlePluginAutoReply(event: PluginEvent): void {
     // ── Command interception: handle /help, /new, /init, /status etc. before agent loop ──
     // Always attempt command parsing — tryHandleCommand handles @mention stripping internally
     if (_pluginManager && data.content?.trim()) {
-      const handled = tryHandleCommand({
+      const commandResult = tryHandleCommand({
         pluginId,
         pluginType: event.pluginType,
         chatId: data.chatId,
@@ -96,7 +96,13 @@ export function handlePluginAutoReply(event: PluginEvent): void {
         pluginWorkDir,
         pluginManager: _pluginManager,
       })
-      if (handled) return
+      // true = fully handled, skip agent loop
+      if (commandResult === true) return
+      // string = command rewrote the message, pass to agent loop with new content
+      if (typeof commandResult === 'string') {
+        data.content = commandResult
+      }
+      // false = not a command, proceed with original content
     }
 
     // NOTE: We do NOT insert the user message here — the renderer's sendMessage

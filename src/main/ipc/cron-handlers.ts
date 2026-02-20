@@ -15,6 +15,7 @@ import {
 
 interface CronAddArgs {
   name: string
+  sessionId?: string
   schedule: {
     kind: 'at' | 'every' | 'cron'
     at?: number | string   // timestamp ms or ISO string
@@ -85,9 +86,51 @@ function validateSchedule(schedule: CronAddArgs['schedule']): string | null {
   return null
 }
 
-function jobToApi(r: CronJobRecord, scheduledIds: Set<string>, runningIds: Set<string>) {
+interface CronJobApi {
+  id: string
+  sessionId: string | null
+  name: string
+  schedule: {
+    kind: 'at' | 'every' | 'cron'
+    at: number | null
+    every: number | null
+    expr: string | null
+    tz: string
+  }
+  prompt: string
+  agentId: string | null
+  model: string | null
+  workingFolder: string | null
+  deliveryMode: 'desktop' | 'session' | 'none'
+  deliveryTarget: string | null
+  pluginId: string | null
+  pluginChatId: string | null
+  enabled: boolean
+  deleteAfterRun: boolean
+  maxIterations: number
+  lastFiredAt: number | null
+  fireCount: number
+  createdAt: number
+  updatedAt: number
+  scheduled: boolean
+  executing: boolean
+}
+
+interface CronRunApi {
+  id: string
+  jobId: string
+  startedAt: number
+  finishedAt: number | null
+  status: 'running' | 'success' | 'error' | 'aborted'
+  toolCallCount: number
+  outputSummary: string | null
+  error: string | null
+}
+
+function jobToApi(r: CronJobRecord, scheduledIds: Set<string>, runningIds: Set<string>): CronJobApi {
   return {
     id: r.id,
+    sessionId: r.session_id,
     name: r.name,
     schedule: {
       kind: r.schedule_kind,
@@ -116,7 +159,7 @@ function jobToApi(r: CronJobRecord, scheduledIds: Set<string>, runningIds: Set<s
   }
 }
 
-function runToApi(r: CronRunRecord) {
+function runToApi(r: CronRunRecord): CronRunApi {
   return {
     id: r.id,
     jobId: r.job_id,
@@ -148,6 +191,7 @@ export function registerCronHandlers(): void {
     const record: CronJobRecord = {
       id,
       name: args.name,
+      session_id: args.sessionId ?? null,
       schedule_kind: kind,
       schedule_at: kind === 'at' ? resolveTimestamp(args.schedule.at) : null,
       schedule_every: kind === 'every' ? (args.schedule.every ?? null) : null,
@@ -174,14 +218,14 @@ export function registerCronHandlers(): void {
       const db = getDb()
       db.prepare(`
         INSERT INTO cron_jobs
-          (id, name, schedule_kind, schedule_at, schedule_every, schedule_expr, schedule_tz,
+          (id, name, session_id, schedule_kind, schedule_at, schedule_every, schedule_expr, schedule_tz,
            prompt, agent_id, model, working_folder,
            delivery_mode, delivery_target, plugin_id, plugin_chat_id,
            enabled, delete_after_run, max_iterations,
            last_fired_at, fire_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        record.id, record.name,
+        record.id, record.name, record.session_id,
         record.schedule_kind, record.schedule_at, record.schedule_every, record.schedule_expr, record.schedule_tz,
         record.prompt, record.agent_id, record.model, record.working_folder,
         record.delivery_mode, record.delivery_target, record.plugin_id, record.plugin_chat_id,
@@ -283,10 +327,12 @@ export function registerCronHandlers(): void {
   })
 
   // ── cron:list ────────────────────────────────────────────────
-  ipcMain.handle('cron:list', async () => {
+  ipcMain.handle('cron:list', async (_event, args?: { sessionId?: string | null }) => {
     try {
       const db = getDb()
-      const rows = db.prepare('SELECT * FROM cron_jobs ORDER BY created_at DESC').all() as CronJobRecord[]
+      const rows = args?.sessionId
+        ? db.prepare('SELECT * FROM cron_jobs WHERE session_id = ? ORDER BY created_at DESC').all(args.sessionId) as CronJobRecord[]
+        : db.prepare('SELECT * FROM cron_jobs ORDER BY created_at DESC').all() as CronJobRecord[]
       const scheduledIds = new Set(getScheduledJobIds())
       const runningIds = new Set(getActiveRunJobIds())
       return rows.map((r) => jobToApi(r, scheduledIds, runningIds))
@@ -339,6 +385,7 @@ export function registerCronHandlers(): void {
           agentId: row.agent_id,
           model: row.model,
           workingFolder: row.working_folder,
+          sessionId: row.session_id,
           deliveryMode: row.delivery_mode,
           deliveryTarget: row.delivery_target,
           maxIterations: row.max_iterations,
@@ -358,21 +405,35 @@ export function registerCronHandlers(): void {
   })
 
   // ── cron:runs (execution history) ────────────────────────────
-  ipcMain.handle('cron:runs', async (_event, args: { jobId?: string; limit?: number }) => {
+  ipcMain.handle('cron:runs', async (_event, args: { jobId?: string; sessionId?: string | null; limit?: number }) => {
     try {
       const db = getDb()
       const limit = Math.min(args?.limit ?? 50, 200)
 
       if (args?.jobId) {
-        const rows = db.prepare(
-          'SELECT * FROM cron_runs WHERE job_id = ? ORDER BY started_at DESC LIMIT ?'
-        ).all(args.jobId, limit) as CronRunRecord[]
+        const rows = args?.sessionId
+          ? db.prepare(
+            `SELECT r.* FROM cron_runs r
+             INNER JOIN cron_jobs j ON j.id = r.job_id
+             WHERE r.job_id = ? AND j.session_id = ?
+             ORDER BY r.started_at DESC LIMIT ?`
+          ).all(args.jobId, args.sessionId, limit) as CronRunRecord[]
+          : db.prepare(
+            'SELECT * FROM cron_runs WHERE job_id = ? ORDER BY started_at DESC LIMIT ?'
+          ).all(args.jobId, limit) as CronRunRecord[]
         return rows.map(runToApi)
       }
 
-      const rows = db.prepare(
-        'SELECT * FROM cron_runs ORDER BY started_at DESC LIMIT ?'
-      ).all(limit) as CronRunRecord[]
+      const rows = args?.sessionId
+        ? db.prepare(
+          `SELECT r.* FROM cron_runs r
+           INNER JOIN cron_jobs j ON j.id = r.job_id
+           WHERE j.session_id = ?
+           ORDER BY r.started_at DESC LIMIT ?`
+        ).all(args.sessionId, limit) as CronRunRecord[]
+        : db.prepare(
+          'SELECT * FROM cron_runs ORDER BY started_at DESC LIMIT ?'
+        ).all(limit) as CronRunRecord[]
       return rows.map(runToApi)
     } catch (err) {
       return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }

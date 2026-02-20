@@ -47,7 +47,7 @@ const taskCreateHandler: ToolHandler = {
       required: ['subject', 'description'],
     },
   },
-  execute: async (input) => {
+  execute: async (input, ctx) => {
     const subject = String(input.subject)
     const description = String(input.description)
     const activeForm = input.activeForm ? String(input.activeForm) : undefined
@@ -79,8 +79,13 @@ const taskCreateHandler: ToolHandler = {
     }
 
     // Standalone mode: add to task-store
+    if (!ctx.sessionId) {
+      return JSON.stringify({ error: 'No active session context for TaskCreate.' })
+    }
+
     const task: TaskItem = {
       id,
+      sessionId: ctx.sessionId,
       subject,
       description,
       activeForm,

@@ -14,6 +14,7 @@ import { useAgentStore } from './agent-store'
 import { useTeamStore } from './team-store'
 import { useTaskStore } from './task-store'
 import { usePlanStore } from './plan-store'
+import { useUIStore } from './ui-store'
 
 export type SessionMode = 'chat' | 'cowork' | 'code'
 
@@ -354,6 +355,12 @@ export const useChatStore = create<ChatStore>()(
         })
         if (nextActiveSessionId) {
           await get().loadSessionMessages(nextActiveSessionId)
+          await useTaskStore.getState().loadTasksForSession(nextActiveSessionId)
+          const activePlan = usePlanStore.getState().getPlanBySession(nextActiveSessionId)
+          usePlanStore.getState().setActivePlan(activePlan?.id ?? null)
+        } else {
+          useTaskStore.getState().clearTasks()
+          usePlanStore.getState().setActivePlan(null)
         }
       } catch (err) {
         console.error('[ChatStore] Failed to load from DB:', err)
@@ -380,6 +387,10 @@ export const useChatStore = create<ChatStore>()(
       })
       dbCreateSession(newSession)
       useTaskStore.getState().clearTasks()
+      usePlanStore.getState().setActivePlan(null)
+      if (useUIStore.getState().planMode) {
+        useUIStore.getState().exitPlanMode()
+      }
       return id
     },
 
@@ -397,6 +408,12 @@ export const useChatStore = create<ChatStore>()(
       })
       if (nextActiveId) {
         void get().loadSessionMessages(nextActiveId)
+        void useTaskStore.getState().loadTasksForSession(nextActiveId)
+        const activePlan = usePlanStore.getState().getPlanBySession(nextActiveId)
+        usePlanStore.getState().setActivePlan(activePlan?.id ?? null)
+      } else {
+        useTaskStore.getState().clearTasks()
+        usePlanStore.getState().setActivePlan(null)
       }
       // Clean up agent-store per-session state
       const agentState = useAgentStore.getState()
@@ -420,14 +437,20 @@ export const useChatStore = create<ChatStore>()(
         // Sync convenience field to the new active session's streaming state
         state.streamingMessageId = id ? (state.streamingMessages[id] ?? null) : null
       })
+      if (prevId !== id && useUIStore.getState().planMode) {
+        useUIStore.getState().exitPlanMode()
+      }
       // Switch per-session tool calls in agent-store
       useAgentStore.getState().switchToolCallSession(prevId, id)
       // Load tasks for the new session
       if (id) {
         void useTaskStore.getState().loadTasksForSession(id)
         void get().loadSessionMessages(id)
+        const activePlan = usePlanStore.getState().getPlanBySession(id)
+        usePlanStore.getState().setActivePlan(activePlan?.id ?? null)
       } else {
         useTaskStore.getState().clearTasks()
+        usePlanStore.getState().setActivePlan(null)
       }
     },
 
@@ -499,6 +522,9 @@ export const useChatStore = create<ChatStore>()(
       })
       dbCreateSession(normalizedSession)
       normalizedSession.messages.forEach((msg, i) => dbAddMessage(normalizedSession.id, msg, i))
+      useTaskStore.getState().clearTasks()
+      const activePlan = usePlanStore.getState().getPlanBySession(normalizedSession.id)
+      usePlanStore.getState().setActivePlan(activePlan?.id ?? null)
     },
 
     clearAllSessions: () => {
@@ -544,7 +570,7 @@ export const useChatStore = create<ChatStore>()(
       useTeamStore.getState().clearSessionTeam(sessionId)
       const plan = usePlanStore.getState().getPlanBySession(sessionId)
       if (plan) usePlanStore.getState().deletePlan(plan.id)
-      useTaskStore.getState().clearTasks()
+      useTaskStore.getState().deleteSessionTasks(sessionId)
     },
 
     duplicateSession: async (sessionId) => {
@@ -572,6 +598,8 @@ export const useChatStore = create<ChatStore>()(
       })
       dbCreateSession(newSession)
       clonedMessages.forEach((msg, i) => dbAddMessage(newId, msg, i))
+      useTaskStore.getState().clearTasks()
+      usePlanStore.getState().setActivePlan(null)
       return newId
     },
 

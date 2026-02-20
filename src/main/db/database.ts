@@ -8,6 +8,22 @@ const DB_PATH = path.join(DATA_DIR, 'data.db')
 
 let db: Database.Database | null = null
 
+function hasColumn(
+  database: Database.Database,
+  tableName: string,
+  columnName: string,
+): boolean {
+  try {
+    const safeTable = tableName.replace(/"/g, '""')
+    const rows = database
+      .prepare(`PRAGMA table_info("${safeTable}")`)
+      .all() as Array<{ name: string }>
+    return rows.some((row) => row.name === columnName)
+  } catch {
+    return false
+  }
+}
+
 export function getDb(): Database.Database {
   if (db) return db
 
@@ -57,24 +73,36 @@ export function getDb(): Database.Database {
   }
 
   // Migration: add plugin_id column for plugin-initiated sessions
-  try {
-    db.exec(`ALTER TABLE sessions ADD COLUMN plugin_id TEXT`)
-  } catch {
-    // Column already exists — ignore
+  if (!hasColumn(db, 'sessions', 'plugin_id')) {
+    try {
+      db.exec(`ALTER TABLE sessions ADD COLUMN plugin_id TEXT`)
+    } catch {
+      // Column already exists — ignore
+    }
   }
 
   // Ensure plugin_id index exists
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_plugin ON sessions(plugin_id)`)
+  if (hasColumn(db, 'sessions', 'plugin_id')) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_plugin ON sessions(plugin_id)`)
+  } else {
+    console.warn('[DB] Skip idx_sessions_plugin: sessions.plugin_id is missing')
+  }
 
   // Migration: add external_chat_id column for per-user/per-group plugin sessions
-  try {
-    db.exec(`ALTER TABLE sessions ADD COLUMN external_chat_id TEXT`)
-  } catch {
-    // Column already exists — ignore
+  if (!hasColumn(db, 'sessions', 'external_chat_id')) {
+    try {
+      db.exec(`ALTER TABLE sessions ADD COLUMN external_chat_id TEXT`)
+    } catch {
+      // Column already exists — ignore
+    }
   }
 
   // Ensure external_chat_id index exists
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_external_chat ON sessions(external_chat_id)`)
+  if (hasColumn(db, 'sessions', 'external_chat_id')) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_external_chat ON sessions(external_chat_id)`)
+  } else {
+    console.warn('[DB] Skip idx_sessions_external_chat: sessions.external_chat_id is missing')
+  }
 
   // Migration: add plan_id column to sessions if missing
   try {
@@ -146,6 +174,7 @@ export function getDb(): Database.Database {
       agent_id         TEXT,
       model            TEXT,
       working_folder   TEXT,
+      session_id       TEXT,
 
       delivery_mode    TEXT DEFAULT 'desktop',
       delivery_target  TEXT,
@@ -157,7 +186,8 @@ export function getDb(): Database.Database {
       last_fired_at    INTEGER,
       fire_count       INTEGER DEFAULT 0,
       created_at       INTEGER NOT NULL,
-      updated_at       INTEGER NOT NULL
+      updated_at       INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS cron_runs (
@@ -178,6 +208,14 @@ export function getDb(): Database.Database {
   // Migration: add plugin columns to cron_jobs if missing
   try { db.exec(`ALTER TABLE cron_jobs ADD COLUMN plugin_id TEXT`) } catch { /* exists */ }
   try { db.exec(`ALTER TABLE cron_jobs ADD COLUMN plugin_chat_id TEXT`) } catch { /* exists */ }
+  if (!hasColumn(db, 'cron_jobs', 'session_id')) {
+    try { db.exec(`ALTER TABLE cron_jobs ADD COLUMN session_id TEXT`) } catch { /* ignore */ }
+  }
+  if (hasColumn(db, 'cron_jobs', 'session_id')) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_cron_jobs_session ON cron_jobs(session_id)`)
+  } else {
+    console.warn('[DB] Skip idx_cron_jobs_session: cron_jobs.session_id is missing')
+  }
 
   return db
 }

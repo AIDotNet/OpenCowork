@@ -14,6 +14,7 @@ export interface CronSchedule {
 
 export interface CronJobEntry {
   id: string
+  sessionId: string | null
   name: string
   schedule: CronSchedule
   prompt: string
@@ -65,9 +66,10 @@ interface CronStore {
   jobs: CronJobEntry[]
   runs: CronRunEntry[]
   agentLogs: Record<string, CronAgentLogEntry[]>
+  currentSessionId: string | null
 
-  loadJobs: () => Promise<void>
-  loadRuns: (jobId?: string) => Promise<void>
+  loadJobs: (sessionId?: string | null) => Promise<void>
+  loadRuns: (jobId?: string, sessionId?: string | null) => Promise<void>
   addJob: (job: CronJobEntry) => void
   removeJob: (id: string) => void
   updateJob: (id: string, patch: Partial<CronJobEntry>) => void
@@ -82,25 +84,40 @@ interface CronStore {
 const MAX_RUNS = 100
 const MAX_AGENT_LOG_ENTRIES = 100
 
-export const useCronStore = create<CronStore>((set) => ({
+export const useCronStore = create<CronStore>((set, get) => ({
   jobs: [],
   runs: [],
   agentLogs: {},
+  currentSessionId: null,
 
-  loadJobs: async () => {
+  loadJobs: async (sessionId) => {
+    const targetSessionId = sessionId ?? get().currentSessionId
+    if (!targetSessionId) {
+      set({ jobs: [], runs: [], currentSessionId: null })
+      return
+    }
     try {
-      const result = await ipcClient.invoke(IPC.CRON_LIST)
+      const result = await ipcClient.invoke(IPC.CRON_LIST, { sessionId: targetSessionId })
       if (Array.isArray(result)) {
-        set({ jobs: result as CronJobEntry[] })
+        set({ jobs: result as CronJobEntry[], currentSessionId: targetSessionId })
       }
     } catch (err) {
       console.error('[CronStore] Failed to load jobs:', err)
     }
   },
 
-  loadRuns: async (jobId?: string) => {
+  loadRuns: async (jobId?: string, sessionId?: string | null) => {
+    const targetSessionId = sessionId ?? get().currentSessionId
+    if (!targetSessionId) {
+      set({ runs: [] })
+      return
+    }
     try {
-      const result = await ipcClient.invoke(IPC.CRON_RUNS, { jobId, limit: MAX_RUNS })
+      const result = await ipcClient.invoke(IPC.CRON_RUNS, {
+        jobId,
+        sessionId: targetSessionId,
+        limit: MAX_RUNS,
+      })
       if (Array.isArray(result)) {
         set({ runs: result as CronRunEntry[] })
       }
@@ -119,10 +136,14 @@ export const useCronStore = create<CronStore>((set) => ({
     set((s) => ({ jobs: s.jobs.map((j) => (j.id === id ? { ...j, ...patch } : j)) })),
 
   recordRun: (run) =>
-    set((s) => ({ runs: [run, ...s.runs].slice(0, MAX_RUNS) })),
+    set((s) => {
+      if (!s.jobs.some((j) => j.id === run.jobId)) return {}
+      return { runs: [run, ...s.runs].slice(0, MAX_RUNS) }
+    }),
 
   appendAgentLog: (entry) =>
     set((s) => {
+      if (!s.jobs.some((j) => j.id === entry.jobId)) return {}
       const prev = s.agentLogs[entry.jobId] ?? []
       return {
         agentLogs: {

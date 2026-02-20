@@ -41,6 +41,17 @@ interface RenderableMessage {
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
 }
 
+interface RenderableMessageMeta {
+  messageIndex: number
+  isLastUserMessage: boolean
+  toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
+}
+
+interface RenderableMetaBuildResult {
+  items: RenderableMessageMeta[]
+  hasAssistantMessages: boolean
+}
+
 const EMPTY_MESSAGES: UnifiedMessage[] = []
 const INITIAL_VISIBLE_MESSAGE_COUNT = 120
 const LOAD_MORE_MESSAGE_STEP = 80
@@ -67,7 +78,10 @@ function collectToolResults(blocks: ContentBlock[], target: Map<string, { conten
   }
 }
 
-function buildRenderableMessages(messages: UnifiedMessage[], streamingMessageId: string | null): RenderableMessage[] {
+function buildRenderableMessageMeta(
+  messages: UnifiedMessage[],
+  streamingMessageId: string | null
+): RenderableMetaBuildResult {
   let lastRealUserIndex = -1
   if (!streamingMessageId) {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -95,18 +109,20 @@ function buildRenderableMessages(messages: UnifiedMessage[], streamingMessageId:
     trailingToolResults = undefined
   }
 
-  const result: RenderableMessage[] = []
+  const result: RenderableMessageMeta[] = []
+  let hasAssistantMessages = false
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]
     if (isToolResultOnlyUserMessage(message)) continue
+    if (message.role === 'assistant') hasAssistantMessages = true
 
     result.push({
-      message,
+      messageIndex: i,
       isLastUserMessage: i === lastRealUserIndex,
       toolResults: assistantToolResults.get(i),
     })
   }
-  return result
+  return { items: result, hasAssistantMessages }
 }
 
 export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): React.JSX.Element {
@@ -127,19 +143,37 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
     void useChatStore.getState().loadSessionMessages(activeSessionId)
   }, [activeSessionId])
 
-  const renderableMessages = React.useMemo(
-    () => buildRenderableMessages(messages, streamingMessageId),
-    [messages, streamingMessageId]
+  const messageShapeHeadId = messages[0]?.id ?? null
+  const messageShapeTailId = messages[messages.length - 1]?.id ?? null
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const renderableMeta = React.useMemo(
+    () => buildRenderableMessageMeta(messages, streamingMessageId),
+    // Structural deps only: avoid re-running expensive content scan for each streaming text delta.
+    [activeSessionId, streamingMessageId, messages.length, messageShapeHeadId, messageShapeTailId]
   )
   const [visibleCount, setVisibleCount] = React.useState(INITIAL_VISIBLE_MESSAGE_COUNT)
-  const visibleRenderableMessages = React.useMemo(() => {
-    const startIndex = Math.max(0, renderableMessages.length - visibleCount)
-    return renderableMessages.slice(startIndex)
-  }, [renderableMessages, visibleCount])
-  const hiddenMessageCount = Math.max(0, renderableMessages.length - visibleRenderableMessages.length)
+  const visibleRenderableMeta = React.useMemo(() => {
+    const startIndex = Math.max(0, renderableMeta.items.length - visibleCount)
+    return renderableMeta.items.slice(startIndex)
+  }, [renderableMeta.items, visibleCount])
+  const visibleRenderableMessages = React.useMemo<RenderableMessage[]>(() => {
+    const result: RenderableMessage[] = []
+    for (const item of visibleRenderableMeta) {
+      const message = messages[item.messageIndex]
+      if (!message || isToolResultOnlyUserMessage(message)) continue
+      result.push({
+        message,
+        isLastUserMessage: item.isLastUserMessage,
+        toolResults: item.toolResults,
+      })
+    }
+    return result
+  }, [visibleRenderableMeta, messages])
+  const hiddenMessageCount = Math.max(0, renderableMeta.items.length - visibleRenderableMeta.length)
   const [copiedAll, setCopiedAll] = React.useState(false)
   const [exporting, setExporting] = React.useState(false)
   const contentRef = React.useRef<HTMLDivElement>(null)
+  const hasAssistantMessages = renderableMeta.hasAssistantMessages
 
   React.useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_MESSAGE_COUNT)
@@ -179,13 +213,14 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
     const handleScroll = (): void => {
       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
       const threshold = isStreamingRef.current ? 150 : 16
-      setIsAtBottom(distanceFromBottom <= threshold)
+      const nextAtBottom = distanceFromBottom <= threshold
+      setIsAtBottom((prev) => (prev === nextAtBottom ? prev : nextAtBottom))
     }
 
     handleScroll()
-    container.addEventListener('scroll', handleScroll)
+    container.addEventListener('scroll', handleScroll, { passive: true })
     return () => container.removeEventListener('scroll', handleScroll)
-  }, [messages.length])
+  }, [activeSessionId])
 
   // Auto-scroll to bottom on new messages, streaming content, and tool call state changes
   React.useEffect(() => {
@@ -209,14 +244,18 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
     if (!container) return
 
     let lastHeight = container.scrollHeight
+    let lastTick = 0
     let rafId: number
 
-    const follow = (): void => {
-      const h = container.scrollHeight
-      if (h !== lastHeight) {
-        lastHeight = h
-        const dist = h - container.scrollTop - container.clientHeight
-        if (dist <= 150) container.scrollTop = h
+    const follow = (now: number): void => {
+      if (now - lastTick >= 33) {
+        lastTick = now
+        const h = container.scrollHeight
+        if (h !== lastHeight) {
+          lastHeight = h
+          const dist = h - container.scrollTop - container.clientHeight
+          if (dist <= 150) container.scrollTop = h
+        }
       }
       rafId = requestAnimationFrame(follow)
     }
@@ -381,25 +420,26 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
 
   return (
     <div className="relative flex-1">
-      {/* Floating action bar — always visible at top-right, icons only until hovered */}
-      {messages.length > 1 && !streamingMessageId && (
+      {/* Floating action bar — visible by default when conversation has content */}
+      {messages.length > 0 && (
         <div className="absolute top-2 right-4 z-10 flex items-center gap-0.5 rounded-lg border bg-background/80 backdrop-blur-sm shadow-sm px-0.5 py-0.5">
           <button
             className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200 disabled:opacity-50"
             onClick={handleExportImage}
-            disabled={exporting}
+            disabled={exporting || !!streamingMessageId}
           >
             {exporting ? <Loader2 className="size-3.5 shrink-0 animate-spin" /> : <ImageDown className="size-3.5 shrink-0" />}
-            <span className="overflow-hidden max-w-0 group-hover/btn:max-w-[80px] transition-all duration-200 text-[10px] whitespace-nowrap">
+            <span className="text-[10px] whitespace-nowrap">
               {exporting ? t('messageList.exporting') : t('messageList.exportImage')}
             </span>
           </button>
           <button
-            className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200"
+            className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200 disabled:opacity-50"
             onClick={handleCopyAll}
+            disabled={!!streamingMessageId}
           >
             {copiedAll ? <Check className="size-3.5 shrink-0" /> : <ClipboardCopy className="size-3.5 shrink-0" />}
-            <span className="overflow-hidden max-w-0 group-hover/btn:max-w-[60px] transition-all duration-200 text-[10px] whitespace-nowrap">
+            <span className="text-[10px] whitespace-nowrap">
               {copiedAll ? t('messageList.copied') : t('messageList.copyAll')}
             </span>
           </button>
@@ -430,7 +470,7 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
               />
             )
           })}
-          {!streamingMessageId && messages.length > 0 && messages.some((m) => m.role === 'assistant') && onRetry && (
+          {!streamingMessageId && messages.length > 0 && hasAssistantMessages && onRetry && (
             <div className="flex justify-center">
               <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground" onClick={onRetry}>
                 <RefreshCw className="size-3" />

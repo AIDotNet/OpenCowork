@@ -43,7 +43,7 @@ files:
   - '!node_modules/sonner/**'
   - '!node_modules/next-themes/**'
   - '!node_modules/html-to-image/**'
-  - '!node_modules/nanoid/**'
+
   - '!node_modules/partial-json/**'
   - '!node_modules/immer/**'
   - '!node_modules/zustand/**'

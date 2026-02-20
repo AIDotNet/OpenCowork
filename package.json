@@ -1,6 +1,6 @@
 {
   "name": "open-cowork",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",

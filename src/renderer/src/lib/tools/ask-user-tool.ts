@@ -121,6 +121,21 @@ const askUserQuestionHandler: ToolHandler = {
       return JSON.stringify({ error: 'Maximum 4 questions allowed' })
     }
 
+    // ── Plugin context: no UI interaction available ──
+    // Return the questions as text so the LLM sends them as a message via the plugin channel.
+    if (ctx.pluginId) {
+      const lines: string[] = []
+      for (const q of questions) {
+        let line = `- ${q.question}`
+        if (q.options?.length) {
+          const opts = q.options.map((o) => o.label + (o.description ? ` (${o.description})` : '')).join(', ')
+          line += `  [${opts}]`
+        }
+        lines.push(line)
+      }
+      return `You are in a plugin session and cannot show interactive UI to the user. Instead, ask the user these questions directly in your reply message:\n${lines.join('\n')}\nWait for the user to respond before proceeding.`
+    }
+
     // Block until the user answers via the UI
     const answers = await new Promise<AskUserAnswers>((resolve) => {
       answerResolvers.set(toolUseId, resolve)

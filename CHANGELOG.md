@@ -3,6 +3,11 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.1.9] - 2026-02-20
+
+### Fixed
+- **Fixed Windows build crash** — removed `nanoid` from the `electron-builder.yml` exclude list. The `nanoid` module is required by the main process (cron handlers, plugin handlers, auto-reply) and was incorrectly excluded from the packaged app, causing "Cannot find module 'nanoid'" errors on startup.
+
 ## [0.1.8] - 2026-02-20
 
 ### Added

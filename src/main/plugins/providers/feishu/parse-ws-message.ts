@@ -23,12 +23,16 @@ export function parseFeishuWsMessage(raw: string): PluginIncomingMessageData | n
         content = message?.content ?? ''
       }
 
+      // Feishu create_time is in seconds, convert to milliseconds
+      const timestamp = message?.create_time ? parseInt(message.create_time, 10) * 1000 : Date.now()
+
       return {
         chatId: message?.chat_id ?? '',
         senderId: sender?.sender_id?.open_id ?? sender?.sender_id?.user_id ?? '',
         senderName: sender?.sender_id?.open_id ?? '',
         content,
         messageId: message?.message_id ?? '',
+        timestamp,
       }
     }
 
@@ -40,6 +44,7 @@ export function parseFeishuWsMessage(raw: string): PluginIncomingMessageData | n
         senderName: data.senderName ?? '',
         content: data.content,
         messageId: data.messageId ?? '',
+        timestamp: data.timestamp ?? Date.now(),
       }
     }
 

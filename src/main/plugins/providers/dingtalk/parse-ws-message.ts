@@ -19,12 +19,16 @@ export function parseDingTalkWsMessage(raw: string): PluginIncomingMessageData |
         content = payload.text?.content ?? ''
       }
 
+      // DingTalk msgCreateTime is in milliseconds
+      const timestamp = payload.msgCreateTime ? parseInt(payload.msgCreateTime, 10) : Date.now()
+
       return {
         chatId: payload.conversationId ?? '',
         senderId: payload.senderStaffId ?? payload.senderId ?? '',
         senderName: payload.senderNick ?? '',
         content,
         messageId: payload.msgId ?? '',
+        timestamp,
       }
     }
 
@@ -36,6 +40,7 @@ export function parseDingTalkWsMessage(raw: string): PluginIncomingMessageData |
         senderName: data.senderName ?? '',
         content: data.content,
         messageId: data.messageId ?? '',
+        timestamp: data.timestamp ?? Date.now(),
       }
     }
 

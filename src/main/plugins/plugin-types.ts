@@ -98,6 +98,8 @@ export interface PluginIncomingMessageData {
   senderName: string
   content: string
   messageId: string
+  /** Message timestamp in milliseconds */
+  timestamp?: number
   /** Base64-encoded image attachments from the incoming message */
   images?: Array<{ base64: string; mediaType: string }>
   /** Original message type from the platform (e.g. text, image, file) */

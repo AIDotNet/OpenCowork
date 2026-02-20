@@ -10,12 +10,16 @@ export function parseWeComWsMessage(raw: string): PluginIncomingMessageData | nu
 
     // WeCom callback event format (from relay)
     if (data.MsgType === 'text' && data.Content) {
+      // WeCom CreateTime is Unix timestamp in seconds, convert to milliseconds
+      const timestamp = data.CreateTime ? parseInt(data.CreateTime, 10) * 1000 : Date.now()
+
       return {
         chatId: data.ChatId ?? data.FromUserName ?? '',
         senderId: data.FromUserName ?? '',
         senderName: data.FromUserName ?? '',
         content: data.Content ?? '',
         messageId: String(data.MsgId ?? ''),
+        timestamp,
       }
     }
 
@@ -27,6 +31,7 @@ export function parseWeComWsMessage(raw: string): PluginIncomingMessageData | nu
         senderName: data.senderName ?? '',
         content: data.content,
         messageId: data.messageId ?? '',
+        timestamp: data.timestamp ?? Date.now(),
       }
     }
 

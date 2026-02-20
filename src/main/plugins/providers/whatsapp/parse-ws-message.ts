@@ -13,12 +13,16 @@ export function parseWhatsAppWsMessage(raw: string): PluginIncomingMessageData |
       const change = data.entry[0].changes[0].value
       const msg = change.messages[0]
       const contact = change.contacts?.[0]
+      // WhatsApp timestamp is Unix timestamp in seconds, convert to milliseconds
+      const timestamp = msg.timestamp ? parseInt(msg.timestamp, 10) * 1000 : Date.now()
+
       return {
         chatId: msg.from ?? '',
         senderId: msg.from ?? '',
         senderName: contact?.profile?.name ?? '',
         content: msg.text?.body ?? '',
         messageId: msg.id ?? '',
+        timestamp,
       }
     }
 
@@ -30,6 +34,7 @@ export function parseWhatsAppWsMessage(raw: string): PluginIncomingMessageData |
         senderName: data.senderName ?? '',
         content: data.content,
         messageId: data.messageId ?? '',
+        timestamp: data.timestamp ?? Date.now(),
       }
     }
 

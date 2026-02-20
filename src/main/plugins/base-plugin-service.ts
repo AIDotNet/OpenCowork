@@ -113,6 +113,13 @@ export abstract class BasePluginService implements MessagingPluginService {
     return this._running
   }
 
+  /** Filter out messages older than 15 minutes to avoid processing stale messages */
+  private isMessageFresh(timestamp?: number): boolean {
+    if (!timestamp) return true // No timestamp, assume fresh
+    const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000
+    return timestamp >= fifteenMinutesAgo
+  }
+
   private handleWsMessage(raw: string): void {
     if (!this._parser) {
       console.warn(`[${this.pluginType}:${this.pluginId}] No parser set, ignoring WS message`)
@@ -121,6 +128,14 @@ export abstract class BasePluginService implements MessagingPluginService {
 
     const parsed = this._parser(raw)
     if (!parsed) return
+
+    // Filter out stale messages (> 15 minutes old)
+    if (!this.isMessageFresh(parsed.timestamp)) {
+      console.log(
+        `[${this.pluginType}:${this.pluginId}] Ignoring stale message from ${new Date(parsed.timestamp!).toISOString()}`
+      )
+      return
+    }
 
     this.emit({
       type: 'incoming_message',

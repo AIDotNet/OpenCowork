@@ -11,12 +11,16 @@ export function parseTelegramWsMessage(raw: string): PluginIncomingMessageData |
     // Telegram Bot API update format (from relay)
     if (data.message) {
       const msg = data.message
+      // Telegram date is Unix timestamp in seconds, convert to milliseconds
+      const timestamp = msg.date ? msg.date * 1000 : Date.now()
+
       return {
         chatId: String(msg.chat?.id ?? ''),
         senderId: String(msg.from?.id ?? ''),
         senderName: [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || '',
         content: msg.text ?? '',
         messageId: String(msg.message_id ?? ''),
+        timestamp,
       }
     }
 
@@ -28,6 +32,7 @@ export function parseTelegramWsMessage(raw: string): PluginIncomingMessageData |
         senderName: data.senderName ?? '',
         content: data.content,
         messageId: data.messageId ?? '',
+        timestamp: data.timestamp ?? Date.now(),
       }
     }
 

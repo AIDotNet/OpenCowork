@@ -3,6 +3,15 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.2] - 2026-02-23
+
+### Added
+- **Specialized agent presets** — introduced eight curated agent profiles (API design, architecture review, code review, copywriting, data analysis, debugging, DevOps, and documentation) with tailored system prompts so teams can spin up the right expert quicker.
+- **Public documentation site** — launched an accompanying Next.js documentation hub (built with Fumadocs + Docker support) that mirrors the in-app architecture references and provides a polished onboarding path.
+
+### Changed
+- Updated marketing homepage hero badge to highlight the new v0.2.2 release.
+
 ## [0.2.1] - 2026-02-22
 
 ### Added

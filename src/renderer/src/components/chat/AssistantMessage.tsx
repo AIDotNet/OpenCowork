@@ -1,10 +1,16 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import mermaid from 'mermaid'
+import {
+  applyMermaidTheme,
+  copyMermaidToClipboard,
+  useMermaidThemeVersion
+} from '@renderer/lib/utils/mermaid-theme'
 import { Avatar, AvatarFallback } from '@renderer/components/ui/avatar'
 import { useTypewriter } from '@renderer/hooks/use-typewriter'
-import { Copy, Check, ChevronsDownUp, ChevronsUpDown, Bug } from 'lucide-react'
+import { Copy, Check, ChevronsDownUp, ChevronsUpDown, Bug, ImageDown } from 'lucide-react'
 import { FadeIn, ScaleIn } from '@renderer/components/animate-ui'
 import type {
   ContentBlock,
@@ -172,6 +178,105 @@ function CopyButton({ text }: { text: string }): React.JSX.Element {
   )
 }
 
+function MermaidImageCopyButton({ svg }: { svg: string }): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const handleCopy = useCallback(async () => {
+    if (!svg.trim()) return
+    setBusy(true)
+    try {
+      await copyMermaidToClipboard(svg)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('[Mermaid] Copy image failed:', err)
+    } finally {
+      setBusy(false)
+    }
+  }, [svg])
+
+  return (
+    <button
+      onClick={() => void handleCopy()}
+      disabled={busy || !svg.trim()}
+      title="复制 Mermaid 图到剪贴板"
+      className="flex items-center rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted-foreground/10 transition-colors disabled:opacity-50"
+    >
+      {copied ? <Check className="size-3" /> : <ImageDown className="size-3" />}
+      <span>{copied ? '已复制' : '下载'}</span>
+    </button>
+  )
+}
+
+function MermaidCodeBlock({ code }: { code: string }): React.JSX.Element {
+  const [svg, setSvg] = useState('')
+  const [error, setError] = useState('')
+  const diagramKey = useMemo(() => Math.random().toString(36).slice(2), [])
+  const themeVersion = useMermaidThemeVersion()
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function renderDiagram(): Promise<void> {
+      const source = code.trim()
+      if (!source) {
+        setSvg('')
+        setError('')
+        return
+      }
+      try {
+        applyMermaidTheme()
+        const result = await mermaid.render(`mermaid-chat-${diagramKey}-${Date.now()}`, source)
+        if (cancelled) return
+        setSvg(result.svg)
+        setError('')
+      } catch (err) {
+        if (cancelled) return
+        setSvg('')
+        setError(err instanceof Error ? err.message : 'Failed to render Mermaid diagram.')
+      }
+    }
+
+    void renderDiagram()
+    return () => {
+      cancelled = true
+    }
+  }, [code, diagramKey, themeVersion])
+
+  return (
+    <div className="group relative my-3 overflow-hidden rounded-lg border border-border/60 shadow-sm">
+      <div className="flex items-center justify-between border-b border-border/60 bg-muted/40 px-3 py-1.5">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
+          mermaid
+        </span>
+        <div className="flex items-center gap-0.5">
+          <MermaidImageCopyButton svg={svg} />
+          <CopyButton text={code} />
+        </div>
+      </div>
+      <div className="bg-[hsl(var(--muted))] p-3">
+        {error ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+            <p className="text-xs font-medium text-destructive/90">Mermaid render failed</p>
+            <p className="mt-1 text-xs text-destructive/70">{error}</p>
+          </div>
+        ) : !svg ? (
+          <div className="rounded-md border border-border/60 bg-background/70 p-3 text-xs text-muted-foreground">
+            Rendering Mermaid diagram...
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-md bg-background p-3">
+            <div
+              className="[&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function CodeBlock({
   language,
   children
@@ -180,6 +285,9 @@ function CodeBlock({
   children: string
 }): React.JSX.Element {
   const code = String(children).replace(/\n$/, '')
+  if (language?.toLowerCase() === 'mermaid') {
+    return <MermaidCodeBlock code={code} />
+  }
   return (
     <div className="group relative rounded-lg border border-border/60 overflow-hidden my-3 shadow-sm">
       <div className="flex items-center justify-between bg-muted/40 px-3 py-1.5 border-b border-border/60">
@@ -250,7 +358,7 @@ function MarkdownContent({ text }: { text: string }): React.JSX.Element {
     ),
     pre: ({ children }) => <>{children}</>,
     code: ({ children, className, ...props }) => {
-      const match = /language-(\w+)/.exec(className || '')
+      const match = /language-([\w-]+)/.exec(className || '')
       const isInline = !match && !className
       if (isInline) {
         return (
@@ -268,10 +376,7 @@ function MarkdownContent({ text }: { text: string }): React.JSX.Element {
   }
 
   return (
-    <Markdown
-      remarkPlugins={[remarkGfm]}
-      components={components}
-    >
+    <Markdown remarkPlugins={[remarkGfm]} components={components}>
       {text}
     </Markdown>
   )
@@ -479,7 +584,15 @@ export function AssistantMessage({
       : -1
 
     // Tools that have special renderers and should NOT be grouped
-    const SPECIAL_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'Write', 'Edit', 'MultiEdit', 'Delete', 'AskUserQuestion'])
+    const SPECIAL_TOOLS = new Set([
+      'TaskCreate',
+      'TaskUpdate',
+      'Write',
+      'Edit',
+      'MultiEdit',
+      'Delete',
+      'AskUserQuestion'
+    ])
 
     /** Check if a tool_use block should use the generic ToolCallCard (groupable) */
     const isGroupableTool = (name: string): boolean =>
@@ -554,11 +667,7 @@ export function AssistantMessage({
           const result = toolResults?.get(block.id)
           return (
             <FadeIn key={key} className="w-full">
-              <TeamEventCard
-                name={block.name}
-                input={block.input}
-                output={result?.content}
-              />
+              <TeamEventCard name={block.name} input={block.input} output={result?.content} />
             </FadeIn>
           )
         }
@@ -623,7 +732,9 @@ export function AssistantMessage({
             ) : (
               <ChevronsDownUp className="size-3" />
             )}
-            {toolsCollapsed ? t('assistantMessage.showToolCalls', { count: toolCount }) : t('assistantMessage.collapseToolCalls', { count: toolCount })}
+            {toolsCollapsed
+              ? t('assistantMessage.showToolCalls', { count: toolCount })
+              : t('assistantMessage.collapseToolCalls', { count: toolCount })}
           </button>
         )}
         {renderItems.map((item) => {
@@ -774,7 +885,9 @@ export function AssistantMessage({
             </ScaleIn>
           )
         })}
-        {isStreaming && <span className="inline-block w-1.5 h-4 bg-primary/70 animate-pulse ml-0.5 rounded-sm" />}
+        {isStreaming && (
+          <span className="inline-block w-1.5 h-4 bg-primary/70 animate-pulse ml-0.5 rounded-sm" />
+        )}
       </div>
     )
   }
@@ -784,9 +897,9 @@ export function AssistantMessage({
       ? stripThinkTags(content)
       : Array.isArray(content)
         ? content
-          .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
-          .map((b) => stripThinkTags(b.text))
-          .join('\n')
+            .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+            .map((b) => stripThinkTags(b.text))
+            .join('\n')
         : ''
 
   const timingSummary = useMemo(() => {
@@ -799,15 +912,19 @@ export function AssistantMessage({
     let lastDetail: string | null = null
     if (lastTiming) {
       const parts: string[] = []
-      parts.push(`${t('assistantMessage.req', { count: perRequest.length })} ${formatMs(lastTiming.totalMs)}`)
-      if (lastTiming.ttftMs !== undefined) parts.push(`${t('assistantMessage.ttft')} ${formatMs(lastTiming.ttftMs)}`)
-      if (lastTiming.tps !== undefined) parts.push(`${t('assistantMessage.tps')} ${lastTiming.tps.toFixed(1)}`)
+      parts.push(
+        `${t('assistantMessage.req', { count: perRequest.length })} ${formatMs(lastTiming.totalMs)}`
+      )
+      if (lastTiming.ttftMs !== undefined)
+        parts.push(`${t('assistantMessage.ttft')} ${formatMs(lastTiming.ttftMs)}`)
+      if (lastTiming.tps !== undefined)
+        parts.push(`${t('assistantMessage.tps')} ${lastTiming.tps.toFixed(1)}`)
       lastDetail = parts.join(' · ')
     }
 
     return {
       totalDuration,
-      lastDetail,
+      lastDetail
     }
   }, [t, usage])
 
@@ -852,33 +969,35 @@ export function AssistantMessage({
           <p className="mt-1 text-[10px] text-muted-foreground/40 tabular-nums">
             {usage
               ? (() => {
-                const u = usage!
-                const total = u.inputTokens + u.outputTokens
-                const modelCfg = useProviderStore.getState().getActiveModelConfig()
-                const cost = calculateCost(u, modelCfg)
-                return (
-                  <>
-                    {`${formatTokens(total)} ${t('unit.tokens', { ns: 'common' })} (${formatTokens(u.inputTokens)}↓ ${formatTokens(u.outputTokens)}↑`}
-                    {u.cacheReadTokens
-                      ? ` · ${formatTokens(u.cacheReadTokens)} ${t('unit.cached', { ns: 'common' })}`
-                      : ''}
-                    {u.reasoningTokens
-                      ? ` · ${formatTokens(u.reasoningTokens)} ${t('unit.reasoning', { ns: 'common' })}`
-                      : ''}
-                    {')'}
-                    {cost !== null && (
-                      <span className="text-emerald-500/70"> · {formatCost(cost)}</span>
-                    )}
-                  </>
-                )
-              })()
+                  const u = usage!
+                  const total = u.inputTokens + u.outputTokens
+                  const modelCfg = useProviderStore.getState().getActiveModelConfig()
+                  const cost = calculateCost(u, modelCfg)
+                  return (
+                    <>
+                      {`${formatTokens(total)} ${t('unit.tokens', { ns: 'common' })} (${formatTokens(u.inputTokens)}↓ ${formatTokens(u.outputTokens)}↑`}
+                      {u.cacheReadTokens
+                        ? ` · ${formatTokens(u.cacheReadTokens)} ${t('unit.cached', { ns: 'common' })}`
+                        : ''}
+                      {u.reasoningTokens
+                        ? ` · ${formatTokens(u.reasoningTokens)} ${t('unit.reasoning', { ns: 'common' })}`
+                        : ''}
+                      {')'}
+                      {cost !== null && (
+                        <span className="text-emerald-500/70"> · {formatCost(cost)}</span>
+                      )}
+                    </>
+                  )
+                })()
               : `~${formatTokens(fallbackTokens)} ${t('unit.tokens', { ns: 'common' })}`}
           </p>
         )}
         {!isStreaming && timingSummary && (
           <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground/40 tabular-nums">
             {timingSummary.totalDuration && (
-              <div>{t('assistantMessage.totalDuration', { duration: timingSummary.totalDuration })}</div>
+              <div>
+                {t('assistantMessage.totalDuration', { duration: timingSummary.totalDuration })}
+              </div>
             )}
             {timingSummary.lastDetail && <div>{timingSummary.lastDetail}</div>}
           </div>

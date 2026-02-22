@@ -141,6 +141,7 @@ jobs:
           path: |
             dist/*.exe
             dist/*.exe.blockmap
+            dist/latest*.yml
           if-no-files-found: error
           retention-days: 30
 
@@ -151,7 +152,9 @@ jobs:
           name: open-cowork-linux
           path: |
             dist/*.AppImage
+            dist/*.AppImage.zsync
             dist/*.deb
+            dist/latest*.yml
           if-no-files-found: error
           retention-days: 30
 

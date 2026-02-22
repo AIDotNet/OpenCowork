@@ -429,7 +429,10 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
             disabled={exporting || !!streamingMessageId}
           >
             {exporting ? <Loader2 className="size-3.5 shrink-0 animate-spin" /> : <ImageDown className="size-3.5 shrink-0" />}
-            <span className="text-[10px] whitespace-nowrap">
+            <span
+              className="max-w-0 overflow-hidden pl-0 text-[10px] opacity-0 whitespace-nowrap group-hover/btn:max-w-[140px] group-hover/btn:pl-1 group-hover/btn:opacity-100"
+              style={{ transition: 'max-width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease, padding 180ms ease' }}
+            >
               {exporting ? t('messageList.exporting') : t('messageList.exportImage')}
             </span>
           </button>
@@ -439,7 +442,10 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
             disabled={!!streamingMessageId}
           >
             {copiedAll ? <Check className="size-3.5 shrink-0" /> : <ClipboardCopy className="size-3.5 shrink-0" />}
-            <span className="text-[10px] whitespace-nowrap">
+            <span
+              className="max-w-0 overflow-hidden pl-0 text-[10px] opacity-0 whitespace-nowrap group-hover/btn:max-w-[140px] group-hover/btn:pl-1 group-hover/btn:opacity-100"
+              style={{ transition: 'max-width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease, padding 180ms ease' }}
+            >
               {copiedAll ? t('messageList.copied') : t('messageList.copyAll')}
             </span>
           </button>

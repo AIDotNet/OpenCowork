@@ -30,6 +30,7 @@ import { loadPersistedJobs, cancelAllJobs } from './cron/cron-scheduler'
 import { McpManager } from './mcp/mcp-manager'
 import { closeDb } from './db/database'
 import { writeCrashLog, getCrashLogDir } from './crash-logger'
+import { setupAutoUpdater } from './updater'
 
 import { createFeishuService } from './plugins/providers/feishu/feishu-service'
 import { createDingTalkService } from './plugins/providers/dingtalk/dingtalk-service'
@@ -335,6 +336,10 @@ app.on('child-process-gone', (_event, details) => {
   recordCrash('app_child_process_gone', { details })
 })
 
+app.on('before-quit', () => {
+  isQuiting = true
+})
+
 configureChromiumCachePaths()
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -414,6 +419,13 @@ if (gotSingleInstanceLock) {
 
 
   createTray()
+
+  setupAutoUpdater({
+    getMainWindow: () => mainWindow,
+    markAppWillQuit: () => {
+      isQuiting = true
+    },
+  })
 
 
 

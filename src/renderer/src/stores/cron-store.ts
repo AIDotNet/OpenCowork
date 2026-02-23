@@ -66,10 +66,9 @@ interface CronStore {
   jobs: CronJobEntry[]
   runs: CronRunEntry[]
   agentLogs: Record<string, CronAgentLogEntry[]>
-  currentSessionId: string | null
 
-  loadJobs: (sessionId?: string | null) => Promise<void>
-  loadRuns: (jobId?: string, sessionId?: string | null) => Promise<void>
+  loadJobs: () => Promise<void>
+  loadRuns: (jobId?: string) => Promise<void>
   addJob: (job: CronJobEntry) => void
   removeJob: (id: string) => void
   updateJob: (id: string, patch: Partial<CronJobEntry>) => void
@@ -84,38 +83,26 @@ interface CronStore {
 const MAX_RUNS = 100
 const MAX_AGENT_LOG_ENTRIES = 100
 
-export const useCronStore = create<CronStore>((set, get) => ({
+export const useCronStore = create<CronStore>((set) => ({
   jobs: [],
   runs: [],
   agentLogs: {},
-  currentSessionId: null,
 
-  loadJobs: async (sessionId) => {
-    const targetSessionId = sessionId ?? get().currentSessionId
-    if (!targetSessionId) {
-      set({ jobs: [], runs: [], currentSessionId: null })
-      return
-    }
+  loadJobs: async () => {
     try {
-      const result = await ipcClient.invoke(IPC.CRON_LIST, { sessionId: targetSessionId })
+      const result = await ipcClient.invoke(IPC.CRON_LIST, {})
       if (Array.isArray(result)) {
-        set({ jobs: result as CronJobEntry[], currentSessionId: targetSessionId })
+        set({ jobs: result as CronJobEntry[] })
       }
     } catch (err) {
       console.error('[CronStore] Failed to load jobs:', err)
     }
   },
 
-  loadRuns: async (jobId?: string, sessionId?: string | null) => {
-    const targetSessionId = sessionId ?? get().currentSessionId
-    if (!targetSessionId) {
-      set({ runs: [] })
-      return
-    }
+  loadRuns: async (jobId?: string) => {
     try {
       const result = await ipcClient.invoke(IPC.CRON_RUNS, {
         jobId,
-        sessionId: targetSessionId,
         limit: MAX_RUNS,
       })
       if (Array.isArray(result)) {

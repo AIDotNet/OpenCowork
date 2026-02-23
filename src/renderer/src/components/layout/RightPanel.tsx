@@ -43,7 +43,6 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const todos = useTaskStore((s) => s.todos)
   const activeTeam = useTeamStore((s) => s.activeTeam)
   const teamToolsEnabled = useSettingsStore((s) => s.teamToolsEnabled)
-  const cronJobCount = useCronStore((s) => s.jobs.length)
   const cronEnabledCount = useCronStore((s) => s.jobs.filter((j) => j.enabled).length)
 
   const activeSessionId = useChatStore((s) => s.activeSessionId)

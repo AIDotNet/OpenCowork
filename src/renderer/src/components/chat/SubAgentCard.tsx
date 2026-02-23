@@ -3,9 +3,6 @@ import { useTranslation } from 'react-i18next'
 import {
   Brain,
   Loader2,
-  Search,
-  ShieldCheck,
-  ListChecks,
   Wrench,
   ChevronDown,
   ChevronRight,
@@ -13,7 +10,8 @@ import {
   Clock,
   Copy,
   Check,
-  Maximize2
+  Maximize2,
+  icons
 } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import {
@@ -26,17 +24,21 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { formatTokens } from '@renderer/lib/format-tokens'
 import { cn } from '@renderer/lib/utils'
 import { parseSubAgentMeta } from '@renderer/lib/agent/sub-agents/create-tool'
+import { subAgentRegistry } from '@renderer/lib/agent/sub-agents/registry'
 import { ToolCallCard } from './ToolCallCard'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MONO_FONT } from '@renderer/lib/constants'
 import type { ToolResultContent } from '@renderer/lib/api/types'
 
-// --- SubAgent icon mapping ---
-const subAgentIcons: Record<string, React.ReactNode> = {
-  CodeSearch: <Search className="size-4" />,
-  CodeReview: <ShieldCheck className="size-4" />,
-  Planner: <ListChecks className="size-4" />
+// --- SubAgent icon resolver (dynamic from registry) ---
+function getSubAgentIcon(agentName: string): React.ReactNode {
+  const def = subAgentRegistry.get(agentName)
+  if (def?.icon && def.icon in icons) {
+    const IconComp = icons[def.icon as keyof typeof icons]
+    return <IconComp className="size-4" />
+  }
+  return <Brain className="size-4" />
 }
 
 // --- Elapsed time formatter ---
@@ -136,7 +138,7 @@ export function SubAgentCard({
   const elapsed = live ? (live.completedAt ?? now) - live.startedAt : (histMeta?.elapsed ?? null)
 
   // Icon — resolve by displayName (subagent_type for unified Task, or legacy name)
-  const icon = subAgentIcons[displayName] ?? <Brain className="size-4" />
+  const icon = getSubAgentIcon(displayName)
 
   // Query/task description from input (unified Task uses description/prompt)
   const queryText = String(input.description ?? input.query ?? input.task ?? input.target ?? '')

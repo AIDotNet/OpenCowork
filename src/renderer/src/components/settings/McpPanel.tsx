@@ -787,7 +787,7 @@ export function McpPanel(): React.JSX.Element {
         </div>
 
         {/* Right: Config panel */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-hidden">
           {selectedServer ? (
             <ServerConfigPanel server={selectedServer} />
           ) : (

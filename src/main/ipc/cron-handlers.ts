@@ -6,6 +6,7 @@ import {
   cancelJob,
   getScheduledJobIds,
   getActiveRunJobIds,
+  markRunning,
   markFinished,
   type CronJobRecord,
   type CronRunRecord,
@@ -375,6 +376,11 @@ export function registerCronHandlers(): void {
       const db = getDb()
       const row = db.prepare('SELECT * FROM cron_jobs WHERE id = ?').get(args.jobId) as CronJobRecord | undefined
       if (!row) return { error: `Job "${args.jobId}" not found` }
+
+      // Track concurrency — markRunning returns false if already running or limit reached
+      if (!markRunning(row.id)) {
+        return { error: `Job "${row.id}" is already running or concurrency limit reached` }
+      }
 
       const win = BrowserWindow.getAllWindows()[0]
       if (win && !win.isDestroyed()) {

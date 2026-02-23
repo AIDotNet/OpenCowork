@@ -8,6 +8,8 @@ import {
   Plus,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Bot,
   CheckCircle2,
   XCircle,
@@ -20,6 +22,7 @@ import {
   Timer,
   Repeat,
   CalendarClock,
+  CalendarDays,
   ListFilter,
   FileText,
   Calendar,
@@ -34,7 +37,6 @@ import {
   type CronAgentLogEntry,
   type CronSchedule,
 } from '@renderer/stores/cron-store'
-import { useChatStore } from '@renderer/stores/chat-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { abortCronAgent } from '@renderer/lib/tools/cron-agent-runner'
@@ -516,6 +518,260 @@ function EmptyState(): React.JSX.Element {
 
 // ── Cron History View ──────────────────────────────────────────────
 
+// ── Calendar helpers ──────────────────────────────────────────────
+
+const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六']
+
+/** Check if a single cron field matches a value */
+function matchesCronField(field: string, value: number): boolean {
+  if (field === '*') return true
+  for (const part of field.split(',')) {
+    const stepMatch = part.match(/^(.+)\/(\d+)$/)
+    const step = stepMatch ? parseInt(stepMatch[2], 10) : 0
+    const range = stepMatch ? stepMatch[1] : part
+
+    if (range === '*') {
+      if (step > 0 && value % step === 0) return true
+      if (!step) return true
+      continue
+    }
+
+    const dashMatch = range.match(/^(\d+)-(\d+)$/)
+    if (dashMatch) {
+      const lo = parseInt(dashMatch[1], 10)
+      const hi = parseInt(dashMatch[2], 10)
+      if (step > 0) {
+        for (let v = lo; v <= hi; v += step) {
+          if (v === value) return true
+        }
+      } else {
+        if (value >= lo && value <= hi) return true
+      }
+      continue
+    }
+
+    const num = parseInt(range, 10)
+    if (!isNaN(num) && num === value) return true
+  }
+  return false
+}
+
+/** Check if a cron job runs on a given date */
+function jobRunsOnDate(job: CronJobEntry, date: Date): boolean {
+  if (!job.enabled) return false
+  const { schedule } = job
+
+  if (schedule.kind === 'at') {
+    if (!schedule.at) return false
+    const at = new Date(schedule.at)
+    return at.getFullYear() === date.getFullYear() &&
+      at.getMonth() === date.getMonth() &&
+      at.getDate() === date.getDate()
+  }
+
+  if (schedule.kind === 'every') {
+    // Interval jobs run every day (from creation onwards)
+    const created = new Date(job.createdAt)
+    created.setHours(0, 0, 0, 0)
+    const target = new Date(date)
+    target.setHours(0, 0, 0, 0)
+    return target >= created
+  }
+
+  if (schedule.kind === 'cron' && schedule.expr) {
+    const parts = schedule.expr.trim().split(/\s+/)
+    if (parts.length < 5) return false
+    // fields: minute hour day-of-month month day-of-week
+    const dom = parts[2]   // 1-31
+    const month = parts[3] // 1-12
+    const dow = parts[4]   // 0-6 (0=Sun)
+    return matchesCronField(dom, date.getDate()) &&
+      matchesCronField(month, date.getMonth() + 1) &&
+      matchesCronField(dow, date.getDay())
+  }
+
+  return false
+}
+
+/** Generate calendar grid dates for a month (42 cells = 6 rows × 7 cols) */
+function getCalendarDays(year: number, month: number): Date[] {
+  const first = new Date(year, month, 1)
+  const startDay = first.getDay() // 0=Sun
+  const start = new Date(year, month, 1 - startDay)
+  const days: Date[] = []
+  for (let i = 0; i < 42; i++) {
+    days.push(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i))
+  }
+  return days
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+// ── CronCalendarView ──────────────────────────────────────────────
+
+function CronCalendarView({
+  jobs,
+  runs,
+  onToggle,
+  onRemove,
+  onRunNow,
+}: {
+  jobs: CronJobEntry[]
+  runs: CronRunEntry[]
+  onToggle: (id: string, enabled: boolean) => void
+  onRemove: (id: string) => void
+  onRunNow: (id: string) => void
+}): React.JSX.Element {
+  const today = new Date()
+  const [year, setYear] = React.useState(today.getFullYear())
+  const [month, setMonth] = React.useState(today.getMonth())
+  const [selectedDate, setSelectedDate] = React.useState<Date | null>(today)
+
+  const calendarDays = React.useMemo(() => getCalendarDays(year, month), [year, month])
+
+  // Pre-compute job counts per day for the visible grid
+  const jobCountMap = React.useMemo(() => {
+    const map = new Map<string, number>()
+    for (const day of calendarDays) {
+      const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`
+      let count = 0
+      for (const job of jobs) {
+        if (jobRunsOnDate(job, day)) count++
+      }
+      if (count > 0) map.set(key, count)
+    }
+    return map
+  }, [calendarDays, jobs])
+
+  const selectedJobs = React.useMemo(() => {
+    if (!selectedDate) return []
+    return jobs.filter((j) => jobRunsOnDate(j, selectedDate))
+  }, [selectedDate, jobs])
+
+  const goPrev = (): void => {
+    if (month === 0) { setYear(year - 1); setMonth(11) }
+    else setMonth(month - 1)
+  }
+  const goNext = (): void => {
+    if (month === 11) { setYear(year + 1); setMonth(0) }
+    else setMonth(month + 1)
+  }
+  const goToday = (): void => {
+    const now = new Date()
+    setYear(now.getFullYear())
+    setMonth(now.getMonth())
+    setSelectedDate(now)
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Month navigation */}
+      <div className="flex items-center justify-between">
+        <button
+          className="size-6 flex items-center justify-center rounded hover:bg-muted transition-colors text-muted-foreground"
+          onClick={goPrev}
+        >
+          <ChevronLeft className="size-3.5" />
+        </button>
+        <button
+          className="text-[11px] font-medium text-foreground/80 hover:text-foreground transition-colors px-2 py-0.5 rounded hover:bg-muted/50"
+          onClick={goToday}
+        >
+          {year}年{month + 1}月
+        </button>
+        <button
+          className="size-6 flex items-center justify-center rounded hover:bg-muted transition-colors text-muted-foreground"
+          onClick={goNext}
+        >
+          <ChevronRight className="size-3.5" />
+        </button>
+      </div>
+
+      {/* Weekday headers */}
+      <div className="grid grid-cols-7 gap-0">
+        {WEEKDAY_LABELS.map((label) => (
+          <div key={label} className="text-center text-[9px] text-muted-foreground/50 py-1">
+            {label}
+          </div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div className="grid grid-cols-7 gap-0">
+        {calendarDays.map((day, i) => {
+          const isCurrentMonth = day.getMonth() === month
+          const isToday = isSameDay(day, today)
+          const isSelected = selectedDate ? isSameDay(day, selectedDate) : false
+          const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`
+          const jobCount = jobCountMap.get(key) ?? 0
+
+          return (
+            <button
+              key={i}
+              className={cn(
+                'relative flex flex-col items-center py-1 rounded transition-colors text-[10px] tabular-nums',
+                isCurrentMonth ? 'text-foreground/80' : 'text-muted-foreground/30',
+                isToday && !isSelected && 'bg-blue-500/10 text-blue-400 font-medium',
+                isSelected && 'bg-blue-500/20 text-blue-400 font-medium ring-1 ring-blue-500/30',
+                !isSelected && !isToday && 'hover:bg-muted/50',
+              )}
+              onClick={() => setSelectedDate(day)}
+            >
+              <span>{day.getDate()}</span>
+              {/* Job indicator dots */}
+              <div className="flex items-center gap-px mt-0.5 h-[4px]">
+                {jobCount > 0 && jobCount <= 3 && (
+                  Array.from({ length: jobCount }).map((_, di) => (
+                    <span key={di} className="size-[3px] rounded-full bg-green-500/70" />
+                  ))
+                )}
+                {jobCount > 3 && (
+                  <>
+                    <span className="size-[3px] rounded-full bg-green-500/70" />
+                    <span className="size-[3px] rounded-full bg-green-500/70" />
+                    <span className="text-[7px] text-green-500/70 leading-none">+</span>
+                  </>
+                )}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Selected date job list */}
+      {selectedDate && (
+        <>
+          <Separator />
+          <div className="space-y-1.5">
+            <p className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
+              <CalendarDays className="size-3" />
+              {selectedDate.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}
+              <span className="text-muted-foreground/40">· {selectedJobs.length} 个任务</span>
+            </p>
+            {selectedJobs.length === 0 && (
+              <p className="text-[10px] text-muted-foreground/40 py-4 text-center">当天无定时任务</p>
+            )}
+            {selectedJobs.map((job) => (
+              <CronJobCard
+                key={job.id}
+                job={job}
+                runs={runs}
+                onToggle={onToggle}
+                onRemove={onRemove}
+                onRunNow={onRunNow}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Cron History View ──────────────────────────────────────────────
+
 function formatDate(ts: number): string {
   const d = new Date(ts)
   const now = new Date()
@@ -624,11 +880,9 @@ function HistoryRunCard({
 function CronHistoryView({
   jobs,
   runs,
-  sessionId,
 }: {
   jobs: CronJobEntry[]
   runs: CronRunEntry[]
-  sessionId: string | null
 }): React.JSX.Element {
   const loadRuns = useCronStore((s) => s.loadRuns)
   const [filterJobId, setFilterJobId] = React.useState<string | null>(null)
@@ -636,17 +890,9 @@ function CronHistoryView({
   const [showFilter, setShowFilter] = React.useState(false)
 
   React.useEffect(() => {
-    setFilterJobId(null)
-  }, [sessionId])
-
-  React.useEffect(() => {
-    if (!sessionId) {
-      setLoading(false)
-      return
-    }
     setLoading(true)
-    loadRuns(filterJobId ?? undefined, sessionId).finally(() => setLoading(false))
-  }, [filterJobId, loadRuns, sessionId])
+    loadRuns(filterJobId ?? undefined).finally(() => setLoading(false))
+  }, [filterJobId, loadRuns])
 
   const jobName = (id: string): string => {
     const found = jobs.find((j) => j.id === id)
@@ -762,10 +1008,9 @@ function CronHistoryView({
 
 // ── CronPanel ─────────────────────────────────────────────────────
 
-type CronView = 'tasks' | 'history'
+type CronView = 'tasks' | 'history' | 'calendar'
 
 export function CronPanel(): React.JSX.Element {
-  const activeSessionId = useChatStore((s) => s.activeSessionId)
   const jobs = useCronStore((s) => s.jobs)
   const runs = useCronStore((s) => s.runs)
   const loadJobs = useCronStore((s) => s.loadJobs)
@@ -782,8 +1027,8 @@ export function CronPanel(): React.JSX.Element {
     setRefreshing(true)
     try {
       await Promise.all([
-        loadJobs(activeSessionId),
-        loadRuns(undefined, activeSessionId),
+        loadJobs(),
+        loadRuns(),
       ])
     } finally {
       setRefreshing(false)
@@ -792,10 +1037,10 @@ export function CronPanel(): React.JSX.Element {
 
   // Load runs when switching to history view
   React.useEffect(() => {
-    if (view === 'history' && activeSessionId) {
-      loadRuns(undefined, activeSessionId)
+    if (view === 'history') {
+      loadRuns()
     }
-  }, [view, loadRuns, activeSessionId])
+  }, [view, loadRuns])
 
   const handleToggle = async (id: string, enabled: boolean): Promise<void> => {
     const result = await ipcClient.invoke(IPC.CRON_TOGGLE, { jobId: id, enabled }) as { error?: string }
@@ -856,6 +1101,16 @@ export function CronPanel(): React.JSX.Element {
             {runs.length > 0 && (
               <span className="text-[9px] text-muted-foreground/60 ml-0.5">{runs.length}</span>
             )}
+          </button>
+          <button
+            className={cn(
+              'flex items-center gap-1 text-[10px] px-2 py-1 rounded-md transition-colors',
+              view === 'calendar' ? 'bg-muted text-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted/50',
+            )}
+            onClick={() => setView('calendar')}
+          >
+            <CalendarDays className="size-3" />
+            日历
           </button>
         </div>
         <div className="flex items-center gap-1">
@@ -937,7 +1192,18 @@ export function CronPanel(): React.JSX.Element {
 
       {/* === History View === */}
       {view === 'history' && (
-        <CronHistoryView jobs={jobs} runs={runs} sessionId={activeSessionId} />
+        <CronHistoryView jobs={jobs} runs={runs} />
+      )}
+
+      {/* === Calendar View === */}
+      {view === 'calendar' && (
+        <CronCalendarView
+          jobs={jobs}
+          runs={runs}
+          onToggle={handleToggle}
+          onRemove={handleRemove}
+          onRunNow={handleRunNow}
+        />
       )}
     </div>
   )

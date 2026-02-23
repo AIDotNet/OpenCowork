@@ -11,7 +11,10 @@
       "Bash(head:*)",
       "Bash(find:*)",
       "WebFetch(domain:www.fumadocs.dev)",
-      "Bash(tail:*)"
+      "Bash(tail:*)",
+      "Bash(npm run typecheck:web:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(findstr:*)"
     ]
   }
 }

@@ -38,7 +38,6 @@ initPluginEventListener()
 
 function App(): React.JSX.Element {
   const theme = useSettingsStore((s) => s.theme)
-  const activeSessionId = useChatStore((s) => s.activeSessionId)
 
   // Initialize plugin auto-reply agent loop listener
   usePluginAutoReply()
@@ -59,11 +58,11 @@ function App(): React.JSX.Element {
       })
   }, [])
 
-  // Cron data is session-bound: reload when active session changes.
+  // Cron data is global: load once on mount.
   useEffect(() => {
-    void useCronStore.getState().loadJobs(activeSessionId)
-    void useCronStore.getState().loadRuns(undefined, activeSessionId)
-  }, [activeSessionId])
+    void useCronStore.getState().loadJobs()
+    void useCronStore.getState().loadRuns()
+  }, [])
 
   // Forward cron:fired IPC events to the renderer-side event bus
   useEffect(() => {

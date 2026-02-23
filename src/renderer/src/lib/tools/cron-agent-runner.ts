@@ -24,6 +24,7 @@ import { useSettingsStore } from '../../stores/settings-store'
 import { useProviderStore } from '../../stores/provider-store'
 import { usePluginStore } from '../../stores/plugin-store'
 import { useCronStore } from '../../stores/cron-store'
+import { useChatStore } from '../../stores/chat-store'
 import { cronEvents } from './cron-events'
 import { ipcClient } from '../ipc/ipc-client'
 import { IPC } from '../ipc/channels'
@@ -32,6 +33,19 @@ import type { AgentLoopConfig } from '../agent/types'
 import type { ToolContext } from './tool-types'
 
 const DEFAULT_AGENT = 'CronAgent'
+
+/** Fallback definition used when CronAgent is not found in the sub-agent registry */
+const FALLBACK_CRON_AGENT = {
+  name: DEFAULT_AGENT,
+  description: 'Scheduled task agent for cron jobs',
+  allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Shell', 'Bash', 'Notify', 'AskUserQuestion'],
+  maxIterations: 15,
+  model: undefined as string | undefined,
+  temperature: undefined as number | undefined,
+  systemPrompt:
+    'You are CronAgent, a scheduled task assistant. You execute tasks autonomously on a timer. ' +
+    'Be concise and action-oriented. Complete the task, then deliver results as instructed.',
+}
 
 /** Active cron agent runs keyed by jobId — prevents duplicate concurrent runs */
 const activeRuns = new Map<string, AbortController>()
@@ -148,27 +162,32 @@ async function _runCronAgentAsync(
     pluginChatId,
   } = options
 
-  // Resolve provider config — use plugin's bound provider if available
+  // Resolve source session config (model, provider, working folder)
+  const sourceSession = sessionId
+    ? useChatStore.getState().sessions.find((s) => s.id === sessionId)
+    : null
+  const effectiveModel = modelOverride || sourceSession?.modelId || null
+  const effectiveWorkingFolder = workingFolder || sourceSession?.workingFolder || null
+
+  // Resolve provider config — use plugin's bound provider, then source session's, then global
   let resolvedProviderId: string | null = null
   if (pluginId) {
     const pluginMeta = usePluginStore.getState().plugins.find((p) => p.id === pluginId)
     if (pluginMeta?.providerId) resolvedProviderId = pluginMeta.providerId
   }
-  const providerConfig = getProviderConfig(resolvedProviderId, modelOverride)
+  const effectiveProviderId = resolvedProviderId || sourceSession?.providerId || null
+  const providerConfig = getProviderConfig(effectiveProviderId, effectiveModel)
   if (!providerConfig) {
     console.error(`[CronAgent] No provider config available for job ${jobId}`)
     logAndRecord(jobId, 'No AI provider configured')
     return
   }
 
-  // Resolve agent definition — try agentId first, fall back to CronAgent
+  // Resolve agent definition — try agentId first, fall back to CronAgent, then hardcoded fallback
   const agentName = agentId || DEFAULT_AGENT
-  const definition = subAgentRegistry.get(agentName) ?? subAgentRegistry.get(DEFAULT_AGENT)
-  if (!definition) {
-    console.error(`[CronAgent] Agent "${agentName}" not found for job ${jobId}`)
-    logAndRecord(jobId, `Agent "${agentName}" not found in registry.`)
-    return
-  }
+  const definition = subAgentRegistry.get(agentName)
+    ?? subAgentRegistry.get(DEFAULT_AGENT)
+    ?? FALLBACK_CRON_AGENT
 
   // Create a cron_runs record
   const runId = `run-${nanoid(8)}`
@@ -183,7 +202,7 @@ async function _runCronAgentAsync(
   // Build tool context
   const toolCtx: ToolContext = {
     sessionId: deliveryTarget ?? undefined,
-    workingFolder: workingFolder ?? undefined,
+    workingFolder: effectiveWorkingFolder ?? undefined,
     signal: ac.signal,
     ipc: ipcClient,
     currentToolUseId: undefined,
@@ -193,23 +212,22 @@ async function _runCronAgentAsync(
     sharedState: { deliveryUsed: false },
   }
 
-  // Ensure plugin tools are registered if plugins are active
-  const activePlugins = usePluginStore.getState().getActivePlugins()
-  if (activePlugins.length > 0 && !isPluginToolsRegistered()) {
+  // Always register plugin tools for cron agents
+  if (!isPluginToolsRegistered()) {
     registerPluginTools()
   }
 
-  // Build allowed tools — include plugin tools when plugins are active
+  // Build allowed tools — always include plugin tools
   const PLUGIN_TOOL_NAMES = ['PluginSendMessage', 'PluginReplyMessage', 'PluginGetGroupMessages', 'PluginListGroups', 'PluginSummarizeGroup', 'FeishuSendImage', 'FeishuSendFile']
   const allDefs = toolRegistry.getDefinitions()
-  const allowedSet = new Set([...definition.allowedTools, 'Notify', 'Skill', ...(activePlugins.length > 0 ? PLUGIN_TOOL_NAMES : [])])
+  const allowedSet = new Set([...definition.allowedTools, 'Notify', 'Skill', ...PLUGIN_TOOL_NAMES])
   const innerTools = allDefs.filter((t) => allowedSet.has(t.name))
 
   // Build provider config with agent's system prompt
   const innerProvider: ProviderConfig = {
     ...providerConfig,
     systemPrompt: definition.systemPrompt,
-    model: modelOverride || definition.model || providerConfig.model,
+    model: effectiveModel || definition.model || providerConfig.model,
     temperature: definition.temperature ?? providerConfig.temperature,
   }
 
@@ -220,11 +238,15 @@ async function _runCronAgentAsync(
     const pluginMeta = usePluginStore.getState().plugins.find((p) => p.id === pluginId)
     const pluginName = pluginMeta?.name ?? pluginId
     pluginInfo = `\n## Plugin Reply Channel\nThis cron job was created from plugin **${pluginName}** (plugin_id: \`${pluginId}\`).\nChat ID: \`${pluginChatId}\`\nWhen you have results to report, use **PluginSendMessage** with plugin_id="${pluginId}" and chat_id="${pluginChatId}" to send the results back to the user through the original plugin channel.\n`
-  } else if (activePlugins.length > 0) {
-    const pluginLines = activePlugins.map((p) =>
-      `- **${p.name}** (plugin_id: \`${p.id}\`, type: ${p.type})`
-    )
-    pluginInfo = `\n## Available Messaging Plugins\n${pluginLines.join('\n')}\nYou can send messages via these plugins using PluginSendMessage (requires plugin_id and chat_id).\nFor Feishu plugins, you can also use FeishuSendImage and FeishuSendFile to send media.\n`
+  } else {
+    // List all configured plugins (not just active) for cron agents
+    const allPlugins = usePluginStore.getState().plugins
+    if (allPlugins.length > 0) {
+      const pluginLines = allPlugins.map((p) =>
+        `- **${p.name}** (plugin_id: \`${p.id}\`, type: ${p.type})`
+      )
+      pluginInfo = `\n## Available Messaging Plugins\n${pluginLines.join('\n')}\nYou can send messages via these plugins using PluginSendMessage (requires plugin_id and chat_id).\nFor Feishu plugins, you can also use FeishuSendImage and FeishuSendFile to send media.\n`
+    }
   }
 
   // Build initial user message — delivery instructions depend on whether plugin context exists
@@ -259,7 +281,7 @@ Begin working on this task now.`
     provider: innerProvider,
     tools: innerTools,
     systemPrompt: definition.systemPrompt,
-    workingFolder: workingFolder ?? undefined,
+    workingFolder: effectiveWorkingFolder ?? undefined,
     signal: ac.signal,
   }
 

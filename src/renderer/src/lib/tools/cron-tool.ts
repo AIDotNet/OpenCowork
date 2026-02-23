@@ -158,7 +158,7 @@ const cronAddHandler: ToolHandler = {
 
     if (result.error) return JSON.stringify({ error: result.error })
 
-    useCronStore.getState().loadJobs(ctx.sessionId ?? undefined).catch(() => {})
+    useCronStore.getState().loadJobs().catch(() => {})
 
     // Auto-open the Cron tab in the right panel so user can see the new job
     useUIStore.getState().setRightPanelTab('cron')
@@ -226,7 +226,7 @@ const cronUpdateHandler: ToolHandler = {
 
     if (result.error) return JSON.stringify({ error: result.error })
 
-    useCronStore.getState().loadJobs(ctx.sessionId ?? undefined).catch(() => {})
+    useCronStore.getState().loadJobs().catch(() => {})
     return JSON.stringify({ success: true, jobId, message: `Job ${jobId} updated.` })
   },
   requiresApproval: () => true,
@@ -274,9 +274,7 @@ const cronListHandler: ToolHandler = {
     },
   },
   execute: async (_input, ctx) => {
-    const result = await ctx.ipc.invoke(IPC.CRON_LIST, {
-      sessionId: ctx.sessionId ?? null,
-    }) as unknown[] | { error?: string }
+    const result = await ctx.ipc.invoke(IPC.CRON_LIST, {}) as unknown[] | { error?: string }
 
     if (!Array.isArray(result)) {
       return JSON.stringify({ error: (result as { error?: string }).error ?? 'Failed to list cron jobs' })

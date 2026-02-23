@@ -4,6 +4,8 @@ import { create } from 'zustand'
 
 export type AppMode = 'chat' | 'cowork' | 'code'
 
+export type NavItem = 'chat' | 'plugins'
+
 export type RightPanelTab = 'steps' | 'team' | 'artifacts' | 'context' | 'skills' | 'files' | 'plan' | 'cron'
 
 export type PreviewSource = 'file' | 'dev-server' | 'markdown'
@@ -44,6 +46,9 @@ interface UIStore {
   mode: AppMode
 
   setMode: (mode: AppMode) => void
+
+  activeNavItem: NavItem
+  setActiveNavItem: (item: NavItem) => void
 
 
 
@@ -133,6 +138,9 @@ export const useUIStore = create<UIStore>((set) => ({
   mode: 'chat',
 
   setMode: (mode) => set({ mode, rightPanelOpen: mode === 'cowork' }),
+
+  activeNavItem: 'chat',
+  setActiveNavItem: (item) => set({ activeNavItem: item, leftSidebarOpen: true }),
 
 
 

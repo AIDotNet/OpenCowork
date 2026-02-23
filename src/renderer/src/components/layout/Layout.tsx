@@ -1,11 +1,14 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { MessageSquare, Briefcase, Code2, ClipboardCopy, Check, ImageDown, Loader2, PanelLeftOpen } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
-import { SidebarProvider, SidebarInset } from '@renderer/components/ui/sidebar'
-import { TooltipProvider } from '@renderer/components/ui/tooltip'
-import { AppSidebar } from './AppSidebar'
-import { TopBar } from './TopBar'
+import { Button } from '@renderer/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@renderer/components/ui/tooltip'
+import { cn } from '@renderer/lib/utils'
+import { TitleBar } from './TitleBar'
+import { NavRail } from './NavRail'
+import { SessionListPanel } from './SessionListPanel'
 import { RightPanel } from './RightPanel'
 import { DetailPanel } from './DetailPanel'
 import { PreviewPanel } from './PreviewPanel'
@@ -17,7 +20,7 @@ import { KeyboardShortcutsDialog } from '@renderer/components/settings/KeyboardS
 import { PermissionDialog } from '@renderer/components/cowork/PermissionDialog'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from '@renderer/components/error-boundary'
-import { useUIStore } from '@renderer/stores/ui-store'
+import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
 import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
@@ -29,11 +32,18 @@ import { AnimatePresence } from 'motion/react'
 import { PageTransition, PanelTransition } from '@renderer/components/animate-ui'
 import { useShallow } from 'zustand/react/shallow'
 
+const modes: { value: AppMode; labelKey: string; icon: React.ReactNode }[] = [
+  { value: 'chat', labelKey: 'mode.chat', icon: <MessageSquare className="size-3.5" /> },
+  { value: 'cowork', labelKey: 'mode.cowork', icon: <Briefcase className="size-3.5" /> },
+  { value: 'code', labelKey: 'mode.code', icon: <Code2 className="size-3.5" /> },
+]
+
 export function Layout(): React.JSX.Element {
   const { t } = useTranslation('layout')
+  const { t: tCommon } = useTranslation('common')
   const mode = useUIStore((s) => s.mode)
+  const setMode = useUIStore((s) => s.setMode)
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen)
-  const setLeftSidebarOpen = useUIStore((s) => s.setLeftSidebarOpen)
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen)
   const detailPanelOpen = useUIStore((s) => s.detailPanelOpen)
   const previewPanelOpen = useUIStore((s) => s.previewPanelOpen)
@@ -57,6 +67,9 @@ export function Layout(): React.JSX.Element {
 
   const { resolvedTheme, setTheme: ntSetTheme } = useTheme()
   const { sendMessage, stopStreaming, retryLastMessage, editAndResend } = useChatActions()
+
+  const [copiedAll, setCopiedAll] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   const activeSubAgents = useAgentStore((s) => s.activeSubAgents)
   const runningSubAgents = Object.values(activeSubAgents).filter((sa) => sa.isRunning)
@@ -355,19 +368,69 @@ export function Layout(): React.JSX.Element {
     }
   }
 
+  const handleCopyAll = (): void => {
+    const session = useChatStore.getState().sessions.find((s) => s.id === activeSessionId)
+    if (!session) return
+    const md = sessionToMarkdown(session)
+    navigator.clipboard.writeText(md)
+    setCopiedAll(true)
+    setTimeout(() => setCopiedAll(false), 2000)
+  }
+
+  const handleExportImage = async (): Promise<void> => {
+    const node = document.querySelector('[data-message-content]') as HTMLElement | null
+    const session = useChatStore.getState().sessions.find((s) => s.id === activeSessionId)
+    if (!node || !session) return
+    setExporting(true)
+
+    try {
+      const bgRaw = getComputedStyle(document.documentElement).getPropertyValue('--background').trim()
+      const bgColor = bgRaw ? `hsl(${bgRaw})` : '#ffffff'
+      const { toPng } = await import('html-to-image')
+      const dataUrl = await toPng(node, { backgroundColor: bgColor, pixelRatio: 2 })
+
+      const base64 = dataUrl.split(',')[1]
+      const binary = atob(base64)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      const blob = new Blob([bytes], { type: 'image/png' })
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      toast.success(t('layout.imageCopied', { defaultValue: 'Image copied to clipboard' }))
+    } catch (err) {
+      console.error('Export image failed:', err)
+      toast.error(t('layout.exportImageFailed', { defaultValue: 'Export image failed' }), { description: String(err) })
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <TooltipProvider delayDuration={0}>
-      <SidebarProvider open={leftSidebarOpen} onOpenChange={setLeftSidebarOpen}>
-        <AppSidebar />
-        <SidebarInset>
+      <div className="flex h-screen flex-col overflow-hidden">
+        {/* Full-width title bar */}
+        <TitleBar />
+
+        <div className="flex flex-1 overflow-hidden">
+          {/* Narrow icon nav rail */}
+          <NavRail />
+
+          {/* Session list panel */}
+          <AnimatePresence>
+            {leftSidebarOpen && (
+              <PanelTransition side="left" disabled={false} className="h-full z-10">
+                <SessionListPanel />
+              </PanelTransition>
+            )}
+          </AnimatePresence>
+
+          {/* Main content area */}
           <AnimatePresence mode="wait">
             {settingsPageOpen ? (
-              <PageTransition key="settings-page" className="absolute inset-0 z-50 bg-background overflow-hidden">
+              <PageTransition key="settings-page" className="flex-1 min-w-0 bg-background overflow-hidden">
                 <SettingsPage />
               </PageTransition>
             ) : (
-              <PageTransition key="main-layout" className="flex h-screen min-w-0 flex-col overflow-hidden">
-                <TopBar />
+              <PageTransition key="main-layout" className="flex flex-1 min-w-0 flex-col overflow-hidden">
                 <ErrorBoundary renderFallback={(error, reset) => (
                   <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center overflow-hidden">
                     <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
@@ -415,6 +478,86 @@ export function Layout(): React.JSX.Element {
                     <div
                       className="flex min-w-0 flex-1 flex-col bg-gradient-to-b from-background to-muted/20"
                     >
+                      {/* Mode selector toolbar */}
+                      <div className="flex shrink-0 items-center gap-2 px-3 py-2">
+                        {!leftSidebarOpen && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 shrink-0"
+                                onClick={toggleLeftSidebar}
+                              >
+                                <PanelLeftOpen className="size-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>{t('layout.expandSidebar', { defaultValue: 'Expand sidebar' })}</TooltipContent>
+                          </Tooltip>
+                        )}
+                        <div className="flex items-center gap-0.5 rounded-lg bg-background/95 backdrop-blur-sm p-0.5 shadow-md border border-border/50">
+                          {modes.map((m, i) => (
+                            <Tooltip key={m.value}>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant={mode === m.value ? 'secondary' : 'ghost'}
+                                  size="sm"
+                                  className={cn(
+                                    'h-6 gap-1.5 rounded-md px-2.5 text-xs font-medium transition-all duration-200',
+                                    mode === m.value
+                                      ? 'bg-background shadow-sm ring-1 ring-border/50'
+                                      : 'text-muted-foreground hover:text-foreground'
+                                  )}
+                                  onClick={() => setMode(m.value)}
+                                >
+                                  {m.icon}
+                                  {tCommon(m.labelKey)}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>{tCommon(m.labelKey)} (Ctrl+{i + 1})</TooltipContent>
+                            </Tooltip>
+                          ))}
+                        </div>
+                        <div className="flex-1" />
+                        <div className="flex items-center gap-0.5 rounded-lg border bg-background/80 backdrop-blur-sm shadow-sm px-0.5 py-0.5">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200 disabled:opacity-50"
+                                onClick={() => void handleExportImage()}
+                                disabled={exporting || isStreaming}
+                              >
+                                {exporting ? <Loader2 className="size-3.5 shrink-0 animate-spin" /> : <ImageDown className="size-3.5 shrink-0" />}
+                                <span
+                                  className="max-w-0 overflow-hidden pl-0 text-[10px] opacity-0 whitespace-nowrap group-hover/btn:max-w-[140px] group-hover/btn:pl-1 group-hover/btn:opacity-100"
+                                  style={{ transition: 'max-width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease, padding 180ms ease' }}
+                                >
+                                  {exporting ? t('layout.exporting', { defaultValue: 'Exporting...' }) : t('layout.exportImage', { defaultValue: 'Copy as image' })}
+                                </span>
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>{t('layout.exportImage', { defaultValue: 'Copy as image' })}</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200 disabled:opacity-50"
+                                onClick={handleCopyAll}
+                                disabled={isStreaming}
+                              >
+                                {copiedAll ? <Check className="size-3.5 shrink-0" /> : <ClipboardCopy className="size-3.5 shrink-0" />}
+                                <span
+                                  className="max-w-0 overflow-hidden pl-0 text-[10px] opacity-0 whitespace-nowrap group-hover/btn:max-w-[140px] group-hover/btn:pl-1 group-hover/btn:opacity-100"
+                                  style={{ transition: 'max-width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease, padding 180ms ease' }}
+                                >
+                                  {copiedAll ? t('layout.copied', { defaultValue: 'Copied' }) : t('layout.copyAll', { defaultValue: 'Copy conversation' })}
+                                </span>
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>{t('layout.copyAll', { defaultValue: 'Copy conversation' })}</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </div>
                       <MessageList onRetry={retryLastMessage} onEditUserMessage={editAndResend} />
                       <InputArea
                         onSend={sendMessage}
@@ -464,18 +607,17 @@ export function Layout(): React.JSX.Element {
               </PageTransition>
             )}
           </AnimatePresence>
-        </SidebarInset>
+        </div>
+      </div>
 
-        <CommandPalette />
-        <SettingsDialog />
-        <KeyboardShortcutsDialog />
-        <PermissionDialog
-          toolCall={pendingApproval}
-          onAllow={() => pendingApproval && resolveApproval(pendingApproval.id, true)}
-          onDeny={() => pendingApproval && resolveApproval(pendingApproval.id, false)}
-        />
-
-      </SidebarProvider>
+      <CommandPalette />
+      <SettingsDialog />
+      <KeyboardShortcutsDialog />
+      <PermissionDialog
+        toolCall={pendingApproval}
+        onAllow={() => pendingApproval && resolveApproval(pendingApproval.id, true)}
+        onDeny={() => pendingApproval && resolveApproval(pendingApproval.id, false)}
+      />
     </TooltipProvider>
   )
 }

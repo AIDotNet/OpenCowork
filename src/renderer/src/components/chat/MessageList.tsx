@@ -4,13 +4,12 @@ import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { MessageItem } from './MessageItem'
-import { MessageSquare, Briefcase, Code2, RefreshCw, ArrowDown, ClipboardCopy, Check, ImageDown, Loader2 } from 'lucide-react'
+import { MessageSquare, Briefcase, Code2, RefreshCw, ArrowDown, Loader2 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
-import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
+
 import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
 import type { ToolCallState } from '@renderer/lib/agent/types'
-import { toast } from 'sonner'
-import appIconUrl from '../../../../../resources/icon.png'
+
 
 const modeHints = {
   chat: {
@@ -170,8 +169,6 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
     return result
   }, [visibleRenderableMeta, messages])
   const hiddenMessageCount = Math.max(0, renderableMeta.items.length - visibleRenderableMeta.length)
-  const [copiedAll, setCopiedAll] = React.useState(false)
-  const [exporting, setExporting] = React.useState(false)
   const contentRef = React.useRef<HTMLDivElement>(null)
   const hasAssistantMessages = renderableMeta.hasAssistantMessages
 
@@ -349,110 +346,10 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
     )
   }
 
-  const handleCopyAll = (): void => {
-    if (!activeSession) return
-    const md = sessionToMarkdown(activeSession)
-    navigator.clipboard.writeText(md)
-    setCopiedAll(true)
-    setTimeout(() => setCopiedAll(false), 2000)
-  }
-
-  const handleExportImage = async (): Promise<void> => {
-    const node = contentRef.current
-    if (!node || !activeSession) return
-    setExporting(true)
-
-    // Convert app icon to base64 data URL for embedding in the footer
-    let iconDataUrl = ''
-    try {
-      const resp = await fetch(appIconUrl)
-      const blob = await resp.blob()
-      iconDataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.onerror = reject
-        reader.readAsDataURL(blob)
-      })
-    } catch {
-      // Silently skip icon if it fails to load
-    }
-
-    // Build and inject footer DOM element
-    const footer = document.createElement('div')
-    footer.setAttribute('data-export-footer', '1')
-    footer.style.cssText = 'margin-top:24px;padding:20px 0 8px;border-top:1px solid rgba(128,128,128,0.2);display:flex;align-items:center;justify-content:center;gap:14px;'
-    footer.innerHTML = [
-      iconDataUrl
-        ? `<img src="${iconDataUrl}" style="width:40px;height:40px;border-radius:8px;flex-shrink:0;" />`
-        : '',
-      '<div style="display:flex;flex-direction:column;justify-content:center;gap:2px;">',
-      '  <span style="font-weight:600;font-size:14px;color:rgba(128,128,128,0.75);">OpenCowork</span>',
-      '  <span style="font-size:11px;color:rgba(128,128,128,0.5);">AI-Powered Collaborative Development Platform</span>',
-      '  <span style="font-size:11px;color:rgba(128,128,128,0.45);">github.com/AIDotNet/OpenCowork</span>',
-      '</div>',
-    ].join('\n')
-    node.appendChild(footer)
-
-    try {
-      // Wait for browser to layout the footer before capturing
-      await new Promise((r) => setTimeout(r, 150))
-
-      const bgRaw = getComputedStyle(document.documentElement).getPropertyValue('--background').trim()
-      const bgColor = bgRaw ? `hsl(${bgRaw})` : '#ffffff'
-      const { toPng } = await import('html-to-image')
-      const dataUrl = await toPng(node, { backgroundColor: bgColor, pixelRatio: 2 })
-
-      const base64 = dataUrl.split(',')[1]
-      const binary = atob(base64)
-      const bytes = new Uint8Array(binary.length)
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-      const blob = new Blob([bytes], { type: 'image/png' })
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-      toast.success(t('messageList.imageCopied'), { description: t('messageList.imageCopiedDesc') })
-    } catch (err) {
-      console.error('Export image failed:', err)
-      toast.error(t('messageList.exportImageFailed'), { description: String(err) })
-    } finally {
-      if (node.contains(footer)) node.removeChild(footer)
-      setExporting(false)
-    }
-  }
-
   return (
     <div className="relative flex-1">
-      {/* Floating action bar — visible by default when conversation has content */}
-      {messages.length > 0 && (
-        <div className="absolute top-2 right-4 z-10 flex items-center gap-0.5 rounded-lg border bg-background/80 backdrop-blur-sm shadow-sm px-0.5 py-0.5">
-          <button
-            className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200 disabled:opacity-50"
-            onClick={handleExportImage}
-            disabled={exporting || !!streamingMessageId}
-          >
-            {exporting ? <Loader2 className="size-3.5 shrink-0 animate-spin" /> : <ImageDown className="size-3.5 shrink-0" />}
-            <span
-              className="max-w-0 overflow-hidden pl-0 text-[10px] opacity-0 whitespace-nowrap group-hover/btn:max-w-[140px] group-hover/btn:pl-1 group-hover/btn:opacity-100"
-              style={{ transition: 'max-width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease, padding 180ms ease' }}
-            >
-              {exporting ? t('messageList.exporting') : t('messageList.exportImage')}
-            </span>
-          </button>
-          <button
-            className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200 disabled:opacity-50"
-            onClick={handleCopyAll}
-            disabled={!!streamingMessageId}
-          >
-            {copiedAll ? <Check className="size-3.5 shrink-0" /> : <ClipboardCopy className="size-3.5 shrink-0" />}
-            <span
-              className="max-w-0 overflow-hidden pl-0 text-[10px] opacity-0 whitespace-nowrap group-hover/btn:max-w-[140px] group-hover/btn:pl-1 group-hover/btn:opacity-100"
-              style={{ transition: 'max-width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease, padding 180ms ease' }}
-            >
-              {copiedAll ? t('messageList.copied') : t('messageList.copyAll')}
-            </span>
-          </button>
-        </div>
-      )}
       <div ref={scrollContainerRef} className="absolute inset-0 overflow-y-auto">
-        <div ref={contentRef} className="mx-auto max-w-3xl space-y-6 p-4 overflow-hidden">
+        <div ref={contentRef} data-message-content className="mx-auto max-w-3xl space-y-6 p-4 overflow-hidden">
           {hiddenMessageCount > 0 && (
             <div className="flex justify-center">
               <button

@@ -165,7 +165,9 @@ function createWindow(): void {
 
     show: false,
 
-    frame: false,
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 12, y: 12 } }
+      : { frame: false }),
 
     autoHideMenuBar: true,
 

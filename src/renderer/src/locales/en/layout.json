@@ -173,6 +173,13 @@
     "copyError": "Copy Error",
     "errorDetails": "Error details"
   },
+  "navRail": {
+    "conversations": "Conversations",
+    "settings": "Settings"
+  },
+  "titleBar": {
+    "changeAvatar": "Change Avatar"
+  },
   "preview": {
     "markdownPreview": "Markdown Preview",
     "devServer": "Dev Server",

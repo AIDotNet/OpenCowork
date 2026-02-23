@@ -62,10 +62,10 @@ export function StepsPanel(): React.JSX.Element {
   }
 
   return (
-    <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+    <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto">
       {/* Plan-linked tasks */}
       {plan && planTasks.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="flex items-center justify-center rounded-md bg-violet-500/10 p-1">
               <ClipboardList className="size-3.5 text-violet-500" />
@@ -119,7 +119,7 @@ export function StepsPanel(): React.JSX.Element {
 function TodoList({ todos, progress, isRunning }: { todos: TaskItem[]; progress: { total: number; completed: number; percentage: number }; isRunning: boolean }): React.JSX.Element {
   const { t } = useTranslation('cowork')
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {/* Progress Bar */}
       {todos.length > 0 && (
         <>
@@ -207,7 +207,7 @@ function TeamTaskList({
   const percentage = tasks.length === 0 ? 0 : Math.round((completedCount / tasks.length) * 100)
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {/* Header */}
       <div className="flex items-center gap-2">
         <div className="flex items-center justify-center rounded-md bg-cyan-500/10 p-1">

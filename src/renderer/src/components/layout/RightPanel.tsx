@@ -107,7 +107,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
       <Separator />
 
       {/* Panel Content */}
-      <div className="flex-1 overflow-auto p-3">
+      <div className="flex-1 overflow-auto px-3 py-2">
         <AnimatePresence mode="wait">
           {tab === 'steps' && (
             <FadeIn key="steps" className="h-full">

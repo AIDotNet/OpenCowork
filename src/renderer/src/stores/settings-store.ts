@@ -25,6 +25,8 @@ interface SettingsStore {
   reasoningEffort: ReasoningEffortLevel
   teamToolsEnabled: boolean
   contextCompressionEnabled: boolean
+  userName: string
+  userAvatar: string
 
   updateSettings: (patch: Partial<Omit<SettingsStore, 'updateSettings'>>) => void
 }
@@ -48,6 +50,8 @@ export const useSettingsStore = create<SettingsStore>()(
       reasoningEffort: 'medium',
       teamToolsEnabled: false,
       contextCompressionEnabled: true,
+      userName: '',
+      userAvatar: '',
 
       updateSettings: (patch) => set(patch),
     }),
@@ -78,6 +82,8 @@ export const useSettingsStore = create<SettingsStore>()(
         reasoningEffort: state.reasoningEffort,
         teamToolsEnabled: state.teamToolsEnabled,
         contextCompressionEnabled: state.contextCompressionEnabled,
+        userName: state.userName,
+        userAvatar: state.userAvatar,
         // NOTE: apiKey is intentionally excluded from localStorage persistence.
         // In production, it should be stored securely in the main process.
       }),

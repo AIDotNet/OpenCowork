@@ -18,7 +18,13 @@
       "Bash(python:*)",
       "Bash(npx next build:*)",
       "Bash(TOP_N=500 python:*)",
-      "Bash(TOP_N=10 python:*)"
+      "Bash(TOP_N=10 python:*)",
+      "mcp__ide__getDiagnostics",
+      "WebSearch",
+      "Bash(curl:*)",
+      "Bash(grep:*)",
+      "Bash(grep error TS:*)",
+      "Bash(cat:*)"
     ]
   }
 }

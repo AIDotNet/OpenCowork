@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { ShieldCheck, Loader2, AlertTriangle, FileText, FileCode } from 'lucide-react'
+import { ShieldCheck, Loader2, AlertTriangle, FileText, FileCode, CheckCircle, XCircle } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSkillsStore, type RiskItem } from '@renderer/stores/skills-store'
 import { Badge } from '@renderer/components/ui/badge'
@@ -56,6 +56,9 @@ export function SkillInstallDialog(): React.JSX.Element | null {
   const scanning = useSkillsStore((s) => s.scanning)
   const installing = useSkillsStore((s) => s.installing)
   const scanResult = useSkillsStore((s) => s.installScanResult)
+  const agentReviewText = useSkillsStore((s) => s.agentReviewText)
+  const agentReviewDone = useSkillsStore((s) => s.agentReviewDone)
+  const agentReviewPassed = useSkillsStore((s) => s.agentReviewPassed)
   const closeInstallDialog = useSkillsStore((s) => s.closeInstallDialog)
   const confirmInstall = useSkillsStore((s) => s.confirmInstall)
 
@@ -92,6 +95,40 @@ export function SkillInstallDialog(): React.JSX.Element | null {
           </div>
         ) : scanResult ? (
           <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+            {/* AI Security Review section */}
+            {!agentReviewDone && (
+              <div className="rounded-lg border p-3 space-y-2 bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                <h4 className="text-xs font-semibold flex items-center gap-1.5 text-blue-900 dark:text-blue-100">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  {t('skillsPage.agentReview')}
+                </h4>
+                <p className="text-xs text-muted-foreground">{t('skillsPage.agentReviewing')}</p>
+                {agentReviewText && (
+                  <pre className="text-[10px] leading-relaxed text-muted-foreground font-mono max-h-24 overflow-y-auto whitespace-pre-wrap">
+                    {agentReviewText.slice(0, 500)}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {agentReviewDone && (
+              <div className={cn('rounded-lg border p-3 space-y-2', agentReviewPassed ? 'bg-green-50/50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800')}>
+                <h4 className="text-xs font-semibold flex items-center gap-1.5">
+                  {agentReviewPassed ? (
+                    <>
+                      <CheckCircle className="size-3.5 text-green-600 dark:text-green-400" />
+                      <span className="text-green-900 dark:text-green-100">{t('skillsPage.agentReviewPassed')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="size-3.5 text-amber-600 dark:text-amber-400" />
+                      <span className="text-amber-900 dark:text-amber-100">{t('skillsPage.agentReviewFailed')}</span>
+                    </>
+                  )}
+                </h4>
+              </div>
+            )}
+
             {/* Risk summary */}
             <div className="rounded-lg border p-3 space-y-2">
               <h4 className="text-xs font-semibold flex items-center gap-1.5">
@@ -161,7 +198,7 @@ export function SkillInstallDialog(): React.JSX.Element | null {
             size="sm"
             variant={hasDanger ? 'destructive' : 'default'}
             onClick={() => void handleInstall()}
-            disabled={scanning || installing || !scanResult}
+            disabled={scanning || installing || !scanResult || (agentReviewText !== '' && !agentReviewDone)}
           >
             {installing ? (
               <><Loader2 className="size-3.5 animate-spin mr-1" />{t('skillsPage.installing')}</>

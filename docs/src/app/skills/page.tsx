@@ -184,21 +184,9 @@ export default function SkillsPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Skills Market</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              {index.total.toLocaleString()} skills from{' '}
-              <a href="https://skills.sh" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-foreground transition-colors">
-                skills.sh
-              </a>
-              {' '}&mdash; install to enhance your AI agents
+              {index.total.toLocaleString()} skills &mdash; install to enhance your AI agents
             </p>
           </div>
-          <a
-            href="https://skills.sh"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-xs font-medium hover:bg-muted transition-colors"
-          >
-            <ExternalLink className="size-3" /> skills.sh
-          </a>
         </div>
 
         {/* Search */}

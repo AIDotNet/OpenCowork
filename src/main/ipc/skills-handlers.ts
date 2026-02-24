@@ -13,6 +13,7 @@ export interface MarketSkillInfo {
   installs: number
   url: string
   github: string
+  description?: string
 }
 
 interface MarketSkillsData {
@@ -466,6 +467,7 @@ export function registerSkillsHandlers(): void {
 
   /**
    * skills:market-list — return paginated market skills with optional search.
+   * Enriches skills with descriptions extracted from SKILL.md files.
    */
   ipcMain.handle('skills:market-list', async (_event, args: { offset?: number; limit?: number; query?: string }): Promise<{
     total: number
@@ -482,11 +484,101 @@ export function registerSkillsHandlers(): void {
       )
     }
 
+    // Enrich with descriptions from SKILL.md files
+    const enrichedResults = results.map((skill) => {
+      let description = skill.description
+      if (!description) {
+        try {
+          // Try to read from docs/public/skills/{owner}/{name}/SKILL.md
+          const skillPath = path.join(app.getAppPath(), 'docs', 'public', 'skills', skill.owner, skill.name, 'SKILL.md')
+          if (fs.existsSync(skillPath)) {
+            const content = fs.readFileSync(skillPath, 'utf-8')
+            description = extractDescription(content, skill.name)
+          }
+        } catch {
+          // Ignore errors, use default description
+        }
+      }
+      return { ...skill, description }
+    })
+
     const offset = args.offset ?? 0
     const limit = args.limit ?? 50
     return {
-      total: results.length,
-      skills: results.slice(offset, offset + limit),
+      total: enrichedResults.length,
+      skills: enrichedResults.slice(offset, offset + limit),
+    }
+  })
+
+  /**
+   * skills:download-remote — download a skill from the remote marketplace to a temp directory.
+   * Returns the temp path and file contents for agent review.
+   */
+  ipcMain.handle('skills:download-remote', async (_event, args: { owner: string; repo: string; name: string }): Promise<{
+    tempPath?: string
+    files?: { path: string; content: string }[]
+    error?: string
+  }> => {
+    try {
+      // Create temp directory for downloaded skill
+      const tempDir = path.join(os.tmpdir(), 'opencowork-skills', `${args.owner}-${args.name}-${Date.now()}`)
+      fs.mkdirSync(tempDir, { recursive: true })
+
+      // In dev mode, copy from docs/public/skills/{owner}/{name}/
+      // In production, this would download from the actual API
+      const skillSourcePath = path.join(app.getAppPath(), 'docs', 'public', 'skills', args.owner, args.name)
+
+      if (!fs.existsSync(skillSourcePath)) {
+        return { error: `Skill not found: ${args.owner}/${args.name}` }
+      }
+
+      // Copy skill files to temp directory
+      copyDirRecursive(skillSourcePath, tempDir)
+
+      // Read all files for agent review
+      const files: { path: string; content: string }[] = []
+      function collectFiles(dir: string, prefix: string): void {
+        const entries = fs.readdirSync(dir, { withFileTypes: true })
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name)
+          const relPath = prefix ? `${prefix}/${entry.name}` : entry.name
+          if (entry.isDirectory()) {
+            collectFiles(fullPath, relPath)
+          } else {
+            try {
+              const content = fs.readFileSync(fullPath, 'utf-8')
+              files.push({ path: relPath, content })
+            } catch {
+              // Skip binary or unreadable files
+            }
+          }
+        }
+      }
+      collectFiles(tempDir, '')
+
+      return { tempPath: tempDir, files }
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  /**
+   * skills:cleanup-temp — remove a temporary skill directory after installation or cancellation.
+   */
+  ipcMain.handle('skills:cleanup-temp', async (_event, args: { tempPath: string }): Promise<{ success: boolean }> => {
+    try {
+      // Safety check: only delete paths in the temp directory
+      if (!args.tempPath.includes('opencowork-skills')) {
+        console.warn('[Skills] Refusing to delete non-temp path:', args.tempPath)
+        return { success: false }
+      }
+      if (fs.existsSync(args.tempPath)) {
+        fs.rmSync(args.tempPath, { recursive: true, force: true })
+      }
+      return { success: true }
+    } catch (err) {
+      console.error('[Skills] Cleanup failed:', err)
+      return { success: false }
     }
   })
 }

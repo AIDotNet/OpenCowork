@@ -250,6 +250,11 @@
     "marketDescription": "Discover and install skills to extend your agent's capabilities",
     "skillFiles": "Skill Files",
     "noFiles": "No files",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "agentReview": "AI Security Review",
+    "agentReviewPassed": "Passed",
+    "agentReviewFailed": "Failed",
+    "agentReviewing": "Reviewing...",
+    "downloading": "Downloading..."
   }
 }

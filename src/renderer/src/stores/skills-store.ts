@@ -40,6 +40,8 @@ export interface MarketSkillInfo {
   installs: number
   url: string
   github: string
+  description?: string
+  source_path?: string
 }
 
 interface SkillsStore {
@@ -69,6 +71,11 @@ interface SkillsStore {
   scanning: boolean
   installing: boolean
 
+  // Agent review state
+  agentReviewText: string
+  agentReviewDone: boolean
+  agentReviewPassed: boolean | null
+
   // Actions
   loadSkills: () => Promise<void>
   setSearchQuery: (query: string) => void
@@ -84,6 +91,7 @@ interface SkillsStore {
   loadMarketSkills: (query?: string, reset?: boolean) => Promise<void>
   loadMoreMarketSkills: () => Promise<void>
   setMarketQuery: (query: string) => void
+  downloadAndReviewMarketSkill: (skill: MarketSkillInfo) => Promise<void>
 
   // Edit actions
   setEditing: (editing: boolean) => void
@@ -121,6 +129,10 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
   installScanResult: null,
   scanning: false,
   installing: false,
+
+  agentReviewText: '',
+  agentReviewDone: false,
+  agentReviewPassed: null,
 
   loadSkills: async () => {
     set({ loading: true })
@@ -239,6 +251,91 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
     get().loadMarketSkills(query, true)
   },
 
+  downloadAndReviewMarketSkill: async (skill) => {
+    set({ installDialogOpen: true, installSourcePath: null, installScanResult: null, scanning: true, installing: false, agentReviewText: '', agentReviewDone: false, agentReviewPassed: null })
+
+    try {
+      // Download from remote API
+      const downloadResult = (await ipcClient.invoke('skills:download-remote', {
+        owner: skill.owner,
+        repo: skill.repo,
+        name: skill.name,
+      })) as { tempPath?: string; files?: { path: string; content: string }[]; error?: string }
+
+      if (downloadResult.error || !downloadResult.tempPath) {
+        console.error('[Skills] Download error:', downloadResult.error)
+        set({ scanning: false })
+        return
+      }
+
+      // Run regex scan first (fast preliminary check)
+      const scanResult = (await ipcClient.invoke('skills:scan', { sourcePath: downloadResult.tempPath })) as ScanResult | { error: string }
+      if ('error' in scanResult) {
+        console.error('[Skills] Scan error:', scanResult.error)
+        set({ scanning: false })
+        await ipcClient.invoke('skills:cleanup-temp', { tempPath: downloadResult.tempPath })
+        return
+      }
+
+      // Run agent security review
+      set({ scanning: false, agentReviewDone: false })
+      try {
+        const { runSkillSecurityReview } = await import('@renderer/lib/agent/skill-reviewer')
+        const { useSettingsStore } = await import('@renderer/stores/settings-store')
+        const settingsState = useSettingsStore.getState()
+
+        const providerConfig = {
+          type: settingsState.provider,
+          apiKey: settingsState.apiKey,
+          baseUrl: settingsState.baseUrl,
+          model: settingsState.model,
+          maxTokens: settingsState.maxTokens,
+          temperature: settingsState.temperature,
+        }
+
+        if (!settingsState.apiKey) {
+          console.warn('[Skills] No API key configured, skipping agent review')
+          set({
+            installScanResult: scanResult,
+            installSourcePath: downloadResult.tempPath,
+            agentReviewDone: true,
+            agentReviewPassed: scanResult.risks.length === 0,
+          })
+        } else {
+          const agentRisks = await runSkillSecurityReview(
+            skill.name,
+            downloadResult.files || [],
+            providerConfig,
+            new AbortController().signal,
+            (text) => set({ agentReviewText: text })
+          )
+
+          // Merge agent risks with regex risks
+          const mergedRisks = [...scanResult.risks, ...agentRisks]
+          const hasDanger = mergedRisks.some((r) => r.severity === 'danger')
+
+          set({
+            installScanResult: { ...scanResult, risks: mergedRisks },
+            installSourcePath: downloadResult.tempPath,
+            agentReviewDone: true,
+            agentReviewPassed: !hasDanger,
+          })
+        }
+      } catch (err) {
+        console.error('[Skills] Agent review failed:', err)
+        set({
+          installScanResult: scanResult,
+          installSourcePath: downloadResult.tempPath,
+          agentReviewDone: true,
+          agentReviewPassed: scanResult.risks.length === 0,
+        })
+      }
+    } catch (err) {
+      console.error('[Skills] Download failed:', err)
+      set({ scanning: false })
+    }
+  },
+
   // Edit actions
   setEditing: (editing) => {
     const state = get()
@@ -270,8 +367,13 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
     get().scanSkill(sourcePath)
   },
 
-  closeInstallDialog: () =>
-    set({ installDialogOpen: false, installSourcePath: null, installScanResult: null, scanning: false, installing: false }),
+  closeInstallDialog: () => {
+    const state = get()
+    if (state.installSourcePath && state.installSourcePath.includes('opencowork-skills')) {
+      void ipcClient.invoke('skills:cleanup-temp', { tempPath: state.installSourcePath })
+    }
+    set({ installDialogOpen: false, installSourcePath: null, installScanResult: null, scanning: false, installing: false, agentReviewText: '', agentReviewDone: false, agentReviewPassed: null })
+  },
 
   scanSkill: async (sourcePath) => {
     set({ scanning: true })
@@ -296,7 +398,29 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
     try {
       const result = await state.addSkillFromFolder(state.installSourcePath)
       if (result.success) {
-        set({ installDialogOpen: false, installSourcePath: null, installScanResult: null, installing: false })
+        // Clean up temp directory if it's a downloaded skill
+        if (state.installSourcePath.includes('opencowork-skills')) {
+          await ipcClient.invoke('skills:cleanup-temp', { tempPath: state.installSourcePath })
+        }
+
+        // Switch to installed tab and select the newly installed skill
+        set({
+          installDialogOpen: false,
+          installSourcePath: null,
+          installScanResult: null,
+          installing: false,
+          activeTab: 'installed',
+          selectedSkill: result.name || null,
+          agentReviewText: '',
+          agentReviewDone: false,
+          agentReviewPassed: null,
+        })
+
+        // Load the newly installed skill's content
+        if (result.name) {
+          get().readSkill(result.name)
+          get().loadSkillFiles(result.name)
+        }
       } else {
         set({ installing: false })
       }

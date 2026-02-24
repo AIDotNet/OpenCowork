@@ -250,6 +250,11 @@
     "marketDescription": "发现并安装技能以扩展代理的能力",
     "skillFiles": "技能文件",
     "noFiles": "暂无文件",
-    "cancel": "取消"
+    "cancel": "取消",
+    "agentReview": "AI 安全审查",
+    "agentReviewPassed": "已通过",
+    "agentReviewFailed": "未通过",
+    "agentReviewing": "正在审查...",
+    "downloading": "正在下载..."
   }
 }

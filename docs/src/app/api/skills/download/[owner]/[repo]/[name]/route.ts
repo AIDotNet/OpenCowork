@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { readdir, readFile } from 'fs/promises';
+import { join } from 'path';
+import { recordSkillDownload } from '@/lib/db';
 
 interface SkillFile {
-  name: string;
   path: string;
   content: string;
-  encoding: string;
 }
 
+const MAX_FILE_SIZE = 500 * 1024; // 500KB
+
 /**
- * Download a specific skill's content from GitHub.
+ * Download a specific skill's content from local public/skills/ directory.
  *
  * GET /api/skills/download/{owner}/{repo}/{name}
  *
- * Returns the skill's files (typically a .md file) fetched from the GitHub repo.
- * The desktop client can use this to install skills without needing GitHub access directly.
+ * Returns the skill's files as a bundle. Serves from docs/public/skills/{owner}/{repo}/{name}/
+ * The desktop client uses this to install skills.
  */
 export async function GET(
   _req: NextRequest,
@@ -26,87 +29,59 @@ export async function GET(
   }
 
   try {
-    // Skills are stored in GitHub repos. The skill file is typically at:
-    // 1. skills/{name}.md (most common pattern)
-    // 2. {name}.md (root level)
-    // 3. {name}/skill.md (directory-based)
-    // We try the GitHub API to find the actual skill file.
+    const skillDir = join(process.cwd(), 'public', 'skills', owner, repo, name);
+    const files: SkillFile[] = [];
 
-    const githubBase = `https://api.github.com/repos/${owner}/${repo}`;
-    const headers: Record<string, string> = {
-      Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'OpenCowork-Skills-API',
-    };
+    async function walkDir(dir: string, prefix: string): Promise<void> {
+      try {
+        const entries = await readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          // Skip skill.json (metadata only)
+          if (entry.name === 'skill.json') continue;
 
-    // Try to get the repo contents to find the skill
-    const paths = [
-      `skills/${name}.md`,
-      `${name}.md`,
-      `${name}/skill.md`,
-      `${name}/index.md`,
-      `skills/${name}/skill.md`,
-      `skills/${name}/index.md`,
-    ];
+          const fullPath = join(dir, entry.name);
+          const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
 
-    let skillContent: string | null = null;
-    let skillPath: string | null = null;
-    const extraFiles: SkillFile[] = [];
-
-    for (const path of paths) {
-      const resp = await fetch(`${githubBase}/contents/${path}`, { headers });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.content && data.encoding === 'base64') {
-          skillContent = Buffer.from(data.content, 'base64').toString('utf-8');
-          skillPath = path;
-          break;
-        }
-      }
-    }
-
-    // If not found via direct paths, try listing the directory
-    if (!skillContent) {
-      for (const dir of [`skills/${name}`, name]) {
-        const resp = await fetch(`${githubBase}/contents/${dir}`, { headers });
-        if (resp.ok) {
-          const items = await resp.json();
-          if (Array.isArray(items)) {
-            for (const item of items) {
-              if (item.type === 'file' && item.name.endsWith('.md')) {
-                const fileResp = await fetch(item.url, { headers });
-                if (fileResp.ok) {
-                  const fileData = await fileResp.json();
-                  if (fileData.content && fileData.encoding === 'base64') {
-                    const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
-                    if (!skillContent) {
-                      skillContent = content;
-                      skillPath = item.path;
-                    } else {
-                      extraFiles.push({
-                        name: item.name,
-                        path: item.path,
-                        content,
-                        encoding: 'utf-8',
-                      });
-                    }
-                  }
-                }
+          if (entry.isDirectory()) {
+            await walkDir(fullPath, relPath);
+          } else {
+            try {
+              const stat = await readFile(fullPath);
+              if (stat.length > MAX_FILE_SIZE) {
+                console.warn(`[Skills API] Skipping large file: ${relPath} (${stat.length} bytes)`);
+                continue;
               }
+              const content = stat.toString('utf-8');
+              files.push({ path: relPath, content });
+            } catch (err) {
+              console.warn(`[Skills API] Failed to read file: ${relPath}`, err);
             }
-            if (skillContent) break;
           }
         }
+      } catch (err) {
+        console.warn(`[Skills API] Failed to read directory: ${dir}`, err);
       }
     }
 
-    if (!skillContent) {
+    await walkDir(skillDir, '');
+
+    if (files.length === 0) {
       return NextResponse.json(
         {
           error: 'Skill not found',
-          hint: `Could not find skill "${name}" in ${owner}/${repo}. The skill may have been removed or the repo structure may differ.`,
+          hint: `Could not find skill "${name}" in ${owner}/${repo}. The skill directory may not exist.`,
         },
         { status: 404 }
       );
+    }
+
+    // Record download
+    try {
+      const skillId = `${owner}/${repo}/${name}`;
+      recordSkillDownload(skillId, name, repo);
+    } catch (err) {
+      console.warn('[Skills API] Failed to record download:', err);
+      // Don't fail the request if recording fails
     }
 
     return NextResponse.json(
@@ -115,11 +90,9 @@ export async function GET(
         name,
         owner,
         repo,
-        path: skillPath,
-        content: skillContent,
-        extraFiles,
+        files,
         github: `https://github.com/${owner}/${repo}`,
-        url: `https://skills.sh/${owner}/${repo}/${name}`,
+        url: `https://open-cowork.shop/skills/${owner}/${repo}/${name}`,
       },
       {
         headers: { 'Cache-Control': 'public, max-age=3600' },

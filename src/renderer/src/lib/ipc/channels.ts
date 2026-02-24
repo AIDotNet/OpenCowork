@@ -114,6 +114,9 @@ export const IPC = {
   SKILLS_LIST_FILES: 'skills:list-files',
   SKILLS_SAVE: 'skills:save',
   SKILLS_SCAN: 'skills:scan',
+  SKILLS_MARKET_LIST: 'skills:market-list',
+  SKILLS_DOWNLOAD_REMOTE: 'skills:download-remote',
+  SKILLS_CLEANUP_TEMP: 'skills:cleanup-temp',
 
   // Clipboard
   CLIPBOARD_WRITE_IMAGE: 'clipboard:write-image',

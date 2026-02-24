@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, FolderOpen, Trash2, Plus, Wand2, ArrowLeft, Pencil, Eye, Save, Download, FileText, FileCode, CheckCircle2 } from 'lucide-react'
+import { Search, FolderOpen, Trash2, Plus, Wand2, ArrowLeft, Pencil, Eye, Save, Download, FileText, FileCode, CheckCircle2, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@renderer/lib/utils'
-import { useSkillsStore, type ScanFileInfo, type SkillInfo } from '@renderer/stores/skills-store'
+import { useSkillsStore, type ScanFileInfo, type MarketSkillInfo } from '@renderer/stores/skills-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { Badge } from '@renderer/components/ui/badge'
@@ -49,61 +49,61 @@ function FileListSection({ files, t }: { files: ScanFileInfo[]; t: (key: string)
   )
 }
 
-// ── Market leaderboard row ──────────────────────────────────────────────────
+// ── Market skill card ──────────────────────────────────────────────
 
-function MarketRow({
-  rank,
+function MarketSkillCard({
   skill,
   installed,
   onInstall,
-  onSelect,
-  selected,
 }: {
-  rank: number
-  skill: SkillInfo
+  skill: MarketSkillInfo
   installed: boolean
   onInstall: () => void
-  onSelect: () => void
-  selected: boolean
 }): React.JSX.Element {
   const { t } = useTranslation('layout')
   return (
-    <div
-      onClick={onSelect}
-      className={cn(
-        'group flex items-center gap-4 px-6 py-3.5 border-b border-border/50 cursor-pointer transition-colors',
-        selected ? 'bg-primary/5' : 'hover:bg-muted/40'
-      )}
-    >
-      {/* Rank */}
-      <span className="w-6 shrink-0 text-center text-sm font-mono text-muted-foreground/50 select-none">
-        {rank}
-      </span>
-
-      {/* Icon placeholder */}
-      <div className="size-9 shrink-0 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 border border-border/60 flex items-center justify-center">
-        <Wand2 className="size-4 text-primary/70" />
+    <div className="rounded-lg border bg-card p-4 hover:shadow-md transition-shadow flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold truncate">{skill.name}</h3>
+          <p className="text-xs text-muted-foreground">{skill.owner}/{skill.repo}</p>
+        </div>
+        <div className="size-8 shrink-0 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 border border-border/60 flex items-center justify-center">
+          <Wand2 className="size-4 text-primary/70" />
+        </div>
       </div>
 
-      {/* Name + description */}
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold leading-tight truncate">{skill.name}</p>
-        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{skill.description}</p>
+      {/* Description */}
+      {skill.description && (
+        <p className="text-xs text-muted-foreground line-clamp-2 mb-3 flex-1">{skill.description}</p>
+      )}
+
+      {/* Stats */}
+      <div className="flex items-center gap-4 text-xs text-muted-foreground mb-3 py-2 border-t border-b">
+        <div className="flex items-center gap-1">
+          <Download className="size-3" />
+          <span>{skill.installs}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Wand2 className="size-3" />
+          <span>Rank #{skill.rank}</span>
+        </div>
       </div>
 
       {/* Action */}
-      <div className="shrink-0 flex items-center gap-2">
+      <div className="mt-auto">
         {installed ? (
-          <Badge variant="secondary" className="gap-1 text-[11px]">
+          <Badge variant="secondary" className="w-full justify-center gap-1 text-[11px]">
             <CheckCircle2 className="size-3" />
             {t('skillsPage.alreadyInstalled')}
           </Badge>
         ) : (
           <Button
             size="sm"
-            variant="outline"
-            className="h-7 gap-1.5 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => { e.stopPropagation(); onInstall() }}
+            variant="default"
+            className="w-full gap-1.5 text-xs"
+            onClick={onInstall}
           >
             <Download className="size-3" />
             {t('skillsPage.install')}
@@ -127,8 +127,10 @@ export function SkillsPage(): React.JSX.Element {
   const marketSkills = useSkillsStore((s) => s.marketSkills)
   const marketLoading = useSkillsStore((s) => s.marketLoading)
   const marketQuery = useSkillsStore((s) => s.marketQuery)
+  const marketTotal = useSkillsStore((s) => s.marketTotal)
   const loadSkills = useSkillsStore((s) => s.loadSkills)
   const loadMarketSkills = useSkillsStore((s) => s.loadMarketSkills)
+  const loadMoreMarketSkills = useSkillsStore((s) => s.loadMoreMarketSkills)
   const selectSkill = useSkillsStore((s) => s.selectSkill)
   const setActiveTab = useSkillsStore((s) => s.setActiveTab)
   const setEditing = useSkillsStore((s) => s.setEditing)
@@ -157,10 +159,8 @@ export function SkillsPage(): React.JSX.Element {
     useSkillsStore.getState().openInstallDialog(result.path)
   }
 
-  const handleInstallMarket = (skillName: string): void => {
-    // For local skills, open folder picker; for remote, would use URL
-    void handleAddSkill()
-    void skillName
+  const handleInstallMarket = (skill: MarketSkillInfo): void => {
+    void useSkillsStore.getState().downloadAndReviewMarketSkill(skill)
   }
 
   const handleDelete = async (name: string): Promise<void> => {
@@ -240,86 +240,64 @@ export function SkillsPage(): React.JSX.Element {
     </div>
   )
 
-  // ── MARKET TAB — full-width leaderboard ─────────────────────────────────────
+  // ── MARKET TAB — full-width grid ─────────────────────────────────────
   if (activeTab === 'market') {
     return (
       <div className="flex h-full flex-col">
         {TopBar}
 
-        <div className="flex flex-1 overflow-hidden">
-          {/* Leaderboard list */}
-          <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Hero */}
-            <div className="px-8 pt-8 pb-5 border-b">
-              <div className="flex items-end gap-3 mb-1">
-                <h1 className="text-3xl font-bold tracking-tight">SKILLS</h1>
-                <span className="text-sm text-muted-foreground mb-1">{t('skillsPage.skillCount', { count: marketSkills.length })}</span>
-              </div>
-              <p className="text-sm text-muted-foreground">{t('skillsPage.marketDescription')}</p>
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {/* Hero */}
+          <div className="px-8 pt-8 pb-5 border-b shrink-0">
+            <div className="flex items-end gap-3 mb-1">
+              <h1 className="text-3xl font-bold tracking-tight">SKILLS</h1>
+              <span className="text-sm text-muted-foreground mb-1">{t('skillsPage.skillCount', { count: marketSkills.length })}</span>
             </div>
-
-            {/* Column header */}
-            <div className="flex items-center gap-4 px-6 py-2 border-b bg-muted/30">
-              <span className="w-6 shrink-0" />
-              <span className="w-9 shrink-0" />
-              <span className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Skill</span>
-              <span className="shrink-0 w-24 text-right text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Status</span>
-            </div>
-
-            {/* Rows */}
-            <div className="flex-1 overflow-y-auto">
-              {marketLoading ? (
-                <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-                  <Wand2 className="size-4 mr-2 animate-pulse" /> Loading...
-                </div>
-              ) : marketSkills.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-2">
-                  <Wand2 className="size-10 text-muted-foreground/20" />
-                  <p className="text-sm text-muted-foreground">{t('skillsPage.noResults')}</p>
-                </div>
-              ) : (
-                marketSkills.map((ms, i) => (
-                  <MarketRow
-                    key={ms.id}
-                    rank={i + 1}
-                    skill={{ name: ms.name, description: '' }}
-                    installed={installedNames.has(ms.name)}
-                    selected={selectedSkill === ms.name}
-                    onSelect={() => selectSkill(ms.name)}
-                    onInstall={() => handleInstallMarket(ms.name)}
-                  />
-                ))
-              )}
-            </div>
+            <p className="text-sm text-muted-foreground">{t('skillsPage.marketDescription')}</p>
           </div>
 
-          {/* Right detail panel */}
-          <div className={cn('flex flex-col border-l transition-all duration-200', selectedSkill ? 'w-96' : 'w-0 overflow-hidden')}>
-            {selectedSkill && (
-              <>
-                <div className="flex items-center gap-2 border-b px-4 py-3 shrink-0">
-                  <Wand2 className="size-4 shrink-0 text-primary" />
-                  <h3 className="flex-1 text-sm font-semibold truncate">{selectedSkill}</h3>
-                  {installedNames.has(selectedSkill) ? (
-                    <Badge variant="secondary" className="gap-1 text-[11px]">
-                      <CheckCircle2 className="size-3" />
-                      {t('skillsPage.alreadyInstalled')}
-                    </Badge>
-                  ) : (
-                    <Button size="sm" variant="default" className="h-7 gap-1.5 text-xs" onClick={() => handleInstallMarket(selectedSkill)}>
-                      <Download className="size-3" />
-                      {t('skillsPage.install')}
+          {/* Grid */}
+          <div className="flex-1 overflow-y-auto p-8">
+            {marketLoading && marketSkills.length === 0 ? (
+              <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+                <Wand2 className="size-4 mr-2 animate-pulse" /> Loading...
+              </div>
+            ) : marketSkills.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-2">
+                <Wand2 className="size-10 text-muted-foreground/20" />
+                <p className="text-sm text-muted-foreground">{t('skillsPage.noResults')}</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {marketSkills.map((ms) => (
+                    <MarketSkillCard
+                      key={ms.id}
+                      skill={ms}
+                      installed={installedNames.has(ms.name)}
+                      onInstall={() => handleInstallMarket(ms)}
+                    />
+                  ))}
+                </div>
+
+                {/* Load More */}
+                {marketSkills.length < marketTotal && (
+                  <div className="flex items-center justify-center py-4">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void loadMoreMarketSkills()}
+                      disabled={marketLoading}
+                    >
+                      {marketLoading ? (
+                        <><Loader2 className="size-3.5 animate-spin mr-2" />Loading...</>
+                      ) : (
+                        `Load More (${marketSkills.length}/${marketTotal})`
+                      )}
                     </Button>
-                  )}
-                </div>
-                <div className="flex-1 overflow-y-auto p-4">
-                  {skillContent ? (
-                    <pre className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90 font-mono">{skillContent}</pre>
-                  ) : (
-                    <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">Loading...</div>
-                  )}
-                </div>
-              </>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

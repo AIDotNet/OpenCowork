@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/Electron-36.x-blue" alt="Electron">
   <img src="https://img.shields.io/badge/React-19.x-blue" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-5.9-blue" alt="TypeScript">
-  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/License-Apache_2.0-green" alt="License">
   <img src="https://img.shields.io/badge/Version-0.2.2-orange" alt="Version">
 </p>
 
@@ -667,7 +667,7 @@ We welcome all forms of contributions!
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [Apache License 2.0](LICENSE).
 
 ---
 

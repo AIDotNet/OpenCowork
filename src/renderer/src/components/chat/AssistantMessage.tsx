@@ -305,7 +305,8 @@ function CodeBlock({
           lineHeight: '1.5',
           background: 'transparent',
           fontFamily: MONO_FONT,
-          whiteSpace: 'pre'
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-all'
         }}
         codeTagProps={{
           style: {
@@ -330,7 +331,7 @@ function MarkdownContent({ text }: { text: string }): React.JSX.Element {
           e.preventDefault()
           if (href) window.electron.ipcRenderer.invoke('shell:openExternal', href)
         }}
-        className="text-primary underline underline-offset-2 hover:text-primary/80 cursor-pointer"
+        className="text-primary underline underline-offset-2 hover:text-primary/80 cursor-pointer break-all"
         title={href}
       >
         {children}
@@ -355,6 +356,13 @@ function MarkdownContent({ text }: { text: string }): React.JSX.Element {
       <li className="leading-snug [&>p]:m-0" {...props}>
         {children}
       </li>
+    ),
+    table: ({ children, ...props }) => (
+      <div className="my-2 overflow-x-auto max-w-full">
+        <table className="min-w-0 border-collapse text-sm" {...props}>
+          {children}
+        </table>
+      </div>
     ),
     pre: ({ children }) => <>{children}</>,
     code: ({ children, className, ...props }) => {

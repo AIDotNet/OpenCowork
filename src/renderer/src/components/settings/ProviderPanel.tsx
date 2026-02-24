@@ -45,7 +45,7 @@ const MODEL_ICON_OPTIONS = [
   'openai', 'claude', 'anthropic', 'gemini', 'deepseek', 'qwen',
   'chatglm', 'minimax', 'kimi', 'moonshot', 'grok', 'meta', 'llama',
   'mistral', 'baidu', 'hunyuan', 'nvidia', 'stepfun', 'doubao',
-  'ollama', 'siliconcloud', 'mimo',
+  'ollama', 'siliconcloud', 'mimo', 'bigmodel',
 ] as const
 
 // --- Fetch models from provider API ---

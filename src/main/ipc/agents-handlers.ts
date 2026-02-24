@@ -1,50 +1,13 @@
-import { ipcMain, app } from 'electron'
+import { ipcMain } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { is } from '@electron-toolkit/utils'
 
 const AGENTS_DIR = path.join(os.homedir(), '.open-cowork', 'agents')
 
-/**
- * Resolve the path to the bundled resources/agents/ directory.
- * - Dev: <project>/resources/agents/
- * - Production: <app>/resources/agents/ (asarUnpacked)
- */
-function getBundledAgentsDir(): string {
-  if (is.dev) {
-    return path.join(app.getAppPath(), 'resources', 'agents')
-  }
-  return path.join(process.resourcesPath, 'agents')
-}
-
-/**
- * Copy built-in agent .md files from resources/agents/ to ~/.open-cowork/agents/.
- * Only copies a file if it does not already exist in the target,
- * so user modifications are preserved.
- */
-function ensureBuiltinAgents(): void {
-  try {
-    const bundledDir = getBundledAgentsDir()
-    if (!fs.existsSync(bundledDir)) {
-      console.warn('[Agents] Bundled agents directory not found:', bundledDir)
-      return
-    }
-
-    if (!fs.existsSync(AGENTS_DIR)) {
-      fs.mkdirSync(AGENTS_DIR, { recursive: true })
-    }
-
-    const entries = fs.readdirSync(bundledDir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.isDirectory()) continue
-      if (!entry.name.endsWith('.md')) continue
-      const targetPath = path.join(AGENTS_DIR, entry.name)
-      if (fs.existsSync(targetPath)) continue // already installed, skip
-      fs.copyFileSync(path.join(bundledDir, entry.name), targetPath)
-    }
-  } catch (err) {
-    console.error('[Agents] Failed to initialize builtin agents:', err)
+function ensureAgentsDir(): void {
+  if (!fs.existsSync(AGENTS_DIR)) {
+    fs.mkdirSync(AGENTS_DIR, { recursive: true })
   }
 }
 
@@ -118,16 +81,13 @@ function parseAgentFile(content: string, filename: string): AgentInfo | null {
 }
 
 export function registerAgentsHandlers(): void {
-  // Initialize builtin agents on startup
-  ensureBuiltinAgents()
-
   /**
    * agents:list — scan ~/.open-cowork/agents/ and return all available agents.
    * Each .md file with valid frontmatter is treated as an agent.
    */
   ipcMain.handle('agents:list', async (): Promise<AgentInfo[]> => {
     try {
-      if (!fs.existsSync(AGENTS_DIR)) return []
+      ensureAgentsDir()
       const entries = fs.readdirSync(AGENTS_DIR, { withFileTypes: true })
       const agents: AgentInfo[] = []
       for (const entry of entries) {

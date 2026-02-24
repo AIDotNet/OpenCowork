@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { Settings, BrainCircuit, Info, Server, Puzzle, Cable, Loader2, Download, Github, Sparkles, ShieldCheck, Layers, HardDriveDownload, HardDriveUpload, Trash2 } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import { toast } from 'sonner'
-import { useTranslation } from 'react-i18next'
-import { confirm } from '@renderer/components/ui/confirm-dialog'
+import { AnimatePresence } from 'motion/react'
+import { cn } from '@renderer/lib/utils'
 import { useUIStore, type SettingsTab } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { formatTokens } from '@renderer/lib/format-tokens'
 import { useDebouncedTokens } from '@renderer/hooks/use-estimated-tokens'
+import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
+import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Textarea } from '@renderer/components/ui/textarea'
@@ -24,13 +26,11 @@ import {
   SelectTrigger,
   SelectValue
 } from '@renderer/components/ui/select'
-import { AnimatePresence } from 'motion/react'
 import { FadeIn, SlideIn } from '@renderer/components/animate-ui'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import { ProviderPanel } from './ProviderPanel'
 import { PluginPanel } from './PluginPanel'
 import { McpPanel } from './McpPanel'
-import { WindowControls } from '@renderer/components/layout/WindowControls'
 import { ModelIcon } from './provider-icons'
 import packageJson from '../../../../../package.json'
 
@@ -967,16 +967,11 @@ export function SettingsPage(): React.JSX.Element {
       </div>
 
       {/* Right Content */}
-      <div className="relative flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Fixed titlebar area */}
-        <div className="titlebar-drag h-10 w-full shrink-0" />
-        <div className="absolute right-0 top-0 z-10">
-          <WindowControls />
-        </div>
+      <div className="relative flex-1 flex flex-col min-w-0 overflow-hidden px-6 py-4">
         {/* Content */}
         <AnimatePresence mode="wait">
           {settingsTab === 'provider' || settingsTab === 'plugin' || settingsTab === 'mcp' ? (
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden px-6 pb-4" key="full-panel">
+            <div className="flex-1 min-h-0 min-w-0 overflow-hidden pb-4" key="full-panel">
               <SlideIn key={settingsTab} direction="right" duration={0.25} className="h-full">
                 <ActivePanel />
               </SlideIn>

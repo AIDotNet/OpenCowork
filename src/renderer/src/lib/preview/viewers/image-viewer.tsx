@@ -1,18 +1,82 @@
 import * as React from 'react'
-import { ZoomIn, ZoomOut, RotateCw, Maximize2 } from 'lucide-react'
+import { ZoomIn, ZoomOut, RotateCw, Maximize2, ImageOff } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
+import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 import type { ViewerProps } from '../viewer-registry'
+
+const MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+}
+
+function getMimeType(filePath: string): string {
+  const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
+  return MIME_TYPES[ext] || 'application/octet-stream'
+}
 
 export function ImageViewer({ filePath }: ViewerProps): React.JSX.Element {
   const [scale, setScale] = React.useState(1)
   const [rotation, setRotation] = React.useState(0)
+  const [src, setSrc] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
 
-  const src = `file://${filePath}`
+  React.useEffect(() => {
+    let cancelled = false
+    let objectUrl: string | null = null
+
+    ipcClient.invoke(IPC.FS_READ_FILE_BINARY, { path: filePath }).then((raw: unknown) => {
+      if (cancelled) return
+      const result = raw as { data?: string; error?: string }
+      if (result.error || !result.data) {
+        setError(result.error || 'Failed to read image file')
+        return
+      }
+      try {
+        const byteString = atob(result.data)
+        const bytes = new Uint8Array(byteString.length)
+        for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i)
+        const blob = new Blob([bytes], { type: getMimeType(filePath) })
+        objectUrl = URL.createObjectURL(blob)
+        if (!cancelled) setSrc(objectUrl)
+      } catch (err) {
+        if (!cancelled) setError(String(err))
+      }
+    })
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [filePath])
 
   const zoomIn = () => setScale((s) => Math.min(s + 0.25, 5))
   const zoomOut = () => setScale((s) => Math.max(s - 0.25, 0.25))
   const rotate = () => setRotation((r) => (r + 90) % 360)
   const resetView = () => { setScale(1); setRotation(0) }
+
+  if (error) {
+    return (
+      <div className="flex size-full items-center justify-center gap-2 text-sm text-destructive">
+        <ImageOff className="size-5" />
+        {error}
+      </div>
+    )
+  }
+
+  if (!src) {
+    return (
+      <div className="flex size-full items-center justify-center gap-2 text-sm text-muted-foreground">
+        Loading image...
+      </div>
+    )
+  }
 
   return (
     <div className="flex size-full flex-col">

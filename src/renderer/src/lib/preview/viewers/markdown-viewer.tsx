@@ -1,8 +1,9 @@
 import * as React from 'react'
-import { Check, ImageDown } from 'lucide-react'
+import { Check, ImageDown, Eye, Code2 } from 'lucide-react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import mermaid from 'mermaid'
+import { Button } from '@renderer/components/ui/button'
 import {
   applyMermaidTheme,
   copyMermaidToClipboard,
@@ -20,14 +21,15 @@ function MermaidBlock({ code }: { code: string }): React.JSX.Element {
   const [error, setError] = React.useState('')
   const [copied, setCopied] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
+  const [mode, setMode] = React.useState<'preview' | 'code'>('preview')
   const renderId = React.useId().replace(/:/g, '-')
   const themeVersion = useMermaidThemeVersion()
 
   const handleCopyImage = React.useCallback(async () => {
-    if (!svg.trim()) return
+    if (!code.trim()) return
     setBusy(true)
     try {
-      await copyMermaidToClipboard(svg)
+      await copyMermaidToClipboard(code, svg)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
@@ -35,7 +37,7 @@ function MermaidBlock({ code }: { code: string }): React.JSX.Element {
     } finally {
       setBusy(false)
     }
-  }, [svg])
+  }, [code, svg])
 
   React.useEffect(() => {
     let cancelled = false
@@ -73,18 +75,46 @@ function MermaidBlock({ code }: { code: string }): React.JSX.Element {
         <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
           mermaid
         </span>
-        <button
-          onClick={() => void handleCopyImage()}
-          disabled={busy || !svg.trim()}
-          title="复制 Mermaid 图到剪贴板"
-          className="flex items-center rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted-foreground/10 transition-colors disabled:opacity-50"
-        >
-          {copied ? <Check className="size-3" /> : <ImageDown className="size-3" />}
-          <span>{copied ? '已复制' : '下载'}</span>
-        </button>
+        <div className="flex items-center gap-1.5">
+          <div className="flex items-center rounded-md border p-0.5">
+            <Button
+              variant={mode === 'preview' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-5 gap-1 px-2 text-[10px]"
+              onClick={() => setMode('preview')}
+            >
+              <Eye className="size-3" /> 预览
+            </Button>
+            <Button
+              variant={mode === 'code' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-5 gap-1 px-2 text-[10px]"
+              onClick={() => setMode('code')}
+            >
+              <Code2 className="size-3" /> 代码
+            </Button>
+          </div>
+          {mode === 'preview' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 gap-1 px-2 text-[10px]"
+              onClick={() => void handleCopyImage()}
+              disabled={busy || !svg.trim()}
+              title="复制 Mermaid 图到剪贴板"
+            >
+              {copied ? <Check className="size-3" /> : <ImageDown className="size-3" />}
+              <span>{copied ? '已复制' : '复制'}</span>
+            </Button>
+          )}
+        </div>
       </div>
       <div className="p-3">
-        {error ? (
+        {mode === 'code' ? (
+          <pre className="overflow-x-auto rounded-md bg-muted/60 p-3 text-xs">
+            <code>{code}</code>
+          </pre>
+        ) : error ? (
           <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
             <p className="text-xs font-medium text-destructive/90">Mermaid render failed</p>
             <p className="mt-1 text-xs text-destructive/70">{error}</p>

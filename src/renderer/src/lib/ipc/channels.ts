@@ -103,6 +103,20 @@ export const IPC = {
   // Notify
   NOTIFY_DESKTOP: 'notify:desktop',
   NOTIFY_SESSION: 'notify:session',
+
+  // Skills
+  SKILLS_LIST: 'skills:list',
+  SKILLS_LOAD: 'skills:load',
+  SKILLS_DELETE: 'skills:delete',
+  SKILLS_OPEN_FOLDER: 'skills:open-folder',
+  SKILLS_ADD_FROM_FOLDER: 'skills:add-from-folder',
+  SKILLS_READ: 'skills:read',
+  SKILLS_LIST_FILES: 'skills:list-files',
+  SKILLS_SAVE: 'skills:save',
+  SKILLS_SCAN: 'skills:scan',
+
+  // Clipboard
+  CLIPBOARD_WRITE_IMAGE: 'clipboard:write-image',
 } as const
 
 export type IPCChannel = (typeof IPC)[keyof typeof IPC]

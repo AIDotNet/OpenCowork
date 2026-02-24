@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, Menu, Tray } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu, Tray, clipboard, nativeImage } from 'electron'
 
 import { join } from 'path'
 import { mkdirSync } from 'fs'
@@ -410,6 +410,19 @@ if (gotSingleInstanceLock) {
   registerCronHandlers()
   loadPersistedJobs()
   registerNotifyHandlers()
+
+  // Clipboard: write PNG image from base64 data
+  ipcMain.handle('clipboard:write-image', (_event, args: { data: string }) => {
+    try {
+      const buffer = Buffer.from(args.data, 'base64')
+      const image = nativeImage.createFromBuffer(buffer)
+      if (image.isEmpty()) return { error: 'Failed to create image from data' }
+      clipboard.writeImage(image)
+      return { success: true }
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
 
   // Auto-start plugins with autoStart feature enabled
   void autoStartPlugins(pluginManager)

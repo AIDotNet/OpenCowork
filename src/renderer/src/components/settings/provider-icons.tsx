@@ -47,6 +47,8 @@ const iconMap: Record<string, React.ComponentType<{ size?: number }>> = {
   siliconflow: SiliconCloud,
   'gitee-ai': GiteeAI,
   xiaomi: XiaomiMiMo,
+  'bigmodel-coding': ChatGLM,
+  bigmodel: ChatGLM,
 }
 
 // --- Model-level icon map ---

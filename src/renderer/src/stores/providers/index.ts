@@ -15,6 +15,7 @@ import { baiduCodingPreset, baiduPreset } from './baidu'
 import { siliconflowPreset } from './siliconflow'
 import { giteeAiPreset } from './gitee-ai'
 import { xiaomiPreset } from './xiaomi'
+import { bigmodelCodingPreset, bigmodelPreset } from './bigmodel'
 import type { BuiltinProviderPreset } from './types'
 
 export const builtinProviderPresets: BuiltinProviderPreset[] = [
@@ -37,4 +38,6 @@ export const builtinProviderPresets: BuiltinProviderPreset[] = [
   siliconflowPreset,
   giteeAiPreset,
   xiaomiPreset,
+  bigmodelCodingPreset,
+  bigmodelPreset,
 ]

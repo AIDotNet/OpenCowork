@@ -72,7 +72,7 @@ function getProviderConfig(): ProviderConfig {
  *
  * This is async because it reads files via IPC from the main process.
  */
-export async function registerBuiltinSubAgents(): Promise<void> {
+export async function registerSubAgents(): Promise<void> {
   try {
     const agents = (await ipcClient.invoke('agents:list')) as AgentInfo[]
     if (Array.isArray(agents)) {

@@ -1,4 +1,4 @@
-import { MessageSquare, Settings } from 'lucide-react'
+import { MessageSquare, Settings, Wand2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { useUIStore, type NavItem } from '@renderer/stores/ui-store'
@@ -7,6 +7,7 @@ import packageJson from '../../../../../package.json'
 
 const navItems: { value: NavItem; icon: React.ReactNode; labelKey: string }[] = [
   { value: 'chat', icon: <MessageSquare className="size-5" />, labelKey: 'navRail.conversations' },
+  { value: 'skills', icon: <Wand2 className="size-5" />, labelKey: 'navRail.skills' },
 ]
 
 export function NavRail(): React.JSX.Element {
@@ -14,11 +15,20 @@ export function NavRail(): React.JSX.Element {
   const activeNavItem = useUIStore((s) => s.activeNavItem)
   const setActiveNavItem = useUIStore((s) => s.setActiveNavItem)
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen)
+  const skillsPageOpen = useUIStore((s) => s.skillsPageOpen)
 
   const handleNavClick = (item: NavItem): void => {
-    // Close settings page when navigating to a chat item
+    // Close settings/skills page when navigating to a chat item
     if (useUIStore.getState().settingsPageOpen) {
       useUIStore.getState().closeSettingsPage()
+    }
+    if (item === 'skills') {
+      useUIStore.getState().openSkillsPage()
+      return
+    }
+    // Close skills page when navigating away
+    if (useUIStore.getState().skillsPageOpen) {
+      useUIStore.getState().closeSkillsPage()
     }
     if (activeNavItem === item && leftSidebarOpen) {
       useUIStore.getState().setLeftSidebarOpen(false)
@@ -38,7 +48,8 @@ export function NavRail(): React.JSX.Element {
                 onClick={() => handleNavClick(item.value)}
                 className={cn(
                   'flex size-9 items-center justify-center rounded-lg transition-all duration-200',
-                  activeNavItem === item.value && leftSidebarOpen
+                  (item.value === 'skills' && skillsPageOpen) ||
+                  (item.value !== 'skills' && activeNavItem === item.value && leftSidebarOpen)
                     ? 'bg-primary/10 text-primary shadow-sm'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}

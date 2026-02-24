@@ -29,7 +29,7 @@ export interface PluginPermissions {
   allowWriteOutside: boolean
   /** Allow executing shell commands */
   allowShell: boolean
-  /** Allow using sub-agent tools (Task/CodeSearch etc.) */
+  /** Allow using sub-agent tools (Task tool) */
   allowSubAgents: boolean
 }
 

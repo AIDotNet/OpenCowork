@@ -62,7 +62,7 @@ const cronAddHandler: ToolHandler = {
         },
         agentId: {
           type: 'string',
-          description: 'SubAgent to use (e.g. "CronAgent", "CodeReview"). Defaults to CronAgent.',
+          description: 'SubAgent to use. Defaults to CronAgent. Use any registered sub-agent name.',
         },
         model: {
           type: 'string',

@@ -16,6 +16,7 @@ import { MessageList } from '@renderer/components/chat/MessageList'
 import { InputArea } from '@renderer/components/chat/InputArea'
 import { SettingsDialog } from '@renderer/components/settings/SettingsDialog'
 import { SettingsPage } from '@renderer/components/settings/SettingsPage'
+import { SkillsPage } from '@renderer/components/skills/SkillsPage'
 import { KeyboardShortcutsDialog } from '@renderer/components/settings/KeyboardShortcutsDialog'
 import { PermissionDialog } from '@renderer/components/cowork/PermissionDialog'
 import { CommandPalette } from './CommandPalette'
@@ -117,6 +118,7 @@ export function Layout(): React.JSX.Element {
   const createSession = useChatStore((s) => s.createSession)
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const settingsPageOpen = useUIStore((s) => s.settingsPageOpen)
+  const skillsPageOpen = useUIStore((s) => s.skillsPageOpen)
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar)
 
   // Keyboard shortcuts
@@ -383,11 +385,51 @@ export function Layout(): React.JSX.Element {
     if (!node || !session) return
     setExporting(true)
 
+    // Inject temporary styles to force all content to fit within container width.
+    // html-to-image clones the DOM and may lose layout constraints, causing overflow.
+    const styleEl = document.createElement('style')
+    styleEl.setAttribute('data-export-image', '')
+    styleEl.textContent = `
+      [data-message-content] * {
+        max-width: 100% !important;
+        overflow-wrap: break-word !important;
+        word-break: break-word !important;
+      }
+      [data-message-content] pre,
+      [data-message-content] code {
+        white-space: pre-wrap !important;
+        word-break: break-all !important;
+      }
+      [data-message-content] table {
+        table-layout: fixed !important;
+        width: 100% !important;
+      }
+      [data-message-content] img,
+      [data-message-content] svg {
+        max-width: 100% !important;
+        height: auto !important;
+      }
+    `
+    document.head.appendChild(styleEl)
+
     try {
+      // Wait for reflow so the browser applies the injected styles
+      await new Promise<void>((r) => requestAnimationFrame(() => r()))
+
       const bgRaw = getComputedStyle(document.documentElement).getPropertyValue('--background').trim()
       const bgColor = bgRaw ? `hsl(${bgRaw})` : '#ffffff'
       const { toPng } = await import('html-to-image')
-      const dataUrl = await toPng(node, { backgroundColor: bgColor, pixelRatio: 2 })
+      const captureWidth = node.clientWidth
+      const dataUrl = await toPng(node, {
+        backgroundColor: bgColor,
+        pixelRatio: 2,
+        width: captureWidth,
+        style: {
+          overflow: 'hidden',
+          maxWidth: `${captureWidth}px`,
+          width: `${captureWidth}px`,
+        },
+      })
 
       const base64 = dataUrl.split(',')[1]
       const binary = atob(base64)
@@ -400,6 +442,7 @@ export function Layout(): React.JSX.Element {
       console.error('Export image failed:', err)
       toast.error(t('layout.exportImageFailed', { defaultValue: 'Export image failed' }), { description: String(err) })
     } finally {
+      document.head.removeChild(styleEl)
       setExporting(false)
     }
   }
@@ -425,7 +468,11 @@ export function Layout(): React.JSX.Element {
 
           {/* Main content area */}
           <AnimatePresence mode="wait">
-            {settingsPageOpen ? (
+            {skillsPageOpen ? (
+              <PageTransition key="skills-page" className="flex-1 min-w-0 bg-background overflow-hidden">
+                <SkillsPage />
+              </PageTransition>
+            ) : settingsPageOpen ? (
               <PageTransition key="settings-page" className="flex-1 min-w-0 bg-background overflow-hidden">
                 <SettingsPage />
               </PageTransition>

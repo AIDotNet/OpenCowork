@@ -2,7 +2,7 @@ import { registerTaskTools } from './todo-tool'
 import { registerFsTools } from './fs-tool'
 import { registerSearchTools } from './search-tool'
 import { registerBashTools } from './bash-tool'
-import { registerBuiltinSubAgents } from '../agent/sub-agents/builtin'
+import { registerSubAgents } from '../agent/sub-agents/builtin'
 import { registerTeamTools } from '../agent/teams/register'
 import { registerSkillTools } from './skill-tool'
 import { registerPreviewTools } from './preview-tool'
@@ -39,8 +39,8 @@ export async function registerAllTools(): Promise<void> {
   registerCronTools()
   registerNotifyTool()
 
-  // SubAgents (loaded from ~/.open-cowork/agents/*.md via IPC, then registered as unified Task tool)
-  await registerBuiltinSubAgents()
+  // SubAgents (dynamically loaded from ~/.open-cowork/agents/*.md via IPC, then registered as unified Task tool)
+  await registerSubAgents()
 
   // Agent Team tools
   registerTeamTools()

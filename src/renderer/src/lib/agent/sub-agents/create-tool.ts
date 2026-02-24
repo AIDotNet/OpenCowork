@@ -160,9 +160,8 @@ Available agent types (use the corresponding name as "subagent_type"):
 ${agentLines}
 
 When to use the Task tool:
-- If you are searching for a keyword or file and are not confident that you will find the right match in the first few tries, use Task with subagent_type "CodeSearch".
-- If you need a code review, use Task with subagent_type "CodeReview".
-- If you need to plan a complex multi-file change, use Task with subagent_type "Planner".
+- Use the Task tool with specialized sub-agents when the task at hand matches the sub-agent's description. Select the most appropriate subagent_type based on the descriptions above.
+- For broader codebase exploration and deep research, prefer the Task tool over doing many sequential Glob/Grep/Read calls yourself.
 - When working with a Team, use Task with run_in_background=true to spawn teammate agents.
 
 When NOT to use the Task tool:

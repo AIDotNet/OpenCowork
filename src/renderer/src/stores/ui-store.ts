@@ -4,7 +4,7 @@ import { create } from 'zustand'
 
 export type AppMode = 'chat' | 'cowork' | 'code'
 
-export type NavItem = 'chat' | 'plugins'
+export type NavItem = 'chat' | 'plugins' | 'skills'
 
 export type RightPanelTab = 'steps' | 'team' | 'artifacts' | 'context' | 'skills' | 'files' | 'plan' | 'cron'
 
@@ -83,6 +83,10 @@ interface UIStore {
   openSettingsPage: (tab?: SettingsTab) => void
   closeSettingsPage: () => void
   setSettingsTab: (tab: SettingsTab) => void
+
+  skillsPageOpen: boolean
+  openSkillsPage: () => void
+  closeSkillsPage: () => void
 
 
 
@@ -172,9 +176,13 @@ export const useUIStore = create<UIStore>((set) => ({
 
   settingsPageOpen: false,
   settingsTab: 'general',
-  openSettingsPage: (tab) => set({ settingsPageOpen: true, settingsTab: tab ?? 'general', leftSidebarOpen: false }),
+  openSettingsPage: (tab) => set({ settingsPageOpen: true, settingsTab: tab ?? 'general', leftSidebarOpen: false, skillsPageOpen: false }),
   closeSettingsPage: () => set({ settingsPageOpen: false }),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
+
+  skillsPageOpen: false,
+  openSkillsPage: () => set({ skillsPageOpen: true, settingsPageOpen: false, leftSidebarOpen: false }),
+  closeSkillsPage: () => set({ skillsPageOpen: false }),
 
 
 

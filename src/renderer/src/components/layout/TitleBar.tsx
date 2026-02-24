@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import {
   Settings,
   PanelRightOpen,
@@ -12,10 +12,16 @@ import {
   Square,
   HelpCircle,
   User,
+  Camera,
+  Check,
+  Pencil,
+  Globe,
 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
+import { HoverCard, HoverCardTrigger, HoverCardContent } from '@renderer/components/ui/hover-card'
+import { Input } from '@renderer/components/ui/input'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { cn } from '@renderer/lib/utils'
 import { useAgentStore } from '@renderer/stores/agent-store'
@@ -25,10 +31,9 @@ import { useChatStore } from '@renderer/stores/chat-store'
 import { useTheme } from 'next-themes'
 import { useTranslation } from 'react-i18next'
 import { WindowControls } from './WindowControls'
-import appIconUrl from '../../../../../resources/icon.png'
 
 export function TitleBar(): React.JSX.Element {
-  const { t } = useTranslation('layout')
+  const { t, i18n } = useTranslation('layout')
   const isMac = /Mac/.test(navigator.userAgent)
   const mode = useUIStore((s) => s.mode)
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen)
@@ -39,7 +44,11 @@ export function TitleBar(): React.JSX.Element {
   const { theme, setTheme } = useTheme()
 
   const userAvatar = useSettingsStore((s) => s.userAvatar)
+  const userName = useSettingsStore((s) => s.userName)
+  const language = useSettingsStore((s) => s.language)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [editName, setEditName] = useState(userName)
 
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const autoApprove = useSettingsStore((s) => s.autoApprove)
@@ -96,11 +105,10 @@ export function TitleBar(): React.JSX.Element {
         >
           OpenCowork
         </button>
-        <Tooltip>
-          <TooltipTrigger asChild>
+        <HoverCard>
+          <HoverCardTrigger asChild>
             <button
-              onClick={handleAvatarClick}
-              className="flex size-7 items-center justify-center overflow-hidden rounded-full bg-muted ring-1 ring-border/50 transition-all hover:ring-primary/50"
+              className="flex size-7 items-center justify-center overflow-hidden rounded-full bg-muted ring-1 ring-border/50 transition-all hover:ring-primary/50 hover:scale-105"
             >
               {userAvatar ? (
                 <img src={userAvatar} alt="avatar" className="size-full object-cover" />
@@ -108,9 +116,126 @@ export function TitleBar(): React.JSX.Element {
                 <User className="size-4 text-muted-foreground" />
               )}
             </button>
-          </TooltipTrigger>
-          <TooltipContent>{t('titleBar.changeAvatar')}</TooltipContent>
-        </Tooltip>
+          </HoverCardTrigger>
+          <HoverCardContent side="bottom" align="start" className="w-60 p-0 overflow-hidden">
+            {/* Header with gradient background */}
+            <div className="relative h-16 bg-gradient-to-br from-primary/20 via-primary/10 to-transparent" />
+
+            {/* Avatar overlapping header */}
+            <div className="px-4 -mt-8">
+              <button
+                onClick={handleAvatarClick}
+                className="group relative flex size-14 items-center justify-center overflow-hidden rounded-full bg-muted ring-2 ring-background shadow-md transition-all hover:ring-primary/50"
+              >
+                {userAvatar ? (
+                  <img src={userAvatar} alt="avatar" className="size-full object-cover" />
+                ) : (
+                  <User className="size-7 text-muted-foreground" />
+                )}
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                  <Camera className="size-4 text-white" />
+                </div>
+              </button>
+            </div>
+
+            {/* User info */}
+            <div className="px-4 pt-2 pb-3">
+              <div className="flex items-center gap-1.5">
+                {isEditingName ? (
+                  <div className="flex items-center gap-1 flex-1">
+                    <Input
+                      autoFocus
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          useSettingsStore.getState().updateSettings({ userName: editName.trim() })
+                          setIsEditingName(false)
+                        }
+                        if (e.key === 'Escape') {
+                          setEditName(userName)
+                          setIsEditingName(false)
+                        }
+                      }}
+                      onBlur={() => {
+                        useSettingsStore.getState().updateSettings({ userName: editName.trim() })
+                        setIsEditingName(false)
+                      }}
+                      className="h-6 px-1.5 text-sm"
+                      placeholder={t('titleBar.namePlaceholder')}
+                    />
+                    <button
+                      onClick={() => {
+                        useSettingsStore.getState().updateSettings({ userName: editName.trim() })
+                        setIsEditingName(false)
+                      }}
+                      className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-muted"
+                    >
+                      <Check className="size-3 text-primary" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setEditName(userName)
+                      setIsEditingName(true)
+                    }}
+                    className="group flex items-center gap-1 text-sm font-medium hover:text-primary transition-colors"
+                  >
+                    <span>{userName || t('titleBar.defaultName')}</span>
+                    <Pencil className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                  </button>
+                )}
+              </div>
+
+              {/* Open Source tag */}
+              <div className="mt-2">
+                <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20">
+                  {t('titleBar.openSourceEdition')}
+                </span>
+              </div>
+            </div>
+
+            {/* Menu items */}
+            <div className="border-t px-1 py-1">
+              <button
+                onClick={toggleTheme}
+                className="flex w-full items-center justify-between rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  {theme === 'dark' ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
+                  {t('titleBar.theme')}
+                </span>
+                <span className="text-[10px] text-muted-foreground/60">
+                  {theme === 'dark' ? t('titleBar.themeLight') : t('titleBar.themeDark')}
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  const next = language === 'zh' ? 'en' : 'zh'
+                  useSettingsStore.getState().updateSettings({ language: next })
+                  i18n.changeLanguage(next)
+                }}
+                className="flex w-full items-center justify-between rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Globe className="size-3.5" />
+                  {t('titleBar.language')}
+                </span>
+                <span className="text-[10px] text-muted-foreground/60">
+                  {language === 'zh' ? 'English' : '中文'}
+                </span>
+              </button>
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                <Settings className="size-3.5" />
+                {t('topbar.settings')}
+              </button>
+            </div>
+          </HoverCardContent>
+        </HoverCard>
         <input
           ref={fileInputRef}
           type="file"
@@ -265,16 +390,6 @@ export function TitleBar(): React.JSX.Element {
             </PopoverContent>
           </Popover>
         )}
-
-        {/* Theme Toggle */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="titlebar-no-drag size-7" onClick={toggleTheme}>
-              {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('topbar.toggleTheme')}</TooltipContent>
-        </Tooltip>
 
         {/* Keyboard Shortcuts */}
         <Tooltip>

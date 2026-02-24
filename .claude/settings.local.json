@@ -14,7 +14,11 @@
       "Bash(tail:*)",
       "Bash(npm run typecheck:web:*)",
       "Bash(npm run typecheck:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(python:*)",
+      "Bash(npx next build:*)",
+      "Bash(TOP_N=500 python:*)",
+      "Bash(TOP_N=10 python:*)"
     ]
   }
 }

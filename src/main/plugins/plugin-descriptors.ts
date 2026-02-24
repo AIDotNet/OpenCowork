@@ -53,6 +53,13 @@ export const PLUGIN_PROVIDERS: PluginProviderDescriptor[] = [
         type: 'secret',
         required: true,
       },
+      {
+        key: 'cardTemplateId',
+        label: 'plugin.dingtalk.cardTemplateId',
+        type: 'text',
+        required: false,
+        placeholder: 'AI streaming card template ID (optional)',
+      },
     ],
   },
   {

@@ -1,25 +1,34 @@
 ---
 title: 钉钉集成
-description: 配置钉钉机器人实现 AI 自动回复。
+description: 配置钉钉机器人实现 AI 自动回复，支持流式卡片和实时消息。
 ---
 
 # 钉钉集成 / DingTalk Integration
 
-OpenCowork 通过 WebSocket 连接钉钉开放平台，实现消息自动回复。
+OpenCowork 通过钉钉 Stream API 连接钉钉开放平台，实现消息自动回复。支持两种回复模式：
+- **流式卡片**：实时流式输出 AI 回复（需配置卡片模板）
+- **实时消息**：通过 sessionWebhook 直接回复消息
 
 ## 前置要求 / Prerequisites
 
 1. 在[钉钉开放平台](https://open.dingtalk.com/)创建企业内部应用
 2. 开启机器人能力
 3. 获取 AppKey 和 AppSecret
+4. 应用已开通以下权限：
+   - 机器人消息推送权限
+   - 互动卡片实例写权限（可选，仅流式卡片需要）
+   - AI卡片流式更新权限（可选，仅流式卡片需要）
 
 ## 配置步骤 / Setup
 
 ### 1. 创建钉钉应用
 
-1. 访问钉钉开放平台 → 应用开发
+1. 访问[钉钉开放平台](https://open.dingtalk.com/) → 应用开发
 2. 创建企业内部应用
 3. 在「消息推送」中开启机器人
+4. 配置 Stream 模式（推荐）或 Webhook 模式
+
+![钉钉应用创建](/images/dingtalk-create-app.png)
 
 ### 2. 配置机器人
 
@@ -27,24 +36,137 @@ OpenCowork 通过 WebSocket 连接钉钉开放平台，实现消息自动回复�
 
 - 设置机器人名称和头像
 - 开启「单聊」和/或「群聊」消息接收
+- 获取 AppKey 和 AppSecret
+
+![钉钉机器人配置](/images/dingtalk-robot-config.png)
 
 ### 3. 在 OpenCowork 中配置
 
 进入 **设置 → 插件 → 钉钉**，填入：
 
-| 配置项 | 说明 |
-|--------|------|
-| AppKey | 钉钉应用 AppKey |
-| AppSecret | 钉钉应用 AppSecret |
+| 配置项 | 说明 | 必填 |
+|--------|------|------|
+| AppKey | 钉钉应用 AppKey | ✅ |
+| AppSecret | 钉钉应用 AppSecret | ✅ |
+| cardTemplateId | AI 流式卡片模板 ID（可选，启用流式回复） | ❌ |
+
+![OpenCowork 钉钉插件配置](/images/opencowork-dingtalk-config.png)
 
 ### 4. 开启插件
 
 点击开关启用钉钉插件。
 
+## 回复模式 / Reply Modes
+
+### 实时消息回复（默认）
+
+无需额外配置，机器人会通过 `sessionWebhook` 直接回复消息。
+
+- ✅ 即时回复
+- ✅ 无需卡片模板
+- ❌ 无流式效果
+
+### 流式卡片回复（可选）
+
+启用流式卡片后，AI 回复会以打字机效果实时显示在钉钉卡片中。
+
+#### 创建卡片模板
+
+1. 访问[钉钉开发者后台 → 卡片平台](https://open-dev.dingtalk.com/fe/card)
+2. 创建新卡片模板
+3. 在模板中添加一个 **Markdown 类型**的变量，变量名设为 `content`
+4. 保存模板，复制模板 ID
+
+![钉钉卡片模板创建](/images/dingtalk-card-template.png)
+
+![钉钉卡片变量配置](/images/dingtalk-card-variable.png)
+
+#### 配置模板 ID
+
+在 OpenCowork 插件设置中，填入 `cardTemplateId` 字段。
+
+![流式卡片效果](/images/dingtalk-streaming-card.png)
+
+#### 效果
+
+- ✅ 流式输出，实时显示
+- ✅ 打字机效果
+- ⚠️ 需要创建卡片模板
+- ⚠️ 每次更新消耗 API 调用额度
+
 ## 消息类型支持 / Message Types
 
-| 类型 | 接收 | 发送 |
-|------|------|------|
-| 文本 | ✅ | ✅ |
-| Markdown | ❌ | ✅ |
-| 图片 | ✅ | ✅ |
+| 类型 | 接收 | 发送 | 流式卡片 |
+|------|------|------|---------|
+| 文本 | ✅ | ✅ | ✅ |
+| Markdown | ❌ | ✅ | ✅ |
+| 图片 | ✅ | ✅ | ❌ |
+
+## 常见问题 / FAQ
+
+### Q: 消息没有被接收到
+
+**A:** 检查以下几点：
+
+1. 确认应用已开通「机器人消息推送权限」
+2. 确认机器人已被添加到群聊或单聊
+3. 检查 AppKey 和 AppSecret 是否正确
+4. 查看应用日志是否有错误信息
+
+### Q: 回复消息没有出现在钉钉
+
+**A:**
+
+- 如果启用了流式卡片，确认 `cardTemplateId` 已正确配置
+- 如果使用实时消息回复，检查应用是否有「机器人消息推送权限」
+- 确认 sessionWebhook 未过期（通常有效期 1 小时）
+
+### Q: 流式卡片不显示
+
+**A:**
+
+1. 确认卡片模板已创建，且包含名为 `content` 的 Markdown 变量
+2. 确认应用已开通「互动卡片实例写权限」和「AI卡片流式更新权限」
+3. 检查 `cardTemplateId` 是否正确填入
+4. 查看应用日志中的卡片创建错误
+
+### Q: API 调用额度不足
+
+**A:** 流式卡片每次更新都会消耗一次 API 调用。如果频繁使用，可能会快速消耗额度。
+
+- 升级钉钉专业版或专属版以获得更多额度
+- 或使用实时消息回复模式（不消耗卡片 API 额度）
+
+## 技术细节 / Technical Details
+
+### Stream API 连接
+
+OpenCowork 使用官方 `dingtalk-stream` SDK 连接钉钉 Stream API：
+
+- 自动心跳保活
+- 自动重连
+- 支持多种事件类型
+
+### 消息流程
+
+```
+钉钉服务器
+  ↓ (Stream 推送)
+DingTalkService (processBotMessage)
+  ↓ (缓存 sessionWebhook)
+PluginManager
+  ↓ (触发)
+Agent Loop (auto-reply)
+  ↓ (生成回复)
+sendMessage / sendStreamingMessage
+  ↓ (sessionWebhook 或卡片 API)
+钉钉服务器
+  ↓ (投放到用户)
+用户
+```
+
+### 权限与安全
+
+- `forceApproval=true`：自动回复模式下，所有工具调用无需用户确认
+- 建议在插件配置中设置安全规则，限制可执行的工具
+- 敏感信息（如文件访问）应在插件权限中明确配置

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ChevronDown, Check } from 'lucide-react'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
+import { useChatStore } from '@renderer/stores/chat-store'
 import { useTranslation } from 'react-i18next'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { ProviderIcon, ModelIcon } from '@renderer/components/settings/provider-icons'
@@ -59,10 +60,16 @@ export function ModelSwitcher(): React.JSX.Element {
                           isActive && 'bg-muted/40 font-medium'
                         )}
                         onClick={() => {
-                          if (provider.id !== activeProviderId) {
-                            setActiveProvider(provider.id)
+                          const newProviderId = provider.id
+                          if (newProviderId !== activeProviderId) {
+                            setActiveProvider(newProviderId)
                           }
                           setActiveModel(m.id)
+                          // Bind model selection to the current session
+                          const sessionId = useChatStore.getState().activeSessionId
+                          if (sessionId) {
+                            useChatStore.getState().updateSessionModel(sessionId, newProviderId, m.id)
+                          }
                           setOpen(false)
                         }}
                       >

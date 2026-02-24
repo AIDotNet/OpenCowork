@@ -4,6 +4,52 @@ import * as path from 'path'
 import * as os from 'os'
 import { is } from '@electron-toolkit/utils'
 
+export interface MarketSkillInfo {
+  id: string
+  name: string
+  owner: string
+  repo: string
+  rank: number
+  installs: number
+  url: string
+  github: string
+}
+
+interface MarketSkillsData {
+  total: number
+  source: string
+  skills: MarketSkillInfo[]
+}
+
+let _marketSkillsCache: MarketSkillsData | null = null
+
+/**
+ * Resolve the path to the market skills JSON.
+ * In dev: docs/public/skills/skills.json
+ * In prod: resources/skills-market/skills.json (if bundled)
+ */
+function getMarketSkillsPath(): string {
+  if (is.dev) {
+    return path.join(app.getAppPath(), 'docs', 'public', 'skills', 'skills.json')
+  }
+  const unpackedDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'skills-market', 'skills.json')
+  if (fs.existsSync(unpackedDir)) return unpackedDir
+  return path.join(process.resourcesPath, 'resources', 'skills-market', 'skills.json')
+}
+
+function loadMarketSkills(): MarketSkillsData | null {
+  if (_marketSkillsCache) return _marketSkillsCache
+  try {
+    const filePath = getMarketSkillsPath()
+    if (!fs.existsSync(filePath)) return null
+    const raw = fs.readFileSync(filePath, 'utf-8')
+    _marketSkillsCache = JSON.parse(raw) as MarketSkillsData
+    return _marketSkillsCache
+  } catch {
+    return null
+  }
+}
+
 const SKILLS_DIR = path.join(os.homedir(), '.open-cowork', 'skills')
 const SKILLS_FILENAME = 'SKILL.md'
 
@@ -415,6 +461,32 @@ export function registerSkillsHandlers(): void {
       return { name: skillName, description, files, risks, skillMdContent, scriptContents }
     } catch (err) {
       return { error: String(err) }
+    }
+  })
+
+  /**
+   * skills:market-list — return paginated market skills with optional search.
+   */
+  ipcMain.handle('skills:market-list', async (_event, args: { offset?: number; limit?: number; query?: string }): Promise<{
+    total: number
+    skills: MarketSkillInfo[]
+  }> => {
+    const data = loadMarketSkills()
+    if (!data) return { total: 0, skills: [] }
+
+    let results = data.skills
+    if (args.query && args.query.trim()) {
+      const q = args.query.toLowerCase()
+      results = results.filter(
+        (s) => s.name.toLowerCase().includes(q) || s.owner.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)
+      )
+    }
+
+    const offset = args.offset ?? 0
+    const limit = args.limit ?? 50
+    return {
+      total: results.length,
+      skills: results.slice(offset, offset + limit),
     }
   })
 }

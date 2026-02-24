@@ -1,57 +1,236 @@
 ---
 title: 飞书集成
-description: 配置飞书机器人实现 AI 自动回复。
+description: 配置飞书机器人实现 AI 自动回复，支持流式卡片和实时打字效果。
 ---
 
 # 飞书集成 / Feishu Integration
 
-OpenCowork 通过官方 Lark SDK 集成飞书，支持单聊和群聊自动回复。
+OpenCowork 通过官方 Lark SDK 集成飞书，实现真正的流式响应体验。AI 的回答会像真人一样在飞书卡片中**逐字逐句地"打字"**，而不是一次性显示完整答案。
+
+## 核心创新：流式响应体验
+
+![飞书流式回复效果](/images/feishu-streaming-demo.jpg)
+
+工作流程：
+1. 你在飞书群聊或私聊中 @机器人 提问
+2. OpenCowork 立即接收消息，启动 Agent Loop
+3. AI 的回答**实时流式更新**到飞书卡片中（就像打字一样）
+4. 用户看到的是逐步出现的答案，而不是漫长的等待
 
 ## 前置要求 / Prerequisites
 
 1. 在[飞书开放平台](https://open.feishu.cn/)创建企业自建应用
 2. 开启机器人能力
 3. 配置消息事件订阅
+4. 应用已开通以下权限：
+   - `im:message` — 获取与发送消息
+   - `im:message.group_at_msg` — 接收群组 @ 消息
+   - `cardkit:card:write` — 创建和更新卡片
 
 ## 配置步骤 / Setup
 
 ### 1. 创建飞书应用
 
-1. 访问飞书开放平台 → 开发者后台
-2. 创建企业自建应用
+1. 访问[飞书开放平台](https://open.feishu.cn/app?lang=zh-CN) → 开发者后台
+2. 创建企业自建应用，输入应用名称（如 "OpenCowork"）和描述
 3. 在「添加应用能力」中开启**机器人**
 
-### 2. 获取凭证
+![创建飞书应用](/images/feishu-create-app.png)
 
-在应用的「凭证与基础信息」页面获取：
+### 2. 配置权限
+
+在「权限管理」中，点击「批量导入」，填入以下权限配置：
+
+```json
+{
+  "scopes": {
+    "tenant": [
+      "aily:file:read",
+      "aily:file:write",
+      "application:application.app_message_stats.overview:readonly",
+      "application:application:self_manage",
+      "application:bot.menu:write",
+      "contact:user.employee_id:readonly",
+      "corehr:file:download",
+      "event:ip_list",
+      "im:chat.access_event.bot_p2p_chat:read",
+      "im:chat.members:bot_access",
+      "im:message",
+      "im:message.group_at_msg:readonly",
+      "im:message.p2p_msg:readonly",
+      "im:message:readonly",
+      "im:message:send_as_bot",
+      "im:resource",
+      "cardkit:card:write"
+    ],
+    "user": ["aily:file:read", "aily:file:write", "im:chat.access_event.bot_p2p_chat:read"]
+  }
+}
+```
+
+![权限配置](/images/feishu-permissions.png)
+
+### 3. 获取凭证
+
+在应用的「凭证与基础信息」页面获取并复制：
 
 - `App ID`
 - `App Secret`
 
-### 3. 配置事件订阅
+![获取凭证](/images/feishu-credentials.png)
 
-在「事件订阅」页面：
+### 4. 创建版本并发布
 
-1. 设置请求网址（OpenCowork 会提供本地 webhook 地址）
-2. 添加事件：`im.message.receive_v1`（接收消息）
+1. 创建应用版本
+2. 发布版本
+3. 自己通过审核
 
-### 4. 在 OpenCowork 中配置
+### 5. 在 OpenCowork 中配置
 
-进入 **设置 → 插件 → 飞书**，填入：
+打开 OpenCowork 应用，进入 **设置 → 插件 → 飞书**，填入：
 
 | 配置项 | 说明 |
 |--------|------|
 | App ID | 飞书应用 ID |
 | App Secret | 飞书应用密钥 |
-| Verification Token | 事件验证 Token |
 
-### 5. 开启插件
+![OpenCowork 飞书插件配置](/images/opencowork-feishu-config.png)
 
-点击开关启用飞书插件，机器人开始监听消息。
+### 6. 配置事件订阅
 
-## 权限配置 / Permissions
+回到飞书开放平台，在「事件与回调」中：
 
-需要在飞书开放平台申请以下权限：
+1. 修改事件订阅配置，使用**长连接**模式
+2. 点击「添加事件」，搜索 `im.message.receive_v1`
+3. 确认添加
+4. **重新发布版本**
 
-- `im:message` — 获取与发送消息
-- `im:message.group_at_msg` — 接收群组 @ 消息
+![事件订阅配置](/images/feishu-event-subscription.png)
+
+### 7. 启动插件
+
+在 OpenCowork 中，点击飞书插件的启动按钮，机器人开始监听消息。
+
+![启动飞书插件](/images/opencowork-feishu-start.png)
+
+### 8. 测试
+
+1. 创建一个飞书群聊
+2. 将创建的机器人添加到群聊
+3. @机器人 提问，查看流式回复效果
+
+![测试效果](/images/feishu-test-demo.png)
+
+## 功能特性 / Features
+
+### 不只是聊天，而是真正的 Agent
+
+OpenCowork 不是简单的消息转发工具，它是一个**完整的 AI Agent 工作台**。
+
+**内置工具链：**
+- 📁 **文件系统**：读写编辑代码和文档
+- 🔍 **代码搜索**：Glob/Grep 快速定位
+- 💻 **Shell 执行**：运行命令和脚本
+- 🤖 **子 Agent**：code-search、code-review、planner 等专业助手
+- 📋 **任务管理**：Plan 模式、Todo 系统、定时任务
+
+**在飞书里，你可以让 AI：**
+- "帮我搜索项目里所有 TODO 注释"
+- "分析这个 bug 的根本原因"
+- "生成一份周报"
+- "定时每天早上 9 点提醒我"
+
+所有这些都在飞书里完成，无需切换应用。
+
+### 消息类型支持
+
+| 类型 | 接收 | 发送 | 流式卡片 |
+|------|------|------|---------|
+| 文本 | ✅ | ✅ | ✅ |
+| Markdown | ❌ | ✅ | ✅ |
+| 图片 | ✅ | ✅ | ❌ |
+| 卡片 | ✅ | ✅ | ✅ |
+
+## 常见问题 / FAQ
+
+### Q: 消息没有被接收到
+
+**A:** 检查以下几点：
+
+1. 确认应用已开通所有必需权限
+2. 确认机器人已被添加到群聊或单聊
+3. 确认 App ID 和 App Secret 正确
+4. 检查事件订阅是否配置为长连接模式
+5. 查看应用日志是否有错误信息
+
+### Q: 流式卡片不显示
+
+**A:**
+
+1. 确认应用已开通 `cardkit:card:write` 权限
+2. 确认飞书版本支持卡片功能（最新版本推荐）
+3. 检查 OpenCowork 日志中的卡片创建错误
+4. 尝试重新启动插件
+
+### Q: 回复消息没有出现在飞书
+
+**A:**
+
+1. 确认应用已开通 `im:message:send_as_bot` 权限
+2. 确认机器人有权限在该群聊中发送消息
+3. 检查 OpenCowork 日志中的发送错误
+4. 尝试在不同的群聊中测试
+
+### Q: 如何限制机器人的权限？
+
+**A:** 在 OpenCowork 的插件配置中，可以设置：
+
+- **允许的工具**：限制机器人可以使用的工具（如禁用 Shell 执行）
+- **工作目录**：限制文件系统访问范围
+- **自动回复规则**：设置特定关键词才触发回复
+
+### Q: 支持多个飞书应用吗？
+
+**A:** 支持。你可以创建多个飞书应用，在 OpenCowork 中分别配置，每个应用有独立的会话和权限隔离。
+
+## 技术细节 / Technical Details
+
+### 架构
+
+```
+飞书服务器
+  ↓ (长连接推送)
+OpenCowork (Lark SDK)
+  ↓ (事件处理)
+PluginManager
+  ↓ (触发)
+Agent Loop (auto-reply)
+  ↓ (生成回复)
+CardKit API (流式更新)
+  ↓ (投放到用户)
+飞书客户端
+```
+
+### 流式卡片工作原理
+
+1. **创建卡片**：`POST /open-apis/cardkit/v1/cards`
+2. **流式更新**：`PUT /open-apis/cardkit/v1/cards/{cardId}` (sequence 递增)
+3. **最终化**：发送最后一次更新，标记为完成
+
+每次更新都会在客户端实时显示，形成打字机效果。
+
+### 权限与安全
+
+- `forceApproval=true`：自动回复模式下，所有工具调用无需用户确认
+- 建议在插件配置中设置安全规则，限制可执行的工具
+- 敏感信息（如文件访问）应在插件权限中明确配置
+
+## 多 AI 模型支持
+
+OpenCowork 支持多个 AI 模型提供商：
+
+- **Claude**（Anthropic）— 推荐用于深度思考
+- **GPT-4**（OpenAI）— 通用高性能
+- **自定义 API 代理** — 支持兼容 OpenAI 的任何 API
+
+支持深度思考模式（Thinking），让 AI 在回复前先"想一想"。

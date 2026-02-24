@@ -36,6 +36,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "dingtalk-stream": "^2.1.4",
     "electron-updater": "^6.3.9",
     "glob": "^13.0.1",
     "gpt-tokenizer": "^3.4.0",

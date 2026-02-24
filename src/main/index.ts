@@ -34,7 +34,6 @@ import { setupAutoUpdater } from './updater'
 
 import { createFeishuService } from './plugins/providers/feishu/feishu-service'
 import { createDingTalkService } from './plugins/providers/dingtalk/dingtalk-service'
-import { parseDingTalkWsMessage } from './plugins/providers/dingtalk/parse-ws-message'
 import { createTelegramService } from './plugins/providers/telegram/telegram-service'
 import { parseTelegramWsMessage } from './plugins/providers/telegram/parse-ws-message'
 import { createDiscordService } from './plugins/providers/discord/discord-service'
@@ -50,7 +49,7 @@ setPluginManager(pluginManager)
 pluginManager.registerFactory('feishu-bot', createFeishuService)
 // Feishu uses official SDK WSClient — no generic parser needed
 pluginManager.registerFactory('dingtalk-bot', createDingTalkService)
-pluginManager.registerParser('dingtalk-bot', parseDingTalkWsMessage)
+// DingTalk uses built-in Stream protocol handling — no generic parser needed
 pluginManager.registerFactory('telegram-bot', createTelegramService)
 pluginManager.registerParser('telegram-bot', parseTelegramWsMessage)
 pluginManager.registerFactory('discord-bot', createDiscordService)

@@ -183,4 +183,76 @@ export class DingTalkApi {
     console.warn('[DingTalkApi] getMessages: historical message retrieval requires Stream API (not yet implemented)')
     return []
   }
+
+  // ── Card API — Streaming Card Support ──
+
+  /**
+   * Create and deliver a card to a chat.
+   * Returns the outTrackId used for subsequent streaming updates.
+   */
+  async createAndDeliverCard(opts: {
+    cardTemplateId: string
+    outTrackId: string
+    openSpaceId: string
+    spaceType: 'IM_GROUP' | 'IM_ROBOT'
+    initialContent: string
+    key: string
+  }): Promise<{ outTrackId: string }> {
+    const headers = await this.authHeaders()
+
+    const deliverModel = opts.spaceType === 'IM_GROUP'
+      ? { imGroupOpenDeliverModel: { robotCode: this.appKey }, imGroupOpenSpaceModel: { supportForward: true } }
+      : { imRobotOpenDeliverModel: { spaceType: 'IM_ROBOT' }, imRobotOpenSpaceModel: { supportForward: false } }
+
+    const body = JSON.stringify({
+      cardTemplateId: opts.cardTemplateId,
+      outTrackId: opts.outTrackId,
+      openSpaceId: opts.openSpaceId,
+      callbackType: 'STREAM',
+      cardData: {
+        cardParamMap: { [opts.key]: opts.initialContent },
+      },
+      ...deliverModel,
+    })
+
+    const res = await request('POST', '/v1.0/card/instances/createAndDeliver', headers, body)
+    const data = JSON.parse(res.body)
+    if (data.success === false || data.errcode) {
+      throw new Error(`DingTalk createAndDeliverCard failed: ${data.errmsg ?? data.message ?? JSON.stringify(data)}`)
+    }
+    return { outTrackId: opts.outTrackId }
+  }
+
+  /**
+   * Stream update a card's AI content.
+   * For markdown content, isFull must be true.
+   */
+  async streamingUpdate(opts: {
+    outTrackId: string
+    guid: string
+    key: string
+    content: string
+    isFull: boolean
+    isFinalize: boolean
+    isError?: boolean
+  }): Promise<boolean> {
+    const headers = await this.authHeaders()
+    const body = JSON.stringify({
+      outTrackId: opts.outTrackId,
+      guid: opts.guid,
+      key: opts.key,
+      content: opts.content,
+      isFull: opts.isFull,
+      isFinalize: opts.isFinalize,
+      isError: opts.isError ?? false,
+    })
+
+    const res = await request('PUT', '/v1.0/card/streaming', headers, body)
+    const data = JSON.parse(res.body)
+    if (data.success === false) {
+      console.warn(`[DingTalkApi] streamingUpdate failed: ${JSON.stringify(data)}`)
+      return false
+    }
+    return true
+  }
 }

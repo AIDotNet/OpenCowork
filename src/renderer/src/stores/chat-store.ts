@@ -15,6 +15,7 @@ import { useTeamStore } from './team-store'
 import { useTaskStore } from './task-store'
 import { usePlanStore } from './plan-store'
 import { useUIStore } from './ui-store'
+import { useProviderStore } from './provider-store'
 
 export type SessionMode = 'chat' | 'cowork' | 'code'
 
@@ -144,6 +145,7 @@ interface ChatStore {
   updateSessionIcon: (id: string, icon: string) => void
   updateSessionMode: (id: string, mode: SessionMode) => void
   setWorkingFolder: (sessionId: string, folder: string) => void
+  updateSessionModel: (sessionId: string, providerId: string, modelId: string) => void
   clearSessionMessages: (sessionId: string) => void
   duplicateSession: (sessionId: string) => Promise<string | null>
   togglePinSession: (sessionId: string) => void
@@ -354,6 +356,17 @@ export const useChatStore = create<ChatStore>()(
           state.activeSessionId = nextActiveSessionId
         })
         if (nextActiveSessionId) {
+          // Restore per-session model selection to global provider store
+          const activeSession = sessions.find((s) => s.id === nextActiveSessionId)
+          if (activeSession?.providerId && activeSession?.modelId) {
+            const providerStore = useProviderStore.getState()
+            if (activeSession.providerId !== providerStore.activeProviderId) {
+              providerStore.setActiveProvider(activeSession.providerId)
+            }
+            if (activeSession.modelId !== providerStore.activeModelId) {
+              providerStore.setActiveModel(activeSession.modelId)
+            }
+          }
           await get().loadSessionMessages(nextActiveSessionId)
           await useTaskStore.getState().loadTasksForSession(nextActiveSessionId)
           const activePlan = usePlanStore.getState().getPlanBySession(nextActiveSessionId)
@@ -371,6 +384,7 @@ export const useChatStore = create<ChatStore>()(
     createSession: (mode) => {
       const id = nanoid()
       const now = Date.now()
+      const { activeProviderId, activeModelId } = useProviderStore.getState()
       const newSession: Session = {
         id,
         title: 'New Conversation',
@@ -380,6 +394,8 @@ export const useChatStore = create<ChatStore>()(
         messagesLoaded: true,
         createdAt: now,
         updatedAt: now,
+        providerId: activeProviderId ?? undefined,
+        modelId: activeModelId || undefined,
       }
       set((state) => {
         state.sessions.push(newSession)
@@ -442,6 +458,19 @@ export const useChatStore = create<ChatStore>()(
       }
       // Switch per-session tool calls in agent-store
       useAgentStore.getState().switchToolCallSession(prevId, id)
+      // Restore per-session model selection to global provider store
+      if (id) {
+        const session = get().sessions.find((s) => s.id === id)
+        if (session?.providerId && session?.modelId) {
+          const providerStore = useProviderStore.getState()
+          if (session.providerId !== providerStore.activeProviderId) {
+            providerStore.setActiveProvider(session.providerId)
+          }
+          if (session.modelId !== providerStore.activeModelId) {
+            providerStore.setActiveModel(session.modelId)
+          }
+        }
+      }
       // Load tasks for the new session
       if (id) {
         void useTaskStore.getState().loadTasksForSession(id)
@@ -496,6 +525,19 @@ export const useChatStore = create<ChatStore>()(
         if (session) session.workingFolder = folder
       })
       dbUpdateSession(sessionId, { workingFolder: folder })
+    },
+
+    updateSessionModel: (sessionId, providerId, modelId) => {
+      const now = Date.now()
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (session) {
+          session.providerId = providerId
+          session.modelId = modelId
+          session.updatedAt = now
+        }
+      })
+      dbUpdateSession(sessionId, { providerId, modelId, updatedAt: now })
     },
 
     togglePinSession: (sessionId) => {
@@ -591,6 +633,8 @@ export const useChatStore = create<ChatStore>()(
         createdAt: now,
         updatedAt: now,
         workingFolder: source.workingFolder,
+        providerId: source.providerId,
+        modelId: source.modelId,
       }
       set((state) => {
         state.sessions.push(newSession)

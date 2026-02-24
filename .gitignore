@@ -4,3 +4,4 @@ out
 .DS_Store
 .eslintcache
 *.log*
+/docs/public/skills

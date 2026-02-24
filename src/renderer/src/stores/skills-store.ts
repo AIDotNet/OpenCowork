@@ -31,6 +31,17 @@ export interface ScanResult {
 
 export type SkillsTab = 'market' | 'installed'
 
+export interface MarketSkillInfo {
+  id: string
+  name: string
+  owner: string
+  repo: string
+  rank: number
+  installs: number
+  url: string
+  github: string
+}
+
 interface SkillsStore {
   skills: SkillInfo[]
   loading: boolean
@@ -39,6 +50,13 @@ interface SkillsStore {
   skillFiles: ScanFileInfo[]
   searchQuery: string
   activeTab: SkillsTab
+
+  // Market state
+  marketSkills: MarketSkillInfo[]
+  marketTotal: number
+  marketLoading: boolean
+  marketQuery: string
+  marketOffset: number
 
   // Editing state
   editing: boolean
@@ -62,6 +80,11 @@ interface SkillsStore {
   openSkillFolder: (name: string) => Promise<void>
   addSkillFromFolder: (sourcePath: string) => Promise<{ success: boolean; name?: string; error?: string }>
 
+  // Market actions
+  loadMarketSkills: (query?: string, reset?: boolean) => Promise<void>
+  loadMoreMarketSkills: () => Promise<void>
+  setMarketQuery: (query: string) => void
+
   // Edit actions
   setEditing: (editing: boolean) => void
   setEditContent: (content: string | null) => void
@@ -82,6 +105,13 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
   skillFiles: [],
   searchQuery: '',
   activeTab: 'market',
+
+  // Market state
+  marketSkills: [],
+  marketTotal: 0,
+  marketLoading: false,
+  marketQuery: '',
+  marketOffset: 0,
 
   editing: false,
   editContent: null,
@@ -174,6 +204,39 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
     } catch (err) {
       return { success: false, error: String(err) }
     }
+  },
+
+  // Market actions
+  loadMarketSkills: async (query, reset) => {
+    const q = query ?? get().marketQuery
+    const offset = reset ? 0 : get().marketOffset
+    set({ marketLoading: true, marketQuery: q })
+    try {
+      const result = (await ipcClient.invoke('skills:market-list', { offset, limit: 50, query: q })) as {
+        total: number
+        skills: MarketSkillInfo[]
+      }
+      set({
+        marketSkills: reset || offset === 0 ? result.skills : [...get().marketSkills, ...result.skills],
+        marketTotal: result.total,
+        marketOffset: (reset ? 0 : offset) + result.skills.length,
+      })
+    } catch {
+      if (reset || offset === 0) set({ marketSkills: [], marketTotal: 0 })
+    } finally {
+      set({ marketLoading: false })
+    }
+  },
+
+  loadMoreMarketSkills: async () => {
+    const state = get()
+    if (state.marketLoading || state.marketSkills.length >= state.marketTotal) return
+    await state.loadMarketSkills(state.marketQuery, false)
+  },
+
+  setMarketQuery: (query) => {
+    set({ marketQuery: query, marketOffset: 0 })
+    get().loadMarketSkills(query, true)
   },
 
   // Edit actions

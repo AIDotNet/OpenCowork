@@ -682,6 +682,20 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     }
   }
 
+  // Non-streaming fallback: send the final text via plugin sendMessage
+  if (!streamingActive && fullText.trim()) {
+    try {
+      await ipcClient.invoke('plugin:exec', {
+        pluginId,
+        action: 'sendMessage',
+        params: { chatId, content: fullText },
+      })
+      console.log(`[PluginAutoReply] Sent non-streaming reply for ${pluginId}:${chatId}`)
+    } catch (err) {
+      console.error('[PluginAutoReply] Failed to send non-streaming reply:', err)
+    }
+  }
+
   console.log(`[PluginAutoReply] Completed for session=${sessionId}, ${fullText.length} chars`)
 }
 

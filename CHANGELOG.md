@@ -3,6 +3,24 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.4] - 2026-02-25
+
+### Added
+- **Skills Marketplace** — new skills discovery and installation platform with GitHub-based skill registry, search functionality, and one-click installation. Features pagination, filtering by owner, and direct download from GitHub repositories with multiple path fallback strategies.
+- **Skill installation dialog** — dedicated UI component for browsing and installing community skills with preview and metadata display.
+- **DingTalk streaming cards** — enhanced DingTalk integration with rich card templates, streaming response support, and comprehensive setup documentation with visual guides.
+- **Enhanced plugin documentation** — detailed setup guides for Feishu and DingTalk with step-by-step instructions, screenshots, and configuration examples.
+
+### Changed
+- **License migration** — switched from MIT License to Apache License 2.0 across the entire project, including the LICENSE file, README badges, documentation homepage, and all related references to provide more comprehensive patent protection and clearer contribution terms.
+- **Skills store overhaul** — expanded skills management with GitHub integration, improved state management, and better error handling for skill downloads.
+- **UI layout refinements** — minor adjustments to layout components and navigation for better user experience.
+- **Mermaid theme improvements** — enhanced diagram rendering with better theme support and visual consistency.
+
+### Fixed
+- **Plugin auto-reply stability** — improved message handling and state synchronization for plugin-based auto-reply workflows.
+- **Image and markdown preview** — enhanced preview viewers with better rendering and interaction capabilities.
+
 ## [0.2.3] - 2026-02-24
 
 ### Added

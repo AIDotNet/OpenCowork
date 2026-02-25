@@ -4,7 +4,10 @@ import { join } from 'path'
 import { mkdirSync } from 'fs'
 import { homedir } from 'os'
 
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+// Delay import of @electron-toolkit/utils to avoid accessing app before ready
+let electronApp: any
+let optimizer: any
+let is: any
 
 import icon from '../../resources/icon.png?asset'
 
@@ -355,6 +358,11 @@ if (gotSingleInstanceLock) {
   })
 
   app.whenReady().then(() => {
+  // Import @electron-toolkit/utils after app is ready
+  const utils = require('@electron-toolkit/utils')
+  electronApp = utils.electronApp
+  optimizer = utils.optimizer
+  is = utils.is
 
   recordCrash('app_started', {
     userDataPath: app.getPath('userData'),

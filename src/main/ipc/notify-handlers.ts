@@ -42,7 +42,7 @@ export function showSystemNotification(title: string, body: string): void {
       console.log('[Notify] Notification shown successfully')
     })
 
-    notification.on('failed', (event, error) => {
+    notification.on('failed', (_, error) => {
       console.error('[Notify] Notification failed:', error)
     })
 

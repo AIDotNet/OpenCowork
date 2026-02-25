@@ -104,6 +104,10 @@ export const IPC = {
   NOTIFY_DESKTOP: 'notify:desktop',
   NOTIFY_SESSION: 'notify:session',
 
+  // App Updates
+  UPDATE_AVAILABLE: 'update:available',
+  UPDATE_DOWNLOAD: 'update:download',
+
   // Skills
   SKILLS_LIST: 'skills:list',
   SKILLS_LOAD: 'skills:load',

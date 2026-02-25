@@ -122,46 +122,149 @@ export function registerFsHandlers(): void {
     try {
       const searchDir = args.path || process.cwd()
       const results: { file: string; line: number; text: string }[] = []
-      const regex = new RegExp(args.pattern)
+      const MAX_RESULTS = 100
+      const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+      const TIMEOUT_MS = 30000 // 30 seconds
+      const startTime = Date.now()
 
-      const searchFile = (filePath: string): void => {
+      // Comprehensive ignore list (similar to ripgrep defaults)
+      const IGNORE_DIRS = new Set([
+        'node_modules', '.git', '.svn', '.hg', '.bzr',
+        'dist', 'build', 'out', '.next', '.nuxt', '.output',
+        'coverage', '.nyc_output', '.cache', '.parcel-cache',
+        'vendor', 'target', 'bin', 'obj', '.gradle',
+        '__pycache__', '.pytest_cache', '.mypy_cache',
+        '.venv', 'venv', 'env',
+      ])
+
+      // Binary file extensions to skip
+      const BINARY_EXTENSIONS = new Set([
+        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico',
+        '.mp4', '.avi', '.mov', '.mkv', '.mp3', '.wav', '.flac',
+        '.zip', '.tar', '.gz', '.rar', '.7z', '.exe', '.dll', '.so', '.dylib',
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+        '.woff', '.woff2', '.ttf', '.eot', '.otf',
+        '.db', '.sqlite', '.sqlite3',
+      ])
+
+      let regex: RegExp
+      try {
+        regex = new RegExp(args.pattern, 'i')
+      } catch (err) {
+        return { error: `Invalid regex pattern: ${err}` }
+      }
+
+      // Check if file is likely binary by reading first few bytes
+      const isBinaryFile = (filePath: string): boolean => {
         try {
-          const content = fs.readFileSync(filePath, 'utf-8')
-          const lines = content.split('\n')
-          lines.forEach((line, i) => {
-            if (regex.test(line)) {
-              results.push({ file: filePath, line: i + 1, text: line.trim() })
-            }
-          })
+          const ext = path.extname(filePath).toLowerCase()
+          if (BINARY_EXTENSIONS.has(ext)) return true
+
+          const buffer = Buffer.alloc(512)
+          const fd = fs.openSync(filePath, 'r')
+          const bytesRead = fs.readSync(fd, buffer, 0, 512, 0)
+          fs.closeSync(fd)
+
+          // Check for null bytes (common in binary files)
+          for (let i = 0; i < bytesRead; i++) {
+            if (buffer[i] === 0) return true
+          }
+          return false
         } catch {
-          // Skip unreadable files
+          return true // Assume binary if can't read
         }
       }
 
-      const walkDir = (dir: string): void => {
+      const searchFile = async (filePath: string): Promise<boolean> => {
         try {
-          const entries = fs.readdirSync(dir, { withFileTypes: true })
-          for (const entry of entries) {
-            const fullPath = path.join(dir, entry.name)
-            if (entry.isDirectory()) {
-              if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
-                walkDir(fullPath)
-              }
-            } else if (entry.isFile()) {
-              if (args.include) {
-                const ext = path.extname(entry.name)
-                if (!args.include.includes(ext) && !args.include.includes(`*${ext}`)) continue
-              }
-              searchFile(fullPath)
+          // Check timeout
+          if (Date.now() - startTime > TIMEOUT_MS) {
+            return true // Signal to stop
+          }
+
+          // Check file size
+          const stats = await fs.promises.stat(filePath)
+          if (stats.size > MAX_FILE_SIZE) return false
+          if (stats.size === 0) return false
+
+          // Skip binary files
+          if (isBinaryFile(filePath)) return false
+
+          // Read file asynchronously
+          const content = await fs.promises.readFile(filePath, 'utf-8')
+          const lines = content.split('\n')
+
+          for (let i = 0; i < lines.length; i++) {
+            if (results.length >= MAX_RESULTS) return true // Stop early
+
+            const line = lines[i]
+            if (regex.test(line)) {
+              results.push({
+                file: path.relative(searchDir, filePath),
+                line: i + 1,
+                text: line.trim().slice(0, 200), // Limit line length
+              })
             }
           }
+          return false
         } catch {
-          // Skip unreadable dirs
+          return false // Skip unreadable files
         }
       }
 
-      walkDir(searchDir)
-      return results.slice(0, 100) // Limit results
+      const walkDir = async (dir: string): Promise<boolean> => {
+        try {
+          // Check timeout
+          if (Date.now() - startTime > TIMEOUT_MS) {
+            return true
+          }
+
+          const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+
+          for (const entry of entries) {
+            if (results.length >= MAX_RESULTS) return true
+
+            const fullPath = path.join(dir, entry.name)
+
+            if (entry.isDirectory()) {
+              // Skip ignored directories
+              if (IGNORE_DIRS.has(entry.name) || entry.name.startsWith('.')) {
+                continue
+              }
+              const shouldStop = await walkDir(fullPath)
+              if (shouldStop) return true
+            } else if (entry.isFile()) {
+              // Apply include filter
+              if (args.include) {
+                const ext = path.extname(entry.name)
+                const matchesFilter = args.include.split(',').some(pattern => {
+                  const trimmed = pattern.trim()
+                  if (trimmed.startsWith('*.')) {
+                    return ext === trimmed.slice(1)
+                  }
+                  return ext === trimmed || entry.name === trimmed
+                })
+                if (!matchesFilter) continue
+              }
+
+              const shouldStop = await searchFile(fullPath)
+              if (shouldStop) return true
+            }
+          }
+          return false
+        } catch {
+          return false // Skip unreadable dirs
+        }
+      }
+
+      const timedOut = await walkDir(searchDir)
+
+      return {
+        results,
+        truncated: results.length >= MAX_RESULTS,
+        timedOut,
+        searchTime: Date.now() - startTime,
+      }
     } catch (err) {
       return { error: String(err) }
     }

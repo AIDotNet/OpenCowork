@@ -22,6 +22,8 @@ import { runCronAgent } from './lib/tools/cron-agent-runner'
 import { useChatStore as _useChatStore } from './stores/chat-store'
 import { nanoid } from 'nanoid'
 import type { UnifiedMessage } from './lib/api/types'
+import { useNotifyStore } from './stores/notify-store'
+import { NotifyToastContainer } from './components/notify/NotifyWindow'
 
 // Register synchronous providers and viewers immediately at startup
 registerAllProviders()
@@ -158,6 +160,59 @@ function App(): React.JSX.Element {
     }
   }, [])
 
+  // Listen for app update notifications from main process
+  useEffect(() => {
+    const offUpdateAvailable = ipcClient.on('update:available', (data: unknown) => {
+      const d = data as { currentVersion: string; newVersion: string; releaseNotes: string }
+      console.log('[App] Update available:', d)
+
+      useNotifyStore.getState().push(
+        `🎉 新版本 ${d.newVersion} 可用`,
+        d.releaseNotes || '点击下载按钮开始更新',
+        {
+          type: 'info',
+          persistent: true,
+          actions: [
+            {
+              label: '立即更新',
+              onClick: async () => {
+                toast.info('开始下载更新...')
+                const result = await window.electron.ipcRenderer.invoke('update:download')
+                if (!result.success) {
+                  toast.error('下载失败', { description: result.error })
+                }
+              },
+            },
+            {
+              label: '稍后提醒',
+              onClick: () => {
+                toast.info('已推迟更新')
+              },
+            },
+          ],
+        }
+      )
+    })
+
+    const offUpdateDownloaded = ipcClient.on('update:downloaded', (data: unknown) => {
+      const d = data as { version: string }
+      toast.success('更新已下载', {
+        description: `版本 ${d.version} 将在应用重启后安装`,
+      })
+    })
+
+    const offUpdateError = ipcClient.on('update:error', (data: unknown) => {
+      const d = data as { error: string }
+      toast.error('更新失败', { description: d.error })
+    })
+
+    return () => {
+      offUpdateAvailable()
+      offUpdateDownloaded()
+      offUpdateError()
+    }
+  }, [])
+
   // Sync i18n language with settings store
   const language = useSettingsStore((s) => s.language)
   useEffect(() => {
@@ -190,6 +245,7 @@ function App(): React.JSX.Element {
         <Layout />
         <Toaster position="bottom-left" theme="system" richColors />
         <ConfirmDialogProvider />
+        <NotifyToastContainer />
       </ThemeProvider>
     </ErrorBoundary>
   )

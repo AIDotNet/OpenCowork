@@ -2,7 +2,6 @@ import { ipcMain, app, shell } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { is } from '@electron-toolkit/utils'
 
 export interface MarketSkillInfo {
   id: string
@@ -30,7 +29,8 @@ let _marketSkillsCache: MarketSkillsData | null = null
  * In prod: resources/skills-market/skills.json (if bundled)
  */
 function getMarketSkillsPath(): string {
-  if (is.dev) {
+  const isDev = !app.isPackaged
+  if (isDev) {
     return path.join(app.getAppPath(), 'docs', 'public', 'skills', 'skills.json')
   }
   const unpackedDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'skills-market', 'skills.json')
@@ -60,7 +60,8 @@ const SKILLS_FILENAME = 'SKILL.md'
  * - Production: <app>/resources/skills/ (asarUnpacked)
  */
 function getBundledSkillsDir(): string {
-  if (is.dev) {
+  const isDev = !app.isPackaged
+  if (isDev) {
     return path.join(app.getAppPath(), 'resources', 'skills')
   }
 

@@ -301,45 +301,71 @@ export function createTaskTool(providerGetter: () => ProviderConfig): ToolHandle
       description: buildTaskDescription(agents),
       inputSchema: {
         type: 'object',
-        properties: {
-          subagent_type: {
-            type: 'string',
-            enum: subTypeEnum,
-            description: 'The type of specialized agent to use for this task'
+        oneOf: [
+          {
+            // Synchronous sub-agent mode
+            type: 'object',
+            properties: {
+              subagent_type: {
+                type: 'string',
+                enum: subTypeEnum,
+                description: 'The type of specialized agent to use for this task'
+              },
+              description: {
+                type: 'string',
+                description: 'A short (3-5 word) description of the task'
+              },
+              prompt: {
+                type: 'string',
+                description: 'The task for the agent to perform'
+              },
+              model: {
+                type: 'string',
+                description: 'Optional model override for this agent.'
+              }
+            },
+            required: ['subagent_type', 'description', 'prompt'],
+            additionalProperties: false
           },
-          description: {
-            type: 'string',
-            description: 'A short (3-5 word) description of the task'
-          },
-          prompt: {
-            type: 'string',
-            description: 'The task for the agent to perform'
-          },
-          run_in_background: {
-            type: 'boolean',
-            description:
-              'Set to true to run this agent in the background as a teammate. Requires an active team (TeamCreate).'
-          },
-          name: {
-            type: 'string',
-            description:
-              'Name for the spawned teammate agent (required when run_in_background=true)'
-          },
-          team_name: {
-            type: 'string',
-            description: 'Team name for spawning. Uses current team context if omitted.'
-          },
-          model: {
-            type: 'string',
-            description: 'Optional model override for this agent.'
-          },
-          task_id: {
-            type: 'string',
-            description:
-              'Optional task ID to assign to the teammate immediately (when run_in_background=true)'
+          {
+            // Background teammate mode
+            type: 'object',
+            properties: {
+              description: {
+                type: 'string',
+                description: 'A short (3-5 word) description of the task'
+              },
+              prompt: {
+                type: 'string',
+                description: 'The task for the agent to perform'
+              },
+              run_in_background: {
+                type: 'boolean',
+                const: true,
+                description:
+                  'Set to true to run this agent in the background as a teammate. Requires an active team (TeamCreate).'
+              },
+              name: {
+                type: 'string',
+                description: 'Name for the spawned teammate agent (required in background mode)'
+              },
+              team_name: {
+                type: 'string',
+                description: 'Team name for spawning. Uses current team context if omitted.'
+              },
+              model: {
+                type: 'string',
+                description: 'Optional model override for this agent.'
+              },
+              task_id: {
+                type: 'string',
+                description: 'Optional task ID to assign to the teammate immediately'
+              }
+            },
+            required: ['description', 'prompt', 'run_in_background', 'name'],
+            additionalProperties: false
           }
-        },
-        required: ['description', 'prompt']
+        ]
       }
     },
     execute: async (input, ctx) => {

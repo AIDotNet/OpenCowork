@@ -99,18 +99,20 @@ export function SkillsPanel(): React.JSX.Element {
                   )}
                 </div>
                 <p className="text-[10px] text-muted-foreground line-clamp-2">{tool.description}</p>
-                {tool.inputSchema.required && tool.inputSchema.required.length > 0 && (
-                  <div className="mt-0.5 flex flex-wrap gap-0.5">
-                    {tool.inputSchema.required.map((p) => (
-                      <span
-                        key={p}
-                        className="rounded bg-muted px-1 py-px text-[9px] font-mono text-muted-foreground/50"
-                      >
-                        {p}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {'required' in tool.inputSchema &&
+                  tool.inputSchema.required &&
+                  tool.inputSchema.required.length > 0 && (
+                    <div className="mt-0.5 flex flex-wrap gap-0.5">
+                      {tool.inputSchema.required.map((p) => (
+                        <span
+                          key={p}
+                          className="rounded bg-muted px-1 py-px text-[9px] font-mono text-muted-foreground/50"
+                        >
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                  )}
               </li>
             ))}
           </ul>

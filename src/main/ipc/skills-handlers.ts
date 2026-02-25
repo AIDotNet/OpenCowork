@@ -520,8 +520,9 @@ export function registerSkillsHandlers(): void {
     error?: string
   }> => {
     try {
-      // Create temp directory for downloaded skill
-      const tempDir = path.join(os.tmpdir(), 'opencowork-skills', `${args.owner}-${args.name}-${Date.now()}`)
+      // Create temp directory with timestamp, but skill subdirectory with actual name
+      const tempBase = path.join(os.tmpdir(), 'opencowork-skills', `download-${Date.now()}`)
+      const tempDir = path.join(tempBase, args.name)
       fs.mkdirSync(tempDir, { recursive: true })
 
       // In dev mode, copy from docs/public/skills/{owner}/{name}/
@@ -572,7 +573,19 @@ export function registerSkillsHandlers(): void {
         console.warn('[Skills] Refusing to delete non-temp path:', args.tempPath)
         return { success: false }
       }
-      if (fs.existsSync(args.tempPath)) {
+
+      // Find the base temp directory (parent of the skill directory)
+      // tempPath is like: /tmp/opencowork-skills/download-123456/skill-name
+      // We want to delete: /tmp/opencowork-skills/download-123456
+      const parts = args.tempPath.split(path.sep)
+      const skillsIndex = parts.findIndex(p => p === 'opencowork-skills')
+      if (skillsIndex >= 0 && skillsIndex + 1 < parts.length) {
+        const baseTempDir = parts.slice(0, skillsIndex + 2).join(path.sep)
+        if (fs.existsSync(baseTempDir)) {
+          fs.rmSync(baseTempDir, { recursive: true, force: true })
+        }
+      } else if (fs.existsSync(args.tempPath)) {
+        // Fallback: just delete the provided path
         fs.rmSync(args.tempPath, { recursive: true, force: true })
       }
       return { success: true }

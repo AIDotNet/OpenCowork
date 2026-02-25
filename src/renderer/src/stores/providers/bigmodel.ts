@@ -4,7 +4,7 @@ export const bigmodelCodingPreset: BuiltinProviderPreset = {
   builtinId: 'bigmodel-coding',
   name: '智谱AI（套餐）',
   type: 'anthropic',
-  defaultBaseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+  defaultBaseUrl: 'https://open.bigmodel.cn/api/anthropic',
   homepage: 'https://bigmodel.cn/glm-coding',
   apiKeyUrl: 'https://bigmodel.cn/usercenter/apikeys',
   defaultEnabled: true,

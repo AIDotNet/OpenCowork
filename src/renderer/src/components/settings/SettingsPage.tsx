@@ -812,7 +812,7 @@ function AboutPanel(): React.JSX.Element {
     { label: t('about.version'), value: appVersion },
     { label: t('about.framework'), value: 'Electron · React · TypeScript' },
     { label: t('about.ui'), value: 'shadcn/ui · TailwindCSS' },
-    { label: t('about.license'), value: 'MIT' },
+    { label: t('about.license'), value: 'Apache 2.0' },
   ]
   const featureCards = [
     {

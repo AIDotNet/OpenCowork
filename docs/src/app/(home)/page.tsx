@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Github, ArrowRight, ExternalLink } from 'lucide-react';
+import { Github, ArrowRight, ExternalLink, Download } from 'lucide-react';
 
 const platforms = [
   { name: 'Feishu', label: '飞书' },
@@ -8,6 +8,33 @@ const platforms = [
   { name: 'Discord', label: 'Discord' },
   { name: 'WhatsApp', label: 'WhatsApp' },
   { name: 'WeCom', label: '企业微信' },
+];
+
+const downloads = [
+  {
+    platform: 'Windows',
+    icon: '🪟',
+    files: [
+      { name: 'Windows Installer (.exe)', url: 'https://github.com/AIDotNet/OpenCowork/releases/latest/download/OpenCowork-Setup.exe' },
+      { name: 'Portable (.zip)', url: 'https://github.com/AIDotNet/OpenCowork/releases/latest/download/OpenCowork-win.zip' },
+    ],
+  },
+  {
+    platform: 'macOS',
+    icon: '🍎',
+    files: [
+      { name: 'Apple Silicon (.dmg)', url: 'https://github.com/AIDotNet/OpenCowork/releases/latest/download/OpenCowork-arm64.dmg' },
+      { name: 'Intel (.dmg)', url: 'https://github.com/AIDotNet/OpenCowork/releases/latest/download/OpenCowork-x64.dmg' },
+    ],
+  },
+  {
+    platform: 'Linux',
+    icon: '🐧',
+    files: [
+      { name: 'AppImage', url: 'https://github.com/AIDotNet/OpenCowork/releases/latest/download/OpenCowork.AppImage' },
+      { name: 'Debian (.deb)', url: 'https://github.com/AIDotNet/OpenCowork/releases/latest/download/OpenCowork.deb' },
+    ],
+  },
 ];
 
 const features = [
@@ -95,7 +122,7 @@ export default function HomePage() {
         <div className="relative z-10 flex flex-col items-center text-center gap-6 max-w-3xl">
           <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs text-zinc-400 backdrop-blur">
             <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            v0.2.4 已发布 &nbsp;·&nbsp; Apache License 2.0 &nbsp;·&nbsp; 完全开源
+            v0.2.5 已发布 &nbsp;·&nbsp; Apache License 2.0 &nbsp;·&nbsp; 完全开源
           </div>
 
           <h1 className="text-6xl sm:text-7xl font-bold tracking-tight leading-none">
@@ -161,6 +188,50 @@ export default function HomePage() {
                 {p.label}
               </span>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Download ── */}
+      <section className="w-full max-w-5xl mx-auto px-4 py-24">
+        <div className="flex flex-col items-center gap-10">
+          <div className="text-center">
+            <h2 className="text-3xl font-bold mb-3">下载 OpenCowork</h2>
+            <p className="text-muted-foreground">选择适合你操作系统的版本，开始使用</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
+            {downloads.map((platform) => (
+              <div key={platform.platform} className="flex flex-col gap-4 rounded-xl border bg-card p-6">
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">{platform.icon}</span>
+                  <h3 className="text-xl font-semibold">{platform.platform}</h3>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {platform.files.map((file) => (
+                    <a
+                      key={file.name}
+                      href={file.url}
+                      className="flex items-center justify-between gap-2 rounded-lg border bg-background px-4 py-3 text-sm hover:border-foreground/30 hover:shadow-sm transition-all group"
+                    >
+                      <span className="font-medium">{file.name}</span>
+                      <Download className="size-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>或者查看</span>
+            <Link
+              href="https://github.com/AIDotNet/OpenCowork/releases"
+              target="_blank"
+              className="inline-flex items-center gap-1 font-medium hover:underline underline-offset-4"
+            >
+              所有版本 <ExternalLink className="size-3.5" />
+            </Link>
           </div>
         </div>
       </section>

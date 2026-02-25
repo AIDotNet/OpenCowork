@@ -11,11 +11,8 @@ const notifyHandler: ToolHandler = {
   definition: {
     name: 'Notify',
     description:
-      'Send a notification to the user. Use this to surface results, alerts, or summaries.\n\n' +
-      'Delivery methods:\n' +
-      '- "desktop" (default): Show a toast notification in the app\n' +
-      '- "session": Inject a message into a chat session to trigger a follow-up agent turn\n' +
-      '- "all": Both desktop toast and session message\n\n' +
+      'Send a desktop notification to the user. Use this to surface results, alerts, or summaries.\n\n' +
+      'This tool shows a non-intrusive toast notification in the app without adding to chat history.\n\n' +
       'Notification types control the visual style:\n' +
       '- "info": General information (blue)\n' +
       '- "success": Task completed successfully (green)\n' +
@@ -37,18 +34,9 @@ const notifyHandler: ToolHandler = {
           enum: ['info', 'success', 'warning', 'error'],
           description: 'Notification style. Default: "info"',
         },
-        action: {
-          type: 'string',
-          enum: ['desktop', 'session', 'all'],
-          description: 'Delivery method. Default: "desktop"',
-        },
         duration: {
           type: 'number',
           description: 'How long the desktop toast stays visible in milliseconds. Default: 5000',
-        },
-        session_id: {
-          type: 'string',
-          description: 'Target session ID for "session" or "all" action. Uses current session if omitted.',
         },
       },
       required: ['title', 'body'],
@@ -59,9 +47,7 @@ const notifyHandler: ToolHandler = {
     const title = String(input.title ?? '')
     const body = String(input.body ?? '')
     const type = String(input.type ?? 'info') as 'info' | 'success' | 'warning' | 'error'
-    let action = String(input.action ?? 'desktop') as 'desktop' | 'session' | 'all'
     const duration = Number(input.duration) || 5000
-    const sessionId = input.session_id ? String(input.session_id) : ctx.sessionId
 
     if (!title || !body) {
       return JSON.stringify({ error: 'title and body are required' })
@@ -97,49 +83,26 @@ const notifyHandler: ToolHandler = {
       }
     }
 
-    // Prevent CronAgent from injecting into sessions (causes infinite loops)
-    if (ctx.callerAgent === 'CronAgent' && (action === 'session' || action === 'all')) {
-      console.warn('[Notify] CronAgent attempted session injection — forcing desktop-only to prevent loop')
-      action = 'desktop'
-    }
+    // Send desktop toast notification
+    try {
+      await ctx.ipc.invoke(IPC.NOTIFY_DESKTOP, { title, body, type, duration })
 
-    const results: string[] = []
-
-    // Desktop toast notification
-    if (action === 'desktop' || action === 'all') {
-      try {
-        await ctx.ipc.invoke(IPC.NOTIFY_DESKTOP, { title, body, type, duration })
-        results.push('desktop notification sent')
-      } catch (err) {
-        results.push(`desktop notification failed: ${err instanceof Error ? err.message : String(err)}`)
+      // Mark delivery as used for CronAgent runs
+      if (ctx.callerAgent === 'CronAgent' && ctx.sharedState) {
+        ctx.sharedState.deliveryUsed = true
       }
-    }
 
-    // Session message injection
-    if (action === 'session' || action === 'all') {
-      if (!sessionId) {
-        results.push('session injection skipped: no session_id available')
-      } else {
-        try {
-          await ctx.ipc.invoke(IPC.NOTIFY_SESSION, { sessionId, title, body })
-          results.push(`message injected into session ${sessionId}`)
-        } catch (err) {
-          results.push(`session injection failed: ${err instanceof Error ? err.message : String(err)}`)
-        }
-      }
+      return JSON.stringify({
+        success: true,
+        title,
+        body: body.slice(0, 200),
+      })
+    } catch (err) {
+      return JSON.stringify({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      })
     }
-
-    // Mark delivery as used for CronAgent runs
-    if (ctx.callerAgent === 'CronAgent' && ctx.sharedState) {
-      ctx.sharedState.deliveryUsed = true
-    }
-
-    return JSON.stringify({
-      success: true,
-      delivered: results,
-      title,
-      body: body.slice(0, 200),
-    })
   },
 
   requiresApproval: () => false,

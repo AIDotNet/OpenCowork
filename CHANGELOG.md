@@ -3,6 +3,22 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.5] - 2026-02-25
+
+### Added
+- **Web Search integration** — new web search tool with multi-provider support (Anthropic, OpenAI, local search engines) and browser fallback mechanism. Includes dedicated settings panel for configuring search providers and API keys.
+- **Skill review system** — automated skill validation and security review via `skill-reviewer.ts` to ensure downloaded skills meet safety standards before installation.
+- **Download tracking for Skills Market** — SQLite-based tracking system for skill downloads with statistics API endpoint and local file serving capabilities.
+
+### Changed
+- **Provider preset enhancements** — added `defaultModel` configuration support to provider presets, allowing users to set preferred models per provider. Updated Moonshot and other provider configurations with improved model selection.
+- **Skills Market improvements** — fixed skill download temporary directory structure for more reliable installation. Updated Bigmodel API endpoint to latest version.
+- **UI refinements** — improved input area interactions, layout adjustments for better user experience, and streamlined right panel toggle behavior during streaming responses.
+
+### Fixed
+- **Right panel toggle during streaming** — resolved issue where right panel would not toggle correctly while agent responses were streaming.
+- **Skill installation reliability** — improved error handling and path resolution for skill downloads from GitHub repositories.
+
 ## [0.2.4] - 2026-02-25
 
 ### Added

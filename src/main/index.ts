@@ -362,9 +362,8 @@ if (gotSingleInstanceLock) {
   })
   console.log(`[CrashLogger] Logs will be written to ${getCrashLogDir()}`)
 
-  // Set app user model id for windows
-
-  electronApp.setAppUserModelId('com.electron')
+  // Set app user model id for windows (required for notifications to work)
+  electronApp.setAppUserModelId('com.opencowork.app')
 
 
 

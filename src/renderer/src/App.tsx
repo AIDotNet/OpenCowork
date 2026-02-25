@@ -20,8 +20,6 @@ import { useCronStore } from './stores/cron-store'
 import { ipcClient } from './lib/ipc/ipc-client'
 import { runCronAgent } from './lib/tools/cron-agent-runner'
 import { useChatStore as _useChatStore } from './stores/chat-store'
-import { NotifyToastContainer } from './components/notify/NotifyWindow'
-import { useNotifyStore } from './stores/notify-store'
 import { nanoid } from 'nanoid'
 import type { UnifiedMessage } from './lib/api/types'
 
@@ -117,25 +115,11 @@ function App(): React.JSX.Element {
       if (!sessions.some((s) => s.id === d.sessionId)) return
       const msg: UnifiedMessage = {
         id: nanoid(),
-        role: 'user',
+        role: 'assistant',
         content: `<system-reminder>\n**${d.title}**\n</system-reminder>\n\n${d.body}`,
         createdAt: Date.now(),
       }
       _useChatStore.getState().addMessage(d.sessionId, msg)
-    })
-
-    // notify:toast — in-app toast notification from main process
-    const offToast = ipcClient.on('notify:toast', (data: unknown) => {
-      const d = data as { title: string; body: string; type?: string; duration?: number; persistent?: boolean }
-      useNotifyStore.getState().push(
-        d.title,
-        d.body,
-        {
-          type: (d.type as 'info' | 'success' | 'warning' | 'error') ?? 'info',
-          duration: d.duration ?? 5000,
-          persistent: d.persistent ?? false,
-        },
-      )
     })
 
     // Subscribe to cron run_finished events for session delivery
@@ -170,7 +154,6 @@ function App(): React.JSX.Element {
       offFired()
       offRemoved()
       offNotify()
-      offToast()
       offRunFinished()
     }
   }, [])
@@ -207,7 +190,6 @@ function App(): React.JSX.Element {
         <Layout />
         <Toaster position="bottom-left" theme="system" richColors />
         <ConfirmDialogProvider />
-        <NotifyToastContainer />
       </ThemeProvider>
     </ErrorBoundary>
   )

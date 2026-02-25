@@ -1,8 +1,6 @@
 import { useRef, useState } from 'react'
 import {
   Settings,
-  PanelRightOpen,
-  PanelRightClose,
   Sun,
   Moon,
   Keyboard,
@@ -35,9 +33,6 @@ import { WindowControls } from './WindowControls'
 export function TitleBar(): React.JSX.Element {
   const { t, i18n } = useTranslation('layout')
   const isMac = /Mac/.test(navigator.userAgent)
-  const mode = useUIStore((s) => s.mode)
-  const rightPanelOpen = useUIStore((s) => s.rightPanelOpen)
-  const toggleRightPanel = useUIStore((s) => s.toggleRightPanel)
   const openDetailPanel = useUIStore((s) => s.openDetailPanel)
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const setShortcutsOpen = useUIStore((s) => s.setShortcutsOpen)
@@ -249,21 +244,6 @@ export function TitleBar(): React.JSX.Element {
 
       {/* Right-side controls */}
       <div className="flex shrink-0 items-center gap-1">
-        {/* Right Panel Toggle (cowork & code modes) */}
-        {mode !== 'chat' && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="titlebar-no-drag size-7" onClick={toggleRightPanel}>
-                {rightPanelOpen ? (
-                  <PanelRightClose className="size-4" />
-                ) : (
-                  <PanelRightOpen className="size-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('topbar.togglePanel')}</TooltipContent>
-          </Tooltip>
-        )}
 
         {/* Auto-approve warning */}
         {autoApprove && (

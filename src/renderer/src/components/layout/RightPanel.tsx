@@ -158,6 +158,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
           )}
         </AnimatePresence>
       </div>
+
     </aside>
   )
 }

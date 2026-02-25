@@ -120,6 +120,11 @@ export const IPC = {
 
   // Clipboard
   CLIPBOARD_WRITE_IMAGE: 'clipboard:write-image',
+
+  // Web Search
+  WEB_SEARCH: 'web:search',
+  WEB_SEARCH_CONFIG: 'web:search-config',
+  WEB_SEARCH_PROVIDERS: 'web:search-providers',
 } as const
 
 export type IPCChannel = (typeof IPC)[keyof typeof IPC]

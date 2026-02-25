@@ -1,6 +1,7 @@
 import { registerTaskTools } from './todo-tool'
 import { registerFsTools } from './fs-tool'
 import { registerSearchTools } from './search-tool'
+import { registerWebSearchTool, unregisterWebSearchTool, isWebSearchToolRegistered } from './web-search-tool'
 import { registerBashTools } from './bash-tool'
 import { registerSubAgents } from '../agent/sub-agents/builtin'
 import { registerTeamTools } from '../agent/teams/register'
@@ -31,6 +32,8 @@ export async function registerAllTools(): Promise<void> {
   registerTaskTools()
   registerFsTools()
   registerSearchTools()
+  // Note: WebSearchTool is NOT registered here — it's registered/unregistered dynamically
+  // based on the webSearchEnabled setting (see web-search-tool.ts)
   registerBashTools()
   await registerSkillTools()
   registerPreviewTools()
@@ -47,4 +50,17 @@ export async function registerAllTools(): Promise<void> {
 
   // Plugin tools are registered/unregistered dynamically via plugin-store toggle
   // They are NOT registered here — see plugin-tools.ts registerPluginTools/unregisterPluginTools
+}
+
+/**
+ * Dynamically register or unregister the web search tool based on the web search setting.
+ * This should be called when the webSearchEnabled setting changes.
+ */
+export function updateWebSearchToolRegistration(enabled: boolean): void {
+  const isRegistered = isWebSearchToolRegistered()
+  if (enabled && !isRegistered) {
+    registerWebSearchTool()
+  } else if (!enabled && isRegistered) {
+    unregisterWebSearchTool()
+  }
 }

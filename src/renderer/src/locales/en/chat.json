@@ -28,7 +28,10 @@
     "noWorkingFolder": "Please select a working folder before using {{mode}} mode. Click here to select.",
     "enterPlanMode": "Enter Plan Mode",
     "exitPlanMode": "Exit Plan Mode",
-    "planModeActive": "Plan Mode — exploring codebase, no file changes"
+    "planModeActive": "Plan Mode — exploring codebase, no file changes",
+    "webSearch": "Web Search",
+    "disableWebSearch": "Disable web search",
+    "enableWebSearch": "Enable web search"
   },
   "permission": {
     "title": "Permission Required",

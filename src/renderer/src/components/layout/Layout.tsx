@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { MessageSquare, Briefcase, Code2, ClipboardCopy, Check, ImageDown, Loader2, PanelLeftOpen } from 'lucide-react'
+import { MessageSquare, Briefcase, Code2, ClipboardCopy, Check, ImageDown, Loader2, PanelLeftOpen, PanelRightOpen, PanelRightClose } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
@@ -603,6 +603,26 @@ export function Layout(): React.JSX.Element {
                             </TooltipTrigger>
                             <TooltipContent>{t('layout.copyAll', { defaultValue: 'Copy conversation' })}</TooltipContent>
                           </Tooltip>
+                          {mode !== 'chat' && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200 disabled:opacity-50"
+                                  onClick={() => useUIStore.getState().toggleRightPanel()}
+                                  disabled={isStreaming}
+                                >
+                                  {useUIStore.getState().rightPanelOpen ? <PanelRightClose className="size-3.5 shrink-0" /> : <PanelRightOpen className="size-3.5 shrink-0" />}
+                                  <span
+                                    className="max-w-0 overflow-hidden pl-0 text-[10px] opacity-0 whitespace-nowrap group-hover/btn:max-w-[140px] group-hover/btn:pl-1 group-hover/btn:opacity-100"
+                                    style={{ transition: 'max-width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease, padding 180ms ease' }}
+                                  >
+                                    {t('topbar.togglePanel')}
+                                  </span>
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>{t('topbar.togglePanel')}</TooltipContent>
+                            </Tooltip>
+                          )}
                         </div>
                       </div>
                       <MessageList onRetry={retryLastMessage} onEditUserMessage={editAndResend} />

@@ -191,6 +191,8 @@ export interface AIProvider {
   createdAt: number
   /** Whether this provider requires an API key. Defaults to true when omitted. */
   requiresApiKey?: boolean
+  /** Custom User-Agent header (e.g. Moonshot套餐 requires 'RooCode/3.48.0') */
+  userAgent?: string
 }
 
 // --- Provider Config ---
@@ -213,6 +215,8 @@ export interface ProviderConfig {
   reasoningEffort?: ReasoningEffortLevel
   /** Current session ID — used for prompt_cache_key on OpenAI endpoints */
   sessionId?: string
+  /** Custom User-Agent header (e.g. Moonshot套餐 requires 'RooCode/3.48.0') */
+  userAgent?: string
 }
 
 // --- Provider Interface ---

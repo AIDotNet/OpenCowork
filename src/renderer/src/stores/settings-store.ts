@@ -28,6 +28,14 @@ interface SettingsStore {
   userName: string
   userAvatar: string
 
+  // Web Search Settings
+  webSearchEnabled: boolean
+  webSearchProvider: 'tavily' | 'searxng' | 'exa' | 'exa-mcp' | 'bocha' | 'zhipu' | 'google' | 'bing' | 'baidu'
+  webSearchApiKey: string
+  webSearchEngine: string
+  webSearchMaxResults: number
+  webSearchTimeout: number
+
   updateSettings: (patch: Partial<Omit<SettingsStore, 'updateSettings'>>) => void
 }
 
@@ -53,6 +61,14 @@ export const useSettingsStore = create<SettingsStore>()(
       userName: '',
       userAvatar: '',
 
+      // Web Search Settings
+      webSearchEnabled: false,
+      webSearchProvider: 'tavily',
+      webSearchApiKey: '',
+      webSearchEngine: 'google',
+      webSearchMaxResults: 5,
+      webSearchTimeout: 30000,
+
       updateSettings: (patch) => set(patch),
     }),
     {
@@ -64,7 +80,16 @@ export const useSettingsStore = create<SettingsStore>()(
         if (version === 0) {
           state.language = getSystemLanguage()
         }
-        return state as SettingsStore
+        // Add web search settings if missing
+        if (state.webSearchEnabled === undefined) {
+          state.webSearchEnabled = false
+          state.webSearchProvider = 'tavily'
+          state.webSearchApiKey = ''
+          state.webSearchEngine = 'google'
+          state.webSearchMaxResults = 5
+          state.webSearchTimeout = 30000
+        }
+        return state as unknown as SettingsStore
       },
       partialize: (state) => ({
         provider: state.provider,
@@ -84,6 +109,12 @@ export const useSettingsStore = create<SettingsStore>()(
         contextCompressionEnabled: state.contextCompressionEnabled,
         userName: state.userName,
         userAvatar: state.userAvatar,
+        // Web Search Settings
+        webSearchEnabled: state.webSearchEnabled,
+        webSearchProvider: state.webSearchProvider,
+        webSearchEngine: state.webSearchEngine,
+        webSearchMaxResults: state.webSearchMaxResults,
+        webSearchTimeout: state.webSearchTimeout,
         // NOTE: apiKey is intentionally excluded from localStorage persistence.
         // In production, it should be stored securely in the main process.
       }),

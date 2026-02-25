@@ -66,10 +66,11 @@ class OpenAIChatProvider implements APIProvider {
 
     const url = `${baseUrl}/chat/completions`
 
-    const headers = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.apiKey}`,
     }
+    if (config.userAgent) headers['User-Agent'] = config.userAgent
     const bodyStr = JSON.stringify(body)
 
     // Yield debug info for dev mode inspection

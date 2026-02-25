@@ -28,7 +28,10 @@
     "noWorkingFolder": "使用 {{mode}} 模式前请先选择工作目录，点击此处选择。",
     "enterPlanMode": "进入计划模式",
     "exitPlanMode": "退出计划模式",
-    "planModeActive": "计划模式 — 仅浏览代码库，不修改文件"
+    "planModeActive": "计划模式 — 仅浏览代码库，不修改文件",
+    "webSearch": "联网",
+    "disableWebSearch": "关闭联网搜索",
+    "enableWebSearch": "启用联网搜索"
   },
   "permission": {
     "title": "需要权限",

@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { Settings, BrainCircuit, Info, Server, Puzzle, Cable, Loader2, Download, Github, Sparkles, ShieldCheck, Layers, HardDriveDownload, HardDriveUpload, Trash2 } from 'lucide-react'
+import { Settings, BrainCircuit, Info, Server, Puzzle, Cable, Loader2, Download, Github, Sparkles, ShieldCheck, Layers, HardDriveDownload, HardDriveUpload, Trash2, Globe } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { AnimatePresence } from 'motion/react'
-import { cn } from '@renderer/lib/utils'
 import { useUIStore, type SettingsTab } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
@@ -31,6 +30,7 @@ import { useProviderStore } from '@renderer/stores/provider-store'
 import { ProviderPanel } from './ProviderPanel'
 import { PluginPanel } from './PluginPanel'
 import { McpPanel } from './McpPanel'
+import { WebSearchPanel } from './WebSearchPanel'
 import { ModelIcon } from './provider-icons'
 import packageJson from '../../../../../package.json'
 
@@ -115,6 +115,7 @@ const menuItemDefs: { id: SettingsTab; icon: React.ReactNode; labelKey: string; 
   { id: 'plugin', icon: <Puzzle className="size-4" />, labelKey: 'plugin.title', descKey: 'plugin.subtitle' },
   { id: 'mcp', icon: <Cable className="size-4" />, labelKey: 'mcp.title', descKey: 'mcp.subtitle' },
   { id: 'model', icon: <BrainCircuit className="size-4" />, labelKey: 'model.title', descKey: 'model.subtitle' },
+  { id: 'websearch', icon: <Globe className="size-4" />, labelKey: 'websearch.title', descKey: 'websearch.subtitle' },
   { id: 'about', icon: <Info className="size-4" />, labelKey: 'about.title', descKey: 'about.subtitle' },
 ]
 
@@ -913,6 +914,7 @@ const panelMap: Record<SettingsTab, () => React.JSX.Element> = {
   plugin: PluginPanel,
   mcp: McpPanel,
   model: ModelPanel,
+  websearch: WebSearchPanel,
   about: AboutPanel
 }
 

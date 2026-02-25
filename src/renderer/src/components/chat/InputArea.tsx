@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useState as useLocalState } from 'react'
-import { Send, FolderOpen, AlertTriangle, FileUp, Sparkles, X, Trash2, ImagePlus, Brain, ChevronDown, ClipboardList } from 'lucide-react'
+import { Send, FolderOpen, AlertTriangle, FileUp, Sparkles, X, Trash2, ImagePlus, Brain, ChevronDown, ClipboardList, Globe } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { Button } from '@renderer/components/ui/button'
 import { Spinner } from '@renderer/components/ui/spinner'
@@ -10,6 +10,7 @@ import { useProviderStore } from '@renderer/stores/provider-store'
 import type { AIModelConfig, ReasoningEffortLevel } from '@renderer/lib/api/types'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { useSettingsStore } from '@renderer/stores/settings-store'
+import { updateWebSearchToolRegistration } from '@renderer/lib/tools'
 import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
 import { formatTokens } from '@renderer/lib/format-tokens'
 import { useDebouncedTokens } from '@renderer/hooks/use-estimated-tokens'
@@ -275,6 +276,13 @@ export function InputArea({
   }, [reasoningEffortLevels, defaultReasoningEffort])
   const setReasoningEffort = React.useCallback((level: ReasoningEffortLevel) => {
     useSettingsStore.getState().updateSettings({ reasoningEffort: level, thinkingEnabled: true })
+  }, [])
+  const webSearchEnabled = useSettingsStore((s) => s.webSearchEnabled)
+  const toggleWebSearch = React.useCallback(() => {
+    const store = useSettingsStore.getState()
+    const newEnabled = !store.webSearchEnabled
+    useSettingsStore.getState().updateSettings({ webSearchEnabled: newEnabled })
+    updateWebSearchToolRegistration(newEnabled)
   }, [])
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const mode = useUIStore((s) => s.mode)
@@ -860,6 +868,28 @@ export function InputArea({
             {/* Left tools */}
             <div className="flex items-center gap-1">
               <ModelSwitcher />
+
+              {/* Web search toggle */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className={`h-8 rounded-lg px-2 gap-1 transition-colors ${
+                      webSearchEnabled
+                        ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                    onClick={toggleWebSearch}
+                    disabled={disabled || isStreaming}
+                  >
+                    <Globe className="size-4" />
+                    {webSearchEnabled && <span className="text-[10px] font-medium">{t('input.webSearch', { defaultValue: '联网' })}</span>}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {webSearchEnabled ? t('input.disableWebSearch', { defaultValue: 'Disable web search' }) : t('input.enableWebSearch', { defaultValue: 'Enable web search' })}
+                </TooltipContent>
+              </Tooltip>
 
               {/* Skills menu (+ button) */}
               {mode !== 'chat' && (

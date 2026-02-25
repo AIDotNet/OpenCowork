@@ -8,7 +8,7 @@ import { useSettingsStore } from './stores/settings-store'
 import { initProviderStore } from './stores/provider-store'
 import { useChatStore } from './stores/chat-store'
 import { usePlanStore } from './stores/plan-store'
-import { registerAllTools } from './lib/tools'
+import { registerAllTools, updateWebSearchToolRegistration } from './lib/tools'
 import { registerAllProviders } from './lib/api'
 import { registerAllViewers } from './lib/preview/register-viewers'
 import { initPluginEventListener } from './stores/plugin-store'
@@ -182,6 +182,12 @@ function App(): React.JSX.Element {
       i18n.changeLanguage(language)
     }
   }, [language])
+
+  // Update web search tool registration based on settings
+  const webSearchEnabled = useSettingsStore((s) => s.webSearchEnabled)
+  useEffect(() => {
+    updateWebSearchToolRegistration(webSearchEnabled)
+  }, [webSearchEnabled])
 
   // Global unhandled promise rejection handler
   useEffect(() => {

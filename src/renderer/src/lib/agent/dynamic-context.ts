@@ -3,6 +3,7 @@ import { useTeamStore } from '../../stores/team-store'
 import { useUIStore } from '../../stores/ui-store'
 import { useChatStore } from '../../stores/chat-store'
 import { usePlanStore } from '../../stores/plan-store'
+import { useSettingsStore } from '../../stores/settings-store'
 
 /**
  * Build dynamic context for the first user message in a session.
@@ -80,7 +81,7 @@ export function buildDynamicContext(options: {
 
   if (selectedFiles.length > 0) {
     contextParts.push(`- Selected Files: ${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''}`)
-    
+
     // Convert to relative paths if possible
     for (const filePath of selectedFiles) {
       let displayPath = filePath
@@ -89,6 +90,12 @@ export function buildDynamicContext(options: {
       }
       contextParts.push(`  - ${displayPath}`)
     }
+  }
+
+  // ── Web Search Guidance ──
+  const webSearchEnabled = useSettingsStore.getState().webSearchEnabled
+  if (webSearchEnabled) {
+    contextParts.push('  Guidance: Web search is enabled. Actively use the WebSearch tool to gather the latest information, documentation, code examples, and data relevant to the task. Search for current information, best practices, API documentation, and any external resources that can help complete the task more accurately and comprehensively.')
   }
 
   // ── Build final context ──

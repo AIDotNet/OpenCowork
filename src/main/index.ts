@@ -26,6 +26,7 @@ import { PluginManager } from './plugins/plugin-manager'
 import { registerMcpHandlers } from './ipc/mcp-handlers'
 import { registerCronHandlers } from './ipc/cron-handlers'
 import { registerNotifyHandlers } from './ipc/notify-handlers'
+import { registerWebSearchHandlers } from './ipc/web-search-handlers'
 import { loadPersistedJobs, cancelAllJobs } from './cron/cron-scheduler'
 import { McpManager } from './mcp/mcp-manager'
 import { closeDb } from './db/database'
@@ -409,6 +410,7 @@ if (gotSingleInstanceLock) {
   registerCronHandlers()
   loadPersistedJobs()
   registerNotifyHandlers()
+  registerWebSearchHandlers()
 
   // Clipboard: write PNG image from base64 data
   ipcMain.handle('clipboard:write-image', (_event, args: { data: string }) => {

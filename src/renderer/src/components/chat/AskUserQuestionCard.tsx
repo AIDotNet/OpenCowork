@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useState, useCallback } from 'react'
-import { MessageCircleQuestion, Check, ChevronRight, ChevronLeft } from 'lucide-react'
+import { Check, ChevronRight, ChevronLeft } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 import { resolveAskUserAnswers } from '@renderer/lib/tools/ask-user-tool'

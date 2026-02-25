@@ -23,6 +23,7 @@ function createProviderFromPreset(preset: BuiltinProviderPreset): AIProvider {
     builtinId: preset.builtinId,
     createdAt: Date.now(),
     requiresApiKey: preset.requiresApiKey ?? true,
+    ...(preset.userAgent ? { userAgent: preset.userAgent } : {}),
   }
 }
 
@@ -242,6 +243,7 @@ export const useProviderStore = create<ProviderStore>()(
           baseUrl: normalizedBaseUrl,
           model: activeModelId,
           requiresApiKey: provider.requiresApiKey,
+          ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
         }
       },
 
@@ -259,6 +261,7 @@ export const useProviderStore = create<ProviderStore>()(
           baseUrl: normalizedBaseUrl,
           model: modelId,
           requiresApiKey: provider.requiresApiKey,
+          ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
         }
       },
 
@@ -279,6 +282,7 @@ export const useProviderStore = create<ProviderStore>()(
           baseUrl: normalizedBaseUrl,
           model,
           requiresApiKey: provider.requiresApiKey,
+          ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
         }
       },
 
@@ -333,9 +337,16 @@ function ensureBuiltinPresets(): void {
       const provider = createProviderFromPreset(preset)
       useProviderStore.getState().addProvider(provider)
     } else {
-      // Sync provider-level fields from preset (e.g. requiresApiKey)
+      // Sync provider-level fields from preset (e.g. requiresApiKey, userAgent)
+      const patch: Partial<Omit<AIProvider, 'id'>> = {}
       if (existing.requiresApiKey !== (preset.requiresApiKey ?? true)) {
-        useProviderStore.getState().updateProvider(existing.id, { requiresApiKey: preset.requiresApiKey ?? true })
+        patch.requiresApiKey = preset.requiresApiKey ?? true
+      }
+      if (existing.userAgent !== preset.userAgent) {
+        patch.userAgent = preset.userAgent
+      }
+      if (Object.keys(patch).length > 0) {
+        useProviderStore.getState().updateProvider(existing.id, patch)
       }
 
       const updatedModels = mergeBuiltinModels(existing.models, preset.defaultModels)

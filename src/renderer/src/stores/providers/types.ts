@@ -11,4 +11,6 @@ export interface BuiltinProviderPreset {
   homepage: string
   /** Link for users to create/manage API keys */
   apiKeyUrl?: string
+  /** Custom User-Agent header for providers that require platform identification (e.g. Moonshot套餐) */
+  userAgent?: string
 }

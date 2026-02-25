@@ -554,8 +554,10 @@ export function useChatActions(): {
     baseProviderConfig.sessionId = sessionId
 
     // Override provider config if session has a bound provider+model (e.g. plugin sessions)
+    // Only apply session-specific model overrides for plugin sessions (with pluginId)
+    // Regular user sessions should use the global active provider/model from ModelSwitcher
     const sessionForProvider = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-    if (sessionForProvider?.providerId && sessionForProvider?.modelId) {
+    if (sessionForProvider?.pluginId && sessionForProvider?.providerId && sessionForProvider?.modelId) {
       const sessionProviderConfig = useProviderStore.getState().getProviderConfigById(
         sessionForProvider.providerId, sessionForProvider.modelId
       )

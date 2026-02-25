@@ -53,6 +53,7 @@ class AnthropicProvider implements APIProvider {
       'anthropic-version': '2023-06-01',
       'anthropic-beta': 'prompt-caching-2024-07-31,interleaved-thinking-2025-05-14',
     }
+    if (config.userAgent) headers['User-Agent'] = config.userAgent
     const bodyStr = JSON.stringify(body)
 
     // Yield debug info for dev mode inspection

@@ -24,6 +24,7 @@ function createProviderFromPreset(preset: BuiltinProviderPreset): AIProvider {
     createdAt: Date.now(),
     requiresApiKey: preset.requiresApiKey ?? true,
     ...(preset.userAgent ? { userAgent: preset.userAgent } : {}),
+    ...(preset.defaultModel ? { defaultModel: preset.defaultModel } : {}),
   }
 }
 
@@ -204,9 +205,23 @@ export const useProviderStore = create<ProviderStore>()(
       setActiveProvider: (providerId) => {
         const provider = get().providers.find((p) => p.id === providerId)
         if (!provider) return
-        const enabledModels = provider.models.filter((m) => m.enabled)
-        const firstModel = enabledModels[0]?.id ?? provider.models[0]?.id ?? ''
-        set({ activeProviderId: providerId, activeModelId: firstModel })
+
+        // Try to use the configured default model first
+        let defaultModelId = ''
+        if (provider.defaultModel) {
+          const defaultModel = provider.models.find((m) => m.id === provider.defaultModel)
+          if (defaultModel) {
+            defaultModelId = defaultModel.id
+          }
+        }
+
+        // Fall back to first enabled model, then first model
+        if (!defaultModelId) {
+          const enabledModels = provider.models.filter((m) => m.enabled)
+          defaultModelId = enabledModels[0]?.id ?? provider.models[0]?.id ?? ''
+        }
+
+        set({ activeProviderId: providerId, activeModelId: defaultModelId })
       },
 
       setActiveModel: (modelId) => set({ activeModelId: modelId }),
@@ -337,13 +352,16 @@ function ensureBuiltinPresets(): void {
       const provider = createProviderFromPreset(preset)
       useProviderStore.getState().addProvider(provider)
     } else {
-      // Sync provider-level fields from preset (e.g. requiresApiKey, userAgent)
+      // Sync provider-level fields from preset (e.g. requiresApiKey, userAgent, defaultModel)
       const patch: Partial<Omit<AIProvider, 'id'>> = {}
       if (existing.requiresApiKey !== (preset.requiresApiKey ?? true)) {
         patch.requiresApiKey = preset.requiresApiKey ?? true
       }
       if (existing.userAgent !== preset.userAgent) {
         patch.userAgent = preset.userAgent
+      }
+      if (existing.defaultModel !== preset.defaultModel) {
+        patch.defaultModel = preset.defaultModel
       }
       if (Object.keys(patch).length > 0) {
         useProviderStore.getState().updateProvider(existing.id, patch)

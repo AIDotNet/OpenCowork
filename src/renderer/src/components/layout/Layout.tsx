@@ -607,9 +607,8 @@ export function Layout(): React.JSX.Element {
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <button
-                                  className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200 disabled:opacity-50"
+                                  className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200"
                                   onClick={() => useUIStore.getState().toggleRightPanel()}
-                                  disabled={isStreaming}
                                 >
                                   {useUIStore.getState().rightPanelOpen ? <PanelRightClose className="size-3.5 shrink-0" /> : <PanelRightOpen className="size-3.5 shrink-0" />}
                                   <span
@@ -664,7 +663,7 @@ export function Layout(): React.JSX.Element {
                     {/* Right: Cowork/Code Panel */}
                     <AnimatePresence>
                       {mode !== 'chat' && rightPanelOpen && (
-                        <PanelTransition side="right" disabled={isStreaming} className="h-full z-0">
+                        <PanelTransition side="right" disabled={false} className="h-full z-0">
                           <RightPanel compact={previewPanelOpen} />
                         </PanelTransition>
                       )}

@@ -551,6 +551,10 @@ export function useChatActions(): {
     // After a manual abort, stale errored/orphaned tool blocks can remain at tail
     // and break the next request. Clean them before appending new user input.
     chatStore.sanitizeToolErrorsForResend(sessionId)
+
+    // Strip old system-reminder blocks from previous messages to prevent accumulation
+    chatStore.stripOldSystemReminders(sessionId)
+
     baseProviderConfig.sessionId = sessionId
 
     // Override provider config if session has a bound provider+model (e.g. plugin sessions)

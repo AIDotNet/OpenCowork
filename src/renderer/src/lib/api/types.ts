@@ -193,6 +193,8 @@ export interface AIProvider {
   requiresApiKey?: boolean
   /** Custom User-Agent header (e.g. Moonshot套餐 requires 'RooCode/3.48.0') */
   userAgent?: string
+  /** Default model ID to use when this provider is first selected */
+  defaultModel?: string
 }
 
 // --- Provider Config ---

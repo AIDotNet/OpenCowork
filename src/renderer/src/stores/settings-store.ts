@@ -112,6 +112,7 @@ export const useSettingsStore = create<SettingsStore>()(
         // Web Search Settings
         webSearchEnabled: state.webSearchEnabled,
         webSearchProvider: state.webSearchProvider,
+        webSearchApiKey: state.webSearchApiKey,
         webSearchEngine: state.webSearchEngine,
         webSearchMaxResults: state.webSearchMaxResults,
         webSearchTimeout: state.webSearchTimeout,

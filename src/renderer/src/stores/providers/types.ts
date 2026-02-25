@@ -13,4 +13,6 @@ export interface BuiltinProviderPreset {
   apiKeyUrl?: string
   /** Custom User-Agent header for providers that require platform identification (e.g. Moonshot套餐) */
   userAgent?: string
+  /** Default model ID to use when this provider is first selected */
+  defaultModel?: string
 }

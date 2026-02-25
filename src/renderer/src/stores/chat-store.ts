@@ -156,6 +156,7 @@ interface ChatStore {
   truncateMessagesFrom: (sessionId: string, fromIndex: number) => void
   replaceSessionMessages: (sessionId: string, messages: UnifiedMessage[]) => void
   sanitizeToolErrorsForResend: (sessionId: string) => void
+  stripOldSystemReminders: (sessionId: string) => void
 
   // Message operations
   addMessage: (sessionId: string, msg: UnifiedMessage) => void
@@ -731,6 +732,46 @@ export const useChatStore = create<ChatStore>()(
       const sanitized = sanitizeToolBlocksForResend(session.messages)
       if (!sanitized.changed) return
       get().replaceSessionMessages(sessionId, sanitized.messages)
+    },
+
+    stripOldSystemReminders: (sessionId) => {
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (!session || session.messages.length === 0) return
+
+        let changed = false
+        for (const msg of session.messages) {
+          if (msg.role !== 'user') continue
+          if (typeof msg.content === 'string') continue
+          if (!Array.isArray(msg.content)) continue
+
+          // Filter out system-reminder blocks from user messages
+          const filtered = msg.content.filter((block) => {
+            if (block.type === 'text' && typeof block.text === 'string') {
+              return !block.text.trim().startsWith('<system-reminder>')
+            }
+            return true
+          })
+
+          if (filtered.length !== msg.content.length) {
+            msg.content = filtered
+            changed = true
+          }
+        }
+
+        if (changed) {
+          session.updatedAt = Date.now()
+        }
+      })
+
+      // Persist changes to DB
+      const session = get().sessions.find((s) => s.id === sessionId)
+      if (session) {
+        session.messages.forEach((msg) => {
+          dbUpdateMessage(msg.id, msg.content, msg.usage)
+        })
+        dbUpdateSession(sessionId, { updatedAt: session.updatedAt })
+      }
     },
 
     addMessage: (sessionId, msg) => {

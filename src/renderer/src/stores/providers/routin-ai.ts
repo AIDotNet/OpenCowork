@@ -8,6 +8,7 @@ export const routinAiPreset: BuiltinProviderPreset = {
   homepage: 'https://routin.ai',
   apiKeyUrl: 'https://routin.ai/dashboard/api-keys',
   defaultEnabled: true,
+  defaultModel: 'mimo-v2-flash',
   defaultModels: [
     // ── OpenAI — GPT-4o family (cache: 50% off input) ──
     { id: 'gpt-4o', name: 'GPT-4o', icon: 'openai', enabled: true, contextLength: 128_000, maxOutputTokens: 16_384, supportsVision: true, supportsFunctionCall: true, inputPrice: 2.5, outputPrice: 10, cacheCreationPrice: 2.5, cacheHitPrice: 1.25 },

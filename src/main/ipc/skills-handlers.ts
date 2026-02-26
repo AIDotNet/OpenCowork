@@ -13,6 +13,7 @@ export interface MarketSkillInfo {
   url: string
   github: string
   description?: string
+  source_path?: string
 }
 
 interface MarketSkillsData {
@@ -467,13 +468,142 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:market-list — return paginated market skills with optional search.
-   * Enriches skills with descriptions extracted from SKILL.md files.
+   * Normalise a raw skill object from the skillsmp API into MarketSkillInfo.
    */
-  ipcMain.handle('skills:market-list', async (_event, args: { offset?: number; limit?: number; query?: string }): Promise<{
+  function normaliseSkillsmpItem(s: Record<string, unknown>, index: number): MarketSkillInfo {
+    return {
+      id: String(s['id'] ?? s['name'] ?? index),
+      name: String(s['name'] ?? ''),
+      owner: String(s['owner'] ?? s['github_owner'] ?? ''),
+      repo: String(s['repo'] ?? s['github_repo'] ?? s['name'] ?? ''),
+      rank: Number(s['stars'] ?? s['rank'] ?? 0),
+      installs: Number(s['installs'] ?? s['downloads'] ?? 0),
+      url: String(s['url'] ?? s['marketplace_url'] ?? `https://skillsmp.com/skills/${s['name'] ?? ''}`),
+      github: String(s['github'] ?? s['github_url'] ?? ''),
+      description: s['description'] != null ? String(s['description']) : undefined,
+      source_path: s['source_path'] != null ? String(s['source_path']) : undefined,
+    }
+  }
+
+  /**
+   * Parse the skillsmp API JSON response into { total, skills }.
+   * Handles both top-level and nested data shapes.
+   */
+  function parseSkillsmpResponse(json: Record<string, unknown>): { total: number; skills: MarketSkillInfo[] } {
+    if (json['success'] === false) {
+      const err = json['error'] as Record<string, unknown> | undefined
+      throw new Error(String(err?.['message'] ?? 'skillsmp API returned failure'))
+    }
+
+    // Unwrap nested data if present
+    const data = (json['data'] ?? json) as Record<string, unknown>
+
+    const rawSkills: unknown[] = (
+      (data['skills'] as unknown[]) ??
+      (data['items'] as unknown[]) ??
+      (data['results'] as unknown[]) ??
+      []
+    )
+
+    const total: number =
+      (data['pagination'] != null ? (data['pagination'] as Record<string, unknown>)['total'] as number : undefined) ??
+      (data['total'] as number | undefined) ??
+      rawSkills.length
+
+    const skills = (rawSkills as Record<string, unknown>[]).map((s, i) => normaliseSkillsmpItem(s, i))
+    return { total: Number(total) || skills.length, skills }
+  }
+
+  /**
+   * Fetch skills from skillsmp.com using the documented REST API.
+   *
+   * Endpoints (https://skillsmp.com/docs/api):
+   *   GET /api/v1/skills/search?q=QUERY&page=N&limit=N&sortBy=stars|recent
+   *   GET /api/v1/skills/ai-search?q=QUERY   (semantic, no pagination)
+   *
+   * Notes:
+   *   - `q` is required for both endpoints; use empty string for full listing.
+   *   - /api/v1/skills (bare) does NOT exist.
+   *   - Rate limit: 500 req/day per API key.
+   */
+  async function fetchSkillsmpList(args: {
+    query?: string
+    offset?: number
+    limit?: number
+    apiKey: string
+    useAiSearch?: boolean
+  }): Promise<{ total: number; skills: MarketSkillInfo[] }> {
+    const base = 'https://skillsmp.com/api/v1'
+    const q = (args.query ?? '').trim()
+    const headers = { Authorization: `Bearer ${args.apiKey}` }
+
+    let endpoint: string
+
+    if (args.useAiSearch && q) {
+      // AI semantic search — no pagination parameters
+      endpoint = `${base}/skills/ai-search?q=${encodeURIComponent(q)}`
+    } else {
+      // Keyword search — supports pagination; q is required, use '*' to list all
+      const page = Math.floor((args.offset ?? 0) / (args.limit ?? 20)) + 1
+      const limit = Math.min(args.limit ?? 20, 100)
+      const params = new URLSearchParams({
+        q: q || '*',
+        page: String(page),
+        limit: String(limit),
+        sortBy: 'stars',
+      })
+      endpoint = `${base}/skills/search?${params}`
+    }
+
+    const res = await fetch(endpoint, { headers })
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      let detail = body
+      try {
+        const parsed = JSON.parse(body) as Record<string, unknown>
+        const err = parsed['error'] as Record<string, unknown> | undefined
+        if (err?.['message']) detail = String(err['message'])
+        if (parsed['success'] === false && err?.['code']) detail = `${err['code']}: ${detail}`
+      } catch { /* use raw body */ }
+      throw new Error(`skillsmp API ${res.status}: ${detail}`)
+    }
+
+    const json = await res.json() as Record<string, unknown>
+    return parseSkillsmpResponse(json)
+  }
+
+  /**
+   * skills:market-list — return paginated market skills with optional search.
+   * When provider=skillsmp, fetches from skillsmp.com API.
+   * Otherwise falls back to built-in local skills.json.
+   */
+  ipcMain.handle('skills:market-list', async (_event, args: {
+    offset?: number
+    limit?: number
+    query?: string
+    provider?: 'builtin' | 'skillsmp'
+    apiKey?: string
+  }): Promise<{
     total: number
     skills: MarketSkillInfo[]
   }> => {
+    // --- skillsmp provider ---
+    if (args.provider === 'skillsmp' && args.apiKey) {
+      try {
+        return await fetchSkillsmpList({
+          query: args.query,
+          offset: args.offset,
+          limit: args.limit,
+          apiKey: args.apiKey,
+        })
+      } catch (err) {
+        console.error('[Skills] skillsmp API error:', err)
+        return { total: 0, skills: [] }
+      }
+    }
+
+    // --- builtin provider (local skills.json) ---
     const data = loadMarketSkills()
     if (!data) return { total: 0, skills: [] }
 
@@ -490,7 +620,6 @@ export function registerSkillsHandlers(): void {
       let description = skill.description
       if (!description) {
         try {
-          // Try to read from docs/public/skills/{owner}/{name}/SKILL.md
           const skillPath = path.join(app.getAppPath(), 'docs', 'public', 'skills', skill.owner, skill.name, 'SKILL.md')
           if (fs.existsSync(skillPath)) {
             const content = fs.readFileSync(skillPath, 'utf-8')
@@ -512,32 +641,123 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
+   * Download skill files from GitHub using the raw content API.
+   * Fetches the file tree and downloads all text files into tempDir.
+   */
+  async function downloadFromGitHub(args: {
+    owner: string
+    repo: string
+    sourcePath?: string
+    tempDir: string
+  }): Promise<{ files: { path: string; content: string }[] }> {
+    const { owner, repo, sourcePath, tempDir } = args
+    const prefix = sourcePath ? sourcePath.replace(/^\/|\/$/, '') : ''
+
+    // Get the recursive file tree
+    const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`
+    const treeRes = await fetch(treeUrl, {
+      headers: { 'User-Agent': 'OpenCowork', Accept: 'application/vnd.github+json' },
+    })
+    if (!treeRes.ok) {
+      throw new Error(`GitHub tree API error ${treeRes.status} for ${owner}/${repo}`)
+    }
+    const treeJson = await treeRes.json() as { tree?: { path: string; type: string; url?: string }[] }
+    const tree = treeJson.tree ?? []
+
+    // Filter to blobs under the sourcePath prefix
+    const blobs = tree.filter((item) => {
+      if (item.type !== 'blob') return false
+      if (prefix) return item.path.startsWith(prefix + '/') || item.path === prefix
+      return true
+    })
+
+    const files: { path: string; content: string }[] = []
+    const textExts = new Set(['.md', '.txt', '.py', '.js', '.ts', '.sh', '.bash', '.ps1', '.bat',
+      '.cmd', '.rb', '.pl', '.yaml', '.yml', '.json', '.toml', '.cfg', '.ini', '.env'])
+
+    for (const blob of blobs) {
+      const relPath = prefix ? blob.path.slice(prefix.length).replace(/^\//, '') : blob.path
+      const ext = path.extname(relPath).toLowerCase()
+      if (textExts.has(ext) || relPath === 'SKILL.md') {
+        const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${blob.path}`
+        try {
+          const fileRes = await fetch(rawUrl, { headers: { 'User-Agent': 'OpenCowork' } })
+          if (!fileRes.ok) continue
+          const content = await fileRes.text()
+          // Write to temp directory
+          const destPath = path.join(tempDir, relPath)
+          fs.mkdirSync(path.dirname(destPath), { recursive: true })
+          fs.writeFileSync(destPath, content, 'utf-8')
+          files.push({ path: relPath, content })
+        } catch {
+          // Skip files that fail to download
+        }
+      }
+    }
+
+    return { files }
+  }
+
+  /**
    * skills:download-remote — download a skill from the remote marketplace to a temp directory.
    * Returns the temp path and file contents for agent review.
+   * When provider=skillsmp (or github URL available), downloads from GitHub.
+   * Falls back to local dev files when running in dev mode with builtin provider.
    */
-  ipcMain.handle('skills:download-remote', async (_event, args: { owner: string; repo: string; name: string }): Promise<{
+  ipcMain.handle('skills:download-remote', async (_event, args: {
+    owner: string
+    repo: string
+    name: string
+    provider?: 'builtin' | 'skillsmp'
+    apiKey?: string
+    skillId?: string
+    sourcePath?: string
+    github?: string
+  }): Promise<{
     tempPath?: string
     files?: { path: string; content: string }[]
     error?: string
   }> => {
     try {
-      // Create temp directory with timestamp, but skill subdirectory with actual name
       const tempBase = path.join(os.tmpdir(), 'opencowork-skills', `download-${Date.now()}`)
       const tempDir = path.join(tempBase, args.name)
       fs.mkdirSync(tempDir, { recursive: true })
 
-      // In dev mode, copy from docs/public/skills/{owner}/{name}/
-      // In production, this would download from the actual API
+      // --- skillsmp or any provider with a valid owner/repo: download from GitHub ---
+      if (args.provider === 'skillsmp' || (args.owner && args.repo)) {
+        try {
+          const { files } = await downloadFromGitHub({
+            owner: args.owner,
+            repo: args.repo,
+            sourcePath: args.sourcePath,
+            tempDir,
+          })
+
+          if (files.length === 0) {
+            return { error: `No files found in GitHub repo ${args.owner}/${args.repo}` }
+          }
+
+          // Ensure SKILL.md exists
+          if (!files.some((f) => f.path === 'SKILL.md')) {
+            return { error: `No SKILL.md found in ${args.owner}/${args.repo}` }
+          }
+
+          return { tempPath: tempDir, files }
+        } catch (err) {
+          console.error('[Skills] GitHub download failed, falling back to local:', err)
+          // Fall through to local fallback
+        }
+      }
+
+      // --- builtin provider: copy from local dev files ---
       const skillSourcePath = path.join(app.getAppPath(), 'docs', 'public', 'skills', args.owner, args.name)
 
       if (!fs.existsSync(skillSourcePath)) {
         return { error: `Skill not found: ${args.owner}/${args.name}` }
       }
 
-      // Copy skill files to temp directory
       copyDirRecursive(skillSourcePath, tempDir)
 
-      // Read all files for agent review
       const files: { path: string; content: string }[] = []
       function collectFiles(dir: string, prefix: string): void {
         const entries = fs.readdirSync(dir, { withFileTypes: true })

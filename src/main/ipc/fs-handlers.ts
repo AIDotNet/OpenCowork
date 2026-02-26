@@ -1,10 +1,20 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { ipcMain, dialog, BrowserWindow, app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { globSync } from 'glob'
 
 const IMAGE_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico', '.tiff', '.heic', '.heif',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.bmp',
+  '.webp',
+  '.svg',
+  '.ico',
+  '.tiff',
+  '.heic',
+  '.heif'
 ])
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
@@ -18,33 +28,39 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
   '.tiff': 'image/tiff',
   '.heic': 'image/heic',
-  '.heif': 'image/heif',
+  '.heif': 'image/heif'
 }
 
 export function registerFsHandlers(): void {
-  ipcMain.handle('fs:read-file', async (_event, args: { path: string; offset?: number; limit?: number }) => {
-    try {
-      const ext = path.extname(args.path).toLowerCase()
-      if (IMAGE_EXTENSIONS.has(ext)) {
-        const buffer = fs.readFileSync(args.path)
-        return {
-          type: 'image',
-          mediaType: IMAGE_MIME_TYPES[ext] || 'application/octet-stream',
-          data: buffer.toString('base64'),
+  ipcMain.handle(
+    'fs:read-file',
+    async (_event, args: { path: string; offset?: number; limit?: number }) => {
+      try {
+        const ext = path.extname(args.path).toLowerCase()
+        if (IMAGE_EXTENSIONS.has(ext)) {
+          const buffer = fs.readFileSync(args.path)
+          return {
+            type: 'image',
+            mediaType: IMAGE_MIME_TYPES[ext] || 'application/octet-stream',
+            data: buffer.toString('base64')
+          }
         }
+        const content = fs.readFileSync(args.path, 'utf-8')
+        if (args.offset !== undefined || args.limit !== undefined) {
+          const lines = content.split('\n')
+          const start = (args.offset ?? 1) - 1
+          const end = args.limit ? start + args.limit : lines.length
+          return lines
+            .slice(start, end)
+            .map((line, i) => `${start + i + 1}\t${line}`)
+            .join('\n')
+        }
+        return content
+      } catch (err) {
+        return JSON.stringify({ error: String(err) })
       }
-      const content = fs.readFileSync(args.path, 'utf-8')
-      if (args.offset !== undefined || args.limit !== undefined) {
-        const lines = content.split('\n')
-        const start = (args.offset ?? 1) - 1
-        const end = args.limit ? start + args.limit : lines.length
-        return lines.slice(start, end).map((line, i) => `${start + i + 1}\t${line}`).join('\n')
-      }
-      return content
-    } catch (err) {
-      return JSON.stringify({ error: String(err) })
     }
-  })
+  )
 
   ipcMain.handle('fs:write-file', async (_event, args: { path: string; content: string }) => {
     try {
@@ -65,7 +81,7 @@ export function registerFsHandlers(): void {
       return entries.map((e) => ({
         name: e.name,
         type: e.isDirectory() ? 'directory' : 'file',
-        path: path.join(args.path, e.name),
+        path: path.join(args.path, e.name)
       }))
     } catch (err) {
       return { error: String(err) }
@@ -103,10 +119,40 @@ export function registerFsHandlers(): void {
     const win = BrowserWindow.getFocusedWindow()
     if (!win) return { canceled: true }
     const result = await dialog.showOpenDialog(win, {
-      properties: ['openDirectory'],
+      properties: ['openDirectory']
     })
     if (result.canceled) return { canceled: true }
     return { path: result.filePaths[0] }
+  })
+
+  ipcMain.handle('fs:list-desktop-directories', async () => {
+    try {
+      const desktopPath = app.getPath('desktop')
+      const desktopName = path.basename(desktopPath) || 'Desktop'
+      const directories = fs
+        .readdirSync(desktopPath, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => ({
+          name: entry.name,
+          path: path.join(desktopPath, entry.name),
+          isDesktop: false
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+
+      return {
+        desktopPath,
+        directories: [
+          {
+            name: desktopName,
+            path: desktopPath,
+            isDesktop: true
+          },
+          ...directories
+        ]
+      }
+    } catch (err) {
+      return { error: String(err) }
+    }
   })
 
   ipcMain.handle('fs:glob', async (_event, args: { pattern: string; path?: string }) => {
@@ -118,157 +164,275 @@ export function registerFsHandlers(): void {
     }
   })
 
-  ipcMain.handle('fs:grep', async (_event, args: { pattern: string; path?: string; include?: string }) => {
-    try {
-      const searchDir = args.path || process.cwd()
-      const results: { file: string; line: number; text: string }[] = []
-      const MAX_RESULTS = 100
-      const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
-      const TIMEOUT_MS = 30000 // 30 seconds
-      const startTime = Date.now()
-
-      // Comprehensive ignore list (similar to ripgrep defaults)
-      const IGNORE_DIRS = new Set([
-        'node_modules', '.git', '.svn', '.hg', '.bzr',
-        'dist', 'build', 'out', '.next', '.nuxt', '.output',
-        'coverage', '.nyc_output', '.cache', '.parcel-cache',
-        'vendor', 'target', 'bin', 'obj', '.gradle',
-        '__pycache__', '.pytest_cache', '.mypy_cache',
-        '.venv', 'venv', 'env',
-      ])
-
-      // Binary file extensions to skip
-      const BINARY_EXTENSIONS = new Set([
-        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico',
-        '.mp4', '.avi', '.mov', '.mkv', '.mp3', '.wav', '.flac',
-        '.zip', '.tar', '.gz', '.rar', '.7z', '.exe', '.dll', '.so', '.dylib',
-        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-        '.woff', '.woff2', '.ttf', '.eot', '.otf',
-        '.db', '.sqlite', '.sqlite3',
-      ])
-
-      let regex: RegExp
+  ipcMain.handle(
+    'fs:grep',
+    async (_event, args: { pattern: string; path?: string; include?: string }) => {
       try {
-        regex = new RegExp(args.pattern, 'i')
-      } catch (err) {
-        return { error: `Invalid regex pattern: ${err}` }
-      }
+        const searchTarget = path.resolve(args.path || process.cwd())
+        const results: { file: string; line: number; text: string }[] = []
+        const MAX_RESULTS = 100
+        const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+        const TIMEOUT_MS = 30000 // 30 seconds
+        const startTime = Date.now()
 
-      // Check if file is likely binary by reading first few bytes
-      const isBinaryFile = (filePath: string): boolean => {
+        let targetStats: fs.Stats
         try {
+          targetStats = await fs.promises.stat(searchTarget)
+        } catch {
+          return { error: `Search path does not exist: ${searchTarget}` }
+        }
+
+        const searchRoot = targetStats.isDirectory() ? searchTarget : path.dirname(searchTarget)
+
+        // Comprehensive ignore list (similar to ripgrep defaults)
+        const IGNORE_DIRS = new Set([
+          'node_modules',
+          '.git',
+          '.svn',
+          '.hg',
+          '.bzr',
+          'dist',
+          'build',
+          'out',
+          '.next',
+          '.nuxt',
+          '.output',
+          'coverage',
+          '.nyc_output',
+          '.cache',
+          '.parcel-cache',
+          'vendor',
+          'target',
+          'bin',
+          'obj',
+          '.gradle',
+          '__pycache__',
+          '.pytest_cache',
+          '.mypy_cache',
+          '.venv',
+          'venv',
+          'env'
+        ])
+
+        // Binary file extensions to skip
+        const BINARY_EXTENSIONS = new Set([
+          '.png',
+          '.jpg',
+          '.jpeg',
+          '.gif',
+          '.bmp',
+          '.webp',
+          '.svg',
+          '.ico',
+          '.mp4',
+          '.avi',
+          '.mov',
+          '.mkv',
+          '.mp3',
+          '.wav',
+          '.flac',
+          '.zip',
+          '.tar',
+          '.gz',
+          '.rar',
+          '.7z',
+          '.exe',
+          '.dll',
+          '.so',
+          '.dylib',
+          '.pdf',
+          '.doc',
+          '.docx',
+          '.xls',
+          '.xlsx',
+          '.ppt',
+          '.pptx',
+          '.woff',
+          '.woff2',
+          '.ttf',
+          '.eot',
+          '.otf',
+          '.db',
+          '.sqlite',
+          '.sqlite3'
+        ])
+
+        let regex: RegExp
+        try {
+          regex = new RegExp(args.pattern, 'i')
+        } catch (err) {
+          return { error: `Invalid regex pattern: ${err}` }
+        }
+
+        const includePatterns = (args.include ?? '')
+          .split(',')
+          .map((pattern) => pattern.trim())
+          .filter(Boolean)
+
+        const includeRegexCache = new Map<string, RegExp>()
+
+        const escapeRegExp = (value: string): string => value.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+
+        const toIncludeRegex = (globPattern: string): RegExp => {
+          const cached = includeRegexCache.get(globPattern)
+          if (cached) return cached
+
+          const pattern = globPattern.replace(/\\/g, '/')
+          const escaped = escapeRegExp(pattern)
+          const regexBody = escaped
+            .replace(/\*\*/g, '__DOUBLE_STAR__')
+            .replace(/\*/g, '[^/]*')
+            .replace(/__DOUBLE_STAR__/g, '.*')
+            .replace(/\?/g, '.')
+
+          const compiled = new RegExp(`^${regexBody}$`, 'i')
+          includeRegexCache.set(globPattern, compiled)
+          return compiled
+        }
+
+        const matchesInclude = (filePath: string): boolean => {
+          if (includePatterns.length === 0) return true
+
+          const relPath = path.relative(searchRoot, filePath).replace(/\\/g, '/')
+          const fileName = path.basename(filePath)
           const ext = path.extname(filePath).toLowerCase()
-          if (BINARY_EXTENSIONS.has(ext)) return true
 
-          const buffer = Buffer.alloc(512)
-          const fd = fs.openSync(filePath, 'r')
-          const bytesRead = fs.readSync(fd, buffer, 0, 512, 0)
-          fs.closeSync(fd)
+          return includePatterns.some((rawPattern) => {
+            let pattern = rawPattern.replace(/\\/g, '/')
+            if (pattern.startsWith('./')) pattern = pattern.slice(2)
 
-          // Check for null bytes (common in binary files)
-          for (let i = 0; i < bytesRead; i++) {
-            if (buffer[i] === 0) return true
-          }
-          return false
-        } catch {
-          return true // Assume binary if can't read
-        }
-      }
-
-      const searchFile = async (filePath: string): Promise<boolean> => {
-        try {
-          // Check timeout
-          if (Date.now() - startTime > TIMEOUT_MS) {
-            return true // Signal to stop
-          }
-
-          // Check file size
-          const stats = await fs.promises.stat(filePath)
-          if (stats.size > MAX_FILE_SIZE) return false
-          if (stats.size === 0) return false
-
-          // Skip binary files
-          if (isBinaryFile(filePath)) return false
-
-          // Read file asynchronously
-          const content = await fs.promises.readFile(filePath, 'utf-8')
-          const lines = content.split('\n')
-
-          for (let i = 0; i < lines.length; i++) {
-            if (results.length >= MAX_RESULTS) return true // Stop early
-
-            const line = lines[i]
-            if (regex.test(line)) {
-              results.push({
-                file: path.relative(searchDir, filePath),
-                line: i + 1,
-                text: line.trim().slice(0, 200), // Limit line length
-              })
+            // Common shorthand: "**/*.ts" should match any nested file extension.
+            if (pattern.startsWith('**/')) {
+              pattern = pattern.slice(3)
             }
-          }
-          return false
-        } catch {
-          return false // Skip unreadable files
+
+            if (pattern.startsWith('*.') && !pattern.includes('/')) {
+              return ext === pattern.slice(1).toLowerCase()
+            }
+
+            if (!pattern.includes('*') && !pattern.includes('?')) {
+              const lowered = pattern.toLowerCase()
+              return (
+                fileName.toLowerCase() === lowered ||
+                relPath.toLowerCase() === lowered ||
+                ext === lowered
+              )
+            }
+
+            const regexPattern = toIncludeRegex(pattern)
+            return regexPattern.test(relPath) || regexPattern.test(fileName)
+          })
         }
-      }
 
-      const walkDir = async (dir: string): Promise<boolean> => {
-        try {
-          // Check timeout
-          if (Date.now() - startTime > TIMEOUT_MS) {
-            return true
+        // Check if file is likely binary by reading first few bytes
+        const isBinaryFile = (filePath: string): boolean => {
+          try {
+            const ext = path.extname(filePath).toLowerCase()
+            if (BINARY_EXTENSIONS.has(ext)) return true
+
+            const buffer = Buffer.alloc(512)
+            const fd = fs.openSync(filePath, 'r')
+            const bytesRead = fs.readSync(fd, buffer, 0, 512, 0)
+            fs.closeSync(fd)
+
+            // Check for null bytes (common in binary files)
+            for (let i = 0; i < bytesRead; i++) {
+              if (buffer[i] === 0) return true
+            }
+            return false
+          } catch {
+            return true // Assume binary if can't read
           }
+        }
 
-          const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+        const searchFile = async (filePath: string): Promise<boolean> => {
+          try {
+            // Check timeout
+            if (Date.now() - startTime > TIMEOUT_MS) {
+              return true // Signal to stop
+            }
 
-          for (const entry of entries) {
-            if (results.length >= MAX_RESULTS) return true
+            // Check file size
+            const stats = await fs.promises.stat(filePath)
+            if (stats.size > MAX_FILE_SIZE) return false
+            if (stats.size === 0) return false
 
-            const fullPath = path.join(dir, entry.name)
+            // Skip binary files
+            if (isBinaryFile(filePath)) return false
 
-            if (entry.isDirectory()) {
-              // Skip ignored directories
-              if (IGNORE_DIRS.has(entry.name) || entry.name.startsWith('.')) {
-                continue
-              }
-              const shouldStop = await walkDir(fullPath)
-              if (shouldStop) return true
-            } else if (entry.isFile()) {
-              // Apply include filter
-              if (args.include) {
-                const ext = path.extname(entry.name)
-                const matchesFilter = args.include.split(',').some(pattern => {
-                  const trimmed = pattern.trim()
-                  if (trimmed.startsWith('*.')) {
-                    return ext === trimmed.slice(1)
-                  }
-                  return ext === trimmed || entry.name === trimmed
+            // Read file asynchronously
+            const content = await fs.promises.readFile(filePath, 'utf-8')
+            const lines = content.split('\n')
+
+            for (let i = 0; i < lines.length; i++) {
+              if (results.length >= MAX_RESULTS) return true // Stop early
+
+              const line = lines[i]
+              if (regex.test(line)) {
+                results.push({
+                  file: path.relative(searchRoot, filePath),
+                  line: i + 1,
+                  text: line.trim().slice(0, 200) // Limit line length
                 })
-                if (!matchesFilter) continue
               }
-
-              const shouldStop = await searchFile(fullPath)
-              if (shouldStop) return true
             }
+            return false
+          } catch {
+            return false // Skip unreadable files
           }
-          return false
-        } catch {
-          return false // Skip unreadable dirs
         }
-      }
 
-      const timedOut = await walkDir(searchDir)
+        const walkDir = async (dir: string): Promise<boolean> => {
+          try {
+            // Check timeout
+            if (Date.now() - startTime > TIMEOUT_MS) {
+              return true
+            }
 
-      return {
-        results,
-        truncated: results.length >= MAX_RESULTS,
-        timedOut,
-        searchTime: Date.now() - startTime,
+            const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+
+            for (const entry of entries) {
+              if (results.length >= MAX_RESULTS) return true
+
+              const fullPath = path.join(dir, entry.name)
+
+              if (entry.isDirectory()) {
+                // Skip ignored directories
+                if (IGNORE_DIRS.has(entry.name) || entry.name.startsWith('.')) {
+                  continue
+                }
+                const shouldStop = await walkDir(fullPath)
+                if (shouldStop) return true
+              } else if (entry.isFile()) {
+                if (!matchesInclude(fullPath)) continue
+
+                const shouldStop = await searchFile(fullPath)
+                if (shouldStop) return true
+              }
+            }
+            return false
+          } catch {
+            return false // Skip unreadable dirs
+          }
+        }
+
+        const timedOut = targetStats.isDirectory()
+          ? await walkDir(searchTarget)
+          : matchesInclude(searchTarget)
+            ? await searchFile(searchTarget)
+            : false
+
+        return {
+          results,
+          truncated: results.length >= MAX_RESULTS,
+          timedOut,
+          searchTime: Date.now() - startTime
+        }
+      } catch (err) {
+        return { error: String(err) }
       }
-    } catch (err) {
-      return { error: String(err) }
     }
-  })
+  )
 
   ipcMain.handle(
     'fs:save-image',
@@ -277,7 +441,7 @@ export function registerFsHandlers(): void {
       if (!win) return { canceled: true }
       const result = await dialog.showSaveDialog(win, {
         defaultPath: args.defaultName,
-        filters: [{ name: 'PNG Image', extensions: ['png'] }],
+        filters: [{ name: 'PNG Image', extensions: ['png'] }]
       })
       if (result.canceled || !result.filePath) return { canceled: true }
       try {
@@ -356,5 +520,53 @@ export function registerFsHandlers(): void {
       debounceTimers.delete(filePath)
     }
     return { success: true }
+  })
+
+  ipcMain.handle('fs:select-file', async (_event, args?: { filters?: Electron.FileFilter[] }) => {
+    const win = BrowserWindow.getFocusedWindow()
+    if (!win) return { canceled: true }
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      filters: args?.filters ?? [
+        {
+          name: 'Documents',
+          extensions: [
+            'md',
+            'txt',
+            'docx',
+            'pdf',
+            'html',
+            'csv',
+            'json',
+            'xml',
+            'yaml',
+            'yml',
+            'ts',
+            'js',
+            'tsx',
+            'jsx'
+          ]
+        },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    })
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true }
+    return { path: result.filePaths[0] }
+  })
+
+  ipcMain.handle('fs:read-document', async (_event, args: { path: string }) => {
+    try {
+      const ext = path.extname(args.path).toLowerCase()
+      if (ext === '.docx') {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const mammoth = require('mammoth') as typeof import('mammoth')
+        const result = await mammoth.extractRawText({ path: args.path })
+        return { content: result.value, name: path.basename(args.path) }
+      }
+      const content = fs.readFileSync(args.path, 'utf-8')
+      return { content, name: path.basename(args.path) }
+    } catch (err) {
+      return { error: String(err) }
+    }
   })
 }

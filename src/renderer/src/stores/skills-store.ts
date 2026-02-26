@@ -224,7 +224,15 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
     const offset = reset ? 0 : get().marketOffset
     set({ marketLoading: true, marketQuery: q })
     try {
-      const result = (await ipcClient.invoke('skills:market-list', { offset, limit: 50, query: q })) as {
+      const { useSettingsStore } = await import('@renderer/stores/settings-store')
+      const { skillsMarketProvider, skillsMarketApiKey } = useSettingsStore.getState()
+      const result = (await ipcClient.invoke('skills:market-list', {
+        offset,
+        limit: 50,
+        query: q,
+        provider: skillsMarketProvider,
+        apiKey: skillsMarketApiKey,
+      })) as {
         total: number
         skills: MarketSkillInfo[]
       }
@@ -255,11 +263,18 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
     set({ installDialogOpen: true, installSourcePath: null, installScanResult: null, scanning: true, installing: false, agentReviewText: '', agentReviewDone: false, agentReviewPassed: null })
 
     try {
+      const { useSettingsStore } = await import('@renderer/stores/settings-store')
+      const { skillsMarketProvider, skillsMarketApiKey } = useSettingsStore.getState()
       // Download from remote API
       const downloadResult = (await ipcClient.invoke('skills:download-remote', {
         owner: skill.owner,
         repo: skill.repo,
         name: skill.name,
+        provider: skillsMarketProvider,
+        apiKey: skillsMarketApiKey,
+        skillId: skill.id,
+        sourcePath: skill.source_path,
+        github: skill.github,
       })) as { tempPath?: string; files?: { path: string; content: string }[]; error?: string }
 
       if (downloadResult.error || !downloadResult.tempPath) {

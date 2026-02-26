@@ -33,7 +33,9 @@ class OpenAIChatProvider implements APIProvider {
     }
 
     // Enable prompt caching for OpenAI endpoints to reduce costs
-    if (isOpenAI && config.sessionId) body.prompt_cache_key = `opencowork-${config.sessionId}`
+    if (config.sessionId ) {
+      body.prompt_cache_key = `opencowork-${config.sessionId}`
+    }
 
     if (tools.length > 0) {
       body.tools = this.formatTools(tools)

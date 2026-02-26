@@ -39,6 +39,11 @@ import { usePluginStore } from '@renderer/stores/plugin-store'
 import { registerPluginTools, unregisterPluginTools, isPluginToolsRegistered } from '@renderer/lib/plugins/plugin-tools'
 import { useMcpStore } from '@renderer/stores/mcp-store'
 import { registerMcpTools, unregisterMcpTools, isMcpToolsRegistered } from '@renderer/lib/mcp/mcp-tools'
+import {
+  joinFsPath,
+  loadOptionalMemoryFile,
+  loadGlobalMemorySnapshot
+} from '@renderer/lib/agent/memory-files'
 
 /** Per-session abort controllers — module-level so concurrent sessions don't overwrite each other */
 const sessionAbortControllers = new Map<string, AbortController>()
@@ -486,6 +491,7 @@ export function useChatActions(): {
     const effectiveMaxTokens = useProviderStore.getState().getEffectiveMaxTokens(settings.maxTokens)
     const activeModelThinkingConfig = useProviderStore.getState().getActiveModelThinkingConfig()
     const thinkingEnabled = settings.thinkingEnabled && !!activeModelThinkingConfig
+    const activeModelConfig = useProviderStore.getState().getActiveModelConfig()
     const baseProviderConfig: ProviderConfig | null = providerConfig
       ? {
           ...providerConfig,
@@ -494,7 +500,10 @@ export function useChatActions(): {
           systemPrompt: settings.systemPrompt || undefined,
           thinkingEnabled,
           thinkingConfig: activeModelThinkingConfig,
-          reasoningEffort: settings.reasoningEffort
+          reasoningEffort: settings.reasoningEffort,
+          responseSummary: activeModelConfig?.responseSummary,
+          enablePromptCache: activeModelConfig?.enablePromptCache,
+          enableSystemPromptCache: activeModelConfig?.enableSystemPromptCache
         }
       : settings.apiKey
         ? {
@@ -507,7 +516,10 @@ export function useChatActions(): {
             systemPrompt: settings.systemPrompt || undefined,
             thinkingEnabled,
             thinkingConfig: activeModelThinkingConfig,
-            reasoningEffort: settings.reasoningEffort
+            reasoningEffort: settings.reasoningEffort,
+            responseSummary: activeModelConfig?.responseSummary,
+            enablePromptCache: activeModelConfig?.enablePromptCache,
+            enableSystemPromptCache: activeModelConfig?.enableSystemPromptCache
           }
         : null
 
@@ -571,23 +583,19 @@ export function useChatActions(): {
         baseProviderConfig.baseUrl = sessionProviderConfig.baseUrl
         baseProviderConfig.model = sessionProviderConfig.model
         baseProviderConfig.requiresApiKey = sessionProviderConfig.requiresApiKey
+        baseProviderConfig.responseSummary = sessionProviderConfig.responseSummary
+          ?? useProviderStore.getState().getActiveModelConfig()?.responseSummary
+        baseProviderConfig.enablePromptCache = sessionProviderConfig.enablePromptCache
+          ?? useProviderStore.getState().getActiveModelConfig()?.enablePromptCache
+        baseProviderConfig.enableSystemPromptCache = sessionProviderConfig.enableSystemPromptCache
+          ?? useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache
       }
     }
 
     const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
     const sessionMode = sessionSnapshot?.mode ?? uiStore.mode
 
-    // Build dynamic context for every message in cowork/code mode (skip for team notifications)
-    const currentMode = sessionMode
-    const shouldInjectContext = (currentMode === 'cowork' || currentMode === 'code') && !source
-
-    let dynamicContext = ''
-    if (shouldInjectContext) {
-      const { buildDynamicContext } = await import('@renderer/lib/agent/dynamic-context')
-      dynamicContext = buildDynamicContext({ sessionId })
-    }
-
-    // Add user message (multi-modal when images attached, with optional dynamic context)
+    // Add user message (multi-modal when images attached)
     let userContent: string | ContentBlock[]
     const isQueuedInsertion = source === 'queued'
     const normalizedText = text.trim()
@@ -622,18 +630,8 @@ export function useChatActions(): {
         }),
         ...(text ? [{ type: 'text' as const, text }] : [])
       ]
-      // Prepend dynamic context if needed
-      if (dynamicContext) {
-        userContent.unshift({ type: 'text' as const, text: dynamicContext })
-      }
-    } else if (dynamicContext) {
-      // No images but has dynamic context: use ContentBlock[] format
-      userContent = [
-        { type: 'text' as const, text: dynamicContext },
-        { type: 'text' as const, text }
-      ]
     } else {
-      // No images, no dynamic context: use simple string
+      // No images: use simple string
       userContent = text
     }
 
@@ -817,18 +815,15 @@ export function useChatActions(): {
 
       // Load AGENTS.md memory file from working directory
       let agentsMemory: string | undefined
+      let globalMemory: string | undefined
       if (session?.workingFolder) {
-        try {
-          const sep = session.workingFolder.includes('\\') ? '\\' : '/'
-          const memoryPath = `${session.workingFolder}${sep}AGENTS.md`
-          const content = await ipcClient.invoke('fs:read-file', { path: memoryPath })
-          if (typeof content === 'string' && content.trim()) {
-            agentsMemory = content
-          }
-        } catch {
-          // AGENTS.md doesn't exist yet — that's fine
-        }
+        const projectMemoryPath = joinFsPath(session.workingFolder, 'AGENTS.md')
+        agentsMemory = await loadOptionalMemoryFile(ipcClient, projectMemoryPath)
       }
+
+      const globalMemorySnapshot = await loadGlobalMemorySnapshot(ipcClient)
+      globalMemory = globalMemorySnapshot.content
+      const globalMemoryPath = globalMemorySnapshot.path
 
       const agentSystemPrompt = buildSystemPrompt({
         mode: mode as 'cowork' | 'code',
@@ -837,7 +832,9 @@ export function useChatActions(): {
         toolDefs: finalEffectiveToolDefs,
         language: useSettingsStore.getState().language,
         planMode: isPlanMode,
-        agentsMemory
+        agentsMemory,
+        globalMemory,
+        globalMemoryPath
       })
       const agentProviderConfig: ProviderConfig = {
         ...baseProviderConfig,
@@ -926,8 +923,49 @@ export function useChatActions(): {
 
       try {
         const messages = useChatStore.getState().getSessionMessages(sessionId)
+        let messagesToSend = messages.slice(0, -1) // Exclude the empty assistant placeholder
+
+        // Build and inject dynamic context into the last user message
+        const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+        const sessionMode = sessionSnapshot?.mode ?? uiStore.mode
+        const shouldInjectContext = (sessionMode === 'cowork' || sessionMode === 'code')
+
+        if (shouldInjectContext && messagesToSend.length > 0) {
+          const { buildDynamicContext } = await import('@renderer/lib/agent/dynamic-context')
+          const dynamicContext = buildDynamicContext({ sessionId })
+
+          if (dynamicContext) {
+            // Find the last user message and prepend dynamic context to its content
+            const lastUserIndex = messagesToSend.findLastIndex(m => m.role === 'user')
+            if (lastUserIndex >= 0) {
+              const lastUserMsg = messagesToSend[lastUserIndex]
+              const contextBlock = { type: 'text' as const, text: dynamicContext }
+
+              let newContent: ContentBlock[]
+              if (typeof lastUserMsg.content === 'string') {
+                newContent = [contextBlock, { type: 'text' as const, text: lastUserMsg.content }]
+              } else {
+                newContent = [contextBlock, ...lastUserMsg.content]
+              }
+
+              console.log('[Dynamic Context] Injecting context into last user message:', {
+                messageId: lastUserMsg.id,
+                originalContentType: typeof lastUserMsg.content,
+                newContentLength: newContent.length,
+                contextPreview: dynamicContext.substring(0, 100)
+              })
+
+              messagesToSend = [
+                ...messagesToSend.slice(0, lastUserIndex),
+                { ...lastUserMsg, content: newContent },
+                ...messagesToSend.slice(lastUserIndex + 1)
+              ]
+            }
+          }
+        }
+
         const loop = runAgentLoop(
-          messages.slice(0, -1), // Exclude the empty assistant placeholder
+          messagesToSend,
           loopConfig,
           {
             sessionId,
@@ -961,6 +999,17 @@ export function useChatActions(): {
             case 'thinking_delta':
               hasThinkingDelta = true
               streamDeltaBuffer.pushThinking(event.thinking)
+              break
+
+            case 'thinking_encrypted':
+              if (event.thinkingEncryptedContent && event.thinkingEncryptedProvider) {
+                useChatStore.getState().setThinkingEncryptedContent(
+                  sessionId!,
+                  assistantMsgId,
+                  event.thinkingEncryptedContent,
+                  event.thinkingEncryptedProvider
+                )
+              }
               break
 
             case 'text_delta':
@@ -1099,7 +1148,7 @@ export function useChatActions(): {
               if (event.usage) {
                 mergeUsage(accumulatedUsage, event.usage)
                 // contextTokens = last API call's input tokens (overwrite, not accumulate)
-                accumulatedUsage.contextTokens = event.usage.inputTokens
+                accumulatedUsage.contextTokens = event.usage.contextTokens ?? event.usage.inputTokens
               }
               if (event.timing) {
                 requestTimings.push(event.timing)
@@ -1457,6 +1506,16 @@ async function runSimpleChat(
           hasThinkingDelta = true
           streamDeltaBuffer.pushThinking(event.thinking!)
           break
+        case 'thinking_encrypted':
+          if (event.thinkingEncryptedContent && event.thinkingEncryptedProvider) {
+            useChatStore.getState().setThinkingEncryptedContent(
+              sessionId,
+              assistantMsgId,
+              event.thinkingEncryptedContent,
+              event.thinkingEncryptedProvider
+            )
+          }
+          break
         case 'text_delta':
           if (!thinkingDone) {
             const chunk = event.text ?? ''
@@ -1496,7 +1555,7 @@ async function runSimpleChat(
           }
           if (event.usage) {
             useChatStore.getState().updateMessage(sessionId, assistantMsgId, {
-              usage: { ...event.usage, contextTokens: event.usage.inputTokens }
+              usage: { ...event.usage, contextTokens: event.usage.contextTokens ?? event.usage.inputTokens }
             })
           }
           break

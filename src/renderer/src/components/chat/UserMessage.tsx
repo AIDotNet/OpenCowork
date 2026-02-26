@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Avatar, AvatarFallback } from '@renderer/components/ui/avatar'
 import { Button } from '@renderer/components/ui/button'
+import { Dialog, DialogContent, DialogTitle } from '@renderer/components/ui/dialog'
 import { User, Pencil, Check, X, Copy } from 'lucide-react'
 import { formatTokens } from '@renderer/lib/format-tokens'
 import { useMemoizedTokens } from '@renderer/hooks/use-estimated-tokens'
@@ -53,6 +54,7 @@ export function UserMessage({ content, images, isLast, onEdit }: UserMessageProp
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState(plainText)
   const [copied, setCopied] = useState(false)
+  const [previewImageSrc, setPreviewImageSrc] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -150,14 +152,34 @@ export function UserMessage({ content, images, isLast, onEdit }: UserMessageProp
                       key={idx}
                       src={src}
                       alt=""
-                      className="max-w-[240px] max-h-[180px] rounded-lg border border-border/60 shadow-sm object-contain cursor-pointer hover:shadow-md transition-shadow"
-                      onClick={() => window.open(src, '_blank')}
+                      className="max-w-[240px] max-h-[180px] rounded-lg border border-border/60 shadow-sm object-contain cursor-zoom-in hover:shadow-md transition-shadow"
+                      onClick={() => {
+                        if (src) setPreviewImageSrc(src)
+                      }}
                     />
                   )
                 })}
               </div>
             )}
             {plainText && <div className="text-sm whitespace-pre-wrap leading-relaxed">{plainText}</div>}
+
+            <Dialog
+              open={Boolean(previewImageSrc)}
+              onOpenChange={(open) => {
+                if (!open) setPreviewImageSrc(null)
+              }}
+            >
+              <DialogContent className="w-auto max-w-[min(96vw,1100px)] p-2">
+                <DialogTitle className="sr-only">Image preview</DialogTitle>
+                {previewImageSrc && (
+                  <img
+                    src={previewImageSrc}
+                    alt="Image preview"
+                    className="max-h-[85vh] max-w-[92vw] rounded object-contain"
+                  />
+                )}
+              </DialogContent>
+            </Dialog>
           </>
         )}
         {!editing && plainText.length > 50 && (

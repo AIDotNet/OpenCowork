@@ -16,6 +16,16 @@ function getTeamTasks(): TeamTask[] {
   return useTeamStore.getState().activeTeam?.tasks ?? []
 }
 
+function getStandaloneTasks(sessionId?: string): TaskItem[] {
+  const store = useTaskStore.getState()
+  return sessionId ? store.getTasksBySession(sessionId) : store.getTasks()
+}
+
+function getStandaloneTask(taskId: string, sessionId?: string): TaskItem | undefined {
+  if (!sessionId) return useTaskStore.getState().getTask(taskId)
+  return getStandaloneTasks(sessionId).find((t) => t.id === taskId)
+}
+
 // ── TaskCreate ──
 
 const taskCreateHandler: ToolHandler = {
@@ -120,7 +130,7 @@ const taskGetHandler: ToolHandler = {
       required: ['taskId'],
     },
   },
-  execute: async (input) => {
+  execute: async (input, ctx) => {
     const taskId = String(input.taskId)
 
     if (hasActiveTeam()) {
@@ -137,8 +147,9 @@ const taskGetHandler: ToolHandler = {
       })
     }
 
-    const task = useTaskStore.getState().getTask(taskId)
+    const task = getStandaloneTask(taskId, ctx.sessionId)
     if (!task) return JSON.stringify({ error: `Task "${taskId}" not found` })
+
     return JSON.stringify({
       id: task.id,
       subject: task.subject,
@@ -196,7 +207,7 @@ const taskUpdateHandler: ToolHandler = {
       required: ['taskId'],
     },
   },
-  execute: async (input) => {
+  execute: async (input, ctx) => {
     const taskId = String(input.taskId)
     const newStatus = input.status ? String(input.status) : undefined
 
@@ -239,7 +250,7 @@ const taskUpdateHandler: ToolHandler = {
 
     // --- Standalone mode ---
     const store = useTaskStore.getState()
-    const task = store.getTask(taskId)
+    const task = getStandaloneTask(taskId, ctx.sessionId)
     if (!task) return JSON.stringify({ error: `Task "${taskId}" not found` })
 
     if (newStatus === 'deleted') {
@@ -262,7 +273,7 @@ const taskUpdateHandler: ToolHandler = {
       patch.blocks = [...new Set([...task.blocks, ...newBlocks])]
       // Also add this task to the blockedBy list of the target tasks
       for (const blockedId of newBlocks) {
-        const blocked = store.getTask(blockedId)
+        const blocked = getStandaloneTask(blockedId, ctx.sessionId)
         if (blocked) {
           store.updateTask(blockedId, {
             blockedBy: [...new Set([...blocked.blockedBy, taskId])],
@@ -275,7 +286,7 @@ const taskUpdateHandler: ToolHandler = {
       patch.blockedBy = [...new Set([...task.blockedBy, ...newBlockedBy])]
       // Also add this task to the blocks list of the dependency tasks
       for (const depId of newBlockedBy) {
-        const dep = store.getTask(depId)
+        const dep = getStandaloneTask(depId, ctx.sessionId)
         if (dep) {
           store.updateTask(depId, {
             blocks: [...new Set([...dep.blocks, taskId])],
@@ -311,7 +322,7 @@ const taskListHandler: ToolHandler = {
       properties: {},
     },
   },
-  execute: async () => {
+  execute: async (_input, ctx) => {
     if (hasActiveTeam()) {
       const team = useTeamStore.getState().activeTeam!
       const tasks = team.tasks
@@ -329,7 +340,8 @@ const taskListHandler: ToolHandler = {
       })
     }
 
-    const tasks = useTaskStore.getState().getTasks()
+    const tasks = getStandaloneTasks(ctx.sessionId)
+
     return JSON.stringify({
       mode: 'standalone',
       total: tasks.length,
@@ -339,7 +351,7 @@ const taskListHandler: ToolHandler = {
         status: t.status,
         owner: t.owner,
         blockedBy: t.blockedBy.filter(
-          (bid) => useTaskStore.getState().getTask(bid)?.status !== 'completed'
+          (bid) => getStandaloneTask(bid, ctx.sessionId)?.status !== 'completed'
         ),
       })),
     })

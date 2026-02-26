@@ -11,10 +11,160 @@ export const routinAiPreset: BuiltinProviderPreset = {
   defaultModel: 'mimo-v2-flash',
   defaultModels: [
     // ── OpenAI — GPT-4o family (cache: 50% off input) ──
-    { id: 'gpt-4o', name: 'GPT-4o', icon: 'openai', enabled: true, contextLength: 128_000, maxOutputTokens: 16_384, supportsVision: true, supportsFunctionCall: true, inputPrice: 2.5, outputPrice: 10, cacheCreationPrice: 2.5, cacheHitPrice: 1.25 },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini', icon: 'openai', enabled: true, contextLength: 128_000, maxOutputTokens: 16_384, supportsVision: true, supportsFunctionCall: true, inputPrice: 0.15, outputPrice: 0.6, cacheCreationPrice: 0.15, cacheHitPrice: 0.075 },
+    {
+      id: 'gpt-4o',
+      name: 'GPT-4o',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 128_000,
+      maxOutputTokens: 16_384,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2.5,
+      outputPrice: 10,
+      cacheCreationPrice: 2.5,
+      cacheHitPrice: 1.25
+    },
+    {
+      id: 'gpt-4o-mini', name: 'GPT-4o Mini', icon: 'openai',
+      enabled: true,
+      contextLength: 128_000,
+      maxOutputTokens: 16_384,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.15,
+      outputPrice: 0.6,
+      cacheCreationPrice: 0.15,
+      cacheHitPrice: 0.075
+    },
     // ── OpenAI — O-series reasoning (cache: 50% off input) ──
-    { id: 'o3-mini', name: 'o3 Mini', icon: 'openai', enabled: true, contextLength: 200_000, maxOutputTokens: 100_000, supportsVision: false, supportsFunctionCall: true, inputPrice: 1.1, outputPrice: 4.4, cacheCreationPrice: 1.1, cacheHitPrice: 0.55, supportsThinking: true, thinkingConfig: { bodyParams: { reasoning_effort: 'medium' }, reasoningEffortLevels: ['low', 'medium', 'high'], defaultReasoningEffort: 'medium' } },
+    {
+      id: 'o1',
+      name: 'o1',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 15.00,
+      outputPrice: 60.00,
+      cacheCreationPrice: 15.00,
+      cacheHitPrice: 7.50,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    }, {
+      id: 'o1-pro',
+      name: 'o1 Pro',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 150.00,
+      outputPrice: 600.00,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'o1-mini',
+      name: 'o1 Mini',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 1.1,
+      outputPrice: 4.4,
+      cacheCreationPrice: 1.1,
+      cacheHitPrice: 0.55,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'o3-mini',
+      name: 'o3 Mini',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 1.1,
+      outputPrice: 4.4,
+      cacheCreationPrice: 1.1,
+      cacheHitPrice: 0.55,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'o3-pro',
+      name: 'o3 Pro',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 20.00,
+      outputPrice: 80.00,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'o4-mini',
+      name: 'o4 Mini',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 1.1,
+      outputPrice: 4.4,
+      cacheCreationPrice: 1.1,
+      cacheHitPrice: 0.55,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
     // ── OpenAI — GPT-4.1 family (cache: 75% off input) ──
     { id: 'gpt-4.1', name: 'GPT-4.1', icon: 'openai', enabled: true, contextLength: 1_048_576, maxOutputTokens: 32_768, supportsVision: true, supportsFunctionCall: true, inputPrice: 2, outputPrice: 8, cacheCreationPrice: 2, cacheHitPrice: 0.5 },
     { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', icon: 'openai', enabled: true, contextLength: 1_048_576, maxOutputTokens: 32_768, supportsVision: true, supportsFunctionCall: true, inputPrice: 0.4, outputPrice: 1.6, cacheCreationPrice: 0.4, cacheHitPrice: 0.1 },
@@ -36,12 +186,11 @@ export const routinAiPreset: BuiltinProviderPreset = {
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: {
-          reasoning_effort: 'medium'
         },
-        reasoningEffortLevels:
-          ['minimal', 'low', 'medium', 'high'],
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
         defaultReasoningEffort: 'medium'
-      }
+      },
+      type: 'openai-responses'
     },
     {
       id: 'gpt-5.1-chat',
@@ -57,7 +206,13 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheCreationPrice: 1.75,
       cacheHitPrice: 0.175,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' }, reasoningEffortLevels: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'], defaultReasoningEffort: 'medium' }
+      thinkingConfig: {
+        bodyParams: {
+        },
+        reasoningEffortLevels: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium'
+      },
+      type: 'openai-responses'
     },
     {
       id: 'gpt-5.2-chat',
@@ -73,7 +228,13 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheCreationPrice: 1.75,
       cacheHitPrice: 0.175,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' }, reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh'], defaultReasoningEffort: 'medium' }
+      thinkingConfig: {
+        bodyParams: {
+        },
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium'
+      },
+      type: 'openai-responses'
     },
     {
       id: "gpt-5",
@@ -89,7 +250,13 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheCreationPrice: 1.25,
       cacheHitPrice: 0.125,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' }, reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'], defaultReasoningEffort: 'medium' }
+      thinkingConfig: {
+        bodyParams: {
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      },
+      type: 'openai-responses'
     },
     {
       id: "gpt-5.1",
@@ -105,7 +272,13 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheCreationPrice: 1.25,
       cacheHitPrice: 0.125,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' }, reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'], defaultReasoningEffort: 'medium' }
+      thinkingConfig: {
+        bodyParams: {
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      },
+      type: 'openai-responses'
     },
     {
       id: "gpt-5.2",
@@ -121,7 +294,16 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheCreationPrice: 1.75,
       cacheHitPrice: 0.175,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' }, reasoningEffortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'], defaultReasoningEffort: 'medium' }
+      thinkingConfig: {
+        bodyParams: {
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
     },
     {
       id: "gpt-5-codex",
@@ -137,7 +319,17 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheCreationPrice: 1.25,
       cacheHitPrice: 0.125,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' }, reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'], defaultReasoningEffort: 'medium' }
+      thinkingConfig: {
+        bodyParams: {
+
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
     },
     {
       id: "gpt-5.1-codex",
@@ -153,7 +345,66 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheCreationPrice: 1.25,
       cacheHitPrice: 0.125,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' }, reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'], defaultReasoningEffort: 'medium' }
+      thinkingConfig: {
+        bodyParams: {
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
+    {
+      id: "gpt-5.1-codex-max",
+      name: "GPT 5.1 Codex Max",
+      icon: 'openai',
+      enabled: true,
+      contextLength: 400_000,
+      maxOutputTokens: 64_384,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 1.25,
+      outputPrice: 10,
+      cacheCreationPrice: 1.25,
+      cacheHitPrice: 0.125,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
+    {
+      id: "gpt-5.1-codex-mini",
+      name: "GPT 5.1 Codex Mini",
+      icon: 'openai',
+      enabled: true,
+      contextLength: 400_000,
+      maxOutputTokens: 64_384,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 0.25,
+      outputPrice: 2.00,
+      cacheCreationPrice: 0.25,
+      cacheHitPrice: 0.025,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
     },
     {
       id: "gpt-5.2-codex",
@@ -169,7 +420,87 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheCreationPrice: 1.75,
       cacheHitPrice: 0.175,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' }, reasoningEffortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'], defaultReasoningEffort: 'medium' },
+      thinkingConfig: {
+        bodyParams: {
+
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
+    {
+      id: "gpt-5.3-codex",
+      name: "GPT 5.3 Codex",
+      icon: 'openai',
+      enabled: true,
+      contextLength: 400_000,
+      maxOutputTokens: 64_384,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 1.75,
+      outputPrice: 14,
+      cacheCreationPrice: 1.75,
+      cacheHitPrice: 0.175,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'], defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
+    {
+      id: "gpt-5-pro",
+      name: "GPT 5 Pro",
+      icon: 'openai',
+      enabled: true,
+      contextLength: 400_000,
+      maxOutputTokens: 272_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 15,
+      outputPrice: 120,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'], defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
+    {
+      id: "gpt-5.2-pro",
+      name: "GPT 5.2 Pro",
+      icon: 'openai',
+      enabled: true,
+      contextLength: 400_000,
+      maxOutputTokens: 272_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 21.00,
+      outputPrice: 168.00,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+
+        },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'], defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
       type: 'openai-responses'
     },
     {
@@ -187,10 +518,15 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheHitPrice: 0.25,
       supportsThinking: true,
       thinkingConfig: {
-        bodyParams: { reasoning_effort: 'medium' },
+        bodyParams: {
+
+        },
         reasoningEffortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
         defaultReasoningEffort: 'medium'
       },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
       type: 'openai-responses'
     },
 

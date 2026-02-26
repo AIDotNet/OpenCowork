@@ -1,14 +1,23 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Search, FolderOpen, Trash2, Plus, Wand2, ArrowLeft, Pencil, Eye, Save, Download, FileText, FileCode, CheckCircle2, Loader2 } from 'lucide-react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import { Search, FolderOpen, Trash2, Plus, Wand2, ArrowLeft, Pencil, Eye, Save, Download, FileText, FileCode, CheckCircle2, Loader2, Settings2, ExternalLink, AlertCircle, KeyRound } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@renderer/lib/utils'
 import { useSkillsStore, type ScanFileInfo, type MarketSkillInfo } from '@renderer/stores/skills-store'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
+import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@renderer/components/ui/select'
 import { toast } from 'sonner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { SkillInstallDialog } from './SkillInstallDialog'
@@ -114,6 +123,110 @@ function MarketSkillCard({
   )
 }
 
+// ── Market Provider Config Popover ──────────────────────────────────────────
+function MarketProviderConfig(): React.JSX.Element {
+  const { t } = useTranslation('settings')
+  const provider = useSettingsStore((s) => s.skillsMarketProvider)
+  const apiKey = useSettingsStore((s) => s.skillsMarketApiKey)
+  const updateSettings = useSettingsStore((s) => s.updateSettings)
+  const loadMarketSkills = useSkillsStore((s) => s.loadMarketSkills)
+
+  const handleProviderChange = useCallback((value: 'builtin' | 'skillsmp') => {
+    updateSettings({ skillsMarketProvider: value })
+    // Reload after a tick so store update propagates
+    setTimeout(() => void loadMarketSkills('', true), 50)
+  }, [updateSettings, loadMarketSkills])
+
+  const handleApiKeyChange = useCallback((value: string) => {
+    updateSettings({ skillsMarketApiKey: value })
+  }, [updateSettings])
+
+  const handleReload = useCallback(() => {
+    void loadMarketSkills('', true)
+  }, [loadMarketSkills])
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+        >
+          <Settings2 className="size-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-4 space-y-4">
+        <div>
+          <p className="text-sm font-semibold">{t('skillsmarket.title')}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{t('skillsmarket.providerDesc')}</p>
+        </div>
+
+        {/* Provider selector */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium">{t('skillsmarket.provider')}</label>
+          <Select value={provider} onValueChange={handleProviderChange}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="skillsmp" className="text-xs">
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-medium">SkillsMP</span>
+                  <span className="text-[10px] text-muted-foreground">{t('skillsmarket.skillsmpDesc')}</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="builtin" className="text-xs">
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-medium">{t('skillsmarket.builtinLabel')}</span>
+                  <span className="text-[10px] text-muted-foreground">{t('skillsmarket.builtinDesc')}</span>
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* API Key — only for skillsmp */}
+        {provider === 'skillsmp' && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium flex items-center gap-1">
+                <KeyRound className="size-3" />
+                {t('skillsmarket.apiKey')}
+              </label>
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-[10px] text-primary"
+                onClick={() => window.open('https://skillsmp.com', '_blank', 'noopener')}
+              >
+                {t('skillsmarket.getApiKey')} <ExternalLink className="ml-0.5 size-2.5" />
+              </Button>
+            </div>
+            <Input
+              type="password"
+              placeholder={t('skillsmarket.apiKeyPlaceholder')}
+              value={apiKey}
+              onChange={(e) => handleApiKeyChange(e.target.value)}
+              className="h-8 text-xs"
+            />
+          </div>
+        )}
+
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full h-7 text-xs gap-1.5"
+          onClick={handleReload}
+        >
+          <Loader2 className="size-3" />
+          {t('skillsmarket.test')}
+        </Button>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function SkillsPage(): React.JSX.Element {
   const { t } = useTranslation('layout')
   const skills = useSkillsStore((s) => s.skills)
@@ -136,6 +249,10 @@ export function SkillsPage(): React.JSX.Element {
   const setEditing = useSkillsStore((s) => s.setEditing)
   const setEditContent = useSkillsStore((s) => s.setEditContent)
   const setMarketQuery = useSkillsStore((s) => s.setMarketQuery)
+
+  // Skills market provider settings
+  const marketProvider = useSettingsStore((s) => s.skillsMarketProvider)
+  const marketApiKey = useSettingsStore((s) => s.skillsMarketApiKey)
 
   // Installed tab search
   const [installedQuery, setInstalledQuery] = useState('')
@@ -231,6 +348,8 @@ export function SkillsPage(): React.JSX.Element {
         )}
       </div>
 
+      {activeTab === 'market' && <MarketProviderConfig />}
+
       {activeTab === 'installed' && (
         <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => void handleAddSkill()}>
           <Plus className="size-3.5" />
@@ -242,6 +361,8 @@ export function SkillsPage(): React.JSX.Element {
 
   // ── MARKET TAB — full-width grid ─────────────────────────────────────
   if (activeTab === 'market') {
+    const needsApiKey = marketProvider === 'skillsmp' && !marketApiKey
+
     return (
       <div className="flex h-full flex-col">
         {TopBar}
@@ -254,6 +375,26 @@ export function SkillsPage(): React.JSX.Element {
               <span className="text-sm text-muted-foreground mb-1">{t('skillsPage.skillCount', { count: marketSkills.length })}</span>
             </div>
             <p className="text-sm text-muted-foreground">{t('skillsPage.marketDescription')}</p>
+
+            {/* API key missing banner */}
+            {needsApiKey && (
+              <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                <AlertCircle className="size-4 text-amber-500 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{t('skillsPage.noApiKeyTitle')}</p>
+                  <p className="text-[11px] text-amber-600/80 dark:text-amber-400/70 mt-0.5">{t('skillsPage.noApiKeyDesc')}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs shrink-0 border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                  onClick={() => window.open('https://skillsmp.com', '_blank', 'noopener')}
+                >
+                  <ExternalLink className="size-3 mr-1" />
+                  {t('skillsPage.getApiKey')}
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Grid */}

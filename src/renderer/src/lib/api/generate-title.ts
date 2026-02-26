@@ -9,6 +9,91 @@ export interface SessionTitleResult {
   icon: string
 }
 
+interface FriendlyMessageParams {
+  language: 'zh' | 'en'
+  status: 'idle' | 'pending' | 'error' | 'streaming' | 'agents' | 'background'
+  detail?: string
+}
+
+const FRIENDLY_SYSTEM_PROMPT = `You generate a single friendly sentence for the app title bar.
+Rules:
+- Output ONE sentence only, no lists, no quotes, no emojis, no markdown.
+- Keep it short: 8 to 18 Chinese characters or 6 to 12 English words.
+- Tone: encouraging, warm, and slightly witty. You may use a short proverb or a light saying.
+- Context is provided as a status string; reflect it subtly if possible.
+- Do NOT mention models, providers, or system internals.
+- Output plain text only.`
+
+export async function generateFriendlyMessage(
+  params: FriendlyMessageParams
+): Promise<string | null> {
+  const settings = useSettingsStore.getState()
+
+  const fastConfig = useProviderStore.getState().getFastProviderConfig()
+  const config: ProviderConfig | null = fastConfig
+    ? {
+        ...fastConfig,
+        maxTokens: 60,
+        temperature: 0.6,
+        systemPrompt: FRIENDLY_SYSTEM_PROMPT,
+        responseSummary: useProviderStore.getState().getActiveModelConfig()?.responseSummary,
+        enablePromptCache: useProviderStore.getState().getActiveModelConfig()?.enablePromptCache,
+        enableSystemPromptCache: useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache
+      }
+    : settings.apiKey && settings.fastModel
+      ? {
+          type: settings.provider,
+          apiKey: settings.apiKey,
+          baseUrl: settings.baseUrl || undefined,
+          model: settings.fastModel,
+          maxTokens: 60,
+          temperature: 0.6,
+          systemPrompt: FRIENDLY_SYSTEM_PROMPT,
+          responseSummary: useProviderStore.getState().getActiveModelConfig()?.responseSummary,
+          enablePromptCache: useProviderStore.getState().getActiveModelConfig()?.enablePromptCache,
+          enableSystemPromptCache: useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache
+        }
+      : null
+
+  if (!config || (config.requiresApiKey !== false && !config.apiKey)) return null
+
+  const statusLine = `status=${params.status}${params.detail ? `; ${params.detail}` : ''}`
+  const languageLine = params.language === 'zh' ? 'language=zh' : 'language=en'
+
+  const messages: UnifiedMessage[] = [
+    {
+      id: 'friendly-req',
+      role: 'user',
+      content: `${languageLine}; ${statusLine}`,
+      createdAt: Date.now()
+    }
+  ]
+
+  try {
+    const provider = createProvider(config)
+    const abortController = new AbortController()
+    const timeout = setTimeout(() => abortController.abort(), 12000)
+
+    let text = ''
+    for await (const event of provider.sendMessage(messages, [], config, abortController.signal)) {
+      if (event.type === 'text_delta' && event.text) {
+        text += event.text
+      }
+    }
+    clearTimeout(timeout)
+
+    const cleaned = text
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/```[\s\S]*?```/g, '')
+      .trim()
+    if (!cleaned) return null
+
+    return cleaned.replace(/^"|"$/g, '').trim()
+  } catch {
+    return null
+  }
+}
+
 const TITLE_SYSTEM_PROMPT = `You are a title generator. Given a user message, produce:
 1. A concise title (max 30 characters) that summarizes the intent.
 2. Pick ONE icon name from the following Lucide icon list that best represents the topic:
@@ -33,6 +118,9 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
         maxTokens: 100,
         temperature: 0.3,
         systemPrompt: TITLE_SYSTEM_PROMPT,
+        responseSummary: useProviderStore.getState().getActiveModelConfig()?.responseSummary,
+        enablePromptCache: useProviderStore.getState().getActiveModelConfig()?.enablePromptCache,
+        enableSystemPromptCache: useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache,
       }
     : settings.apiKey && settings.fastModel
       ? {
@@ -43,6 +131,9 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
           maxTokens: 100,
           temperature: 0.3,
           systemPrompt: TITLE_SYSTEM_PROMPT,
+          responseSummary: useProviderStore.getState().getActiveModelConfig()?.responseSummary,
+          enablePromptCache: useProviderStore.getState().getActiveModelConfig()?.enablePromptCache,
+          enableSystemPromptCache: useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache,
         }
       : null
 

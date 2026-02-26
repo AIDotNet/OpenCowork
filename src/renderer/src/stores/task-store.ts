@@ -89,8 +89,26 @@ function rowToTask(row: TaskRow): TaskItem {
   }
 }
 
+function buildDbPatch(
+  patch: Partial<Omit<TaskItem, 'id' | 'createdAt'>>,
+  now: number
+): Record<string, unknown> {
+  const dbPatch: Record<string, unknown> = { updatedAt: now }
+  if (patch.subject !== undefined) dbPatch.subject = patch.subject
+  if (patch.description !== undefined) dbPatch.description = patch.description
+  if (patch.activeForm !== undefined) dbPatch.activeForm = patch.activeForm
+  if (patch.status !== undefined) dbPatch.status = patch.status
+  if (patch.owner !== undefined) dbPatch.owner = patch.owner
+  if (patch.blocks !== undefined) dbPatch.blocks = patch.blocks
+  if (patch.blockedBy !== undefined) dbPatch.blockedBy = patch.blockedBy
+  if (patch.metadata !== undefined) dbPatch.metadata = patch.metadata
+  return dbPatch
+}
+
 interface TaskStore {
   tasks: TaskItem[]
+  /** Session-scoped cache for background/concurrent session updates */
+  tasksBySession: Record<string, TaskItem[]>
   /** The session ID tasks are currently loaded for */
   currentSessionId: string | null
 
@@ -106,6 +124,8 @@ interface TaskStore {
   deleteTask: (id: string) => boolean
   /** Get all tasks */
   getTasks: () => TaskItem[]
+  /** Get tasks for a specific session */
+  getTasksBySession: (sessionId: string) => TaskItem[]
   /** Get the currently in_progress task */
   getActiveTask: () => TaskItem | undefined
   /** Get progress stats */
@@ -128,13 +148,28 @@ interface TaskStore {
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
+  tasksBySession: {},
   currentSessionId: null,
 
   loadTasksForSession: async (sessionId) => {
+    // Show cached tasks immediately to avoid stale UI while DB is loading.
+    set((state) => {
+      const cached = state.tasksBySession[sessionId] ?? []
+      return { currentSessionId: sessionId, tasks: cached, todos: cached }
+    })
+
     try {
       const rows = (await ipcClient.invoke('db:tasks:list-by-session', sessionId)) as TaskRow[]
       const tasks = rows.map(rowToTask)
-      set({ tasks, todos: tasks, currentSessionId: sessionId })
+      set((state) => {
+        const nextTasksBySession = { ...state.tasksBySession, [sessionId]: tasks }
+        // If user switched again before this async request resolved,
+        // only refresh the cache and keep current visible list intact.
+        if (state.currentSessionId !== sessionId) {
+          return { tasksBySession: nextTasksBySession }
+        }
+        return { tasks, todos: tasks, tasksBySession: nextTasksBySession }
+      })
     } catch (err) {
       console.error('[TaskStore] Failed to load tasks for session:', err)
     }
@@ -151,57 +186,128 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
     let sortOrder = 0
     set((state) => {
-      sortOrder = state.tasks.length
-      const updated = [...state.tasks, newTask]
-      return { tasks: updated, todos: updated }
+      const sessionId = newTask.sessionId
+      if (!sessionId) {
+        sortOrder = state.tasks.length
+        const updated = [...state.tasks, newTask]
+        return { tasks: updated, todos: updated }
+      }
+
+      const sessionTasks = state.tasksBySession[sessionId] ?? (state.currentSessionId === sessionId ? state.tasks : [])
+      sortOrder = sessionTasks.length
+      const nextSessionTasks = [...sessionTasks, newTask]
+      const nextTasksBySession = { ...state.tasksBySession, [sessionId]: nextSessionTasks }
+
+      if (state.currentSessionId === sessionId || (!state.currentSessionId && state.tasks.length === 0)) {
+        return {
+          currentSessionId: state.currentSessionId ?? sessionId,
+          tasks: nextSessionTasks,
+          todos: nextSessionTasks,
+          tasksBySession: nextTasksBySession,
+        }
+      }
+      return { tasksBySession: nextTasksBySession }
     })
     dbCreateTask(newTask, sortOrder)
     return newTask
   },
 
-  getTask: (id) => get().tasks.find((t) => t.id === id),
+  getTask: (id) => {
+    const state = get()
+    const current = state.tasks.find((t) => t.id === id)
+    if (current) return current
+
+    for (const sessionTasks of Object.values(state.tasksBySession)) {
+      const found = sessionTasks.find((t) => t.id === id)
+      if (found) return found
+    }
+
+    return undefined
+  },
 
   updateTask: (id, patch) => {
-    const state = get()
-    const idx = state.tasks.findIndex((t) => t.id === id)
-    if (idx === -1) return undefined
     const now = Date.now()
-    const updated = { ...state.tasks[idx], ...patch, updatedAt: now }
-    const tasks = [...state.tasks]
-    tasks[idx] = updated
-    set({ tasks, todos: tasks })
-    // Persist to DB
-    const dbPatch: Record<string, unknown> = { updatedAt: now }
-    if (patch.subject !== undefined) dbPatch.subject = patch.subject
-    if (patch.description !== undefined) dbPatch.description = patch.description
-    if (patch.activeForm !== undefined) dbPatch.activeForm = patch.activeForm
-    if (patch.status !== undefined) dbPatch.status = patch.status
-    if (patch.owner !== undefined) dbPatch.owner = patch.owner
-    if (patch.blocks !== undefined) dbPatch.blocks = patch.blocks
-    if (patch.blockedBy !== undefined) dbPatch.blockedBy = patch.blockedBy
-    if (patch.metadata !== undefined) dbPatch.metadata = patch.metadata
-    dbUpdateTask(id, dbPatch)
+    let updatedTask: TaskItem | undefined
 
-    return updated
+    set((state) => {
+      const nextTasksBySession = { ...state.tasksBySession }
+
+      const sessionEntries = Object.entries(state.tasksBySession)
+      if (state.currentSessionId && !state.tasksBySession[state.currentSessionId]) {
+        sessionEntries.push([state.currentSessionId, state.tasks])
+      }
+
+      for (const [sessionId, sessionTasks] of sessionEntries) {
+        const idx = sessionTasks.findIndex((t) => t.id === id)
+        if (idx === -1) continue
+
+        const updated = { ...sessionTasks[idx], ...patch, updatedAt: now }
+        const nextSessionTasks = [...sessionTasks]
+        nextSessionTasks[idx] = updated
+        nextTasksBySession[sessionId] = nextSessionTasks
+        updatedTask = updated
+
+        if (state.currentSessionId === sessionId) {
+          return { tasks: nextSessionTasks, todos: nextSessionTasks, tasksBySession: nextTasksBySession }
+        }
+        return { tasksBySession: nextTasksBySession }
+      }
+
+      return {}
+    })
+
+    // Persist even when task is currently off-screen (another active session).
+    if (updatedTask) {
+      dbUpdateTask(id, buildDbPatch(patch, now))
+    }
+    return updatedTask
   },
 
   deleteTask: (id) => {
-    const state = get()
-    const before = state.tasks.length
-    const tasks = state.tasks.filter((t) => t.id !== id)
-    if (tasks.length === before) return false
-    // Also remove this ID from blocks/blockedBy of other tasks
-    const cleaned = tasks.map((t) => ({
-      ...t,
-      blocks: t.blocks.filter((b) => b !== id),
-      blockedBy: t.blockedBy.filter((b) => b !== id),
-    }))
-    set({ tasks: cleaned, todos: cleaned })
+    let deleted = false
+
+    set((state) => {
+      const nextTasksBySession = { ...state.tasksBySession }
+      const sessionEntries = Object.entries(state.tasksBySession)
+      if (state.currentSessionId && !state.tasksBySession[state.currentSessionId]) {
+        sessionEntries.push([state.currentSessionId, state.tasks])
+      }
+
+      for (const [sessionId, sessionTasks] of sessionEntries) {
+        const hasTarget = sessionTasks.some((t) => t.id === id)
+        if (!hasTarget) continue
+
+        const cleaned = sessionTasks
+          .filter((t) => t.id !== id)
+          .map((t) => ({
+            ...t,
+            blocks: t.blocks.filter((b) => b !== id),
+            blockedBy: t.blockedBy.filter((b) => b !== id),
+          }))
+        nextTasksBySession[sessionId] = cleaned
+        deleted = true
+
+        if (state.currentSessionId === sessionId) {
+          return { tasks: cleaned, todos: cleaned, tasksBySession: nextTasksBySession }
+        }
+        return { tasksBySession: nextTasksBySession }
+      }
+
+      return {}
+    })
+
+    if (!deleted) return false
     dbDeleteTask(id)
     return true
   },
 
   getTasks: () => get().tasks,
+
+  getTasksBySession: (sessionId) => {
+    const state = get()
+    if (state.currentSessionId === sessionId) return state.tasks
+    return state.tasksBySession[sessionId] ?? []
+  },
 
   getActiveTask: () => get().tasks.find((t) => t.status === 'in_progress'),
 
@@ -220,12 +326,18 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   deleteSessionTasks: (sessionId) => {
     set((state) => {
-      const remaining = state.tasks.filter((task) => task.sessionId !== sessionId)
-      if (remaining.length === state.tasks.length) return {}
+      const nextTasksBySession = { ...state.tasksBySession }
+      delete nextTasksBySession[sessionId]
+
+      if (state.currentSessionId !== sessionId) {
+        return { tasksBySession: nextTasksBySession }
+      }
+
       return {
-        tasks: remaining,
-        todos: remaining,
-        currentSessionId: state.currentSessionId === sessionId ? null : state.currentSessionId,
+        tasks: [],
+        todos: [],
+        currentSessionId: null,
+        tasksBySession: nextTasksBySession,
       }
     })
     dbDeleteTasksBySession(sessionId)
@@ -243,7 +355,17 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       createdAt: t.createdAt ?? now,
       updatedAt: now,
     }))
-    set({ tasks, todos: tasks })
+    set((state) => {
+      if (!state.currentSessionId) return { tasks, todos: tasks }
+      return {
+        tasks,
+        todos: tasks,
+        tasksBySession: {
+          ...state.tasksBySession,
+          [state.currentSessionId]: tasks,
+        },
+      }
+    })
   },
 
   getTodos: () => get().tasks,

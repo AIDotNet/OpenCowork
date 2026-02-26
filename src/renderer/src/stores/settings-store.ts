@@ -36,6 +36,10 @@ interface SettingsStore {
   webSearchMaxResults: number
   webSearchTimeout: number
 
+  // Skills Market Settings
+  skillsMarketProvider: 'builtin' | 'skillsmp'
+  skillsMarketApiKey: string
+
   updateSettings: (patch: Partial<Omit<SettingsStore, 'updateSettings'>>) => void
 }
 
@@ -69,6 +73,10 @@ export const useSettingsStore = create<SettingsStore>()(
       webSearchMaxResults: 5,
       webSearchTimeout: 30000,
 
+      // Skills Market Settings
+      skillsMarketProvider: 'skillsmp',
+      skillsMarketApiKey: '',
+
       updateSettings: (patch) => set(patch),
     }),
     {
@@ -88,6 +96,11 @@ export const useSettingsStore = create<SettingsStore>()(
           state.webSearchEngine = 'google'
           state.webSearchMaxResults = 5
           state.webSearchTimeout = 30000
+        }
+        // Add skills market settings if missing
+        if (state.skillsMarketProvider === undefined) {
+          state.skillsMarketProvider = 'skillsmp'
+          state.skillsMarketApiKey = ''
         }
         return state as unknown as SettingsStore
       },
@@ -116,6 +129,9 @@ export const useSettingsStore = create<SettingsStore>()(
         webSearchEngine: state.webSearchEngine,
         webSearchMaxResults: state.webSearchMaxResults,
         webSearchTimeout: state.webSearchTimeout,
+        // Skills Market Settings
+        skillsMarketProvider: state.skillsMarketProvider,
+        skillsMarketApiKey: state.skillsMarketApiKey,
         // NOTE: apiKey is intentionally excluded from localStorage persistence.
         // In production, it should be stored securely in the main process.
       }),

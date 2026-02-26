@@ -76,6 +76,11 @@ export type AgentEvent =
   | { type: 'iteration_start'; iteration: number }
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; thinking: string }
+  | {
+      type: 'thinking_encrypted'
+      thinkingEncryptedContent: string
+      thinkingEncryptedProvider: 'anthropic' | 'openai-responses'
+    }
   | { type: 'message_end'; usage?: TokenUsage; timing?: RequestTiming }
   | { type: 'tool_use_streaming_start'; toolCallId: string; toolName: string }
   | { type: 'tool_use_args_delta'; toolCallId: string; partialInput: Record<string, unknown> }

@@ -4,7 +4,9 @@ import { create } from 'zustand'
 
 export type AppMode = 'chat' | 'cowork' | 'code'
 
-export type NavItem = 'chat' | 'plugins' | 'skills'
+export type NavItem = 'chat' | 'plugins' | 'skills' | 'translate'
+
+export type ChatView = 'home' | 'session'
 
 export type RightPanelTab = 'steps' | 'team' | 'artifacts' | 'context' | 'skills' | 'files' | 'plan' | 'cron'
 
@@ -25,7 +27,7 @@ export interface PreviewPanelState {
 
 
 
-export type SettingsTab = 'general' | 'provider' | 'plugin' | 'mcp' | 'model' | 'websearch' | 'about'
+export type SettingsTab = 'general' | 'memory' | 'provider' | 'plugin' | 'mcp' | 'model' | 'websearch' | 'skillsmarket' | 'about'
 
 export type DetailPanelContent =
 
@@ -88,6 +90,10 @@ interface UIStore {
   openSkillsPage: () => void
   closeSkillsPage: () => void
 
+  translatePageOpen: boolean
+  openTranslatePage: () => void
+  closeTranslatePage: () => void
+
 
 
   shortcutsOpen: boolean
@@ -133,6 +139,11 @@ interface UIStore {
   planMode: boolean
   enterPlanMode: () => void
   exitPlanMode: () => void
+
+  /** Chat view navigation: 'home' = /chat homepage, 'session' = /chat/:id */
+  chatView: ChatView
+  navigateToHome: () => void
+  navigateToSession: () => void
 }
 
 
@@ -176,13 +187,33 @@ export const useUIStore = create<UIStore>((set) => ({
 
   settingsPageOpen: false,
   settingsTab: 'general',
-  openSettingsPage: (tab) => set({ settingsPageOpen: true, settingsTab: tab ?? 'general', leftSidebarOpen: false, skillsPageOpen: false }),
+  openSettingsPage: (tab) => set({
+    settingsPageOpen: true,
+    settingsTab: tab ?? 'general',
+    leftSidebarOpen: false,
+    skillsPageOpen: false,
+    translatePageOpen: false,
+  }),
   closeSettingsPage: () => set({ settingsPageOpen: false }),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
 
   skillsPageOpen: false,
-  openSkillsPage: () => set({ skillsPageOpen: true, settingsPageOpen: false, leftSidebarOpen: false }),
+  openSkillsPage: () => set({
+    skillsPageOpen: true,
+    settingsPageOpen: false,
+    translatePageOpen: false,
+    leftSidebarOpen: false,
+  }),
   closeSkillsPage: () => set({ skillsPageOpen: false }),
+
+  translatePageOpen: false,
+  openTranslatePage: () => set({
+    translatePageOpen: true,
+    settingsPageOpen: false,
+    skillsPageOpen: false,
+    leftSidebarOpen: false,
+  }),
+  closeTranslatePage: () => set({ translatePageOpen: false }),
 
 
 
@@ -281,6 +312,20 @@ export const useUIStore = create<UIStore>((set) => ({
 
   planMode: false,
   enterPlanMode: () => set({ planMode: true, rightPanelTab: 'plan', rightPanelOpen: true }),
+
+  chatView: 'home',
+  navigateToHome: () => set({
+    chatView: 'home',
+    settingsPageOpen: false,
+    skillsPageOpen: false,
+    translatePageOpen: false,
+  }),
+  navigateToSession: () => set({
+    chatView: 'session',
+    settingsPageOpen: false,
+    skillsPageOpen: false,
+    translatePageOpen: false,
+  }),
   exitPlanMode: () => set({ planMode: false }),
 }))
 

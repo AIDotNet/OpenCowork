@@ -71,28 +71,11 @@ interface SessionListItem {
 
 export function SessionListPanel(): React.JSX.Element {
   const { t } = useTranslation('layout')
-  const sessionDigest = useChatStore(
-    (s) =>
-      s.sessions
-        .map((session) =>
-          [
-            session.id,
-            session.title,
-            session.icon ?? '',
-            session.mode,
-            session.createdAt,
-            session.updatedAt,
-            session.pinned ? 1 : 0,
-            session.messageCount,
-            session.messagesLoaded ? 1 : 0,
-            session.pluginId ?? '',
-          ].join('|')
-        )
-        .join('¦')
-  )
+  // Subscribe to sessions array directly - Zustand will detect changes via reference equality
+  const sessionsRaw = useChatStore((s) => s.sessions)
   const sessions = useMemo<SessionListItem[]>(
     () =>
-      useChatStore.getState().sessions.map((session) => ({
+      sessionsRaw.map((session) => ({
         id: session.id,
         title: session.title,
         icon: session.icon,
@@ -103,10 +86,9 @@ export function SessionListPanel(): React.JSX.Element {
         messageCount: session.messageCount,
         pluginId: session.pluginId,
       })),
-    [sessionDigest]
+    [sessionsRaw]
   )
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const createSession = useChatStore((s) => s.createSession)
   const deleteSession = useChatStore((s) => s.deleteSession)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
   const clearSessionMessages = useChatStore((s) => s.clearSessionMessages)
@@ -168,7 +150,7 @@ export function SessionListPanel(): React.JSX.Element {
   }, [deleteTarget, deleteSession, getSessionSnapshot, runningSessions, t])
 
   const handleNewSession = (): void => {
-    createSession(mode)
+    useUIStore.getState().navigateToHome()
   }
 
   const handleExport = async (sessionId: string): Promise<void> => {
@@ -286,7 +268,7 @@ export function SessionListPanel(): React.JSX.Element {
 
   return (
     <>
-      <div className="flex h-full w-60 shrink-0 flex-col border-r bg-background/50">
+      <div className="flex h-full w-[20rem] shrink-0 flex-col border-r bg-background/50">
         {/* Header: title + new chat */}
         <div className="flex items-center justify-between px-3 pt-3 pb-1">
           <div className="flex items-center gap-1.5">
@@ -398,15 +380,16 @@ export function SessionListPanel(): React.JSX.Element {
                     <ContextMenuTrigger asChild>
                       <button
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors',
+                          'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
                           session.id === activeSessionId &&
+                            useUIStore.getState().chatView === 'session' &&
                             !useUIStore.getState().settingsPageOpen
                             ? 'bg-accent text-accent-foreground'
                             : 'text-foreground/80 hover:bg-muted/60'
                         )}
                         onClick={() => {
                           setActiveSession(session.id)
-                          useUIStore.getState().closeSettingsPage()
+                          useUIStore.getState().navigateToSession()
                         }}
                         onDoubleClick={(e) => {
                           e.preventDefault()
@@ -417,7 +400,7 @@ export function SessionListPanel(): React.JSX.Element {
                       >
                         <span className="shrink-0">
                           {session.pinned ? (
-                            <Pin className="size-3 text-muted-foreground/50" />
+                            <Pin className="size-3.5 text-muted-foreground/50" />
                           ) : session.icon ? (
                             <DynamicIcon
                               name={session.icon as never}
@@ -452,11 +435,11 @@ export function SessionListPanel(): React.JSX.Element {
                               }
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            className="h-5 w-full min-w-0 rounded border bg-background px-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                            className="h-6 w-full min-w-0 rounded border bg-background px-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                           />
                         ) : (
                           <div className="flex min-w-0 flex-1 flex-col">
-                            <span className="truncate text-xs">
+                            <span className="truncate text-sm leading-5">
                               {session.title}
                             </span>
                             {searchQuery &&
@@ -477,13 +460,13 @@ export function SessionListPanel(): React.JSX.Element {
                         {editingId !== session.id && (
                           <span className="ml-auto flex shrink-0 items-center gap-1">
                             {runningSessions[session.id] === 'running' && (
-                              <Loader2 className="size-3 animate-spin text-blue-500" />
+                              <Loader2 className="size-3.5 animate-spin text-blue-500" />
                             )}
                             {runningSessions[session.id] === 'completed' && (
-                              <CheckCircle2 className="size-3 text-emerald-500" />
+                              <CheckCircle2 className="size-3.5 text-emerald-500" />
                             )}
                             {session.pinned && (
-                              <Pin className="size-2.5 text-muted-foreground/30 -rotate-45" />
+                              <Pin className="size-3 text-muted-foreground/30 -rotate-45" />
                             )}
                             {session.mode !== mode && (
                               <span className="rounded bg-muted px-1 py-px text-[8px] uppercase text-muted-foreground/40">

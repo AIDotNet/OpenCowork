@@ -31,7 +31,11 @@
     "planModeActive": "Plan Mode — exploring codebase, no file changes",
     "webSearch": "Web Search",
     "disableWebSearch": "Disable web search",
-    "enableWebSearch": "Enable web search"
+    "enableWebSearch": "Enable web search",
+    "desktopFolders": "Desktop folders",
+    "loadingFolders": "Loading folders...",
+    "noDesktopFolders": "No folders found on Desktop",
+    "selectOtherFolder": "Select other folder"
   },
   "permission": {
     "title": "Permission Required",

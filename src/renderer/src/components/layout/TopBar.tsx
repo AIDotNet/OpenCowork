@@ -43,6 +43,7 @@ export function TopBar(): React.JSX.Element {
   const { theme, setTheme } = useTheme()
 
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const updateSessionMode = useChatStore((s) => s.updateSessionMode)
   const autoApprove = useSettingsStore((s) => s.autoApprove)
   const pendingApprovals = useAgentStore((s) => s.pendingToolCalls).length
   const errorCount = useAgentStore((s) => s.executedToolCalls.filter((t) => t.status === 'error').length)
@@ -83,7 +84,10 @@ export function TopBar(): React.JSX.Element {
                     ? 'bg-background shadow-sm ring-1 ring-border/50'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
-                onClick={() => { console.log('[TopBar] Mode switch clicked:', m.value); setMode(m.value) }}
+                onClick={() => {
+                  setMode(m.value)
+                  if (activeSessionId) updateSessionMode(activeSessionId, m.value)
+                }}
               >
                 {m.icon}
                 {tCommon(m.labelKey)}

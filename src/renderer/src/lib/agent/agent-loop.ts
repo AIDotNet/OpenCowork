@@ -121,6 +121,22 @@ export async function* runAgentLoop(
               appendThinkingToBlocks(assistantContentBlocks, event.thinking!)
               break
 
+            case 'thinking_encrypted':
+              if (event.thinkingEncryptedContent && event.thinkingEncryptedProvider) {
+                streamedContent = true
+                yield {
+                  type: 'thinking_encrypted',
+                  thinkingEncryptedContent: event.thinkingEncryptedContent,
+                  thinkingEncryptedProvider: event.thinkingEncryptedProvider,
+                }
+                appendThinkingEncryptedToBlocks(
+                  assistantContentBlocks,
+                  event.thinkingEncryptedContent,
+                  event.thinkingEncryptedProvider
+                )
+              }
+              break
+
             case 'text_delta':
               streamedContent = true
               yield { type: 'text_delta', text: event.text! }
@@ -392,6 +408,47 @@ function appendThinkingToBlocks(blocks: ContentBlock[], thinking: string): void 
   } else {
     blocks.push({ type: 'thinking', thinking })
   }
+}
+
+function appendThinkingEncryptedToBlocks(
+  blocks: ContentBlock[],
+  encryptedContent: string,
+  provider: 'anthropic' | 'openai-responses'
+): void {
+  if (!encryptedContent) return
+
+  let target: Extract<ContentBlock, { type: 'thinking' }> | null = null
+  let providerMatchedTarget: Extract<ContentBlock, { type: 'thinking' }> | null = null
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i]
+    if (block.type !== 'thinking') continue
+
+    if (!block.encryptedContent) {
+      target = block
+      break
+    }
+
+    if (!providerMatchedTarget && block.encryptedContentProvider === provider) {
+      providerMatchedTarget = block
+    }
+  }
+
+  if (!target && providerMatchedTarget) {
+    target = providerMatchedTarget
+  }
+
+  if (target) {
+    target.encryptedContent = encryptedContent
+    target.encryptedContentProvider = provider
+    return
+  }
+
+  blocks.push({
+    type: 'thinking',
+    thinking: '',
+    encryptedContent,
+    encryptedContentProvider: provider,
+  })
 }
 
 function appendTextToBlocks(blocks: ContentBlock[], text: string): void {

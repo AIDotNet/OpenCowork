@@ -1,6 +1,9 @@
 // IPC Channel Constants
 
 export const IPC = {
+  // App
+  APP_HOMEDIR: 'app:homedir',
+
   // API Streaming
   API_STREAM_REQUEST: 'api:stream-request',
   API_STREAM_CHUNK: 'api:stream-chunk',
@@ -9,6 +12,8 @@ export const IPC = {
   API_ABORT: 'api:abort',
 
   // File System
+  FS_SELECT_FILE: 'fs:select-file',
+  FS_READ_DOCUMENT: 'fs:read-document',
   FS_READ_FILE: 'fs:read-file',
   FS_WRITE_FILE: 'fs:write-file',
   FS_LIST_DIR: 'fs:list-dir',

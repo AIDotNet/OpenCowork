@@ -215,6 +215,11 @@ function ModelFormDialog({
   const [supportsVision, setSupportsVision] = useState(initial?.supportsVision ?? false)
   const [supportsFunctionCall, setSupportsFunctionCall] = useState(initial?.supportsFunctionCall ?? true)
   const [icon, setIcon] = useState(initial?.icon ?? '')
+  const [responseSummary, setResponseSummary] = useState<
+    'auto' | 'concise' | 'detailed' | 'none'
+  >(initial?.responseSummary ?? 'none')
+  const [enablePromptCache, setEnablePromptCache] = useState(initial?.enablePromptCache ?? true)
+  const [enableSystemPromptCache, setEnableSystemPromptCache] = useState(initial?.enableSystemPromptCache ?? true)
 
   const handleSave = (): void => {
     if (!id.trim()) return
@@ -233,6 +238,9 @@ function ModelFormDialog({
     if (supportsVision) model.supportsVision = true
     if (!supportsFunctionCall) model.supportsFunctionCall = false
     if (icon.trim()) model.icon = icon.trim()
+    if (responseSummary && responseSummary !== 'none') model.responseSummary = responseSummary
+    model.enablePromptCache = enablePromptCache
+    model.enableSystemPromptCache = enableSystemPromptCache
     // preserve thinking config if editing
     if (initial?.supportsThinking) model.supportsThinking = initial.supportsThinking
     if (initial?.thinkingConfig) model.thinkingConfig = initial.thinkingConfig
@@ -368,6 +376,35 @@ function ModelFormDialog({
               ))}
             </div>
             {icon && <p className="text-[11px] text-muted-foreground">{t('provider.modelIconSelected', { icon })}</p>}
+          </div>
+
+          {/* Responses config */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium">{t('provider.responsesConfig')}</label>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{t('provider.responsesSummary')}</span>
+                <Select value={responseSummary} onValueChange={(v) => setResponseSummary(v as 'auto' | 'concise' | 'detailed' | 'none')}>
+                  <SelectTrigger className="h-7 w-36 text-[11px]">
+                    <SelectValue placeholder={t('provider.responsesSummaryAuto')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none" className="text-[11px]">{t('provider.responsesSummaryNone')}</SelectItem>
+                    <SelectItem value="auto" className="text-[11px]">{t('provider.responsesSummaryAuto')}</SelectItem>
+                    <SelectItem value="concise" className="text-[11px]">{t('provider.responsesSummaryConcise')}</SelectItem>
+                    <SelectItem value="detailed" className="text-[11px]">{t('provider.responsesSummaryDetailed')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{t('provider.promptCache')}</span>
+                <Switch checked={enablePromptCache} onCheckedChange={setEnablePromptCache} />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{t('provider.systemPromptCache')}</span>
+                <Switch checked={enableSystemPromptCache} onCheckedChange={setEnableSystemPromptCache} />
+              </div>
+            </div>
           </div>
 
           {/* Capabilities */}

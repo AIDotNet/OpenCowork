@@ -43,7 +43,7 @@ export function buildDynamicContext(options: {
     }
   } else {
     // Standalone mode: get session tasks
-    const tasks = useTaskStore.getState().getTasks()
+    const tasks = useTaskStore.getState().getTasksBySession(sessionId)
     
     if (tasks.length > 0) {
       hasExistingTasks = true
@@ -99,23 +99,27 @@ export function buildDynamicContext(options: {
   }
 
   // ── Build final context ──
-  const now = new Date()
-  const timeStr = now.toLocaleString('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  })
-  const header = `Current Context (${timeStr})`
-  
+  const contextContent = contextParts.join('\n')
+
   // Add task creation reminder only if no existing tasks
   let footer = ''
   if (!hasExistingTasks) {
-    footer = '\nNote: If the user request is complex (3+ steps or multiple files), create tasks using TaskCreate first.'
+    footer = 'Note: If the user request is complex (3+ steps or multiple files), create tasks using TaskCreate first.'
   }
 
-  const contextContent = contextParts.join('\n')
-  return `<system-reminder>\n${header}:\n${contextContent}${footer}\n</system-reminder>`
+  // Only generate system-reminder if there's actual content
+  if (!contextContent && !footer) {
+    return ''
+  }
+
+  const parts: string[] = []
+  if (contextContent) {
+    parts.push('Current Context:')
+    parts.push(contextContent)
+  }
+  if (footer) {
+    parts.push(footer)
+  }
+
+  return `<system-reminder>\n${parts.join('\n')}\n</system-reminder>`
 }

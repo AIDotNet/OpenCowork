@@ -104,7 +104,7 @@ function stripThinkTagMarkers(text: string): string {
   return text.replace(/<\s*\/?\s*think\s*>/gi, '')
 }
 
-function dbFlushMessage(sessionId: string, msg: UnifiedMessage, sortOrder: number): void {
+function dbFlushMessage(_sessionId: string, msg: UnifiedMessage, _sortOrder: number): void {
   const key = msg.id
   const existing = _pendingFlush.get(key)
   if (existing) clearTimeout(existing)
@@ -112,18 +112,18 @@ function dbFlushMessage(sessionId: string, msg: UnifiedMessage, sortOrder: numbe
     key,
     setTimeout(() => {
       _pendingFlush.delete(key)
-      dbAddMessage(sessionId, msg, sortOrder)
+      dbUpdateMessage(msg.id, msg.content, msg.usage)
     }, 500)
   )
 }
 
-function dbFlushMessageImmediate(sessionId: string, msg: UnifiedMessage, sortOrder: number): void {
+function dbFlushMessageImmediate(_sessionId: string, msg: UnifiedMessage, _sortOrder: number): void {
   const existing = _pendingFlush.get(msg.id)
   if (existing) {
     clearTimeout(existing)
     _pendingFlush.delete(msg.id)
   }
-  dbAddMessage(sessionId, msg, sortOrder)
+  dbUpdateMessage(msg.id, msg.content, msg.usage)
 }
 
 // --- Store ---
@@ -163,6 +163,12 @@ interface ChatStore {
   updateMessage: (sessionId: string, msgId: string, patch: Partial<UnifiedMessage>) => void
   appendTextDelta: (sessionId: string, msgId: string, text: string) => void
   appendThinkingDelta: (sessionId: string, msgId: string, thinking: string) => void
+  setThinkingEncryptedContent: (
+    sessionId: string,
+    msgId: string,
+    encryptedContent: string,
+    provider: 'anthropic' | 'openai-responses'
+  ) => void
   completeThinking: (sessionId: string, msgId: string) => void
   appendToolUse: (sessionId: string, msgId: string, toolUse: ToolUseBlock) => void
   updateToolUseInput: (sessionId: string, msgId: string, toolUseId: string, input: Record<string, unknown>) => void
@@ -323,7 +329,9 @@ export const useChatStore = create<ChatStore>()(
     loadSessionMessages: async (sessionId, force = false) => {
       const session = get().sessions.find((s) => s.id === sessionId)
       if (!session) return
-      if (session.messagesLoaded && !force) return
+      const knownCount = session.messageCount ?? session.messages.length
+      const shouldSkip = !force && session.messagesLoaded && knownCount <= session.messages.length
+      if (shouldSkip) return
       try {
         const msgRows = (await ipcClient.invoke('db:messages:list', sessionId)) as MessageRow[]
         const messages = msgRows.map(rowToMessage)
@@ -873,6 +881,77 @@ export const useChatStore = create<ChatStore>()(
         }
       })
       // Debounced persist
+      const session = get().sessions.find((s) => s.id === sessionId)
+      const msg = session?.messages.find((m) => m.id === msgId)
+      const idx = session?.messages.indexOf(msg!) ?? 0
+      if (msg) dbFlushMessage(sessionId, msg, idx)
+    },
+
+    setThinkingEncryptedContent: (sessionId, msgId, encryptedContent, provider) => {
+      if (!encryptedContent) return
+
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (!session) return
+        const msg = session.messages.find((m) => m.id === msgId)
+        if (!msg) return
+
+        const now = Date.now()
+        if (typeof msg.content === 'string') {
+          const existingText = msg.content
+          msg.content = [
+            {
+              type: 'thinking',
+              thinking: '',
+              encryptedContent,
+              encryptedContentProvider: provider,
+              startedAt: now
+            },
+            ...(existingText ? [{ type: 'text' as const, text: existingText }] : [])
+          ]
+          return
+        }
+
+        const blocks = msg.content as ContentBlock[]
+        let targetThinkingBlock: ThinkingBlock | null = null
+        let providerMatchedThinkingBlock: ThinkingBlock | null = null
+
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const block = blocks[i]
+          if (block.type !== 'thinking') continue
+
+          const thinkingBlock = block as ThinkingBlock
+          if (!thinkingBlock.encryptedContent) {
+            targetThinkingBlock = thinkingBlock
+            break
+          }
+
+          if (
+            !providerMatchedThinkingBlock &&
+            thinkingBlock.encryptedContentProvider === provider
+          ) {
+            providerMatchedThinkingBlock = thinkingBlock
+          }
+        }
+
+        if (!targetThinkingBlock && providerMatchedThinkingBlock) {
+          targetThinkingBlock = providerMatchedThinkingBlock
+        }
+
+        if (targetThinkingBlock) {
+          targetThinkingBlock.encryptedContent = encryptedContent
+          targetThinkingBlock.encryptedContentProvider = provider
+        } else {
+          blocks.push({
+            type: 'thinking',
+            thinking: '',
+            encryptedContent,
+            encryptedContentProvider: provider,
+            startedAt: now
+          })
+        }
+      })
+
       const session = get().sessions.find((s) => s.id === sessionId)
       const msg = session?.messages.find((m) => m.id === msgId)
       const idx = session?.messages.indexOf(msg!) ?? 0

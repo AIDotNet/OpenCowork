@@ -40,7 +40,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const tab = useUIStore((s) => s.rightPanelTab)
   const setTab = useUIStore((s) => s.setRightPanelTab)
   const executedToolCalls = useAgentStore((s) => s.executedToolCalls)
-  const todos = useTaskStore((s) => s.todos)
+  const todos = useTaskStore((s) => s.tasks)
   const activeTeam = useTeamStore((s) => s.activeTeam)
   const teamToolsEnabled = useSettingsStore((s) => s.teamToolsEnabled)
   const cronEnabledCount = useCronStore((s) => s.jobs.filter((j) => j.enabled).length)

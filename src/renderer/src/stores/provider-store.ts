@@ -68,6 +68,18 @@ function mergeBuiltinModels(
   return merged
 }
 
+function resolveProviderDefaultModelId(provider: AIProvider): string {
+  // Try to use the configured default model first
+  if (provider.defaultModel) {
+    const defaultModel = provider.models.find((m) => m.id === provider.defaultModel)
+    if (defaultModel) return defaultModel.id
+  }
+
+  // Fall back to first enabled model, then first model
+  const enabledModels = provider.models.filter((m) => m.enabled)
+  return enabledModels[0]?.id ?? provider.models[0]?.id ?? ''
+}
+
 // --- Store ---
 
 interface ProviderStore {
@@ -75,6 +87,8 @@ interface ProviderStore {
   activeProviderId: string | null
   activeModelId: string
   activeFastModelId: string
+  activeTranslationProviderId: string | null
+  activeTranslationModelId: string
 
   // CRUD
   addProvider: (provider: AIProvider) => void
@@ -94,6 +108,8 @@ interface ProviderStore {
   setActiveProvider: (providerId: string) => void
   setActiveModel: (modelId: string) => void
   setActiveFastModel: (modelId: string) => void
+  setActiveTranslationProvider: (providerId: string) => void
+  setActiveTranslationModel: (modelId: string) => void
 
   // Derived
   getActiveProvider: () => AIProvider | null
@@ -102,6 +118,8 @@ interface ProviderStore {
   /** Build a ProviderConfig for a specific provider+model (used by plugin/session overrides) */
   getProviderConfigById: (providerId: string, modelId: string) => ProviderConfig | null
   getFastProviderConfig: () => ProviderConfig | null
+  /** Build provider config for translation default model; falls back to active model config */
+  getTranslationProviderConfig: () => ProviderConfig | null
   /** Clamp user maxTokens to model's maxOutputTokens if exceeded */
   getEffectiveMaxTokens: (userMaxTokens: number, modelId?: string) => number
   /** Whether the active model supports thinking and its config */
@@ -120,6 +138,8 @@ export const useProviderStore = create<ProviderStore>()(
       activeProviderId: null,
       activeModelId: '',
       activeFastModelId: '',
+      activeTranslationProviderId: null,
+      activeTranslationModelId: '',
       _migrated: false,
 
       addProvider: (provider) =>
@@ -144,6 +164,10 @@ export const useProviderStore = create<ProviderStore>()(
         set((s) => ({
           providers: s.providers.filter((p) => p.id !== id),
           activeProviderId: s.activeProviderId === id ? null : s.activeProviderId,
+          activeTranslationProviderId:
+            s.activeTranslationProviderId === id ? null : s.activeTranslationProviderId,
+          activeTranslationModelId:
+            s.activeTranslationProviderId === id ? '' : s.activeTranslationModelId,
         })),
 
       toggleProviderEnabled: (id) =>
@@ -206,20 +230,7 @@ export const useProviderStore = create<ProviderStore>()(
         const provider = get().providers.find((p) => p.id === providerId)
         if (!provider) return
 
-        // Try to use the configured default model first
-        let defaultModelId = ''
-        if (provider.defaultModel) {
-          const defaultModel = provider.models.find((m) => m.id === provider.defaultModel)
-          if (defaultModel) {
-            defaultModelId = defaultModel.id
-          }
-        }
-
-        // Fall back to first enabled model, then first model
-        if (!defaultModelId) {
-          const enabledModels = provider.models.filter((m) => m.enabled)
-          defaultModelId = enabledModels[0]?.id ?? provider.models[0]?.id ?? ''
-        }
+        const defaultModelId = resolveProviderDefaultModelId(provider)
 
         set({ activeProviderId: providerId, activeModelId: defaultModelId })
       },
@@ -227,6 +238,18 @@ export const useProviderStore = create<ProviderStore>()(
       setActiveModel: (modelId) => set({ activeModelId: modelId }),
 
       setActiveFastModel: (modelId) => set({ activeFastModelId: modelId }),
+
+      setActiveTranslationProvider: (providerId) => {
+        const provider = get().providers.find((p) => p.id === providerId)
+        if (!provider) return
+        const defaultModelId = resolveProviderDefaultModelId(provider)
+        set({
+          activeTranslationProviderId: providerId,
+          activeTranslationModelId: defaultModelId,
+        })
+      },
+
+      setActiveTranslationModel: (modelId) => set({ activeTranslationModelId: modelId }),
 
       getActiveProvider: () => {
         const { providers, activeProviderId } = get()
@@ -258,8 +281,38 @@ export const useProviderStore = create<ProviderStore>()(
           baseUrl: normalizedBaseUrl,
           model: activeModelId,
           requiresApiKey: provider.requiresApiKey,
+          responseSummary: activeModel?.responseSummary,
+          enablePromptCache: activeModel?.enablePromptCache,
+          enableSystemPromptCache: activeModel?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
         }
+      },
+
+      getTranslationProviderConfig: () => {
+        const {
+          providers,
+          activeTranslationProviderId,
+          activeTranslationModelId,
+          getActiveProviderConfig,
+          getProviderConfigById,
+        } = get()
+
+        if (!activeTranslationProviderId) {
+          return getActiveProviderConfig()
+        }
+
+        const provider = providers.find((p) => p.id === activeTranslationProviderId)
+        if (!provider) {
+          return getActiveProviderConfig()
+        }
+
+        const resolvedModelId = activeTranslationModelId || resolveProviderDefaultModelId(provider)
+        if (!resolvedModelId) {
+          return getActiveProviderConfig()
+        }
+
+        return getProviderConfigById(activeTranslationProviderId, resolvedModelId)
+          ?? getActiveProviderConfig()
       },
 
       getProviderConfigById: (providerId, modelId) => {
@@ -276,6 +329,9 @@ export const useProviderStore = create<ProviderStore>()(
           baseUrl: normalizedBaseUrl,
           model: modelId,
           requiresApiKey: provider.requiresApiKey,
+          responseSummary: model?.responseSummary,
+          enablePromptCache: model?.enablePromptCache,
+          enableSystemPromptCache: model?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
         }
       },
@@ -297,6 +353,9 @@ export const useProviderStore = create<ProviderStore>()(
           baseUrl: normalizedBaseUrl,
           model,
           requiresApiKey: provider.requiresApiKey,
+          responseSummary: fastModel?.responseSummary,
+          enablePromptCache: fastModel?.enablePromptCache,
+          enableSystemPromptCache: fastModel?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
         }
       },
@@ -332,6 +391,8 @@ export const useProviderStore = create<ProviderStore>()(
         activeProviderId: state.activeProviderId,
         activeModelId: state.activeModelId,
         activeFastModelId: state.activeFastModelId,
+        activeTranslationProviderId: state.activeTranslationProviderId,
+        activeTranslationModelId: state.activeTranslationModelId,
         _migrated: state._migrated,
       }),
     }
@@ -380,6 +441,16 @@ function ensureBuiltinPresets(): void {
     if (firstEnabled) {
       useProviderStore.getState().setActiveProvider(firstEnabled.id)
     }
+  }
+
+  const state = useProviderStore.getState()
+  if (!state.activeTranslationProviderId) {
+    const fallbackProviderId = state.activeProviderId
+    if (fallbackProviderId) {
+      state.setActiveTranslationProvider(fallbackProviderId)
+    }
+  } else if (!state.activeTranslationModelId) {
+    state.setActiveTranslationProvider(state.activeTranslationProviderId)
   }
 }
 

@@ -24,6 +24,11 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { registerPluginTools, isPluginToolsRegistered } from '@renderer/lib/plugins/plugin-tools'
 import { DEFAULT_PLUGIN_PERMISSIONS } from '@renderer/lib/plugins/types'
 import type { PluginPermissions } from '@renderer/lib/plugins/types'
+import {
+  joinFsPath,
+  loadOptionalMemoryFile,
+  loadGlobalMemorySnapshot
+} from '@renderer/lib/agent/memory-files'
 import type { UnifiedMessage, ProviderConfig } from '@renderer/lib/api/types'
 import type { AgentLoopConfig } from '@renderer/lib/agent/types'
 import type { ToolContext } from '@renderer/lib/tools/tool-types'
@@ -455,18 +460,15 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
 
   // Load AGENTS.md memory file from working directory
   let agentsMemory: string | undefined
+  let globalMemory: string | undefined
   if (session.workingFolder) {
-    try {
-      const sep = session.workingFolder.includes('\\') ? '\\' : '/'
-      const memoryPath = `${session.workingFolder}${sep}AGENTS.md`
-      const content = await ipcClient.invoke('fs:read-file', { path: memoryPath })
-      if (typeof content === 'string' && content.trim()) {
-        agentsMemory = content
-      }
-    } catch {
-      // AGENTS.md doesn't exist yet — that's fine
-    }
+    const projectMemoryPath = joinFsPath(session.workingFolder, 'AGENTS.md')
+    agentsMemory = await loadOptionalMemoryFile(ipcClient, projectMemoryPath)
   }
+
+  const globalMemorySnapshot = await loadGlobalMemorySnapshot(ipcClient)
+  globalMemory = globalMemorySnapshot.content
+  const globalMemoryPath = globalMemorySnapshot.path
 
   const systemPrompt = buildSystemPrompt({
     mode: 'cowork',
@@ -474,7 +476,9 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     userSystemPrompt: userPrompt,
     toolDefs: allToolDefs,
     language: settings.language,
-    agentsMemory
+    agentsMemory,
+    globalMemory,
+    globalMemoryPath
   })
 
   // ── Build user message ──
@@ -569,6 +573,17 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     if (ac.signal.aborted) break
 
     switch (event.type) {
+      case 'thinking_encrypted':
+        if (event.thinkingEncryptedContent && event.thinkingEncryptedProvider) {
+          useChatStore.getState().setThinkingEncryptedContent(
+            sessionId,
+            assistantMsgId,
+            event.thinkingEncryptedContent,
+            event.thinkingEncryptedProvider
+          )
+        }
+        break
+
       case 'text_delta':
         fullText += event.text
         useChatStore.getState().appendTextDelta(sessionId, assistantMsgId, event.text)

@@ -31,7 +31,11 @@
     "planModeActive": "计划模式 — 仅浏览代码库，不修改文件",
     "webSearch": "联网",
     "disableWebSearch": "关闭联网搜索",
-    "enableWebSearch": "启用联网搜索"
+    "enableWebSearch": "启用联网搜索",
+    "desktopFolders": "桌面目录",
+    "loadingFolders": "正在加载目录...",
+    "noDesktopFolders": "桌面没有可用目录",
+    "selectOtherFolder": "选择其他目录"
   },
   "permission": {
     "title": "需要权限",

@@ -59,6 +59,10 @@ export interface ToolResultBlock {
 export interface ThinkingBlock {
   type: 'thinking'
   thinking: string
+  /** Provider-issued encrypted/signature payload for reasoning continuity validation */
+  encryptedContent?: string
+  /** Which provider emitted encryptedContent (used to replay only to compatible APIs) */
+  encryptedContentProvider?: 'anthropic' | 'openai-responses'
   startedAt?: number
   completedAt?: number
 }
@@ -92,6 +96,7 @@ export type StreamEventType =
   | 'message_start'
   | 'text_delta'
   | 'thinking_delta'
+  | 'thinking_encrypted'
   | 'tool_call_start'
   | 'tool_call_delta'
   | 'tool_call_end'
@@ -103,6 +108,8 @@ export interface StreamEvent {
   type: StreamEventType
   text?: string
   thinking?: string
+  thinkingEncryptedContent?: string
+  thinkingEncryptedProvider?: 'anthropic' | 'openai-responses'
   toolCallId?: string
   toolName?: string
   argumentsDelta?: string
@@ -160,6 +167,7 @@ export interface ThinkingConfig {
 // --- AI Provider Management ---
 
 export type ProviderType = 'anthropic' | 'openai-chat' | 'openai-responses'
+export type ResponseSummary = 'auto' | 'concise' | 'detailed'
 
 export interface AIModelConfig {
   id: string
@@ -187,6 +195,12 @@ export interface AIModelConfig {
   supportsThinking?: boolean
   /** Configuration describing how to enable thinking for this model */
   thinkingConfig?: ThinkingConfig
+  /** OpenAI Responses: summary of reasoning (auto/concise/detailed) */
+  responseSummary?: ResponseSummary
+  /** OpenAI Responses: enable prompt caching with session-based key */
+  enablePromptCache?: boolean
+  /** Anthropic: enable system prompt caching */
+  enableSystemPromptCache?: boolean
 }
 
 export interface AIProvider {
@@ -227,6 +241,12 @@ export interface ProviderConfig {
   reasoningEffort?: ReasoningEffortLevel
   /** Current session ID — used for prompt_cache_key on OpenAI endpoints */
   sessionId?: string
+  /** OpenAI Responses: summary of reasoning (auto/concise/detailed) */
+  responseSummary?: ResponseSummary
+  /** OpenAI Responses: enable prompt caching with session-based key */
+  enablePromptCache?: boolean
+  /** Anthropic: enable system prompt caching */
+  enableSystemPromptCache?: boolean
   /** Custom User-Agent header (e.g. Moonshot套餐 requires 'RooCode/3.48.0') */
   userAgent?: string
 }

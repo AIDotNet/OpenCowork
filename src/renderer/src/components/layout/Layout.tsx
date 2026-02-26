@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { MessageSquare, Briefcase, Code2, ClipboardCopy, Check, ImageDown, Loader2, PanelLeftOpen, PanelRightOpen, PanelRightClose } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { MessageSquare, Briefcase, Code2, ClipboardCopy, Check, ImageDown, Loader2, PanelLeftOpen, PanelRightOpen, PanelRightClose, FolderOpen } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { Button } from '@renderer/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@renderer/components/ui/tooltip'
 import { cn } from '@renderer/lib/utils'
 import { TitleBar } from './TitleBar'
@@ -16,7 +17,9 @@ import { MessageList } from '@renderer/components/chat/MessageList'
 import { InputArea } from '@renderer/components/chat/InputArea'
 import { SettingsDialog } from '@renderer/components/settings/SettingsDialog'
 import { SettingsPage } from '@renderer/components/settings/SettingsPage'
+import { ChatHomePage } from '@renderer/components/chat/ChatHomePage'
 import { SkillsPage } from '@renderer/components/skills/SkillsPage'
+import { TranslatePage } from '@renderer/components/translate/TranslatePage'
 import { KeyboardShortcutsDialog } from '@renderer/components/settings/KeyboardShortcutsDialog'
 import { PermissionDialog } from '@renderer/components/cowork/PermissionDialog'
 import { CommandPalette } from './CommandPalette'
@@ -39,15 +42,34 @@ const modes: { value: AppMode; labelKey: string; icon: React.ReactNode }[] = [
   { value: 'code', labelKey: 'mode.code', icon: <Code2 className="size-3.5" /> },
 ]
 
+interface DesktopDirectoryOption {
+  name: string
+  path: string
+  isDesktop: boolean
+}
+
+interface DesktopDirectorySuccessResult {
+  desktopPath: string
+  directories: DesktopDirectoryOption[]
+}
+
+interface DesktopDirectoryErrorResult {
+  error: string
+}
+
+type DesktopDirectoryResult = DesktopDirectorySuccessResult | DesktopDirectoryErrorResult
+
 export function Layout(): React.JSX.Element {
   const { t } = useTranslation('layout')
   const { t: tCommon } = useTranslation('common')
+  const { t: tChat } = useTranslation('chat')
   const mode = useUIStore((s) => s.mode)
   const setMode = useUIStore((s) => s.setMode)
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen)
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen)
   const detailPanelOpen = useUIStore((s) => s.detailPanelOpen)
   const previewPanelOpen = useUIStore((s) => s.previewPanelOpen)
+  const chatView = useUIStore((s) => s.chatView)
   const activeSessionView = useChatStore(
     useShallow((s) => {
       const activeSession = s.sessions.find((session) => session.id === s.activeSessionId)
@@ -71,13 +93,51 @@ export function Layout(): React.JSX.Element {
 
   const [copiedAll, setCopiedAll] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+  const [desktopDirectories, setDesktopDirectories] = useState<DesktopDirectoryOption[]>([])
+  const [desktopDirectoriesLoading, setDesktopDirectoriesLoading] = useState(false)
 
   const activeSubAgents = useAgentStore((s) => s.activeSubAgents)
   const runningSubAgents = Object.values(activeSubAgents).filter((sa) => sa.isRunning)
 
+  const loadDesktopDirectories = useCallback(async (): Promise<void> => {
+    if (mode === 'chat') return
+
+    setDesktopDirectoriesLoading(true)
+    try {
+      const result = (await ipcClient.invoke('fs:list-desktop-directories')) as DesktopDirectoryResult
+      if ('error' in result || !Array.isArray(result.directories)) {
+        setDesktopDirectories([])
+        return
+      }
+
+      const seen = new Set<string>()
+      const deduped = result.directories.filter((directory) => {
+        const key = directory.path.toLowerCase()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      setDesktopDirectories(deduped)
+    } catch {
+      setDesktopDirectories([])
+    } finally {
+      setDesktopDirectoriesLoading(false)
+    }
+  }, [mode])
+
   useEffect(() => {
     void initBackgroundProcessTracking()
   }, [initBackgroundProcessTracking])
+
+  useEffect(() => {
+    if (mode === 'chat') {
+      setDesktopDirectories([])
+      setFolderDialogOpen(false)
+      return
+    }
+    void loadDesktopDirectories()
+  }, [mode, loadDesktopDirectories])
 
   // Update window title (show pending approvals + streaming state + SubAgent)
   useEffect(() => {
@@ -115,29 +175,40 @@ export function Layout(): React.JSX.Element {
   }, [activeSessionId])
 
   const pendingApproval = pendingToolCalls[0] ?? null
-  const createSession = useChatStore((s) => s.createSession)
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const settingsPageOpen = useUIStore((s) => s.settingsPageOpen)
   const skillsPageOpen = useUIStore((s) => s.skillsPageOpen)
+  const translatePageOpen = useUIStore((s) => s.translatePageOpen)
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar)
+  const _loaded = useChatStore((s) => s._loaded)
+
+  // On initial DB load, restore last active session if any
+  useEffect(() => {
+    if (_loaded) {
+      const activeId = useChatStore.getState().activeSessionId
+      if (activeId) {
+        useUIStore.getState().navigateToSession()
+      }
+    }
+  }, [_loaded])
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent): Promise<void> => {
-      // Ctrl+Shift+N: New session in next mode
+      // Ctrl+Shift+N: New session in next mode — navigate to home
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'N' || e.key === 'n')) {
         e.preventDefault()
         const modes = ['chat', 'cowork', 'code'] as const
         const nextMode = modes[(modes.indexOf(mode) + 1) % modes.length]
         useUIStore.getState().setMode(nextMode)
-        createSession(nextMode)
+        useUIStore.getState().navigateToHome()
         toast.success(t('layout.newModeSession', { mode: nextMode }))
         return
       }
-      // Ctrl+N: New chat
+      // Ctrl+N: New chat — navigate to home
       if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
         e.preventDefault()
-        createSession(mode)
+        useUIStore.getState().navigateToHome()
       }
       // Ctrl+,: Open settings
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
@@ -356,18 +427,33 @@ export function Layout(): React.JSX.Element {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [mode, createSession, setSettingsOpen, toggleLeftSidebar, activeSessionId])
+  }, [mode, setSettingsOpen, toggleLeftSidebar, activeSessionId])
 
-  const handleSelectFolder = async (): Promise<void> => {
+  const setSessionWorkingFolder = (folderPath: string): void => {
+    const chatStore = useChatStore.getState()
+    const sessionId = chatStore.activeSessionId ?? chatStore.createSession(mode)
+    if (sessionId) {
+      chatStore.setWorkingFolder(sessionId, folderPath)
+    }
+  }
+
+  const handleOpenFolderDialog = (): void => {
+    setFolderDialogOpen(true)
+    void loadDesktopDirectories()
+  }
+
+  const handleSelectDesktopFolder = (folderPath: string): void => {
+    setSessionWorkingFolder(folderPath)
+    setFolderDialogOpen(false)
+  }
+
+  const handleSelectOtherFolder = async (): Promise<void> => {
     const result = (await ipcClient.invoke('fs:select-folder')) as { canceled?: boolean; path?: string }
     if (result.canceled || !result.path) {
       return
     }
-    const chatStore = useChatStore.getState()
-    const sessionId = chatStore.activeSessionId ?? chatStore.createSession(mode)
-    if (sessionId) {
-      chatStore.setWorkingFolder(sessionId, result.path)
-    }
+    setSessionWorkingFolder(result.path)
+    setFolderDialogOpen(false)
   }
 
   const handleCopyAll = (): void => {
@@ -447,6 +533,8 @@ export function Layout(): React.JSX.Element {
     }
   }
 
+  const normalizedWorkingFolder = activeWorkingFolder?.toLowerCase()
+
   return (
     <TooltipProvider delayDuration={0}>
       <div className="flex h-screen flex-col overflow-hidden">
@@ -475,6 +563,14 @@ export function Layout(): React.JSX.Element {
             ) : settingsPageOpen ? (
               <PageTransition key="settings-page" className="flex-1 min-w-0 bg-background overflow-hidden">
                 <SettingsPage />
+              </PageTransition>
+            ) : translatePageOpen ? (
+              <PageTransition key="translate-page" className="flex-1 min-w-0 bg-background overflow-hidden">
+                <TranslatePage />
+              </PageTransition>
+            ) : chatView === 'home' ? (
+              <PageTransition key="chat-home" className="flex flex-1 min-w-0 flex-col overflow-hidden">
+                <ChatHomePage />
               </PageTransition>
             ) : (
               <PageTransition key="main-layout" className="flex flex-1 min-w-0 flex-col overflow-hidden">
@@ -628,10 +724,94 @@ export function Layout(): React.JSX.Element {
                       <InputArea
                         onSend={sendMessage}
                         onStop={stopStreaming}
-                        onSelectFolder={mode !== 'chat' ? handleSelectFolder : undefined}
+                        onSelectFolder={mode !== 'chat' ? handleOpenFolderDialog : undefined}
                         workingFolder={activeWorkingFolder}
+                        hideWorkingFolderIndicator
                         isStreaming={isStreaming}
                       />
+                      {mode !== 'chat' && (
+                        <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
+                          <DialogContent className="p-4 sm:max-w-2xl">
+                            <DialogHeader>
+                              <DialogTitle className="text-sm">
+                                {tChat('input.desktopFolders', { defaultValue: 'Desktop folders' })}
+                              </DialogTitle>
+                            </DialogHeader>
+
+                            <div className="-mt-1 rounded-xl border bg-background/60 p-3">
+                              <div className="mb-2 rounded-md border border-border/60 bg-muted/20 px-2 py-1.5">
+                                <p className="text-[10px] text-muted-foreground/70">
+                                  {tChat('input.currentWorkingFolder', {
+                                    defaultValue: 'Current working folder'
+                                  })}
+                                </p>
+                                <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                  <FolderOpen className="size-3 shrink-0" />
+                                  <span className="truncate">
+                                    {activeWorkingFolder ??
+                                      tChat('input.noWorkingFolderSelected', {
+                                        defaultValue: 'No folder selected'
+                                      })}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="mb-2 flex items-center justify-end">
+                                <button
+                                  className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                                  onClick={() => void loadDesktopDirectories()}
+                                >
+                                  {tCommon('action.refresh', { ns: 'common', defaultValue: 'Refresh' })}
+                                </button>
+                              </div>
+
+                              <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                                {desktopDirectoriesLoading ? (
+                                  <span className="text-[11px] text-muted-foreground/60">
+                                    {tChat('input.loadingFolders', { defaultValue: 'Loading folders...' })}
+                                  </span>
+                                ) : desktopDirectories.length > 0 ? (
+                                  desktopDirectories.map((directory) => {
+                                    const selected = directory.path.toLowerCase() === normalizedWorkingFolder
+                                    return (
+                                      <button
+                                        key={directory.path}
+                                        className={cn(
+                                          'inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
+                                          selected
+                                            ? 'border-primary/60 bg-primary/10 text-primary'
+                                            : 'border-border/70 bg-muted/20 text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                                        )}
+                                        onClick={() => handleSelectDesktopFolder(directory.path)}
+                                        title={directory.path}
+                                      >
+                                        <FolderOpen className="size-3 shrink-0" />
+                                        <span className="max-w-[260px] truncate">{directory.name}</span>
+                                      </button>
+                                    )
+                                  })
+                                ) : (
+                                  <span className="text-[11px] text-muted-foreground/60">
+                                    {tChat('input.noDesktopFolders', {
+                                      defaultValue: 'No folders found on Desktop'
+                                    })}
+                                  </span>
+                                )}
+
+                                <button
+                                  className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                                  onClick={() => void handleSelectOtherFolder()}
+                                >
+                                  <FolderOpen className="size-3 shrink-0" />
+                                  {tChat('input.selectOtherFolder', {
+                                    defaultValue: 'Select other folder'
+                                  })}
+                                </button>
+                              </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      )}
                     </div>
 
                     {/* Preview Panel */}

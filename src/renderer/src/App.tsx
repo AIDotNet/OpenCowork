@@ -24,6 +24,12 @@ import { nanoid } from 'nanoid'
 import type { UnifiedMessage } from './lib/api/types'
 import { useNotifyStore } from './stores/notify-store'
 import { NotifyToastContainer } from './components/notify/NotifyWindow'
+import {
+  getGlobalMemorySnapshot,
+  loadGlobalMemorySnapshot,
+  subscribeGlobalMemoryUpdates,
+  type GlobalMemorySnapshot
+} from './lib/agent/memory-files'
 
 // Register synchronous providers and viewers immediately at startup
 registerAllProviders()
@@ -35,6 +41,50 @@ registerAllTools().catch((err) => console.error('[App] Failed to register tools:
 
 // Initialize plugin incoming event listener
 initPluginEventListener()
+
+const GLOBAL_MEMORY_REMINDER_MARKER = '[global-memory-update]'
+const globalMemoryVersionBySession = new Map<string, number>()
+
+function buildGlobalMemoryReminder(snapshot: GlobalMemorySnapshot): string {
+  const pathLabel = snapshot.path ? `\`${snapshot.path}\`` : 'path unavailable'
+  const timeLabel = snapshot.updatedAt
+    ? new Date(snapshot.updatedAt).toLocaleString()
+    : new Date().toLocaleString()
+  const statusLine = snapshot.content
+    ? `Global memory updated (${timeLabel}).`
+    : `Global memory unavailable or empty (${timeLabel}).`
+  return [
+    '<system-reminder>',
+    GLOBAL_MEMORY_REMINDER_MARKER,
+    statusLine,
+    `Path: ${pathLabel}`,
+    '</system-reminder>'
+  ].join('\n')
+}
+
+function upsertGlobalMemoryReminder(sessionId: string, snapshot: GlobalMemorySnapshot): void {
+  const store = _useChatStore.getState()
+  const messages = store.getSessionMessages(sessionId)
+  const reminder = buildGlobalMemoryReminder(snapshot)
+  const existing = [...messages].reverse().find((msg) => {
+    if (msg.role !== 'system') return false
+    if (typeof msg.content !== 'string') return false
+    return msg.content.includes(GLOBAL_MEMORY_REMINDER_MARKER)
+  })
+
+  if (existing) {
+    store.updateMessage(sessionId, existing.id, { content: reminder })
+    return
+  }
+
+  const msg: UnifiedMessage = {
+    id: nanoid(),
+    role: 'system',
+    content: reminder,
+    createdAt: Date.now(),
+  }
+  store.addMessage(sessionId, msg)
+}
 
 function App(): React.JSX.Element {
   const theme = useSettingsStore((s) => s.theme)
@@ -56,6 +106,41 @@ function App(): React.JSX.Element {
       .catch(() => {
         // Ignore — main process may not have a stored key yet
       })
+  }, [])
+
+  // Watch global memory file and refresh system context on changes
+  useEffect(() => {
+    let disposed = false
+    let ready = false
+    let baselineVersion = 0
+
+    const init = async () => {
+      await loadGlobalMemorySnapshot(ipcClient)
+      const snapshot = getGlobalMemorySnapshot()
+      baselineVersion = snapshot.version
+      ready = true
+    }
+
+    void init()
+
+    const unsubscribe = subscribeGlobalMemoryUpdates((snapshot) => {
+      if (disposed || !ready) return
+      if (snapshot.version <= baselineVersion) return
+
+      const sessionId = _useChatStore.getState().activeSessionId
+      if (!sessionId) return
+
+      const lastVersion = globalMemoryVersionBySession.get(sessionId) ?? 0
+      if (snapshot.version <= lastVersion) return
+
+      globalMemoryVersionBySession.set(sessionId, snapshot.version)
+      upsertGlobalMemoryReminder(sessionId, snapshot)
+    })
+
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
   }, [])
 
   // Cron data is global: load once on mount.

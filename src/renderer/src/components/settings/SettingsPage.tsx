@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { Settings, BrainCircuit, Info, Server, Puzzle, Cable, Loader2, Download, Github, Sparkles, ShieldCheck, Layers, HardDriveDownload, HardDriveUpload, Trash2, Globe } from 'lucide-react'
+import { Settings, BrainCircuit, Info, Server, Puzzle, Cable, Loader2, Download, Github, Sparkles, ShieldCheck, Layers, HardDriveDownload, HardDriveUpload, Trash2, Globe, Wand2, BookOpen, Save, RefreshCw } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { AnimatePresence } from 'motion/react'
 import { useUIStore, type SettingsTab } from '@renderer/stores/ui-store'
@@ -31,7 +31,11 @@ import { ProviderPanel } from './ProviderPanel'
 import { PluginPanel } from './PluginPanel'
 import { McpPanel } from './McpPanel'
 import { WebSearchPanel } from './WebSearchPanel'
+import { SkillsMarketPanel } from './SkillsMarketPanel'
 import { ModelIcon } from './provider-icons'
+import { IPC } from '@renderer/lib/ipc/channels'
+import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { readTextFile, resolveGlobalMemoryPath } from '@renderer/lib/agent/memory-files'
 import packageJson from '../../../../../package.json'
 
 const GITHUB_RELEASE_API_URL = 'https://api.github.com/repos/AIDotNet/OpenCowork/releases/latest'
@@ -84,6 +88,34 @@ const releaseAssetMatchers: {
   },
 ]
 
+const DEFAULT_GLOBAL_MEMORY_TEMPLATE = `# MEMORY.md
+
+This file stores global durable memory shared across OpenCowork sessions.
+
+## Stable Preferences
+- Add user preferences that should persist across projects.
+
+## Durable Decisions
+- Record decisions and workflow habits that should be reused.
+
+## Long-lived Context
+- Save long-term facts and defaults (non-sensitive only).
+
+## Do Not Store
+- Secrets, API keys, credentials
+- Temporary debugging notes or one-off task context
+`
+
+function isMissingFileError(error: string): boolean {
+  return error.includes('ENOENT')
+}
+
+function getIpcError(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null
+  const error = (result as { error?: unknown }).error
+  return typeof error === 'string' && error.trim() ? error : null
+}
+
 function formatBytes(bytes?: number): string {
   if (!bytes || Number.isNaN(bytes)) return '—'
   if (bytes < 1024) return `${bytes} B`
@@ -111,11 +143,13 @@ function compareVersions(a?: string, b?: string): number {
 
 const menuItemDefs: { id: SettingsTab; icon: React.ReactNode; labelKey: string; descKey: string }[] = [
   { id: 'general', icon: <Settings className="size-4" />, labelKey: 'general.title', descKey: 'general.subtitle' },
+  { id: 'memory', icon: <BookOpen className="size-4" />, labelKey: 'memory.title', descKey: 'memory.subtitle' },
   { id: 'provider', icon: <Server className="size-4" />, labelKey: 'provider.title', descKey: 'provider.subtitle' },
   { id: 'plugin', icon: <Puzzle className="size-4" />, labelKey: 'plugin.title', descKey: 'plugin.subtitle' },
   { id: 'mcp', icon: <Cable className="size-4" />, labelKey: 'mcp.title', descKey: 'mcp.subtitle' },
   { id: 'model', icon: <BrainCircuit className="size-4" />, labelKey: 'model.title', descKey: 'model.subtitle' },
   { id: 'websearch', icon: <Globe className="size-4" />, labelKey: 'websearch.title', descKey: 'websearch.subtitle' },
+  { id: 'skillsmarket', icon: <Wand2 className="size-4" />, labelKey: 'skillsmarket.title', descKey: 'skillsmarket.subtitle' },
   { id: 'about', icon: <Info className="size-4" />, labelKey: 'about.title', descKey: 'about.subtitle' },
 ]
 
@@ -581,6 +615,163 @@ function GeneralPanel(): React.JSX.Element {
   )
 }
 
+function MemoryPanel(): React.JSX.Element {
+  const { t } = useTranslation('settings')
+  const [memoryPath, setMemoryPath] = useState('')
+  const [savedContent, setSavedContent] = useState('')
+  const [draftContent, setDraftContent] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [missingFile, setMissingFile] = useState(false)
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+
+  const hasUnsavedChanges = draftContent !== savedContent
+
+  const loadGlobalMemory = useCallback(async () => {
+    setLoading(true)
+    try {
+      const path = await resolveGlobalMemoryPath(ipcClient)
+      if (!path) {
+        toast.error(t('memory.resolvePathFailed'))
+        setMemoryPath('')
+        setSavedContent('')
+        setDraftContent('')
+        setMissingFile(true)
+        return
+      }
+
+      setMemoryPath(path)
+      const { content, error } = await readTextFile(ipcClient, path)
+      if (error) {
+        if (isMissingFileError(error)) {
+          setSavedContent(DEFAULT_GLOBAL_MEMORY_TEMPLATE)
+          setDraftContent(DEFAULT_GLOBAL_MEMORY_TEMPLATE)
+          setMissingFile(true)
+          return
+        }
+
+        toast.error(t('memory.loadFailed', { error }))
+        return
+      }
+
+      const normalized = content ?? ''
+      setSavedContent(normalized)
+      setDraftContent(normalized)
+      setMissingFile(false)
+    } finally {
+      setLoading(false)
+    }
+  }, [t])
+
+  useEffect(() => {
+    void loadGlobalMemory()
+  }, [loadGlobalMemory])
+
+  const handleSave = useCallback(async () => {
+    if (!memoryPath) {
+      toast.error(t('memory.resolvePathFailed'))
+      return
+    }
+
+    setSaving(true)
+    try {
+      const result = await ipcClient.invoke(IPC.FS_WRITE_FILE, {
+        path: memoryPath,
+        content: draftContent,
+      })
+      const error = getIpcError(result)
+      if (error) {
+        toast.error(t('memory.saveFailed', { error }))
+        return
+      }
+
+      setSavedContent(draftContent)
+      setMissingFile(false)
+      setLastSavedAt(Date.now())
+      toast.success(t('memory.saved'))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      toast.error(t('memory.saveFailed', { error: message }))
+    } finally {
+      setSaving(false)
+    }
+  }, [draftContent, memoryPath, t])
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-lg font-semibold">{t('memory.title')}</h2>
+        <p className="text-sm text-muted-foreground">{t('memory.subtitle')}</p>
+      </div>
+
+      <section className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">{t('memory.pathLabel')}</p>
+            <p className="break-all text-xs text-muted-foreground">{memoryPath || t('memory.pathUnavailable')}</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => void loadGlobalMemory()}
+            disabled={loading || saving}
+          >
+            <RefreshCw className={`mr-1.5 size-3.5 ${loading ? 'animate-spin' : ''}`} />
+            {t('memory.reloadAction')}
+          </Button>
+        </div>
+        {missingFile && (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+            {t('memory.missingFileHint')}
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">{t('memory.effectiveHint')}</p>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <label className="text-sm font-medium">{t('memory.editorLabel')}</label>
+          <span className="text-[11px] text-muted-foreground">
+            {hasUnsavedChanges
+              ? t('memory.unsavedChanges')
+              : lastSavedAt
+                ? t('memory.lastSavedAt', { time: new Date(lastSavedAt).toLocaleString() })
+                : t('memory.upToDate')}
+          </span>
+        </div>
+        <Textarea
+          value={draftContent}
+          onChange={(e) => setDraftContent(e.target.value)}
+          placeholder={t('memory.editorPlaceholder')}
+          rows={20}
+          className="min-h-[420px] font-mono text-xs leading-5"
+        />
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => void handleSave()}
+            disabled={saving || loading || !hasUnsavedChanges}
+          >
+            {saving ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Save className="mr-1.5 size-3.5" />}
+            {saving ? t('memory.savingAction') : t('memory.saveAction')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => setDraftContent(savedContent)}
+            disabled={saving || loading || !hasUnsavedChanges}
+          >
+            {t('memory.resetAction')}
+          </Button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 // ─── Model Configuration Panel ───
 
 function ModelPanel(): React.JSX.Element {
@@ -590,9 +781,13 @@ function ModelPanel(): React.JSX.Element {
   const activeProviderId = useProviderStore((s) => s.activeProviderId)
   const activeModelId = useProviderStore((s) => s.activeModelId)
   const activeFastModelId = useProviderStore((s) => s.activeFastModelId)
+  const activeTranslationProviderId = useProviderStore((s) => s.activeTranslationProviderId)
+  const activeTranslationModelId = useProviderStore((s) => s.activeTranslationModelId)
   const setActiveProvider = useProviderStore((s) => s.setActiveProvider)
   const setActiveModel = useProviderStore((s) => s.setActiveModel)
   const setActiveFastModel = useProviderStore((s) => s.setActiveFastModel)
+  const setActiveTranslationProvider = useProviderStore((s) => s.setActiveTranslationProvider)
+  const setActiveTranslationModel = useProviderStore((s) => s.setActiveTranslationModel)
 
   const enabledProviders = providers.filter((p) => p.enabled)
   const activeProvider = providers.find((p) => p.id === activeProviderId) ?? null
@@ -616,6 +811,10 @@ function ModelPanel(): React.JSX.Element {
   const activeModelValue = activeProvider && activeModelId
     ? buildModelValue(activeProvider.id, activeModelId)
     : ''
+  const translationProvider = providers.find((p) => p.id === activeTranslationProviderId)
+  const activeTranslationModelValue = translationProvider && activeTranslationModelId
+    ? buildModelValue(translationProvider.id, activeTranslationModelId)
+    : activeModelValue
 
   const noProviders = enabledProviders.length === 0
 
@@ -732,6 +931,61 @@ function ModelPanel(): React.JSX.Element {
               </Select>
             ) : (
               <p className="text-xs text-muted-foreground/60">{t('model.noModelsAvailable')}</p>
+            )}
+          </section>
+
+          {/* Translation Model */}
+          <section className="space-y-3">
+            <div>
+              <label className="text-sm font-medium">{t('model.translationModel')}</label>
+              <p className="text-xs text-muted-foreground">{t('model.translationModelDesc')}</p>
+            </div>
+            {hasAnyEnabledModel ? (
+              <Select
+                value={activeTranslationModelValue}
+                onValueChange={(value) => {
+                  const parsed = parseModelValue(value)
+                  if (!parsed) return
+                  setActiveTranslationProvider(parsed.providerId)
+                  setActiveTranslationModel(parsed.modelId)
+                }}
+              >
+                <SelectTrigger className="w-80 text-xs">
+                  <SelectValue placeholder={t('model.selectTranslationModel')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {providerModelGroups.map(({ provider, models }) => (
+                    <SelectGroup key={`${provider.id}-translation`}>
+                      <SelectLabel className="text-[10px] uppercase tracking-wide">
+                        {provider.name}
+                      </SelectLabel>
+                      {models.map((m) => (
+                        <SelectItem
+                          key={`${provider.id}-translation-${m.id}`}
+                          value={buildModelValue(provider.id, m.id)}
+                          className="text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <ModelIcon
+                              icon={m.icon}
+                              modelId={m.id}
+                              providerBuiltinId={provider.builtinId}
+                              size={16}
+                              className="text-muted-foreground/70"
+                            />
+                            <div className="flex flex-col text-left">
+                              <span>{m.name}</span>
+                              <span className="text-[10px] text-muted-foreground/60">{m.id}</span>
+                            </div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="text-xs text-muted-foreground/60">{t('model.noModelsHint')}</p>
             )}
           </section>
         </>
@@ -910,11 +1164,13 @@ function AboutPanel(): React.JSX.Element {
 
 const panelMap: Record<SettingsTab, () => React.JSX.Element> = {
   general: GeneralPanel,
+  memory: MemoryPanel,
   provider: ProviderPanel,
   plugin: PluginPanel,
   mcp: McpPanel,
   model: ModelPanel,
   websearch: WebSearchPanel,
+  skillsmarket: SkillsMarketPanel,
   about: AboutPanel
 }
 

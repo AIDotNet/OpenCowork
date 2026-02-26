@@ -1,6 +1,19 @@
 import * as React from 'react'
 import { useState as useLocalState } from 'react'
-import { Send, FolderOpen, AlertTriangle, FileUp, Sparkles, X, Trash2, ImagePlus, Brain, ChevronDown, ClipboardList, Globe } from 'lucide-react'
+import {
+  Send,
+  FolderOpen,
+  AlertTriangle,
+  FileUp,
+  Sparkles,
+  X,
+  Trash2,
+  ImagePlus,
+  Brain,
+  ChevronDown,
+  ClipboardList,
+  Globe
+} from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { Button } from '@renderer/components/ui/button'
 import { Spinner } from '@renderer/components/ui/spinner'
@@ -36,10 +49,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
+  AlertDialogTrigger
 } from '@renderer/components/ui/alert-dialog'
 
 function ContextRing(): React.JSX.Element | null {
+  const chatView = useUIStore((s) => s.chatView)
+
   const activeModelCfg = useProviderStore((s) => {
     const { providers, activeProviderId, activeModelId } = s
     if (!activeProviderId) return null
@@ -58,11 +73,12 @@ function ContextRing(): React.JSX.Element | null {
 
   const ctxUsed = lastUsage?.contextTokens ?? lastUsage?.inputTokens ?? 0
 
-  if (!ctxLimit || ctxUsed <= 0) return null
+  if (chatView !== 'session' || !ctxLimit || ctxUsed <= 0) return null
 
   const pct = Math.min((ctxUsed / ctxLimit) * 100, 100)
   const remaining = Math.max(ctxLimit - ctxUsed, 0)
-  const strokeColor = pct > 80 ? 'stroke-red-500' : pct > 50 ? 'stroke-amber-500' : 'stroke-emerald-500'
+  const strokeColor =
+    pct > 80 ? 'stroke-red-500' : pct > 50 ? 'stroke-amber-500' : 'stroke-emerald-500'
 
   // SVG circular progress
   const size = 26
@@ -107,9 +123,7 @@ function ContextRing(): React.JSX.Element | null {
           <p className="text-muted-foreground">
             {formatTokens(ctxUsed)} / {formatTokens(ctxLimit)} ({pct.toFixed(1)}%)
           </p>
-          <p className="text-muted-foreground">
-            {formatTokens(remaining)} remaining
-          </p>
+          <p className="text-muted-foreground">{formatTokens(remaining)} remaining</p>
         </div>
       </TooltipContent>
     </Tooltip>
@@ -120,21 +134,23 @@ function ActivePluginsBadge(): React.JSX.Element | null {
   const activePluginIds = usePluginStore((s) => s.activePluginIds)
   const plugins = usePluginStore((s) => s.plugins)
   if (activePluginIds.length === 0) return null
-  const activeNames = plugins
-    .filter((p) => activePluginIds.includes(p.id))
-    .map((p) => p.name)
+  const activeNames = plugins.filter((p) => activePluginIds.includes(p.id)).map((p) => p.name)
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <div className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary cursor-default">
           <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-          <span>{activePluginIds.length} plugin{activePluginIds.length > 1 ? 's' : ''}</span>
+          <span>
+            {activePluginIds.length} plugin{activePluginIds.length > 1 ? 's' : ''}
+          </span>
         </div>
       </TooltipTrigger>
       <TooltipContent side="top">
         <p className="text-xs font-medium">Active plugins:</p>
         {activeNames.map((n) => (
-          <p key={n} className="text-xs text-muted-foreground">{n}</p>
+          <p key={n} className="text-xs text-muted-foreground">
+            {n}
+          </p>
         ))}
       </TooltipContent>
     </Tooltip>
@@ -171,7 +187,7 @@ function ActiveMcpsBadge(): React.JSX.Element | null {
 const placeholderKeys: Record<AppMode, string> = {
   chat: 'input.placeholder',
   cowork: 'input.placeholderCowork',
-  code: 'input.placeholderCode',
+  code: 'input.placeholderCode'
 }
 
 export interface ImageAttachment {
@@ -203,8 +219,14 @@ function cloneImages(images: ImageAttachment[]): ImageAttachment[] {
 
 function fileToImageAttachment(file: File): Promise<ImageAttachment | null> {
   return new Promise((resolve) => {
-    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) { resolve(null); return }
-    if (file.size > MAX_IMAGE_SIZE) { resolve(null); return }
+    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+      resolve(null)
+      return
+    }
+    if (file.size > MAX_IMAGE_SIZE) {
+      resolve(null)
+      return
+    }
     const reader = new FileReader()
     reader.onload = () => {
       resolve({ id: nanoid(), dataUrl: reader.result as string, mediaType: file.type })
@@ -220,6 +242,7 @@ interface InputAreaProps {
   onSelectFolder?: () => void
   isStreaming?: boolean
   workingFolder?: string
+  hideWorkingFolderIndicator?: boolean
   disabled?: boolean
 }
 
@@ -229,7 +252,8 @@ export function InputArea({
   onSelectFolder,
   isStreaming = false,
   workingFolder,
-  disabled = false,
+  hideWorkingFolderIndicator = false,
+  disabled = false
 }: InputAreaProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const [text, setText] = React.useState('')
@@ -244,7 +268,9 @@ export function InputArea({
   const historyBySessionRef = React.useRef<Record<string, InputHistoryEntry[]>>({})
   const prevSessionIdRef = React.useRef<string | null>(null)
   /** Per-session input draft (text + images + skill) */
-  const draftBySessionRef = React.useRef<Record<string, { text: string; images: ImageAttachment[]; skill: string | null }>>({})
+  const draftBySessionRef = React.useRef<
+    Record<string, { text: string; images: ImageAttachment[]; skill: string | null }>
+  >({})
   const activeProvider = useProviderStore((s) => {
     const { providers, activeProviderId } = s
     if (!activeProviderId) return null
@@ -262,14 +288,17 @@ export function InputArea({
   }, [activeProvider, activeModelId])
   const supportsThinking = activeModelConfig?.supportsThinking ?? false
   const reasoningEffortLevels = activeModelConfig?.thinkingConfig?.reasoningEffortLevels
-  const defaultReasoningEffort = activeModelConfig?.thinkingConfig?.defaultReasoningEffort ?? 'medium'
+  const defaultReasoningEffort =
+    activeModelConfig?.thinkingConfig?.defaultReasoningEffort ?? 'medium'
   const thinkingEnabled = useSettingsStore((s) => s.thinkingEnabled)
   const reasoningEffort = useSettingsStore((s) => s.reasoningEffort)
   const toggleThinking = React.useCallback(() => {
     const store = useSettingsStore.getState()
     if (!store.thinkingEnabled && reasoningEffortLevels) {
       // When enabling thinking on a model with levels, set to default level
-      useSettingsStore.getState().updateSettings({ thinkingEnabled: true, reasoningEffort: defaultReasoningEffort })
+      useSettingsStore
+        .getState()
+        .updateSettings({ thinkingEnabled: true, reasoningEffort: defaultReasoningEffort })
     } else {
       useSettingsStore.getState().updateSettings({ thinkingEnabled: !store.thinkingEnabled })
     }
@@ -305,41 +334,53 @@ export function InputArea({
     setEditingQueueText('')
   }, [])
 
-  const removeQueuedMessage = React.useCallback((id: string) => {
-    if (!activeSessionId) return
-    removePendingSessionMessage(activeSessionId, id)
-    if (editingQueueItemId === id) {
-      setEditingQueueItemId(null)
-      setEditingQueueText('')
-    }
-  }, [activeSessionId, editingQueueItemId])
-
-  const saveQueuedMessage = React.useCallback((id: string) => {
-    if (!activeSessionId) return
-    const current = queuedMessages.find((msg) => msg.id === id)
-    if (!current) return
-
-    const nextText = editingQueueText.trim()
-    if (!nextText && current.images.length === 0) {
+  const removeQueuedMessage = React.useCallback(
+    (id: string) => {
+      if (!activeSessionId) return
       removePendingSessionMessage(activeSessionId, id)
+      if (editingQueueItemId === id) {
+        setEditingQueueItemId(null)
+        setEditingQueueText('')
+      }
+    },
+    [activeSessionId, editingQueueItemId]
+  )
+
+  const saveQueuedMessage = React.useCallback(
+    (id: string) => {
+      if (!activeSessionId) return
+      const current = queuedMessages.find((msg) => msg.id === id)
+      if (!current) return
+
+      const nextText = editingQueueText.trim()
+      if (!nextText && current.images.length === 0) {
+        removePendingSessionMessage(activeSessionId, id)
+        setEditingQueueItemId(null)
+        setEditingQueueText('')
+        return
+      }
+
+      updatePendingSessionMessageText(activeSessionId, id, nextText)
       setEditingQueueItemId(null)
       setEditingQueueText('')
-      return
-    }
+    },
+    [activeSessionId, queuedMessages, editingQueueText]
+  )
 
-    updatePendingSessionMessageText(activeSessionId, id, nextText)
-    setEditingQueueItemId(null)
-    setEditingQueueText('')
-  }, [activeSessionId, queuedMessages, editingQueueText])
-
-  const getHistoryKey = React.useCallback(() => activeSessionId ?? PENDING_HISTORY_KEY, [activeSessionId])
-  const updateSessionHistory = React.useCallback((updater: (prev: InputHistoryEntry[]) => InputHistoryEntry[]) => {
-    const historyKey = getHistoryKey()
-    const prevHistory = historyBySessionRef.current[historyKey] ?? []
-    const nextHistory = updater(prevHistory)
-    historyBySessionRef.current[historyKey] = nextHistory
-    setSentHistory(nextHistory)
-  }, [getHistoryKey])
+  const getHistoryKey = React.useCallback(
+    () => activeSessionId ?? PENDING_HISTORY_KEY,
+    [activeSessionId]
+  )
+  const updateSessionHistory = React.useCallback(
+    (updater: (prev: InputHistoryEntry[]) => InputHistoryEntry[]) => {
+      const historyKey = getHistoryKey()
+      const prevHistory = historyBySessionRef.current[historyKey] ?? []
+      const nextHistory = updater(prevHistory)
+      historyBySessionRef.current[historyKey] = nextHistory
+      setSentHistory(nextHistory)
+    },
+    [getHistoryKey]
+  )
   const clearHistoryNavigation = React.useCallback(() => {
     if (historyCursor !== null) {
       setHistoryCursor(null)
@@ -359,15 +400,18 @@ export function InputArea({
     const cursor = el.value.length
     el.setSelectionRange(cursor, cursor)
   }, [])
-  const applyHistoryEntry = React.useCallback((entry: InputHistoryEntry) => {
-    setText(entry.text)
-    setAttachedImages(cloneImages(entry.images))
-    setSelectedSkill(null)
-    requestAnimationFrame(() => {
-      resizeTextarea()
-      focusInputAtEnd()
-    })
-  }, [focusInputAtEnd, resizeTextarea])
+  const applyHistoryEntry = React.useCallback(
+    (entry: InputHistoryEntry) => {
+      setText(entry.text)
+      setAttachedImages(cloneImages(entry.images))
+      setSelectedSkill(null)
+      requestAnimationFrame(() => {
+        resizeTextarea()
+        focusInputAtEnd()
+      })
+    },
+    [focusInputAtEnd, resizeTextarea]
+  )
   const restoreDraftFromHistory = React.useCallback(() => {
     const draft = historyDraftRef.current
     setText(draft?.text ?? '')
@@ -379,43 +423,54 @@ export function InputArea({
       focusInputAtEnd()
     })
   }, [focusInputAtEnd, resizeTextarea])
-  const navigateHistory = React.useCallback((direction: 'up' | 'down') => {
-    if (sentHistory.length === 0) return
-    if (direction === 'up') {
-      if (historyCursor === null) {
-        historyDraftRef.current = {
-          text,
-          images: cloneImages(attachedImages),
-          selectedSkill,
+  const navigateHistory = React.useCallback(
+    (direction: 'up' | 'down') => {
+      if (sentHistory.length === 0) return
+      if (direction === 'up') {
+        if (historyCursor === null) {
+          historyDraftRef.current = {
+            text,
+            images: cloneImages(attachedImages),
+            selectedSkill
+          }
+          const latest = sentHistory.length - 1
+          setHistoryCursor(latest)
+          applyHistoryEntry(sentHistory[latest])
+          return
         }
-        const latest = sentHistory.length - 1
-        setHistoryCursor(latest)
-        applyHistoryEntry(sentHistory[latest])
+        const next = Math.max(historyCursor - 1, 0)
+        if (next !== historyCursor) {
+          setHistoryCursor(next)
+          applyHistoryEntry(sentHistory[next])
+        }
         return
       }
-      const next = Math.max(historyCursor - 1, 0)
-      if (next !== historyCursor) {
-        setHistoryCursor(next)
-        applyHistoryEntry(sentHistory[next])
+      if (historyCursor === null) return
+      const next = historyCursor + 1
+      if (next >= sentHistory.length) {
+        setHistoryCursor(null)
+        restoreDraftFromHistory()
+        return
       }
-      return
-    }
-    if (historyCursor === null) return
-    const next = historyCursor + 1
-    if (next >= sentHistory.length) {
-      setHistoryCursor(null)
-      restoreDraftFromHistory()
-      return
-    }
-    setHistoryCursor(next)
-    applyHistoryEntry(sentHistory[next])
-  }, [historyCursor, sentHistory, text, attachedImages, selectedSkill, applyHistoryEntry, restoreDraftFromHistory])
+      setHistoryCursor(next)
+      applyHistoryEntry(sentHistory[next])
+    },
+    [
+      historyCursor,
+      sentHistory,
+      text,
+      attachedImages,
+      selectedSkill,
+      applyHistoryEntry,
+      restoreDraftFromHistory
+    ]
+  )
   const hasMessages = useChatStore((s) => {
     const session = s.sessions.find((sess) => sess.id === s.activeSessionId)
     return (session?.messageCount ?? 0) > 0
   })
   const clearSessionMessages = useChatStore((s) => s.clearSessionMessages)
-  const hasApiKey = !!(activeProvider?.apiKey) || activeProvider?.requiresApiKey === false
+  const hasApiKey = !!activeProvider?.apiKey || activeProvider?.requiresApiKey === false
   const needsWorkingFolder = mode !== 'chat' && !workingFolder
   const planMode = useUIStore((s) => s.planMode)
   const togglePlanMode = React.useCallback(() => {
@@ -459,7 +514,7 @@ export function InputArea({
       draftBySessionRef.current[prevSessionId] = {
         text,
         images: cloneImages(attachedImages),
-        skill: selectedSkill,
+        skill: selectedSkill
       }
     }
 
@@ -472,7 +527,11 @@ export function InputArea({
 
     if (!prevSessionId && activeSessionId) {
       const pendingHistory = historyBySessionRef.current[PENDING_HISTORY_KEY]
-      if (pendingHistory && pendingHistory.length > 0 && !historyBySessionRef.current[activeSessionId]) {
+      if (
+        pendingHistory &&
+        pendingHistory.length > 0 &&
+        !historyBySessionRef.current[activeSessionId]
+      ) {
         historyBySessionRef.current[activeSessionId] = pendingHistory
         delete historyBySessionRef.current[PENDING_HISTORY_KEY]
       }
@@ -482,7 +541,7 @@ export function InputArea({
     setHistoryCursor(null)
     historyDraftRef.current = null
     prevSessionIdRef.current = activeSessionId
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId])
 
   // Consume pendingInsertText from FileTree clicks
@@ -503,35 +562,39 @@ export function InputArea({
   }, [pendingInsert, clearHistoryNavigation, focusInputAtEnd, resizeTextarea])
 
   // --- Image helpers ---
-  const addImages = React.useCallback(async (files: File[]) => {
-    const results = await Promise.all(files.map(fileToImageAttachment))
-    const valid = results.filter(Boolean) as ImageAttachment[]
-    if (valid.length > 0) {
-      clearHistoryNavigation()
-      setAttachedImages((prev) => [...prev, ...valid])
-    }
-  }, [clearHistoryNavigation])
+  const addImages = React.useCallback(
+    async (files: File[]) => {
+      const results = await Promise.all(files.map(fileToImageAttachment))
+      const valid = results.filter(Boolean) as ImageAttachment[]
+      if (valid.length > 0) {
+        clearHistoryNavigation()
+        setAttachedImages((prev) => [...prev, ...valid])
+      }
+    },
+    [clearHistoryNavigation]
+  )
 
-  const removeImage = React.useCallback((id: string) => {
-    clearHistoryNavigation()
-    setAttachedImages((prev) => prev.filter((img) => img.id !== id))
-  }, [clearHistoryNavigation])
+  const removeImage = React.useCallback(
+    (id: string) => {
+      clearHistoryNavigation()
+      setAttachedImages((prev) => prev.filter((img) => img.id !== id))
+    },
+    [clearHistoryNavigation]
+  )
 
   const handleSend = (): void => {
     const trimmed = text.trim()
     if (!trimmed && attachedImages.length === 0) return
     if (disabled || needsWorkingFolder) return
-    const message = selectedSkill
-      ? `[Skill: ${selectedSkill}]\n${trimmed}`
-      : trimmed
+    const message = selectedSkill ? `[Skill: ${selectedSkill}]\n${trimmed}` : trimmed
     onSend(message, attachedImages.length > 0 ? attachedImages : undefined)
     updateSessionHistory((prevHistory) => {
       const nextHistory = [
         ...prevHistory,
         {
           text: message,
-          images: cloneImages(attachedImages),
-        },
+          images: cloneImages(attachedImages)
+        }
       ]
       return nextHistory.length > INPUT_HISTORY_LIMIT
         ? nextHistory.slice(nextHistory.length - INPUT_HISTORY_LIMIT)
@@ -589,18 +652,21 @@ export function InputArea({
   }
 
   // Paste handler for images
-  const handlePaste = React.useCallback((e: React.ClipboardEvent): void => {
-    if (!supportsVision) return
-    const items = Array.from(e.clipboardData.items)
-    const imageFiles = items
-      .filter((item) => item.kind === 'file' && ACCEPTED_IMAGE_TYPES.includes(item.type))
-      .map((item) => item.getAsFile())
-      .filter(Boolean) as File[]
-    if (imageFiles.length > 0) {
-      e.preventDefault()
-      addImages(imageFiles)
-    }
-  }, [supportsVision, addImages])
+  const handlePaste = React.useCallback(
+    (e: React.ClipboardEvent): void => {
+      if (!supportsVision) return
+      const items = Array.from(e.clipboardData.items)
+      const imageFiles = items
+        .filter((item) => item.kind === 'file' && ACCEPTED_IMAGE_TYPES.includes(item.type))
+        .map((item) => item.getAsFile())
+        .filter(Boolean) as File[]
+      if (imageFiles.length > 0) {
+        e.preventDefault()
+        addImages(imageFiles)
+      }
+    },
+    [supportsVision, addImages]
+  )
 
   // Drag-and-drop: images go to attachments, other files insert paths
   const handleDrop = (e: React.DragEvent<HTMLTextAreaElement>): void => {
@@ -619,7 +685,7 @@ export function InputArea({
         const paths = otherFiles.map((f) => (f as File & { path: string }).path).filter(Boolean)
         if (paths.length > 0) {
           const insertion = paths.join('\n')
-          setText((prev) => prev ? `${prev}\n${insertion}` : insertion)
+          setText((prev) => (prev ? `${prev}\n${insertion}` : insertion))
         }
       }
     }
@@ -672,7 +738,11 @@ export function InputArea({
         <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-violet-500/30 bg-violet-500/5 px-3 py-1.5">
           <div className="flex items-center gap-1.5 text-xs text-violet-600 dark:text-violet-400">
             <ClipboardList className="size-3.5 shrink-0" />
-            <span>{t('input.planModeActive', { defaultValue: 'Plan Mode — exploring codebase, no file changes' })}</span>
+            <span>
+              {t('input.planModeActive', {
+                defaultValue: 'Plan Mode — exploring codebase, no file changes'
+              })}
+            </span>
           </div>
           <Button
             variant="ghost"
@@ -686,7 +756,7 @@ export function InputArea({
       )}
 
       {/* Working folder indicator */}
-      {workingFolder && (
+      {workingFolder && !hideWorkingFolderIndicator && (
         <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
           <FolderOpen className="size-3" />
           <span className="truncate">{workingFolder}</span>
@@ -694,7 +764,9 @@ export function InputArea({
       )}
 
       <div className="mx-auto max-w-3xl">
-        <div className={`relative rounded-2xl border bg-background shadow-lg transition-shadow focus-within:shadow-xl focus-within:ring-1 focus-within:ring-ring/20 ${dragging ? 'ring-2 ring-primary/50' : ''}`}>
+        <div
+          className={`relative rounded-2xl border bg-background shadow-lg transition-shadow focus-within:shadow-xl focus-within:ring-1 focus-within:ring-ring/20 ${dragging ? 'ring-2 ring-primary/50' : ''}`}
+        >
           {/* Queued message list (while current run is processing) */}
           {queuedMessages.length > 0 && (
             <div className="px-3 pt-3 pb-1">
@@ -710,7 +782,10 @@ export function InputArea({
                 {queuedMessages.map((msg) => {
                   const isEditing = editingQueueItemId === msg.id
                   return (
-                    <div key={msg.id} className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
+                    <div
+                      key={msg.id}
+                      className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2"
+                    >
                       <div className="mb-1 flex items-center justify-end">
                         <div className="flex items-center gap-1">
                           {isEditing ? (
@@ -864,32 +939,38 @@ export function InputArea({
           />
 
           {/* Bottom toolbar */}
-          <div className="flex items-center justify-between px-2 pb-2 mt-1">
+          <div className="flex items-center justify-between gap-2 px-2 pb-2 mt-1">
             {/* Left tools */}
-            <div className="flex items-center gap-1">
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pr-1">
               <ModelSwitcher />
 
               {/* Web search toggle */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className={`h-8 rounded-lg px-2 gap-1 transition-colors ${
-                      webSearchEnabled
-                        ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                    onClick={toggleWebSearch}
-                    disabled={disabled || isStreaming}
-                  >
-                    <Globe className="size-4" />
-                    {webSearchEnabled && <span className="text-[10px] font-medium">{t('input.webSearch', { defaultValue: '联网' })}</span>}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {webSearchEnabled ? t('input.disableWebSearch', { defaultValue: 'Disable web search' }) : t('input.enableWebSearch', { defaultValue: 'Enable web search' })}
-                </TooltipContent>
-              </Tooltip>
+              {mode !== 'chat' && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className={`h-8 rounded-lg px-2 gap-1 transition-colors ${
+                        webSearchEnabled
+                          ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                      onClick={toggleWebSearch}
+                      disabled={disabled || isStreaming}
+                    >
+                      <Globe className="size-4" />
+                      <span className="text-[10px] font-medium">
+                        {t('input.webSearch', { defaultValue: '联网' })}
+                      </span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {webSearchEnabled
+                      ? t('input.disableWebSearch', { defaultValue: 'Disable web search' })
+                      : t('input.enableWebSearch', { defaultValue: 'Enable web search' })}
+                  </TooltipContent>
+                </Tooltip>
+              )}
 
               {/* Skills menu (+ button) */}
               {mode !== 'chat' && (
@@ -925,7 +1006,9 @@ export function InputArea({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {planMode ? t('input.exitPlanMode', { defaultValue: 'Exit Plan Mode' }) : t('input.enterPlanMode', { defaultValue: 'Enter Plan Mode' })}
+                    {planMode
+                      ? t('input.exitPlanMode', { defaultValue: 'Exit Plan Mode' })
+                      : t('input.enterPlanMode', { defaultValue: 'Enter Plan Mode' })}
                   </TooltipContent>
                 </Tooltip>
               )}
@@ -949,8 +1032,8 @@ export function InputArea({
               )}
 
               {/* Think toggle button — with reasoning effort level selector */}
-              {supportsThinking && (
-                reasoningEffortLevels && reasoningEffortLevels.length > 0 ? (
+              {supportsThinking &&
+                (reasoningEffortLevels && reasoningEffortLevels.length > 0 ? (
                   <Popover>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -966,13 +1049,19 @@ export function InputArea({
                           >
                             <Brain className="size-4" />
                             {thinkingEnabled && (
-                              <span className="text-[10px] font-medium uppercase">{reasoningEffort}</span>
+                              <span className="text-[10px] font-medium uppercase">
+                                {reasoningEffort}
+                              </span>
                             )}
                             <ChevronDown className="size-3 opacity-50" />
                           </Button>
                         </PopoverTrigger>
                       </TooltipTrigger>
-                      <TooltipContent>{thinkingEnabled ? t('input.thinkingLevel', { level: reasoningEffort }) : t('input.enableThinking')}</TooltipContent>
+                      <TooltipContent>
+                        {thinkingEnabled
+                          ? t('input.thinkingLevel', { level: reasoningEffort })
+                          : t('input.enableThinking')}
+                      </TooltipContent>
                     </Tooltip>
                     <PopoverContent className="w-auto p-1.5" align="start" side="top">
                       <div className="flex flex-col gap-0.5">
@@ -983,7 +1072,9 @@ export function InputArea({
                               ? 'bg-accent text-accent-foreground'
                               : 'hover:bg-muted/60 text-foreground/80'
                           }`}
-                          onClick={() => useSettingsStore.getState().updateSettings({ thinkingEnabled: false })}
+                          onClick={() =>
+                            useSettingsStore.getState().updateSettings({ thinkingEnabled: false })
+                          }
                         >
                           <span className="font-medium">{t('input.thinkingOff')}</span>
                         </button>
@@ -999,7 +1090,9 @@ export function InputArea({
                             onClick={() => setReasoningEffort(level)}
                           >
                             <span className="font-medium uppercase">{level}</span>
-                            <span className="text-[10px] text-muted-foreground">{t(`input.effortDesc.${level}`)}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {t(`input.effortDesc.${level}`)}
+                            </span>
                           </button>
                         ))}
                       </div>
@@ -1022,10 +1115,11 @@ export function InputArea({
                         <Brain className="size-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{thinkingEnabled ? t('input.disableThinking') : t('input.enableThinking')}</TooltipContent>
+                    <TooltipContent>
+                      {thinkingEnabled ? t('input.disableThinking') : t('input.enableThinking')}
+                    </TooltipContent>
                   </Tooltip>
-                )
-              )}
+                ))}
 
               {/* Attachment / Folder button */}
               {onSelectFolder && (
@@ -1046,7 +1140,7 @@ export function InputArea({
             </div>
 
             {/* Right actions */}
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <ContextRing />
 
               {debouncedTokens > 0 && (
@@ -1077,12 +1171,12 @@ export function InputArea({
                   <AlertDialogContent size="sm">
                     <AlertDialogHeader>
                       <AlertDialogTitle>{t('input.clearConfirmTitle')}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t('input.clearConfirmDesc')}
-                      </AlertDialogDescription>
+                      <AlertDialogDescription>{t('input.clearConfirmDesc')}</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel size="sm">{t('action.cancel', { ns: 'common' })}</AlertDialogCancel>
+                      <AlertDialogCancel size="sm">
+                        {t('action.cancel', { ns: 'common' })}
+                      </AlertDialogCancel>
                       <AlertDialogAction
                         variant="destructive"
                         size="sm"
@@ -1117,7 +1211,11 @@ export function InputArea({
                     size="sm"
                     className="h-8 rounded-lg px-3 bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-sm"
                     onClick={handleSend}
-                    disabled={(!text.trim() && attachedImages.length === 0) || disabled || needsWorkingFolder}
+                    disabled={
+                      (!text.trim() && attachedImages.length === 0) ||
+                      disabled ||
+                      needsWorkingFolder
+                    }
                   >
                     <span>{t('action.start', { ns: 'common' })}</span>
                     <Send className="size-3.5 ml-1.5" />

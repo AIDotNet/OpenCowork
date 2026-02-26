@@ -27,7 +27,7 @@ class AnthropicProvider implements APIProvider {
       model: config.model,
       max_tokens: config.maxTokens ?? 32000,
       ...(config.systemPrompt
-        ? { system: [{ type: 'text', text: config.systemPrompt, cache_control: { type: 'ephemeral' } }] }
+        ? { system: [{ type: 'text', text: config.systemPrompt, ...(config.enableSystemPromptCache ? { cache_control: { type: 'ephemeral' } } : {}) }] }
         : {}),
       messages: this.formatMessages(messages),
       ...(tools.length > 0 ? { tools: this.formatTools(tools), tool_choice: { type: 'auto' } } : {}),
@@ -61,6 +61,20 @@ class AnthropicProvider implements APIProvider {
 
     const toolBuffersByBlockIndex = new Map<number, string>()
     const toolCallsByBlockIndex = new Map<number, { id: string; name: string }>()
+    const emittedThinkingEncrypted = new Set<string>()
+
+    const tryBuildThinkingEncryptedEvent = (encryptedContent: unknown): StreamEvent | null => {
+      if (typeof encryptedContent !== 'string') return null
+      const trimmed = encryptedContent.trim()
+      if (!trimmed || emittedThinkingEncrypted.has(trimmed)) return null
+      emittedThinkingEncrypted.add(trimmed)
+      return {
+        type: 'thinking_encrypted',
+        thinkingEncryptedContent: trimmed,
+        thinkingEncryptedProvider: 'anthropic',
+      }
+    }
+
     // Anthropic splits usage across two events:
     // - message_start → input_tokens, cache_creation_input_tokens, cache_read_input_tokens
     // - message_delta → output_tokens
@@ -112,6 +126,13 @@ class AnthropicProvider implements APIProvider {
               toolCallId: data.content_block.id,
               toolName: data.content_block.name,
             }
+          } else if (data.content_block.type === 'thinking') {
+            const thinkingEncryptedEvent = tryBuildThinkingEncryptedEvent(
+              data.content_block.signature ?? data.content_block.encrypted_content
+            )
+            if (thinkingEncryptedEvent) {
+              yield thinkingEncryptedEvent
+            }
           }
           // thinking blocks are handled via their deltas
           break
@@ -124,6 +145,13 @@ class AnthropicProvider implements APIProvider {
             yield { type: 'text_delta', text: data.delta.text }
           } else if (data.delta.type === 'thinking_delta') {
             yield { type: 'thinking_delta', thinking: data.delta.thinking }
+          } else if (data.delta.type === 'signature_delta') {
+            const thinkingEncryptedEvent = tryBuildThinkingEncryptedEvent(
+              data.delta.signature ?? data.delta.encrypted_content
+            )
+            if (thinkingEncryptedEvent) {
+              yield thinkingEncryptedEvent
+            }
           } else if (data.delta.type === 'input_json_delta' && blockIndex >= 0) {
             const next = `${toolBuffersByBlockIndex.get(blockIndex) ?? ''}${data.delta.partial_json}`
             toolBuffersByBlockIndex.set(blockIndex, next)
@@ -234,7 +262,13 @@ class AnthropicProvider implements APIProvider {
           content: blocks.map((b) => {
             switch (b.type) {
               case 'thinking':
-                return { type: 'thinking', thinking: b.thinking }
+                return {
+                  type: 'thinking',
+                  thinking: b.thinking,
+                  ...(b.encryptedContent && (b.encryptedContentProvider === 'anthropic' || !b.encryptedContentProvider)
+                    ? { signature: b.encryptedContent }
+                    : {}),
+                }
               case 'text':
                 return { type: 'text', text: b.text }
               case 'tool_use':

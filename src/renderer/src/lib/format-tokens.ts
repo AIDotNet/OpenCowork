@@ -23,19 +23,14 @@ export function formatTokens(n: number): string {
 export function calculateCost(usage: TokenUsage, model: AIModelConfig | null | undefined): number | null {
   if (!model || model.inputPrice == null || model.outputPrice == null) return null
 
-  let inputCost: number
-  const hasCache = (usage.cacheCreationTokens ?? 0) > 0 || (usage.cacheReadTokens ?? 0) > 0
-
-  if (hasCache) {
-    const cacheRead = usage.cacheReadTokens ?? 0
-    const cacheCreation = usage.cacheCreationTokens ?? 0
-    const normalInput = usage.inputTokens - cacheRead
-    const cacheReadPrice = model.cacheHitPrice ?? model.inputPrice * 0.1
-    const cacheCreationPriceVal = model.cacheCreationPrice ?? model.inputPrice * 1.25
-    inputCost = (normalInput * model.inputPrice + cacheRead * cacheReadPrice + cacheCreation * cacheCreationPriceVal) / 1_000_000
-  } else {
-    inputCost = (usage.inputTokens * model.inputPrice) / 1_000_000
-  }
+  const cacheRead = usage.cacheReadTokens ?? 0
+  const cacheCreation = usage.cacheCreationTokens ?? 0
+  const inputTokens = usage.inputTokens ?? 0
+  const rawInputTokens = usage.contextTokens ?? (cacheRead > inputTokens ? inputTokens + cacheRead : inputTokens)
+  const normalInput = Math.max(0, rawInputTokens - cacheRead)
+  const cacheReadPrice = model.cacheHitPrice ?? model.inputPrice * 0.1
+  const cacheCreationPriceVal = model.cacheCreationPrice ?? model.inputPrice * 1.25
+  const inputCost = (normalInput * model.inputPrice + cacheRead * cacheReadPrice + cacheCreation * cacheCreationPriceVal) / 1_000_000
 
   const outputCost = (usage.outputTokens * model.outputPrice) / 1_000_000
   return inputCost + outputCost

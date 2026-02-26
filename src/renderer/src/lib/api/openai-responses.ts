@@ -23,32 +23,49 @@ class OpenAIResponsesProvider implements APIProvider {
     let firstTokenAt: number | null = null
     let outputTokens = 0
     const baseUrl = (config.baseUrl || 'https://api.openai.com/v1').trim().replace(/\/+$/, '')
-    const isOpenAI = /^https?:\/\/api\.openai\.com/i.test(baseUrl)
 
     const body: Record<string, unknown> = {
       model: config.model,
-      input: this.formatMessages(messages, config.systemPrompt),
+      input: this.formatMessages(messages, config.systemPrompt, !!config.thinkingEnabled),
       stream: true,
     }
 
     // Enable prompt caching for OpenAI endpoints to reduce costs
-    if (isOpenAI && config.sessionId) body.prompt_cache_key = `opencowork-${config.sessionId}`
+    if (config.sessionId) {
+      body.prompt_cache_key = `opencowork-${config.sessionId}`
+    }
 
     if (tools.length > 0) {
       body.tools = this.formatTools(tools)
     }
     if (config.temperature !== undefined) body.temperature = config.temperature
-    if (config.maxTokens) body.max_tokens = config.maxTokens
+    if (config.maxTokens) body.max_output_tokens = config.maxTokens
 
     // Merge thinking/reasoning params when enabled; explicit disable params when off
     if (config.thinkingEnabled && config.thinkingConfig) {
       Object.assign(body, config.thinkingConfig.bodyParams)
-      // Override reasoning_effort with user-selected level when model supports multiple levels
+
+      const reasoning =
+        typeof body.reasoning === 'object' && body.reasoning !== null
+          ? { ...(body.reasoning as Record<string, unknown>) }
+          : {}
+
       if (config.thinkingConfig.reasoningEffortLevels && config.reasoningEffort) {
-        // Responses API uses nested reasoning.effort format; also set top-level for compat
-        body.reasoning = { ...(typeof body.reasoning === 'object' && body.reasoning !== null ? body.reasoning : {}), effort: config.reasoningEffort }
-        body.reasoning_effort = config.reasoningEffort
+        reasoning.effort = config.reasoningEffort
       }
+      reasoning.summary = config.responseSummary ?? 'auto'
+      if (Object.keys(reasoning).length > 0) {
+        body.reasoning = reasoning
+      }
+
+      const include = Array.isArray(body.include)
+        ? (body.include as unknown[]).filter((item): item is string => typeof item === 'string')
+        : []
+      if (!include.includes('reasoning.encrypted_content')) {
+        include.push('reasoning.encrypted_content')
+      }
+      body.include = include
+
       if (config.thinkingConfig.forceTemperature !== undefined) {
         body.temperature = config.thinkingConfig.forceTemperature
       }
@@ -68,6 +85,39 @@ class OpenAIResponsesProvider implements APIProvider {
     yield { type: 'request_debug', debugInfo: { url, method: 'POST', headers: maskHeaders(headers), body: bodyStr, timestamp: Date.now() } }
 
     const argBuffers = new Map<string, string>()
+    const emittedThinkingEncrypted = new Set<string>()
+    let emittedThinkingDelta = false
+
+    const extractReasoningSummaryText = (summary: unknown): string => {
+      if (typeof summary === 'string') return summary
+      if (!Array.isArray(summary)) return ''
+      return summary
+        .map((part) => {
+          if (typeof part === 'string') return part
+          if (!part || typeof part !== 'object') return ''
+          const text = (part as { text?: unknown }).text
+          return typeof text === 'string' ? text : ''
+        })
+        .join('')
+    }
+
+    const tryBuildThinkingDeltaEvent = (thinking: unknown): StreamEvent | null => {
+      if (typeof thinking !== 'string' || !thinking) return null
+      emittedThinkingDelta = true
+      return { type: 'thinking_delta', thinking }
+    }
+
+    const tryBuildThinkingEncryptedEvent = (encryptedContent: unknown): StreamEvent | null => {
+      if (typeof encryptedContent !== 'string') return null
+      const trimmed = encryptedContent.trim()
+      if (!trimmed || emittedThinkingEncrypted.has(trimmed)) return null
+      emittedThinkingEncrypted.add(trimmed)
+      return {
+        type: 'thinking_encrypted',
+        thinkingEncryptedContent: trimmed,
+        thinkingEncryptedProvider: 'openai-responses',
+      }
+    }
 
     for await (const sse of ipcStreamRequest({
       url,
@@ -91,16 +141,65 @@ class OpenAIResponsesProvider implements APIProvider {
           yield { type: 'text_delta', text: data.delta }
           break
 
+        case 'response.reasoning_summary_text.delta': {
+          if (firstTokenAt === null) firstTokenAt = Date.now()
+          const thinkingEvent = tryBuildThinkingDeltaEvent(data.delta)
+          if (thinkingEvent) {
+            yield thinkingEvent
+          }
+          break
+        }
+
+        case 'response.reasoning_summary_text.done': {
+          if (firstTokenAt === null) firstTokenAt = Date.now()
+          if (!emittedThinkingDelta) {
+            const thinkingEvent = tryBuildThinkingDeltaEvent(
+              data.text ?? data.delta ?? extractReasoningSummaryText(data.summary)
+            )
+            if (thinkingEvent) {
+              yield thinkingEvent
+            }
+          }
+          break
+        }
+
         case 'response.output_item.added':
-          if (data.item.type === 'function_call') {
+          if (data.item?.type === 'function_call') {
             argBuffers.set(data.item.id, '')
             yield {
               type: 'tool_call_start',
               toolCallId: data.item.call_id,
               toolName: data.item.name,
             }
+          } else if (data.item?.type === 'reasoning') {
+            const thinkingEncryptedEvent = tryBuildThinkingEncryptedEvent(
+              data.item.encrypted_content ?? data.item.reasoning?.encrypted_content
+            )
+            if (thinkingEncryptedEvent) {
+              yield thinkingEncryptedEvent
+            }
           }
           break
+
+        case 'response.output_item.done': {
+          if (firstTokenAt === null) firstTokenAt = Date.now()
+          if (!emittedThinkingDelta) {
+            const thinkingEvent = tryBuildThinkingDeltaEvent(
+              extractReasoningSummaryText(data.item?.summary ?? data.item?.reasoning?.summary)
+            )
+            if (thinkingEvent) {
+              yield thinkingEvent
+            }
+          }
+
+          const thinkingEncryptedEvent = tryBuildThinkingEncryptedEvent(
+            data.item?.encrypted_content ?? data.item?.reasoning?.encrypted_content
+          )
+          if (thinkingEncryptedEvent) {
+            yield thinkingEncryptedEvent
+          }
+          break
+        }
 
         case 'response.function_call_arguments.delta': {
           yield { type: 'tool_call_delta', argumentsDelta: data.delta }
@@ -119,20 +218,45 @@ class OpenAIResponsesProvider implements APIProvider {
 
         case 'response.completed': {
           const requestCompletedAt = Date.now()
+          const responseOutput = data.response?.output
+          if (Array.isArray(responseOutput)) {
+            for (const item of responseOutput) {
+              if (!emittedThinkingDelta) {
+                const thinkingEvent = tryBuildThinkingDeltaEvent(
+                  extractReasoningSummaryText(item?.summary ?? item?.reasoning?.summary)
+                )
+                if (thinkingEvent) {
+                  if (firstTokenAt === null) firstTokenAt = Date.now()
+                  yield thinkingEvent
+                }
+              }
+
+              const thinkingEncryptedEvent = tryBuildThinkingEncryptedEvent(
+                item?.encrypted_content ?? item?.reasoning?.encrypted_content
+              )
+              if (thinkingEncryptedEvent) {
+                yield thinkingEncryptedEvent
+              }
+            }
+          }
           if (data.response?.usage?.output_tokens !== undefined) {
             outputTokens = data.response.usage.output_tokens ?? outputTokens
           }
+          const cachedTokens = data.response?.usage?.input_tokens_details?.cached_tokens ?? 0
+          const rawInputTokens = data.response?.usage?.input_tokens ?? 0
           yield {
             type: 'message_end',
             stopReason: data.response.status,
             usage: data.response.usage
               ? {
-                  inputTokens: data.response.usage.input_tokens ?? 0,
-                  outputTokens: data.response.usage.output_tokens ?? 0,
-                  ...(data.response.usage.output_tokens_details?.reasoning_tokens
-                    ? { reasoningTokens: data.response.usage.output_tokens_details.reasoning_tokens }
-                    : {}),
-                }
+                inputTokens: rawInputTokens,
+                outputTokens: data.response.usage.output_tokens ?? 0,
+                contextTokens: rawInputTokens,
+                ...(cachedTokens > 0 ? { cacheReadTokens: cachedTokens } : {}),
+                ...(data.response.usage.output_tokens_details?.reasoning_tokens
+                  ? { reasoningTokens: data.response.usage.output_tokens_details.reasoning_tokens }
+                  : {}),
+              }
               : undefined,
             timing: {
               totalMs: requestCompletedAt - requestStartedAt,
@@ -151,7 +275,11 @@ class OpenAIResponsesProvider implements APIProvider {
     }
   }
 
-  formatMessages(messages: UnifiedMessage[], systemPrompt?: string): unknown[] {
+  formatMessages(
+    messages: UnifiedMessage[],
+    systemPrompt?: string,
+    includeEncryptedReasoning = false
+  ): unknown[] {
     const input: unknown[] = []
 
     if (systemPrompt) {
@@ -192,6 +320,22 @@ class OpenAIResponsesProvider implements APIProvider {
         switch (block.type) {
           case 'text':
             input.push({ type: 'message', role: m.role, content: block.text })
+            break
+          case 'thinking':
+            if (
+              includeEncryptedReasoning &&
+              m.role === 'assistant' &&
+              block.encryptedContent &&
+              (block.encryptedContentProvider === 'openai-responses' || !block.encryptedContentProvider)
+            ) {
+              input.push({
+                type: 'reasoning',
+                summary: block.thinking
+                  ? [{ type: 'summary_text', text: block.thinking }]
+                  : [],
+                encrypted_content: block.encryptedContent,
+              })
+            }
             break
           case 'tool_use':
             input.push({
@@ -235,10 +379,47 @@ class OpenAIResponsesProvider implements APIProvider {
       // Responses API uses internally tagged function tools (top-level name/parameters).
       name: t.name,
       description: t.description,
-      parameters: t.inputSchema,
+      parameters: this.normalizeToolSchema(t.inputSchema),
       // Keep non-strict behavior for existing tool schemas (Chat Completions parity).
       strict: false,
     }))
+  }
+
+  /**
+   * OpenAI Responses requires a root object schema with `properties`.
+   * Our Task tool currently uses `oneOf` at the root, so collapse it into
+   * a single object schema for compatibility.
+   */
+  private normalizeToolSchema(schema: ToolDefinition['inputSchema']): Record<string, unknown> {
+    if ('properties' in schema) return schema
+
+    const mergedProperties: Record<string, unknown> = {}
+    let requiredIntersection: string[] | null = null
+
+    for (const variant of schema.oneOf) {
+      for (const [key, value] of Object.entries(variant.properties ?? {})) {
+        if (!(key in mergedProperties)) mergedProperties[key] = value
+      }
+
+      const required = variant.required ?? []
+      if (requiredIntersection === null) {
+        requiredIntersection = [...required]
+      } else {
+        requiredIntersection = requiredIntersection.filter((key) => required.includes(key))
+      }
+    }
+
+    const normalized: Record<string, unknown> = {
+      type: 'object',
+      properties: mergedProperties,
+      additionalProperties: false,
+    }
+
+    if (requiredIntersection && requiredIntersection.length > 0) {
+      normalized.required = requiredIntersection
+    }
+
+    return normalized
   }
 }
 

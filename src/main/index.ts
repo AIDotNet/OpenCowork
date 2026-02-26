@@ -252,7 +252,12 @@ function createWindow(): void {
 
   window.webContents.setWindowOpenHandler((details) => {
 
-    shell.openExternal(details.url)
+    const url = details.url || ''
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url).catch((error) => {
+        console.error('[Main] Failed to open external URL:', url, error)
+      })
+    }
 
     return { action: 'deny' }
 

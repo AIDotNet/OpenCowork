@@ -122,7 +122,7 @@ export default function HomePage() {
         <div className="relative z-10 flex flex-col items-center text-center gap-6 max-w-3xl">
           <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs text-zinc-400 backdrop-blur">
             <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            v0.2.5 已发布 &nbsp;·&nbsp; Apache License 2.0 &nbsp;·&nbsp; 完全开源
+            v0.2.6 已发布 &nbsp;·&nbsp; Apache License 2.0 &nbsp;·&nbsp; 完全开源
           </div>
 
           <h1 className="text-6xl sm:text-7xl font-bold tracking-tight leading-none">

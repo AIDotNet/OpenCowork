@@ -3,6 +3,24 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.6] - 2026-02-26
+
+### Added
+- **Global memory workspace** — new renderer + settings flows to load, edit, and persist `~/.open-cowork/MEMORY.md`, with automatic injection into system prompts for every chat/agent run.
+- **Translation center** — dedicated Translate page offering Simple and Agent modes, file picker support (.docx/text), agent timeline sidebar, and provider/model overrides for high-quality bilingual workflows.
+- **Offline Skills Market data** — bundled `resources/skills-market/skills.json` plus renderer/main wiring so the skills panel can browse 180+ curated local entries without hitting the network.
+- **Encrypted thinking capture** — OpenAI/Anthropic providers now request, persist, and replay encrypted reasoning blocks end-to-end, keeping telemetry secure while enabling richer debug info.
+
+### Changed
+- **Windows installer** — NSIS config now ships with customizable install directory (oneClick off + change-directory allowed) to match enterprise deployment expectations.
+- **Primary layout & homepage** — macOS-style title bar, new Chat home screen, refined nav rail/right panel, and updated translate/settings surfaces for a more focused UX.
+- **Provider & store plumbing** — refreshed provider presets (Gitee, Qwen, Routin, etc.), centralized translation store, and new IPC helpers for memory/files so advanced tools behave consistently.
+
+### Fixed
+- **Image preview safety** — clicking pasted/base64 images now opens an in-app dialog instead of spawning failing external windows on Windows systems.
+- **Translation agent overwrites** — late-stage status strings (e.g. `TRANSLATION_DONE`) no longer clobber the final translated buffer after tool runs.
+- **Working folder picker** — folder path appears only inside the selection dialog (home + session views), removing stray chrome above the input area.
+
 ## [0.2.5] - 2026-02-25
 
 ### Added

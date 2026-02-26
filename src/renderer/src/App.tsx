@@ -8,6 +8,7 @@ import { useSettingsStore } from './stores/settings-store'
 import { initProviderStore } from './stores/provider-store'
 import { useChatStore } from './stores/chat-store'
 import { usePlanStore } from './stores/plan-store'
+import { useSshStore } from './stores/ssh-store'
 import { registerAllTools, updateWebSearchToolRegistration } from './lib/tools'
 import { registerAllProviders } from './lib/api'
 import { registerAllViewers } from './lib/preview/register-viewers'
@@ -242,6 +243,17 @@ function App(): React.JSX.Element {
       offRemoved()
       offNotify()
       offRunFinished()
+    }
+  }, [])
+
+  // Reload SSH config when local JSON changes
+  useEffect(() => {
+    const offSshConfigChanged = ipcClient.on('ssh:config:changed', () => {
+      void useSshStore.getState().loadAll()
+    })
+
+    return () => {
+      offSshConfigChanged()
     }
   }, [])
 

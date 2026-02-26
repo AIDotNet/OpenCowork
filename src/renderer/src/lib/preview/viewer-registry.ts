@@ -5,6 +5,7 @@ export interface ViewerProps {
   content: string
   viewMode: 'preview' | 'code'
   onContentChange?: (content: string) => void
+  sshConnectionId?: string
 }
 
 export interface ViewerDefinition {

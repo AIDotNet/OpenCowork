@@ -6,6 +6,7 @@ import type { PluginPermissions } from '../plugins/types'
 export interface ToolContext {
   sessionId?: string
   workingFolder?: string
+  sshConnectionId?: string
   signal: AbortSignal
   ipc: IPCClient
   /** The tool_use block id currently being executed (set by agent-loop) */

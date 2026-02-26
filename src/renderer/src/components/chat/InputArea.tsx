@@ -213,6 +213,26 @@ const MAX_IMAGE_SIZE = 20 * 1024 * 1024 // 20 MB
 const INPUT_HISTORY_LIMIT = 30
 const PENDING_HISTORY_KEY = '__pending_session__'
 
+function areQueuedMessagesEqual(
+  left: PendingSessionMessageItem[],
+  right: PendingSessionMessageItem[]
+): boolean {
+  if (left === right) return true
+  if (left.length !== right.length) return false
+  for (let i = 0; i < left.length; i += 1) {
+    const leftMsg = left[i]
+    const rightMsg = right[i]
+    if (leftMsg.id !== rightMsg.id) return false
+    if (leftMsg.text !== rightMsg.text) return false
+    if (leftMsg.createdAt !== rightMsg.createdAt) return false
+    if (leftMsg.images.length !== rightMsg.images.length) return false
+    for (let j = 0; j < leftMsg.images.length; j += 1) {
+      if (leftMsg.images[j].id !== rightMsg.images[j].id) return false
+    }
+  }
+  return true
+}
+
 function cloneImages(images: ImageAttachment[]): ImageAttachment[] {
   return images.map((img) => ({ ...img }))
 }
@@ -316,9 +336,21 @@ export function InputArea({
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const mode = useUIStore((s) => s.mode)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const queuedMessagesSnapshotRef = React.useRef<PendingSessionMessageItem[]>(EMPTY_QUEUED_MESSAGES)
+  const getQueuedMessagesSnapshot = React.useCallback(() => {
+    const next = activeSessionId
+      ? getPendingSessionMessages(activeSessionId)
+      : EMPTY_QUEUED_MESSAGES
+    const prev = queuedMessagesSnapshotRef.current
+    if (prev !== next && areQueuedMessagesEqual(prev, next)) {
+      return prev
+    }
+    queuedMessagesSnapshotRef.current = next
+    return next
+  }, [activeSessionId])
   const queuedMessages = React.useSyncExternalStore(
     subscribePendingSessionMessages,
-    () => (activeSessionId ? getPendingSessionMessages(activeSessionId) : EMPTY_QUEUED_MESSAGES),
+    getQueuedMessagesSnapshot,
     () => EMPTY_QUEUED_MESSAGES
   )
   const [editingQueueItemId, setEditingQueueItemId] = React.useState<string | null>(null)

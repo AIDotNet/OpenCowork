@@ -14,7 +14,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString()
 
-export function PdfViewer({ filePath }: ViewerProps): React.JSX.Element {
+export function PdfViewer({ filePath, sshConnectionId }: ViewerProps): React.JSX.Element {
   const [pdfData, setPdfData] = useState<Uint8Array | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -26,7 +26,11 @@ export function PdfViewer({ filePath }: ViewerProps): React.JSX.Element {
     setLoading(true)
     setError(null)
 
-    ipcClient.invoke(IPC.FS_READ_FILE_BINARY, { path: filePath }).then((raw: unknown) => {
+    const channel = sshConnectionId ? IPC.SSH_FS_READ_FILE_BINARY : IPC.FS_READ_FILE_BINARY
+    const args = sshConnectionId
+      ? { connectionId: sshConnectionId, path: filePath }
+      : { path: filePath }
+    ipcClient.invoke(channel, args).then((raw: unknown) => {
       if (cancelled) return
       const result = raw as { data?: string; error?: string }
       if (result.error || !result.data) {
@@ -49,7 +53,7 @@ export function PdfViewer({ filePath }: ViewerProps): React.JSX.Element {
     })
 
     return () => { cancelled = true }
-  }, [filePath])
+  }, [filePath, sshConnectionId])
 
   const onDocumentLoadSuccess = ({ numPages: n }: { numPages: number }): void => {
     setNumPages(n)

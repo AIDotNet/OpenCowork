@@ -33,6 +33,7 @@ import { registerWebSearchHandlers } from './ipc/web-search-handlers'
 import { loadPersistedJobs, cancelAllJobs } from './cron/cron-scheduler'
 import { McpManager } from './mcp/mcp-manager'
 import { closeDb } from './db/database'
+import { registerSshHandlers, closeAllSshSessions } from './ipc/ssh-handlers'
 import { writeCrashLog, getCrashLogDir } from './crash-logger'
 import { setupAutoUpdater } from './updater'
 
@@ -110,11 +111,23 @@ function showMainWindow(): void {
 
 }
 
+function getTrayIcon() {
+  const image = nativeImage.createFromPath(icon)
+
+  if (process.platform === 'darwin') {
+    const resized = image.resize({ width: 18, height: 18 })
+    resized.setTemplateImage(true)
+    return resized
+  }
+
+  return image
+}
+
 function createTray(): void {
 
   if (tray) return
 
-  tray = new Tray(icon)
+  tray = new Tray(getTrayIcon())
 
   tray.setToolTip('OpenCowork')
 
@@ -417,6 +430,7 @@ if (gotSingleInstanceLock) {
   registerProcessManagerHandlers()
   registerDbHandlers()
   registerConfigHandlers()
+  registerSshHandlers()
   registerPluginHandlers(pluginManager)
   registerMcpHandlers(mcpManager)
   registerCronHandlers()
@@ -484,6 +498,7 @@ app.on('window-all-closed', () => {
   pluginManager.stopAll()
   mcpManager.disconnectAll()
   killAllManagedProcesses()
+  closeAllSshSessions()
   cancelAllJobs()
   closeDb()
   if (process.platform !== 'darwin') {

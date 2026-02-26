@@ -52,6 +52,21 @@ const bashHandler: ToolHandler = {
   },
   execute: async (input, ctx) => {
     const command = String(input.command ?? '')
+
+    // SSH routing: execute command on remote server via ssh:exec
+    if (ctx.sshConnectionId) {
+      const result = (await ctx.ipc.invoke(IPC.SSH_EXEC, {
+        connectionId: ctx.sshConnectionId,
+        command: ctx.workingFolder ? `cd ${ctx.workingFolder} && ${command}` : command,
+        timeout: input.timeout ?? DEFAULT_BASH_TIMEOUT_MS,
+      })) as { exitCode?: number; stdout?: string; stderr?: string; error?: string }
+
+      if (result.error) {
+        return JSON.stringify({ exitCode: 1, stderr: result.error })
+      }
+      return JSON.stringify(result)
+    }
+
     const explicitBackground =
       typeof input.run_in_background === 'boolean' ? input.run_in_background : undefined
     const isLongRunning = isLikelyLongRunningCommand(command)

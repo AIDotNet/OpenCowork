@@ -35,7 +35,13 @@
     "desktopFolders": "Desktop folders",
     "loadingFolders": "Loading folders...",
     "noDesktopFolders": "No folders found on Desktop",
-    "selectOtherFolder": "Select other folder"
+    "selectOtherFolder": "Select other folder",
+    "sshConnections": "SSH Connections",
+    "noSshConnections": "No SSH connections configured",
+    "sshDirectory": "Remote directory",
+    "sshDirectoryPlaceholder": "~/workspace",
+    "sshSelect": "Select",
+    "sshConnected": "Connected"
   },
   "permission": {
     "title": "Permission Required",

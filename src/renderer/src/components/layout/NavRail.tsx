@@ -1,4 +1,4 @@
-import { Languages, MessageSquare, Settings, Wand2 } from 'lucide-react'
+import { Languages, MessageSquare, Monitor, Settings, Wand2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { useUIStore, type NavItem } from '@renderer/stores/ui-store'
@@ -9,6 +9,7 @@ const navItems: { value: NavItem; icon: React.ReactNode; labelKey: string }[] = 
   { value: 'chat', icon: <MessageSquare className="size-5" />, labelKey: 'navRail.conversations' },
   { value: 'skills', icon: <Wand2 className="size-5" />, labelKey: 'navRail.skills' },
   { value: 'translate', icon: <Languages className="size-5" />, labelKey: 'navRail.translate' },
+  { value: 'ssh', icon: <Monitor className="size-5" />, labelKey: 'navRail.ssh' },
 ]
 
 export function NavRail(): React.JSX.Element {
@@ -18,6 +19,7 @@ export function NavRail(): React.JSX.Element {
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen)
   const skillsPageOpen = useUIStore((s) => s.skillsPageOpen)
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
+  const sshPageOpen = useUIStore((s) => s.sshPageOpen)
 
   const handleNavClick = (item: NavItem): void => {
     if (item === 'skills') {
@@ -28,11 +30,16 @@ export function NavRail(): React.JSX.Element {
       useUIStore.getState().openTranslatePage()
       return
     }
+    if (item === 'ssh') {
+      useUIStore.getState().openSshPage()
+      return
+    }
     // Close skills/settings pages when navigating to chat
     const ui = useUIStore.getState()
     if (ui.settingsPageOpen) ui.closeSettingsPage()
     if (ui.skillsPageOpen) ui.closeSkillsPage()
     if (ui.translatePageOpen) ui.closeTranslatePage()
+    if (ui.sshPageOpen) ui.closeSshPage()
     if (activeNavItem === item && leftSidebarOpen) {
       useUIStore.getState().setLeftSidebarOpen(false)
     } else {
@@ -57,7 +64,8 @@ export function NavRail(): React.JSX.Element {
                   'flex size-9 items-center justify-center rounded-lg transition-all duration-200',
                   (item.value === 'skills' && skillsPageOpen) ||
                   (item.value === 'translate' && translatePageOpen) ||
-                  (item.value !== 'skills' && activeNavItem === item.value && leftSidebarOpen)
+                  (item.value === 'ssh' && sshPageOpen) ||
+                  (!['skills', 'translate', 'ssh'].includes(item.value) && activeNavItem === item.value && leftSidebarOpen)
                     ? 'bg-primary/10 text-primary shadow-sm'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}

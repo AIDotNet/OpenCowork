@@ -134,6 +134,42 @@ export const IPC = {
   WEB_SEARCH: 'web:search',
   WEB_SEARCH_CONFIG: 'web:search-config',
   WEB_SEARCH_PROVIDERS: 'web:search-providers',
+
+  // SSH Management
+  SSH_GROUP_LIST: 'ssh:group:list',
+  SSH_GROUP_CREATE: 'ssh:group:create',
+  SSH_GROUP_UPDATE: 'ssh:group:update',
+  SSH_GROUP_DELETE: 'ssh:group:delete',
+  SSH_CONNECTION_LIST: 'ssh:connection:list',
+  SSH_CONNECTION_CREATE: 'ssh:connection:create',
+  SSH_CONNECTION_UPDATE: 'ssh:connection:update',
+  SSH_CONNECTION_DELETE: 'ssh:connection:delete',
+  SSH_CONNECTION_TEST: 'ssh:connection:test',
+
+  // SSH Terminal Sessions
+  SSH_CONNECT: 'ssh:connect',
+  SSH_DISCONNECT: 'ssh:disconnect',
+  SSH_DATA: 'ssh:data',
+  SSH_OUTPUT: 'ssh:output',
+  SSH_OUTPUT_BUFFER: 'ssh:output:buffer',
+  SSH_RESIZE: 'ssh:resize',
+  SSH_STATUS: 'ssh:status',
+  SSH_SESSION_LIST: 'ssh:session:list',
+
+  // SSH File Operations (SFTP)
+  SSH_FS_READ_FILE: 'ssh:fs:read-file',
+  SSH_FS_WRITE_FILE: 'ssh:fs:write-file',
+  SSH_FS_READ_FILE_BINARY: 'ssh:fs:read-file-binary',
+  SSH_FS_WRITE_FILE_BINARY: 'ssh:fs:write-file-binary',
+  SSH_FS_LIST_DIR: 'ssh:fs:list-dir',
+  SSH_FS_MKDIR: 'ssh:fs:mkdir',
+  SSH_FS_DELETE: 'ssh:fs:delete',
+  SSH_FS_MOVE: 'ssh:fs:move',
+  SSH_FS_GLOB: 'ssh:fs:glob',
+  SSH_FS_GREP: 'ssh:fs:grep',
+
+  // SSH Remote Exec
+  SSH_EXEC: 'ssh:exec',
 } as const
 
 export type IPCChannel = (typeof IPC)[keyof typeof IPC]

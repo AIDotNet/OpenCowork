@@ -205,6 +205,49 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_cron_runs_job ON cron_runs(job_id, started_at);
   `)
 
+  // --- SSH Groups table ---
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ssh_groups (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `)
+
+  // --- SSH Connections table ---
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ssh_connections (
+      id                   TEXT PRIMARY KEY,
+      group_id             TEXT,
+      name                 TEXT NOT NULL,
+      host                 TEXT NOT NULL,
+      port                 INTEGER NOT NULL DEFAULT 22,
+      username             TEXT NOT NULL,
+      auth_type            TEXT NOT NULL DEFAULT 'password',
+      encrypted_password   TEXT,
+      private_key_path     TEXT,
+      encrypted_passphrase TEXT,
+      startup_command      TEXT,
+      default_directory    TEXT,
+      proxy_jump           TEXT,
+      keep_alive_interval  INTEGER DEFAULT 60,
+      sort_order           INTEGER NOT NULL DEFAULT 0,
+      last_connected_at    INTEGER,
+      created_at           INTEGER NOT NULL,
+      updated_at           INTEGER NOT NULL,
+      FOREIGN KEY (group_id) REFERENCES ssh_groups(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ssh_connections_group ON ssh_connections(group_id);
+  `)
+
+  // Migration: add ssh_connection_id to sessions for remote working directory
+  if (!hasColumn(db, 'sessions', 'ssh_connection_id')) {
+    try { db.exec(`ALTER TABLE sessions ADD COLUMN ssh_connection_id TEXT`) } catch { /* exists */ }
+  }
+
   // Migration: add plugin columns to cron_jobs if missing
   try { db.exec(`ALTER TABLE cron_jobs ADD COLUMN plugin_id TEXT`) } catch { /* exists */ }
   try { db.exec(`ALTER TABLE cron_jobs ADD COLUMN plugin_chat_id TEXT`) } catch { /* exists */ }

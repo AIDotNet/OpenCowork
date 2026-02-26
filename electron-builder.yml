@@ -103,6 +103,8 @@ files:
 asarUnpack:
   - resources/**
   - node_modules/better-sqlite3/**
+  - node_modules/ssh2/**
+  - node_modules/cpu-features/**
 win:
   executableName: open-cowork
 nsis:

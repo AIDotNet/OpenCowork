@@ -1,4 +1,15 @@
-import { ListChecks, FileOutput, Database, Sparkles, FolderTree, Users, ClipboardList, Clock } from 'lucide-react'
+import {
+  ListChecks,
+  FileOutput,
+  Database,
+  Sparkles,
+  FolderTree,
+  Users,
+  ClipboardList,
+  Clock,
+  Loader2,
+} from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import { Separator } from '@renderer/components/ui/separator'
 import { useUIStore, type RightPanelTab } from '@renderer/stores/ui-store'
@@ -9,12 +20,14 @@ import { ArtifactsPanel } from '@renderer/components/cowork/ArtifactsPanel'
 import { ContextPanel } from '@renderer/components/cowork/ContextPanel'
 import { SkillsPanel } from '@renderer/components/cowork/SkillsPanel'
 import { FileTreePanel } from '@renderer/components/cowork/FileTreePanel'
+import { SshFileExplorer } from '@renderer/components/ssh/SshFileExplorer'
 import { TeamPanel } from '@renderer/components/cowork/TeamPanel'
 import { PlanPanel } from '@renderer/components/cowork/PlanPanel'
 import { CronPanel } from '@renderer/components/cowork/CronPanel'
 import { usePlanStore } from '@renderer/stores/plan-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useTeamStore } from '@renderer/stores/team-store'
+import { useSshStore } from '@renderer/stores/ssh-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useCronStore } from '@renderer/stores/cron-store'
 import { useTranslation } from 'react-i18next'
@@ -35,6 +48,127 @@ const tabDefs: { value: RightPanelTab; labelKey: string; icon: React.ReactNode }
   { value: 'cron', labelKey: 'cron', icon: <Clock className="size-4" /> },
 ]
 
+function SshFilesPanel({
+  connectionId,
+  rootPath,
+}: {
+  connectionId: string
+  rootPath?: string
+}): React.JSX.Element {
+  const { t } = useTranslation('ssh')
+  const sessions = useSshStore((s) => s.sessions)
+  const connect = useSshStore((s) => s.connect)
+  const [error, setError] = useState<string | null>(null)
+  const [connecting, setConnecting] = useState(false)
+
+  const connectedSession = Object.values(sessions).find(
+    (s) => s.connectionId === connectionId && s.status === 'connected'
+  )
+  const connectingSession = Object.values(sessions).find(
+    (s) => s.connectionId === connectionId && s.status === 'connecting'
+  )
+  const errorSession = Object.values(sessions).find(
+    (s) => s.connectionId === connectionId && s.status === 'error'
+  )
+
+  useEffect(() => {
+    setError(null)
+    setConnecting(false)
+  }, [connectionId])
+
+  useEffect(() => {
+    if (connectedSession) {
+      setConnecting(false)
+      setError(null)
+      return
+    }
+    if (errorSession) {
+      setConnecting(false)
+      setError(errorSession.error ?? t('connectionFailed'))
+      return
+    }
+    if (connectingSession) {
+      setConnecting(true)
+      return
+    }
+    if (connecting || error) return
+
+    let active = true
+    setConnecting(true)
+    connect(connectionId)
+      .then((sessionId) => {
+        if (!active) return
+        if (!sessionId) {
+          setError(t('connectionFailed'))
+          setConnecting(false)
+        }
+      })
+      .catch(() => {
+        if (!active) return
+        setError(t('connectionFailed'))
+        setConnecting(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [
+    connectedSession,
+    connectingSession,
+    connect,
+    connecting,
+    connectionId,
+    error,
+    errorSession,
+    t,
+  ])
+
+
+
+  if (connectedSession) {
+    return (
+      <div className="h-full overflow-hidden rounded-lg border border-border/50 bg-background/40">
+        <SshFileExplorer
+          sessionId={connectedSession.id}
+          connectionId={connectionId}
+          rootPath={rootPath}
+        />
+      </div>
+    )
+  }
+
+  if (connecting || connectingSession) {
+    return (
+      <div className="flex h-full items-center justify-center rounded-lg border border-border/50 bg-background/40 text-xs text-muted-foreground">
+        <Loader2 className="mr-2 size-4 animate-spin text-amber-500" />
+        {t('connecting')}
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-border/50 bg-background/40 text-xs text-muted-foreground">
+        <span>{error}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-[10px]"
+          onClick={() => setError(null)}
+        >
+          {t('terminal.reconnect')}
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full items-center justify-center rounded-lg border border-border/50 bg-background/40 text-xs text-muted-foreground">
+      {t('connecting')}
+    </div>
+  )
+}
+
 export function RightPanel({ compact = false }: { compact?: boolean }): React.JSX.Element {
   const { t } = useTranslation('layout')
   const tab = useUIStore((s) => s.rightPanelTab)
@@ -46,6 +180,9 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const cronEnabledCount = useCronStore((s) => s.jobs.filter((j) => j.enabled).length)
 
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const activeSession = useChatStore((s) =>
+    s.sessions.find((session) => session.id === s.activeSessionId)
+  )
   const runningCommandCount = useAgentStore((s) =>
     Object.values(s.backgroundProcesses).filter(
       (p) =>
@@ -123,7 +260,14 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
 
           {tab === 'files' && (
             <FadeIn key="files" className="h-full">
-              <FileTreePanel />
+              {activeSession?.sshConnectionId ? (
+                <SshFilesPanel
+                  connectionId={activeSession.sshConnectionId}
+                  rootPath={activeSession.workingFolder}
+                />
+              ) : (
+                <FileTreePanel />
+              )}
             </FadeIn>
           )}
 

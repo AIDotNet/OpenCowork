@@ -16,6 +16,14 @@ const globHandler: ToolHandler = {
     },
   },
   execute: async (input, ctx) => {
+    if (ctx.sshConnectionId) {
+      const result = await ctx.ipc.invoke(IPC.SSH_FS_GLOB, {
+        connectionId: ctx.sshConnectionId,
+        pattern: input.pattern,
+        path: input.path ?? ctx.workingFolder,
+      })
+      return JSON.stringify(result)
+    }
     const result = await ctx.ipc.invoke(IPC.FS_GLOB, {
       pattern: input.pattern,
       path: input.path ?? ctx.workingFolder,
@@ -40,6 +48,15 @@ const grepHandler: ToolHandler = {
     },
   },
   execute: async (input, ctx) => {
+    if (ctx.sshConnectionId) {
+      const result = await ctx.ipc.invoke(IPC.SSH_FS_GREP, {
+        connectionId: ctx.sshConnectionId,
+        pattern: input.pattern,
+        path: input.path ?? ctx.workingFolder,
+        include: input.include,
+      })
+      return JSON.stringify(result)
+    }
     const result = await ctx.ipc.invoke(IPC.FS_GREP, {
       pattern: input.pattern,
       path: input.path ?? ctx.workingFolder,

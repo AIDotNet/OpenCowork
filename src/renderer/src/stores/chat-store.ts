@@ -30,6 +30,7 @@ export interface Session {
   createdAt: number
   updatedAt: number
   workingFolder?: string
+  sshConnectionId?: string
   pinned?: boolean
   /** Plugin ID if this session was created by auto-reply pipeline */
   pluginId?: string
@@ -52,6 +53,7 @@ function dbCreateSession(s: Session): void {
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
     workingFolder: s.workingFolder,
+    sshConnectionId: s.sshConnectionId,
     pinned: s.pinned,
     providerId: s.providerId,
     modelId: s.modelId,
@@ -145,6 +147,7 @@ interface ChatStore {
   updateSessionIcon: (id: string, icon: string) => void
   updateSessionMode: (id: string, mode: SessionMode) => void
   setWorkingFolder: (sessionId: string, folder: string) => void
+  setSshConnectionId: (sessionId: string, connectionId: string | null) => void
   updateSessionModel: (sessionId: string, providerId: string, modelId: string) => void
   clearSessionMessages: (sessionId: string) => void
   duplicateSession: (sessionId: string) => Promise<string | null>
@@ -192,6 +195,7 @@ interface SessionRow {
   created_at: number
   updated_at: number
   working_folder: string | null
+  ssh_connection_id?: string | null
   pinned: number
   message_count?: number
   plugin_id?: string | null
@@ -223,6 +227,7 @@ function rowToSession(row: SessionRow, messages: UnifiedMessage[] = []): Session
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     workingFolder: row.working_folder ?? undefined,
+    sshConnectionId: row.ssh_connection_id ?? undefined,
     pinned: row.pinned === 1,
     pluginId: row.plugin_id ?? undefined,
     externalChatId: row.external_chat_id ?? undefined,
@@ -534,6 +539,14 @@ export const useChatStore = create<ChatStore>()(
         if (session) session.workingFolder = folder
       })
       dbUpdateSession(sessionId, { workingFolder: folder })
+    },
+
+    setSshConnectionId: (sessionId, connectionId) => {
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (session) session.sshConnectionId = connectionId ?? undefined
+      })
+      dbUpdateSession(sessionId, { sshConnectionId: connectionId })
     },
 
     updateSessionModel: (sessionId, providerId, modelId) => {

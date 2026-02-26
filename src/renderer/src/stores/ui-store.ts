@@ -4,7 +4,7 @@ import { create } from 'zustand'
 
 export type AppMode = 'chat' | 'cowork' | 'code'
 
-export type NavItem = 'chat' | 'plugins' | 'skills' | 'translate'
+export type NavItem = 'chat' | 'plugins' | 'skills' | 'translate' | 'ssh'
 
 export type ChatView = 'home' | 'session'
 
@@ -17,6 +17,7 @@ export interface PreviewPanelState {
   filePath: string
   viewMode: 'preview' | 'code'
   viewerType: string
+  sshConnectionId?: string
   port?: number
   projectDir?: string
   /** In-memory markdown content (used when source is 'markdown') */
@@ -94,6 +95,10 @@ interface UIStore {
   openTranslatePage: () => void
   closeTranslatePage: () => void
 
+  sshPageOpen: boolean
+  openSshPage: () => void
+  closeSshPage: () => void
+
 
 
   shortcutsOpen: boolean
@@ -123,7 +128,11 @@ interface UIStore {
   /** Preview panel */
   previewPanelOpen: boolean
   previewPanelState: PreviewPanelState | null
-  openFilePreview: (filePath: string, viewMode?: 'preview' | 'code') => void
+  openFilePreview: (
+    filePath: string,
+    viewMode?: 'preview' | 'code',
+    sshConnectionId?: string
+  ) => void
   openDevServerPreview: (projectDir: string, port: number) => void
   openMarkdownPreview: (title: string, content: string) => void
   closePreviewPanel: () => void
@@ -193,6 +202,7 @@ export const useUIStore = create<UIStore>((set) => ({
     leftSidebarOpen: false,
     skillsPageOpen: false,
     translatePageOpen: false,
+    sshPageOpen: false,
   }),
   closeSettingsPage: () => set({ settingsPageOpen: false }),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
@@ -202,6 +212,7 @@ export const useUIStore = create<UIStore>((set) => ({
     skillsPageOpen: true,
     settingsPageOpen: false,
     translatePageOpen: false,
+    sshPageOpen: false,
     leftSidebarOpen: false,
   }),
   closeSkillsPage: () => set({ skillsPageOpen: false }),
@@ -211,9 +222,20 @@ export const useUIStore = create<UIStore>((set) => ({
     translatePageOpen: true,
     settingsPageOpen: false,
     skillsPageOpen: false,
+    sshPageOpen: false,
     leftSidebarOpen: false,
   }),
   closeTranslatePage: () => set({ translatePageOpen: false }),
+
+  sshPageOpen: false,
+  openSshPage: () => set({
+    sshPageOpen: true,
+    settingsPageOpen: false,
+    skillsPageOpen: false,
+    translatePageOpen: false,
+    leftSidebarOpen: false,
+  }),
+  closeSshPage: () => set({ sshPageOpen: false }),
 
 
 
@@ -239,7 +261,7 @@ export const useUIStore = create<UIStore>((set) => ({
 
   previewPanelOpen: false,
   previewPanelState: null,
-  openFilePreview: (filePath, viewMode) => {
+  openFilePreview: (filePath, viewMode, sshConnectionId) => {
     const ext = filePath.lastIndexOf('.') >= 0 ? filePath.slice(filePath.lastIndexOf('.')).toLowerCase() : ''
     const previewExts = new Set(['.html', '.htm'])
     const spreadsheetExts = new Set(['.csv', '.tsv', '.xls', '.xlsx'])
@@ -263,6 +285,7 @@ export const useUIStore = create<UIStore>((set) => ({
         filePath,
         viewMode: viewMode ?? defaultMode,
         viewerType,
+        sshConnectionId: sshConnectionId || undefined,
       },
       leftSidebarOpen: false,
       rightPanelOpen: false,
@@ -319,12 +342,14 @@ export const useUIStore = create<UIStore>((set) => ({
     settingsPageOpen: false,
     skillsPageOpen: false,
     translatePageOpen: false,
+    sshPageOpen: false,
   }),
   navigateToSession: () => set({
     chatView: 'session',
     settingsPageOpen: false,
     skillsPageOpen: false,
     translatePageOpen: false,
+    sshPageOpen: false,
   }),
   exitPlanMode: () => set({ planMode: false }),
 }))

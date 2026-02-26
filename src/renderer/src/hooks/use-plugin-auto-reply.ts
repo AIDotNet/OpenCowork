@@ -539,6 +539,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   const toolCtx: ToolContext = {
     sessionId,
     workingFolder: session.workingFolder,
+    sshConnectionId: session.sshConnectionId,
     signal: ac.signal,
     ipc: ipcClient,
     currentToolUseId: undefined,

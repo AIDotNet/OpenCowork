@@ -177,6 +177,7 @@
     "conversations": "Conversations",
     "skills": "Skills",
     "translate": "Translate",
+    "ssh": "SSH",
     "settings": "Settings"
   },
   "translatePage": {

@@ -6,6 +6,7 @@ import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { useSshStore } from '@renderer/stores/ssh-store'
 import { runAgentLoop } from '@renderer/lib/agent/agent-loop'
 import { toolRegistry } from '@renderer/lib/agent/tool-registry'
 import { buildSystemPrompt } from '@renderer/lib/agent/system-prompt'
@@ -15,6 +16,7 @@ import { TEAM_TOOL_NAMES } from '@renderer/lib/agent/teams/register'
 import { teamEvents } from '@renderer/lib/agent/teams/events'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 import { clearPendingQuestions } from '@renderer/lib/tools/ask-user-tool'
 
 import { PLAN_MODE_ALLOWED_TOOLS } from '@renderer/lib/tools/plan-tool'
@@ -551,6 +553,40 @@ export function useChatActions(): {
     }
     await chatStore.loadSessionMessages(sessionId)
 
+    const sessionForSsh = chatStore.sessions.find((s) => s.id === sessionId)
+    if (sessionForSsh?.sshConnectionId) {
+      const sshStore = useSshStore.getState()
+      const connectionId = sessionForSsh.sshConnectionId
+      const connectionName =
+        sshStore.connections.find((c) => c.id === connectionId)?.name ?? connectionId
+      const existing = Object.values(sshStore.sessions).find(
+        (s) => s.connectionId === connectionId && s.status === 'connected'
+      )
+      if (!existing) {
+        const connectedId = await sshStore.connect(connectionId)
+        if (!connectedId) {
+          toast.error('SSH connection unavailable', {
+            description: connectionName,
+          })
+          return
+        }
+      }
+
+      const workingFolder = sessionForSsh.workingFolder?.trim()
+      if (workingFolder) {
+        const mkdirResult = (await ipcClient.invoke(IPC.SSH_FS_MKDIR, {
+          connectionId,
+          path: workingFolder,
+        })) as { error?: string }
+        if (mkdirResult?.error) {
+          toast.error('SSH working directory unavailable', {
+            description: mkdirResult.error,
+          })
+          return
+        }
+      }
+    }
+
     const hasActiveRun = hasActiveSessionRun(sessionId)
     const statusIsRunning = useAgentStore.getState().runningSessions[sessionId] === 'running'
     const shouldQueue = hasActiveRun || (statusIsRunning && source !== 'queued')
@@ -970,6 +1006,7 @@ export function useChatActions(): {
           {
             sessionId,
             workingFolder: session?.workingFolder,
+            sshConnectionId: session?.sshConnectionId,
             signal: abortController.signal,
             ipc: ipcClient,
             ...(sessionPluginId && sessionPluginChatId && {

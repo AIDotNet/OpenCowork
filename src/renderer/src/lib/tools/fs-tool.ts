@@ -2,6 +2,16 @@ import { toolRegistry } from '../agent/tool-registry'
 import { IPC } from '../ipc/channels'
 import type { ToolHandler, ToolContext } from './tool-types'
 
+// ── SSH routing helper ──
+
+function isSsh(ctx: ToolContext): boolean {
+  return !!ctx.sshConnectionId
+}
+
+function sshArgs(ctx: ToolContext, extra: Record<string, unknown>): Record<string, unknown> {
+  return { connectionId: ctx.sshConnectionId, ...extra }
+}
+
 // ── Plugin path permission helpers ──
 
 function normalizePath(p: string): string {
@@ -58,6 +68,15 @@ const readHandler: ToolHandler = {
     },
   },
   execute: async (input, ctx) => {
+    if (isSsh(ctx)) {
+      const result = await ctx.ipc.invoke(IPC.SSH_FS_READ_FILE, sshArgs(ctx, {
+        path: input.file_path,
+        offset: input.offset,
+        limit: input.limit,
+      }))
+      if (isErrorResult(result)) throw new Error(`Read failed: ${result.error}`)
+      return String(result)
+    }
     const result = await ctx.ipc.invoke(IPC.FS_READ_FILE, {
       path: input.file_path,
       offset: input.offset,
@@ -105,6 +124,14 @@ const writeHandler: ToolHandler = {
       throw new Error('Write requires a "content" string')
     }
 
+    if (isSsh(ctx)) {
+      const result = await ctx.ipc.invoke(IPC.SSH_FS_WRITE_FILE, sshArgs(ctx, {
+        path: input.file_path,
+        content: input.content,
+      }))
+      if (isErrorResult(result)) throw new Error(`Write failed: ${result.error}`)
+      return JSON.stringify({ success: true, path: input.file_path })
+    }
     const result = await ctx.ipc.invoke(IPC.FS_WRITE_FILE, {
       path: input.file_path,
       content: input.content,
@@ -153,9 +180,9 @@ const editHandler: ToolHandler = {
   },
   execute: async (input, ctx) => {
     // Read file, perform replacement, write back
-    const content = String(
-      await ctx.ipc.invoke(IPC.FS_READ_FILE, { path: input.file_path })
-    )
+    const readCh = isSsh(ctx) ? IPC.SSH_FS_READ_FILE : IPC.FS_READ_FILE
+    const readArgs = isSsh(ctx) ? sshArgs(ctx, { path: input.file_path }) : { path: input.file_path }
+    const content = String(await ctx.ipc.invoke(readCh, readArgs))
     const oldStr = String(input.old_string)
     const newStr = String(input.new_string)
     const replaceAll = Boolean(input.replace_all)
@@ -171,10 +198,15 @@ const editHandler: ToolHandler = {
       updated = content.slice(0, idx) + newStr + content.slice(idx + oldStr.length)
     }
 
-    await ctx.ipc.invoke(IPC.FS_WRITE_FILE, { path: input.file_path, content: updated })
+    const writeCh = isSsh(ctx) ? IPC.SSH_FS_WRITE_FILE : IPC.FS_WRITE_FILE
+    const writeArgs = isSsh(ctx)
+      ? sshArgs(ctx, { path: input.file_path, content: updated })
+      : { path: input.file_path, content: updated }
+    await ctx.ipc.invoke(writeCh, writeArgs)
     return JSON.stringify({ success: true })
   },
   requiresApproval: (input, ctx) => {
+    if (isSsh(ctx)) return false // SSH sessions: trust working folder
     const filePath = String(input.file_path)
     // Plugin context: check write permission
     if (ctx.pluginPermissions) {
@@ -236,7 +268,9 @@ const multiEditHandler: ToolHandler = {
       throw new Error('MultiEdit requires a non-empty "edits" array')
     }
 
-    const readResult = await ctx.ipc.invoke(IPC.FS_READ_FILE, { path: filePath })
+    const readCh = isSsh(ctx) ? IPC.SSH_FS_READ_FILE : IPC.FS_READ_FILE
+    const readArgs = isSsh(ctx) ? sshArgs(ctx, { path: filePath }) : { path: filePath }
+    const readResult = await ctx.ipc.invoke(readCh, readArgs)
 
     let content: string
     if (typeof readResult === 'string') {
@@ -303,10 +337,15 @@ const multiEditHandler: ToolHandler = {
       }
     }
 
-    await ctx.ipc.invoke(IPC.FS_WRITE_FILE, { path: filePath, content: updatedContent })
+    const writeCh = isSsh(ctx) ? IPC.SSH_FS_WRITE_FILE : IPC.FS_WRITE_FILE
+    const writeArgs = isSsh(ctx)
+      ? sshArgs(ctx, { path: filePath, content: updatedContent })
+      : { path: filePath, content: updatedContent }
+    await ctx.ipc.invoke(writeCh, writeArgs)
     return JSON.stringify({ success: true })
   },
   requiresApproval: (input, ctx) => {
+    if (isSsh(ctx)) return false
     const filePath = String(input.file_path)
     // Plugin context: check write permission
     if (ctx.pluginPermissions) {
@@ -335,6 +374,12 @@ const lsHandler: ToolHandler = {
     },
   },
   execute: async (input, ctx) => {
+    if (isSsh(ctx)) {
+      const result = await ctx.ipc.invoke(IPC.SSH_FS_LIST_DIR, sshArgs(ctx, {
+        path: input.path,
+      }))
+      return JSON.stringify(result)
+    }
     const result = await ctx.ipc.invoke(IPC.FS_LIST_DIR, {
       path: input.path,
       ignore: input.ignore,

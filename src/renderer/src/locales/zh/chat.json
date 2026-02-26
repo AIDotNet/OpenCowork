@@ -35,7 +35,13 @@
     "desktopFolders": "桌面目录",
     "loadingFolders": "正在加载目录...",
     "noDesktopFolders": "桌面没有可用目录",
-    "selectOtherFolder": "选择其他目录"
+    "selectOtherFolder": "选择其他目录",
+    "sshConnections": "SSH 连接",
+    "noSshConnections": "暂无 SSH 连接",
+    "sshDirectory": "远程目录",
+    "sshDirectoryPlaceholder": "~/workspace",
+    "sshSelect": "选择",
+    "sshConnected": "已连接"
   },
   "permission": {
     "title": "需要权限",

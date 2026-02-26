@@ -92,7 +92,7 @@ function getExt(filePath: string): string {
 
 // --- Component ---
 
-export function SpreadsheetViewer({ filePath, content, onContentChange }: ViewerProps): React.JSX.Element {
+export function SpreadsheetViewer({ filePath, content, onContentChange, sshConnectionId }: ViewerProps): React.JSX.Element {
   const ext = getExt(filePath)
   const isXlsx = ext === '.xlsx' || ext === '.xls'
 
@@ -116,7 +116,11 @@ export function SpreadsheetViewer({ filePath, content, onContentChange }: Viewer
     let cancelled = false
     setXlsxLoading(true)
     setXlsxError(null)
-    ipcClient.invoke(IPC.FS_READ_FILE_BINARY, { path: filePath }).then(async (raw: unknown) => {
+    const channel = sshConnectionId ? IPC.SSH_FS_READ_FILE_BINARY : IPC.FS_READ_FILE_BINARY
+    const args = sshConnectionId
+      ? { connectionId: sshConnectionId, path: filePath }
+      : { path: filePath }
+    ipcClient.invoke(channel, args).then(async (raw: unknown) => {
       if (cancelled) return
       const result = raw as { data?: string; error?: string }
       if (result.error || !result.data) {
@@ -139,7 +143,7 @@ export function SpreadsheetViewer({ filePath, content, onContentChange }: Viewer
       }
     })
     return () => { cancelled = true }
-  }, [filePath, isXlsx])
+  }, [filePath, isXlsx, sshConnectionId])
 
   // CSV: sync from content prop
   useEffect(() => {
@@ -243,13 +247,17 @@ export function SpreadsheetViewer({ filePath, content, onContentChange }: Viewer
       const sheets = new Map(allSheets)
       sheets.set(activeSheet, data)
       const base64 = await buildXlsxBase64(sheets)
-      await ipcClient.invoke(IPC.FS_WRITE_FILE_BINARY, { path: filePath, data: base64 })
+      const channel = sshConnectionId ? IPC.SSH_FS_WRITE_FILE_BINARY : IPC.FS_WRITE_FILE_BINARY
+      const args = sshConnectionId
+        ? { connectionId: sshConnectionId, path: filePath, data: base64 }
+        : { path: filePath, data: base64 }
+      await ipcClient.invoke(channel, args)
     } catch (err) {
       console.error('[SpreadsheetViewer] Save xlsx failed:', err)
     } finally {
       setSaving(false)
     }
-  }, [isXlsx, filePath, allSheets, activeSheet, data])
+  }, [isXlsx, filePath, allSheets, activeSheet, data, sshConnectionId])
 
   const maxCols = useMemo(() => Math.max(...data.map((r) => r.length), 1), [data])
 

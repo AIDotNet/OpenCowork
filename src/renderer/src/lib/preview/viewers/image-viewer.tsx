@@ -21,7 +21,7 @@ function getMimeType(filePath: string): string {
   return MIME_TYPES[ext] || 'application/octet-stream'
 }
 
-export function ImageViewer({ filePath }: ViewerProps): React.JSX.Element {
+export function ImageViewer({ filePath, sshConnectionId }: ViewerProps): React.JSX.Element {
   const [scale, setScale] = React.useState(1)
   const [rotation, setRotation] = React.useState(0)
   const [src, setSrc] = React.useState<string | null>(null)
@@ -31,7 +31,11 @@ export function ImageViewer({ filePath }: ViewerProps): React.JSX.Element {
     let cancelled = false
     let objectUrl: string | null = null
 
-    ipcClient.invoke(IPC.FS_READ_FILE_BINARY, { path: filePath }).then((raw: unknown) => {
+    const channel = sshConnectionId ? IPC.SSH_FS_READ_FILE_BINARY : IPC.FS_READ_FILE_BINARY
+    const args = sshConnectionId
+      ? { connectionId: sshConnectionId, path: filePath }
+      : { path: filePath }
+    ipcClient.invoke(channel, args).then((raw: unknown) => {
       if (cancelled) return
       const result = raw as { data?: string; error?: string }
       if (result.error || !result.data) {
@@ -54,7 +58,7 @@ export function ImageViewer({ filePath }: ViewerProps): React.JSX.Element {
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [filePath])
+  }, [filePath, sshConnectionId])
 
   const zoomIn = () => setScale((s) => Math.min(s + 0.25, 5))
   const zoomOut = () => setScale((s) => Math.max(s - 0.25, 0.25))

@@ -29,7 +29,7 @@ export function PreviewPanel(): React.JSX.Element {
 
   const isMarkdown = state?.source === 'markdown'
   const filePath = state?.source === 'file' ? state.filePath : null
-  const { content, setContent, reload } = useFileWatcher(filePath)
+  const { content, setContent, reload } = useFileWatcher(filePath, state?.sshConnectionId)
   const [modified, setModified] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [pendingClose, setPendingClose] = useState(false)
@@ -45,12 +45,16 @@ export function PreviewPanel(): React.JSX.Element {
   const handleSave = useCallback(async () => {
     if (!state?.filePath) return
     try {
-      await ipcClient.invoke(IPC.FS_WRITE_FILE, { path: state.filePath, content })
+      const channel = state.sshConnectionId ? IPC.SSH_FS_WRITE_FILE : IPC.FS_WRITE_FILE
+      const args = state.sshConnectionId
+        ? { connectionId: state.sshConnectionId, path: state.filePath, content }
+        : { path: state.filePath, content }
+      await ipcClient.invoke(channel, args)
       setModified(false)
     } catch (err) {
       console.error('[PreviewPanel] Save failed:', err)
     }
-  }, [state?.filePath, content])
+  }, [state?.filePath, state?.sshConnectionId, content])
 
   const handleClose = useCallback(() => {
     if (modified) {
@@ -216,6 +220,7 @@ export function PreviewPanel(): React.JSX.Element {
             content={content}
             viewMode={state.viewMode}
             onContentChange={handleContentChange}
+            sshConnectionId={state.sshConnectionId}
           />
         ) : (
           <div className="flex size-full items-center justify-center text-sm text-muted-foreground">

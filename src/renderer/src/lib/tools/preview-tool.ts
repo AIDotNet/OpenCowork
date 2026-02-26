@@ -1,6 +1,12 @@
 import { toolRegistry } from '../agent/tool-registry'
 import type { ToolHandler } from './tool-types'
 
+function resolveSshConnectionId(filePath: string, sshConnectionId?: string): string | undefined {
+  if (!sshConnectionId) return undefined
+  const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith('\\\\')
+  return isWindowsPath ? undefined : sshConnectionId
+}
+
 const openPreviewHandler: ToolHandler = {
   definition: {
     name: 'OpenPreview',
@@ -29,13 +35,14 @@ const openPreviewHandler: ToolHandler = {
       required: ['file_path'],
     },
   },
-  execute: async (input) => {
+  execute: async (input, ctx) => {
     const filePath = String(input.file_path)
     const viewMode = input.view_mode as 'preview' | 'code' | undefined
+    const sshConnectionId = resolveSshConnectionId(filePath, ctx.sshConnectionId)
 
     // Import dynamically to avoid circular deps at module level
     const { useUIStore } = await import('@renderer/stores/ui-store')
-    useUIStore.getState().openFilePreview(filePath, viewMode)
+    useUIStore.getState().openFilePreview(filePath, viewMode, sshConnectionId)
 
     return JSON.stringify({ success: true, message: `Opened ${filePath} in preview panel` })
   },

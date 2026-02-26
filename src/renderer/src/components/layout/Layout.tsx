@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MessageSquare, Briefcase, Code2, ClipboardCopy, Check, ImageDown, Loader2, PanelLeftOpen, PanelRightOpen, PanelRightClose, FolderOpen } from 'lucide-react'
+import { MessageSquare, Briefcase, Code2, ClipboardCopy, Check, ImageDown, Loader2, PanelLeftOpen, PanelRightOpen, PanelRightClose, FolderOpen, Monitor, Server, Pencil } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { Button } from '@renderer/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
+import { Input } from '@renderer/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@renderer/components/ui/tooltip'
 import { cn } from '@renderer/lib/utils'
 import { TitleBar } from './TitleBar'
@@ -20,12 +21,14 @@ import { SettingsPage } from '@renderer/components/settings/SettingsPage'
 import { ChatHomePage } from '@renderer/components/chat/ChatHomePage'
 import { SkillsPage } from '@renderer/components/skills/SkillsPage'
 import { TranslatePage } from '@renderer/components/translate/TranslatePage'
+import { SshPage } from '@renderer/components/ssh/SshPage'
 import { KeyboardShortcutsDialog } from '@renderer/components/settings/KeyboardShortcutsDialog'
 import { PermissionDialog } from '@renderer/components/cowork/PermissionDialog'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from '@renderer/components/error-boundary'
 import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
 import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
+import { useSshStore } from '@renderer/stores/ssh-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
@@ -41,6 +44,7 @@ const modes: { value: AppMode; labelKey: string; icon: React.ReactNode }[] = [
   { value: 'cowork', labelKey: 'mode.cowork', icon: <Briefcase className="size-3.5" /> },
   { value: 'code', labelKey: 'mode.code', icon: <Code2 className="size-3.5" /> },
 ]
+const DEFAULT_SSH_WORKDIR = '~/workspace'
 
 interface DesktopDirectoryOption {
   name: string
@@ -77,6 +81,7 @@ export function Layout(): React.JSX.Element {
         activeSessionTitle: activeSession?.title,
         activeSessionMode: activeSession?.mode as SessionMode | undefined,
         activeWorkingFolder: activeSession?.workingFolder,
+        activeSessionSshConnectionId: activeSession?.sshConnectionId,
       }
     })
   )
@@ -96,6 +101,10 @@ export function Layout(): React.JSX.Element {
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
   const [desktopDirectories, setDesktopDirectories] = useState<DesktopDirectoryOption[]>([])
   const [desktopDirectoriesLoading, setDesktopDirectoriesLoading] = useState(false)
+  const sshConnections = useSshStore((s) => s.connections)
+  const sshLoaded = useSshStore((s) => s._loaded)
+  const [sshDirInputs, setSshDirInputs] = useState<Record<string, string>>({})
+  const [sshDirEditingId, setSshDirEditingId] = useState<string | null>(null)
 
   const activeSubAgents = useAgentStore((s) => s.activeSubAgents)
   const runningSubAgents = Object.values(activeSubAgents).filter((sa) => sa.isRunning)
@@ -129,6 +138,12 @@ export function Layout(): React.JSX.Element {
   useEffect(() => {
     void initBackgroundProcessTracking()
   }, [initBackgroundProcessTracking])
+
+  useEffect(() => {
+    if (!folderDialogOpen) {
+      setSshDirEditingId(null)
+    }
+  }, [folderDialogOpen])
 
   useEffect(() => {
     if (mode === 'chat') {
@@ -179,6 +194,9 @@ export function Layout(): React.JSX.Element {
   const settingsPageOpen = useUIStore((s) => s.settingsPageOpen)
   const skillsPageOpen = useUIStore((s) => s.skillsPageOpen)
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
+  const sshPageOpen = useUIStore((s) => s.sshPageOpen)
+  const sshPageEverOpened = useRef(false)
+  if (sshPageOpen) sshPageEverOpened.current = true
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar)
   const _loaded = useChatStore((s) => s._loaded)
 
@@ -440,10 +458,15 @@ export function Layout(): React.JSX.Element {
   const handleOpenFolderDialog = (): void => {
     setFolderDialogOpen(true)
     void loadDesktopDirectories()
+    if (!sshLoaded) void useSshStore.getState().loadAll()
   }
 
   const handleSelectDesktopFolder = (folderPath: string): void => {
     setSessionWorkingFolder(folderPath)
+    // Clear SSH connection if switching to local folder
+    const chatStore = useChatStore.getState()
+    const sid = chatStore.activeSessionId
+    if (sid) chatStore.setSshConnectionId(sid, null)
     setFolderDialogOpen(false)
   }
 
@@ -453,6 +476,24 @@ export function Layout(): React.JSX.Element {
       return
     }
     setSessionWorkingFolder(result.path)
+    // Clear SSH connection if switching to local folder
+    const chatStore = useChatStore.getState()
+    const sid = chatStore.activeSessionId
+    if (sid) chatStore.setSshConnectionId(sid, null)
+    setFolderDialogOpen(false)
+  }
+
+  const handleSelectSshFolder = (connId: string): void => {
+    const conn = sshConnections.find((c) => c.id === connId)
+    if (!conn) return
+    const dir = sshDirInputs[connId]?.trim() || conn.defaultDirectory || DEFAULT_SSH_WORKDIR
+    const chatStore = useChatStore.getState()
+    const sessionId = chatStore.activeSessionId ?? chatStore.createSession(mode)
+    if (sessionId) {
+      chatStore.setWorkingFolder(sessionId, dir)
+      chatStore.setSshConnectionId(sessionId, connId)
+    }
+    setSshDirEditingId(null)
     setFolderDialogOpen(false)
   }
 
@@ -554,7 +595,18 @@ export function Layout(): React.JSX.Element {
             )}
           </AnimatePresence>
 
-          {/* Main content area */}
+          {/* SSH page – always mounted after first visit, hidden via CSS to preserve xterm buffers */}
+          {sshPageEverOpened.current && (
+            <div
+              className="flex-1 min-w-0 bg-background overflow-hidden"
+              style={{ display: sshPageOpen ? undefined : 'none' }}
+            >
+              <SshPage />
+            </div>
+          )}
+
+          {/* Main content area (hidden when SSH page is active) */}
+          {!sshPageOpen && (
           <AnimatePresence mode="wait">
             {skillsPageOpen ? (
               <PageTransition key="skills-page" className="flex-1 min-w-0 bg-background overflow-hidden">
@@ -808,6 +860,112 @@ export function Layout(): React.JSX.Element {
                                   })}
                                 </button>
                               </div>
+
+                              {/* SSH Connections */}
+                              <div className="mt-3 border-t pt-3">
+                                <p className="mb-2 flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground/70">
+                                  <Monitor className="size-3" />
+                                  {tChat('input.sshConnections', { defaultValue: 'SSH Connections' })}
+                                </p>
+                                {sshConnections.length > 0 ? (
+                                  <div className="space-y-1.5">
+                                    {sshConnections.map((conn) => {
+                                      const isSelected = activeSessionView.activeSessionSshConnectionId === conn.id
+                                      const dirValue =
+                                        sshDirInputs[conn.id] ??
+                                        conn.defaultDirectory ??
+                                        DEFAULT_SSH_WORKDIR
+                                      const displayDir = dirValue.trim() || DEFAULT_SSH_WORKDIR
+                                      const isEditingDir = sshDirEditingId === conn.id
+                                      return (
+                                        <div
+                                          key={conn.id}
+                                          className={cn(
+                                            'flex items-center gap-2 rounded-md border px-2 py-1.5 transition-colors',
+                                            isSelected
+                                              ? 'border-primary/60 bg-primary/10'
+                                              : 'border-border/70 bg-muted/20 hover:bg-muted/50'
+                                          )}
+                                        >
+                                          <Server className="size-3 shrink-0 text-muted-foreground/60" />
+                                          <div className="flex-1 min-w-0">
+                                            <div className="text-[11px] font-medium truncate">{conn.name}</div>
+                                          <div className="text-[9px] text-muted-foreground/50 truncate">
+                                            {conn.username}@{conn.host}:{conn.port}
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                          <button
+                                            className={cn(
+                                              'flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-all duration-200',
+                                              isEditingDir
+                                                ? 'max-w-0 opacity-0 -translate-x-1 pointer-events-none'
+                                                : 'max-w-[180px] bg-background/40 hover:bg-muted/40'
+                                            )}
+                                            onClick={() => setSshDirEditingId(conn.id)}
+                                            title={displayDir}
+                                          >
+                                            <FolderOpen className="size-3 shrink-0" />
+                                            <span className="truncate">{displayDir}</span>
+                                          </button>
+                                          <div
+                                            className={cn(
+                                              'overflow-hidden transition-all duration-200',
+                                              isEditingDir
+                                                ? 'max-w-[200px] opacity-100'
+                                                : 'max-w-0 opacity-0 pointer-events-none'
+                                            )}
+                                          >
+                                            <Input
+                                              value={dirValue}
+                                              onChange={(e) =>
+                                                setSshDirInputs((prev) => ({
+                                                  ...prev,
+                                                  [conn.id]: e.target.value,
+                                                }))
+                                              }
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') handleSelectSshFolder(conn.id)
+                                                if (e.key === 'Escape') setSshDirEditingId(null)
+                                              }}
+                                              placeholder={tChat('input.sshDirectoryPlaceholder', {
+                                                defaultValue: '/home/user/project',
+                                              })}
+                                              className="h-6 w-40 text-[10px] bg-background/60"
+                                            />
+                                          </div>
+                                          <button
+                                            className={cn(
+                                              'shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors',
+                                              isEditingDir
+                                                ? 'border-primary/50 text-primary'
+                                                : 'border-border/70 hover:text-foreground hover:bg-muted/50'
+                                            )}
+                                            onClick={() =>
+                                              setSshDirEditingId(isEditingDir ? null : conn.id)
+                                            }
+                                          >
+                                            <Pencil className="size-3" />
+                                          </button>
+                                          <button
+                                            className="shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/10 transition-colors"
+                                            onClick={() => handleSelectSshFolder(conn.id)}
+                                          >
+                                            {tChat('input.sshSelect', { defaultValue: 'Select' })}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-muted-foreground/60">
+                                    {tChat('input.noSshConnections', {
+                                      defaultValue: 'No SSH connections configured',
+                                    })}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </DialogContent>
                         </Dialog>
@@ -853,6 +1011,7 @@ export function Layout(): React.JSX.Element {
               </PageTransition>
             )}
           </AnimatePresence>
+          )}
         </div>
       </div>
 

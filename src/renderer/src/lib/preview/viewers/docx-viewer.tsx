@@ -11,7 +11,7 @@ async function convertDocxToHtml(base64: string): Promise<string> {
   return result.value
 }
 
-export function DocxViewer({ filePath }: ViewerProps): React.JSX.Element {
+export function DocxViewer({ filePath, sshConnectionId }: ViewerProps): React.JSX.Element {
   const [html, setHtml] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -21,7 +21,11 @@ export function DocxViewer({ filePath }: ViewerProps): React.JSX.Element {
     setLoading(true)
     setError(null)
 
-    ipcClient.invoke(IPC.FS_READ_FILE_BINARY, { path: filePath }).then(async (raw: unknown) => {
+    const channel = sshConnectionId ? IPC.SSH_FS_READ_FILE_BINARY : IPC.FS_READ_FILE_BINARY
+    const args = sshConnectionId
+      ? { connectionId: sshConnectionId, path: filePath }
+      : { path: filePath }
+    ipcClient.invoke(channel, args).then(async (raw: unknown) => {
       if (cancelled) return
       const result = raw as { data?: string; error?: string }
       if (result.error || !result.data) {
@@ -40,7 +44,7 @@ export function DocxViewer({ filePath }: ViewerProps): React.JSX.Element {
     })
 
     return () => { cancelled = true }
-  }, [filePath])
+  }, [filePath, sshConnectionId])
 
   if (loading) {
     return (

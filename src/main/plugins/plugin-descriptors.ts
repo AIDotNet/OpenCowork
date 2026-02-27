@@ -9,6 +9,31 @@ const wsRelayField = {
   placeholder: 'wss://your-relay-server/ws',
 }
 
+const COMMON_PLUGIN_TOOLS = [
+  'PluginSendMessage',
+  'PluginReplyMessage',
+  'PluginGetGroupMessages',
+  'PluginListGroups',
+  'PluginSummarizeGroup',
+  'PluginGetCurrentChatMessages',
+]
+
+const FEISHU_PLUGIN_TOOLS = [
+  ...COMMON_PLUGIN_TOOLS,
+  'FeishuSendImage',
+  'FeishuSendFile',
+  'FeishuListChatMembers',
+  'FeishuAtMember',
+  'FeishuSendUrgent',
+  'FeishuBitableListApps',
+  'FeishuBitableListTables',
+  'FeishuBitableListFields',
+  'FeishuBitableGetRecords',
+  'FeishuBitableCreateRecords',
+  'FeishuBitableUpdateRecords',
+  'FeishuBitableDeleteRecords',
+]
+
 /** Built-in plugin provider descriptors */
 export const PLUGIN_PROVIDERS: PluginProviderDescriptor[] = [
   // ── China ──
@@ -18,6 +43,7 @@ export const PLUGIN_PROVIDERS: PluginProviderDescriptor[] = [
     description: 'Lark/Feishu messaging bot (built-in WS)',
     icon: 'feishu',
     builtin: true,
+    tools: FEISHU_PLUGIN_TOOLS,
     configSchema: [
       {
         key: 'appId',
@@ -40,6 +66,7 @@ export const PLUGIN_PROVIDERS: PluginProviderDescriptor[] = [
     description: 'DingTalk messaging bot (built-in WS via Stream API)',
     icon: 'dingtalk',
     builtin: true,
+    tools: COMMON_PLUGIN_TOOLS,
     configSchema: [
       {
         key: 'appKey',
@@ -68,6 +95,7 @@ export const PLUGIN_PROVIDERS: PluginProviderDescriptor[] = [
     description: 'WeCom (企业微信) messaging bot',
     icon: 'wecom',
     builtin: true,
+    tools: COMMON_PLUGIN_TOOLS,
     configSchema: [
       {
         key: 'corpId',
@@ -97,6 +125,7 @@ export const PLUGIN_PROVIDERS: PluginProviderDescriptor[] = [
     description: 'Telegram messaging bot (needs WS relay)',
     icon: 'telegram',
     builtin: true,
+    tools: COMMON_PLUGIN_TOOLS,
     configSchema: [
       {
         key: 'botToken',
@@ -113,6 +142,7 @@ export const PLUGIN_PROVIDERS: PluginProviderDescriptor[] = [
     description: 'Discord messaging bot (built-in Gateway WS)',
     icon: 'discord',
     builtin: true,
+    tools: COMMON_PLUGIN_TOOLS,
     configSchema: [
       {
         key: 'botToken',
@@ -128,6 +158,7 @@ export const PLUGIN_PROVIDERS: PluginProviderDescriptor[] = [
     description: 'WhatsApp Cloud API bot (needs WS relay)',
     icon: 'whatsapp',
     builtin: true,
+    tools: COMMON_PLUGIN_TOOLS,
     configSchema: [
       {
         key: 'phoneNumberId',

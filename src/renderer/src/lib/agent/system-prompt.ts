@@ -57,19 +57,10 @@ export function buildSystemPrompt(options: {
         ? 'Linux'
         : rawPlatform
   const shell = rawPlatform.startsWith('Win') ? 'PowerShell' : 'bash'
-  const now = new Date()
-  const isoDate = now.toISOString().slice(0, 10) // YYYY-MM-DD
-  const readableDate = now.toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  })
   parts.push(
     `\n## Environment`,
     `- Operating System: ${osName}`,
     `- Shell: ${shell}`,
-    `- Today's Date: ${isoDate} (${readableDate})`,
     `\n**IMPORTANT: You MUST respond in ${language === 'zh' ? 'Chinese (中文)' : 'English'} unless the user explicitly requests otherwise.**`
   )
 
@@ -116,7 +107,7 @@ export function buildSystemPrompt(options: {
       `\n**RULES:**`,
       `- Do not edit files or run commands. Use Read/Glob/Grep and the Task tool to understand the codebase.`,
       `- Ask the user when requirements are unclear or multiple valid approaches exist.`,
-      `- Use the **Write** tool to create the plan file in \`.plan/\` (name derived from the title).`,
+      `- Draft the plan in the chat response. Then call **SavePlan** with the full content and a 3–6 bullet summary.`,
       `- Call ExitPlanMode when the plan is ready, then STOP and wait for user review.`,
       `\n**Plan content should include:**`,
       `1. Summary and scope`,

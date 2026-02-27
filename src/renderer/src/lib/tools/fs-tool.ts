@@ -1,4 +1,5 @@
 import { toolRegistry } from '../agent/tool-registry'
+import { joinFsPath } from '../agent/memory-files'
 import { IPC } from '../ipc/channels'
 import type { ToolHandler, ToolContext } from './tool-types'
 
@@ -18,6 +19,23 @@ function normalizePath(p: string): string {
   let normalized = p.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '')
   if (/^[a-zA-Z]:/.test(normalized)) normalized = normalized.toLowerCase()
   return normalized
+}
+
+function isAbsolutePath(p: string): boolean {
+  if (!p) return false
+  if (p.startsWith('/') || p.startsWith('\\')) return true
+  return /^[a-zA-Z]:[\\/]/.test(p)
+}
+
+function resolveToolPath(inputPath: unknown, workingFolder?: string): string {
+  const raw = typeof inputPath === 'string' ? inputPath.trim() : ''
+  const base = workingFolder?.trim()
+  if (!raw || raw === '.') {
+    return base && base.length > 0 ? base : '.'
+  }
+  if (isAbsolutePath(raw)) return raw
+  if (base && base.length > 0) return joinFsPath(base, raw)
+  return raw
 }
 
 function isPluginPathAllowed(
@@ -60,7 +78,7 @@ const readHandler: ToolHandler = {
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Absolute path to the file' },
+        file_path: { type: 'string', description: 'Absolute path or relative to the working folder' },
         offset: { type: 'number', description: 'Start line (1-indexed)' },
         limit: { type: 'number', description: 'Number of lines to read' },
       },
@@ -68,9 +86,10 @@ const readHandler: ToolHandler = {
     },
   },
   execute: async (input, ctx) => {
+    const resolvedPath = resolveToolPath(input.file_path, ctx.workingFolder)
     if (isSsh(ctx)) {
       const result = await ctx.ipc.invoke(IPC.SSH_FS_READ_FILE, sshArgs(ctx, {
-        path: input.file_path,
+        path: resolvedPath,
         offset: input.offset,
         limit: input.limit,
       }))
@@ -78,7 +97,7 @@ const readHandler: ToolHandler = {
       return String(result)
     }
     const result = await ctx.ipc.invoke(IPC.FS_READ_FILE, {
-      path: input.file_path,
+      path: resolvedPath,
       offset: input.offset,
       limit: input.limit,
     })
@@ -97,7 +116,8 @@ const readHandler: ToolHandler = {
   requiresApproval: (input, ctx) => {
     // Plugin context: check read permission
     if (ctx.pluginPermissions) {
-      return !isPluginPathAllowed(String(input.file_path || ''), ctx, 'read')
+      const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
+      return !isPluginPathAllowed(filePath, ctx, 'read')
     }
     return false
   },
@@ -110,7 +130,7 @@ const writeHandler: ToolHandler = {
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'The absolute path to the file to write (must be absolute, not relative)' },
+        file_path: { type: 'string', description: 'Absolute path or relative to the working folder' },
         content: { type: 'string', description: 'The content to write to the file' },
       },
       required: ['file_path', 'content'],
@@ -124,26 +144,28 @@ const writeHandler: ToolHandler = {
       throw new Error('Write requires a "content" string')
     }
 
+    const resolvedPath = resolveToolPath(input.file_path, ctx.workingFolder)
+
     if (isSsh(ctx)) {
       const result = await ctx.ipc.invoke(IPC.SSH_FS_WRITE_FILE, sshArgs(ctx, {
-        path: input.file_path,
+        path: resolvedPath,
         content: input.content,
       }))
       if (isErrorResult(result)) throw new Error(`Write failed: ${result.error}`)
-      return JSON.stringify({ success: true, path: input.file_path })
+      return JSON.stringify({ success: true, path: resolvedPath })
     }
     const result = await ctx.ipc.invoke(IPC.FS_WRITE_FILE, {
-      path: input.file_path,
+      path: resolvedPath,
       content: input.content,
     })
     if (isErrorResult(result)) {
       throw new Error(`Write failed: ${result.error}`)
     }
 
-    return JSON.stringify({ success: true, path: input.file_path })
+    return JSON.stringify({ success: true, path: resolvedPath })
   },
   requiresApproval: (input, ctx) => {
-    const filePath = String(input.file_path)
+    const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
     // Plugin context: check write permission
     if (ctx.pluginPermissions) {
       return !isPluginPathAllowed(filePath, ctx, 'write')
@@ -163,7 +185,7 @@ const editHandler: ToolHandler = {
       properties: {
         file_path: {
           type: 'string',
-          description: 'The absolute path to the file to modify'
+          description: 'Absolute path or relative to the working folder'
         },
         old_string: {
           type: 'string',
@@ -179,9 +201,10 @@ const editHandler: ToolHandler = {
     },
   },
   execute: async (input, ctx) => {
+    const resolvedPath = resolveToolPath(input.file_path, ctx.workingFolder)
     // Read file, perform replacement, write back
     const readCh = isSsh(ctx) ? IPC.SSH_FS_READ_FILE : IPC.FS_READ_FILE
-    const readArgs = isSsh(ctx) ? sshArgs(ctx, { path: input.file_path }) : { path: input.file_path }
+    const readArgs = isSsh(ctx) ? sshArgs(ctx, { path: resolvedPath }) : { path: resolvedPath }
     const content = String(await ctx.ipc.invoke(readCh, readArgs))
     const oldStr = String(input.old_string)
     const newStr = String(input.new_string)
@@ -200,14 +223,14 @@ const editHandler: ToolHandler = {
 
     const writeCh = isSsh(ctx) ? IPC.SSH_FS_WRITE_FILE : IPC.FS_WRITE_FILE
     const writeArgs = isSsh(ctx)
-      ? sshArgs(ctx, { path: input.file_path, content: updated })
-      : { path: input.file_path, content: updated }
+      ? sshArgs(ctx, { path: resolvedPath, content: updated })
+      : { path: resolvedPath, content: updated }
     await ctx.ipc.invoke(writeCh, writeArgs)
     return JSON.stringify({ success: true })
   },
   requiresApproval: (input, ctx) => {
     if (isSsh(ctx)) return false // SSH sessions: trust working folder
-    const filePath = String(input.file_path)
+    const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
     // Plugin context: check write permission
     if (ctx.pluginPermissions) {
       return !isPluginPathAllowed(filePath, ctx, 'write')
@@ -221,13 +244,13 @@ const multiEditHandler: ToolHandler = {
   definition: {
     name: 'MultiEdit',
     description:
-      'This is a tool for making multiple edits to a single file in one operation. It is built on top of the Edit tool and allows you to perform multiple find-and-replace operations efficiently. Prefer this tool over the Edit tool when you need to make multiple edits to the same file.\n\nBefore using this tool:\n\n1. Use the Read tool to understand the file\'s contents and context\n2. Verify the directory path is correct\n\nTo make multiple file edits, provide the following:\n1. file_path: The absolute path to the file to modify (must be absolute, not relative)\n2. edits: An array of edit operations to perform, where each edit contains:\n   - old_string: The text to replace (must match the file contents exactly, including all whitespace and indentation)\n   - new_string: The edited text to replace the old_string\n   - replace_all: Replace all occurences of old_string. This parameter is optional and defaults to false.\n\nIMPORTANT:\n- All edits are applied in sequence, in the order they are provided\n- Each edit operates on the result of the previous edit\n- All edits must be valid for the operation to succeed - if any edit fails, none will be applied\n- This tool is ideal when you need to make several changes to different parts of the same file\n- For Jupyter notebooks (.ipynb files), use the NotebookEdit instead\n\nCRITICAL REQUIREMENTS:\n1. All edits follow the same requirements as the single Edit tool\n2. The edits are atomic - either all succeed or none are applied\n3. Plan your edits carefully to avoid conflicts between sequential operations\n\nWARNING:\n- The tool will fail if edits.old_string doesn\'t match the file contents exactly (including whitespace)\n- The tool will fail if edits.old_string and edits.new_string are the same\n- Since edits are applied in sequence, ensure that earlier edits don\'t affect the text that later edits are trying to find\n\nWhen making edits:\n- Ensure all edits result in idiomatic, correct code\n- Do not leave the code in a broken state\n- Always use absolute file paths (starting with /)\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\n\nIf you want to create a new file, use:\n- A new file path, including dir name if needed\n- First edit: empty old_string and the new file\'s contents as new_string\n- Subsequent edits: normal edit operations on the created content',
+      'This is a tool for making multiple edits to a single file in one operation. It is built on top of the Edit tool and allows you to perform multiple find-and-replace operations efficiently. Prefer this tool over the Edit tool when you need to make multiple edits to the same file.\n\nBefore using this tool:\n\n1. Use the Read tool to understand the file\'s contents and context\n2. Verify the directory path is correct\n\nTo make multiple file edits, provide the following:\n1. file_path: Absolute path or relative to the working folder\n2. edits: An array of edit operations to perform, where each edit contains:\n   - old_string: The text to replace (must match the file contents exactly, including all whitespace and indentation)\n   - new_string: The edited text to replace the old_string\n   - replace_all: Replace all occurences of old_string. This parameter is optional and defaults to false.\n\nIMPORTANT:\n- All edits are applied in sequence, in the order they are provided\n- Each edit operates on the result of the previous edit\n- All edits must be valid for the operation to succeed - if any edit fails, none will be applied\n- This tool is ideal when you need to make several changes to different parts of the same file\n- For Jupyter notebooks (.ipynb files), use the NotebookEdit instead\n\nCRITICAL REQUIREMENTS:\n1. All edits follow the same requirements as the single Edit tool\n2. The edits are atomic - either all succeed or none are applied\n3. Plan your edits carefully to avoid conflicts between sequential operations\n\nWARNING:\n- The tool will fail if edits.old_string doesn\'t match the file contents exactly (including whitespace)\n- The tool will fail if edits.old_string and edits.new_string are the same\n- Since edits are applied in sequence, ensure that earlier edits don\'t affect the text that later edits are trying to find\n\nWhen making edits:\n- Ensure all edits result in idiomatic, correct code\n- Do not leave the code in a broken state\n- Use absolute paths or paths relative to the working folder\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\n\nIf you want to create a new file, use:\n- A new file path, including dir name if needed\n- First edit: empty old_string and the new file\'s contents as new_string\n- Subsequent edits: normal edit operations on the created content',
     inputSchema: {
       type: 'object',
       properties: {
         file_path: {
           type: 'string',
-          description: 'The absolute path to the file to modify',
+          description: 'Absolute path or relative to the working folder',
         },
         edits: {
           type: 'array',
@@ -268,8 +291,9 @@ const multiEditHandler: ToolHandler = {
       throw new Error('MultiEdit requires a non-empty "edits" array')
     }
 
+    const resolvedPath = resolveToolPath(filePath, ctx.workingFolder)
     const readCh = isSsh(ctx) ? IPC.SSH_FS_READ_FILE : IPC.FS_READ_FILE
-    const readArgs = isSsh(ctx) ? sshArgs(ctx, { path: filePath }) : { path: filePath }
+    const readArgs = isSsh(ctx) ? sshArgs(ctx, { path: resolvedPath }) : { path: resolvedPath }
     const readResult = await ctx.ipc.invoke(readCh, readArgs)
 
     let content: string
@@ -339,14 +363,14 @@ const multiEditHandler: ToolHandler = {
 
     const writeCh = isSsh(ctx) ? IPC.SSH_FS_WRITE_FILE : IPC.FS_WRITE_FILE
     const writeArgs = isSsh(ctx)
-      ? sshArgs(ctx, { path: filePath, content: updatedContent })
-      : { path: filePath, content: updatedContent }
+      ? sshArgs(ctx, { path: resolvedPath, content: updatedContent })
+      : { path: resolvedPath, content: updatedContent }
     await ctx.ipc.invoke(writeCh, writeArgs)
     return JSON.stringify({ success: true })
   },
   requiresApproval: (input, ctx) => {
     if (isSsh(ctx)) return false
-    const filePath = String(input.file_path)
+    const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
     // Plugin context: check write permission
     if (ctx.pluginPermissions) {
       return !isPluginPathAllowed(filePath, ctx, 'write')
@@ -363,32 +387,34 @@ const lsHandler: ToolHandler = {
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Absolute path to the directory' },
+        path: { type: 'string', description: 'Absolute path or relative to the working folder' },
         ignore: {
           type: 'array',
           items: { type: 'string' },
           description: 'Glob patterns to ignore',
         },
       },
-      required: ['path'],
+      required: [],
     },
   },
   execute: async (input, ctx) => {
+    const resolvedPath = resolveToolPath(input.path, ctx.workingFolder)
     if (isSsh(ctx)) {
       const result = await ctx.ipc.invoke(IPC.SSH_FS_LIST_DIR, sshArgs(ctx, {
-        path: input.path,
+        path: resolvedPath,
       }))
       return JSON.stringify(result)
     }
     const result = await ctx.ipc.invoke(IPC.FS_LIST_DIR, {
-      path: input.path,
+      path: resolvedPath,
       ignore: input.ignore,
     })
     return JSON.stringify(result)
   },
   requiresApproval: (input, ctx) => {
     if (ctx.pluginPermissions) {
-      return !isPluginPathAllowed(String(input.path || ''), ctx, 'read')
+      const targetPath = resolveToolPath(input.path, ctx.workingFolder)
+      return !isPluginPathAllowed(targetPath, ctx, 'read')
     }
     return false
   },

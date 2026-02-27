@@ -9,6 +9,39 @@ import type {
 import { ipcStreamRequest, maskHeaders } from '../ipc/api-stream'
 import { registerProvider } from './provider'
 
+function resolveHeaderTemplate(value: string, config: ProviderConfig): string {
+  return value
+    .replace(/\{\{\s*sessionId\s*\}\}/g, config.sessionId ?? '')
+    .replace(/\{\{\s*model\s*\}\}/g, config.model ?? '')
+}
+
+function applyHeaderOverrides(
+  headers: Record<string, string>,
+  config: ProviderConfig
+): Record<string, string> {
+  const overrides = config.requestOverrides?.headers
+  if (!overrides) return headers
+  for (const [key, rawValue] of Object.entries(overrides)) {
+    const value = resolveHeaderTemplate(String(rawValue), config).trim()
+    if (value) headers[key] = value
+  }
+  return headers
+}
+
+function applyBodyOverrides(body: Record<string, unknown>, config: ProviderConfig): void {
+  const overrides = config.requestOverrides
+  if (overrides?.body) {
+    for (const [key, value] of Object.entries(overrides.body)) {
+      body[key] = value
+    }
+  }
+  if (overrides?.omitBodyKeys) {
+    for (const key of overrides.omitBodyKeys) {
+      delete body[key]
+    }
+  }
+}
+
 class OpenAIChatProvider implements APIProvider {
   readonly name = 'OpenAI Chat Completions'
   readonly type = 'openai-chat' as const
@@ -66,6 +99,8 @@ class OpenAIChatProvider implements APIProvider {
       Object.assign(body, config.thinkingConfig.disabledBodyParams)
     }
 
+    applyBodyOverrides(body, config)
+
     const url = `${baseUrl}/chat/completions`
 
     const headers: Record<string, string> = {
@@ -73,6 +108,8 @@ class OpenAIChatProvider implements APIProvider {
       Authorization: `Bearer ${config.apiKey}`,
     }
     if (config.userAgent) headers['User-Agent'] = config.userAgent
+    applyHeaderOverrides(headers, config)
+
     const bodyStr = JSON.stringify(body)
 
     // Yield debug info for dev mode inspection
@@ -86,6 +123,9 @@ class OpenAIChatProvider implements APIProvider {
       headers,
       body: bodyStr,
       signal,
+      useSystemProxy: config.useSystemProxy,
+      providerId: config.providerId,
+      providerBuiltinId: config.providerBuiltinId,
     })) {
       if (!sse.data || sse.data === '[DONE]') break
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,16 +1,16 @@
 import { ClipboardList, FileText, Loader2, Play, PenLine } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown, { type Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Separator } from '@renderer/components/ui/separator'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
+import { Textarea } from '@renderer/components/ui/textarea'
 import { usePlanStore, type Plan, type PlanStatus } from '@renderer/stores/plan-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
-import { useFileWatcher } from '@renderer/hooks/use-file-watcher'
-import { sendImplementPlan } from '@renderer/hooks/use-chat-actions'
+import { sendImplementPlan, sendPlanRevision } from '@renderer/hooks/use-chat-actions'
 import { cn } from '@renderer/lib/utils'
 
 function StatusBadge({ status }: { status: PlanStatus }): React.JSX.Element {
@@ -19,12 +19,14 @@ function StatusBadge({ status }: { status: PlanStatus }): React.JSX.Element {
     approved: 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20',
     implementing: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
     completed: 'bg-muted text-muted-foreground border-border',
+    rejected: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
   }
   const labelMap: Record<PlanStatus, string> = {
     drafting: 'Drafting',
     approved: 'Approved',
     implementing: 'Implementing',
     completed: 'Completed',
+    rejected: 'Rejected',
   }
   return (
     <Badge variant="outline" className={cn('text-[10px] font-medium', colorMap[status])}>
@@ -33,36 +35,44 @@ function StatusBadge({ status }: { status: PlanStatus }): React.JSX.Element {
   )
 }
 
+function extractPlanSummary(plan: Plan): string[] {
+  if (plan.specJson) {
+    try {
+      const parsed = JSON.parse(plan.specJson) as { summary?: unknown }
+      if (Array.isArray(parsed.summary)) {
+        const items = parsed.summary.map((item) => String(item).trim()).filter(Boolean)
+        if (items.length > 0) return items.slice(0, 6)
+      }
+    } catch {
+      // Ignore malformed specJson
+    }
+  }
+
+  if (plan.content) {
+    const lines = plan.content.split('\n').map((line) => line.trim()).filter(Boolean)
+    const bullets = lines
+      .filter((line) => /^[-*]\s+/.test(line))
+      .map((line) => line.replace(/^[-*]\s+/, '').trim())
+    const source = bullets.length > 0 ? bullets : lines
+    return source.slice(0, 6)
+  }
+
+  return []
+}
+
 function PlanContent({ plan }: { plan: Plan }): React.JSX.Element {
-  const { t } = useTranslation('cowork')
+  const { t } = useTranslation(['cowork', 'common'])
   const planMode = useUIStore((s) => s.planMode)
   const enterPlanMode = useUIStore((s) => s.enterPlanMode)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const isRunning = useAgentStore((s) => activeSessionId ? s.runningSessions[activeSessionId] === 'running' : false)
-  const { content: fileContent, loading } = useFileWatcher(plan.filePath || null)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectFeedback, setRejectFeedback] = useState('')
 
-  const markdownComponents: Components = {
-    p: ({ children, ...props }) => (
-      <p className="my-1 first:mt-0 last:mb-0 leading-snug" {...props}>
-        {children}
-      </p>
-    ),
-    ul: ({ children, ...props }) => (
-      <ul className="my-1 last:mb-0 list-disc pl-4 space-y-0.5" {...props}>
-        {children}
-      </ul>
-    ),
-    ol: ({ children, ...props }) => (
-      <ol className="my-1 last:mb-0 list-decimal pl-4 space-y-0.5" {...props}>
-        {children}
-      </ol>
-    ),
-    li: ({ children, ...props }) => (
-      <li className="leading-snug [&>p]:m-0" {...props}>
-        {children}
-      </li>
-    ),
-  }
+  const summary = extractPlanSummary(plan)
+  const hasSummary = summary.length > 0
+  const canApprove = !!plan.content && (plan.status === 'drafting' || plan.status === 'rejected') && !isRunning
+  const canReject = canApprove
 
   const handleImplement = (): void => {
     sendImplementPlan(plan.id)
@@ -74,6 +84,18 @@ function PlanContent({ plan }: { plan: Plan }): React.JSX.Element {
     enterPlanMode()
   }
 
+  const handleApprove = (): void => {
+    usePlanStore.getState().approvePlan(plan.id)
+  }
+
+  const handleRejectConfirm = (): void => {
+    const feedback = rejectFeedback.trim()
+    if (!feedback) return
+    setRejectOpen(false)
+    setRejectFeedback('')
+    sendPlanRevision(plan.id, feedback)
+  }
+
   return (
     <div className="space-y-3">
       {/* Header */}
@@ -83,36 +105,65 @@ function PlanContent({ plan }: { plan: Plan }): React.JSX.Element {
             <FileText className="size-4 shrink-0 text-violet-500" />
             <h3 className="text-sm font-medium truncate">{plan.title}</h3>
           </div>
-          {plan.filePath && (
-            <p className="mt-0.5 text-[10px] text-muted-foreground/60 truncate">{plan.filePath}</p>
-          )}
         </div>
         <StatusBadge status={plan.status} />
       </div>
 
       <Separator />
 
-      {/* Markdown Content from file */}
-      {loading ? (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
-          <Loader2 className="size-3.5 animate-spin" />
-          {t('plan.loading', { defaultValue: 'Loading plan...' })}
-        </div>
-      ) : fileContent ? (
-        <div className="space-y-2">
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-            {t('plan.document', { defaultValue: 'Plan Document' })}
+      {/* Summary */}
+      <div className="space-y-2">
+        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+          {t('plan.summary', { defaultValue: 'Plan Summary' })}
+        </p>
+        {hasSummary ? (
+          <ul className="list-disc pl-4 text-xs space-y-1 text-foreground/90">
+            {summary.map((item, idx) => (
+              <li key={`${plan.id}-summary-${idx}`} className="leading-snug">
+                {item}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground/70">
+            {t('plan.noSummary', { defaultValue: 'No summary saved yet.' })}
           </p>
-          <div className="rounded-md border bg-muted/30 p-3 text-xs prose prose-sm dark:prose-invert max-w-none prose-headings:text-xs prose-headings:font-semibold prose-pre:text-[10px] overflow-auto max-h-[400px]">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {fileContent}
-            </ReactMarkdown>
-          </div>
-        </div>
-      ) : null}
+        )}
+        {!plan.content && (
+          <p className="text-xs text-muted-foreground/60">
+            {t('plan.noContent', { defaultValue: 'No plan content saved yet.' })}
+          </p>
+        )}
+        {plan.status === 'rejected' && (
+          <p className="text-xs text-red-600/80">
+            {t('plan.rejectedHint', { defaultValue: 'Plan rejected. Provide feedback to revise.' })}
+          </p>
+        )}
+      </div>
 
       {/* Actions */}
       <div className="flex items-center gap-2 pt-1">
+        {canApprove && (
+          <>
+            <Button
+              size="sm"
+              className="h-7 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+              onClick={handleApprove}
+            >
+              {t('plan.approve', { defaultValue: 'Approve' })}
+            </Button>
+            {canReject && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5"
+                onClick={() => setRejectOpen(true)}
+              >
+                {t('plan.reject', { defaultValue: 'Reject' })}
+              </Button>
+            )}
+          </>
+        )}
         {plan.status === 'approved' && !isRunning && (
           <Button
             size="sm"
@@ -137,12 +188,41 @@ function PlanContent({ plan }: { plan: Plan }): React.JSX.Element {
       </div>
 
       {/* Drafting indicator */}
-      {plan.status === 'drafting' && planMode && (
+      {(plan.status === 'drafting' || plan.status === 'rejected') && planMode && (
         <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/5 rounded-md px-3 py-2">
           <Loader2 className="size-3.5 animate-spin" />
           {t('plan.drafting', { defaultValue: 'Plan is being drafted...' })}
         </div>
       )}
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('plan.rejectTitle', { defaultValue: 'Reject Plan' })}</DialogTitle>
+            <DialogDescription>
+              {t('plan.rejectDesc', { defaultValue: 'Explain why the plan should be revised.' })}
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={rejectFeedback}
+            onChange={(event) => setRejectFeedback(event.target.value)}
+            placeholder={t('plan.rejectPlaceholder', { defaultValue: 'Add feedback for a revised plan...' })}
+            className="min-h-[100px]"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+              {t('action.cancel', { ns: 'common', defaultValue: 'Cancel' })}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRejectConfirm}
+              disabled={!rejectFeedback.trim()}
+            >
+              {t('plan.rejectConfirm', { defaultValue: 'Reject Plan' })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -17,10 +17,12 @@ import { toolRegistry } from '@renderer/lib/agent/tool-registry'
 import { buildSystemPrompt } from '@renderer/lib/agent/system-prompt'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
+import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { usePluginStore } from '@renderer/stores/plugin-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 import { registerPluginTools, isPluginToolsRegistered } from '@renderer/lib/plugins/plugin-tools'
 import { DEFAULT_PLUGIN_PERMISSIONS } from '@renderer/lib/plugins/types'
 import type { PluginPermissions } from '@renderer/lib/plugins/types'
@@ -43,6 +45,7 @@ interface PluginAutoReplyTask {
   pluginId: string
   pluginType: string
   chatId: string
+  chatType?: 'p2p' | 'group'
   senderId: string
   senderName: string
   chatName?: string
@@ -51,6 +54,7 @@ interface PluginAutoReplyTask {
   messageId: string
   supportsStreaming: boolean
   images?: Array<{ base64: string; mediaType: string }>
+  audio?: { fileKey: string; fileName?: string; mediaType?: string; durationMs?: number }
 }
 
 // Use window-level state so HMR module reloads don't re-register listeners or lose active session tracking
@@ -213,6 +217,120 @@ function getProviderConfig(providerId?: string | null, modelOverride?: string | 
   }
 }
 
+function resolveModelSupportsVision(providerId?: string | null, modelId?: string | null): boolean {
+  const store = useProviderStore.getState()
+  if (providerId && modelId) {
+    const provider = store.providers.find((p) => p.id === providerId)
+    const model = provider?.models.find((m) => m.id === modelId)
+    if (model?.supportsVision !== undefined) return model.supportsVision
+  }
+
+  if (modelId) {
+    for (const provider of store.providers) {
+      const model = provider.models.find((m) => m.id === modelId)
+      if (model?.supportsVision !== undefined) return model.supportsVision
+    }
+  }
+
+  const activeModel = store.getActiveModelConfig()
+  return activeModel?.supportsVision ?? false
+}
+
+function resolveOpenAiProviderConfig(
+  preferredProviderId?: string | null,
+  preferredModelId?: string | null
+): { providerId: string; config: ProviderConfig } | null {
+  const store = useProviderStore.getState()
+  const providers = store.providers
+  const isOpenAi = (type?: string) =>
+    type === 'openai' || type === 'openai-chat' || type === 'openai-responses'
+
+  const resolveProviderConfig = (providerId: string, modelOverride?: string | null): ProviderConfig | null => {
+    const provider = providers.find((p) => p.id === providerId)
+    if (!provider || !isOpenAi(provider.type)) return null
+    const requiresKey = provider.requiresApiKey !== false
+    if (requiresKey && !provider.apiKey) return null
+    const modelId = modelOverride?.trim()
+      || provider.defaultModel
+      || provider.models.find((m) => m.enabled)?.id
+      || provider.models[0]?.id
+      || ''
+    const config = modelId
+      ? store.getProviderConfigById(providerId, modelId)
+      : null
+    if (config && (!requiresKey || config.apiKey)) return config
+    return {
+      type: provider.type,
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl || undefined,
+      model: modelId,
+      requiresApiKey: provider.requiresApiKey,
+      ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
+    }
+  }
+
+  if (preferredProviderId) {
+    const config = resolveProviderConfig(preferredProviderId, preferredModelId)
+    if (config) return { providerId: preferredProviderId, config }
+  }
+
+  const activeProviderId = store.activeProviderId
+  if (activeProviderId) {
+    const config = resolveProviderConfig(activeProviderId)
+    if (config) return { providerId: activeProviderId, config }
+  }
+
+  for (const provider of providers) {
+    const config = resolveProviderConfig(provider.id)
+    if (config) return { providerId: provider.id, config }
+  }
+
+  return null
+}
+
+function buildOpenAiAudioUrl(baseUrl?: string): string {
+  const trimmed = (baseUrl ?? 'https://api.openai.com/v1').replace(/\/+$/, '')
+  if (trimmed.endsWith('/v1')) return `${trimmed}/audio/transcriptions`
+  return `${trimmed}/v1/audio/transcriptions`
+}
+
+function base64ToBlob(base64: string, mediaType: string): Blob {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return new Blob([bytes], { type: mediaType })
+}
+
+async function transcribeFeishuAudio(args: {
+  base64: string
+  mediaType: string
+  fileName: string
+  model: string
+  apiKey: string
+  baseUrl?: string
+}): Promise<string> {
+  const url = buildOpenAiAudioUrl(args.baseUrl)
+  const form = new FormData()
+  const blob = base64ToBlob(args.base64, args.mediaType)
+  form.append('file', blob, args.fileName)
+  form.append('model', args.model)
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${args.apiKey}` },
+    body: form,
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Transcription failed: HTTP ${res.status} ${text.slice(0, 200)}`)
+  }
+  const data = await res.json()
+  return data?.text ?? ''
+}
+
 async function handlePluginAutoReply(task: PluginAutoReplyTask): Promise<void> {
   const { sessionId, pluginId, chatId, supportsStreaming } = task
 
@@ -290,11 +408,95 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     return
   }
 
+  const sendPluginNotice = async (message: string): Promise<void> => {
+    try {
+      await ipcClient.invoke(IPC.PLUGIN_EXEC, {
+        pluginId,
+        action: 'sendMessage',
+        params: { chatId, content: message },
+      })
+    } catch (err) {
+      console.error('[PluginAutoReply] Failed to send notice:', err)
+    }
+  }
+
   // ── Provider config (with per-plugin model override) ──
+  const providerStore = useProviderStore.getState()
+  const targetProviderId = pluginMeta?.providerId ?? providerStore.activeProviderId
+  if (targetProviderId) {
+    const ready = await ensureProviderAuthReady(targetProviderId)
+    if (!ready) {
+      console.error('[PluginAutoReply] Provider auth missing')
+      await sendPluginNotice('未配置或未完成认证的模型服务商，请在设置中完成配置后再试。')
+      return
+    }
+  }
+
   const providerConfig = getProviderConfig(pluginMeta?.providerId, pluginMeta?.model)
   if (!providerConfig) {
     console.error('[PluginAutoReply] No provider config — API key not configured')
+    await sendPluginNotice('未配置模型服务商或 API Key，请在设置中完成配置后再试。')
     return
+  }
+
+  const supportsVision = resolveModelSupportsVision(
+    pluginMeta?.providerId ?? providerStore.activeProviderId,
+    pluginMeta?.model ?? providerConfig.model
+  )
+
+  let effectiveContent = task.content
+
+  if (task.audio && pluginMeta?.type === 'feishu-bot') {
+    const speechProviderId = providerStore.activeSpeechProviderId
+    const speechModelId = providerStore.activeSpeechModelId
+    if (!speechProviderId || !speechModelId) {
+      await sendPluginNotice('已收到语音消息，但未配置语音识别模型。请在设置 → 模型 → 语音识别模型中选择后再试。')
+      return
+    }
+
+    const ready = await ensureProviderAuthReady(speechProviderId)
+    if (!ready) {
+      await sendPluginNotice('语音识别服务商认证未完成，请在设置 → 模型中完成认证后再试。')
+      return
+    }
+
+    const openAiConfig = resolveOpenAiProviderConfig(speechProviderId, speechModelId)
+    if (!openAiConfig) {
+      await sendPluginNotice('语音识别需要 OpenAI 兼容服务商。请在设置 → 模型 → 语音识别模型中选择 OpenAI 兼容模型后再试。')
+      return
+    }
+
+    try {
+      const download = await ipcClient.invoke(IPC.PLUGIN_FEISHU_DOWNLOAD_RESOURCE, {
+        pluginId,
+        messageId: task.messageId,
+        fileKey: task.audio.fileKey,
+        type: 'file',
+        mediaType: task.audio.mediaType,
+      }) as { ok?: boolean; base64?: string; mediaType?: string; error?: string }
+
+      if (!download?.base64 || download.error) {
+        await sendPluginNotice(`语音下载失败：${download?.error ?? 'unknown error'}`)
+        return
+      }
+
+      const transcript = await transcribeFeishuAudio({
+        base64: download.base64,
+        mediaType: download.mediaType ?? task.audio.mediaType ?? 'audio/mpeg',
+        fileName: task.audio.fileName ?? 'audio.wav',
+        model: openAiConfig.config.model,
+        apiKey: openAiConfig.config.apiKey,
+        baseUrl: openAiConfig.config.baseUrl,
+      })
+
+      effectiveContent = transcript.trim()
+        ? transcript
+        : '[语音已转写，但内容为空]'
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      await sendPluginNotice(`语音转写失败：${msg}`)
+      return
+    }
   }
 
   // ── Start CardKit streaming card (only if streamingReply feature enabled) ──
@@ -381,6 +583,18 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     session = newSession
   }
 
+  if (session) {
+    useChatStore.setState((state) => {
+      const s = state.sessions.find((sess) => sess.id === sessionId)
+      if (s) {
+        s.pluginChatType = task.chatType
+        s.pluginSenderId = task.senderId
+        s.pluginSenderName = task.senderName
+      }
+    })
+    session = { ...session, pluginChatType: task.chatType, pluginSenderId: task.senderId, pluginSenderName: task.senderName }
+  }
+
   // Update session title in store if we have a better name now
   if (session && /^oc_/.test(session.title) && resolvedTitle && !(/^oc_/.test(resolvedTitle))) {
     useChatStore.setState((state) => {
@@ -411,6 +625,16 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       if (p.userSystemPrompt?.trim()) {
         pluginLines.push(`  Plugin instructions: ${p.userSystemPrompt.trim()}`)
       }
+      const desc = usePluginStore.getState().getDescriptor(p.type)
+      const toolNames = desc?.tools ?? []
+      if (toolNames.length > 0) {
+        const enabled = toolNames.filter((name) => p.tools?.[name] !== false)
+        const disabled = toolNames.filter((name) => p.tools?.[name] === false)
+        pluginLines.push(`  Enabled tools: ${enabled.length > 0 ? enabled.join(', ') : 'none'}`)
+        if (disabled.length > 0) {
+          pluginLines.push(`  Disabled tools: ${disabled.join(', ')}`)
+        }
+      }
     }
     pluginLines.push('', 'Use the plugin_id parameter when calling Plugin* tools.')
     userPrompt = userPrompt ? `${userPrompt}\n${pluginLines.join('\n')}` : pluginLines.join('\n')
@@ -424,10 +648,19 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   const securityPrompt = buildSecurityPrompt(permissions, pluginWorkDir)
   userPrompt = userPrompt ? `${securityPrompt}\n${userPrompt}` : securityPrompt
 
+  const pluginDescriptor = pluginMeta ? usePluginStore.getState().getDescriptor(pluginMeta.type) : undefined
+  const pluginToolNames = pluginDescriptor?.tools ?? []
+  const enabledTools = pluginToolNames.filter((name) => pluginMeta?.tools?.[name] !== false)
+  const disabledTools = pluginToolNames.filter((name) => pluginMeta?.tools?.[name] === false)
+
   const pluginCtx = [
     `\n## Plugin Auto-Reply Context`,
     `This session is handling messages from plugin **${pluginMeta?.name ?? pluginType}** (plugin_id: \`${pluginId}\`).`,
     `Chat ID: \`${chatId}\``,
+    `Chat Type: ${task.chatType ?? 'unknown'}`,
+    `Sender: ${task.senderName || task.senderId} (id: ${task.senderId})`,
+    `Enabled tools: ${enabledTools.length > 0 ? enabledTools.join(', ') : 'none'}`,
+    disabledTools.length > 0 ? `Disabled tools: ${disabledTools.join(', ')}` : '',
     `Your response will be streamed directly to the user in real-time via the plugin.`,
     `Just respond naturally — the streaming pipeline handles delivery automatically.`,
     `If you need to send an additional message, use PluginSendMessage with plugin_id="${pluginId}" and chat_id="${chatId}".`,
@@ -452,6 +685,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       `You can send images and files to this chat:`,
       `- **FeishuSendImage**: Send an image (local path or URL). plugin_id="${pluginId}", chat_id="${chatId}"`,
       `- **FeishuSendFile**: Send a file (pdf, doc, xls, ppt, mp4, etc.). plugin_id="${pluginId}", chat_id="${chatId}"`,
+      `For @mentions, fetch member open_id via **FeishuListChatMembers** and call **FeishuAtMember** (plain '@' text will not mention).`,
       `Always prefer sending files over pasting long content in messages.`,
     ].join('\n') : '',
     pluginMeta?.userSystemPrompt?.trim() ? `\nPlugin-specific instructions: ${pluginMeta.userSystemPrompt.trim()}` : '',
@@ -482,19 +716,24 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   })
 
   // ── Build user message ──
-  let userContent: string | Array<Record<string, unknown>> = task.content
+  let userContent: string | Array<Record<string, unknown>> = effectiveContent
   if (task.images?.length) {
-    const blocks: Array<Record<string, unknown>> = []
-    for (const img of task.images) {
-      blocks.push({
-        type: 'image',
-        source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
-      })
+    if (supportsVision) {
+      const blocks: Array<Record<string, unknown>> = []
+      for (const img of task.images) {
+        blocks.push({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
+        })
+      }
+      if (effectiveContent) {
+        blocks.push({ type: 'text', text: effectiveContent })
+      }
+      userContent = blocks
+    } else {
+      const note = '[User sent an image, but the current model does not support vision.]'
+      userContent = [effectiveContent, note].filter(Boolean).join('\n')
     }
-    if (task.content) {
-      blocks.push({ type: 'text', text: task.content })
-    }
-    userContent = blocks
   }
 
   const userMsg: UnifiedMessage = {
@@ -545,6 +784,9 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     currentToolUseId: undefined,
     pluginId,
     pluginChatId: chatId,
+    pluginChatType: task.chatType,
+    pluginSenderId: task.senderId,
+    pluginSenderName: task.senderName,
     pluginPermissions: permissions,
     pluginHomedir: homedir,
   }
@@ -570,6 +812,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   )
 
   let fullText = ''
+  let lastError: string | null = null
   for await (const event of loop) {
     if (ac.signal.aborted) break
 
@@ -667,6 +910,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
         break
 
       case 'error':
+        lastError = event.error instanceof Error ? event.error.message : String(event.error)
         console.error('[PluginAutoReply] Agent error:', event.error)
         break
     }
@@ -686,16 +930,26 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     useChatStore.getState().updateMessage(sessionId, assistantMsgId, { content: finalMsg.content })
   }
 
+  const fallbackMessage = lastError
+    ? `模型运行失败：${lastError}`
+    : '模型未返回文本回复，请检查当前模型配置。'
+
   // Finish CardKit card
-  if (streamingActive && fullText) {
+  if (streamingActive) {
     try {
       await ipcClient.invoke('plugin:stream:finish', {
-        pluginId, chatId, content: fullText,
+        pluginId,
+        chatId,
+        content: fullText.trim() ? fullText : fallbackMessage,
       })
       console.log(`[PluginAutoReply] CardKit finished for ${pluginId}:${chatId}`)
     } catch (err) {
       console.warn('[PluginAutoReply] Failed to finish streaming card:', err)
     }
+  }
+
+  if (!streamingActive && !fullText.trim()) {
+    await sendPluginNotice(fallbackMessage)
   }
 
   // Non-streaming fallback: send the final text via plugin sendMessage

@@ -783,11 +783,15 @@ function ModelPanel(): React.JSX.Element {
   const activeFastModelId = useProviderStore((s) => s.activeFastModelId)
   const activeTranslationProviderId = useProviderStore((s) => s.activeTranslationProviderId)
   const activeTranslationModelId = useProviderStore((s) => s.activeTranslationModelId)
+  const activeSpeechProviderId = useProviderStore((s) => s.activeSpeechProviderId)
+  const activeSpeechModelId = useProviderStore((s) => s.activeSpeechModelId)
   const setActiveProvider = useProviderStore((s) => s.setActiveProvider)
   const setActiveModel = useProviderStore((s) => s.setActiveModel)
   const setActiveFastModel = useProviderStore((s) => s.setActiveFastModel)
   const setActiveTranslationProvider = useProviderStore((s) => s.setActiveTranslationProvider)
   const setActiveTranslationModel = useProviderStore((s) => s.setActiveTranslationModel)
+  const setActiveSpeechProvider = useProviderStore((s) => s.setActiveSpeechProvider)
+  const setActiveSpeechModel = useProviderStore((s) => s.setActiveSpeechModel)
 
   const enabledProviders = providers.filter((p) => p.enabled)
   const activeProvider = providers.find((p) => p.id === activeProviderId) ?? null
@@ -815,6 +819,19 @@ function ModelPanel(): React.JSX.Element {
   const activeTranslationModelValue = translationProvider && activeTranslationModelId
     ? buildModelValue(translationProvider.id, activeTranslationModelId)
     : activeModelValue
+  const speechProvider = providers.find((p) => p.id === activeSpeechProviderId)
+  const activeSpeechModelValue = speechProvider && activeSpeechModelId
+    ? buildModelValue(speechProvider.id, activeSpeechModelId)
+    : ''
+
+  const speechProviderGroups = providerModelGroups
+    .filter(({ provider }) => provider.type === 'openai-chat' || provider.type === 'openai-responses')
+    .map(({ provider, models }) => ({
+      provider,
+      models: models.filter((m) => m.category === 'speech'),
+    }))
+    .filter(({ models }) => models.length > 0)
+  const hasSpeechModels = speechProviderGroups.length > 0
 
   const noProviders = enabledProviders.length === 0
 
@@ -986,6 +1003,61 @@ function ModelPanel(): React.JSX.Element {
               </Select>
             ) : (
               <p className="text-xs text-muted-foreground/60">{t('model.noModelsHint')}</p>
+            )}
+          </section>
+
+          {/* Speech Model */}
+          <section className="space-y-3">
+            <div>
+              <label className="text-sm font-medium">{t('model.speechModel')}</label>
+              <p className="text-xs text-muted-foreground">{t('model.speechModelDesc')}</p>
+            </div>
+            {hasSpeechModels ? (
+              <Select
+                value={activeSpeechModelValue}
+                onValueChange={(value) => {
+                  const parsed = parseModelValue(value)
+                  if (!parsed) return
+                  setActiveSpeechProvider(parsed.providerId)
+                  setActiveSpeechModel(parsed.modelId)
+                }}
+              >
+                <SelectTrigger className="w-80 text-xs">
+                  <SelectValue placeholder={t('model.selectSpeechModel')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {speechProviderGroups.map(({ provider, models }) => (
+                    <SelectGroup key={`${provider.id}-speech`}>
+                      <SelectLabel className="text-[10px] uppercase tracking-wide">
+                        {provider.name}
+                      </SelectLabel>
+                      {models.map((m) => (
+                        <SelectItem
+                          key={`${provider.id}-speech-${m.id}`}
+                          value={buildModelValue(provider.id, m.id)}
+                          className="text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <ModelIcon
+                              icon={m.icon}
+                              modelId={m.id}
+                              providerBuiltinId={provider.builtinId}
+                              size={16}
+                              className="text-muted-foreground/70"
+                            />
+                            <div className="flex flex-col text-left">
+                              <span>{m.name}</span>
+                              <span className="text-[10px] text-muted-foreground/60">{m.id}</span>
+                            </div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="text-xs text-muted-foreground/60">{t('model.speechModelNoProviders')}</p>
             )}
           </section>
         </>

@@ -116,6 +116,42 @@ function rowToConnection(row: SshConnectionRow): SshConnection {
   }
 }
 
+const MAX_CONCURRENT_LIST_DIR = 2
+
+type ListDirQueue = {
+  active: number
+  queue: Array<() => void>
+}
+
+const listDirQueues = new Map<string, ListDirQueue>()
+
+function getListDirQueue(sessionId: string): ListDirQueue {
+  const existing = listDirQueues.get(sessionId)
+  if (existing) return existing
+  const created = { active: 0, queue: [] }
+  listDirQueues.set(sessionId, created)
+  return created
+}
+
+function acquireListDirSlot(sessionId: string): Promise<() => void> {
+  const queue = getListDirQueue(sessionId)
+  return new Promise((resolve) => {
+    const tryAcquire = () => {
+      if (queue.active < MAX_CONCURRENT_LIST_DIR) {
+        queue.active += 1
+        resolve(() => {
+          queue.active = Math.max(0, queue.active - 1)
+          const next = queue.queue.shift()
+          if (next) next()
+        })
+        return
+      }
+      queue.queue.push(tryAcquire)
+    }
+    tryAcquire()
+  })
+}
+
 // ── Store ──
 
 interface SshStore {
@@ -500,6 +536,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: null },
       },
     }))
+    const release = await acquireListDirSlot(sessionId)
     try {
       const result = await ipcClient.invoke(IPC.SSH_FS_LIST_DIR, {
         connectionId: get().sessions[sessionId]?.connectionId,
@@ -556,6 +593,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         },
       }))
     } finally {
+      release()
       set((s) => ({
         fileExplorerLoading: {
           ...s.fileExplorerLoading,

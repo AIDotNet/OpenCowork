@@ -20,7 +20,11 @@ import {
   FileSearch,
   Search,
   ListChecks,
-  Eye
+  Eye,
+  MessageCircle,
+  AtSign,
+  Bell,
+  Table
 } from 'lucide-react'
 import { useChatStore } from '@renderer/stores/chat-store'
 import type { ToolCallState } from '@renderer/lib/agent/types'
@@ -85,7 +89,87 @@ const toolMeta: Record<
     label: 'List Tasks',
     risk: 'low'
   },
-  Delete: { icon: <Trash2 className="size-4 text-destructive" />, label: 'Delete', risk: 'high' }
+  Delete: { icon: <Trash2 className="size-4 text-destructive" />, label: 'Delete', risk: 'high' },
+  PluginSendMessage: {
+    icon: <MessageCircle className="size-4 text-amber-500" />,
+    label: 'Send Plugin Message',
+    risk: 'medium'
+  },
+  PluginReplyMessage: {
+    icon: <MessageCircle className="size-4 text-amber-500" />,
+    label: 'Reply via Plugin',
+    risk: 'medium'
+  },
+  PluginGetGroupMessages: {
+    icon: <MessageCircle className="size-4 text-muted-foreground" />,
+    label: 'Read Group Messages',
+    risk: 'low'
+  },
+  PluginGetCurrentChatMessages: {
+    icon: <MessageCircle className="size-4 text-muted-foreground" />,
+    label: 'Read Current Chat',
+    risk: 'low'
+  },
+  FeishuSendImage: {
+    icon: <MessageCircle className="size-4 text-amber-500" />,
+    label: 'Send Feishu Image',
+    risk: 'medium'
+  },
+  FeishuSendFile: {
+    icon: <MessageCircle className="size-4 text-amber-500" />,
+    label: 'Send Feishu File',
+    risk: 'medium'
+  },
+  FeishuListChatMembers: {
+    icon: <MessageCircle className="size-4 text-muted-foreground" />,
+    label: 'List Feishu Members',
+    risk: 'low'
+  },
+  FeishuAtMember: {
+    icon: <AtSign className="size-4 text-amber-500" />,
+    label: 'Mention Feishu Member',
+    risk: 'medium'
+  },
+  FeishuSendUrgent: {
+    icon: <Bell className="size-4 text-red-500" />,
+    label: 'Send Urgent Push',
+    risk: 'high'
+  },
+  FeishuBitableListApps: {
+    icon: <Table className="size-4 text-muted-foreground" />,
+    label: 'List Bitable Apps',
+    risk: 'low'
+  },
+  FeishuBitableListTables: {
+    icon: <Table className="size-4 text-muted-foreground" />,
+    label: 'List Bitable Tables',
+    risk: 'low'
+  },
+  FeishuBitableListFields: {
+    icon: <Table className="size-4 text-muted-foreground" />,
+    label: 'List Bitable Fields',
+    risk: 'low'
+  },
+  FeishuBitableGetRecords: {
+    icon: <Table className="size-4 text-muted-foreground" />,
+    label: 'Get Bitable Records',
+    risk: 'low'
+  },
+  FeishuBitableCreateRecords: {
+    icon: <Table className="size-4 text-amber-500" />,
+    label: 'Create Bitable Records',
+    risk: 'medium'
+  },
+  FeishuBitableUpdateRecords: {
+    icon: <Table className="size-4 text-amber-500" />,
+    label: 'Update Bitable Records',
+    risk: 'medium'
+  },
+  FeishuBitableDeleteRecords: {
+    icon: <Table className="size-4 text-red-500" />,
+    label: 'Delete Bitable Records',
+    risk: 'high'
+  }
 }
 
 function formatToolSummary(name: string, input: Record<string, unknown>): string | null {
@@ -200,7 +284,7 @@ export function PermissionDialog({
                   <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors">
                     {t('permission.showFullInput')}
                   </summary>
-                  <pre className="mt-1 max-h-40 overflow-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed">
+                  <pre className="mt-1 max-h-40 max-w-full overflow-x-auto overflow-y-auto rounded-md bg-muted p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
                     {JSON.stringify(toolCall.input, null, 2)}
                   </pre>
                 </details>

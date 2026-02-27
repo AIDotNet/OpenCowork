@@ -30,6 +30,7 @@ import { ProviderIcon, ModelIcon } from '@renderer/components/settings/provider-
 import { cn } from '@renderer/lib/utils'
 import type { PluginInstance, PluginFeatures, PluginPermissions } from '@renderer/lib/plugins/types'
 import { DEFAULT_PLUGIN_PERMISSIONS } from '@renderer/lib/plugins/types'
+import { PLUGIN_TOOL_DEFINITIONS } from '@renderer/lib/plugins/plugin-tools'
 import {
   FeishuIcon,
   DingTalkIcon,
@@ -196,6 +197,9 @@ function PluginConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.El
   const [localFeatures, setLocalFeatures] = useState<PluginFeatures>(
     plugin.features ?? { autoReply: true, streamingReply: true, autoStart: true }
   )
+  const [localTools, setLocalTools] = useState<Record<string, boolean>>(
+    plugin.tools ?? {}
+  )
   const [localPerms, setLocalPerms] = useState<PluginPermissions>(
     plugin.permissions ?? DEFAULT_PLUGIN_PERMISSIONS
   )
@@ -208,6 +212,7 @@ function PluginConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.El
     setLocalSystemPrompt(plugin.userSystemPrompt)
     setLocalModel(plugin.model ?? '')
     setLocalFeatures(plugin.features ?? { autoReply: true, streamingReply: true, autoStart: true })
+    setLocalTools(plugin.tools ?? {})
     setLocalPerms(plugin.permissions ?? DEFAULT_PLUGIN_PERMISSIONS)
     setNewReadPath('')
   }, [plugin.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -268,6 +273,12 @@ function PluginConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.El
     debouncedSave({ permissions: next })
   }
 
+  const handleToolToggle = (toolName: string, value: boolean): void => {
+    const next = { ...localTools, [toolName]: value }
+    setLocalTools(next)
+    debouncedSave({ tools: next })
+  }
+
   const handleAddReadPath = (): void => {
     const trimmed = newReadPath.trim()
     if (!trimmed) return
@@ -288,6 +299,13 @@ function PluginConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.El
   }
 
   const configFields = descriptor?.configSchema ?? []
+  const toolDefinitions = useMemo(() => {
+    return PLUGIN_TOOL_DEFINITIONS.reduce<Record<string, string>>((acc, tool) => {
+      acc[tool.name] = tool.description
+      return acc
+    }, {})
+  }, [])
+  const toolsList = descriptor?.tools ?? []
 
   return (
     <div className="flex flex-col h-full overflow-y-auto px-4 py-3">
@@ -475,6 +493,42 @@ function PluginConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.El
           </div>
         </div>
       </section>
+
+      <Separator className="mb-4" />
+
+      {/* Tools */}
+      {toolsList.length > 0 && (
+        <section className="space-y-2 mb-4">
+          <label className="text-xs font-medium">{t('plugin.tools', 'Tools')}</label>
+          <div className="space-y-2 rounded-md border p-3">
+            {toolsList.map((toolName, idx) => {
+              const enabled = localTools?.[toolName] !== false
+              const description = t(
+                `plugin.toolsDesc.${toolName}`,
+                toolDefinitions[toolName] ?? ''
+              )
+              return (
+                <div key={toolName}>
+                  {idx > 0 && <Separator />}
+                  <div className="flex items-center justify-between gap-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium truncate">{toolName}</p>
+                      {description && (
+                        <p className="text-[10px] text-muted-foreground">{description}</p>
+                      )}
+                    </div>
+                    <Switch
+                      checked={enabled}
+                      onCheckedChange={(v) => handleToolToggle(toolName, v)}
+                      className="scale-75"
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       <Separator className="mb-4" />
 

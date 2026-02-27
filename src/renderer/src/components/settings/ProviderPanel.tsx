@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import {
@@ -37,7 +37,24 @@ import {
   useProviderStore,
   builtinProviderPresets,
 } from '@renderer/stores/provider-store'
-import type { ProviderType, AIModelConfig, AIProvider, ThinkingConfig } from '@renderer/lib/api/types'
+import { useQuotaStore, type CodexQuota, type CodexQuotaWindow } from '@renderer/stores/quota-store'
+import {
+  startProviderOAuth,
+  disconnectProviderOAuth,
+  refreshProviderOAuth,
+  ensureProviderAuthReady,
+  sendProviderChannelCode,
+  verifyProviderChannelCode,
+  refreshProviderChannelUserInfo,
+  clearProviderChannelAuth,
+} from '@renderer/lib/auth/provider-auth'
+import type {
+  ProviderType,
+  AIModelConfig,
+  AIProvider,
+  ThinkingConfig,
+  ModelCategory,
+} from '@renderer/lib/api/types'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { ProviderIcon, ModelIcon } from './provider-icons'
 
@@ -54,13 +71,15 @@ async function fetchModelsFromProvider(
   type: ProviderType,
   baseUrl: string,
   apiKey: string,
-  builtinId?: string
+  builtinId?: string,
+  useSystemProxy?: boolean
 ): Promise<AIModelConfig[]> {
   if (builtinId === 'openrouter') {
     const result = await window.electron.ipcRenderer.invoke('api:request', {
       url: 'https://openrouter.ai/api/frontend/models/find',
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
+      useSystemProxy,
     })
     if (result?.error) throw new Error(result.error)
     const data = JSON.parse(result.body)
@@ -85,6 +104,7 @@ async function fetchModelsFromProvider(
       url,
       method: 'GET',
       headers,
+      useSystemProxy,
     })
     if (result?.error) throw new Error(result.error)
     if (result?.statusCode && result.statusCode >= 400) {
@@ -206,6 +226,7 @@ function ModelFormDialog({
   const [id, setId] = useState(initial?.id ?? '')
   const [name, setName] = useState(initial?.name ?? '')
   const [typeOverride, setTypeOverride] = useState<ProviderType | 'none'>(initial?.type ?? 'none')
+  const [category, setCategory] = useState<ModelCategory>(initial?.category ?? 'chat')
   const [contextLength, setContextLength] = useState(initial?.contextLength?.toString() ?? '')
   const [maxOutputTokens, setMaxOutputTokens] = useState(initial?.maxOutputTokens?.toString() ?? '')
   const [inputPrice, setInputPrice] = useState(initial?.inputPrice?.toString() ?? '')
@@ -228,6 +249,7 @@ function ModelFormDialog({
       name: name.trim() || id.trim(),
       enabled: initial?.enabled ?? true,
     }
+    model.category = category
     if (typeOverride && typeOverride !== 'none') model.type = typeOverride
     if (contextLength.trim()) { const v = parseInt(contextLength); if (!isNaN(v)) model.contextLength = v }
     if (maxOutputTokens.trim()) { const v = parseInt(maxOutputTokens); if (!isNaN(v)) model.maxOutputTokens = v }
@@ -296,6 +318,23 @@ function ModelFormDialog({
                 <SelectItem value="openai-chat" className="text-xs">{t('provider.openaiChatCompat')}</SelectItem>
                 <SelectItem value="openai-responses" className="text-xs">{t('provider.openaiResponses')}</SelectItem>
                 <SelectItem value="anthropic" className="text-xs">Anthropic</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Model category */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">{t('provider.modelCategory')}</label>
+            <p className="text-[11px] text-muted-foreground">{t('provider.modelCategoryHint')}</p>
+            <Select value={category} onValueChange={(v) => setCategory(v as ModelCategory)}>
+              <SelectTrigger className="text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="chat" className="text-xs">{t('provider.modelCategoryChat')}</SelectItem>
+                <SelectItem value="speech" className="text-xs">{t('provider.modelCategorySpeech')}</SelectItem>
+                <SelectItem value="embedding" className="text-xs">{t('provider.modelCategoryEmbedding')}</SelectItem>
+                <SelectItem value="image" className="text-xs">{t('provider.modelCategoryImage')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -444,8 +483,28 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
   const updateModel = useProviderStore((s) => s.updateModel)
   const toggleModelEnabled = useProviderStore((s) => s.toggleModelEnabled)
   const setProviderModels = useProviderStore((s) => s.setProviderModels)
+  const quotaByKey = useQuotaStore((s) => s.quotaByKey)
+  const clearQuota = useQuotaStore((s) => s.clearQuota)
+
+  const authMode = provider.authMode ?? 'apiKey'
+  const isApiKeyAuth = authMode === 'apiKey'
+  const isOAuthAuth = authMode === 'oauth'
+  const isChannelAuth = authMode === 'channel'
+  const isCodexProvider = provider.builtinId === 'codex-oauth'
 
   const [showKey, setShowKey] = useState(false)
+  const [showChannelToken, setShowChannelToken] = useState(false)
+  const [oauthConnecting, setOauthConnecting] = useState(false)
+  const [oauthRefreshing, setOauthRefreshing] = useState(false)
+  const [channelSending, setChannelSending] = useState(false)
+  const [channelVerifying, setChannelVerifying] = useState(false)
+  const [channelRefreshing, setChannelRefreshing] = useState(false)
+  const [channelType, setChannelType] = useState<'sms' | 'email'>(
+    provider.channel?.channelType ?? provider.channelConfig?.defaultChannelType ?? 'sms'
+  )
+  const [channelMobile, setChannelMobile] = useState('')
+  const [channelEmail, setChannelEmail] = useState('')
+  const [channelCode, setChannelCode] = useState('')
   const [addModelOpen, setAddModelOpen] = useState(false)
   const [editingModel, setEditingModel] = useState<AIModelConfig | null>(null)
   const [fetchingModels, setFetchingModels] = useState(false)
@@ -457,8 +516,136 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
     () => (provider.builtinId ? builtinProviderPresets.find((p) => p.builtinId === provider.builtinId) : undefined),
     [provider.builtinId]
   )
+  const oauthAbortRef = useRef<AbortController | null>(null)
+  const codexQuota = useMemo(() => {
+    if (!isCodexProvider) return null
+    return (
+      quotaByKey[provider.id] ||
+      (provider.builtinId ? quotaByKey[provider.builtinId] : undefined) ||
+      quotaByKey['codex'] ||
+      null
+    )
+  }, [isCodexProvider, provider.id, provider.builtinId, quotaByKey])
+  const formatPercent = (value?: number): string | null => {
+    if (value === undefined || Number.isNaN(value)) return null
+    const rounded = Math.round(value * 10) / 10
+    return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)}%`
+  }
+  const formatDurationMinutes = (value?: number): string | null => {
+    if (value === undefined || Number.isNaN(value)) return null
+    const minutes = Math.max(0, Math.round(value))
+    if (minutes < 60) return `${minutes}m`
+
+    const days = Math.floor(minutes / 1440)
+    const remMinutes = minutes % 1440
+    const hours = Math.floor(remMinutes / 60)
+    const mins = remMinutes % 60
+
+    if (days > 0) {
+      return hours > 0 ? `${days}d ${hours}h` : `${days}d`
+    }
+
+    if (hours > 0 && mins > 0) return `${hours}h ${mins}m`
+    return `${hours}h`
+  }
+  const formatResetAt = (value?: string): string | null => {
+    if (!value) return null
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return value
+    return parsed.toLocaleString()
+  }
+  const formatQuotaWindow = (window?: CodexQuotaWindow): string => {
+    if (!window) return '-'
+    const parts: string[] = []
+    const percent = formatPercent(window.usedPercent)
+    if (percent) parts.push(percent)
+    const windowMinutes = formatDurationMinutes(window.windowMinutes)
+    if (windowMinutes) {
+      parts.push(t('provider.codexQuotaWindow', { time: windowMinutes }))
+    }
+    if (window.resetAfterSeconds !== undefined && Number.isFinite(window.resetAfterSeconds)) {
+      const minutes = Math.max(1, Math.ceil(window.resetAfterSeconds / 60))
+      const remaining = formatDurationMinutes(minutes)
+      if (remaining) {
+        parts.push(t('provider.codexQuotaResetIn', { time: remaining }))
+      }
+    } else {
+      const resetAt = formatResetAt(window.resetAt)
+      if (resetAt) {
+        parts.push(t('provider.codexQuotaResetAt', { time: resetAt }))
+      }
+    }
+    return parts.length > 0 ? parts.join(' · ') : '-'
+  }
+  const formatBalance = (value?: number): string | null => {
+    if (value === undefined || Number.isNaN(value)) return null
+    const rounded = Math.round(value * 100) / 100
+    return String(rounded)
+  }
+  const formatCredits = (quota: CodexQuota | null): string => {
+    if (!quota?.credits) return '-'
+    if (quota.credits.unlimited) return t('provider.codexQuotaUnlimited')
+    const balance = formatBalance(quota.credits.balance)
+    if (balance) return t('provider.codexQuotaBalance', { balance })
+    if (quota.credits.hasCredits === false) return t('provider.codexQuotaNone')
+    return '-'
+  }
   const apiKeyUrl = builtinPreset?.apiKeyUrl
-  const canOpenApiKeyUrl = provider.requiresApiKey !== false && !!apiKeyUrl
+  const canOpenApiKeyUrl = isApiKeyAuth && provider.requiresApiKey !== false && !!apiKeyUrl
+
+  useEffect(() => {
+    return () => {
+      oauthAbortRef.current?.abort()
+    }
+  }, [provider.id])
+
+  useEffect(() => {
+    const nextType = provider.channel?.channelType ?? provider.channelConfig?.defaultChannelType ?? 'sms'
+    setChannelType(nextType)
+    setChannelMobile('')
+    setChannelEmail('')
+    setChannelCode('')
+  }, [provider.id])
+
+  const oauthConfig = provider.oauthConfig ?? { authorizeUrl: '', tokenUrl: '', clientId: '' }
+  const oauthClientIdLocked = oauthConfig.clientIdLocked === true
+  const hideOAuthSettings = provider.ui?.hideOAuthSettings === true
+  const oauthConfigReady = !!(oauthConfig.authorizeUrl && oauthConfig.tokenUrl && oauthConfig.clientId)
+  const channelRequiresAppToken = provider.channelConfig?.requiresAppToken !== false
+  const channelAppIdLocked = provider.channelConfig?.appIdLocked === true
+  const channelAppIdValue = channelAppIdLocked
+    ? provider.channelConfig?.defaultAppId || provider.channel?.appId || ''
+    : provider.channel?.appId ?? ''
+  const authReadyForUi = isApiKeyAuth
+    ? provider.requiresApiKey === false || !!provider.apiKey
+    : isOAuthAuth
+      ? !!provider.oauth?.accessToken
+      : isChannelAuth
+        ? !!provider.channel?.accessToken
+        : true
+
+  const updateOAuthConfig = (patch: Partial<NonNullable<AIProvider['oauthConfig']>>): void => {
+    const current = provider.oauthConfig ?? { authorizeUrl: '', tokenUrl: '', clientId: '' }
+    const nextPatch = oauthClientIdLocked ? { ...patch, clientId: current.clientId } : patch
+    updateProvider(provider.id, { oauthConfig: { ...current, ...nextPatch } })
+  }
+
+  const handleChannelCredentialChange = (field: 'appId' | 'appToken', value: string): void => {
+    if (field === 'appId' && channelAppIdLocked) return
+    const current = provider.channel ?? { appId: '', appToken: '' }
+    const next = { ...current, [field]: value }
+    if (current[field] !== value) {
+      next.accessToken = undefined
+      next.userInfo = undefined
+    }
+    updateProvider(provider.id, { channel: next })
+  }
+
+  const handleChannelTypeChange = (value: 'sms' | 'email'): void => {
+    setChannelType(value)
+    const current = provider.channel ?? { appId: '', appToken: '' }
+    updateProvider(provider.id, { channel: { ...current, channelType: value } })
+  }
 
   const filteredModels = useMemo(() => {
     if (!modelSearch) return provider.models
@@ -466,23 +653,167 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
     return provider.models.filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q))
   }, [provider.models, modelSearch])
 
+  const getLatestProvider = (): AIProvider =>
+    useProviderStore.getState().providers.find((p) => p.id === provider.id) ?? provider
+
+  const ensureAuthForRequest = async (): Promise<AIProvider | null> => {
+    const latest = getLatestProvider()
+    const mode = latest.authMode ?? 'apiKey'
+    if (mode === 'apiKey') {
+      if (!latest.apiKey && latest.requiresApiKey !== false) {
+        toast.error(t('provider.noApiKey'))
+        return null
+      }
+      return latest
+    }
+
+    const ready = await ensureProviderAuthReady(latest.id)
+    if (!ready) {
+      toast.error(mode === 'oauth' ? t('provider.oauthRequired') : t('provider.channelRequired'))
+      return null
+    }
+    return getLatestProvider()
+  }
+
+  const isAbortError = (err: unknown): boolean =>
+    err instanceof Error && err.name === 'AbortError'
+
+  const handleOAuthConnect = async (): Promise<void> => {
+    if (!oauthConfigReady && !hideOAuthSettings) {
+      toast.error(t('provider.oauthConfigMissing'))
+      return
+    }
+    if (oauthConnecting) return
+    const controller = new AbortController()
+    oauthAbortRef.current?.abort()
+    oauthAbortRef.current = controller
+    setOauthConnecting(true)
+    try {
+      await startProviderOAuth(provider.id, controller.signal)
+      toast.success(t('provider.oauthConnected'))
+    } catch (err) {
+      if (!isAbortError(err)) {
+        toast.error(t('provider.oauthConnectFailed'), {
+          description: err instanceof Error ? err.message : String(err),
+        })
+      }
+    } finally {
+      if (oauthAbortRef.current === controller) {
+        oauthAbortRef.current = null
+      }
+      setOauthConnecting(false)
+    }
+  }
+
+  const handleOAuthCancel = (): void => {
+    oauthAbortRef.current?.abort()
+  }
+
+  const handleOAuthRefresh = async (): Promise<void> => {
+    setOauthRefreshing(true)
+    try {
+      const refreshed = await refreshProviderOAuth(provider.id, true)
+      if (refreshed) {
+        toast.success(t('provider.oauthRefreshed'))
+      } else {
+        toast.error(t('provider.oauthRefreshFailed'))
+      }
+    } catch (err) {
+      toast.error(t('provider.oauthRefreshFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setOauthRefreshing(false)
+    }
+  }
+
+  const handleOAuthDisconnect = (): void => {
+    disconnectProviderOAuth(provider.id)
+    if (isCodexProvider) {
+      clearQuota(provider.id)
+      if (provider.builtinId) clearQuota(provider.builtinId)
+      clearQuota('codex')
+    }
+    toast.success(t('provider.oauthDisconnected'))
+  }
+
+  const handleChannelSendCode = async (): Promise<void> => {
+    setChannelSending(true)
+    try {
+      await sendProviderChannelCode({
+        providerId: provider.id,
+        channelType,
+        mobile: channelMobile.trim() || undefined,
+        email: channelEmail.trim() || undefined,
+      })
+      toast.success(t('provider.channelCodeSent'))
+    } catch (err) {
+      toast.error(t('provider.channelSendFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setChannelSending(false)
+    }
+  }
+
+  const handleChannelVerify = async (): Promise<void> => {
+    setChannelVerifying(true)
+    try {
+      await verifyProviderChannelCode({
+        providerId: provider.id,
+        channelType,
+        code: channelCode.trim(),
+        mobile: channelMobile.trim() || undefined,
+        email: channelEmail.trim() || undefined,
+      })
+      setChannelCode('')
+      toast.success(t('provider.channelVerified'))
+    } catch (err) {
+      toast.error(t('provider.channelVerifyFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setChannelVerifying(false)
+    }
+  }
+
+  const handleChannelRefreshUser = async (): Promise<void> => {
+    setChannelRefreshing(true)
+    try {
+      await refreshProviderChannelUserInfo(provider.id)
+      toast.success(t('provider.channelUserRefreshed'))
+    } catch (err) {
+      toast.error(t('provider.channelUserRefreshFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setChannelRefreshing(false)
+    }
+  }
+
+  const handleChannelDisconnect = (): void => {
+    clearProviderChannelAuth(provider.id)
+    toast.success(t('provider.channelDisconnected'))
+  }
+
   const handleTestConnection = async (): Promise<void> => {
-    if (!provider.apiKey && provider.requiresApiKey !== false) { toast.error(t('provider.noApiKey')); return }
     setTesting(true)
     try {
-      const isAnthropic = provider.type === 'anthropic'
-      const baseUrl = (provider.baseUrl || (isAnthropic ? 'https://api.anthropic.com' : 'https://api.openai.com/v1')).trim().replace(/\/+$/, '')
+      const activeProvider = await ensureAuthForRequest()
+      if (!activeProvider) return
+      const isAnthropic = activeProvider.type === 'anthropic'
+      const baseUrl = (activeProvider.baseUrl || (isAnthropic ? 'https://api.anthropic.com' : 'https://api.openai.com/v1')).trim().replace(/\/+$/, '')
       const url = isAnthropic ? `${baseUrl}/v1/messages` : `${baseUrl}/chat/completions`
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (isAnthropic) {
-        headers['x-api-key'] = provider.apiKey
+        headers['x-api-key'] = activeProvider.apiKey
         headers['anthropic-version'] = '2023-06-01'
       } else {
-        headers['Authorization'] = `Bearer ${provider.apiKey}`
+        if (activeProvider.apiKey) headers['Authorization'] = `Bearer ${activeProvider.apiKey}`
       }
-      const model = testModelId || provider.models[0]?.id || 'gpt-4o'
+      const model = testModelId || activeProvider.models[0]?.id || 'gpt-4o'
       const body = JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] })
-      const result = await window.electron.ipcRenderer.invoke('api:request', { url, method: 'POST', headers, body })
+      const result = await window.electron.ipcRenderer.invoke('api:request', { url, method: 'POST', headers, body, useSystemProxy: activeProvider.useSystemProxy })
       if (result?.error) {
         toast.error(t('provider.connectionFailed'), { description: result.error })
       } else {
@@ -501,7 +832,15 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
   const handleFetchModels = async (): Promise<void> => {
     setFetchingModels(true)
     try {
-      const models = await fetchModelsFromProvider(provider.type, provider.baseUrl, provider.apiKey, provider.builtinId)
+      const activeProvider = await ensureAuthForRequest()
+      if (!activeProvider) return
+      const models = await fetchModelsFromProvider(
+        activeProvider.type,
+        activeProvider.baseUrl,
+        activeProvider.apiKey,
+        activeProvider.builtinId,
+        activeProvider.useSystemProxy
+      )
       if (models.length === 0) { toast.info(t('provider.noModelsFound')); return }
       const existingMap = new Map(provider.models.map((m) => [m.id, m]))
       // Build a map of built-in preset models for this provider (highest priority)
@@ -570,42 +909,372 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
 
       {/* Config body */}
       <div className="flex flex-1 min-h-0 flex-col overflow-y-auto overflow-x-hidden px-5 py-4">
-        {/* API Key */}
-        <section className="space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-medium">{t('provider.apiKey')}</label>
-            {canOpenApiKeyUrl && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 px-2 text-[11px] text-muted-foreground"
-                onClick={() => void window.electron.ipcRenderer.invoke('shell:openExternal', apiKeyUrl)}
-              >
-                <ExternalLink className="size-3" />
-                {t('provider.getApiKey')}
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Input
-                type={showKey ? 'text' : 'password'}
-                placeholder={t('provider.apiKeyPlaceholder')}
-                value={provider.apiKey}
-                onChange={(e) => updateProvider(provider.id, { apiKey: e.target.value })}
-                className="pr-9 text-xs"
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey((v) => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
-              >
-                {showKey ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-              </button>
+        {isApiKeyAuth && (
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">{t('provider.apiKey')}</label>
+              {canOpenApiKeyUrl && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-[11px] text-muted-foreground"
+                  onClick={() => void window.electron.ipcRenderer.invoke('shell:openExternal', apiKeyUrl)}
+                >
+                  <ExternalLink className="size-3" />
+                  {t('provider.getApiKey')}
+                </Button>
+              )}
             </div>
-          </div>
-        </section>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Input
+                  type={showKey ? 'text' : 'password'}
+                  placeholder={t('provider.apiKeyPlaceholder')}
+                  value={provider.apiKey}
+                  onChange={(e) => updateProvider(provider.id, { apiKey: e.target.value })}
+                  className="pr-9 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  tabIndex={-1}
+                >
+                  {showKey ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {isOAuthAuth && (
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">{t('provider.oauthLogin')}</label>
+              <span className={`text-xs ${provider.oauth?.accessToken ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                {provider.oauth?.accessToken ? t('provider.oauthConnected') : t('provider.oauthNotConnected')}
+              </span>
+            </div>
+            {provider.oauth?.accountId && (
+              <p className="text-[11px] text-muted-foreground">
+                {t('provider.oauthAccount', { account: provider.oauth.accountId })}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {!provider.oauth?.accessToken && (
+                <>
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1 text-xs"
+                    disabled={oauthConnecting || (!oauthConfigReady && !hideOAuthSettings)}
+                    onClick={handleOAuthConnect}
+                  >
+                    {oauthConnecting && <Loader2 className="size-3 animate-spin" />}
+                    {oauthConnecting ? t('provider.oauthConnecting') : t('provider.oauthConnect')}
+                  </Button>
+                  {oauthConnecting && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={handleOAuthCancel}
+                    >
+                      {t('action.cancel', { ns: 'common' })}
+                    </Button>
+                  )}
+                </>
+              )}
+              {provider.oauth?.accessToken && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 text-xs"
+                    disabled={oauthRefreshing}
+                    onClick={handleOAuthRefresh}
+                  >
+                    {oauthRefreshing ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+                    {oauthRefreshing ? t('provider.oauthRefreshing') : t('provider.oauthRefresh')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={handleOAuthDisconnect}
+                  >
+                    {t('provider.oauthDisconnect')}
+                  </Button>
+                </>
+              )}
+            </div>
+            {!hideOAuthSettings && !oauthConfigReady && (
+              <p className="text-[11px] text-muted-foreground">{t('provider.oauthConfigMissing')}</p>
+            )}
+          </section>
+        )}
+
+        {isOAuthAuth && isCodexProvider && (
+          <section className="space-y-2">
+            <label className="text-sm font-medium">{t('provider.codexQuotaTitle')}</label>
+            {codexQuota ? (
+              <div className="rounded-md border bg-muted/30 p-2 text-[11px] space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{t('provider.codexQuotaPlan')}</span>
+                  <span className="font-medium">{codexQuota.planType || '-'}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{t('provider.codexQuotaPrimary')}</span>
+                  <span className="font-mono">{formatQuotaWindow(codexQuota.primary)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{t('provider.codexQuotaSecondary')}</span>
+                  <span className="font-mono">{formatQuotaWindow(codexQuota.secondary)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{t('provider.codexQuotaCredits')}</span>
+                  <span className="font-medium">{formatCredits(codexQuota)}</span>
+                </div>
+                {codexQuota.primaryOverSecondaryLimitPercent !== undefined && (
+                  <div className="text-muted-foreground">
+                    {t('provider.codexQuotaLimitOver', {
+                      percent: formatPercent(codexQuota.primaryOverSecondaryLimitPercent) ?? '-',
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">{t('provider.codexQuotaUnavailable')}</p>
+            )}
+          </section>
+        )}
+
+        {isOAuthAuth && !hideOAuthSettings && (
+          <section className="space-y-2 mt-4">
+            <label className="text-sm font-medium">{t('provider.oauthSettings')}</label>
+            <div className="grid gap-3">
+              {!oauthClientIdLocked ? (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">{t('provider.oauthClientId')}</label>
+                  <Input
+                    placeholder={t('provider.oauthClientIdPlaceholder')}
+                    value={oauthConfig.clientId}
+                    onChange={(e) => updateOAuthConfig({ clientId: e.target.value })}
+                    className="text-xs"
+                  />
+                </div>
+              ) : (
+                <div className="text-[11px] text-muted-foreground">
+                  {t('provider.oauthClientIdLocked')}
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">{t('provider.oauthAuthorizeUrl')}</label>
+                <Input
+                  placeholder="https://example.com/oauth/authorize"
+                  value={oauthConfig.authorizeUrl}
+                  onChange={(e) => updateOAuthConfig({ authorizeUrl: e.target.value })}
+                  className="text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">{t('provider.oauthTokenUrl')}</label>
+                <Input
+                  placeholder="https://example.com/oauth/token"
+                  value={oauthConfig.tokenUrl}
+                  onChange={(e) => updateOAuthConfig({ tokenUrl: e.target.value })}
+                  className="text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">{t('provider.oauthScope')}</label>
+                <Input
+                  placeholder={t('provider.oauthScopePlaceholder')}
+                  value={oauthConfig.scope ?? ''}
+                  onChange={(e) => updateOAuthConfig({ scope: e.target.value })}
+                  className="text-xs"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">{t('provider.oauthRedirectPath')}</label>
+                  <Input
+                    placeholder="/auth/callback"
+                    value={oauthConfig.redirectPath ?? ''}
+                    onChange={(e) => updateOAuthConfig({ redirectPath: e.target.value || undefined })}
+                    className="text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">{t('provider.oauthRedirectPort')}</label>
+                  <Input
+                    type="number"
+                    placeholder="0"
+                    value={oauthConfig.redirectPort?.toString() ?? ''}
+                    onChange={(e) => {
+                      const value = e.target.value.trim()
+                      const nextPort = value ? Number(value) : undefined
+                      updateOAuthConfig({ redirectPort: Number.isFinite(nextPort) ? nextPort : undefined })
+                    }}
+                    className="text-xs"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{t('provider.oauthUsePkce')}</span>
+                <Switch
+                  checked={oauthConfig.usePkce !== false}
+                  onCheckedChange={(checked) => updateOAuthConfig({ usePkce: checked })}
+                />
+              </div>
+            </div>
+          </section>
+        )}
+
+        {isChannelAuth && (
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">{t('provider.channelLogin')}</label>
+              <span className={`text-xs ${provider.channel?.accessToken ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                {provider.channel?.accessToken ? t('provider.channelConnected') : t('provider.channelNotConnected')}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">{t('provider.channelAppId')}</label>
+                <Input
+                  placeholder={t('provider.channelAppIdPlaceholder')}
+                  value={channelAppIdValue}
+                  onChange={(e) => handleChannelCredentialChange('appId', e.target.value)}
+                  className="text-xs"
+                  disabled={channelAppIdLocked}
+                />
+                {channelAppIdLocked && (
+                  <p className="text-[11px] text-muted-foreground">{t('provider.channelAppIdLocked')}</p>
+                )}
+              </div>
+              {channelRequiresAppToken ? (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">{t('provider.channelAppToken')}</label>
+                  <div className="relative">
+                    <Input
+                      type={showChannelToken ? 'text' : 'password'}
+                      placeholder={t('provider.channelAppTokenPlaceholder')}
+                      value={provider.channel?.appToken ?? ''}
+                      onChange={(e) => handleChannelCredentialChange('appToken', e.target.value)}
+                      className="pr-9 text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowChannelToken((v) => !v)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showChannelToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-end text-[11px] text-muted-foreground">
+                  {t('provider.channelAppTokenOptional')}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">{t('provider.channelType')}</label>
+                <Select value={channelType} onValueChange={(v) => handleChannelTypeChange(v as 'sms' | 'email')}>
+                  <SelectTrigger className="text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sms" className="text-xs">{t('provider.channelSms')}</SelectItem>
+                    <SelectItem value="email" className="text-xs">{t('provider.channelEmail')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">
+                  {channelType === 'sms' ? t('provider.channelMobile') : t('provider.channelEmailAddress')}
+                </label>
+                <Input
+                  placeholder={channelType === 'sms' ? t('provider.channelMobilePlaceholder') : t('provider.channelEmailPlaceholder')}
+                  value={channelType === 'sms' ? channelMobile : channelEmail}
+                  onChange={(e) => {
+                    if (channelType === 'sms') setChannelMobile(e.target.value)
+                    else setChannelEmail(e.target.value)
+                  }}
+                  className="text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">{t('provider.channelCode')}</label>
+                <Input
+                  placeholder={t('provider.channelCodePlaceholder')}
+                  value={channelCode}
+                  onChange={(e) => setChannelCode(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-full gap-1 text-xs"
+                  disabled={channelSending}
+                  onClick={handleChannelSendCode}
+                >
+                  {channelSending && <Loader2 className="size-3 animate-spin" />}
+                  {channelSending ? t('provider.channelSending') : t('provider.channelSendCode')}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                disabled={channelVerifying}
+                onClick={handleChannelVerify}
+              >
+                {channelVerifying && <Loader2 className="size-3 animate-spin" />}
+                {channelVerifying ? t('provider.channelVerifying') : t('provider.channelVerify')}
+              </Button>
+              {provider.channel?.accessToken && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 text-xs"
+                    disabled={channelRefreshing}
+                    onClick={handleChannelRefreshUser}
+                  >
+                    {channelRefreshing ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+                    {channelRefreshing ? t('provider.channelRefreshing') : t('provider.channelRefreshUser')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={handleChannelDisconnect}
+                  >
+                    {t('provider.channelDisconnect')}
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {provider.channel?.accessToken && provider.channel?.userInfo && (
+              <div className="rounded-md border bg-muted/30 p-2 text-[11px] font-mono whitespace-pre-wrap">
+                {JSON.stringify(provider.channel.userInfo, null, 2)}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Base URL */}
         <section className="space-y-2 mt-5">
@@ -642,7 +1311,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
               variant="outline"
               size="sm"
               className="h-9 shrink-0 gap-1.5 text-xs"
-              disabled={(provider.requiresApiKey !== false && !provider.apiKey) || testing}
+              disabled={!authReadyForUi || testing}
               onClick={handleTestConnection}
             >
               {testing && <Loader2 className="size-3 animate-spin" />}

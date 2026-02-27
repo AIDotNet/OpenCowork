@@ -9,6 +9,7 @@ export const IPC = {
   API_STREAM_CHUNK: 'api:stream-chunk',
   API_STREAM_END: 'api:stream-end',
   API_STREAM_ERROR: 'api:stream-error',
+  API_QUOTA_UPDATE: 'api:quota-update',
   API_ABORT: 'api:abort',
 
   // File System
@@ -74,6 +75,17 @@ export const IPC = {
   // Feishu-specific
   PLUGIN_FEISHU_SEND_IMAGE: 'plugin:feishu:send-image',
   PLUGIN_FEISHU_SEND_FILE: 'plugin:feishu:send-file',
+  PLUGIN_FEISHU_SEND_MENTION: 'plugin:feishu:send-mention',
+  PLUGIN_FEISHU_LIST_MEMBERS: 'plugin:feishu:list-members',
+  PLUGIN_FEISHU_SEND_URGENT: 'plugin:feishu:send-urgent',
+  PLUGIN_FEISHU_DOWNLOAD_RESOURCE: 'plugin:feishu:download-resource',
+  PLUGIN_FEISHU_BITABLE_LIST_APPS: 'plugin:feishu:bitable:list-apps',
+  PLUGIN_FEISHU_BITABLE_LIST_TABLES: 'plugin:feishu:bitable:list-tables',
+  PLUGIN_FEISHU_BITABLE_LIST_FIELDS: 'plugin:feishu:bitable:list-fields',
+  PLUGIN_FEISHU_BITABLE_GET_RECORDS: 'plugin:feishu:bitable:get-records',
+  PLUGIN_FEISHU_BITABLE_CREATE_RECORDS: 'plugin:feishu:bitable:create-records',
+  PLUGIN_FEISHU_BITABLE_UPDATE_RECORDS: 'plugin:feishu:bitable:update-records',
+  PLUGIN_FEISHU_BITABLE_DELETE_RECORDS: 'plugin:feishu:bitable:delete-records',
 
   // MCP
   MCP_LIST: 'mcp:list',
@@ -127,6 +139,10 @@ export const IPC = {
   SKILLS_DOWNLOAD_REMOTE: 'skills:download-remote',
   SKILLS_CLEANUP_TEMP: 'skills:cleanup-temp',
 
+  // Prompts
+  PROMPTS_LIST: 'prompts:list',
+  PROMPTS_LOAD: 'prompts:load',
+
   // Clipboard
   CLIPBOARD_WRITE_IMAGE: 'clipboard:write-image',
 
@@ -134,6 +150,11 @@ export const IPC = {
   WEB_SEARCH: 'web:search',
   WEB_SEARCH_CONFIG: 'web:search-config',
   WEB_SEARCH_PROVIDERS: 'web:search-providers',
+
+  // OAuth
+  OAUTH_START: 'oauth:start',
+  OAUTH_STOP: 'oauth:stop',
+  OAUTH_CALLBACK: 'oauth:callback',
 
   // SSH Management
   SSH_GROUP_LIST: 'ssh:group:list',

@@ -7,7 +7,41 @@ import type {
   ContentBlock,
 } from './types'
 import { ipcStreamRequest, maskHeaders } from '../ipc/api-stream'
+import { loadPrompt } from '../prompts/prompt-loader'
 import { registerProvider } from './provider'
+
+function resolveHeaderTemplate(value: string, config: ProviderConfig): string {
+  return value
+    .replace(/\{\{\s*sessionId\s*\}\}/g, config.sessionId ?? '')
+    .replace(/\{\{\s*model\s*\}\}/g, config.model ?? '')
+}
+
+function applyHeaderOverrides(
+  headers: Record<string, string>,
+  config: ProviderConfig
+): Record<string, string> {
+  const overrides = config.requestOverrides?.headers
+  if (!overrides) return headers
+  for (const [key, rawValue] of Object.entries(overrides)) {
+    const value = resolveHeaderTemplate(String(rawValue), config).trim()
+    if (value) headers[key] = value
+  }
+  return headers
+}
+
+function applyBodyOverrides(body: Record<string, unknown>, config: ProviderConfig): void {
+  const overrides = config.requestOverrides
+  if (overrides?.body) {
+    for (const [key, value] of Object.entries(overrides.body)) {
+      body[key] = value
+    }
+  }
+  if (overrides?.omitBodyKeys) {
+    for (const key of overrides.omitBodyKeys) {
+      delete body[key]
+    }
+  }
+}
 
 class OpenAIResponsesProvider implements APIProvider {
   readonly name = 'OpenAI Responses'
@@ -73,12 +107,36 @@ class OpenAIResponsesProvider implements APIProvider {
       Object.assign(body, config.thinkingConfig.disabledBodyParams)
     }
 
+    const overridesBody = config.requestOverrides?.body
+    const hasInstructionsOverride = !!overridesBody &&
+      Object.prototype.hasOwnProperty.call(overridesBody, 'instructions')
+
+    if (!hasInstructionsOverride && config.instructionsPrompt) {
+      const instructions = await loadPrompt(config.instructionsPrompt)
+      if (!instructions) {
+        yield {
+          type: 'error',
+          error: {
+            type: 'config_error',
+            message: `Instructions prompt "${config.instructionsPrompt}" not found`,
+          },
+        }
+        return
+      }
+      body.instructions = instructions
+    }
+
+    applyBodyOverrides(body, config)
+
     const url = `${baseUrl}/responses`
 
-    const headers = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.apiKey}`,
     }
+    if (config.userAgent) headers['User-Agent'] = config.userAgent
+    applyHeaderOverrides(headers, config)
+
     const bodyStr = JSON.stringify(body)
 
     // Yield debug info for dev mode inspection
@@ -125,6 +183,9 @@ class OpenAIResponsesProvider implements APIProvider {
       headers,
       body: bodyStr,
       signal,
+      useSystemProxy: config.useSystemProxy,
+      providerId: config.providerId,
+      providerBuiltinId: config.providerBuiltinId,
     })) {
       if (!sse.data || sse.data === '[DONE]') continue
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

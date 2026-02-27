@@ -16,6 +16,8 @@ export interface PluginProviderDescriptor {
   icon: string
   builtin?: boolean
   configSchema: ConfigFieldSchema[]
+  /** Supported tool names for this plugin provider */
+  tools?: string[]
 }
 
 export interface PluginFeatures {
@@ -50,6 +52,8 @@ export interface PluginInstance {
   userSystemPrompt: string
   config: Record<string, string>
   createdAt: number
+  /** Per-tool enablement flags (missing = default enabled) */
+  tools?: Record<string, boolean>
   /** Provider ID for this plugin's auto-reply agent (null = use global active provider) */
   providerId?: string | null
   /** Model override for this plugin's auto-reply agent (null = use global default) */

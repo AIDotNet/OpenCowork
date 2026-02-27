@@ -42,9 +42,12 @@ export async function* ipcStreamRequest(params: {
   headers: Record<string, string>
   body?: string
   signal?: AbortSignal
+  useSystemProxy?: boolean
+  providerId?: string
+  providerBuiltinId?: string
 }): AsyncIterable<SSEEvent> {
   const requestId = nanoid()
-  const { url, method, headers, body, signal } = params
+  const { url, method, headers, body, signal, useSystemProxy, providerId, providerBuiltinId } = params
 
   // Queue to bridge IPC callbacks → async iterator
   type QueueItem =
@@ -98,7 +101,16 @@ export async function* ipcStreamRequest(params: {
   signal?.addEventListener('abort', abortHandler, { once: true })
 
   // Send request to main process
-  ipc.send('api:stream-request', { requestId, url, method, headers, body })
+  ipc.send('api:stream-request', {
+    requestId,
+    url,
+    method,
+    headers,
+    body,
+    useSystemProxy,
+    providerId,
+    providerBuiltinId,
+  })
 
   // SSE line parser state
   let buffer = ''

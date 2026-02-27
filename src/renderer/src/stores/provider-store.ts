@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { nanoid } from 'nanoid'
-import type { AIProvider, AIModelConfig, ProviderConfig } from '../lib/api/types'
+import type { AIProvider, AIModelConfig, ProviderConfig, ModelCategory } from '../lib/api/types'
 import { builtinProviderPresets } from './providers'
 import type { BuiltinProviderPreset } from './providers'
 import { configStorage } from '../lib/ipc/config-storage'
@@ -23,8 +23,15 @@ function createProviderFromPreset(preset: BuiltinProviderPreset): AIProvider {
     builtinId: preset.builtinId,
     createdAt: Date.now(),
     requiresApiKey: preset.requiresApiKey ?? true,
+    ...(preset.useSystemProxy !== undefined ? { useSystemProxy: preset.useSystemProxy } : {}),
     ...(preset.userAgent ? { userAgent: preset.userAgent } : {}),
     ...(preset.defaultModel ? { defaultModel: preset.defaultModel } : {}),
+    authMode: preset.authMode ?? 'apiKey',
+    ...(preset.oauthConfig ? { oauthConfig: { ...preset.oauthConfig } } : {}),
+    ...(preset.channelConfig ? { channelConfig: { ...preset.channelConfig } } : {}),
+    ...(preset.requestOverrides ? { requestOverrides: { ...preset.requestOverrides } } : {}),
+    ...(preset.instructionsPrompt ? { instructionsPrompt: preset.instructionsPrompt } : {}),
+    ...(preset.ui ? { ui: { ...preset.ui } } : {}),
   }
 }
 
@@ -80,6 +87,15 @@ function resolveProviderDefaultModelId(provider: AIProvider): string {
   return enabledModels[0]?.id ?? provider.models[0]?.id ?? ''
 }
 
+function resolveProviderDefaultModelIdByCategory(
+  provider: AIProvider,
+  category: ModelCategory
+): string {
+  const categoryModels = provider.models.filter((m) => (m.category ?? 'chat') === category)
+  const enabledModels = categoryModels.filter((m) => m.enabled)
+  return enabledModels[0]?.id ?? categoryModels[0]?.id ?? ''
+}
+
 // --- Store ---
 
 interface ProviderStore {
@@ -89,6 +105,8 @@ interface ProviderStore {
   activeFastModelId: string
   activeTranslationProviderId: string | null
   activeTranslationModelId: string
+  activeSpeechProviderId: string | null
+  activeSpeechModelId: string
 
   // CRUD
   addProvider: (provider: AIProvider) => void
@@ -110,6 +128,8 @@ interface ProviderStore {
   setActiveFastModel: (modelId: string) => void
   setActiveTranslationProvider: (providerId: string) => void
   setActiveTranslationModel: (modelId: string) => void
+  setActiveSpeechProvider: (providerId: string) => void
+  setActiveSpeechModel: (modelId: string) => void
 
   // Derived
   getActiveProvider: () => AIProvider | null
@@ -120,6 +140,8 @@ interface ProviderStore {
   getFastProviderConfig: () => ProviderConfig | null
   /** Build provider config for translation default model; falls back to active model config */
   getTranslationProviderConfig: () => ProviderConfig | null
+  /** Build provider config for speech recognition; returns null if not configured */
+  getSpeechProviderConfig: () => ProviderConfig | null
   /** Clamp user maxTokens to model's maxOutputTokens if exceeded */
   getEffectiveMaxTokens: (userMaxTokens: number, modelId?: string) => number
   /** Whether the active model supports thinking and its config */
@@ -140,6 +162,8 @@ export const useProviderStore = create<ProviderStore>()(
       activeFastModelId: '',
       activeTranslationProviderId: null,
       activeTranslationModelId: '',
+      activeSpeechProviderId: null,
+      activeSpeechModelId: '',
       _migrated: false,
 
       addProvider: (provider) =>
@@ -168,6 +192,10 @@ export const useProviderStore = create<ProviderStore>()(
             s.activeTranslationProviderId === id ? null : s.activeTranslationProviderId,
           activeTranslationModelId:
             s.activeTranslationProviderId === id ? '' : s.activeTranslationModelId,
+          activeSpeechProviderId:
+            s.activeSpeechProviderId === id ? null : s.activeSpeechProviderId,
+          activeSpeechModelId:
+            s.activeSpeechProviderId === id ? '' : s.activeSpeechModelId,
         })),
 
       toggleProviderEnabled: (id) =>
@@ -251,6 +279,18 @@ export const useProviderStore = create<ProviderStore>()(
 
       setActiveTranslationModel: (modelId) => set({ activeTranslationModelId: modelId }),
 
+      setActiveSpeechProvider: (providerId) => {
+        const provider = get().providers.find((p) => p.id === providerId)
+        if (!provider) return
+        const defaultModelId = resolveProviderDefaultModelIdByCategory(provider, 'speech')
+        set({
+          activeSpeechProviderId: providerId,
+          activeSpeechModelId: defaultModelId,
+        })
+      },
+
+      setActiveSpeechModel: (modelId) => set({ activeSpeechModelId: modelId }),
+
       getActiveProvider: () => {
         const { providers, activeProviderId } = get()
         if (!activeProviderId) return null
@@ -280,11 +320,16 @@ export const useProviderStore = create<ProviderStore>()(
           apiKey: provider.apiKey,
           baseUrl: normalizedBaseUrl,
           model: activeModelId,
+          providerId: provider.id,
+          providerBuiltinId: provider.builtinId,
           requiresApiKey: provider.requiresApiKey,
+          ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
           responseSummary: activeModel?.responseSummary,
           enablePromptCache: activeModel?.enablePromptCache,
           enableSystemPromptCache: activeModel?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
+          ...(provider.requestOverrides ? { requestOverrides: provider.requestOverrides } : {}),
+          ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
         }
       },
 
@@ -315,6 +360,12 @@ export const useProviderStore = create<ProviderStore>()(
           ?? getActiveProviderConfig()
       },
 
+      getSpeechProviderConfig: () => {
+        const { activeSpeechProviderId, activeSpeechModelId, getProviderConfigById } = get()
+        if (!activeSpeechProviderId || !activeSpeechModelId) return null
+        return getProviderConfigById(activeSpeechProviderId, activeSpeechModelId)
+      },
+
       getProviderConfigById: (providerId, modelId) => {
         const provider = get().providers.find((p) => p.id === providerId)
         if (!provider) return null
@@ -328,11 +379,16 @@ export const useProviderStore = create<ProviderStore>()(
           apiKey: provider.apiKey,
           baseUrl: normalizedBaseUrl,
           model: modelId,
+          providerId: provider.id,
+          providerBuiltinId: provider.builtinId,
           requiresApiKey: provider.requiresApiKey,
+          ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
           responseSummary: model?.responseSummary,
           enablePromptCache: model?.enablePromptCache,
           enableSystemPromptCache: model?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
+          ...(provider.requestOverrides ? { requestOverrides: provider.requestOverrides } : {}),
+          ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
         }
       },
 
@@ -352,11 +408,16 @@ export const useProviderStore = create<ProviderStore>()(
           apiKey: provider.apiKey,
           baseUrl: normalizedBaseUrl,
           model,
+          providerId: provider.id,
+          providerBuiltinId: provider.builtinId,
           requiresApiKey: provider.requiresApiKey,
+          ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
           responseSummary: fastModel?.responseSummary,
           enablePromptCache: fastModel?.enablePromptCache,
           enableSystemPromptCache: fastModel?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
+          ...(provider.requestOverrides ? { requestOverrides: provider.requestOverrides } : {}),
+          ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
         }
       },
 
@@ -393,6 +454,8 @@ export const useProviderStore = create<ProviderStore>()(
         activeFastModelId: state.activeFastModelId,
         activeTranslationProviderId: state.activeTranslationProviderId,
         activeTranslationModelId: state.activeTranslationModelId,
+        activeSpeechProviderId: state.activeSpeechProviderId,
+        activeSpeechModelId: state.activeSpeechModelId,
         _migrated: state._migrated,
       }),
     }
@@ -418,11 +481,115 @@ function ensureBuiltinPresets(): void {
       if (existing.requiresApiKey !== (preset.requiresApiKey ?? true)) {
         patch.requiresApiKey = preset.requiresApiKey ?? true
       }
+      if (existing.useSystemProxy !== preset.useSystemProxy) {
+        patch.useSystemProxy = preset.useSystemProxy
+      }
       if (existing.userAgent !== preset.userAgent) {
         patch.userAgent = preset.userAgent
       }
       if (existing.defaultModel !== preset.defaultModel) {
         patch.defaultModel = preset.defaultModel
+      }
+      if (preset.instructionsPrompt && existing.instructionsPrompt !== preset.instructionsPrompt) {
+        patch.instructionsPrompt = preset.instructionsPrompt
+      }
+      if (!existing.authMode) {
+        patch.authMode = preset.authMode ?? 'apiKey'
+      }
+      if (preset.builtinId === 'codex-oauth') {
+        const trimmedBaseUrl = existing.baseUrl.trim().replace(/\/+$/, '')
+        if (!trimmedBaseUrl || trimmedBaseUrl === 'https://api.openai.com/v1' || trimmedBaseUrl === 'https://api.openai.com') {
+          patch.baseUrl = preset.defaultBaseUrl
+        }
+      }
+      if (preset.oauthConfig) {
+        if (preset.builtinId === 'codex-oauth') {
+          patch.oauthConfig = { ...preset.oauthConfig }
+        } else if (!existing.oauthConfig) {
+          patch.oauthConfig = { ...preset.oauthConfig }
+        } else {
+          const merged = { ...existing.oauthConfig }
+          let changed = false
+
+          if (!merged.authorizeUrl && preset.oauthConfig.authorizeUrl) {
+            merged.authorizeUrl = preset.oauthConfig.authorizeUrl
+            changed = true
+          }
+          if (!merged.tokenUrl && preset.oauthConfig.tokenUrl) {
+            merged.tokenUrl = preset.oauthConfig.tokenUrl
+            changed = true
+          }
+          if (!merged.clientId && preset.oauthConfig.clientId) {
+            merged.clientId = preset.oauthConfig.clientId
+            changed = true
+          }
+          if (merged.clientIdLocked === undefined && preset.oauthConfig.clientIdLocked !== undefined) {
+            merged.clientIdLocked = preset.oauthConfig.clientIdLocked
+            changed = true
+          }
+          if (!merged.scope && preset.oauthConfig.scope) {
+            merged.scope = preset.oauthConfig.scope
+            changed = true
+          }
+          if (!merged.redirectPath && preset.oauthConfig.redirectPath) {
+            merged.redirectPath = preset.oauthConfig.redirectPath
+            changed = true
+          }
+          if (merged.redirectPort === undefined && preset.oauthConfig.redirectPort !== undefined) {
+            merged.redirectPort = preset.oauthConfig.redirectPort
+            changed = true
+          }
+          if (merged.usePkce === undefined && preset.oauthConfig.usePkce !== undefined) {
+            merged.usePkce = preset.oauthConfig.usePkce
+            changed = true
+          }
+
+          if (preset.oauthConfig.extraParams) {
+            if (!merged.extraParams) {
+              merged.extraParams = { ...preset.oauthConfig.extraParams }
+              changed = true
+            } else {
+              for (const [key, value] of Object.entries(preset.oauthConfig.extraParams)) {
+                const existingValue = merged.extraParams[key]
+                if (!existingValue || (typeof existingValue === 'string' && !existingValue.trim())) {
+                  merged.extraParams[key] = value
+                  changed = true
+                }
+              }
+            }
+          }
+
+          if (changed) {
+            patch.oauthConfig = merged
+          }
+        }
+      }
+      if (!existing.channelConfig && preset.channelConfig) {
+        patch.channelConfig = { ...preset.channelConfig }
+      }
+      if (preset.requestOverrides) {
+        if (preset.builtinId === 'codex-oauth') {
+          patch.requestOverrides = { ...preset.requestOverrides }
+        } else if (!existing.requestOverrides) {
+          patch.requestOverrides = { ...preset.requestOverrides }
+        }
+      }
+      if (preset.ui) {
+        if (!existing.ui) {
+          patch.ui = { ...preset.ui }
+        } else {
+          const merged = { ...existing.ui }
+          let changed = false
+
+          if (merged.hideOAuthSettings === undefined && preset.ui.hideOAuthSettings !== undefined) {
+            merged.hideOAuthSettings = preset.ui.hideOAuthSettings
+            changed = true
+          }
+
+          if (changed) {
+            patch.ui = merged
+          }
+        }
       }
       if (Object.keys(patch).length > 0) {
         useProviderStore.getState().updateProvider(existing.id, patch)
@@ -451,6 +618,10 @@ function ensureBuiltinPresets(): void {
     }
   } else if (!state.activeTranslationModelId) {
     state.setActiveTranslationProvider(state.activeTranslationProviderId)
+  }
+
+  if (state.activeSpeechProviderId && !state.activeSpeechModelId) {
+    state.setActiveSpeechProvider(state.activeSpeechProviderId)
   }
 }
 

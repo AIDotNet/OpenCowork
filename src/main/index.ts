@@ -21,6 +21,7 @@ import { registerSettingsHandlers } from './ipc/settings-handlers'
 
 import { registerSkillsHandlers } from './ipc/skills-handlers'
 import { registerAgentsHandlers } from './ipc/agents-handlers'
+import { registerPromptsHandlers } from './ipc/prompts-handlers'
 import { registerProcessManagerHandlers, killAllManagedProcesses } from './ipc/process-manager'
 import { registerDbHandlers } from './ipc/db-handlers'
 import { registerConfigHandlers } from './ipc/secure-key-store'
@@ -30,6 +31,7 @@ import { registerMcpHandlers } from './ipc/mcp-handlers'
 import { registerCronHandlers } from './ipc/cron-handlers'
 import { registerNotifyHandlers } from './ipc/notify-handlers'
 import { registerWebSearchHandlers } from './ipc/web-search-handlers'
+import { registerOauthHandlers } from './ipc/oauth-handlers'
 import { loadPersistedJobs, cancelAllJobs } from './cron/cron-scheduler'
 import { McpManager } from './mcp/mcp-manager'
 import { closeDb } from './db/database'
@@ -427,6 +429,7 @@ if (gotSingleInstanceLock) {
 
   registerSkillsHandlers()
   registerAgentsHandlers()
+  registerPromptsHandlers()
   registerProcessManagerHandlers()
   registerDbHandlers()
   registerConfigHandlers()
@@ -437,6 +440,7 @@ if (gotSingleInstanceLock) {
   loadPersistedJobs()
   registerNotifyHandlers()
   registerWebSearchHandlers()
+  registerOauthHandlers()
 
   // Clipboard: write PNG image from base64 data
   ipcMain.handle('clipboard:write-image', (_event, args: { data: string }) => {

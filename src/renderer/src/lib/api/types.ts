@@ -169,12 +169,66 @@ export interface ThinkingConfig {
 export type ProviderType = 'anthropic' | 'openai-chat' | 'openai-responses'
 export type ResponseSummary = 'auto' | 'concise' | 'detailed'
 
+export type AuthMode = 'apiKey' | 'oauth' | 'channel'
+
+export interface OAuthConfig {
+  authorizeUrl: string
+  tokenUrl: string
+  clientId: string
+  clientIdLocked?: boolean
+  scope?: string
+  /** Use system proxy for OAuth token exchanges */
+  useSystemProxy?: boolean
+  includeScopeInTokenRequest?: boolean
+  tokenRequestMode?: 'form' | 'json'
+  tokenRequestHeaders?: Record<string, string>
+  refreshRequestMode?: 'form' | 'json'
+  refreshRequestHeaders?: Record<string, string>
+  refreshScope?: string
+  redirectPath?: string
+  redirectPort?: number
+  extraParams?: Record<string, string>
+  usePkce?: boolean
+}
+
+export interface OAuthToken {
+  accessToken: string
+  refreshToken?: string
+  expiresAt?: number
+  scope?: string
+  tokenType?: string
+  accountId?: string
+}
+
+export interface ChannelConfig {
+  vcodeUrl: string
+  tokenUrl: string
+  userUrl: string
+  defaultChannelType?: 'sms' | 'email'
+  requiresAppToken?: boolean
+  defaultAppId?: string
+  appIdLocked?: boolean
+}
+
+export interface ChannelAuth {
+  appId: string
+  appToken?: string
+  accessToken?: string
+  accessTokenExpiresAt?: number
+  channelType?: 'sms' | 'email'
+  userInfo?: Record<string, unknown>
+}
+
+export type ModelCategory = 'chat' | 'speech' | 'embedding' | 'image'
+
 export interface AIModelConfig {
   id: string
   name: string
   enabled: boolean
   /** Optional protocol override for this model; falls back to provider.type when omitted */
   type?: ProviderType
+  /** How this model should be used (chat, speech, embedding, image) */
+  category?: ModelCategory
   /** Icon key for model-level icon (e.g. 'openai', 'claude', 'gemini', 'deepseek') */
   icon?: string
   contextLength?: number
@@ -203,6 +257,20 @@ export interface AIModelConfig {
   enableSystemPromptCache?: boolean
 }
 
+export interface RequestOverrides {
+  /** Extra headers to include with API requests */
+  headers?: Record<string, string>
+  /** Body key-value overrides merged into the request body */
+  body?: Record<string, unknown>
+  /** Body keys to omit from the final payload */
+  omitBodyKeys?: string[]
+}
+
+export interface ProviderUiConfig {
+  /** Hide OAuth settings fields and related hints in the UI */
+  hideOAuthSettings?: boolean
+}
+
 export interface AIProvider {
   id: string
   name: string
@@ -215,10 +283,28 @@ export interface AIProvider {
   createdAt: number
   /** Whether this provider requires an API key. Defaults to true when omitted. */
   requiresApiKey?: boolean
+  /** Whether to route API requests via the system proxy */
+  useSystemProxy?: boolean
   /** Custom User-Agent header (e.g. Moonshot套餐 requires 'RooCode/3.48.0') */
   userAgent?: string
   /** Default model ID to use when this provider is first selected */
   defaultModel?: string
+  /** Authentication mode for this provider */
+  authMode?: AuthMode
+  /** OAuth token payload (if authMode === 'oauth') */
+  oauth?: OAuthToken
+  /** OAuth configuration for this provider */
+  oauthConfig?: OAuthConfig
+  /** Channel auth data (if authMode === 'channel') */
+  channel?: ChannelAuth
+  /** Channel auth configuration */
+  channelConfig?: ChannelConfig
+  /** Optional request overrides (headers/body) for this provider */
+  requestOverrides?: RequestOverrides
+  /** Optional prompt name to use for Responses instructions */
+  instructionsPrompt?: string
+  /** Optional UI configuration for this provider */
+  ui?: ProviderUiConfig
 }
 
 // --- Provider Config ---
@@ -228,11 +314,17 @@ export interface ProviderConfig {
   apiKey: string
   baseUrl?: string
   model: string
+  /** Provider ID (used for quota tracking and UI bindings) */
+  providerId?: string
+  /** Built-in provider ID (for preset-based mapping) */
+  providerBuiltinId?: string
   maxTokens?: number
   temperature?: number
   systemPrompt?: string
   /** Whether this provider actually needs an API key */
   requiresApiKey?: boolean
+  /** Whether to route API requests via the system proxy */
+  useSystemProxy?: boolean
   /** Whether thinking mode is enabled for this request */
   thinkingEnabled?: boolean
   /** Thinking configuration from the active model */
@@ -249,6 +341,10 @@ export interface ProviderConfig {
   enableSystemPromptCache?: boolean
   /** Custom User-Agent header (e.g. Moonshot套餐 requires 'RooCode/3.48.0') */
   userAgent?: string
+  /** Optional request overrides (headers/body) for this request */
+  requestOverrides?: RequestOverrides
+  /** Optional prompt name to use for Responses instructions */
+  instructionsPrompt?: string
 }
 
 // --- Provider Interface ---

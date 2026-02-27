@@ -5,6 +5,39 @@ import { useChatStore } from '../../stores/chat-store'
 import { usePlanStore } from '../../stores/plan-store'
 import { useSettingsStore } from '../../stores/settings-store'
 
+type PlanSummaryInput = {
+  specJson?: string | null
+  content?: string | null
+}
+
+function extractPlanSummary(input: PlanSummaryInput): string[] {
+  if (input.specJson) {
+    try {
+      const parsed = JSON.parse(input.specJson) as { summary?: unknown }
+      if (Array.isArray(parsed.summary)) {
+        const items = parsed.summary.map((item) => String(item).trim()).filter(Boolean)
+        if (items.length > 0) return items.slice(0, 6)
+      }
+    } catch {
+      // Ignore malformed specJson
+    }
+  }
+
+  if (input.content) {
+    const lines = input.content.split('\n').map((line) => line.trim()).filter(Boolean)
+    const bullets = lines
+      .filter((line) => /^[-*]\s+/.test(line))
+      .map((line) => line.replace(/^[-*]\s+/, '').trim())
+    const numbered = lines
+      .filter((line) => /^\d+\.\s+/.test(line))
+      .map((line) => line.replace(/^\d+\.\s+/, '').trim())
+    const source = bullets.length > 0 ? bullets : numbered.length > 0 ? numbered : lines
+    return source.slice(0, 6)
+  }
+
+  return []
+}
+
 /**
  * Build dynamic context for the first user message in a session.
  * Includes current task list status and selected files (if any).
@@ -19,6 +52,16 @@ export function buildDynamicContext(options: {
 
   const contextParts: string[] = []
   let hasExistingTasks = false
+
+  const now = new Date()
+  const isoDate = now.toISOString().slice(0, 10) // YYYY-MM-DD
+  const readableDate = now.toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  })
+  contextParts.push(`- Today's Date: ${isoDate} (${readableDate})`)
 
   // ── Task List Status ──
   const hasActiveTeam = !!useTeamStore.getState().activeTeam
@@ -65,12 +108,20 @@ export function buildDynamicContext(options: {
   if (plan) {
     contextParts.push(`- Plan: "${plan.title}" (status: ${plan.status})`)
 
-    if (plan.status === 'approved' || plan.status === 'implementing') {
-      contextParts.push(`  Reminder: An approved plan exists. Follow the plan steps for implementation. Plan file: ${plan.filePath ?? '.plan/' + plan.id + '.md'}`)
+    const summary = extractPlanSummary(plan)
+    if (summary.length > 0) {
+      contextParts.push('  Summary:')
+      for (const item of summary) {
+        contextParts.push(`  - ${item}`)
+      }
     }
 
-    if (plan.filePath) {
-      contextParts.push(`  Plan file: ${plan.filePath}`)
+    if (plan.status === 'approved' || plan.status === 'implementing') {
+      contextParts.push('  Reminder: An approved plan exists. Follow the plan steps for implementation.')
+    }
+
+    if (plan.status === 'rejected') {
+      contextParts.push('  Reminder: The plan was rejected. Revise it in Plan Mode based on feedback.')
     }
   }
 

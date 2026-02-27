@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
+import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
@@ -20,7 +21,7 @@ import { IPC } from '@renderer/lib/ipc/channels'
 import { clearPendingQuestions } from '@renderer/lib/tools/ask-user-tool'
 
 import { PLAN_MODE_ALLOWED_TOOLS } from '@renderer/lib/tools/plan-tool'
-import { usePlanStore } from '@renderer/stores/plan-store'
+import { usePlanStore, type Plan } from '@renderer/stores/plan-store'
 import { createProvider } from '@renderer/lib/api/provider'
 import { generateSessionTitle } from '@renderer/lib/api/generate-title'
 import type {
@@ -488,10 +489,29 @@ export function useChatActions(): {
     const agentStore = useAgentStore.getState()
     const uiStore = useUIStore.getState()
 
+    const providerStore = useProviderStore.getState()
+    const activeProvider = providerStore.getActiveProvider()
+    if (activeProvider) {
+      const ready = await ensureProviderAuthReady(activeProvider.id)
+      if (!ready) {
+        const authHint =
+          activeProvider.authMode === 'oauth'
+            ? 'Please connect via OAuth in Settings'
+            : activeProvider.authMode === 'channel'
+              ? 'Please complete channel login in Settings'
+              : 'Please configure API key in Settings'
+        toast.error('Authentication required', {
+          description: authHint,
+          action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
+        })
+        return
+      }
+    }
+
     // Build provider config from provider-store (new system) with fallback to settings-store
-    const providerConfig = useProviderStore.getState().getActiveProviderConfig()
-    const effectiveMaxTokens = useProviderStore.getState().getEffectiveMaxTokens(settings.maxTokens)
-    const activeModelThinkingConfig = useProviderStore.getState().getActiveModelThinkingConfig()
+    const providerConfig = providerStore.getActiveProviderConfig()
+    const effectiveMaxTokens = providerStore.getEffectiveMaxTokens(settings.maxTokens)
+    const activeModelThinkingConfig = providerStore.getActiveModelThinkingConfig()
     const thinkingEnabled = settings.thinkingEnabled && !!activeModelThinkingConfig
     const activeModelConfig = useProviderStore.getState().getActiveModelConfig()
     const baseProviderConfig: ProviderConfig | null = providerConfig
@@ -610,7 +630,16 @@ export function useChatActions(): {
     // Regular user sessions should use the global active provider/model from ModelSwitcher
     const sessionForProvider = useChatStore.getState().sessions.find((s) => s.id === sessionId)
     if (sessionForProvider?.pluginId && sessionForProvider?.providerId && sessionForProvider?.modelId) {
-      const sessionProviderConfig = useProviderStore.getState().getProviderConfigById(
+      const ready = await ensureProviderAuthReady(sessionForProvider.providerId)
+      if (!ready) {
+        toast.error('Authentication required', {
+          description: 'Please sign in to the session provider in Settings',
+          action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
+        })
+        return
+      }
+
+      const sessionProviderConfig = providerStore.getProviderConfigById(
         sessionForProvider.providerId, sessionForProvider.modelId
       )
       if (sessionProviderConfig?.apiKey) {
@@ -619,6 +648,9 @@ export function useChatActions(): {
         baseProviderConfig.baseUrl = sessionProviderConfig.baseUrl
         baseProviderConfig.model = sessionProviderConfig.model
         baseProviderConfig.requiresApiKey = sessionProviderConfig.requiresApiKey
+        baseProviderConfig.useSystemProxy = sessionProviderConfig.useSystemProxy
+        baseProviderConfig.userAgent = sessionProviderConfig.userAgent
+        baseProviderConfig.requestOverrides = sessionProviderConfig.requestOverrides
         baseProviderConfig.responseSummary = sessionProviderConfig.responseSummary
           ?? useProviderStore.getState().getActiveModelConfig()?.responseSummary
         baseProviderConfig.enablePromptCache = sessionProviderConfig.enablePromptCache
@@ -781,13 +813,23 @@ export function useChatActions(): {
           if (p.userSystemPrompt?.trim()) {
             pluginLines.push(`  Plugin instructions: ${p.userSystemPrompt.trim()}`)
           }
+          const desc = usePluginStore.getState().getDescriptor(p.type)
+          const toolNames = desc?.tools ?? []
+          if (toolNames.length > 0) {
+            const enabled = toolNames.filter((name) => p.tools?.[name] !== false)
+            const disabled = toolNames.filter((name) => p.tools?.[name] === false)
+            pluginLines.push(`  Enabled tools: ${enabled.length > 0 ? enabled.join(', ') : 'none'}`)
+            if (disabled.length > 0) {
+              pluginLines.push(`  Disabled tools: ${disabled.join(', ')}`)
+            }
+          }
         }
         // Check if any active plugin is Feishu (has file/image send capability)
         const hasFeishuPlugin = activePlugins.some((p) => p.type === 'feishu-bot')
 
         pluginLines.push(
           '',
-          'Use the plugin_id parameter when calling Plugin* tools (PluginSendMessage, PluginReplyMessage, PluginGetGroupMessages, PluginListGroups, PluginSummarizeGroup).',
+          'Use the plugin_id parameter when calling Plugin* tools (PluginSendMessage, PluginReplyMessage, PluginGetGroupMessages, PluginListGroups, PluginSummarizeGroup, PluginGetCurrentChatMessages).',
           'Always confirm with the user before sending messages on their behalf.',
           '',
           '### Generating & Delivering Files via Plugins',
@@ -830,10 +872,19 @@ export function useChatActions(): {
         const pluginMeta = usePluginStore.getState().plugins.find((p) => p.id === session.pluginId)
         const chatId = session.externalChatId.replace(/^plugin:[^:]+:chat:/, '')
         const isFeishu = pluginMeta?.type === 'feishu-bot'
+        const pluginDescriptor = pluginMeta ? usePluginStore.getState().getDescriptor(pluginMeta.type) : undefined
+        const toolNames = pluginDescriptor?.tools ?? []
+        const enabledTools = toolNames.filter((name) => pluginMeta?.tools?.[name] !== false)
+        const disabledTools = toolNames.filter((name) => pluginMeta?.tools?.[name] === false)
+        const senderLabel = session.pluginSenderName || session.pluginSenderId || 'unknown'
         const pluginCtx = [
           `\n## Plugin Auto-Reply Context`,
           `This session is handling messages from plugin **${pluginMeta?.name ?? session.pluginId}** (plugin_id: \`${session.pluginId}\`).`,
           `Chat ID: \`${chatId}\``,
+          `Chat Type: ${session.pluginChatType ?? 'unknown'}`,
+          `Sender: ${senderLabel} (id: ${session.pluginSenderId ?? 'unknown'})`,
+          `Enabled tools: ${enabledTools.length > 0 ? enabledTools.join(', ') : 'none'}`,
+          disabledTools.length > 0 ? `Disabled tools: ${disabledTools.join(', ')}` : '',
           `Your response will be streamed directly to the user in real-time via the plugin.`,
           `Just respond naturally — the streaming pipeline handles delivery automatically.`,
           `If you need to send an additional message, use PluginSendMessage with plugin_id="${session.pluginId}" and chat_id="${chatId}".`,
@@ -894,12 +945,18 @@ export function useChatActions(): {
           contextCompression: {
             config: compressionConfig,
             compressFn: async (msgs) => {
-              // If session has an active plan, pin its file path so compression preserves plan context
+              // If session has an active plan, pin its summary so compression preserves plan context
               let planPinnedContext: string | undefined
               if (sessionId) {
                 const plan = usePlanStore.getState().getPlanBySession(sessionId)
-                if (plan && plan.filePath) {
-                  planPinnedContext = `[Active plan: ${plan.title} — file: ${plan.filePath}]`
+                if (plan) {
+                  const summary = formatPlanSummaryForPrompt(plan)
+                  const parts = [`Active plan: ${plan.title}`]
+                  if (summary) {
+                    parts.push('Summary:')
+                    parts.push(summary)
+                  }
+                  planPinnedContext = parts.join('\n')
                 }
               }
               const { messages: compressed } = await compressMessages(
@@ -1012,6 +1069,9 @@ export function useChatActions(): {
             ...(sessionPluginId && sessionPluginChatId && {
               pluginId: sessionPluginId,
               pluginChatId: sessionPluginChatId,
+              pluginChatType: session?.pluginChatType,
+              pluginSenderId: session?.pluginSenderId,
+              pluginSenderName: session?.pluginSenderName,
             }),
           },
           async (tc) => {
@@ -1414,9 +1474,19 @@ export function useChatActions(): {
 
     // Build provider config (same as sendMessage)
     const settings = useSettingsStore.getState()
-    const providerConfig = useProviderStore.getState().getActiveProviderConfig()
-    const effectiveMaxTokens = useProviderStore.getState().getEffectiveMaxTokens(settings.maxTokens)
-    const activeModelThinkingConfig = useProviderStore.getState().getActiveModelThinkingConfig()
+    const providerStore = useProviderStore.getState()
+    const activeProvider = providerStore.getActiveProvider()
+    if (activeProvider) {
+      const ready = await ensureProviderAuthReady(activeProvider.id)
+      if (!ready) {
+        toast.error('认证缺失', { description: '请先在设置中完成服务商登录' })
+        return
+      }
+    }
+
+    const providerConfig = providerStore.getActiveProviderConfig()
+    const effectiveMaxTokens = providerStore.getEffectiveMaxTokens(settings.maxTokens)
+    const activeModelThinkingConfig = providerStore.getActiveModelThinkingConfig()
     const thinkingEnabled = settings.thinkingEnabled && !!activeModelThinkingConfig
 
     const config: ProviderConfig | null = providerConfig
@@ -1439,7 +1509,12 @@ export function useChatActions(): {
     // Override with session-bound provider if available
     const compressSession = chatStore.sessions.find((s) => s.id === sessionId)
     if (compressSession?.providerId && compressSession?.modelId) {
-      const sessionProviderConfig = useProviderStore.getState().getProviderConfigById(
+      const ready = await ensureProviderAuthReady(compressSession.providerId)
+      if (!ready) {
+        toast.error('认证缺失', { description: '请先在设置中完成会话服务商登录' })
+        return
+      }
+      const sessionProviderConfig = providerStore.getProviderConfigById(
         compressSession.providerId, compressSession.modelId
       )
       if (sessionProviderConfig?.apiKey) {
@@ -1480,6 +1555,40 @@ export function useChatActions(): {
 
 // ── Plan Implement: programmatic message trigger ──
 
+function formatPlanSummaryForPrompt(plan: Plan): string | null {
+  const items = extractPlanSummaryItems(plan)
+  if (items.length === 0) return null
+  return items.map((item) => `- ${item}`).join('\n')
+}
+
+function extractPlanSummaryItems(plan: Plan): string[] {
+  if (plan.specJson) {
+    try {
+      const parsed = JSON.parse(plan.specJson) as { summary?: unknown }
+      if (Array.isArray(parsed.summary)) {
+        const items = parsed.summary.map((item) => String(item).trim()).filter(Boolean)
+        if (items.length > 0) return items.slice(0, 6)
+      }
+    } catch {
+      // Ignore malformed specJson
+    }
+  }
+
+  if (plan.content) {
+    const lines = plan.content.split('\n').map((line) => line.trim()).filter(Boolean)
+    const bullets = lines
+      .filter((line) => /^[-*]\s+/.test(line))
+      .map((line) => line.replace(/^[-*]\s+/, '').trim())
+    const numbered = lines
+      .filter((line) => /^\d+\.\s+/.test(line))
+      .map((line) => line.replace(/^\d+\.\s+/, '').trim())
+    const source = bullets.length > 0 ? bullets : numbered.length > 0 ? numbered : lines
+    return source.slice(0, 6)
+  }
+
+  return []
+}
+
 /**
  * Trigger plan implementation by sending a message to the agent.
  * Called from PlanPanel "Implement" button — bypasses the input box.
@@ -1500,12 +1609,42 @@ export function sendImplementPlan(planId: string): void {
   useUIStore.getState().setRightPanelTab('steps')
 
   // 4. Build implementation prompt and send directly
+  const summary = formatPlanSummaryForPrompt(plan)
   const prompt = [
     `Please implement the plan: **${plan.title}**`,
     '',
-    plan.filePath ? `Plan file: \`${plan.filePath}\`` : '',
+    summary ? `Plan summary:\n${summary}` : '',
     '',
-    'Read the plan file first for full details, then begin implementation step by step.',
+    'Use the plan details provided earlier in the chat. Begin implementation step by step.',
+  ].filter(Boolean).join('\n')
+
+  _sendMessageFn(prompt)
+}
+
+/**
+ * Trigger plan revision by sending feedback to the agent.
+ * Called from PlanPanel when the user rejects a plan.
+ */
+export function sendPlanRevision(planId: string, feedback: string): void {
+  if (!_sendMessageFn) return
+
+  const plan = usePlanStore.getState().plans[planId]
+  if (!plan) return
+
+  // 1. Mark plan as rejected
+  usePlanStore.getState().rejectPlan(planId)
+
+  // 2. Enter plan mode and focus Plan panel
+  useUIStore.getState().enterPlanMode()
+  useUIStore.getState().setRightPanelTab('plan')
+  useUIStore.getState().setRightPanelOpen(true)
+
+  // 3. Build revision prompt and send directly
+  const prompt = [
+    `The plan **${plan.title}** was rejected.`,
+    feedback ? `Feedback:\n${feedback}` : '',
+    '',
+    'Please revise the plan accordingly. Provide the updated plan in chat, then call SavePlan with the full content and summary, and ExitPlanMode.',
   ].filter(Boolean).join('\n')
 
   _sendMessageFn(prompt)

@@ -26,7 +26,7 @@ export function handlePluginAutoReply(event: PluginEvent): void {
   if (event.type !== 'incoming_message') return
 
   const data = event.data as PluginIncomingMessageData
-  if (!data || !data.chatId || (!data.content && !data.images?.length)) return
+  if (!data || !data.chatId || (!data.content && !data.images?.length && !data.audio)) return
 
   const pluginId = event.pluginId
   const compositeKey = `plugin:${pluginId}:chat:${data.chatId}`
@@ -125,10 +125,14 @@ export function handlePluginAutoReply(event: PluginEvent): void {
         senderName: data.senderName,
         chatName: data.chatName,
         sessionTitle: session.title,
-        content: data.content || '[User sent an image]',
+        content: data.content
+          || (data.images?.length ? '[User sent an image]' : '')
+          || (data.audio ? '[User sent an audio message]' : ''),
         messageId: data.messageId,
         supportsStreaming,
         images: data.images,
+        audio: data.audio,
+        chatType: data.chatType,
         workingFolder: pluginWorkDir,
       })
     }

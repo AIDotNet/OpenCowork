@@ -529,6 +529,20 @@ export const routinAiPreset: BuiltinProviderPreset = {
       enableSystemPromptCache: true,
       type: 'openai-responses'
     },
+    {
+      id: 'gpt-4o-transcribe',
+      name: 'GPT-4o Transcribe',
+      icon: 'openai',
+      enabled: true,
+      category: 'speech'
+    },
+    {
+      id: 'gpt-4o-mini-transcribe',
+      name: 'GPT-4o Mini Transcribe',
+      icon: 'openai',
+      enabled: true,
+      category: 'speech'
+    },
 
     // ── MiniMax ──
     { id: 'MiniMax-M2.1', name: 'MiniMax M2.1', icon: 'minimax', enabled: true, contextLength: 196_608, maxOutputTokens: 16_384, supportsVision: false, supportsFunctionCall: true, inputPrice: 0.27, outputPrice: 0.95, cacheHitPrice: 0.03 },

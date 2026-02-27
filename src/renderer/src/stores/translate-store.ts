@@ -4,6 +4,7 @@ import type { ProviderConfig } from '@renderer/lib/api/types'
 import { streamAiTranslation } from '@renderer/lib/translate-service'
 import { runTranslationAgent } from '@renderer/lib/translate-agent-service'
 import { useProviderStore } from '@renderer/stores/provider-store'
+import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { IPC } from '@renderer/lib/ipc/channels'
 
@@ -158,6 +159,19 @@ export const useTranslateStore = create<TranslateStore>((set, get) => ({
     if (sourceLanguage !== 'auto' && sourceLanguage === targetLanguage) {
       set({ translatedText: text })
       return
+    }
+
+    const providerStore = useProviderStore.getState()
+    const targetProviderId =
+      overrideProviderId ?? providerStore.activeTranslationProviderId ?? providerStore.activeProviderId
+    if (targetProviderId) {
+      const ready = await ensureProviderAuthReady(targetProviderId)
+      if (!ready) {
+        toast.error('Authentication required', {
+          description: 'Please complete provider login in Settings'
+        })
+        return
+      }
     }
 
     const providerConfig = buildEffectiveProviderConfig(overrideProviderId, overrideModelId)

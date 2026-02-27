@@ -153,6 +153,7 @@ export class FeishuService implements MessagingPluginService {
 
             let content = ''
             let images: Array<{ base64: string; mediaType: string }> | undefined
+            let audio: PluginIncomingMessageData['audio']
 
             try {
               const parsed = JSON.parse(msg.message?.content ?? '{}')
@@ -168,6 +169,14 @@ export class FeishuService implements MessagingPluginService {
                   console.warn(`[Feishu] Failed to download image:`, err)
                   content = `[User sent an image but download failed: ${parsed.image_key}]`
                 }
+              } else if (msgType === 'audio' && parsed.file_key) {
+                content = ''
+                audio = {
+                  fileKey: parsed.file_key,
+                  fileName: parsed.file_name,
+                  mediaType: parsed.media_type,
+                  durationMs: typeof parsed.duration === 'number' ? parsed.duration : undefined,
+                }
               } else {
                 content = parsed.text ?? ''
               }
@@ -182,9 +191,9 @@ export class FeishuService implements MessagingPluginService {
               }
             }
 
-            if (!chatId || (!content && !images)) return
+            if (!chatId || (!content && !images && !audio)) return
 
-            console.log(`[Feishu] ${msgType} [${chatType}] in ${chatId}: ${content.slice(0, 60)}${images ? ` [+${images.length} image(s)]` : ''}`)
+            console.log(`[Feishu] ${msgType} [${chatType}] in ${chatId}: ${content.slice(0, 60)}${images ? ` [+${images.length} image(s)]` : ''}${audio ? ' [audio]' : ''}`)
 
             // Resolve sender display name (cached) so P2P chats have proper titles
             let senderName = senderId ? this._userNameCache.get(senderId) ?? '' : ''
@@ -221,6 +230,7 @@ export class FeishuService implements MessagingPluginService {
                 content,
                 messageId,
                 images,
+                audio,
                 msgType,
                 chatName,
                 chatType,
@@ -264,6 +274,21 @@ export class FeishuService implements MessagingPluginService {
   // ── Messaging API (via our REST client) ──
 
   async sendMessage(chatId: string, content: string): Promise<{ messageId: string }> {
+    const trimmed = content?.trim()
+    if (trimmed && trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed) as { msg_type?: string; content?: unknown }
+        if (parsed?.msg_type && parsed.content != null) {
+          const msgType = String(parsed.msg_type)
+          const payload = msgType === 'text'
+            ? String(parsed.content)
+            : JSON.stringify(parsed.content)
+          return this.api.sendMessage(chatId, payload, msgType)
+        }
+      } catch {
+        // fall back to plain text
+      }
+    }
     return this.api.sendMessage(chatId, content)
   }
 

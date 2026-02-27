@@ -9,11 +9,26 @@ import { PLUGIN_PROVIDERS } from '../plugins/plugin-descriptors'
 import { getDb } from '../db/database'
 import { handlePluginAutoReply } from '../plugins/auto-reply'
 import type { PluginInstance, PluginEvent } from '../plugins/plugin-types'
+import type { PluginProviderDescriptor } from '../plugins/plugin-types'
 
 const DATA_DIR = path.join(os.homedir(), '.open-cowork')
 const PLUGINS_FILE = path.join(DATA_DIR, 'plugins.json')
 
 // ── Persistence helpers ──
+
+function buildToolsMap(
+  descriptor?: PluginProviderDescriptor,
+  existing?: Record<string, boolean>
+): Record<string, boolean> | undefined {
+  if (!descriptor?.tools || descriptor.tools.length === 0) {
+    return existing
+  }
+  const next: Record<string, boolean> = {}
+  for (const toolName of descriptor.tools) {
+    next[toolName] = existing?.[toolName] ?? true
+  }
+  return next
+}
 
 function readPlugins(): PluginInstance[] {
   try {
@@ -105,6 +120,7 @@ export function registerPluginHandlers(pluginManager: PluginManager): void {
           userSystemPrompt: '',
           config,
           createdAt: Date.now(),
+          tools: buildToolsMap(descriptor),
         })
         changed = true
       } else if (!existing.builtin) {
@@ -132,6 +148,12 @@ export function registerPluginHandlers(pluginManager: PluginManager): void {
           changed = true
         }
       }
+      // Ensure tools map matches descriptor
+      const nextTools = buildToolsMap(desc, p.tools)
+      if (nextTools && JSON.stringify(nextTools) !== JSON.stringify(p.tools)) {
+        p.tools = nextTools
+        changed = true
+      }
     }
 
     if (changed) writePlugins(plugins)
@@ -142,7 +164,12 @@ export function registerPluginHandlers(pluginManager: PluginManager): void {
   // Add a new plugin instance
   ipcMain.handle('plugin:add', (_event, instance: PluginInstance) => {
     const plugins = readPlugins()
-    plugins.push(instance)
+    const desc = PLUGIN_PROVIDERS.find((d) => d.type === instance.type)
+    const nextTools = buildToolsMap(desc, instance.tools)
+    plugins.push({
+      ...instance,
+      ...(nextTools ? { tools: nextTools } : {}),
+    })
     writePlugins(plugins)
     return { success: true }
   })
@@ -476,6 +503,236 @@ export function registerPluginHandlers(pluginManager: PluginManager): void {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[Feishu] send-file failed:', msg)
+        return { error: msg }
+      }
+    }
+  )
+
+  /** Mention members in a Feishu group chat */
+  ipcMain.handle(
+    'plugin:feishu:send-mention',
+    async (_event, args: { pluginId: string; chatId?: string; userIds?: string[]; atAll?: boolean; text?: string }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+
+      try {
+        const chatId = args.chatId?.trim()
+        if (!chatId) return { error: 'Missing chatId' }
+        const info = await service.api.getChatInfo(chatId)
+        if (info?.chatType !== 'group') {
+          return { error: 'FeishuAtMember is only available in group chats.' }
+        }
+
+        const userIds = Array.isArray(args.userIds) ? args.userIds.filter(Boolean) : []
+        const text = args.text?.trim() ?? ''
+        const elements: Array<Record<string, string>> = []
+        if (args.atAll) {
+          elements.push({ tag: 'at', user_id: 'all' })
+        }
+        for (const uid of userIds) {
+          elements.push({ tag: 'at', user_id: uid })
+        }
+        if (text) {
+          const textValue = elements.length > 0 ? ` ${text}` : text
+          elements.push({ tag: 'text', text: textValue })
+        }
+        if (elements.length === 0) return { error: 'Message content is empty' }
+
+        const postContent = {
+          zh_cn: {
+            content: [elements],
+          },
+        }
+
+        const result = await service.api.sendMessage(chatId, JSON.stringify(postContent), 'post')
+        return { ok: true, messageId: result.messageId }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[Feishu] send-mention failed:', msg)
+        return { error: msg }
+      }
+    }
+  )
+
+  /** List members in a Feishu chat */
+  ipcMain.handle(
+    'plugin:feishu:list-members',
+    async (_event, args: { pluginId: string; chatId?: string; pageToken?: string; pageSize?: number; memberIdType?: 'open_id' | 'user_id' | 'union_id' }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+
+      try {
+        const chatId = args.chatId?.trim()
+        if (!chatId) return { error: 'Missing chatId' }
+        const result = await service.api.listChatMembers({
+          chatId,
+          pageToken: args.pageToken,
+          pageSize: args.pageSize,
+          memberIdType: args.memberIdType,
+        })
+        return result
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[Feishu] list-members failed:', msg)
+        return { error: msg }
+      }
+    }
+  )
+
+  /** Send urgent push (app/sms) */
+  ipcMain.handle(
+    'plugin:feishu:send-urgent',
+    async (_event, args: { pluginId: string; messageId: string; userIds: string[]; urgentTypes: Array<'app' | 'sms'> }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+
+      try {
+        const types = Array.isArray(args.urgentTypes)
+          ? args.urgentTypes.filter((t) => t === 'app' || t === 'sms')
+          : []
+        if (!args.messageId || !args.userIds?.length || types.length === 0) {
+          return { error: 'Missing messageId, userIds, or urgentTypes' }
+        }
+        for (const t of types) {
+          await service.api.sendUrgent(args.messageId, args.userIds, t, 'user_id')
+        }
+        return { ok: true }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[Feishu] send-urgent failed:', msg)
+        return { error: msg }
+      }
+    }
+  )
+
+  /** Download Feishu message resource (audio/file) as base64 */
+  ipcMain.handle(
+    'plugin:feishu:download-resource',
+    async (_event, args: { pluginId: string; messageId: string; fileKey: string; type?: 'image' | 'file'; mediaType?: string }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+
+      try {
+        const buf = await service.api.downloadMessageResource(
+          args.messageId,
+          args.fileKey,
+          args.type ?? 'file'
+        )
+        return { ok: true, base64: buf.toString('base64'), mediaType: args.mediaType ?? 'application/octet-stream' }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[Feishu] download-resource failed:', msg)
+        return { error: msg }
+      }
+    }
+  )
+
+  // ── Feishu Bitable ──
+
+  ipcMain.handle(
+    'plugin:feishu:bitable:list-apps',
+    async (_event, args: { pluginId: string }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+      try {
+        const data = await service.api.listBitableApps()
+        return { ok: true, data }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { error: msg }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'plugin:feishu:bitable:list-tables',
+    async (_event, args: { pluginId: string; appToken: string }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+      try {
+        const data = await service.api.listBitableTables(args.appToken)
+        return { ok: true, data }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { error: msg }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'plugin:feishu:bitable:list-fields',
+    async (_event, args: { pluginId: string; appToken: string; tableId: string }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+      try {
+        const data = await service.api.listBitableFields(args.appToken, args.tableId)
+        return { ok: true, data }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { error: msg }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'plugin:feishu:bitable:get-records',
+    async (_event, args: { pluginId: string; appToken: string; tableId: string; filter?: string; pageSize?: number; pageToken?: string }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+      try {
+        const data = await service.api.getBitableRecords(args.appToken, args.tableId, {
+          filter: args.filter,
+          pageSize: args.pageSize,
+          pageToken: args.pageToken,
+        })
+        return { ok: true, data }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { error: msg }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'plugin:feishu:bitable:create-records',
+    async (_event, args: { pluginId: string; appToken: string; tableId: string; records: unknown[] }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+      try {
+        const data = await service.api.createBitableRecords(args.appToken, args.tableId, args.records)
+        return { ok: true, data }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { error: msg }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'plugin:feishu:bitable:update-records',
+    async (_event, args: { pluginId: string; appToken: string; tableId: string; records: unknown[] }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+      try {
+        const data = await service.api.updateBitableRecords(args.appToken, args.tableId, args.records)
+        return { ok: true, data }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { error: msg }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'plugin:feishu:bitable:delete-records',
+    async (_event, args: { pluginId: string; appToken: string; tableId: string; recordIds: string[] }) => {
+      const service = pluginManager.getService(args.pluginId) as import('../plugins/providers/feishu/feishu-service').FeishuService | undefined
+      if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+      try {
+        const data = await service.api.deleteBitableRecords(args.appToken, args.tableId, args.recordIds)
+        return { ok: true, data }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
         return { error: msg }
       }
     }

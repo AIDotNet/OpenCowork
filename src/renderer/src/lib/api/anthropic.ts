@@ -87,6 +87,8 @@ class AnthropicProvider implements APIProvider {
       headers,
       body: bodyStr,
       signal,
+      providerId: config.providerId,
+      providerBuiltinId: config.providerBuiltinId,
     })) {
       if (!sse.data || sse.data === '[DONE]') continue
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -36,6 +36,11 @@ export interface Session {
   pluginId?: string
   /** Composite key: plugin:{id}:chat:{chatId} */
   externalChatId?: string
+  /** Plugin chat type (p2p | group) */
+  pluginChatType?: 'p2p' | 'group'
+  /** Plugin sender identifiers (last known) */
+  pluginSenderId?: string
+  pluginSenderName?: string
   /** Bound provider ID (null = use global active provider) */
   providerId?: string
   /** Bound model ID (null = use global active model) */

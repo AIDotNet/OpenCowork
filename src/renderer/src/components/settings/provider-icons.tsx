@@ -46,6 +46,7 @@ const iconMap: Record<string, React.ComponentType<{ size?: number }>> = {
   minimax: Minimax,
   siliconflow: SiliconCloud,
   'gitee-ai': GiteeAI,
+  'codex-oauth': OpenAI,
   xiaomi: XiaomiMiMo,
   'bigmodel-coding': ChatGLM,
   bigmodel: ChatGLM,

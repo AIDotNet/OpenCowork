@@ -17,6 +17,8 @@ export interface PluginProviderDescriptor {
   icon: string
   builtin?: boolean
   configSchema: ConfigFieldSchema[]
+  /** Supported tool names for this plugin provider */
+  tools?: string[]
 }
 
 /** Security permissions for a plugin instance */
@@ -53,6 +55,8 @@ export interface PluginInstance {
   userSystemPrompt: string
   config: Record<string, string>
   createdAt: number
+  /** Per-tool enablement flags (missing = default enabled) */
+  tools?: Record<string, boolean>
   /** Provider ID for this plugin's auto-reply agent (null = use global active provider) */
   providerId?: string | null
   /** Model override for this plugin's auto-reply agent (null = use global default) */
@@ -102,6 +106,8 @@ export interface PluginIncomingMessageData {
   timestamp?: number
   /** Base64-encoded image attachments from the incoming message */
   images?: Array<{ base64: string; mediaType: string }>
+  /** Audio attachment metadata (download via platform API) */
+  audio?: { fileKey: string; fileName?: string; mediaType?: string; durationMs?: number }
   /** Original message type from the platform (e.g. text, image, file) */
   msgType?: string
   /** Resolved chat/group name from the platform */

@@ -5,7 +5,7 @@ import { ipcClient } from '../lib/ipc/ipc-client'
 
 // --- Types ---
 
-export type PlanStatus = 'drafting' | 'approved' | 'implementing' | 'completed'
+export type PlanStatus = 'drafting' | 'approved' | 'implementing' | 'completed' | 'rejected'
 
 export interface Plan {
   id: string
@@ -13,6 +13,8 @@ export interface Plan {
   title: string
   status: PlanStatus
   filePath?: string
+  content?: string
+  specJson?: string
   createdAt: number
   updatedAt: number
 }
@@ -26,8 +28,8 @@ function dbCreatePlan(plan: Plan): void {
     title: plan.title,
     status: plan.status,
     filePath: plan.filePath,
-    content: null,
-    specJson: null,
+    content: plan.content ?? null,
+    specJson: plan.specJson ?? null,
     createdAt: plan.createdAt,
     updatedAt: plan.updatedAt,
   }).catch(() => {})
@@ -62,6 +64,8 @@ function rowToPlan(row: PlanRow): Plan {
     title: row.title,
     status: row.status as PlanStatus,
     filePath: row.file_path ?? undefined,
+    content: row.content ?? undefined,
+    specJson: row.spec_json ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -78,9 +82,14 @@ interface PlanStore {
   loadPlansFromDb: () => Promise<void>
 
   // CRUD
-  createPlan: (sessionId: string, title: string) => Plan
+  createPlan: (
+    sessionId: string,
+    title: string,
+    options?: Partial<Pick<Plan, 'status' | 'filePath' | 'content' | 'specJson'>>
+  ) => Plan
   updatePlan: (planId: string, patch: Partial<Omit<Plan, 'id' | 'sessionId' | 'createdAt'>>) => void
   approvePlan: (planId: string) => void
+  rejectPlan: (planId: string) => void
   startImplementing: (planId: string) => void
   completePlan: (planId: string) => void
   deletePlan: (planId: string) => void
@@ -116,14 +125,17 @@ export const usePlanStore = create<PlanStore>()(
       }
     },
 
-    createPlan: (sessionId, title) => {
+    createPlan: (sessionId, title, options = {}) => {
       const id = nanoid()
       const now = Date.now()
       const plan: Plan = {
         id,
         sessionId,
         title,
-        status: 'drafting',
+        status: options.status ?? 'drafting',
+        filePath: options.filePath,
+        content: options.content,
+        specJson: options.specJson,
         createdAt: now,
         updatedAt: now,
       }
@@ -147,6 +159,8 @@ export const usePlanStore = create<PlanStore>()(
       if (patch.title !== undefined) dbPatch.title = patch.title
       if (patch.status !== undefined) dbPatch.status = patch.status
       if (patch.filePath !== undefined) dbPatch.filePath = patch.filePath
+      if (patch.content !== undefined) dbPatch.content = patch.content
+      if (patch.specJson !== undefined) dbPatch.specJson = patch.specJson
       dbUpdatePlan(planId, dbPatch)
     },
 
@@ -160,6 +174,18 @@ export const usePlanStore = create<PlanStore>()(
         }
       })
       dbUpdatePlan(planId, { status: 'approved', updatedAt: now })
+    },
+
+    rejectPlan: (planId) => {
+      const now = Date.now()
+      set((state) => {
+        const plan = state.plans[planId]
+        if (plan) {
+          plan.status = 'rejected'
+          plan.updatedAt = now
+        }
+      })
+      dbUpdatePlan(planId, { status: 'rejected', updatedAt: now })
     },
 
     startImplementing: (planId) => {

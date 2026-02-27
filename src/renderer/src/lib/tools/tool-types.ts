@@ -17,6 +17,11 @@ export interface ToolContext {
   pluginId?: string
   /** Plugin chat ID for routing replies back through the plugin channel */
   pluginChatId?: string
+  /** Plugin chat type (p2p | group) when available */
+  pluginChatType?: 'p2p' | 'group'
+  /** Plugin message sender identifiers (when available) */
+  pluginSenderId?: string
+  pluginSenderName?: string
   /** Mutable shared state bag — survives { ...toolCtx } spread copies in agent-loop.
    *  Used for per-run flags like deliveryUsed that must persist across tool calls. */
   sharedState?: { deliveryUsed?: boolean }

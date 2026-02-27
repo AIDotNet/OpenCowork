@@ -218,6 +218,35 @@ export class FeishuApi {
     )
   }
 
+  /** List members in a chat (group) */
+  async listChatMembers(args: {
+    chatId: string
+    pageToken?: string
+    pageSize?: number
+    memberIdType?: 'open_id' | 'user_id' | 'union_id'
+  }): Promise<{ items: unknown[]; page_token?: string; has_more?: boolean }> {
+    const headers = await this.authHeaders()
+    const pageSize = Math.min(Math.max(args.pageSize ?? 50, 1), 50)
+    const memberIdType = args.memberIdType ?? 'open_id'
+    const tokenParam = args.pageToken ? `&page_token=${encodeURIComponent(args.pageToken)}` : ''
+    const encodedChatId = encodeURIComponent(args.chatId)
+    const res = await request(
+      'GET',
+      `/open-apis/im/v1/chats/${encodedChatId}/members?member_id_type=${memberIdType}&page_size=${pageSize}${tokenParam}`,
+      headers
+    )
+
+    const data = JSON.parse(res.body)
+    if (data.code !== 0) {
+      throw new Error(`Feishu listChatMembers failed: ${data.msg}`)
+    }
+    return {
+      items: data.data?.items ?? [],
+      page_token: data.data?.page_token,
+      has_more: data.data?.has_more,
+    }
+  }
+
   // ── CardKit API — Streaming Card Support ──
 
   /**
@@ -604,6 +633,175 @@ export class FeishuApi {
       throw new Error(`Feishu sendFileMessage failed: ${data.msg}`)
     }
     return { messageId: data.data?.message_id ?? '' }
+  }
+
+  /** Send an urgent push for a message */
+  async sendUrgent(
+    messageId: string,
+    userIds: string[],
+    urgentType: 'app' | 'sms',
+    userIdType: 'user_id' | 'open_id' | 'union_id' = 'user_id'
+  ): Promise<boolean> {
+    const headers = await this.authHeaders()
+    const body = JSON.stringify({
+      user_id_list: userIds,
+      urgent_type: urgentType,
+    })
+    const res = await request(
+      'POST',
+      `/open-apis/im/v1/messages/${messageId}/urgent?user_id_type=${userIdType}`,
+      headers,
+      body
+    )
+    const data = JSON.parse(res.body)
+    if (data.code !== 0) {
+      throw new Error(`Feishu sendUrgent failed: ${data.msg}`)
+    }
+    return true
+  }
+
+  // ── Bitable APIs ──
+
+  async listBitableApps(pageSize = 50, pageToken?: string): Promise<unknown> {
+    const headers = await this.authHeaders()
+    const tokenParam = pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ''
+    const res = await request(
+      'GET',
+      `/open-apis/bitable/v1/apps?page_size=${pageSize}${tokenParam}`,
+      headers
+    )
+    const data = JSON.parse(res.body)
+    if (data.code !== 0) {
+      throw new Error(`Feishu listBitableApps failed: ${data.msg}`)
+    }
+    return data.data
+  }
+
+  async listBitableTables(appToken: string, pageSize = 100, pageToken?: string): Promise<unknown> {
+    const headers = await this.authHeaders()
+    const tokenParam = pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ''
+    const encoded = encodeURIComponent(appToken)
+    const res = await request(
+      'GET',
+      `/open-apis/bitable/v1/apps/${encoded}/tables?page_size=${pageSize}${tokenParam}`,
+      headers
+    )
+    const data = JSON.parse(res.body)
+    if (data.code !== 0) {
+      throw new Error(`Feishu listBitableTables failed: ${data.msg}`)
+    }
+    return data.data
+  }
+
+  async listBitableFields(
+    appToken: string,
+    tableId: string,
+    pageSize = 200,
+    pageToken?: string
+  ): Promise<unknown> {
+    const headers = await this.authHeaders()
+    const tokenParam = pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ''
+    const app = encodeURIComponent(appToken)
+    const table = encodeURIComponent(tableId)
+    const res = await request(
+      'GET',
+      `/open-apis/bitable/v1/apps/${app}/tables/${table}/fields?page_size=${pageSize}${tokenParam}`,
+      headers
+    )
+    const data = JSON.parse(res.body)
+    if (data.code !== 0) {
+      throw new Error(`Feishu listBitableFields failed: ${data.msg}`)
+    }
+    return data.data
+  }
+
+  async getBitableRecords(
+    appToken: string,
+    tableId: string,
+    options?: { pageSize?: number; pageToken?: string; filter?: string }
+  ): Promise<unknown> {
+    const headers = await this.authHeaders()
+    const app = encodeURIComponent(appToken)
+    const table = encodeURIComponent(tableId)
+    const pageSize = options?.pageSize ?? 50
+    const pageToken = options?.pageToken ? `&page_token=${encodeURIComponent(options.pageToken)}` : ''
+    const filter = options?.filter ? `&filter=${encodeURIComponent(options.filter)}` : ''
+    const res = await request(
+      'GET',
+      `/open-apis/bitable/v1/apps/${app}/tables/${table}/records?page_size=${pageSize}${pageToken}${filter}`,
+      headers
+    )
+    const data = JSON.parse(res.body)
+    if (data.code !== 0) {
+      throw new Error(`Feishu getBitableRecords failed: ${data.msg}`)
+    }
+    return data.data
+  }
+
+  async createBitableRecords(
+    appToken: string,
+    tableId: string,
+    records: unknown[]
+  ): Promise<unknown> {
+    const headers = await this.authHeaders()
+    const app = encodeURIComponent(appToken)
+    const table = encodeURIComponent(tableId)
+    const body = JSON.stringify({ records })
+    const res = await request(
+      'POST',
+      `/open-apis/bitable/v1/apps/${app}/tables/${table}/records`,
+      headers,
+      body
+    )
+    const data = JSON.parse(res.body)
+    if (data.code !== 0) {
+      throw new Error(`Feishu createBitableRecords failed: ${data.msg}`)
+    }
+    return data.data
+  }
+
+  async updateBitableRecords(
+    appToken: string,
+    tableId: string,
+    records: unknown[]
+  ): Promise<unknown> {
+    const headers = await this.authHeaders()
+    const app = encodeURIComponent(appToken)
+    const table = encodeURIComponent(tableId)
+    const body = JSON.stringify({ records })
+    const res = await request(
+      'PUT',
+      `/open-apis/bitable/v1/apps/${app}/tables/${table}/records`,
+      headers,
+      body
+    )
+    const data = JSON.parse(res.body)
+    if (data.code !== 0) {
+      throw new Error(`Feishu updateBitableRecords failed: ${data.msg}`)
+    }
+    return data.data
+  }
+
+  async deleteBitableRecords(
+    appToken: string,
+    tableId: string,
+    recordIds: string[]
+  ): Promise<unknown> {
+    const headers = await this.authHeaders()
+    const app = encodeURIComponent(appToken)
+    const table = encodeURIComponent(tableId)
+    const body = JSON.stringify({ record_ids: recordIds })
+    const res = await request(
+      'POST',
+      `/open-apis/bitable/v1/apps/${app}/tables/${table}/records/batch_delete`,
+      headers,
+      body
+    )
+    const data = JSON.parse(res.body)
+    if (data.code !== 0) {
+      throw new Error(`Feishu deleteBitableRecords failed: ${data.msg}`)
+    }
+    return data.data
   }
 
   /** Get messages from a chat */

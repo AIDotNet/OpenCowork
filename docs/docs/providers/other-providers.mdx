@@ -51,6 +51,19 @@ description: Qwen、Moonshot、MiniMax、百度文心、硅基流动等提供商
   硅基流动提供多种开源模型的 API 接入，价格较低，适合高频使用场景。
 </Callout>
 
+## OAuth 登录 / OAuth Login
+
+- OAuth 提供商使用系统浏览器授权 + 本地回调，无需手动粘贴令牌。
+- Codex OAuth 默认使用 OpenClaw 的参数：`https://auth.openai.com/oauth/authorize`、`https://auth.openai.com/oauth/token`，以及回调 `http://127.0.0.1:1455/auth/callback`（PKCE）。
+- 若提供商参数不同，可在设置中编辑 `client_id`、`scope`、回调端口与路径。
+
+## 渠道商短信/邮箱登录 / Channel Login
+
+- 发送验证码：`POST https://api.moark.com/v1/app/auth/vcode`
+- 校验验证码并换取令牌：`POST https://api.moark.com/v1/app/auth/token`
+- 获取用户信息：`GET https://api.moark.com/v1/app/user`
+- 请求需携带 `Authorization: Bearer <appToken>`，Body 包含 `appid`、`channel_type` 与手机号/邮箱。
+
 ## 自定义提供商 / Custom Provider
 
 任何兼容 OpenAI Chat Completions API 的服务都可以接入：

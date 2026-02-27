@@ -5,6 +5,7 @@ import { teamEvents } from './events'
 import { useTeamStore } from '../../../stores/team-store'
 import { useSettingsStore } from '../../../stores/settings-store'
 import { useProviderStore } from '../../../stores/provider-store'
+import { ensureProviderAuthReady } from '../../auth/provider-auth'
 import { useAgentStore } from '../../../stores/agent-store'
 import { ipcClient } from '../../ipc/ipc-client'
 import { MessageQueue } from '../types'
@@ -245,7 +246,15 @@ async function runSingleTaskLoop(opts: {
 
   // Build provider config from provider-store with fallback to settings-store
   const settings = useSettingsStore.getState()
-  const activeConfig = useProviderStore.getState().getActiveProviderConfig()
+  const providerState = useProviderStore.getState()
+  const activeProviderId = providerState.activeProviderId
+  if (activeProviderId) {
+    const ready = await ensureProviderAuthReady(activeProviderId)
+    if (!ready) {
+      throw new Error('Provider authentication required. Please sign in.')
+    }
+  }
+  const activeConfig = providerState.getActiveProviderConfig()
   const effectiveModel =
     model && model !== 'default' ? model : (activeConfig?.model ?? settings.model)
   const effectiveMaxTokens = useProviderStore

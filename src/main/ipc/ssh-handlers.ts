@@ -37,6 +37,7 @@ interface SshSession {
 const sshSessions = new Map<string, SshSession>()
 let nextSessionId = 1
 const MAX_OUTPUT_BUFFER_BYTES = 1024 * 1024
+const SFTP_LIST_DIR_TIMEOUT_MS = 15000
 let sshConfigWatcherAttached = false
 
 interface SshGroupRow {
@@ -755,7 +756,17 @@ export function registerSshHandlers(): void {
         const entries = await new Promise<
           { name: string; type: string; path: string }[]
         >((resolve, reject) => {
+          let settled = false
+          const timer = setTimeout(() => {
+            if (settled) return
+            settled = true
+            reject(new Error(`SFTP list-dir timeout after ${SFTP_LIST_DIR_TIMEOUT_MS}ms`))
+          }, SFTP_LIST_DIR_TIMEOUT_MS)
+
           sftp.readdir(resolvedPath, (err, list) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
             if (err) return reject(err)
             resolve(
               list.map((item) => {

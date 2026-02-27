@@ -2,27 +2,35 @@ import { toolRegistry } from '../agent/tool-registry'
 import { usePlanStore } from '../../stores/plan-store'
 import { useUIStore } from '../../stores/ui-store'
 import { useChatStore } from '../../stores/chat-store'
-import type { ToolHandler } from './tool-types'
+import type { ToolHandler, ToolContext } from './tool-types'
 
 // ── Helpers ──
 
-function getWorkingFolder(): string | undefined {
-  const session = useChatStore.getState().getActiveSession()
-  return session?.workingFolder
+function getSessionId(ctx: ToolContext): string | null {
+  return ctx.sessionId ?? useChatStore.getState().activeSessionId ?? null
 }
 
-function titleToSlug(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')    // non-ascii-alnum → dash
-    .replace(/^-+|-+$/g, '')         // trim dashes
-    .slice(0, 60)                    // cap length
-    || 'plan'
+function inferTitleFromContent(content: string): string {
+  const lines = content.split('\n').map((line) => line.trim()).filter(Boolean)
+  if (lines.length === 0) return 'Plan'
+  const first = lines[0].replace(/^#+\s*/, '').replace(/^plan:\s*/i, '').trim()
+  return first.slice(0, 80) || 'Plan'
 }
 
-function getPlanFilePath(workingFolder: string, title: string): string {
-  const slug = titleToSlug(title)
-  return workingFolder.replace(/[\\/]$/, '') + `/.plan/${slug}.md`
+function normalizeSummary(input: unknown): string[] | undefined {
+  if (!input) return undefined
+  if (Array.isArray(input)) {
+    const items = input.map((item) => String(item).trim()).filter(Boolean)
+    return items.length > 0 ? items : undefined
+  }
+  if (typeof input === 'string') {
+    const lines = input
+      .split('\n')
+      .map((line) => line.replace(/^[-*]\s+/, '').trim())
+      .filter(Boolean)
+    return lines.length > 0 ? lines : undefined
+  }
+  return undefined
 }
 
 // ── EnterPlanMode ──
@@ -33,50 +41,38 @@ const enterPlanModeHandler: ToolHandler = {
     description:
       'Enter Plan Mode to explore the codebase and create a detailed implementation plan before writing any code. ' +
       'Use this proactively when starting non-trivial tasks that require architectural decisions, multi-file changes, ' +
-      'or when multiple valid approaches exist. In plan mode, only read/search and the Write tool (for writing the plan file) are allowed — ' +
+      'or when multiple valid approaches exist. In plan mode, only read/search and plan tools are allowed — ' +
       'no Edit/Shell commands.',
     inputSchema: {
       type: 'object',
       properties: {
         reason: {
           type: 'string',
-          description: 'Brief reason in English for entering plan mode. This is used as the plan file name, so always use English. (e.g. "add-user-authentication", "refactor-api-layer")',
+          description: 'Brief reason in English for entering plan mode. This becomes the plan title if no plan exists (e.g. "add-user-authentication").',
         },
       },
     },
   },
   execute: async (input) => {
     const uiStore = useUIStore.getState()
-
-    const workingFolder = getWorkingFolder()
-    if (!workingFolder) {
-      return JSON.stringify({ error: 'No working folder set. Please select a working folder first.' })
-    }
-
     const session = useChatStore.getState().getActiveSession()
-    if (!session) {
-      return JSON.stringify({ error: 'No active session.' })
-    }
+    if (!session) return JSON.stringify({ error: 'No active session.' })
 
     // Check if session already has a plan
     const existingPlan = usePlanStore.getState().getPlanBySession(session.id)
-    if (existingPlan && existingPlan.status === 'drafting') {
+    if (existingPlan && (existingPlan.status === 'drafting' || existingPlan.status === 'rejected')) {
       if (!uiStore.planMode) uiStore.enterPlanMode()
       usePlanStore.getState().setActivePlan(existingPlan.id)
-      const existingFile = existingPlan.filePath || getPlanFilePath(workingFolder, existingPlan.title)
       return JSON.stringify({
         status: 'resumed',
         plan_id: existingPlan.id,
-        plan_file: existingFile,
-        message: `Resumed existing draft plan. Use Write tool to update the plan file at: ${existingFile}`,
+        message: 'Resumed existing plan draft. Draft the plan in chat, then call SavePlan.',
       })
     }
 
     // Create new plan record
     const reason = input.reason ? String(input.reason) : 'Implementation planning'
-    const planFilePath = getPlanFilePath(workingFolder, reason)
     const plan = usePlanStore.getState().createPlan(session.id, reason)
-    usePlanStore.getState().updatePlan(plan.id, { filePath: planFilePath })
 
     if (!uiStore.planMode) uiStore.enterPlanMode()
     uiStore.setRightPanelTab('plan')
@@ -85,8 +81,7 @@ const enterPlanModeHandler: ToolHandler = {
     return JSON.stringify({
       status: 'entered',
       plan_id: plan.id,
-      plan_file: planFilePath,
-      message: `Plan mode activated. Explore the codebase with read-only tools, then use the Write tool to write your plan to: ${planFilePath}. Call ExitPlanMode when complete.`,
+      message: 'Plan mode activated. Draft the plan in chat, then call SavePlan. Call ExitPlanMode when complete.',
     })
   },
   requiresApproval: () => false,
@@ -100,7 +95,7 @@ const exitPlanModeHandler: ToolHandler = {
     description:
       'Exit Plan Mode after completing the plan. This signals that the plan is finalized and ready for user review. ' +
       'The user can then click "Implement" in the Plan panel or reply to start implementation. ' +
-      'IMPORTANT: Ensure you have written the plan file using Write before calling this tool. ' +
+      'IMPORTANT: Ensure you have called SavePlan before calling this tool. ' +
       'After calling this tool, you MUST STOP and wait for the user to review the plan — do NOT continue with any further actions.',
     inputSchema: {
       type: 'object',
@@ -114,23 +109,76 @@ const exitPlanModeHandler: ToolHandler = {
       return JSON.stringify({ status: 'not_in_plan_mode', message: 'You are not currently in plan mode.' })
     }
 
-    const activePlan = usePlanStore.getState().getActivePlan()
-    if (!activePlan) {
-      uiStore.exitPlanMode()
-      return JSON.stringify({ status: 'exited', message: 'Plan mode exited (no active plan found).' })
-    }
-
-    // Mark plan as approved
-    usePlanStore.getState().approvePlan(activePlan.id)
-
     // Exit plan mode UI
     uiStore.exitPlanMode()
 
     return JSON.stringify({
-      status: 'approved',
-      plan_id: activePlan.id,
-      title: activePlan.title,
-      message: 'Plan finalized and approved. STOP HERE — do not continue. Wait for the user to review the plan and decide to proceed. The user can click "Implement" in the Plan panel or reply to you.',
+      status: 'exited',
+      message: 'Plan mode exited. STOP HERE — wait for the user to review and approve the plan in the panel.',
+    })
+  },
+  requiresApproval: () => false,
+}
+
+// ── SavePlan ──
+
+const savePlanHandler: ToolHandler = {
+  definition: {
+    name: 'SavePlan',
+    description:
+      'Save the current plan content and summary for the Plan panel. ' +
+      'Use this after writing the plan in chat. Provide a concise summary (3-6 bullets).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'Optional plan title. If omitted, the title is inferred from the plan content.',
+        },
+        content: {
+          type: 'string',
+          description: 'Full plan content as written in the chat response.',
+        },
+        summary: {
+          anyOf: [
+            { type: 'array', items: { type: 'string' } },
+            { type: 'string' },
+          ],
+          description: 'Concise summary bullets (3-6). Array of strings or a newline-delimited string.',
+        },
+      },
+      required: ['content'],
+    },
+  },
+  execute: async (input, ctx) => {
+    const sessionId = getSessionId(ctx)
+    if (!sessionId) {
+      return JSON.stringify({ error: 'No active session.' })
+    }
+
+    const content = input.content ? String(input.content) : ''
+    if (!content.trim()) {
+      return JSON.stringify({ error: 'Plan content is empty.' })
+    }
+
+    const summary = normalizeSummary(input.summary)
+    const specJson = summary ? JSON.stringify({ summary, version: 1 }) : undefined
+    const title = input.title ? String(input.title) : inferTitleFromContent(content)
+
+    const planStore = usePlanStore.getState()
+    let plan = planStore.getPlanBySession(sessionId)
+    if (!plan) {
+      plan = planStore.createPlan(sessionId, title, { content, specJson, status: 'drafting' })
+    } else {
+      planStore.updatePlan(plan.id, { title, content, specJson, status: 'drafting' })
+    }
+    planStore.setActivePlan(plan.id)
+
+    return JSON.stringify({
+      status: 'saved',
+      plan_id: plan.id,
+      title,
+      summary_count: summary?.length ?? 0,
     })
   },
   requiresApproval: () => false,
@@ -140,6 +188,7 @@ const exitPlanModeHandler: ToolHandler = {
 
 export function registerPlanTools(): void {
   toolRegistry.register(enterPlanModeHandler)
+  toolRegistry.register(savePlanHandler)
   toolRegistry.register(exitPlanModeHandler)
 }
 
@@ -152,10 +201,9 @@ export const PLAN_MODE_ALLOWED_TOOLS = new Set([
   'LS',
   'Glob',
   'Grep',
-  // Write (for creating the plan file)
-  'Write',
   // Planning tools
   'EnterPlanMode',
+  'SavePlan',
   'ExitPlanMode',
   'AskUserQuestion',
   // Task tracking

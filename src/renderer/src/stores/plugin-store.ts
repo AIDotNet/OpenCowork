@@ -92,6 +92,8 @@ export function initPluginEventListener(): void {
       chatId: string
       content: string
       messageId?: string
+      chatType?: 'p2p' | 'group'
+      audio?: { fileKey: string; fileName?: string; mediaType?: string; durationMs?: number }
     }
     if (!task || !task.sessionId) return
 
@@ -148,6 +150,11 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
 
   addPlugin: async (type, name, config, systemPrompt) => {
     const id = nanoid()
+    const desc = get().providers.find((p) => p.type === type)
+    const tools = desc?.tools?.reduce<Record<string, boolean>>((acc, toolName) => {
+      acc[toolName] = true
+      return acc
+    }, {})
     const instance: PluginInstance = {
       id,
       type,
@@ -156,6 +163,7 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
       userSystemPrompt: systemPrompt ?? '',
       config,
       createdAt: Date.now(),
+      ...(tools ? { tools } : {}),
     }
     await ipcClient.invoke(IPC.PLUGIN_ADD, instance)
     set((s) => ({

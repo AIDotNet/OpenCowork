@@ -22,6 +22,7 @@ import { subAgentRegistry } from '../agent/sub-agents/registry'
 import { registerPluginTools, isPluginToolsRegistered } from '../plugins/plugin-tools'
 import { useSettingsStore } from '../../stores/settings-store'
 import { useProviderStore } from '../../stores/provider-store'
+import { ensureProviderAuthReady } from '../auth/provider-auth'
 import { usePluginStore } from '../../stores/plugin-store'
 import { useCronStore } from '../../stores/cron-store'
 import { useChatStore } from '../../stores/chat-store'
@@ -176,6 +177,14 @@ async function _runCronAgentAsync(
     if (pluginMeta?.providerId) resolvedProviderId = pluginMeta.providerId
   }
   const effectiveProviderId = resolvedProviderId || sourceSession?.providerId || null
+  if (effectiveProviderId) {
+    const ready = await ensureProviderAuthReady(effectiveProviderId)
+    if (!ready) {
+      console.error(`[CronAgent] Provider auth missing for job ${jobId}`)
+      logAndRecord(jobId, 'Provider authentication missing')
+      return
+    }
+  }
   const providerConfig = getProviderConfig(effectiveProviderId, effectiveModel)
   if (!providerConfig) {
     console.error(`[CronAgent] No provider config available for job ${jobId}`)
@@ -218,7 +227,26 @@ async function _runCronAgentAsync(
   }
 
   // Build allowed tools — always include plugin tools
-  const PLUGIN_TOOL_NAMES = ['PluginSendMessage', 'PluginReplyMessage', 'PluginGetGroupMessages', 'PluginListGroups', 'PluginSummarizeGroup', 'FeishuSendImage', 'FeishuSendFile']
+  const PLUGIN_TOOL_NAMES = [
+    'PluginSendMessage',
+    'PluginReplyMessage',
+    'PluginGetGroupMessages',
+    'PluginListGroups',
+    'PluginSummarizeGroup',
+    'PluginGetCurrentChatMessages',
+    'FeishuSendImage',
+    'FeishuSendFile',
+    'FeishuListChatMembers',
+    'FeishuAtMember',
+    'FeishuSendUrgent',
+    'FeishuBitableListApps',
+    'FeishuBitableListTables',
+    'FeishuBitableListFields',
+    'FeishuBitableGetRecords',
+    'FeishuBitableCreateRecords',
+    'FeishuBitableUpdateRecords',
+    'FeishuBitableDeleteRecords',
+  ]
   const allDefs = toolRegistry.getDefinitions()
   const allowedSet = new Set([...definition.allowedTools, 'Notify', 'Skill', ...PLUGIN_TOOL_NAMES])
   const innerTools = allDefs.filter((t) => allowedSet.has(t.name))

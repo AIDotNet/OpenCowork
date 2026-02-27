@@ -14,6 +14,7 @@ import { minimaxCodingPreset, minimaxPreset } from './minimax'
 import { baiduCodingPreset, baiduPreset } from './baidu'
 import { siliconflowPreset } from './siliconflow'
 import { giteeAiPreset } from './gitee-ai'
+import { codexOAuthPreset } from './codex-oauth'
 import { xiaomiPreset } from './xiaomi'
 import { bigmodelCodingPreset, bigmodelPreset } from './bigmodel'
 import type { BuiltinProviderPreset } from './types'
@@ -37,6 +38,7 @@ export const builtinProviderPresets: BuiltinProviderPreset[] = [
   minimaxPreset,
   siliconflowPreset,
   giteeAiPreset,
+  codexOAuthPreset,
   xiaomiPreset,
   bigmodelCodingPreset,
   bigmodelPreset,

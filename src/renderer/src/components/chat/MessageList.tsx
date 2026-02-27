@@ -209,7 +209,7 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
 
     const handleScroll = (): void => {
       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-      const threshold = isStreamingRef.current ? 150 : 16
+      const threshold = isStreamingRef.current ? 150 : 5
       const nextAtBottom = distanceFromBottom <= threshold
       setIsAtBottom((prev) => (prev === nextAtBottom ? prev : nextAtBottom))
     }

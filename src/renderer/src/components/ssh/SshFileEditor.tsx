@@ -6,6 +6,7 @@ import { IPC } from '@renderer/lib/ipc/channels'
 import { Button } from '@renderer/components/ui/button'
 import { toast } from 'sonner'
 import { cn } from '@renderer/lib/utils'
+import { useTheme } from 'next-themes'
 
 const MonacoEditor = React.lazy(async () => {
   const mod = await import('@monaco-editor/react')
@@ -48,6 +49,7 @@ function guessLanguage(filePath: string): string {
 
 export function SshFileEditor({ connectionId, filePath }: SshFileEditorProps): React.JSX.Element {
   const { t } = useTranslation('ssh')
+  const { resolvedTheme } = useTheme()
   const [content, setContent] = React.useState('')
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -96,12 +98,6 @@ export function SshFileEditor({ connectionId, filePath }: SshFileEditorProps): R
     void loadFile()
   }, [loadFile])
 
-  React.useEffect(() => {
-    saveRef.current = () => {
-      void handleSave()
-    }
-  }, [handleSave])
-
   const handleSave = React.useCallback(async () => {
     if (!modified || saving) return
     setSaving(true)
@@ -119,6 +115,12 @@ export function SshFileEditor({ connectionId, filePath }: SshFileEditorProps): R
       setSaving(false)
     }
   }, [modified, saving, connectionId, filePath, content, t])
+
+  React.useEffect(() => {
+    saveRef.current = () => {
+      void handleSave()
+    }
+  }, [handleSave])
 
   const handleEditorMount = React.useCallback((editor: import('monaco-editor').editor.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => {
     editorRef.current = editor
@@ -138,7 +140,7 @@ export function SshFileEditor({ connectionId, filePath }: SshFileEditorProps): R
 
   if (loading) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-[#0a0a0a] text-zinc-400 text-sm">
+      <div className="flex h-full w-full items-center justify-center bg-background text-muted-foreground text-sm">
         <Loader2 className="size-4 animate-spin text-amber-500" />
       </div>
     )
@@ -146,15 +148,15 @@ export function SshFileEditor({ connectionId, filePath }: SshFileEditorProps): R
 
   if (error) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-[#0a0a0a] text-zinc-500 text-xs">
+      <div className="flex h-full w-full items-center justify-center bg-background text-muted-foreground text-xs">
         {error}
       </div>
     )
   }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-[#0a0a0a]">
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5 text-[11px] text-zinc-400">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-background">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
         <span className="truncate" title={filePath}>{fileName}</span>
         {modified && <span className="text-amber-500">●</span>}
         <div className="flex-1" />
@@ -162,7 +164,7 @@ export function SshFileEditor({ connectionId, filePath }: SshFileEditorProps): R
           variant="ghost"
           size="sm"
           className={cn(
-            'h-6 gap-1 px-2 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800',
+            'h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60',
             (!modified || saving) && 'opacity-50'
           )}
           onClick={() => void handleSave()}
@@ -183,7 +185,7 @@ export function SshFileEditor({ connectionId, filePath }: SshFileEditorProps): R
           <MonacoEditor
             height="100%"
             language={guessLanguage(filePath)}
-            theme="vs-dark"
+            theme={resolvedTheme === 'light' ? 'vs' : 'vs-dark'}
             value={content}
             onChange={handleChange}
             onMount={handleEditorMount}

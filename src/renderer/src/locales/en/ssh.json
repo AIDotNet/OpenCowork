@@ -87,6 +87,8 @@
     "refresh": "Refresh",
     "goUp": "Go to parent directory",
     "loading": "Loading...",
+    "loadingMore": "Loading more...",
+    "loadMore": "Load more",
     "empty": "Empty directory",
     "error": "Failed to load",
     "save": "Save",

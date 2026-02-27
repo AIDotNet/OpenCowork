@@ -247,10 +247,10 @@ export function SshPage(): React.JSX.Element {
           {/* Terminal area */}
           <div className="flex flex-1 flex-col overflow-hidden min-w-0">
             {/* Tab bar */}
-            <div className="flex items-center border-b bg-zinc-900 shrink-0">
+            <div className="flex items-center border-b bg-background shrink-0">
               {/* File explorer toggle */}
               <button
-                className="px-2 py-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                className="px-2 py-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
                 onClick={() => useSshStore.getState().toggleFileExplorer()}
                 title={t('fileExplorer.title')}
               >
@@ -261,7 +261,7 @@ export function SshPage(): React.JSX.Element {
                 )}
               </button>
 
-              <div className="h-4 w-px bg-zinc-700/50 mx-0.5" />
+              <div className="h-4 w-px bg-border mx-0.5" />
 
               {/* Tabs */}
               <div className="flex flex-1 items-center overflow-x-auto min-w-0">
@@ -269,18 +269,21 @@ export function SshPage(): React.JSX.Element {
                   const isActive = tab.id === activeTabId
                   const session = tab.sessionId ? sessions[tab.sessionId] : null
                   const isTerminal = tab.type === 'terminal'
-                  const isConnected = isTerminal && session?.status === 'connected'
-                  const isConnecting =
-                    isTerminal && (tab.status === 'connecting' || session?.status === 'connecting')
-                  const isError = isTerminal && (session?.status === 'error' || tab.status === 'error')
+                  const isConnected = isTerminal && !!session && session.status === 'connected'
+                  const isConnecting = isTerminal && (
+                    tab.sessionId ? session?.status === 'connecting' : tab.status === 'connecting'
+                  )
+                  const isError = isTerminal && (
+                    tab.sessionId ? session?.status === 'error' : tab.status === 'error'
+                  )
                   return (
                     <div
                       key={tab.id}
                       className={cn(
-                        'flex items-center gap-1.5 px-3 py-1.5 text-xs border-r border-zinc-800 cursor-pointer shrink-0 transition-colors',
+                        'flex items-center gap-1.5 px-3 py-1.5 text-xs border-r border-border cursor-pointer shrink-0 transition-colors',
                         isActive
-                          ? 'bg-[#0a0a0a] text-zinc-200'
-                          : 'bg-zinc-900 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                          ? 'bg-background text-foreground'
+                          : 'bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/60'
                       )}
                       onClick={() => useSshStore.getState().setActiveTab(tab.id)}
                     >
@@ -300,7 +303,7 @@ export function SshPage(): React.JSX.Element {
                         <div className="size-1.5 rounded-full bg-red-500 shrink-0" />
                       )}
                       <button
-                        className="ml-1 p-0.5 rounded hover:bg-zinc-700 transition-colors shrink-0"
+                        className="ml-1 p-0.5 rounded hover:bg-muted/60 transition-colors shrink-0"
                         onClick={(e) => {
                           e.stopPropagation()
                           handleCloseTab(tab.id)
@@ -315,7 +318,7 @@ export function SshPage(): React.JSX.Element {
 
               {/* New tab button */}
               <button
-                className="px-2 py-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors shrink-0"
+                className="px-2 py-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shrink-0"
                 onClick={() => void handleNewTerminal()}
                 title={t('terminal.newTab')}
               >
@@ -330,7 +333,7 @@ export function SshPage(): React.JSX.Element {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 w-6 p-0 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-muted/60"
                     title={t('terminal.search')}
                   >
                     <Search className="size-3" />
@@ -338,7 +341,7 @@ export function SshPage(): React.JSX.Element {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 w-6 p-0 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-muted/60"
                     title={t('terminal.clear')}
                   >
                     <Eraser className="size-3" />
@@ -347,7 +350,7 @@ export function SshPage(): React.JSX.Element {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 gap-1 px-2 text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+                      className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60"
                     >
                       <RotateCcw className="size-3" />
                     </Button>
@@ -368,14 +371,14 @@ export function SshPage(): React.JSX.Element {
                     tab.filePath ? (
                       <SshFileEditor connectionId={tab.connectionId} filePath={tab.filePath} />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-[#0a0a0a] text-zinc-500 text-xs">
+                      <div className="flex h-full w-full items-center justify-center bg-background text-muted-foreground text-xs">
                         {t('fileExplorer.error')}
                       </div>
                     )
                   ) : tab.sessionId ? (
                     <SshTerminal sessionId={tab.sessionId} connectionName={tab.connectionName} />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-[#0a0a0a] text-zinc-400 text-sm">
+                    <div className="flex h-full w-full items-center justify-center bg-background text-muted-foreground text-sm">
                       <div className="flex items-center gap-2">
                         <Loader2 className="size-4 animate-spin text-amber-500" />
                         {t('connecting')}

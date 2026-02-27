@@ -225,12 +225,12 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
     set({ marketLoading: true, marketQuery: q })
     try {
       const { useSettingsStore } = await import('@renderer/stores/settings-store')
-      const { skillsMarketProvider, skillsMarketApiKey } = useSettingsStore.getState()
+      const { skillsMarketApiKey } = useSettingsStore.getState()
       const result = (await ipcClient.invoke('skills:market-list', {
         offset,
         limit: 50,
         query: q,
-        provider: skillsMarketProvider,
+        provider: 'skillsmp',
         apiKey: skillsMarketApiKey,
       })) as {
         total: number
@@ -264,13 +264,13 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 
     try {
       const { useSettingsStore } = await import('@renderer/stores/settings-store')
-      const { skillsMarketProvider, skillsMarketApiKey } = useSettingsStore.getState()
+      const { skillsMarketApiKey } = useSettingsStore.getState()
       // Download from remote API
       const downloadResult = (await ipcClient.invoke('skills:download-remote', {
         owner: skill.owner,
         repo: skill.repo,
         name: skill.name,
-        provider: skillsMarketProvider,
+        provider: 'skillsmp',
         apiKey: skillsMarketApiKey,
         skillId: skill.id,
         sourcePath: skill.source_path,

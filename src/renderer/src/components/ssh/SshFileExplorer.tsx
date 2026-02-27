@@ -48,6 +48,7 @@ const ROOT_PATH = '/'
 const EMPTY_ENTRY_MAP: Record<string, SshFileEntry[]> = {}
 const EMPTY_LOADING_MAP: Record<string, boolean> = {}
 const EMPTY_ERROR_MAP: Record<string, string | null> = {}
+const EMPTY_PAGEINFO_MAP: Record<string, { cursor?: string; hasMore: boolean }> = {}
 const EMPTY_EXPANDED_DIRS = new Set<string>()
 const FILE_SIZE_LIMIT = 2 * 1024 * 1024
 
@@ -101,7 +102,7 @@ function InlineInput({
       {icon}
       <input
         ref={ref}
-        className="pointer-events-auto flex-1 min-w-0 rounded border border-zinc-700/70 bg-zinc-900/70 px-2 py-0.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-amber-500"
+        className="pointer-events-auto flex-1 min-w-0 rounded border border-border bg-muted/60 px-2 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
         value={value}
         placeholder={placeholder}
         onChange={(e) => setValue(e.target.value)}
@@ -179,6 +180,7 @@ export function SshFileExplorer({
   const entriesByPath = useSshStore((s) => s.fileExplorerEntries[sessionId] ?? EMPTY_ENTRY_MAP)
   const loadingByPath = useSshStore((s) => s.fileExplorerLoading[sessionId] ?? EMPTY_LOADING_MAP)
   const errorsByPath = useSshStore((s) => s.fileExplorerErrors[sessionId] ?? EMPTY_ERROR_MAP)
+  const pageInfoByPath = useSshStore((s) => s.fileExplorerPageInfo[sessionId] ?? EMPTY_PAGEINFO_MAP)
   const expandedDirs = useSshStore((s) => s.fileExplorerExpanded[sessionId] ?? EMPTY_EXPANDED_DIRS)
   const sessionStatus = useSshStore((s) => s.sessions[sessionId]?.status)
   const connectionName = useSshStore(
@@ -290,6 +292,13 @@ export function SshFileExplorer({
       void store.loadFileExplorerEntries(sessionId, path, true)
     }
   }, [sessionId, expandedDirs, baseRoot])
+
+  const handleLoadMore = useCallback(
+    (path: string) => {
+      void useSshStore.getState().loadMoreFileExplorerEntries(sessionId, path)
+    },
+    [sessionId]
+  )
 
   const ensureExpanded = useCallback(
     (dirPath: string) => {
@@ -422,7 +431,10 @@ export function SshFileExplorer({
   const rootEntries = entriesByPath[baseRoot] ?? []
   const rootError = errorsByPath[baseRoot]
   const hasRootLoaded = Object.prototype.hasOwnProperty.call(entriesByPath, baseRoot)
-  const rootLoading = loadingByPath[baseRoot] || (!hasRootLoaded && !rootError)
+  const rootLoading = loadingByPath[baseRoot] ?? false
+  const rootInitialLoading = !hasRootLoaded && !rootError
+  const rootLoadingMore = rootLoading && hasRootLoaded
+  const rootHasMore = pageInfoByPath[baseRoot]?.hasMore ?? false
 
   const renderEntries = useCallback(
     (entries: SshFileEntry[]): React.ReactNode => {
@@ -432,7 +444,10 @@ export function SshFileExplorer({
           const error = errorsByPath[entry.path]
           const isLoading = loadingByPath[entry.path] ?? false
           const children = hasLoaded ? entriesByPath[entry.path] ?? [] : []
-          const shouldShowLoading = isLoading || (!hasLoaded && !error)
+          const isInitialLoading = !hasLoaded && !error
+          const isLoadingMore = isLoading && hasLoaded
+          const pageInfo = pageInfoByPath[entry.path]
+          const hasMore = pageInfo?.hasMore ?? false
           const isRenaming = renamingPath === entry.path
           const showNewItem = newItemParent === entry.path
 
@@ -445,7 +460,7 @@ export function SshFileExplorer({
                       {isRenaming ? (
                         <input
                           autoFocus
-                          className="pointer-events-auto w-full min-w-[120px] rounded border border-zinc-700/70 bg-zinc-900/70 px-2 py-0.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-amber-500"
+                          className="pointer-events-auto w-full min-w-[120px] rounded border border-border bg-muted/60 px-2 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
                           defaultValue={entry.name}
                           onClick={(e) => e.stopPropagation()}
                           onKeyDown={(e) => {
@@ -518,11 +533,11 @@ export function SshFileExplorer({
                 </ContextMenuContent>
               </ContextMenu>
               <FolderContent>
-                {error ? (
+                {error && children.length === 0 ? (
                   <div className="px-2 py-1 text-xs text-muted-foreground">
                     {t('fileExplorer.error')}
                   </div>
-                ) : shouldShowLoading ? (
+                ) : isInitialLoading ? (
                   <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
                     <Loader2 className="size-3 animate-spin" />
                     {t('fileExplorer.loading')}
@@ -540,7 +555,7 @@ export function SshFileExplorer({
                           newItemType === 'directory' ? (
                             <Folder className="size-4 text-amber-400" />
                           ) : (
-                            <File className="size-4 text-zinc-400" />
+                            <File className="size-4 text-muted-foreground" />
                           )
                         }
                         onConfirm={(value) => void handleNewItemConfirm(value)}
@@ -548,6 +563,27 @@ export function SshFileExplorer({
                       />
                     )}
                     {children.length > 0 && <SubFiles>{renderEntries(children)}</SubFiles>}
+                    {isLoadingMore && (
+                      <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+                        <Loader2 className="size-3 animate-spin" />
+                        {t('fileExplorer.loadingMore')}
+                      </div>
+                    )}
+                    {!isLoadingMore && hasMore && (
+                      <div className="px-2 py-1">
+                        <button
+                          className="pointer-events-auto text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => handleLoadMore(entry.path)}
+                        >
+                          {t('fileExplorer.loadMore')}
+                        </button>
+                      </div>
+                    )}
+                    {error && children.length > 0 && (
+                      <div className="px-2 py-1 text-xs text-muted-foreground">
+                        {t('fileExplorer.error')}
+                      </div>
+                    )}
                   </>
                 )}
               </FolderContent>
@@ -570,7 +606,7 @@ export function SshFileExplorer({
                   {isRenaming ? (
                     <input
                       autoFocus
-                      className="pointer-events-auto w-full min-w-[120px] rounded border border-zinc-700/70 bg-zinc-900/70 px-2 py-0.5 text-xs text-zinc-200 outline-none focus:ring-1 focus:ring-amber-500"
+                      className="pointer-events-auto w-full min-w-[120px] rounded border border-border bg-muted/60 px-2 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
                       defaultValue={entry.name}
                       onClick={(e) => e.stopPropagation()}
                       onKeyDown={(e) => {
@@ -634,6 +670,7 @@ export function SshFileExplorer({
       entriesByPath,
       errorsByPath,
       handleDelete,
+      handleLoadMore,
       handleNewFile,
       handleNewFolder,
       handleNewItemConfirm,
@@ -643,6 +680,7 @@ export function SshFileExplorer({
       newItemParent,
       newItemType,
       openFileTab,
+      pageInfoByPath,
       ensureExpanded,
       renamingPath,
       t,
@@ -650,46 +688,74 @@ export function SshFileExplorer({
   )
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#0c0c0c]">
+    <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Path bar */}
-      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-zinc-800 shrink-0">
+      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border shrink-0">
         <button
-          className="p-0.5 rounded hover:bg-zinc-800 transition-colors"
+          className="p-0.5 rounded hover:bg-muted/60 transition-colors"
           onClick={handleGoUp}
           title={t('fileExplorer.goUp')}
         >
-          <ArrowUp className="size-3 text-zinc-500" />
+          <ArrowUp className="size-3 text-muted-foreground" />
         </button>
-        <div className="flex-1 min-w-0 text-[11px] text-zinc-400 truncate font-mono">
+        <div className="flex-1 min-w-0 text-[11px] text-muted-foreground truncate font-mono">
           {currentPath}
         </div>
         <button
-          className="p-0.5 rounded hover:bg-zinc-800 transition-colors"
+          className="p-0.5 rounded hover:bg-muted/60 transition-colors"
           onClick={handleRefresh}
           title={t('fileExplorer.refresh')}
         >
-          <RefreshCw className={cn('size-3 text-zinc-500', rootLoading && 'animate-spin')} />
+          <RefreshCw
+            className={cn(
+              'size-3 text-muted-foreground',
+              (rootLoading || rootInitialLoading) && 'animate-spin'
+            )}
+          />
         </button>
       </div>
 
       {/* File tree */}
       <div className="flex-1 overflow-y-auto py-1">
-        {rootLoading && rootEntries.length === 0 ? (
+        {rootInitialLoading && rootEntries.length === 0 ? (
           <div className="flex items-center justify-center py-8">
-            <Loader2 className="size-4 animate-spin text-zinc-600" />
+            <Loader2 className="size-4 animate-spin text-muted-foreground" />
           </div>
-        ) : rootError ? (
+        ) : rootError && rootEntries.length === 0 ? (
           <div className="px-3 py-4 text-center">
-            <p className="text-[11px] text-zinc-600">{t('fileExplorer.error')}</p>
+            <p className="text-[11px] text-muted-foreground">{t('fileExplorer.error')}</p>
           </div>
         ) : rootEntries.length === 0 ? (
           <div className="px-3 py-4 text-center">
-            <p className="text-[11px] text-zinc-600">{t('fileExplorer.empty')}</p>
+            <p className="text-[11px] text-muted-foreground">{t('fileExplorer.empty')}</p>
           </div>
         ) : (
-          <Files open={openValues} onOpenChange={handleOpenChange}>
-            {renderEntries(rootEntries)}
-          </Files>
+          <div>
+            <Files open={openValues} onOpenChange={handleOpenChange}>
+              {renderEntries(rootEntries)}
+            </Files>
+            {rootLoadingMore && (
+              <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" />
+                {t('fileExplorer.loadingMore')}
+              </div>
+            )}
+            {!rootLoadingMore && rootHasMore && (
+              <div className="px-4 py-2">
+                <button
+                  className="pointer-events-auto text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => handleLoadMore(baseRoot)}
+                >
+                  {t('fileExplorer.loadMore')}
+                </button>
+              </div>
+            )}
+            {rootError && rootEntries.length > 0 && (
+              <div className="px-4 py-2 text-xs text-muted-foreground">
+                {t('fileExplorer.error')}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

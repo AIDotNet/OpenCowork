@@ -91,7 +91,7 @@ function rowToGroup(row: SshGroupRow): SshGroup {
     name: row.name,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    updatedAt: row.updated_at
   }
 }
 
@@ -112,11 +112,42 @@ function rowToConnection(row: SshConnectionRow): SshConnection {
     sortOrder: row.sort_order,
     lastConnectedAt: row.last_connected_at,
     createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    updatedAt: row.updated_at
   }
 }
 
 const MAX_CONCURRENT_LIST_DIR = 2
+const SSH_FILE_EXPLORER_PAGE_SIZE = 200
+const SSH_FILE_EXPLORER_STALE_LOAD_MS = 30000
+const IPC_LIST_DIR_TIMEOUT_MS = 45000
+
+const listDirInFlightSince = new Map<string, number>()
+
+function ipcWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('IPC list-dir timeout')), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
+
+function getListDirKey(sessionId: string, path: string): string {
+  return `${sessionId}:${path}`
+}
+
+type FileExplorerPageInfo = {
+  cursor?: string
+  hasMore: boolean
+}
+
+type ListDirPagedResult = {
+  entries?: SshFileEntry[]
+  nextCursor?: string
+  hasMore?: boolean
+  error?: string
+}
 
 type ListDirQueue = {
   active: number
@@ -152,6 +183,20 @@ function acquireListDirSlot(sessionId: string): Promise<() => void> {
   })
 }
 
+function sortEntries(entries: SshFileEntry[]): SshFileEntry[] {
+  return entries.slice().sort((a, b) => {
+    if (a.type === 'directory' && b.type !== 'directory') return -1
+    if (a.type !== 'directory' && b.type === 'directory') return 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
+function normalizePageInfo(meta?: ListDirPagedResult): FileExplorerPageInfo {
+  const cursor = typeof meta?.nextCursor === 'string' ? meta.nextCursor : undefined
+  const hasMore = typeof meta?.hasMore === 'boolean' ? meta.hasMore : Boolean(cursor)
+  return { cursor, hasMore }
+}
+
 // ── Store ──
 
 interface SshStore {
@@ -170,6 +215,7 @@ interface SshStore {
   fileExplorerOpen: boolean
   fileExplorerPaths: Record<string, string>
   fileExplorerEntries: Record<string, Record<string, SshFileEntry[]>>
+  fileExplorerPageInfo: Record<string, Record<string, FileExplorerPageInfo>>
   fileExplorerExpanded: Record<string, Set<string>>
   fileExplorerLoading: Record<string, Record<string, boolean>>
   fileExplorerErrors: Record<string, Record<string, string | null>>
@@ -237,6 +283,7 @@ interface SshStore {
   toggleFileExplorer: () => void
   setFileExplorerPath: (sessionId: string, path: string) => void
   loadFileExplorerEntries: (sessionId: string, path: string, force?: boolean) => Promise<void>
+  loadMoreFileExplorerEntries: (sessionId: string, path: string) => Promise<void>
   toggleFileExplorerDir: (sessionId: string, dirPath: string) => void
   setFileExplorerExpanded: (sessionId: string, expanded: string[]) => void
 }
@@ -255,6 +302,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
   fileExplorerOpen: true,
   fileExplorerPaths: {},
   fileExplorerEntries: {},
+  fileExplorerPageInfo: {},
   fileExplorerExpanded: {},
   fileExplorerLoading: {},
   fileExplorerErrors: {},
@@ -263,10 +311,12 @@ export const useSshStore = create<SshStore>()((set, get) => ({
     try {
       const [groupRows, connRows, sessionRows] = await Promise.all([
         ipcClient.invoke(IPC.SSH_GROUP_LIST) as Promise<SshGroupRow[] | { error: string }>,
-        ipcClient.invoke(IPC.SSH_CONNECTION_LIST) as Promise<SshConnectionRow[] | { error: string }>,
+        ipcClient.invoke(IPC.SSH_CONNECTION_LIST) as Promise<
+          SshConnectionRow[] | { error: string }
+        >,
         ipcClient.invoke(IPC.SSH_SESSION_LIST) as Promise<
           { id: string; connectionId: string; status: string; error?: string }[] | { error: string }
-        >,
+        >
       ])
 
       const groups = Array.isArray(groupRows) ? groupRows.map(rowToGroup) : []
@@ -277,7 +327,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
               id: row.id,
               connectionId: row.connectionId,
               status: row.status as SshSession['status'],
-              error: row.error,
+              error: row.error
             }
             return acc
           }, {})
@@ -298,7 +348,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
     await ipcClient.invoke(IPC.SSH_GROUP_CREATE, { id, name, sortOrder: maxOrder + 1 })
     const now = Date.now()
     set((s) => ({
-      groups: [...s.groups, { id, name, sortOrder: maxOrder + 1, createdAt: now, updatedAt: now }],
+      groups: [...s.groups, { id, name, sortOrder: maxOrder + 1, createdAt: now, updatedAt: now }]
     }))
     return id
   },
@@ -306,7 +356,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
   updateGroup: async (id, name) => {
     await ipcClient.invoke(IPC.SSH_GROUP_UPDATE, { id, name })
     set((s) => ({
-      groups: s.groups.map((g) => (g.id === id ? { ...g, name, updatedAt: Date.now() } : g)),
+      groups: s.groups.map((g) => (g.id === id ? { ...g, name, updatedAt: Date.now() } : g))
     }))
   },
 
@@ -314,7 +364,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
     await ipcClient.invoke(IPC.SSH_GROUP_DELETE, { id })
     set((s) => ({
       groups: s.groups.filter((g) => g.id !== id),
-      connections: s.connections.map((c) => (c.groupId === id ? { ...c, groupId: null } : c)),
+      connections: s.connections.map((c) => (c.groupId === id ? { ...c, groupId: null } : c))
     }))
   },
 
@@ -326,7 +376,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
     await ipcClient.invoke(IPC.SSH_CONNECTION_CREATE, {
       id,
       ...data,
-      sortOrder: maxOrder + 1,
+      sortOrder: maxOrder + 1
     })
     const now = Date.now()
     set((s) => ({
@@ -348,9 +398,9 @@ export const useSshStore = create<SshStore>()((set, get) => ({
           sortOrder: maxOrder + 1,
           lastConnectedAt: null,
           createdAt: now,
-          updatedAt: now,
-        },
-      ],
+          updatedAt: now
+        }
+      ]
     }))
     return id
   },
@@ -365,7 +415,8 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         if (data.host !== undefined) updated.host = data.host
         if (data.port !== undefined) updated.port = data.port
         if (data.username !== undefined) updated.username = data.username
-        if (data.authType !== undefined) updated.authType = data.authType as SshConnection['authType']
+        if (data.authType !== undefined)
+          updated.authType = data.authType as SshConnection['authType']
         if (data.privateKeyPath !== undefined) updated.privateKeyPath = data.privateKeyPath
         if (data.groupId !== undefined) updated.groupId = data.groupId
         if (data.startupCommand !== undefined) updated.startupCommand = data.startupCommand
@@ -373,7 +424,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         if (data.proxyJump !== undefined) updated.proxyJump = data.proxyJump
         if (data.keepAliveInterval !== undefined) updated.keepAliveInterval = data.keepAliveInterval
         return updated
-      }),
+      })
     }))
   },
 
@@ -381,7 +432,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
     await ipcClient.invoke(IPC.SSH_CONNECTION_DELETE, { id })
     set((s) => ({
       connections: s.connections.filter((c) => c.id !== id),
-      selectedConnectionId: s.selectedConnectionId === id ? null : s.selectedConnectionId,
+      selectedConnectionId: s.selectedConnectionId === id ? null : s.selectedConnectionId
     }))
   },
 
@@ -406,14 +457,14 @@ export const useSshStore = create<SshStore>()((set, get) => ({
     const session: SshSession = {
       id: result.sessionId,
       connectionId,
-      status: 'connecting',
+      status: 'connecting'
     }
     set((s) => ({
       sessions: { ...s.sessions, [result.sessionId!]: session },
       activeTerminalId: result.sessionId!,
       connections: s.connections.map((c) =>
         c.id === connectionId ? { ...c, lastConnectedAt: Date.now() } : c
-      ),
+      )
     }))
     return result.sessionId
   },
@@ -424,14 +475,15 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       const updated = { ...s.sessions }
       delete updated[sessionId]
       const remainingTabs = s.openTabs.filter((t) => t.sessionId !== sessionId)
-      const closedActiveTab = s.activeTabId && s.openTabs.find((t) => t.id === s.activeTabId)?.sessionId === sessionId
+      const closedActiveTab =
+        s.activeTabId && s.openTabs.find((t) => t.id === s.activeTabId)?.sessionId === sessionId
       return {
         sessions: updated,
         activeTerminalId: s.activeTerminalId === sessionId ? null : s.activeTerminalId,
         openTabs: remainingTabs,
         activeTabId: closedActiveTab
           ? (remainingTabs[remainingTabs.length - 1]?.id ?? null)
-          : s.activeTabId,
+          : s.activeTabId
       }
     })
   },
@@ -447,8 +499,8 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       return {
         sessions: {
           ...s.sessions,
-          [sessionId]: { ...existing, status, error },
-        },
+          [sessionId]: { ...existing, status, error }
+        }
       }
     })
   },
@@ -458,14 +510,15 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       const updated = { ...s.sessions }
       delete updated[sessionId]
       const remainingTabs = s.openTabs.filter((t) => t.sessionId !== sessionId)
-      const closedActiveTab = s.activeTabId && s.openTabs.find((t) => t.id === s.activeTabId)?.sessionId === sessionId
+      const closedActiveTab =
+        s.activeTabId && s.openTabs.find((t) => t.id === s.activeTabId)?.sessionId === sessionId
       return {
         sessions: updated,
         activeTerminalId: s.activeTerminalId === sessionId ? null : s.activeTerminalId,
         openTabs: remainingTabs,
         activeTabId: closedActiveTab
           ? (remainingTabs[remainingTabs.length - 1]?.id ?? null)
-          : s.activeTabId,
+          : s.activeTabId
       }
     })
   },
@@ -478,7 +531,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       if (exists) return { activeTabId: tab.id }
       return {
         openTabs: [...s.openTabs, tab],
-        activeTabId: tab.id,
+        activeTabId: tab.id
       }
     })
   },
@@ -495,7 +548,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         activeTabId: wasActive
           ? (remaining[Math.min(idx, remaining.length - 1)]?.id ?? null)
           : s.activeTabId,
-        activeTerminalId: tab && s.activeTerminalId === tab.sessionId ? null : s.activeTerminalId,
+        activeTerminalId: tab && s.activeTerminalId === tab.sessionId ? null : s.activeTerminalId
       }
     })
   },
@@ -521,66 +574,105 @@ export const useSshStore = create<SshStore>()((set, get) => ({
   loadFileExplorerEntries: async (sessionId, path, force = false) => {
     const state = get()
     const sessionLoading = state.fileExplorerLoading[sessionId] ?? {}
-    if (sessionLoading[path]) return
-
     const sessionEntries = state.fileExplorerEntries[sessionId] ?? {}
+    const now = Date.now()
+    const listDirKey = getListDirKey(sessionId, path)
+    const startedAt = listDirInFlightSince.get(listDirKey)
+
+    if (sessionLoading[path]) {
+      if (!force && Object.prototype.hasOwnProperty.call(sessionEntries, path)) {
+        listDirInFlightSince.delete(listDirKey)
+        set((s) => ({
+          fileExplorerLoading: {
+            ...s.fileExplorerLoading,
+            [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: false }
+          }
+        }))
+        return
+      }
+      if (startedAt && now - startedAt > SSH_FILE_EXPLORER_STALE_LOAD_MS) {
+        console.warn('[SshStore] Clearing stale list-dir loading state', { sessionId, path })
+        listDirInFlightSince.delete(listDirKey)
+        set((s) => ({
+          fileExplorerLoading: {
+            ...s.fileExplorerLoading,
+            [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: false }
+          }
+        }))
+      } else {
+        return
+      }
+    }
+
     if (!force && Object.prototype.hasOwnProperty.call(sessionEntries, path)) return
 
     set((s) => ({
       fileExplorerLoading: {
         ...s.fileExplorerLoading,
-        [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: true },
+        [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: true }
       },
       fileExplorerErrors: {
         ...s.fileExplorerErrors,
-        [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: null },
-      },
+        [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: null }
+      }
     }))
+    listDirInFlightSince.set(listDirKey, now)
     const release = await acquireListDirSlot(sessionId)
     try {
-      const result = await ipcClient.invoke(IPC.SSH_FS_LIST_DIR, {
-        connectionId: get().sessions[sessionId]?.connectionId,
-        path,
-      })
+      const result = await ipcWithTimeout(
+        ipcClient.invoke(IPC.SSH_FS_LIST_DIR, {
+          connectionId: get().sessions[sessionId]?.connectionId,
+          path,
+          limit: SSH_FILE_EXPLORER_PAGE_SIZE,
+          refresh: force
+        }),
+        IPC_LIST_DIR_TIMEOUT_MS
+      )
 
-      const entries = Array.isArray(result)
-        ? result
-        : Array.isArray((result as { entries?: unknown })?.entries)
-          ? ((result as { entries?: SshFileEntry[] }).entries ?? [])
-          : null
-
-      if (entries) {
-        const sorted = [...entries].sort((a, b) => {
-          if (a.type === 'directory' && b.type !== 'directory') return -1
-          if (a.type !== 'directory' && b.type === 'directory') return 1
-          return a.name.localeCompare(b.name)
-        })
-        set((s) => ({
-          fileExplorerEntries: {
-            ...s.fileExplorerEntries,
-            [sessionId]: { ...(s.fileExplorerEntries[sessionId] ?? {}), [path]: sorted },
-          },
-          fileExplorerErrors: {
-            ...s.fileExplorerErrors,
-            [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: null },
-          },
-        }))
-      } else if (result && typeof result === 'object' && 'error' in result) {
+      if (result && typeof result === 'object' && 'error' in result) {
         const errorMessage = String((result as { error?: string }).error ?? 'Failed to load')
         console.error('[SshStore] Failed to load file entries:', result)
         set((s) => ({
           fileExplorerErrors: {
             ...s.fileExplorerErrors,
-            [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: errorMessage },
+            [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: errorMessage }
+          }
+        }))
+        return
+      }
+
+      const entries = Array.isArray(result)
+        ? result
+        : Array.isArray((result as ListDirPagedResult | undefined)?.entries)
+          ? ((result as ListDirPagedResult).entries ?? [])
+          : null
+
+      if (entries) {
+        const sorted = sortEntries(entries)
+        const pageInfo = Array.isArray(result)
+          ? { hasMore: false }
+          : normalizePageInfo(result as ListDirPagedResult)
+        set((s) => ({
+          fileExplorerEntries: {
+            ...s.fileExplorerEntries,
+            [sessionId]: { ...(s.fileExplorerEntries[sessionId] ?? {}), [path]: sorted }
           },
+          fileExplorerPageInfo: {
+            ...s.fileExplorerPageInfo,
+            [sessionId]: { ...(s.fileExplorerPageInfo[sessionId] ?? {}), [path]: pageInfo }
+          },
+          fileExplorerErrors: {
+            ...s.fileExplorerErrors,
+            [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: null }
+          }
         }))
       } else {
         const errorMessage = 'Failed to load'
         set((s) => ({
           fileExplorerErrors: {
             ...s.fileExplorerErrors,
-            [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: errorMessage },
-          },
+            [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: errorMessage }
+          }
         }))
       }
     } catch (err) {
@@ -589,16 +681,137 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       set((s) => ({
         fileExplorerErrors: {
           ...s.fileExplorerErrors,
-          [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: errorMessage },
-        },
+          [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: errorMessage }
+        }
       }))
     } finally {
       release()
+      listDirInFlightSince.delete(listDirKey)
       set((s) => ({
         fileExplorerLoading: {
           ...s.fileExplorerLoading,
-          [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: false },
-        },
+          [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: false }
+        }
+      }))
+    }
+  },
+
+  loadMoreFileExplorerEntries: async (sessionId, path) => {
+    const state = get()
+    const sessionLoading = state.fileExplorerLoading[sessionId] ?? {}
+    const now = Date.now()
+    const listDirKey = getListDirKey(sessionId, path)
+    const startedAt = listDirInFlightSince.get(listDirKey)
+
+    if (sessionLoading[path]) {
+      if (startedAt && now - startedAt > SSH_FILE_EXPLORER_STALE_LOAD_MS) {
+        console.warn('[SshStore] Clearing stale list-dir loading state', { sessionId, path })
+        listDirInFlightSince.delete(listDirKey)
+        set((s) => ({
+          fileExplorerLoading: {
+            ...s.fileExplorerLoading,
+            [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: false }
+          }
+        }))
+      } else {
+        return
+      }
+    }
+
+    const pageInfo = state.fileExplorerPageInfo[sessionId]?.[path]
+    if (!pageInfo?.hasMore || !pageInfo.cursor) return
+
+    set((s) => ({
+      fileExplorerLoading: {
+        ...s.fileExplorerLoading,
+        [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: true }
+      },
+      fileExplorerErrors: {
+        ...s.fileExplorerErrors,
+        [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: null }
+      }
+    }))
+
+    listDirInFlightSince.set(listDirKey, now)
+    const release = await acquireListDirSlot(sessionId)
+    try {
+      const result = await ipcWithTimeout(
+        ipcClient.invoke(IPC.SSH_FS_LIST_DIR, {
+          connectionId: get().sessions[sessionId]?.connectionId,
+          path,
+          cursor: pageInfo.cursor,
+          limit: SSH_FILE_EXPLORER_PAGE_SIZE
+        }),
+        IPC_LIST_DIR_TIMEOUT_MS
+      )
+
+      if (result && typeof result === 'object' && 'error' in result) {
+        const errorMessage = String((result as { error?: string }).error ?? 'Failed to load')
+        console.error('[SshStore] Failed to load file entries:', result)
+        set((s) => ({
+          fileExplorerErrors: {
+            ...s.fileExplorerErrors,
+            [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: errorMessage }
+          }
+        }))
+        return
+      }
+
+      const entries = Array.isArray(result)
+        ? result
+        : Array.isArray((result as ListDirPagedResult | undefined)?.entries)
+          ? ((result as ListDirPagedResult).entries ?? [])
+          : null
+
+      if (entries) {
+        const sorted = sortEntries(entries)
+        set((s) => {
+          const existing = s.fileExplorerEntries[sessionId]?.[path] ?? []
+          const combined = sortEntries([...existing, ...sorted])
+          const nextInfo = Array.isArray(result)
+            ? { hasMore: false }
+            : normalizePageInfo(result as ListDirPagedResult)
+          return {
+            fileExplorerEntries: {
+              ...s.fileExplorerEntries,
+              [sessionId]: { ...(s.fileExplorerEntries[sessionId] ?? {}), [path]: combined }
+            },
+            fileExplorerPageInfo: {
+              ...s.fileExplorerPageInfo,
+              [sessionId]: { ...(s.fileExplorerPageInfo[sessionId] ?? {}), [path]: nextInfo }
+            },
+            fileExplorerErrors: {
+              ...s.fileExplorerErrors,
+              [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: null }
+            }
+          }
+        })
+      } else {
+        const errorMessage = 'Failed to load'
+        set((s) => ({
+          fileExplorerErrors: {
+            ...s.fileExplorerErrors,
+            [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: errorMessage }
+          }
+        }))
+      }
+    } catch (err) {
+      console.error('[SshStore] Failed to load file entries:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load'
+      set((s) => ({
+        fileExplorerErrors: {
+          ...s.fileExplorerErrors,
+          [sessionId]: { ...(s.fileExplorerErrors[sessionId] ?? {}), [path]: errorMessage }
+        }
+      }))
+    } finally {
+      release()
+      listDirInFlightSince.delete(listDirKey)
+      set((s) => ({
+        fileExplorerLoading: {
+          ...s.fileExplorerLoading,
+          [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: false }
+        }
       }))
     }
   },
@@ -610,14 +823,14 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       if (next.has(dirPath)) next.delete(dirPath)
       else next.add(dirPath)
       return {
-        fileExplorerExpanded: { ...s.fileExplorerExpanded, [sessionId]: next },
+        fileExplorerExpanded: { ...s.fileExplorerExpanded, [sessionId]: next }
       }
     })
   },
 
   setFileExplorerExpanded: (sessionId, expanded) => {
     set((s) => ({
-      fileExplorerExpanded: { ...s.fileExplorerExpanded, [sessionId]: new Set(expanded) },
+      fileExplorerExpanded: { ...s.fileExplorerExpanded, [sessionId]: new Set(expanded) }
     }))
-  },
+  }
 }))

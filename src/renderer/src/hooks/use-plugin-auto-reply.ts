@@ -159,15 +159,29 @@ function resumePluginQueueWhenIdle(sessionId: string): void {
   void handlePluginAutoReply(next)
 }
 
+function resolveProviderDefaultModelId(providerId: string): string | null {
+  const store = useProviderStore.getState()
+  const provider = store.providers.find((p) => p.id === providerId)
+  if (!provider) return null
+  if (provider.defaultModel) {
+    const model = provider.models.find((m) => m.id === provider.defaultModel)
+    if (model) return model.id
+  }
+  const enabledModels = provider.models.filter((m) => m.enabled)
+  return enabledModels[0]?.id ?? provider.models[0]?.id ?? null
+}
+
 function getProviderConfig(providerId?: string | null, modelOverride?: string | null): ProviderConfig | null {
   const s = useSettingsStore.getState()
   const store = useProviderStore.getState()
 
   // If a specific provider+model is bound, use that provider directly
-  if (providerId && modelOverride) {
-    const overrideConfig = store.getProviderConfigById(providerId, modelOverride)
+  if (providerId) {
+    const resolvedModel = modelOverride ?? resolveProviderDefaultModelId(providerId)
+    if (!resolvedModel) return null
+    const overrideConfig = store.getProviderConfigById(providerId, resolvedModel)
     if (overrideConfig?.apiKey) {
-      const effectiveMaxTokens = store.getEffectiveMaxTokens(s.maxTokens, modelOverride)
+      const effectiveMaxTokens = store.getEffectiveMaxTokens(s.maxTokens, resolvedModel)
       const activeModelThinkingConfig = store.getActiveModelThinkingConfig()
       const thinkingEnabled = s.thinkingEnabled && !!activeModelThinkingConfig
       return {

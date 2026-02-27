@@ -79,6 +79,18 @@ function cloneImageAttachments(images?: ImageAttachment[]): ImageAttachment[] | 
   return images.map((img) => ({ ...img }))
 }
 
+function resolveProviderDefaultModelId(providerId: string): string | null {
+  const store = useProviderStore.getState()
+  const provider = store.providers.find((p) => p.id === providerId)
+  if (!provider) return null
+  if (provider.defaultModel) {
+    const model = provider.models.find((m) => m.id === provider.defaultModel)
+    if (model) return model.id
+  }
+  const enabledModels = provider.models.filter((m) => m.enabled)
+  return enabledModels[0]?.id ?? provider.models[0]?.id ?? null
+}
+
 function notifyPendingSessionMessageListeners(): void {
   for (const listener of pendingSessionMessageListeners) {
     listener()
@@ -625,38 +637,50 @@ export function useChatActions(): {
 
     baseProviderConfig.sessionId = sessionId
 
-    // Override provider config if session has a bound provider+model (e.g. plugin sessions)
-    // Only apply session-specific model overrides for plugin sessions (with pluginId)
+    // Override provider config for plugin sessions using latest plugin settings
     // Regular user sessions should use the global active provider/model from ModelSwitcher
     const sessionForProvider = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-    if (sessionForProvider?.pluginId && sessionForProvider?.providerId && sessionForProvider?.modelId) {
-      const ready = await ensureProviderAuthReady(sessionForProvider.providerId)
-      if (!ready) {
-        toast.error('Authentication required', {
-          description: 'Please sign in to the session provider in Settings',
-          action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
-        })
-        return
+    if (sessionForProvider?.pluginId) {
+      const pluginMeta = usePluginStore.getState().plugins.find((p) => p.id === sessionForProvider.pluginId)
+      const pluginProviderId = pluginMeta
+        ? (pluginMeta.providerId ?? null)
+        : (sessionForProvider.providerId ?? null)
+      let pluginModelId = pluginMeta
+        ? (pluginMeta.model ?? null)
+        : (sessionForProvider.modelId ?? null)
+      if (pluginProviderId && !pluginModelId) {
+        pluginModelId = resolveProviderDefaultModelId(pluginProviderId)
       }
 
-      const sessionProviderConfig = providerStore.getProviderConfigById(
-        sessionForProvider.providerId, sessionForProvider.modelId
-      )
-      if (sessionProviderConfig?.apiKey) {
-        baseProviderConfig.type = sessionProviderConfig.type
-        baseProviderConfig.apiKey = sessionProviderConfig.apiKey
-        baseProviderConfig.baseUrl = sessionProviderConfig.baseUrl
-        baseProviderConfig.model = sessionProviderConfig.model
-        baseProviderConfig.requiresApiKey = sessionProviderConfig.requiresApiKey
-        baseProviderConfig.useSystemProxy = sessionProviderConfig.useSystemProxy
-        baseProviderConfig.userAgent = sessionProviderConfig.userAgent
-        baseProviderConfig.requestOverrides = sessionProviderConfig.requestOverrides
-        baseProviderConfig.responseSummary = sessionProviderConfig.responseSummary
-          ?? useProviderStore.getState().getActiveModelConfig()?.responseSummary
-        baseProviderConfig.enablePromptCache = sessionProviderConfig.enablePromptCache
-          ?? useProviderStore.getState().getActiveModelConfig()?.enablePromptCache
-        baseProviderConfig.enableSystemPromptCache = sessionProviderConfig.enableSystemPromptCache
-          ?? useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache
+      if (pluginProviderId && pluginModelId) {
+        const ready = await ensureProviderAuthReady(pluginProviderId)
+        if (!ready) {
+          toast.error('Authentication required', {
+            description: 'Please sign in to the session provider in Settings',
+            action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
+          })
+          return
+        }
+
+        const sessionProviderConfig = providerStore.getProviderConfigById(
+          pluginProviderId, pluginModelId
+        )
+        if (sessionProviderConfig?.apiKey) {
+          baseProviderConfig.type = sessionProviderConfig.type
+          baseProviderConfig.apiKey = sessionProviderConfig.apiKey
+          baseProviderConfig.baseUrl = sessionProviderConfig.baseUrl
+          baseProviderConfig.model = sessionProviderConfig.model
+          baseProviderConfig.requiresApiKey = sessionProviderConfig.requiresApiKey
+          baseProviderConfig.useSystemProxy = sessionProviderConfig.useSystemProxy
+          baseProviderConfig.userAgent = sessionProviderConfig.userAgent
+          baseProviderConfig.requestOverrides = sessionProviderConfig.requestOverrides
+          baseProviderConfig.responseSummary = sessionProviderConfig.responseSummary
+            ?? useProviderStore.getState().getActiveModelConfig()?.responseSummary
+          baseProviderConfig.enablePromptCache = sessionProviderConfig.enablePromptCache
+            ?? useProviderStore.getState().getActiveModelConfig()?.enablePromptCache
+          baseProviderConfig.enableSystemPromptCache = sessionProviderConfig.enableSystemPromptCache
+            ?? useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache
+        }
       }
     }
 

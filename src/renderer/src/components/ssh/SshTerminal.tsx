@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Terminal as XTerm } from '@xterm/xterm'
+import { Terminal as XTerm, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
@@ -12,14 +12,64 @@ import { useSshStore } from '@renderer/stores/ssh-store'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { RotateCcw } from 'lucide-react'
+import { useTheme } from 'next-themes'
 
 interface SshTerminalProps {
   sessionId: string
   connectionName: string
 }
 
+const DARK_THEME: ITheme = {
+  background: '#0b0b0b',
+  foreground: '#e5e7eb',
+  cursor: '#e5e7eb',
+  cursorAccent: '#0b0b0b',
+  selectionBackground: 'rgba(148, 163, 184, 0.35)',
+  black: '#0b0b0b',
+  red: '#ef4444',
+  green: '#22c55e',
+  yellow: '#eab308',
+  blue: '#3b82f6',
+  magenta: '#a855f7',
+  cyan: '#06b6d4',
+  white: '#e5e7eb',
+  brightBlack: '#6b7280',
+  brightRed: '#f87171',
+  brightGreen: '#4ade80',
+  brightYellow: '#facc15',
+  brightBlue: '#60a5fa',
+  brightMagenta: '#c084fc',
+  brightCyan: '#22d3ee',
+  brightWhite: '#f9fafb',
+}
+
+const LIGHT_THEME: ITheme = {
+  background: '#ffffff',
+  foreground: '#0f172a',
+  cursor: '#0f172a',
+  cursorAccent: '#ffffff',
+  selectionBackground: 'rgba(15, 23, 42, 0.15)',
+  black: '#0f172a',
+  red: '#dc2626',
+  green: '#16a34a',
+  yellow: '#ca8a04',
+  blue: '#2563eb',
+  magenta: '#7c3aed',
+  cyan: '#0891b2',
+  white: '#e2e8f0',
+  brightBlack: '#64748b',
+  brightRed: '#ef4444',
+  brightGreen: '#22c55e',
+  brightYellow: '#eab308',
+  brightBlue: '#3b82f6',
+  brightMagenta: '#a855f7',
+  brightCyan: '#06b6d4',
+  brightWhite: '#f8fafc',
+}
+
 export function SshTerminal({ sessionId, connectionName: _connectionName }: SshTerminalProps): React.JSX.Element {
   const { t } = useTranslation('ssh')
+  const { resolvedTheme } = useTheme()
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -41,30 +91,7 @@ export function SshTerminal({ sessionId, connectionName: _connectionName }: SshT
       allowProposedApi: true,
       scrollback: 10000,
       convertEol: true,
-      theme: {
-        background: '#0a0a0a',
-        foreground: '#e4e4e7',
-        cursor: '#e4e4e7',
-        cursorAccent: '#0a0a0a',
-        selectionBackground: '#3f3f46',
-        selectionForeground: '#fafafa',
-        black: '#18181b',
-        red: '#ef4444',
-        green: '#22c55e',
-        yellow: '#eab308',
-        blue: '#3b82f6',
-        magenta: '#a855f7',
-        cyan: '#06b6d4',
-        white: '#e4e4e7',
-        brightBlack: '#52525b',
-        brightRed: '#f87171',
-        brightGreen: '#4ade80',
-        brightYellow: '#facc15',
-        brightBlue: '#60a5fa',
-        brightMagenta: '#c084fc',
-        brightCyan: '#22d3ee',
-        brightWhite: '#fafafa',
-      },
+      theme: resolvedTheme === 'light' ? LIGHT_THEME : DARK_THEME,
     })
 
     const fitAddon = new FitAddon()
@@ -217,6 +244,12 @@ export function SshTerminal({ sessionId, connectionName: _connectionName }: SshT
     }
   }, [sessionId])
 
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    term.options.theme = resolvedTheme === 'light' ? LIGHT_THEME : DARK_THEME
+  }, [resolvedTheme])
+
   // Focus terminal on click
   const handleContainerClick = useCallback(() => {
     termRef.current?.focus()
@@ -230,7 +263,7 @@ export function SshTerminal({ sessionId, connectionName: _connectionName }: SshT
   }, [session, sessionId])
 
   return (
-    <div className="relative flex flex-col h-full overflow-hidden bg-[#0a0a0a]">
+    <div className="relative flex flex-col h-full overflow-hidden bg-background">
       {/* Disconnected overlay */}
       {session && session.status !== 'connected' && session.status !== 'connecting' && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -239,7 +272,7 @@ export function SshTerminal({ sessionId, connectionName: _connectionName }: SshT
               {session.status === 'error' ? t('terminal.errorMessage') : t('terminal.disconnectedMessage')}
             </Badge>
             {session.error && (
-              <p className="text-[10px] text-zinc-500 max-w-xs">{session.error}</p>
+              <p className="text-[10px] text-muted-foreground max-w-xs">{session.error}</p>
             )}
             <Button
               variant="outline"

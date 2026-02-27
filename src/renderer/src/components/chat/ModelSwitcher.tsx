@@ -3,6 +3,7 @@ import { ChevronDown, Check } from 'lucide-react'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useChatStore } from '@renderer/stores/chat-store'
+import { usePluginStore } from '@renderer/stores/plugin-store'
 import { useTranslation } from 'react-i18next'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { ProviderIcon, ModelIcon } from '@renderer/components/settings/provider-icons'
@@ -69,6 +70,13 @@ export function ModelSwitcher(): React.JSX.Element {
                           const sessionId = useChatStore.getState().activeSessionId
                           if (sessionId) {
                             useChatStore.getState().updateSessionModel(sessionId, newProviderId, m.id)
+                            const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+                            if (session?.pluginId) {
+                              void usePluginStore.getState().updatePlugin(session.pluginId, {
+                                providerId: newProviderId,
+                                model: m.id,
+                              })
+                            }
                           }
                           setOpen(false)
                         }}

@@ -5,13 +5,6 @@ import { useSettingsStore } from '@renderer/stores/settings-store'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Separator } from '@renderer/components/ui/separator'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@renderer/components/ui/select'
 import { toast } from 'sonner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 
@@ -20,21 +13,8 @@ export function SkillsMarketPanel(): React.JSX.Element {
   const settings = useSettingsStore()
   const [testing, setTesting] = useState(false)
 
-  const providerOptions = [
-    {
-      value: 'skillsmp',
-      label: 'SkillsMP',
-      description: t('skillsmarket.skillsmpDesc'),
-    },
-    {
-      value: 'builtin',
-      label: t('skillsmarket.builtinLabel'),
-      description: t('skillsmarket.builtinDesc'),
-    },
-  ]
-
   const handleTestConnection = useCallback(async () => {
-    if (settings.skillsMarketProvider === 'skillsmp' && !settings.skillsMarketApiKey) {
+    if (!settings.skillsMarketApiKey) {
       toast.error(t('skillsmarket.apiKeyRequired'))
       return
     }
@@ -45,7 +25,7 @@ export function SkillsMarketPanel(): React.JSX.Element {
         offset: 0,
         limit: 5,
         query: '',
-        provider: settings.skillsMarketProvider,
+        provider: 'skillsmp',
         apiKey: settings.skillsMarketApiKey,
       })) as { total: number; skills: unknown[] }
 
@@ -62,8 +42,6 @@ export function SkillsMarketPanel(): React.JSX.Element {
     }
   }, [settings, t])
 
-  const requiresApiKey = settings.skillsMarketProvider === 'skillsmp'
-
   return (
     <div className="space-y-8">
       <div>
@@ -71,106 +49,57 @@ export function SkillsMarketPanel(): React.JSX.Element {
         <p className="text-sm text-muted-foreground">{t('skillsmarket.subtitle')}</p>
       </div>
 
-      {/* Provider Selection */}
+      <Separator />
       <section className="space-y-3">
-        <div>
-          <label className="text-sm font-medium">{t('skillsmarket.provider')}</label>
-          <p className="text-xs text-muted-foreground">{t('skillsmarket.providerDesc')}</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="text-sm font-medium">{t('skillsmarket.apiKey')}</label>
+            <p className="text-xs text-muted-foreground">{t('skillsmarket.apiKeyDesc')}</p>
+          </div>
+          <Key className="size-4 text-muted-foreground" />
         </div>
-        <Select
-          value={settings.skillsMarketProvider}
-          onValueChange={(value: 'builtin' | 'skillsmp') =>
-            settings.updateSettings({ skillsMarketProvider: value })
-          }
-        >
-          <SelectTrigger className="w-full max-w-sm text-xs">
-            <SelectValue placeholder={t('skillsmarket.selectProvider')} />
-          </SelectTrigger>
-          <SelectContent>
-            {providerOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value} className="text-xs">
-                <div className="flex flex-col">
-                  <span className="font-medium">{option.label}</span>
-                  <span className="text-[10px] text-muted-foreground">{option.description}</span>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Input
+          type="password"
+          placeholder={t('skillsmarket.apiKeyPlaceholder')}
+          value={settings.skillsMarketApiKey}
+          onChange={(e) => settings.updateSettings({ skillsMarketApiKey: e.target.value })}
+          className="max-w-sm"
+        />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 text-xs"
+            onClick={() =>
+              window.open('https://skillsmp.com/zh/docs/api', '_blank', 'noopener')
+            }
+          >
+            <ExternalLink className="size-3" />
+            {t('skillsmarket.getApiKey')}
+          </Button>
+        </div>
+
+        {/* Info card */}
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Wand2 className="size-4 text-primary" />
+            SkillsMP
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('skillsmarket.skillsmpInfo')}
+          </p>
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto p-0 text-xs text-primary"
+            onClick={() =>
+              window.open('https://skillsmp.com', '_blank', 'noopener')
+            }
+          >
+            skillsmp.com <ExternalLink className="ml-1 size-2.5" />
+          </Button>
+        </div>
       </section>
-
-      {/* SkillsMP API Key */}
-      {requiresApiKey && (
-        <>
-          <Separator />
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-sm font-medium">{t('skillsmarket.apiKey')}</label>
-                <p className="text-xs text-muted-foreground">{t('skillsmarket.apiKeyDesc')}</p>
-              </div>
-              <Key className="size-4 text-muted-foreground" />
-            </div>
-            <Input
-              type="password"
-              placeholder={t('skillsmarket.apiKeyPlaceholder')}
-              value={settings.skillsMarketApiKey}
-              onChange={(e) => settings.updateSettings({ skillsMarketApiKey: e.target.value })}
-              className="max-w-sm"
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1.5 text-xs"
-                onClick={() =>
-                  window.open('https://skillsmp.com/zh/docs/api', '_blank', 'noopener')
-                }
-              >
-                <ExternalLink className="size-3" />
-                {t('skillsmarket.getApiKey')}
-              </Button>
-            </div>
-
-            {/* Info card */}
-            <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Wand2 className="size-4 text-primary" />
-                SkillsMP
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t('skillsmarket.skillsmpInfo')}
-              </p>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-xs text-primary"
-                onClick={() =>
-                  window.open('https://skillsmp.com', '_blank', 'noopener')
-                }
-              >
-                skillsmp.com <ExternalLink className="ml-1 size-2.5" />
-              </Button>
-            </div>
-          </section>
-        </>
-      )}
-
-      {/* Builtin info */}
-      {!requiresApiKey && (
-        <>
-          <Separator />
-          <section className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-2">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Wand2 className="size-4 text-muted-foreground" />
-              {t('skillsmarket.builtinLabel')}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {t('skillsmarket.builtinInfo')}
-            </p>
-          </section>
-        </>
-      )}
 
       <Separator />
 
@@ -181,7 +110,7 @@ export function SkillsMarketPanel(): React.JSX.Element {
           size="sm"
           className="gap-1.5 text-xs"
           onClick={() => void handleTestConnection()}
-          disabled={testing || (requiresApiKey && !settings.skillsMarketApiKey)}
+          disabled={testing || !settings.skillsMarketApiKey}
         >
           <RefreshCw className={`size-3.5 ${testing ? 'animate-spin' : ''}`} />
           {testing ? t('skillsmarket.testing') : t('skillsmarket.test')}
@@ -197,14 +126,12 @@ export function SkillsMarketPanel(): React.JSX.Element {
         <div className="text-xs space-y-1 text-muted-foreground">
           <p>
             <strong>{t('skillsmarket.provider')}:</strong>{' '}
-            {settings.skillsMarketProvider === 'skillsmp' ? 'SkillsMP' : t('skillsmarket.builtinLabel')}
+            SkillsMP
           </p>
-          {requiresApiKey && (
-            <p>
-              <strong>{t('skillsmarket.apiKey')}:</strong>{' '}
-              {settings.skillsMarketApiKey ? '••••••••' : t('skillsmarket.notSet')}
-            </p>
-          )}
+          <p>
+            <strong>{t('skillsmarket.apiKey')}:</strong>{' '}
+            {settings.skillsMarketApiKey ? '********' : t('skillsmarket.notSet')}
+          </p>
         </div>
       </section>
     </div>

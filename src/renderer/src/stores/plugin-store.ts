@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { nanoid } from 'nanoid'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { useChatStore } from '@renderer/stores/chat-store'
+import { useProviderStore } from '@renderer/stores/provider-store'
 import type {
   PluginProviderDescriptor,
   PluginInstance,
@@ -174,10 +176,48 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
   },
 
   updatePlugin: async (id, patch) => {
-    await ipcClient.invoke(IPC.PLUGIN_UPDATE, { id, patch })
+    const normalizedPatch = { ...patch }
+    if ('providerId' in patch && patch.providerId == null) {
+      normalizedPatch.model = null
+    }
+    await ipcClient.invoke(IPC.PLUGIN_UPDATE, { id, patch: normalizedPatch })
     set((s) => ({
-      plugins: s.plugins.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+      plugins: s.plugins.map((p) => {
+        if (p.id !== id) return p
+        const next = { ...p, ...normalizedPatch }
+        if (next.providerId == null) {
+          next.model = null
+        }
+        return next
+      }),
     }))
+
+    if ('providerId' in normalizedPatch || 'model' in normalizedPatch) {
+      const plugin = get().plugins.find((p) => p.id === id)
+      const providerId = plugin?.providerId ?? null
+      const modelId = providerId ? (plugin?.model ?? null) : null
+      useChatStore.setState((state) => {
+        for (const session of state.sessions) {
+          if (session.pluginId !== id) continue
+          session.providerId = providerId ?? undefined
+          session.modelId = modelId ?? undefined
+        }
+      })
+
+      const activeSessionId = useChatStore.getState().activeSessionId
+      if (activeSessionId) {
+        const activeSession = useChatStore.getState().sessions.find((s) => s.id === activeSessionId)
+        if (activeSession?.pluginId === id && providerId && modelId) {
+          const providerStore = useProviderStore.getState()
+          if (providerStore.activeProviderId !== providerId) {
+            providerStore.setActiveProvider(providerId)
+          }
+          if (providerStore.activeModelId !== modelId) {
+            providerStore.setActiveModel(modelId)
+          }
+        }
+      }
+    }
   },
 
   removePlugin: async (id) => {

@@ -15,7 +15,7 @@ import {
   updateSshConnection,
   deleteSshConnection,
   type SshConfigGroup,
-  type SshConfigConnection,
+  type SshConfigConnection
 } from '../ssh/ssh-config'
 
 // ── SSH Session Manager ──
@@ -38,7 +38,99 @@ const sshSessions = new Map<string, SshSession>()
 let nextSessionId = 1
 const MAX_OUTPUT_BUFFER_BYTES = 1024 * 1024
 const SFTP_LIST_DIR_TIMEOUT_MS = 15000
+const SFTP_OPEN_TIMEOUT_MS = 15000
+const FILE_SESSION_CONNECT_TIMEOUT_MS = 30000
+const SFTP_LIST_DIR_CACHE_TTL_MS = 30000
+const SFTP_LIST_DIR_CURSOR_TTL_MS = 30000
+const SFTP_CLOSE_TIMEOUT_MS = 5000
+const MAX_EMPTY_READDIR_ROUNDS = 5
 let sshConfigWatcherAttached = false
+
+interface FileSession {
+  connectionId: string
+  client: Client
+  sftp: SFTPWrapper | null
+  status: 'connecting' | 'connected' | 'error'
+  error?: string
+  homeDir?: string
+  lastUsedAt: number
+  connectPromise?: Promise<FileSession>
+}
+
+type SshLikeSession = {
+  connectionId: string
+  client: Client
+  sftp: SFTPWrapper | null
+  homeDir?: string
+}
+
+type SshClientSession = {
+  client: Client
+}
+
+const fileSessions = new Map<string, FileSession>()
+
+type SftpListEntry = {
+  name: string
+  path: string
+  type: 'file' | 'directory' | 'symlink'
+  size: number
+  modifyTime: number
+}
+
+type SftpDirCacheEntry = {
+  entries: SftpListEntry[]
+  complete: boolean
+  createdAt: number
+  lastAccess: number
+}
+
+type SftpDirCursor =
+  | {
+      id: string
+      type: 'cache'
+      connectionId: string
+      path: string
+      entries: SftpListEntry[]
+      offset: number
+      lastAccess: number
+    }
+  | {
+      id: string
+      type: 'sftp'
+      connectionId: string
+      path: string
+      handle: Buffer
+      pending: SftpListEntry[]
+      lastAccess: number
+    }
+
+const sftpListDirCache = new Map<string, SftpDirCacheEntry>()
+const sftpDirCursors = new Map<string, SftpDirCursor>()
+
+class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TimeoutError'
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new TimeoutError(message)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
+
+function isTimeoutError(err: unknown): boolean {
+  return (
+    err instanceof TimeoutError ||
+    (err && typeof err === 'object' && (err as { name?: string }).name === 'TimeoutError')
+  )
+}
 
 interface SshGroupRow {
   id: string
@@ -89,7 +181,7 @@ function toGroupRow(group: SshConfigGroup): SshGroupRow {
     name: group.name,
     sort_order: group.sortOrder,
     created_at: group.createdAt,
-    updated_at: group.updatedAt,
+    updated_at: group.updatedAt
   }
 }
 
@@ -110,7 +202,7 @@ function toConnectionRow(connection: SshConfigConnection): SshConnectionRow {
     sort_order: connection.sortOrder,
     last_connected_at: connection.lastConnectedAt,
     created_at: connection.createdAt,
-    updated_at: connection.updatedAt,
+    updated_at: connection.updatedAt
   }
 }
 
@@ -123,7 +215,7 @@ function buildConnectConfig(connection: SshConfigConnection): ConnectConfig {
     username: connection.username,
     keepaliveInterval: (connection.keepAliveInterval ?? 60) * 1000,
     keepaliveCountMax: 3,
-    readyTimeout: 30000,
+    readyTimeout: 30000
   }
 
   if (connection.authType === 'password' && connection.password) {
@@ -138,45 +230,447 @@ function buildConnectConfig(connection: SshConfigConnection): ConnectConfig {
       config.passphrase = connection.passphrase
     }
   } else if (connection.authType === 'agent') {
-    config.agent = process.platform === 'win32'
-      ? '\\\\.\\pipe\\openssh-ssh-agent'
-      : process.env.SSH_AUTH_SOCK || undefined
+    config.agent =
+      process.platform === 'win32'
+        ? '\\\\.\\pipe\\openssh-ssh-agent'
+        : process.env.SSH_AUTH_SOCK || undefined
   }
 
   return config
 }
 
-async function getSftp(session: SshSession): Promise<SFTPWrapper> {
-  if (session.sftp) return session.sftp
-  return new Promise((resolve, reject) => {
-    session.client.sftp((err, sftp) => {
-      if (err) return reject(err)
-      session.sftp = sftp
-      resolve(sftp)
-    })
+function touchFileSession(session: FileSession): void {
+  session.lastUsedAt = Date.now()
+}
+
+function closeFileSession(session: FileSession): void {
+  try {
+    session.client.end()
+  } catch {
+    // ignore
+  }
+  session.sftp = null
+}
+
+function resetFileSession(connectionId: string, reason?: string): void {
+  const session = fileSessions.get(connectionId)
+  if (!session) return
+  session.status = 'error'
+  session.error = reason
+  closeFileSession(session)
+  fileSessions.delete(connectionId)
+  clearSftpStateForConnection(connectionId)
+}
+
+async function ensureFileSession(connectionId: string): Promise<FileSession> {
+  const existing = fileSessions.get(connectionId)
+  if (existing?.status === 'connected') {
+    if ((existing.client as unknown as { writable?: boolean }).writable === false) {
+      resetFileSession(connectionId, 'SSH client no longer writable')
+    } else {
+      touchFileSession(existing)
+      return existing
+    }
+  }
+  if (existing?.connectPromise) return existing.connectPromise
+
+  const connection = getSshConnection(connectionId)
+  if (!connection) throw new Error('Connection not found')
+
+  const config = buildConnectConfig(connection)
+  const client = new Client()
+  const session: FileSession = {
+    connectionId,
+    client,
+    sftp: null,
+    status: 'connecting',
+    lastUsedAt: Date.now()
+  }
+
+  const connectPromise = new Promise<FileSession>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      session.status = 'error'
+      session.error = 'File session connection timeout (30s)'
+      try {
+        client.end()
+      } catch {
+        // ignore
+      }
+      fileSessions.delete(connectionId)
+      reject(new TimeoutError(session.error))
+    }, FILE_SESSION_CONNECT_TIMEOUT_MS)
+
+    client
+      .on('ready', () => {
+        clearTimeout(timeout)
+        session.status = 'connected'
+        resolve(session)
+      })
+      .on('error', (err) => {
+        clearTimeout(timeout)
+        session.status = 'error'
+        session.error = err.message
+        try {
+          client.end()
+        } catch {
+          // ignore
+        }
+        fileSessions.delete(connectionId)
+        reject(err)
+      })
+      .on('close', () => {
+        fileSessions.delete(connectionId)
+      })
+      .connect(config)
+  })
+
+  session.connectPromise = connectPromise
+  fileSessions.set(connectionId, session)
+
+  return connectPromise.finally(() => {
+    const current = fileSessions.get(connectionId)
+    if (current) current.connectPromise = undefined
   })
 }
 
-async function getHomeDir(session: SshSession): Promise<string | null> {
+async function getSftp(session: SshLikeSession): Promise<SFTPWrapper> {
+  if (session.sftp) return session.sftp
+  const sftp = await withTimeout(
+    new Promise<SFTPWrapper>((resolve, reject) => {
+      session.client.sftp((err, sftp) => {
+        if (err) return reject(err)
+        session.sftp = sftp
+        resolve(sftp)
+      })
+    }),
+    SFTP_OPEN_TIMEOUT_MS,
+    'SFTP open timeout'
+  )
+  return sftp
+}
+
+function isSftpConnectionError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const msg = ((err as Error).message ?? '').toLowerCase()
+  return (
+    isTimeoutError(err) ||
+    msg.includes('not connected') ||
+    msg.includes('channel not open') ||
+    msg.includes('no response') ||
+    msg.includes('econnreset') ||
+    msg.includes('socket hang up') ||
+    msg.includes('write after end') ||
+    msg.includes('sftp close timeout') ||
+    msg.includes('ssh client no longer writable')
+  )
+}
+
+async function withFileSession<T>(
+  connectionId: string,
+  fn: (session: FileSession) => Promise<T>
+): Promise<T> {
+  const session = await ensureFileSession(connectionId)
+  touchFileSession(session)
+  try {
+    return await fn(session)
+  } catch (err) {
+    if (isSftpConnectionError(err)) {
+      resetFileSession(connectionId, (err as Error).message)
+    }
+    throw err
+  }
+}
+
+async function getHomeDir(session: SshLikeSession): Promise<string | null> {
   if (session.homeDir) return session.homeDir
-  const sftp = await getSftp(session)
-  const homeDir = await new Promise<string | null>((resolve) => {
-    sftp.realpath('.', (err, resolvedPath) => {
-      if (err) return resolve(null)
-      resolve(resolvedPath)
-    })
-  })
+  let homeDir: string | null = null
+  try {
+    const sftp = await getSftp(session)
+    homeDir = await withTimeout(
+      new Promise<string>((resolve, reject) => {
+        sftp.realpath('.', (err, resolvedPath) => {
+          if (err || !resolvedPath) return reject(err ?? new Error('Failed to resolve home dir'))
+          resolve(resolvedPath)
+        })
+      }),
+      SFTP_OPEN_TIMEOUT_MS,
+      'SFTP realpath timeout'
+    )
+  } catch {
+    homeDir = null
+  }
   if (homeDir) session.homeDir = homeDir
   return homeDir
 }
 
-async function resolveSftpPath(session: SshSession, inputPath: string): Promise<string> {
+async function resolveSftpPath(session: SshLikeSession, inputPath: string): Promise<string> {
   if (!inputPath.startsWith('~')) return inputPath
   const homeDir = await getHomeDir(session)
   if (!homeDir) return inputPath
   if (inputPath === '~') return homeDir
   if (inputPath.startsWith('~/')) return path.posix.join(homeDir, inputPath.slice(2))
   return inputPath
+}
+
+function getSftpListCacheKey(connectionId: string, resolvedPath: string): string {
+  return `${connectionId}:${resolvedPath}`
+}
+
+function clearSftpStateForConnection(connectionId: string): void {
+  for (const key of sftpListDirCache.keys()) {
+    if (key.startsWith(`${connectionId}:`)) {
+      sftpListDirCache.delete(key)
+    }
+  }
+  for (const [key, cursor] of sftpDirCursors.entries()) {
+    if (cursor.connectionId === connectionId) {
+      sftpDirCursors.delete(key)
+    }
+  }
+}
+
+function pruneSftpListDirCache(now: number): void {
+  for (const [key, entry] of sftpListDirCache.entries()) {
+    if (now - entry.lastAccess > SFTP_LIST_DIR_CACHE_TTL_MS) {
+      sftpListDirCache.delete(key)
+    }
+  }
+}
+
+async function pruneSftpDirCursors(now: number): Promise<void> {
+  for (const [key, cursor] of sftpDirCursors.entries()) {
+    if (now - cursor.lastAccess <= SFTP_LIST_DIR_CURSOR_TTL_MS) continue
+    sftpDirCursors.delete(key)
+    if (cursor.type !== 'sftp') continue
+    const session = fileSessions.get(cursor.connectionId)
+    if (!session) continue
+    try {
+      const sftp = await getSftp(session)
+      await withTimeout(
+        new Promise<void>((resolve) => sftp.close(cursor.handle, () => resolve())),
+        SFTP_CLOSE_TIMEOUT_MS,
+        'SFTP close timeout (cursor prune)'
+      )
+    } catch {
+      // ignore – handle may already be invalid
+    }
+  }
+}
+
+async function clearSftpDirState(session: SshLikeSession, resolvedPath: string): Promise<void> {
+  const cacheKey = getSftpListCacheKey(session.connectionId, resolvedPath)
+  sftpListDirCache.delete(cacheKey)
+  for (const [key, cursor] of sftpDirCursors.entries()) {
+    if (cursor.connectionId === session.connectionId && cursor.path === resolvedPath) {
+      sftpDirCursors.delete(key)
+      if (cursor.type === 'sftp') {
+        try {
+          await closeSftpHandle(session, cursor.handle)
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+}
+
+function isSftpEof(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const code = (err as { code?: number | string }).code
+  return code === 1 || code === 'EOF'
+}
+
+function mapSftpEntries(
+  resolvedPath: string,
+  list: { filename: string; attrs: import('ssh2').Stats }[]
+): SftpListEntry[] {
+  return list.map((item) => {
+    const isDirectory = item.attrs.isDirectory()
+    const isSymlink = item.attrs.isSymbolicLink?.() ?? false
+    const type = isDirectory ? 'directory' : isSymlink ? 'symlink' : 'file'
+    return {
+      name: item.filename,
+      type,
+      path: path.posix.join(resolvedPath, item.filename),
+      size: item.attrs.size ?? 0,
+      modifyTime: item.attrs.mtime ? item.attrs.mtime * 1000 : 0
+    }
+  })
+}
+
+function ensureDirCache(cacheKey: string, now: number): SftpDirCacheEntry {
+  const existing = sftpListDirCache.get(cacheKey)
+  if (existing) {
+    existing.lastAccess = now
+    return existing
+  }
+  const created: SftpDirCacheEntry = {
+    entries: [],
+    complete: false,
+    createdAt: now,
+    lastAccess: now
+  }
+  sftpListDirCache.set(cacheKey, created)
+  return created
+}
+
+function appendToDirCache(cacheKey: string, entries: SftpListEntry[], now: number): void {
+  if (entries.length === 0) return
+  const cache = ensureDirCache(cacheKey, now)
+  cache.entries.push(...entries)
+  cache.lastAccess = now
+}
+
+function markDirCacheComplete(cacheKey: string, now: number): void {
+  const cache = ensureDirCache(cacheKey, now)
+  cache.complete = true
+  cache.createdAt = now
+  cache.lastAccess = now
+}
+
+async function readSftpChunk(
+  session: SshLikeSession,
+  handle: Buffer,
+  resolvedPath: string
+): Promise<{ entries: SftpListEntry[]; eof: boolean }> {
+  const sftp = await getSftp(session)
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new TimeoutError(`SFTP list-dir timeout after ${SFTP_LIST_DIR_TIMEOUT_MS}ms`))
+    }, SFTP_LIST_DIR_TIMEOUT_MS)
+
+    sftp.readdir(handle, (err, list) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (err) {
+        if (isSftpEof(err)) return resolve({ entries: [], eof: true })
+        return reject(err)
+      }
+      resolve({ entries: mapSftpEntries(resolvedPath, list), eof: false })
+    })
+  })
+}
+
+async function closeSftpHandle(session: SshLikeSession, handle: Buffer): Promise<void> {
+  const sftp = await getSftp(session)
+  await withTimeout(
+    new Promise<void>((resolve) => sftp.close(handle, () => resolve())),
+    SFTP_CLOSE_TIMEOUT_MS,
+    'SFTP close timeout'
+  )
+}
+
+async function openSftpDir(session: SshLikeSession, resolvedPath: string): Promise<Buffer> {
+  const sftp = await getSftp(session)
+  return withTimeout(
+    new Promise<Buffer>((resolve, reject) => {
+      sftp.opendir(resolvedPath, (err, handle) => {
+        if (err) return reject(err)
+        resolve(handle)
+      })
+    }),
+    SFTP_OPEN_TIMEOUT_MS,
+    'SFTP opendir timeout'
+  )
+}
+
+async function readAllSftpDirEntries(
+  session: SshLikeSession,
+  resolvedPath: string
+): Promise<SftpListEntry[]> {
+  const sftp = await getSftp(session)
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new TimeoutError(`SFTP list-dir timeout after ${SFTP_LIST_DIR_TIMEOUT_MS}ms`))
+    }, SFTP_LIST_DIR_TIMEOUT_MS)
+
+    sftp.readdir(resolvedPath, (err, list) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (err) return reject(err)
+      resolve(mapSftpEntries(resolvedPath, list))
+    })
+  })
+}
+
+async function readFromCacheCursor(
+  cursor: Extract<SftpDirCursor, { type: 'cache' }>,
+  limit: number
+): Promise<{ entries: SftpListEntry[]; hasMore: boolean; nextCursor?: string }> {
+  const max = limit > 0 ? limit : cursor.entries.length
+  const page = cursor.entries.slice(cursor.offset, cursor.offset + max)
+  cursor.offset += page.length
+  cursor.lastAccess = Date.now()
+  const hasMore = cursor.offset < cursor.entries.length
+  if (!hasMore) {
+    sftpDirCursors.delete(cursor.id)
+    return { entries: page, hasMore }
+  }
+  return { entries: page, hasMore, nextCursor: cursor.id }
+}
+
+async function readFromSftpCursor(
+  cursor: Extract<SftpDirCursor, { type: 'sftp' }>,
+  session: SshLikeSession,
+  cacheKey: string,
+  limit: number
+): Promise<{ entries: SftpListEntry[]; hasMore: boolean; nextCursor?: string }> {
+  const max = limit > 0 ? limit : Number.MAX_SAFE_INTEGER
+  const page: SftpListEntry[] = []
+  let emptyReadCount = 0
+
+  try {
+    while (page.length < max) {
+      if (cursor.pending.length > 0) {
+        const take = cursor.pending.splice(0, max - page.length)
+        page.push(...take)
+        emptyReadCount = 0
+        continue
+      }
+
+      const chunk = await readSftpChunk(session, cursor.handle, cursor.path)
+      if (chunk.eof) {
+        await closeSftpHandle(session, cursor.handle)
+        markDirCacheComplete(cacheKey, Date.now())
+        sftpDirCursors.delete(cursor.id)
+        return { entries: page, hasMore: false }
+      }
+
+      if (chunk.entries.length === 0) {
+        emptyReadCount += 1
+        if (emptyReadCount >= MAX_EMPTY_READDIR_ROUNDS) {
+          await closeSftpHandle(session, cursor.handle)
+          markDirCacheComplete(cacheKey, Date.now())
+          sftpDirCursors.delete(cursor.id)
+          return { entries: page, hasMore: false }
+        }
+        continue
+      }
+
+      emptyReadCount = 0
+      appendToDirCache(cacheKey, chunk.entries, Date.now())
+      cursor.pending.push(...chunk.entries)
+    }
+
+    cursor.lastAccess = Date.now()
+    return { entries: page, hasMore: true, nextCursor: cursor.id }
+  } catch (err) {
+    try {
+      await closeSftpHandle(session, cursor.handle)
+    } catch {
+      // ignore
+    }
+    sftpDirCursors.delete(cursor.id)
+    throw err
+  }
 }
 
 function recordOutput(session: SshSession, data: Buffer): void {
@@ -196,7 +690,7 @@ function recordOutput(session: SshSession, data: Buffer): void {
   broadcastToRenderer('ssh:output', {
     sessionId: session.id,
     data: Array.from(chunk),
-    seq,
+    seq
   })
 }
 
@@ -213,30 +707,40 @@ export function registerSshHandlers(): void {
     }
   })
 
-  ipcMain.handle('ssh:group:create', async (_event, args: { id: string; name: string; sortOrder?: number }) => {
-    try {
-      const now = Date.now()
-      createSshGroup({
-        id: args.id,
-        name: args.name,
-        sortOrder: args.sortOrder ?? 0,
-        createdAt: now,
-        updatedAt: now,
-      })
-      return { success: true }
-    } catch (err) {
-      return { error: String(err) }
+  ipcMain.handle(
+    'ssh:group:create',
+    async (_event, args: { id: string; name: string; sortOrder?: number }) => {
+      try {
+        const now = Date.now()
+        createSshGroup({
+          id: args.id,
+          name: args.name,
+          sortOrder: args.sortOrder ?? 0,
+          createdAt: now,
+          updatedAt: now
+        })
+        return { success: true }
+      } catch (err) {
+        return { error: String(err) }
+      }
     }
-  })
+  )
 
-  ipcMain.handle('ssh:group:update', async (_event, args: { id: string; name?: string; sortOrder?: number }) => {
-    try {
-      updateSshGroup(args.id, { name: args.name, sortOrder: args.sortOrder, updatedAt: Date.now() })
-      return { success: true }
-    } catch (err) {
-      return { error: String(err) }
+  ipcMain.handle(
+    'ssh:group:update',
+    async (_event, args: { id: string; name?: string; sortOrder?: number }) => {
+      try {
+        updateSshGroup(args.id, {
+          name: args.name,
+          sortOrder: args.sortOrder,
+          updatedAt: Date.now()
+        })
+        return { success: true }
+      } catch (err) {
+        return { error: String(err) }
+      }
     }
-  })
+  )
 
   ipcMain.handle('ssh:group:delete', async (_event, args: { id: string }) => {
     try {
@@ -299,7 +803,7 @@ export function registerSshHandlers(): void {
           sortOrder: args.sortOrder ?? 0,
           lastConnectedAt: null,
           createdAt: now,
-          updatedAt: now,
+          updatedAt: now
         }
         createSshConnection(connection)
         return { success: true }
@@ -367,6 +871,8 @@ export function registerSshHandlers(): void {
           sshSessions.delete(sessionId)
         }
       }
+      resetFileSession(args.id, 'Connection deleted')
+      clearSftpStateForConnection(args.id)
       deleteSshConnection(args.id)
       return { success: true }
     } catch (err) {
@@ -427,14 +933,14 @@ export function registerSshHandlers(): void {
         status: 'connecting',
         outputSeq: 0,
         outputBuffer: [],
-        outputBufferSize: 0,
+        outputBufferSize: 0
       }
       sshSessions.set(sessionId, session)
 
       broadcastToRenderer('ssh:status', {
         sessionId,
         connectionId: args.connectionId,
-        status: 'connecting',
+        status: 'connecting'
       })
 
       return new Promise((resolve) => {
@@ -447,7 +953,7 @@ export function registerSshHandlers(): void {
             sessionId,
             connectionId: args.connectionId,
             status: 'error',
-            error: 'Connection timeout (30s)',
+            error: 'Connection timeout (30s)'
           })
           resolve({ error: 'Connection timeout (30s)' })
         }, 30000)
@@ -458,7 +964,10 @@ export function registerSshHandlers(): void {
             session.status = 'connected'
 
             // Update last connected time
-            updateSshConnection(args.connectionId, { lastConnectedAt: Date.now(), updatedAt: Date.now() })
+            updateSshConnection(args.connectionId, {
+              lastConnectedAt: Date.now(),
+              updatedAt: Date.now()
+            })
 
             // Open shell with PTY
             client.shell(
@@ -466,7 +975,7 @@ export function registerSshHandlers(): void {
                 term: 'xterm-256color',
                 cols: 120,
                 rows: 30,
-                modes: {},
+                modes: {}
               },
               (err, stream) => {
                 if (err) {
@@ -476,7 +985,7 @@ export function registerSshHandlers(): void {
                     sessionId,
                     connectionId: args.connectionId,
                     status: 'error',
-                    error: session.error,
+                    error: session.error
                   })
                   resolve({ error: session.error })
                   return
@@ -497,7 +1006,7 @@ export function registerSshHandlers(): void {
                   broadcastToRenderer('ssh:status', {
                     sessionId,
                     connectionId: args.connectionId,
-                    status: 'disconnected',
+                    status: 'disconnected'
                   })
                   client.end()
                   sshSessions.delete(sessionId)
@@ -506,7 +1015,7 @@ export function registerSshHandlers(): void {
                 broadcastToRenderer('ssh:status', {
                   sessionId,
                   connectionId: args.connectionId,
-                  status: 'connected',
+                  status: 'connected'
                 })
 
                 // Execute startup command if configured
@@ -531,7 +1040,7 @@ export function registerSshHandlers(): void {
               sessionId,
               connectionId: args.connectionId,
               status: 'error',
-              error: err.message,
+              error: err.message
             })
             resolve({ error: err.message })
           })
@@ -541,7 +1050,7 @@ export function registerSshHandlers(): void {
               broadcastToRenderer('ssh:status', {
                 sessionId,
                 connectionId: args.connectionId,
-                status: 'disconnected',
+                status: 'disconnected'
               })
             }
             sshSessions.delete(sessionId)
@@ -585,7 +1094,7 @@ export function registerSshHandlers(): void {
     broadcastToRenderer('ssh:status', {
       sessionId: args.sessionId,
       connectionId: session.connectionId,
-      status: 'disconnected',
+      status: 'disconnected'
     })
 
     return { success: true }
@@ -600,7 +1109,7 @@ export function registerSshHandlers(): void {
         id: session.id,
         connectionId: session.connectionId,
         status: session.status,
-        error: session.error,
+        error: session.error
       })
     }
     return list
@@ -621,7 +1130,7 @@ export function registerSshHandlers(): void {
 
       return {
         lastSeq: session.outputSeq,
-        chunks,
+        chunks
       }
     }
   )
@@ -630,18 +1139,24 @@ export function registerSshHandlers(): void {
 
   ipcMain.handle(
     'ssh:fs:read-file',
-    async (_event, args: { connectionId: string; path: string; offset?: number; limit?: number }) => {
+    async (
+      _event,
+      args: { connectionId: string; path: string; offset?: number; limit?: number }
+    ) => {
       try {
-        const session = findSessionByConnection(args.connectionId)
-        if (!session) return { error: 'No active SSH session for this connection' }
-
-        const sftp = await getSftp(session)
-        const resolvedPath = await resolveSftpPath(session, args.path)
-        const content = await new Promise<string>((resolve, reject) => {
-          sftp.readFile(resolvedPath, 'utf-8', (err, data) => {
-            if (err) return reject(err)
-            resolve(typeof data === 'string' ? data : data.toString('utf-8'))
-          })
+        const content = await withFileSession(args.connectionId, async (session) => {
+          const sftp = await getSftp(session)
+          const resolvedPath = await resolveSftpPath(session, args.path)
+          return withTimeout(
+            new Promise<string>((resolve, reject) => {
+              sftp.readFile(resolvedPath, 'utf-8', (err, data) => {
+                if (err) return reject(err)
+                resolve(typeof data === 'string' ? data : data.toString('utf-8'))
+              })
+            }),
+            SFTP_LIST_DIR_TIMEOUT_MS,
+            'SFTP read-file timeout'
+          )
         })
 
         if (args.offset !== undefined || args.limit !== undefined) {
@@ -666,21 +1181,24 @@ export function registerSshHandlers(): void {
     'ssh:fs:write-file',
     async (_event, args: { connectionId: string; path: string; content: string }) => {
       try {
-        const session = findSessionByConnection(args.connectionId)
-        if (!session) return { error: 'No active SSH session for this connection' }
+        await withFileSession(args.connectionId, async (session) => {
+          const sftp = await getSftp(session)
+          const resolvedPath = await resolveSftpPath(session, args.path)
 
-        const sftp = await getSftp(session)
-        const resolvedPath = await resolveSftpPath(session, args.path)
+          // Ensure parent directory exists
+          const dir = path.posix.dirname(resolvedPath)
+          await sftpMkdirRecursive(sftp, dir)
 
-        // Ensure parent directory exists
-        const dir = path.posix.dirname(resolvedPath)
-        await sftpMkdirRecursive(sftp, dir)
-
-        await new Promise<void>((resolve, reject) => {
-          sftp.writeFile(resolvedPath, args.content, 'utf-8', (err) => {
-            if (err) return reject(err)
-            resolve()
-          })
+          await withTimeout(
+            new Promise<void>((resolve, reject) => {
+              sftp.writeFile(resolvedPath, args.content, 'utf-8', (err) => {
+                if (err) return reject(err)
+                resolve()
+              })
+            }),
+            SFTP_LIST_DIR_TIMEOUT_MS,
+            'SFTP write-file timeout'
+          )
         })
         return { success: true }
       } catch (err) {
@@ -695,17 +1213,20 @@ export function registerSshHandlers(): void {
     'ssh:fs:read-file-binary',
     async (_event, args: { connectionId: string; path: string }) => {
       try {
-        const session = findSessionByConnection(args.connectionId)
-        if (!session) return { error: 'No active SSH session for this connection' }
-
-        const sftp = await getSftp(session)
-        const resolvedPath = await resolveSftpPath(session, args.path)
-        const buffer = await new Promise<Buffer>((resolve, reject) => {
-          sftp.readFile(resolvedPath, (err, data) => {
-            if (err) return reject(err)
-            const output = Buffer.isBuffer(data) ? data : Buffer.from(data)
-            resolve(output)
-          })
+        const buffer = await withFileSession(args.connectionId, async (session) => {
+          const sftp = await getSftp(session)
+          const resolvedPath = await resolveSftpPath(session, args.path)
+          return withTimeout(
+            new Promise<Buffer>((resolve, reject) => {
+              sftp.readFile(resolvedPath, (err, data) => {
+                if (err) return reject(err)
+                const output = Buffer.isBuffer(data) ? data : Buffer.from(data)
+                resolve(output)
+              })
+            }),
+            SFTP_LIST_DIR_TIMEOUT_MS,
+            'SFTP read-file-binary timeout'
+          )
         })
         return { data: buffer.toString('base64') }
       } catch (err) {
@@ -720,20 +1241,23 @@ export function registerSshHandlers(): void {
     'ssh:fs:write-file-binary',
     async (_event, args: { connectionId: string; path: string; data: string }) => {
       try {
-        const session = findSessionByConnection(args.connectionId)
-        if (!session) return { error: 'No active SSH session for this connection' }
+        await withFileSession(args.connectionId, async (session) => {
+          const sftp = await getSftp(session)
+          const resolvedPath = await resolveSftpPath(session, args.path)
+          const dir = path.posix.dirname(resolvedPath)
+          await sftpMkdirRecursive(sftp, dir)
 
-        const sftp = await getSftp(session)
-        const resolvedPath = await resolveSftpPath(session, args.path)
-        const dir = path.posix.dirname(resolvedPath)
-        await sftpMkdirRecursive(sftp, dir)
-
-        const buffer = Buffer.from(args.data, 'base64')
-        await new Promise<void>((resolve, reject) => {
-          sftp.writeFile(resolvedPath, buffer, (err) => {
-            if (err) return reject(err)
-            resolve()
-          })
+          const buffer = Buffer.from(args.data, 'base64')
+          await withTimeout(
+            new Promise<void>((resolve, reject) => {
+              sftp.writeFile(resolvedPath, buffer, (err) => {
+                if (err) return reject(err)
+                resolve()
+              })
+            }),
+            SFTP_LIST_DIR_TIMEOUT_MS,
+            'SFTP write-file-binary timeout'
+          )
         })
         return { success: true }
       } catch (err) {
@@ -746,45 +1270,95 @@ export function registerSshHandlers(): void {
 
   ipcMain.handle(
     'ssh:fs:list-dir',
-    async (_event, args: { connectionId: string; path: string }) => {
+    async (
+      _event,
+      args: {
+        connectionId: string
+        path: string
+        cursor?: string
+        limit?: number
+        refresh?: boolean
+      }
+    ) => {
       try {
-        const session = findSessionByConnection(args.connectionId)
-        if (!session) return { error: 'No active SSH session for this connection' }
+        return await withFileSession(args.connectionId, async (session) => {
+          const resolvedPath = await resolveSftpPath(session, args.path)
+          const now = Date.now()
+          pruneSftpListDirCache(now)
+          await pruneSftpDirCursors(now)
 
-        const sftp = await getSftp(session)
-        const resolvedPath = await resolveSftpPath(session, args.path)
-        const entries = await new Promise<
-          { name: string; type: string; path: string }[]
-        >((resolve, reject) => {
-          let settled = false
-          const timer = setTimeout(() => {
-            if (settled) return
-            settled = true
-            reject(new Error(`SFTP list-dir timeout after ${SFTP_LIST_DIR_TIMEOUT_MS}ms`))
-          }, SFTP_LIST_DIR_TIMEOUT_MS)
+          const rawLimit = Number.isFinite(args.limit) ? Number(args.limit) : 0
+          const limit = rawLimit > 0 ? Math.min(rawLimit, 1000) : 0
+          const refresh = args.refresh === true
+          const cacheKey = getSftpListCacheKey(session.connectionId, resolvedPath)
 
-          sftp.readdir(resolvedPath, (err, list) => {
-            if (settled) return
-            settled = true
-            clearTimeout(timer)
-            if (err) return reject(err)
-            resolve(
-              list.map((item) => {
-                const isDirectory = item.attrs.isDirectory()
-                const isSymlink = item.attrs.isSymbolicLink?.() ?? false
-                const type = isDirectory ? 'directory' : isSymlink ? 'symlink' : 'file'
-                return {
-                  name: item.filename,
-                  type,
-                  path: path.posix.join(resolvedPath, item.filename),
-                  size: item.attrs.size ?? 0,
-                  modifyTime: item.attrs.mtime ? item.attrs.mtime * 1000 : 0,
-                }
-              })
-            )
-          })
+          if (refresh) {
+            await clearSftpDirState(session, resolvedPath)
+          }
+
+          if (args.cursor) {
+            const cursor = sftpDirCursors.get(args.cursor)
+            if (!cursor) return { error: 'Cursor expired' }
+            if (cursor.connectionId !== session.connectionId || cursor.path !== resolvedPath) {
+              return { error: 'Cursor mismatch' }
+            }
+            cursor.lastAccess = now
+            return cursor.type === 'cache'
+              ? readFromCacheCursor(cursor, limit)
+              : readFromSftpCursor(cursor, session, cacheKey, limit)
+          }
+
+          const cached = sftpListDirCache.get(cacheKey)
+          const cacheFresh = cached ? now - cached.createdAt <= SFTP_LIST_DIR_CACHE_TTL_MS : false
+
+          if (!limit) {
+            if (!refresh && cached && cached.complete && cacheFresh) {
+              cached.lastAccess = now
+              return cached.entries
+            }
+            const entries = await readAllSftpDirEntries(session, resolvedPath)
+            sftpListDirCache.set(cacheKey, {
+              entries,
+              complete: true,
+              createdAt: now,
+              lastAccess: now
+            })
+            return entries
+          }
+
+          if (!refresh && cached && cached.complete && cacheFresh) {
+            cached.lastAccess = now
+            const cursorId = `sftp-cache-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+            const cursor: SftpDirCursor = {
+              id: cursorId,
+              type: 'cache',
+              connectionId: session.connectionId,
+              path: resolvedPath,
+              entries: cached.entries,
+              offset: 0,
+              lastAccess: now
+            }
+            sftpDirCursors.set(cursorId, cursor)
+            return readFromCacheCursor(cursor, limit)
+          }
+
+          const handle = await openSftpDir(session, resolvedPath)
+          const cursorId = `sftp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+          const cursor: SftpDirCursor = {
+            id: cursorId,
+            type: 'sftp',
+            connectionId: session.connectionId,
+            path: resolvedPath,
+            handle,
+            pending: [],
+            lastAccess: now
+          }
+          const result = await readFromSftpCursor(cursor, session, cacheKey, limit)
+          if (result.hasMore && result.nextCursor) {
+            sftpDirCursors.set(cursorId, cursor)
+          }
+          return result
         })
-        return entries
       } catch (err) {
         return { error: String(err) }
       }
@@ -793,32 +1367,24 @@ export function registerSshHandlers(): void {
 
   // ── SFTP: Mkdir ──
 
-  ipcMain.handle(
-    'ssh:fs:mkdir',
-    async (_event, args: { connectionId: string; path: string }) => {
-      try {
-        const session = findSessionByConnection(args.connectionId)
-        if (!session) return { error: 'No active SSH session for this connection' }
-
+  ipcMain.handle('ssh:fs:mkdir', async (_event, args: { connectionId: string; path: string }) => {
+    try {
+      await withFileSession(args.connectionId, async (session) => {
         const sftp = await getSftp(session)
         const resolvedPath = await resolveSftpPath(session, args.path)
         await sftpMkdirRecursive(sftp, resolvedPath)
-        return { success: true }
-      } catch (err) {
-        return { error: String(err) }
-      }
+      })
+      return { success: true }
+    } catch (err) {
+      return { error: String(err) }
     }
-  )
+  })
 
   // ── SFTP: Delete ──
 
-  ipcMain.handle(
-    'ssh:fs:delete',
-    async (_event, args: { connectionId: string; path: string }) => {
-      try {
-        const session = findSessionByConnection(args.connectionId)
-        if (!session) return { error: 'No active SSH session for this connection' }
-
+  ipcMain.handle('ssh:fs:delete', async (_event, args: { connectionId: string; path: string }) => {
+    try {
+      await withFileSession(args.connectionId, async (session) => {
         const sftp = await getSftp(session)
         const resolvedPath = await resolveSftpPath(session, args.path)
         const stat = await sftpStat(sftp, resolvedPath)
@@ -826,19 +1392,23 @@ export function registerSshHandlers(): void {
           // Use exec for recursive delete
           await sshExec(session, `rm -rf ${shellEscape(resolvedPath)}`)
         } else {
-          await new Promise<void>((resolve, reject) => {
-            sftp.unlink(resolvedPath, (err) => {
-              if (err) return reject(err)
-              resolve()
-            })
-          })
+          await withTimeout(
+            new Promise<void>((resolve, reject) => {
+              sftp.unlink(resolvedPath, (err) => {
+                if (err) return reject(err)
+                resolve()
+              })
+            }),
+            SFTP_LIST_DIR_TIMEOUT_MS,
+            'SFTP delete timeout'
+          )
         }
-        return { success: true }
-      } catch (err) {
-        return { error: String(err) }
-      }
+      })
+      return { success: true }
+    } catch (err) {
+      return { error: String(err) }
     }
-  )
+  })
 
   // ── SFTP: Move/Rename ──
 
@@ -846,17 +1416,20 @@ export function registerSshHandlers(): void {
     'ssh:fs:move',
     async (_event, args: { connectionId: string; from: string; to: string }) => {
       try {
-        const session = findSessionByConnection(args.connectionId)
-        if (!session) return { error: 'No active SSH session for this connection' }
-
-        const sftp = await getSftp(session)
-        const from = await resolveSftpPath(session, args.from)
-        const to = await resolveSftpPath(session, args.to)
-        await new Promise<void>((resolve, reject) => {
-          sftp.rename(from, to, (err) => {
-            if (err) return reject(err)
-            resolve()
-          })
+        await withFileSession(args.connectionId, async (session) => {
+          const sftp = await getSftp(session)
+          const from = await resolveSftpPath(session, args.from)
+          const to = await resolveSftpPath(session, args.to)
+          await withTimeout(
+            new Promise<void>((resolve, reject) => {
+              sftp.rename(from, to, (err) => {
+                if (err) return reject(err)
+                resolve()
+              })
+            }),
+            SFTP_LIST_DIR_TIMEOUT_MS,
+            'SFTP rename timeout'
+          )
         })
         return { success: true }
       } catch (err) {
@@ -888,20 +1461,19 @@ export function registerSshHandlers(): void {
     'ssh:fs:glob',
     async (_event, args: { connectionId: string; pattern: string; path?: string }) => {
       try {
-        const session = findSessionByConnection(args.connectionId)
-        if (!session) return { error: 'No active SSH session for this connection' }
-
-        const cwdInput = args.path || '.'
-        const cwd = await resolveSftpPath(session, cwdInput)
-        const result = await sshExec(
-          session,
-          `find ${shellEscape(cwd)} -name ${shellEscape(args.pattern)} -maxdepth 5 2>/dev/null | head -100`
-        )
-        if (result.exitCode !== 0) return []
-        return result.stdout
-          .split('\n')
-          .map((l) => l.trim())
-          .filter(Boolean)
+        return await withFileSession(args.connectionId, async (session) => {
+          const cwdInput = args.path || '.'
+          const cwd = await resolveSftpPath(session, cwdInput)
+          const result = await sshExec(
+            session,
+            `find ${shellEscape(cwd)} -name ${shellEscape(args.pattern)} -maxdepth 5 2>/dev/null | head -100`
+          )
+          if (result.exitCode !== 0) return []
+          return result.stdout
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean)
+        })
       } catch (err) {
         return { error: String(err) }
       }
@@ -917,28 +1489,27 @@ export function registerSshHandlers(): void {
       args: { connectionId: string; pattern: string; path?: string; include?: string }
     ) => {
       try {
-        const session = findSessionByConnection(args.connectionId)
-        if (!session) return { error: 'No active SSH session for this connection' }
+        return await withFileSession(args.connectionId, async (session) => {
+          const cwdInput = args.path || '.'
+          const cwd = await resolveSftpPath(session, cwdInput)
+          let cmd = `grep -rn ${shellEscape(args.pattern)} ${shellEscape(cwd)}`
+          if (args.include) cmd += ` --include=${shellEscape(args.include)}`
+          cmd += ' 2>/dev/null | head -100'
 
-        const cwdInput = args.path || '.'
-        const cwd = await resolveSftpPath(session, cwdInput)
-        let cmd = `grep -rn ${shellEscape(args.pattern)} ${shellEscape(cwd)}`
-        if (args.include) cmd += ` --include=${shellEscape(args.include)}`
-        cmd += ' 2>/dev/null | head -100'
-
-        const result = await sshExec(session, cmd)
-        if (result.exitCode !== 0 && result.exitCode !== 1) {
-          return { error: result.stderr || 'grep failed' }
-        }
-
-        const matches: { file: string; line: number; text: string }[] = []
-        for (const rawLine of result.stdout.split('\n')) {
-          const match = rawLine.match(/^(.+?):(\d+):(.*)$/)
-          if (match) {
-            matches.push({ file: match[1], line: parseInt(match[2], 10), text: match[3] })
+          const result = await sshExec(session, cmd)
+          if (result.exitCode !== 0 && result.exitCode !== 1) {
+            return { error: result.stderr || 'grep failed' }
           }
-        }
-        return matches
+
+          const matches: { file: string; line: number; text: string }[] = []
+          for (const rawLine of result.stdout.split('\n')) {
+            const match = rawLine.match(/^(.+?):(\d+):(.*)$/)
+            if (match) {
+              matches.push({ file: match[1], line: parseInt(match[2], 10), text: match[3] })
+            }
+          }
+          return matches
+        })
       } catch (err) {
         return { error: String(err) }
       }
@@ -958,7 +1529,7 @@ function findSessionByConnection(connectionId: string): SshSession | undefined {
 }
 
 function sshExec(
-  session: SshSession,
+  session: SshClientSession,
   command: string,
   timeout = 60000
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
@@ -992,13 +1563,25 @@ function sshExec(
   })
 }
 
-function sftpStat(sftp: SFTPWrapper, remotePath: string): Promise<import('ssh2').Stats | null> {
-  return new Promise((resolve) => {
-    sftp.stat(remotePath, (err, stats) => {
-      if (err) return resolve(null)
-      resolve(stats)
-    })
-  })
+async function sftpStat(
+  sftp: SFTPWrapper,
+  remotePath: string
+): Promise<import('ssh2').Stats | null> {
+  try {
+    return await withTimeout(
+      new Promise<import('ssh2').Stats>((resolve, reject) => {
+        sftp.stat(remotePath, (err, stats) => {
+          if (err) return reject(err)
+          resolve(stats)
+        })
+      }),
+      SFTP_OPEN_TIMEOUT_MS,
+      'SFTP stat timeout'
+    )
+  } catch (err) {
+    if (isTimeoutError(err)) throw err
+    return null
+  }
 }
 
 async function sftpMkdirRecursive(sftp: SFTPWrapper, remotePath: string): Promise<void> {
@@ -1009,12 +1592,16 @@ async function sftpMkdirRecursive(sftp: SFTPWrapper, remotePath: string): Promis
     current = current ? path.posix.join(current, part) : part
     const stat = await sftpStat(sftp, current)
     if (!stat) {
-      await new Promise<void>((resolve, reject) => {
-        sftp.mkdir(current, (err) => {
-          if (err && (err as NodeJS.ErrnoException).code !== 'FAILURE') return reject(err)
-          resolve()
-        })
-      })
+      await withTimeout(
+        new Promise<void>((resolve, reject) => {
+          sftp.mkdir(current, (err) => {
+            if (err && (err as NodeJS.ErrnoException).code !== 'FAILURE') return reject(err)
+            resolve()
+          })
+        }),
+        SFTP_OPEN_TIMEOUT_MS,
+        'SFTP mkdir timeout'
+      )
     }
   }
 }
@@ -1034,5 +1621,15 @@ export function closeAllSshSessions(): void {
       // ignore
     }
   }
+  for (const session of fileSessions.values()) {
+    try {
+      closeFileSession(session)
+    } catch {
+      // ignore
+    }
+  }
   sshSessions.clear()
+  fileSessions.clear()
+  sftpListDirCache.clear()
+  sftpDirCursors.clear()
 }

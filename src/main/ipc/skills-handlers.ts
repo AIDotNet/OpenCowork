@@ -1,4 +1,4 @@
-import { ipcMain, app, shell } from 'electron'
+import { ipcMain, shell } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -16,69 +16,9 @@ export interface MarketSkillInfo {
   source_path?: string
 }
 
-interface MarketSkillsData {
-  total: number
-  source: string
-  skills: MarketSkillInfo[]
-}
-
-let _marketSkillsCache: MarketSkillsData | null = null
-
-/**
- * Resolve the path to the market skills JSON.
- * In dev: docs/public/skills/skills.json
- * In prod: resources/skills-market/skills.json (if bundled)
- */
-function getMarketSkillsPath(): string {
-  const isDev = !app.isPackaged
-  if (isDev) {
-    return path.join(app.getAppPath(), 'docs', 'public', 'skills', 'skills.json')
-  }
-  const unpackedDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'skills-market', 'skills.json')
-  if (fs.existsSync(unpackedDir)) return unpackedDir
-  return path.join(process.resourcesPath, 'resources', 'skills-market', 'skills.json')
-}
-
-function loadMarketSkills(): MarketSkillsData | null {
-  if (_marketSkillsCache) return _marketSkillsCache
-  try {
-    const filePath = getMarketSkillsPath()
-    if (!fs.existsSync(filePath)) return null
-    const raw = fs.readFileSync(filePath, 'utf-8')
-    _marketSkillsCache = JSON.parse(raw) as MarketSkillsData
-    return _marketSkillsCache
-  } catch {
-    return null
-  }
-}
-
 const SKILLS_DIR = path.join(os.homedir(), '.open-cowork', 'skills')
 const SKILLS_FILENAME = 'SKILL.md'
 
-/**
- * Resolve the path to the bundled resources/skills/ directory.
- * - Dev: <project>/resources/skills/
- * - Production: <app>/resources/skills/ (asarUnpacked)
- */
-function getBundledSkillsDir(): string {
-  const isDev = !app.isPackaged
-  if (isDev) {
-    return path.join(app.getAppPath(), 'resources', 'skills')
-  }
-
-  const unpackedDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'skills')
-  if (fs.existsSync(unpackedDir)) {
-    return unpackedDir
-  }
-
-  return path.join(process.resourcesPath, 'resources', 'skills')
-}
-
-/**
- * Copy built-in skills from resources/skills/ to ~/.open-cowork/skills/.
- * Only copies a skill if its directory does not already exist in the target,
- * so user modifications are preserved.
- */
 /**
  * Recursively copy a directory from src to dest.
  */
@@ -93,31 +33,6 @@ function copyDirRecursive(src: string, dest: string): void {
     } else {
       fs.copyFileSync(srcPath, destPath)
     }
-  }
-}
-
-function ensureBuiltinSkills(): void {
-  try {
-    const bundledDir = getBundledSkillsDir()
-    if (!fs.existsSync(bundledDir)) {
-      console.warn('[Skills] Bundled skills directory not found:', bundledDir)
-      return
-    }
-
-    if (!fs.existsSync(SKILLS_DIR)) {
-      fs.mkdirSync(SKILLS_DIR, { recursive: true })
-    }
-
-    const entries = fs.readdirSync(bundledDir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      const targetDir = path.join(SKILLS_DIR, entry.name)
-      if (fs.existsSync(targetDir)) continue // already installed, skip
-
-      copyDirRecursive(path.join(bundledDir, entry.name), targetDir)
-    }
-  } catch (err) {
-    console.error('[Skills] Failed to initialize builtin skills:', err)
   }
 }
 
@@ -184,11 +99,9 @@ function extractDescription(content: string, fallback: string): string {
 }
 
 export function registerSkillsHandlers(): void {
-  // Initialize builtin skills on startup
-  ensureBuiltinSkills()
 
   /**
-   * skills:list — scan ~/.open-cowork/skills/ and return all available skills.
+   * skills:list 鈥?scan ~/.open-cowork/skills/ and return all available skills.
    * Each subdirectory containing a SKILL.md is treated as a skill.
    */
   ipcMain.handle('skills:list', async (): Promise<SkillInfo[]> => {
@@ -217,7 +130,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:load — read the SKILL.md content for a given skill name (strips frontmatter for AI use).
+   * skills:load 鈥?read the SKILL.md content for a given skill name (strips frontmatter for AI use).
    */
   ipcMain.handle('skills:load', async (_event, args: { name: string }): Promise<{ content: string; workingDirectory: string } | { error: string }> => {
     try {
@@ -237,7 +150,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:read — read the full SKILL.md content (with frontmatter intact) for display.
+   * skills:read 鈥?read the full SKILL.md content (with frontmatter intact) for display.
    */
   ipcMain.handle('skills:read', async (_event, args: { name: string }): Promise<{ content: string } | { error: string }> => {
     try {
@@ -252,7 +165,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:list-files — list all files in a skill directory with sizes and types.
+   * skills:list-files 鈥?list all files in a skill directory with sizes and types.
    */
   ipcMain.handle('skills:list-files', async (_event, args: { name: string }): Promise<{ files: ScanFileInfo[] } | { error: string }> => {
     try {
@@ -282,7 +195,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:delete — remove a skill directory from ~/.open-cowork/skills/.
+   * skills:delete 鈥?remove a skill directory from ~/.open-cowork/skills/.
    */
   ipcMain.handle('skills:delete', async (_event, args: { name: string }): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -298,7 +211,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:open-folder — open a skill's directory in the system file explorer.
+   * skills:open-folder 鈥?open a skill's directory in the system file explorer.
    */
   ipcMain.handle('skills:open-folder', async (_event, args: { name: string }): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -314,7 +227,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:add-from-folder — copy a skill from a source folder into ~/.open-cowork/skills/.
+   * skills:add-from-folder 鈥?copy a skill from a source folder into ~/.open-cowork/skills/.
    * Expects the source folder to contain a SKILL.md file.
    */
   ipcMain.handle('skills:add-from-folder', async (_event, args: { sourcePath: string }): Promise<{ success: boolean; name?: string; error?: string }> => {
@@ -339,7 +252,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:save — write updated SKILL.md content back to disk.
+   * skills:save 鈥?write updated SKILL.md content back to disk.
    */
   ipcMain.handle('skills:save', async (_event, args: { name: string; content: string }): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -355,7 +268,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:scan — analyze a skill folder for security risks before installation.
+   * skills:scan 鈥?analyze a skill folder for security risks before installation.
    * Returns file listing, risk analysis, and content previews.
    */
   ipcMain.handle('skills:scan', async (_event, args: { sourcePath: string }): Promise<ScanResult | { error: string }> => {
@@ -540,10 +453,10 @@ export function registerSkillsHandlers(): void {
     let endpoint: string
 
     if (args.useAiSearch && q) {
-      // AI semantic search — no pagination parameters
+      // AI semantic search 鈥?no pagination parameters
       endpoint = `${base}/skills/ai-search?q=${encodeURIComponent(q)}`
     } else {
-      // Keyword search — supports pagination; q is required, use '*' to list all
+      // Keyword search 鈥?supports pagination; q is required, use '*' to list all
       const page = Math.floor((args.offset ?? 0) / (args.limit ?? 20)) + 1
       const limit = Math.min(args.limit ?? 20, 100)
       const params = new URLSearchParams({
@@ -574,69 +487,32 @@ export function registerSkillsHandlers(): void {
   }
 
   /**
-   * skills:market-list — return paginated market skills with optional search.
-   * When provider=skillsmp, fetches from skillsmp.com API.
-   * Otherwise falls back to built-in local skills.json.
+   * skills:market-list 鈥?return paginated market skills with optional search.
+   * Requires SkillsMP API key.
    */
   ipcMain.handle('skills:market-list', async (_event, args: {
     offset?: number
     limit?: number
     query?: string
-    provider?: 'builtin' | 'skillsmp'
+    provider?: 'skillsmp'
     apiKey?: string
   }): Promise<{
     total: number
     skills: MarketSkillInfo[]
   }> => {
-    // --- skillsmp provider ---
-    if (args.provider === 'skillsmp' && args.apiKey) {
-      try {
-        return await fetchSkillsmpList({
-          query: args.query,
-          offset: args.offset,
-          limit: args.limit,
-          apiKey: args.apiKey,
-        })
-      } catch (err) {
-        console.error('[Skills] skillsmp API error:', err)
-        return { total: 0, skills: [] }
-      }
-    }
+    if (!args.apiKey) return { total: 0, skills: [] }
+    if (args.provider && args.provider !== 'skillsmp') return { total: 0, skills: [] }
 
-    // --- builtin provider (local skills.json) ---
-    const data = loadMarketSkills()
-    if (!data) return { total: 0, skills: [] }
-
-    let results = data.skills
-    if (args.query && args.query.trim()) {
-      const q = args.query.toLowerCase()
-      results = results.filter(
-        (s) => s.name.toLowerCase().includes(q) || s.owner.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)
-      )
-    }
-
-    // Enrich with descriptions from SKILL.md files
-    const enrichedResults = results.map((skill) => {
-      let description = skill.description
-      if (!description) {
-        try {
-          const skillPath = path.join(app.getAppPath(), 'docs', 'public', 'skills', skill.owner, skill.name, 'SKILL.md')
-          if (fs.existsSync(skillPath)) {
-            const content = fs.readFileSync(skillPath, 'utf-8')
-            description = extractDescription(content, skill.name)
-          }
-        } catch {
-          // Ignore errors, use default description
-        }
-      }
-      return { ...skill, description }
-    })
-
-    const offset = args.offset ?? 0
-    const limit = args.limit ?? 50
-    return {
-      total: enrichedResults.length,
-      skills: enrichedResults.slice(offset, offset + limit),
+    try {
+      return await fetchSkillsmpList({
+        query: args.query,
+        offset: args.offset,
+        limit: args.limit,
+        apiKey: args.apiKey,
+      })
+    } catch (err) {
+      console.error('[Skills] skillsmp API error:', err)
+      return { total: 0, skills: [] }
     }
   })
 
@@ -699,16 +575,15 @@ export function registerSkillsHandlers(): void {
   }
 
   /**
-   * skills:download-remote — download a skill from the remote marketplace to a temp directory.
+   * skills:download-remote 鈥?download a skill from the remote marketplace to a temp directory.
    * Returns the temp path and file contents for agent review.
    * When provider=skillsmp (or github URL available), downloads from GitHub.
-   * Falls back to local dev files when running in dev mode with builtin provider.
    */
   ipcMain.handle('skills:download-remote', async (_event, args: {
     owner: string
     repo: string
     name: string
-    provider?: 'builtin' | 'skillsmp'
+    provider?: 'skillsmp'
     apiKey?: string
     skillId?: string
     sourcePath?: string
@@ -723,60 +598,29 @@ export function registerSkillsHandlers(): void {
       const tempDir = path.join(tempBase, args.name)
       fs.mkdirSync(tempDir, { recursive: true })
 
-      // --- skillsmp or any provider with a valid owner/repo: download from GitHub ---
-      if (args.provider === 'skillsmp' || (args.owner && args.repo)) {
-        try {
-          const { files } = await downloadFromGitHub({
-            owner: args.owner,
-            repo: args.repo,
-            sourcePath: args.sourcePath,
-            tempDir,
-          })
-
-          if (files.length === 0) {
-            return { error: `No files found in GitHub repo ${args.owner}/${args.repo}` }
-          }
-
-          // Ensure SKILL.md exists
-          if (!files.some((f) => f.path === 'SKILL.md')) {
-            return { error: `No SKILL.md found in ${args.owner}/${args.repo}` }
-          }
-
-          return { tempPath: tempDir, files }
-        } catch (err) {
-          console.error('[Skills] GitHub download failed, falling back to local:', err)
-          // Fall through to local fallback
-        }
+      if (args.provider === 'skillsmp' && !args.apiKey) {
+        return { error: 'SkillsMP API key is required' }
       }
 
-      // --- builtin provider: copy from local dev files ---
-      const skillSourcePath = path.join(app.getAppPath(), 'docs', 'public', 'skills', args.owner, args.name)
-
-      if (!fs.existsSync(skillSourcePath)) {
-        return { error: `Skill not found: ${args.owner}/${args.name}` }
+      if (!args.owner || !args.repo) {
+        return { error: 'Missing GitHub owner/repo for skill download' }
       }
 
-      copyDirRecursive(skillSourcePath, tempDir)
+      const { files } = await downloadFromGitHub({
+        owner: args.owner,
+        repo: args.repo,
+        sourcePath: args.sourcePath,
+        tempDir,
+      })
 
-      const files: { path: string; content: string }[] = []
-      function collectFiles(dir: string, prefix: string): void {
-        const entries = fs.readdirSync(dir, { withFileTypes: true })
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name)
-          const relPath = prefix ? `${prefix}/${entry.name}` : entry.name
-          if (entry.isDirectory()) {
-            collectFiles(fullPath, relPath)
-          } else {
-            try {
-              const content = fs.readFileSync(fullPath, 'utf-8')
-              files.push({ path: relPath, content })
-            } catch {
-              // Skip binary or unreadable files
-            }
-          }
-        }
+      if (files.length === 0) {
+        return { error: `No files found in GitHub repo ${args.owner}/${args.repo}` }
       }
-      collectFiles(tempDir, '')
+
+      // Ensure SKILL.md exists
+      if (!files.some((f) => f.path === 'SKILL.md')) {
+        return { error: `No SKILL.md found in ${args.owner}/${args.repo}` }
+      }
 
       return { tempPath: tempDir, files }
     } catch (err) {
@@ -785,7 +629,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:cleanup-temp — remove a temporary skill directory after installation or cancellation.
+   * skills:cleanup-temp 鈥?remove a temporary skill directory after installation or cancellation.
    */
   ipcMain.handle('skills:cleanup-temp', async (_event, args: { tempPath: string }): Promise<{ success: boolean }> => {
     try {
@@ -816,3 +660,4 @@ export function registerSkillsHandlers(): void {
     }
   })
 }
+

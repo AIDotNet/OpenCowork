@@ -87,6 +87,8 @@
     "refresh": "刷新",
     "goUp": "返回上级目录",
     "loading": "加载中...",
+    "loadingMore": "加载更多中...",
+    "loadMore": "加载更多",
     "empty": "空目录",
     "error": "加载失败",
     "save": "保存",

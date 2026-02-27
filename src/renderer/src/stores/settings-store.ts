@@ -37,7 +37,7 @@ interface SettingsStore {
   webSearchTimeout: number
 
   // Skills Market Settings
-  skillsMarketProvider: 'builtin' | 'skillsmp'
+  skillsMarketProvider: 'skillsmp'
   skillsMarketApiKey: string
 
   updateSettings: (patch: Partial<Omit<SettingsStore, 'updateSettings'>>) => void
@@ -98,9 +98,9 @@ export const useSettingsStore = create<SettingsStore>()(
           state.webSearchTimeout = 30000
         }
         // Add skills market settings if missing
-        if (state.skillsMarketProvider === undefined) {
+        if (state.skillsMarketProvider === undefined || state.skillsMarketProvider !== 'skillsmp') {
           state.skillsMarketProvider = 'skillsmp'
-          state.skillsMarketApiKey = ''
+          state.skillsMarketApiKey = state.skillsMarketApiKey ?? ''
         }
         return state as unknown as SettingsStore
       },

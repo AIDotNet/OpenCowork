@@ -181,8 +181,24 @@ export function registerPluginHandlers(pluginManager: PluginManager): void {
       const plugins = readPlugins()
       const idx = plugins.findIndex((p) => p.id === id)
       if (idx === -1) return { success: false, error: 'Plugin not found' }
-      plugins[idx] = { ...plugins[idx], ...patch }
+      const next = { ...plugins[idx], ...patch }
+      if ('providerId' in patch && patch.providerId == null) {
+        next.model = null
+      }
+      plugins[idx] = next
       writePlugins(plugins)
+
+      if ('providerId' in patch || 'model' in patch) {
+        try {
+          const db = getDb()
+          const providerId = next.providerId ?? null
+          const modelId = providerId ? (next.model ?? null) : null
+          db.prepare('UPDATE sessions SET provider_id = ?, model_id = ? WHERE plugin_id = ?')
+            .run(providerId, modelId, id)
+        } catch (err) {
+          console.error('[Plugins] Failed to sync plugin session model:', err)
+        }
+      }
       return { success: true }
     }
   )

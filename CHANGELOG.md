@@ -3,6 +3,17 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-02-27
+
+### Added
+- **SSH workspace** — full SSH connection & group management with secure credential storage, per-connection terminals (xterm.js), file explorer/editor with diff-aware saves, remote preview panes, and the ability to bind a remote working directory to any chat session so the agent operates against server files natively.
+- **Codex OAuth provider** — end-to-end PKCE OAuth flow with a local callback server, status indicators, quota extraction from response headers, and automatic registration of the bundled `codex-instructions.md` prompt, making Codex usable via a single toggle in the Provider panel.
+- **Feishu member list tool** — new plugin tool + IPC wiring that lets agent automations fetch group member rosters on demand, exposing the capability in the Feishu plugin catalog for downstream skills.
+
+### Changed
+- **Provider / Plugin settings panels** — redesigned Provider panel shows OAuth status, quota usage, and dynamic field rendering, while the Plugin panel gains clearer permission warnings and reorganized toggles.
+- **Planning & permission workflow** — Cowork PermissionDialog, PlanPanel, dynamic context, and Plan Store adjustments reinforce the "plan before execution" UX and surface explicit permission prompts inside auto-reply/plugin scenarios.
+
 ## [0.2.6] - 2026-02-26
 
 ### Added

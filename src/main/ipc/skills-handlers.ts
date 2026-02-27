@@ -383,16 +383,28 @@ export function registerSkillsHandlers(): void {
   /**
    * Normalise a raw skill object from the skillsmp API into MarketSkillInfo.
    */
+  function parseGitHubOwnerRepo(url: string): { owner: string; repo: string } | null {
+    try {
+      const m = url.match(/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/|$)/)
+      return m ? { owner: m[1], repo: m[2] } : null
+    } catch {
+      return null
+    }
+  }
+
   function normaliseSkillsmpItem(s: Record<string, unknown>, index: number): MarketSkillInfo {
+    const githubUrl = String(s['github'] ?? s['github_url'] ?? '')
+    const parsed = githubUrl ? parseGitHubOwnerRepo(githubUrl) : null
+
     return {
       id: String(s['id'] ?? s['name'] ?? index),
       name: String(s['name'] ?? ''),
-      owner: String(s['owner'] ?? s['github_owner'] ?? ''),
-      repo: String(s['repo'] ?? s['github_repo'] ?? s['name'] ?? ''),
+      owner: String(s['owner'] ?? s['github_owner'] ?? parsed?.owner ?? ''),
+      repo: String(s['repo'] ?? s['github_repo'] ?? parsed?.repo ?? s['name'] ?? ''),
       rank: Number(s['stars'] ?? s['rank'] ?? 0),
       installs: Number(s['installs'] ?? s['downloads'] ?? 0),
       url: String(s['url'] ?? s['marketplace_url'] ?? `https://skillsmp.com/skills/${s['name'] ?? ''}`),
-      github: String(s['github'] ?? s['github_url'] ?? ''),
+      github: githubUrl,
       description: s['description'] != null ? String(s['description']) : undefined,
       source_path: s['source_path'] != null ? String(s['source_path']) : undefined,
     }
@@ -602,13 +614,22 @@ export function registerSkillsHandlers(): void {
         return { error: 'SkillsMP API key is required' }
       }
 
-      if (!args.owner || !args.repo) {
+      let { owner, repo } = args
+      if ((!owner || !repo) && args.github) {
+        const parsed = parseGitHubOwnerRepo(args.github)
+        if (parsed) {
+          owner = owner || parsed.owner
+          repo = repo || parsed.repo
+        }
+      }
+
+      if (!owner || !repo) {
         return { error: 'Missing GitHub owner/repo for skill download' }
       }
 
       const { files } = await downloadFromGitHub({
-        owner: args.owner,
-        repo: args.repo,
+        owner,
+        repo,
         sourcePath: args.sourcePath,
         tempDir,
       })

@@ -25,7 +25,10 @@
       "Bash(grep:*)",
       "Bash(grep error TS:*)",
       "Bash(cat:*)",
-      "WebFetch(domain:www.kimi.com)"
+      "WebFetch(domain:www.kimi.com)",
+      "WebFetch(domain:skillsmp.com)",
+      "WebFetch(domain:www.skillsmp.com)",
+      "WebFetch(domain:api.skillsmp.com)"
     ]
   }
 }

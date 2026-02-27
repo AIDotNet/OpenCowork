@@ -811,7 +811,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
       } else {
         if (activeProvider.apiKey) headers['Authorization'] = `Bearer ${activeProvider.apiKey}`
       }
-      const model = testModelId || activeProvider.models[0]?.id || 'gpt-4o'
+      const model = testModelId || activeProvider.models[0]?.id || 'mimo-v2-flash'
       const body = JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] })
       const result = await window.electron.ipcRenderer.invoke('api:request', { url, method: 'POST', headers, body, useSystemProxy: activeProvider.useSystemProxy })
       if (result?.error) {

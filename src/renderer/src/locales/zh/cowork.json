@@ -72,7 +72,12 @@
     "deletedFiles": "已删除文件",
     "new": "{{count}} 个新建",
     "edited": "{{count}} 个编辑",
-    "clickCopyDoublePreview": "{{path}}\n点击复制路径 · 双击预览"
+    "clickCopyDoublePreview": "{{path}}\n点击复制路径 · 双击预览",
+    "copyPath": "复制路径",
+    "preview": "预览",
+    "loading": "加载中...",
+    "noPreview": "无法预览此文件",
+    "openInPreview": "在预览面板中打开"
   },
   "fileTree": {
     "selectFolder": "选择工作目录以查看文件",

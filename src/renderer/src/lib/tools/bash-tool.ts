@@ -52,6 +52,9 @@ const bashHandler: ToolHandler = {
   },
   execute: async (input, ctx) => {
     const command = String(input.command ?? '')
+    if (!command.trim()) {
+      return JSON.stringify({ exitCode: 1, stderr: 'Missing command' })
+    }
 
     // SSH routing: execute command on remote server via ssh:exec
     if (ctx.sshConnectionId) {
@@ -131,14 +134,35 @@ const bashHandler: ToolHandler = {
 
     // Listen for streaming output chunks from main process
     let accumulated = ''
-    const cleanup = ctx.ipc.on('shell:output', (...args: unknown[]) => {
-      const data = args[0] as { execId: string; chunk: string }
-      if (data.execId !== execId) return
-      accumulated += data.chunk
+    let outputTimer: ReturnType<typeof setTimeout> | null = null
+    let lastOutputFlush = 0
+    const flushOutput = (): void => {
+      outputTimer = null
+      lastOutputFlush = Date.now()
       if (toolUseId) {
         useAgentStore.getState().updateToolCall(toolUseId, {
           output: accumulated,
         })
+      }
+    }
+
+    const cleanup = ctx.ipc.on('shell:output', (...args: unknown[]) => {
+      const data = args[0] as { execId: string; chunk: string }
+      if (data.execId !== execId) return
+      accumulated += data.chunk
+      const now = Date.now()
+      if (now - lastOutputFlush >= 60) {
+        if (outputTimer) {
+          clearTimeout(outputTimer)
+          outputTimer = null
+        }
+        flushOutput()
+        return
+      }
+      if (!outputTimer) {
+        outputTimer = setTimeout(() => {
+          flushOutput()
+        }, 60)
       }
     })
 
@@ -163,6 +187,11 @@ const bashHandler: ToolHandler = {
       if (toolUseId) {
         useAgentStore.getState().clearForegroundShellExec(toolUseId)
       }
+      if (outputTimer) {
+        clearTimeout(outputTimer)
+        outputTimer = null
+      }
+      flushOutput()
       cleanup()
     }
   },

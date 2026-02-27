@@ -72,7 +72,12 @@
     "deletedFiles": "Deleted Files",
     "new": "{{count}} new",
     "edited": "{{count}} edited",
-    "clickCopyDoublePreview": "{{path}}\nClick to copy path · Double-click to preview"
+    "clickCopyDoublePreview": "{{path}}\nClick to copy path · Double-click to preview",
+    "copyPath": "Copy path",
+    "preview": "Preview",
+    "loading": "Loading...",
+    "noPreview": "Unable to preview this file",
+    "openInPreview": "Open in preview panel"
   },
   "fileTree": {
     "selectFolder": "Select a working folder to view files",

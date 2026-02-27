@@ -10,11 +10,15 @@ import {
   Pencil,
   Trash2,
   Copy,
+  Download,
   FileText,
   FileCode,
   FileImage,
   FileArchive,
+  FileJson,
+  FileSpreadsheet,
   File,
+  ChevronRight
 } from 'lucide-react'
 import { useSshStore, type SshFileEntry } from '@renderer/stores/ssh-store'
 import { cn } from '@renderer/lib/utils'
@@ -24,14 +28,14 @@ import {
   FolderTrigger,
   FolderContent,
   FileItem,
-  SubFiles,
+  SubFiles
 } from '@renderer/components/animate-ui/components/radix/files'
 import {
   ContextMenu,
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator,
+  ContextMenuSeparator
 } from '@renderer/components/ui/context-menu'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -51,6 +55,7 @@ const EMPTY_ERROR_MAP: Record<string, string | null> = {}
 const EMPTY_PAGEINFO_MAP: Record<string, { cursor?: string; hasMore: boolean }> = {}
 const EMPTY_EXPANDED_DIRS = new Set<string>()
 const FILE_SIZE_LIMIT = 2 * 1024 * 1024
+const DEFAULT_ROOT_PATH = '/'
 
 function normalizeRootPath(input?: string): string {
   if (!input) return ROOT_PATH
@@ -67,9 +72,11 @@ function joinRemotePath(parent: string, name: string): string {
 
 function getParentPath(path: string): string {
   if (!path || path === '/') return '/'
+  if (path === '~') return '~'
   const trimmed = path.endsWith('/') && path.length > 1 ? path.slice(0, -1) : path
+  if (trimmed === '~') return '~'
   const idx = trimmed.lastIndexOf('/')
-  if (idx <= 0) return '/'
+  if (idx <= 0) return trimmed.startsWith('~') ? '~' : '/'
   return trimmed.slice(0, idx)
 }
 
@@ -78,7 +85,7 @@ function InlineInput({
   icon,
   placeholder,
   onConfirm,
-  onCancel,
+  onCancel
 }: {
   defaultValue: string
   icon: React.ReactNode
@@ -122,6 +129,11 @@ function InlineInput({
 }
 
 function getFileIconComponent(name: string): ElementType {
+  const lowered = name.toLowerCase()
+  if (lowered === 'dockerfile' || lowered === 'makefile') return FileCode
+  if (lowered === 'license' || lowered === 'readme' || lowered === 'readme.md') return FileText
+  if (lowered === '.gitignore' || lowered === '.env' || lowered.startsWith('.env.')) return FileText
+
   const ext = name.split('.').pop()?.toLowerCase()
   if (!ext) return File
 
@@ -152,13 +164,17 @@ function getFileIconComponent(name: string): ElementType {
     'html',
     'css',
     'scss',
-    'sql',
+    'sql'
   ]
   const textExts = ['md', 'txt', 'log', 'conf', 'cfg', 'ini', 'env']
+  const jsonExts = ['json', 'jsonl']
+  const sheetExts = ['csv', 'tsv', 'xls', 'xlsx']
   const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp']
   const archiveExts = ['zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar']
 
   if (codeExts.includes(ext)) return FileCode
+  if (jsonExts.includes(ext)) return FileJson
+  if (sheetExts.includes(ext)) return FileSpreadsheet
   if (textExts.includes(ext)) return FileText
   if (imageExts.includes(ext)) return FileImage
   if (archiveExts.includes(ext)) return FileArchive
@@ -169,14 +185,19 @@ function getFileIconComponent(name: string): ElementType {
 export function SshFileExplorer({
   sessionId,
   connectionId,
-  rootPath,
+  rootPath
 }: SshFileExplorerProps): React.JSX.Element {
   const { t } = useTranslation('ssh')
 
-  const baseRoot = useMemo(() => normalizeRootPath(rootPath), [rootPath])
+  const effectiveRootPath = rootPath == null ? DEFAULT_ROOT_PATH : rootPath
+  const baseRoot = useMemo(() => normalizeRootPath(effectiveRootPath), [effectiveRootPath])
   const hasCustomRoot = typeof rootPath === 'string' && rootPath.trim() !== ''
-  const enforceRoot = baseRoot !== ROOT_PATH && !baseRoot.startsWith('~')
-  const currentPath = useSshStore((s) => s.fileExplorerPaths[sessionId] ?? baseRoot)
+  const [resolvedHomeDir, setResolvedHomeDir] = useState<string | null>(null)
+  const effectiveBaseRoot = baseRoot
+  const enforceRoot = effectiveBaseRoot !== ROOT_PATH
+  const currentPath = useSshStore(
+    (s) => s.fileExplorerPaths[sessionId] ?? resolvedHomeDir ?? effectiveBaseRoot
+  )
   const entriesByPath = useSshStore((s) => s.fileExplorerEntries[sessionId] ?? EMPTY_ENTRY_MAP)
   const loadingByPath = useSshStore((s) => s.fileExplorerLoading[sessionId] ?? EMPTY_LOADING_MAP)
   const errorsByPath = useSshStore((s) => s.fileExplorerErrors[sessionId] ?? EMPTY_ERROR_MAP)
@@ -194,7 +215,56 @@ export function SshFileExplorer({
   useEffect(() => {
     setRenamingPath(null)
     setNewItemParent(null)
-  }, [baseRoot, sessionId])
+  }, [effectiveBaseRoot, sessionId])
+
+  useEffect(() => {
+    if (!sessionId || !connectionId) return
+    if (sessionStatus !== 'connected') return
+    if (hasCustomRoot) return
+    if (baseRoot !== ROOT_PATH) return
+
+    const loadHome = async (): Promise<void> => {
+      const result = await ipcClient.invoke(IPC.SSH_FS_HOME_DIR, { connectionId })
+      if (result && typeof result === 'object' && 'error' in result) return
+      const home = (result as { path?: string }).path
+      if (!home) return
+
+      setResolvedHomeDir(home)
+
+      const store = useSshStore.getState()
+      const existingPath = store.fileExplorerPaths[sessionId]
+      if (!existingPath || existingPath === baseRoot) {
+        store.setFileExplorerPath(sessionId, home)
+        store.setFileExplorerExpanded(sessionId, [])
+      }
+    }
+
+    void loadHome()
+  }, [baseRoot, connectionId, hasCustomRoot, sessionId, sessionStatus])
+
+  const handleDownloadFile = useCallback(
+    async (entry: SshFileEntry) => {
+      const selected = await ipcClient.invoke(IPC.FS_SELECT_SAVE_FILE, {
+        defaultPath: entry.name
+      })
+      if (!selected || typeof selected !== 'object') return
+      if ((selected as { canceled?: boolean }).canceled) return
+      const localPath = (selected as { path?: string }).path
+      if (!localPath) return
+
+      const result = await ipcClient.invoke(IPC.SSH_FS_DOWNLOAD, {
+        connectionId,
+        remotePath: entry.path,
+        localPath
+      })
+      if (result && typeof result === 'object' && 'error' in result) {
+        toast.error(String((result as { error?: string }).error ?? 'Download failed'))
+        return
+      }
+      toast.success(t('fileExplorer.downloaded'))
+    },
+    [connectionId, t]
+  )
 
   useEffect(() => {
     if (!sessionId || !connectionId) return
@@ -202,21 +272,42 @@ export function SshFileExplorer({
 
     const store = useSshStore.getState()
     const existingPath = store.fileExplorerPaths[sessionId]
-    const shouldReset = hasCustomRoot && existingPath !== baseRoot
-    if (!existingPath || shouldReset || (enforceRoot && !existingPath.startsWith(baseRoot))) {
-      store.setFileExplorerPath(sessionId, baseRoot)
-      store.setFileExplorerExpanded(sessionId, [])
+    const shouldReset = hasCustomRoot && existingPath !== effectiveBaseRoot
+    const shouldEnforceRoot =
+      !!existingPath && enforceRoot && !existingPath.startsWith(effectiveBaseRoot)
+    const preferHome = !hasCustomRoot && baseRoot === ROOT_PATH && resolvedHomeDir
+    const nextPath = preferHome ? resolvedHomeDir : effectiveBaseRoot
+    const shouldSetPath =
+      !existingPath ||
+      shouldReset ||
+      shouldEnforceRoot ||
+      (preferHome && existingPath === effectiveBaseRoot)
+
+    if (shouldSetPath) {
+      store.setFileExplorerPath(sessionId, nextPath)
+      if (!existingPath || shouldReset || shouldEnforceRoot) {
+        store.setFileExplorerExpanded(sessionId, [])
+      }
     }
 
     const loadEntries = async (): Promise<void> => {
-      if (hasCustomRoot && baseRoot !== ROOT_PATH) {
-        await ipcClient.invoke(IPC.SSH_FS_MKDIR, { connectionId, path: baseRoot })
+      if (hasCustomRoot && effectiveBaseRoot !== ROOT_PATH) {
+        await ipcClient.invoke(IPC.SSH_FS_MKDIR, { connectionId, path: effectiveBaseRoot })
       }
-      void store.loadFileExplorerEntries(sessionId, baseRoot)
+      void store.loadFileExplorerEntries(sessionId, effectiveBaseRoot)
     }
 
     void loadEntries()
-  }, [sessionId, connectionId, sessionStatus, baseRoot, enforceRoot, hasCustomRoot])
+  }, [
+    sessionId,
+    connectionId,
+    sessionStatus,
+    effectiveBaseRoot,
+    enforceRoot,
+    hasCustomRoot,
+    baseRoot,
+    resolvedHomeDir
+  ])
 
   useEffect(() => {
     if (sessionStatus !== 'connected') return
@@ -248,23 +339,80 @@ export function SshFileExplorer({
   useEffect(() => {
     if (!enforceRoot) return
     const filtered = Array.from(expandedDirs).filter(
-      (path) => path === baseRoot || path.startsWith(`${baseRoot}/`)
+      (path) => path === effectiveBaseRoot || path.startsWith(`${effectiveBaseRoot}/`)
     )
     if (filtered.length !== expandedDirs.size) {
       useSshStore.getState().setFileExplorerExpanded(sessionId, filtered)
     }
-  }, [baseRoot, expandedDirs, sessionId, enforceRoot])
+  }, [effectiveBaseRoot, expandedDirs, sessionId, enforceRoot])
 
   const handleOpenChange = useCallback(
     (next: string[]) => {
       const prev = expandedDirs
       const opened = next.find((value) => !prev.has(value))
       if (opened) {
-        useSshStore.getState().setFileExplorerPath(sessionId, opened)
+        const store = useSshStore.getState()
+        store.setFileExplorerPath(sessionId, opened)
+        const sessionEntries = store.fileExplorerEntries[sessionId] ?? {}
+        if (!Object.prototype.hasOwnProperty.call(sessionEntries, opened)) {
+          void store.loadFileExplorerEntries(sessionId, opened)
+        }
       }
       useSshStore.getState().setFileExplorerExpanded(sessionId, next)
     },
     [expandedDirs, sessionId]
+  )
+
+  const handleRefreshDir = useCallback(
+    (dirPath: string) => {
+      void useSshStore.getState().loadFileExplorerEntries(sessionId, dirPath, true)
+    },
+    [sessionId]
+  )
+
+  const handleZipDir = useCallback(
+    async (dirPath: string) => {
+      const result = await ipcClient.invoke(IPC.SSH_FS_ZIP_DIR, { connectionId, dirPath })
+      if (result && typeof result === 'object' && 'error' in result) {
+        toast.error(String((result as { error?: string }).error ?? 'Zip failed'))
+        return
+      }
+      const outputPath = (result as { outputPath?: string }).outputPath
+      if (outputPath) toast.success(outputPath)
+      const parent = getParentPath(dirPath)
+      void useSshStore.getState().loadFileExplorerEntries(sessionId, parent, true)
+    },
+    [connectionId, sessionId]
+  )
+
+  const handleUploadFileToDir = useCallback(
+    async (remoteDir: string) => {
+      const selected = await ipcClient.invoke(IPC.FS_SELECT_FILE)
+      if (!selected || typeof selected !== 'object') return
+      if ((selected as { canceled?: boolean }).canceled) return
+      const localPath = (selected as { path?: string }).path
+      if (!localPath) return
+      const taskId = await useSshStore
+        .getState()
+        .startUpload({ connectionId, remoteDir, localPath, kind: 'file' })
+      if (!taskId) toast.error('Upload failed')
+    },
+    [connectionId]
+  )
+
+  const handleUploadFolderToDir = useCallback(
+    async (remoteDir: string) => {
+      const selected = await ipcClient.invoke(IPC.FS_SELECT_FOLDER)
+      if (!selected || typeof selected !== 'object') return
+      if ((selected as { canceled?: boolean }).canceled) return
+      const localPath = (selected as { path?: string }).path
+      if (!localPath) return
+      const taskId = await useSshStore
+        .getState()
+        .startUpload({ connectionId, remoteDir, localPath, kind: 'folder' })
+      if (!taskId) toast.error('Upload failed')
+    },
+    [connectionId]
   )
 
   const handleSelectPath = useCallback(
@@ -276,22 +424,22 @@ export function SshFileExplorer({
 
   const handleGoUp = useCallback(() => {
     if (currentPath === ROOT_PATH) return
-    if (enforceRoot && currentPath === baseRoot) return
+    if (enforceRoot && currentPath === effectiveBaseRoot) return
     const parent = getParentPath(currentPath)
-    if (enforceRoot && !parent.startsWith(baseRoot)) {
-      handleSelectPath(baseRoot)
+    if (enforceRoot && !parent.startsWith(effectiveBaseRoot)) {
+      handleSelectPath(effectiveBaseRoot)
       return
     }
     handleSelectPath(parent)
-  }, [currentPath, baseRoot, enforceRoot, handleSelectPath])
+  }, [currentPath, effectiveBaseRoot, enforceRoot, handleSelectPath])
 
   const handleRefresh = useCallback(() => {
     const store = useSshStore.getState()
-    void store.loadFileExplorerEntries(sessionId, baseRoot, true)
+    void store.loadFileExplorerEntries(sessionId, effectiveBaseRoot, true)
     for (const path of expandedDirs) {
       void store.loadFileExplorerEntries(sessionId, path, true)
     }
-  }, [sessionId, expandedDirs, baseRoot])
+  }, [sessionId, expandedDirs, effectiveBaseRoot])
 
   const handleLoadMore = useCallback(
     (path: string) => {
@@ -319,9 +467,7 @@ export function SshFileExplorer({
       const store = useSshStore.getState()
       const existing = store.openTabs.find(
         (tab) =>
-          tab.type === 'file' &&
-          tab.connectionId === connectionId &&
-          tab.filePath === entry.path
+          tab.type === 'file' && tab.connectionId === connectionId && tab.filePath === entry.path
       )
       if (existing) {
         store.setActiveTab(existing.id)
@@ -335,7 +481,7 @@ export function SshFileExplorer({
         connectionId,
         connectionName,
         title: entry.name,
-        filePath: entry.path,
+        filePath: entry.path
       })
     },
     [connectionId, connectionName, t]
@@ -345,12 +491,12 @@ export function SshFileExplorer({
     async (entry: SshFileEntry) => {
       const confirmed = await confirm({
         title: t('fileExplorer.deleteConfirm', { name: entry.name }),
-        variant: 'destructive',
+        variant: 'destructive'
       })
       if (!confirmed) return
       const result = await ipcClient.invoke(IPC.SSH_FS_DELETE, {
         connectionId,
-        path: entry.path,
+        path: entry.path
       })
       if (result && typeof result === 'object' && 'error' in result) {
         toast.error(String((result as { error?: string }).error ?? 'Delete failed'))
@@ -373,7 +519,7 @@ export function SshFileExplorer({
       const result = await ipcClient.invoke(IPC.SSH_FS_MOVE, {
         connectionId,
         from: entry.path,
-        to: nextPath,
+        to: nextPath
       })
       if (result && typeof result === 'object' && 'error' in result) {
         toast.error(String((result as { error?: string }).error ?? 'Rename failed'))
@@ -415,7 +561,7 @@ export function SshFileExplorer({
           : await ipcClient.invoke(IPC.SSH_FS_WRITE_FILE, {
               connectionId,
               path: targetPath,
-              content: '',
+              content: ''
             })
       if (result && typeof result === 'object' && 'error' in result) {
         toast.error(String((result as { error?: string }).error ?? 'Create failed'))
@@ -428,13 +574,13 @@ export function SshFileExplorer({
   )
 
   const openValues = useMemo(() => Array.from(expandedDirs), [expandedDirs])
-  const rootEntries = entriesByPath[baseRoot] ?? []
-  const rootError = errorsByPath[baseRoot]
-  const hasRootLoaded = Object.prototype.hasOwnProperty.call(entriesByPath, baseRoot)
-  const rootLoading = loadingByPath[baseRoot] ?? false
+  const rootEntries = entriesByPath[effectiveBaseRoot] ?? []
+  const rootError = errorsByPath[effectiveBaseRoot]
+  const hasRootLoaded = Object.prototype.hasOwnProperty.call(entriesByPath, effectiveBaseRoot)
+  const rootLoading = loadingByPath[effectiveBaseRoot] ?? false
   const rootInitialLoading = !hasRootLoaded && !rootError
   const rootLoadingMore = rootLoading && hasRootLoaded
-  const rootHasMore = pageInfoByPath[baseRoot]?.hasMore ?? false
+  const rootHasMore = pageInfoByPath[effectiveBaseRoot]?.hasMore ?? false
 
   const renderEntries = useCallback(
     (entries: SshFileEntry[]): React.ReactNode => {
@@ -443,7 +589,7 @@ export function SshFileExplorer({
           const hasLoaded = Object.prototype.hasOwnProperty.call(entriesByPath, entry.path)
           const error = errorsByPath[entry.path]
           const isLoading = loadingByPath[entry.path] ?? false
-          const children = hasLoaded ? entriesByPath[entry.path] ?? [] : []
+          const children = hasLoaded ? (entriesByPath[entry.path] ?? []) : []
           const isInitialLoading = !hasLoaded && !error
           const isLoadingMore = isLoading && hasLoaded
           const pageInfo = pageInfoByPath[entry.path]
@@ -455,8 +601,18 @@ export function SshFileExplorer({
             <FolderItem key={entry.path} value={entry.path}>
               <ContextMenu>
                 <ContextMenuTrigger asChild>
-                  <div className="w-full">
-                    <FolderTrigger onClick={() => handleSelectPath(entry.path)}>
+                  <div
+                    className="w-full"
+                    onClick={() => {
+                      handleSelectPath(entry.path)
+                      const store = useSshStore.getState()
+                      const sessionEntries = store.fileExplorerEntries[sessionId] ?? {}
+                      if (!Object.prototype.hasOwnProperty.call(sessionEntries, entry.path)) {
+                        void store.loadFileExplorerEntries(sessionId, entry.path)
+                      }
+                    }}
+                  >
+                    <FolderTrigger>
                       {isRenaming ? (
                         <input
                           autoFocus
@@ -474,7 +630,15 @@ export function SshFileExplorer({
                           onBlur={() => setRenamingPath(null)}
                         />
                       ) : (
-                        entry.name
+                        <span className="inline-flex items-center gap-1">
+                          <ChevronRight
+                            className={cn(
+                              'size-3 shrink-0 text-muted-foreground transition-transform duration-200',
+                              expandedDirs.has(entry.path) && 'rotate-90'
+                            )}
+                          />
+                          <span className="truncate">{entry.name}</span>
+                        </span>
                       )}
                     </FolderTrigger>
                   </div>
@@ -489,6 +653,34 @@ export function SshFileExplorer({
                   >
                     <Folder className="size-3.5" />
                     {t('fileExplorer.open')}
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    className="gap-2 text-xs"
+                    onSelect={() => void handleZipDir(entry.path)}
+                  >
+                    <FileArchive className="size-3.5" />
+                    {t('fileExplorer.zipDir')}
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    className="gap-2 text-xs"
+                    onSelect={() => void handleUploadFileToDir(entry.path)}
+                  >
+                    <FilePlus2 className="size-3.5" />
+                    {t('fileExplorer.uploadFile')}
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    className="gap-2 text-xs"
+                    onSelect={() => void handleUploadFolderToDir(entry.path)}
+                  >
+                    <FolderPlus className="size-3.5" />
+                    {t('fileExplorer.uploadFolder')}
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    className="gap-2 text-xs"
+                    onSelect={() => handleRefreshDir(entry.path)}
+                  >
+                    <RefreshCw className="size-3.5" />
+                    {t('fileExplorer.refresh')}
                   </ContextMenuItem>
                   <ContextMenuItem
                     className="gap-2 text-xs"
@@ -638,6 +830,13 @@ export function SshFileExplorer({
               </ContextMenuItem>
               <ContextMenuItem
                 className="gap-2 text-xs"
+                onSelect={() => void handleDownloadFile(entry)}
+              >
+                <Download className="size-3.5" />
+                {t('fileExplorer.download')}
+              </ContextMenuItem>
+              <ContextMenuItem
+                className="gap-2 text-xs"
                 onSelect={() => {
                   setRenamingPath(entry.path)
                   setNewItemParent(null)
@@ -669,11 +868,13 @@ export function SshFileExplorer({
     [
       entriesByPath,
       errorsByPath,
+      expandedDirs,
       handleDelete,
       handleLoadMore,
       handleNewFile,
       handleNewFolder,
       handleNewItemConfirm,
+      handleRefreshDir,
       handleRenameConfirm,
       handleSelectPath,
       loadingByPath,
@@ -683,7 +884,7 @@ export function SshFileExplorer({
       pageInfoByPath,
       ensureExpanded,
       renamingPath,
-      t,
+      t
     ]
   )
 
@@ -744,7 +945,7 @@ export function SshFileExplorer({
               <div className="px-4 py-2">
                 <button
                   className="pointer-events-auto text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => handleLoadMore(baseRoot)}
+                  onClick={() => handleLoadMore(effectiveBaseRoot)}
                 >
                   {t('fileExplorer.loadMore')}
                 </button>

@@ -144,6 +144,39 @@ export function setupAutoUpdater(options: AutoUpdateOptions): void {
   if (initialized) return
   initialized = true
 
+  if (!app.isPackaged) {
+    // Allow update check/download in development for manual testing.
+    // This uses dev-app-update.yml in the project root.
+    autoUpdater.forceDevUpdateConfig = true
+  }
+
+  // Register IPC handler for manual update check (Settings > General)
+  ipcMain.handle('update:check', async () => {
+    try {
+      console.log('[Updater] User requested update check')
+      const result = await autoUpdater.checkForUpdates()
+      const currentVersion = app.getVersion()
+
+      if (!result) {
+        return {
+          success: true,
+          available: false,
+          currentVersion,
+          latestVersion: null,
+          skipped: true,
+        }
+      }
+
+      const latestVersion = result.updateInfo?.version || null
+      const available = Boolean(latestVersion && latestVersion !== currentVersion)
+      return { success: true, available, currentVersion, latestVersion, skipped: false }
+    } catch (error) {
+      const message = formatErrorMessage(error)
+      console.error('[Updater] Check failed:', error)
+      return { success: false, error: message }
+    }
+  })
+
   // Register IPC handler for download trigger
   ipcMain.handle('update:download', async () => {
     try {

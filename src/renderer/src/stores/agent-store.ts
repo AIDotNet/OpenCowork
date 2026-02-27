@@ -105,6 +105,28 @@ function normalizeToolCallPatch(patch: Partial<ToolCallState>): Partial<ToolCall
   }
 }
 
+function toolCallPatchHasChanges(existing: ToolCallState, patch: Partial<ToolCallState>): boolean {
+  for (const [key, nextValue] of Object.entries(patch)) {
+    const currentValue = (existing as unknown as Record<string, unknown>)[key]
+    if (Object.is(currentValue, nextValue)) continue
+
+    // For object-like fields (input/output), callers may pass new objects with the
+    // same content frequently. Avoid forcing a rerender when nothing actually changed.
+    if (typeof currentValue === 'object' && typeof nextValue === 'object') {
+      try {
+        const a = JSON.stringify(currentValue)
+        const b = JSON.stringify(nextValue)
+        if (a === b) continue
+      } catch {
+        // If either value can't be stringified, treat it as changed.
+      }
+    }
+
+    return true
+  }
+  return false
+}
+
 function trimToolCallArray(toolCalls: ToolCallState[]): void {
   if (toolCalls.length <= MAX_TRACKED_TOOL_CALLS) return
   toolCalls.splice(0, toolCalls.length - MAX_TRACKED_TOOL_CALLS)
@@ -373,6 +395,7 @@ export const useAgentStore = create<AgentStore>()(
           const normalizedPatch = normalizeToolCallPatch(patch)
           const pending = state.pendingToolCalls.find((t) => t.id === id)
           if (pending) {
+            if (!toolCallPatchHasChanges(pending, normalizedPatch)) return
             Object.assign(pending, normalizedPatch)
             if (normalizedPatch.status && normalizedPatch.status !== 'pending_approval') {
               const idx = state.pendingToolCalls.findIndex((t) => t.id === id)
@@ -387,6 +410,7 @@ export const useAgentStore = create<AgentStore>()(
           }
           const executed = state.executedToolCalls.find((t) => t.id === id)
           if (executed) {
+            if (!toolCallPatchHasChanges(executed, normalizedPatch)) return
             Object.assign(executed, normalizedPatch)
             trimToolCallArray(state.executedToolCalls)
           }

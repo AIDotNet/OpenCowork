@@ -58,6 +58,30 @@ export interface SshFileEntry {
   modifyTime: number
 }
 
+export type SshUploadStage =
+  | 'compress'
+  | 'upload'
+  | 'remote_unzip'
+  | 'cleanup'
+  | 'done'
+  | 'error'
+  | 'canceled'
+
+export type SshUploadProgress = {
+  current?: number
+  total?: number
+  percent?: number
+}
+
+export type SshUploadTask = {
+  taskId: string
+  connectionId: string
+  stage: SshUploadStage
+  progress?: SshUploadProgress
+  message?: string
+  updatedAt: number
+}
+
 interface SshGroupRow {
   id: string
   name: string
@@ -164,11 +188,56 @@ function getListDirQueue(sessionId: string): ListDirQueue {
   return created
 }
 
+const SLOT_ACQUIRE_TIMEOUT_MS = 10000
+
+let uploadEventsSubscribed = false
+
+function ensureUploadEventsSubscribed(): void {
+  if (uploadEventsSubscribed) return
+  uploadEventsSubscribed = true
+
+  ipcClient.on(IPC.SSH_FS_UPLOAD_EVENTS, (evt) => {
+    if (!evt || typeof evt !== 'object') return
+    const data = evt as {
+      taskId?: string
+      connectionId?: string
+      stage?: SshUploadStage
+      progress?: SshUploadProgress
+      message?: string
+    }
+    if (!data.taskId || !data.connectionId || !data.stage) return
+    const taskId = data.taskId
+    const connectionId = data.connectionId
+    const stage = data.stage
+
+    useSshStore.setState((s) => {
+      const prev = s.uploadTasks[taskId]
+      const nextTask: SshUploadTask = {
+        taskId,
+        connectionId,
+        stage,
+        progress: data.progress,
+        message: data.message,
+        updatedAt: Date.now()
+      }
+      return {
+        uploadTasks: {
+          ...s.uploadTasks,
+          [taskId]: { ...prev, ...nextTask }
+        }
+      }
+    })
+  })
+}
+
 function acquireListDirSlot(sessionId: string): Promise<() => void> {
   const queue = getListDirQueue(sessionId)
   return new Promise((resolve) => {
+    let resolved = false
     const tryAcquire = () => {
+      if (resolved) return
       if (queue.active < MAX_CONCURRENT_LIST_DIR) {
+        resolved = true
         queue.active += 1
         resolve(() => {
           queue.active = Math.max(0, queue.active - 1)
@@ -179,7 +248,33 @@ function acquireListDirSlot(sessionId: string): Promise<() => void> {
       }
       queue.queue.push(tryAcquire)
     }
+
     tryAcquire()
+
+    if (!resolved) {
+      console.warn('[SshStore] slot queue full, waiting...', {
+        sessionId,
+        active: queue.active,
+        queued: queue.queue.length
+      })
+      setTimeout(() => {
+        if (resolved) return
+        console.warn('[SshStore] slot acquire timeout — force-resetting queue', {
+          sessionId,
+          active: queue.active,
+          queued: queue.queue.length
+        })
+        resolved = true
+        queue.active = 0
+        queue.queue.length = 0
+        queue.active = 1
+        resolve(() => {
+          queue.active = Math.max(0, queue.active - 1)
+          const next = queue.queue.shift()
+          if (next) next()
+        })
+      }, SLOT_ACQUIRE_TIMEOUT_MS)
+    }
   })
 }
 
@@ -219,6 +314,9 @@ interface SshStore {
   fileExplorerExpanded: Record<string, Set<string>>
   fileExplorerLoading: Record<string, Record<string, boolean>>
   fileExplorerErrors: Record<string, Record<string, string | null>>
+
+  // Upload tasks
+  uploadTasks: Record<string, SshUploadTask>
 
   // Data loading
   loadAll: () => Promise<void>
@@ -286,6 +384,16 @@ interface SshStore {
   loadMoreFileExplorerEntries: (sessionId: string, path: string) => Promise<void>
   toggleFileExplorerDir: (sessionId: string, dirPath: string) => void
   setFileExplorerExpanded: (sessionId: string, expanded: string[]) => void
+
+  // Upload tasks
+  startUpload: (args: {
+    connectionId: string
+    remoteDir: string
+    localPath: string
+    kind?: 'file' | 'folder'
+  }) => Promise<string | null>
+  cancelUpload: (taskId: string) => Promise<void>
+  clearUploadTask: (taskId: string) => void
 }
 
 export const useSshStore = create<SshStore>()((set, get) => ({
@@ -307,8 +415,11 @@ export const useSshStore = create<SshStore>()((set, get) => ({
   fileExplorerLoading: {},
   fileExplorerErrors: {},
 
+  uploadTasks: {},
+
   loadAll: async () => {
     try {
+      ensureUploadEventsSubscribed()
       const [groupRows, connRows, sessionRows] = await Promise.all([
         ipcClient.invoke(IPC.SSH_GROUP_LIST) as Promise<SshGroupRow[] | { error: string }>,
         ipcClient.invoke(IPC.SSH_CONNECTION_LIST) as Promise<
@@ -338,6 +449,39 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       console.error('[SshStore] Failed to load:', err)
       set({ _loaded: true })
     }
+  },
+
+  startUpload: async (args) => {
+    ensureUploadEventsSubscribed()
+    const result = await ipcClient.invoke(IPC.SSH_FS_UPLOAD_START, args)
+    if (result && typeof result === 'object' && 'error' in result) return null
+    const taskId = (result as { taskId?: string }).taskId
+    if (!taskId) return null
+    set((s) => ({
+      uploadTasks: {
+        ...s.uploadTasks,
+        [taskId]: {
+          taskId,
+          connectionId: args.connectionId,
+          stage: 'upload',
+          updatedAt: Date.now()
+        }
+      }
+    }))
+    return taskId
+  },
+
+  cancelUpload: async (taskId) => {
+    await ipcClient.invoke(IPC.SSH_FS_UPLOAD_CANCEL, { taskId })
+  },
+
+  clearUploadTask: (taskId) => {
+    set((s) => {
+      if (!s.uploadTasks[taskId]) return s
+      const next = { ...s.uploadTasks }
+      delete next[taskId]
+      return { uploadTasks: next }
+    })
   },
 
   // ── Group CRUD ──
@@ -581,6 +725,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
 
     if (sessionLoading[path]) {
       if (!force && Object.prototype.hasOwnProperty.call(sessionEntries, path)) {
+        console.debug('[SshStore] loadDir guard: already has entries, clearing loading', { path })
         listDirInFlightSince.delete(listDirKey)
         set((s) => ({
           fileExplorerLoading: {
@@ -590,7 +735,19 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         }))
         return
       }
-      if (startedAt && now - startedAt > SSH_FILE_EXPLORER_STALE_LOAD_MS) {
+      if (!startedAt) {
+        console.warn('[SshStore] Clearing orphaned loading state (no in-flight record)', {
+          sessionId,
+          path
+        })
+        listDirInFlightSince.delete(listDirKey)
+        set((s) => ({
+          fileExplorerLoading: {
+            ...s.fileExplorerLoading,
+            [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: false }
+          }
+        }))
+      } else if (now - startedAt > SSH_FILE_EXPLORER_STALE_LOAD_MS) {
         console.warn('[SshStore] Clearing stale list-dir loading state', { sessionId, path })
         listDirInFlightSince.delete(listDirKey)
         set((s) => ({
@@ -600,11 +757,15 @@ export const useSshStore = create<SshStore>()((set, get) => ({
           }
         }))
       } else {
+        console.debug('[SshStore] loadDir guard: already loading, skipping', { path })
         return
       }
     }
 
     if (!force && Object.prototype.hasOwnProperty.call(sessionEntries, path)) return
+
+    const connectionId = get().sessions[sessionId]?.connectionId
+    console.debug('[SshStore] loadDir START', { sessionId, path, connectionId, force })
 
     set((s) => ({
       fileExplorerLoading: {
@@ -617,7 +778,9 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       }
     }))
     listDirInFlightSince.set(listDirKey, now)
+    console.debug('[SshStore] loadDir: waiting for slot', { path })
     const release = await acquireListDirSlot(sessionId)
+    console.debug('[SshStore] loadDir: slot acquired, invoking IPC', { path, connectionId })
     try {
       const result = await ipcWithTimeout(
         ipcClient.invoke(IPC.SSH_FS_LIST_DIR, {
@@ -629,9 +792,16 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         IPC_LIST_DIR_TIMEOUT_MS
       )
 
+      console.debug('[SshStore] loadDir: IPC returned', {
+        path,
+        resultType: typeof result,
+        isArray: Array.isArray(result),
+        keys: result && typeof result === 'object' ? Object.keys(result) : null
+      })
+
       if (result && typeof result === 'object' && 'error' in result) {
         const errorMessage = String((result as { error?: string }).error ?? 'Failed to load')
-        console.error('[SshStore] Failed to load file entries:', result)
+        console.error('[SshStore] loadDir ERROR from IPC:', { path, errorMessage })
         set((s) => ({
           fileExplorerErrors: {
             ...s.fileExplorerErrors,
@@ -652,6 +822,11 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         const pageInfo = Array.isArray(result)
           ? { hasMore: false }
           : normalizePageInfo(result as ListDirPagedResult)
+        console.debug('[SshStore] loadDir: setting entries', {
+          path,
+          count: sorted.length,
+          pageInfo
+        })
         set((s) => ({
           fileExplorerEntries: {
             ...s.fileExplorerEntries,
@@ -667,6 +842,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
           }
         }))
       } else {
+        console.error('[SshStore] loadDir: entries is null, result:', result)
         const errorMessage = 'Failed to load'
         set((s) => ({
           fileExplorerErrors: {
@@ -676,7 +852,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         }))
       }
     } catch (err) {
-      console.error('[SshStore] Failed to load file entries:', err)
+      console.error('[SshStore] loadDir CATCH:', err)
       const errorMessage = err instanceof Error ? err.message : 'Failed to load'
       set((s) => ({
         fileExplorerErrors: {
@@ -685,6 +861,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         }
       }))
     } finally {
+      console.debug('[SshStore] loadDir FINALLY', { path })
       release()
       listDirInFlightSince.delete(listDirKey)
       set((s) => ({
@@ -704,7 +881,16 @@ export const useSshStore = create<SshStore>()((set, get) => ({
     const startedAt = listDirInFlightSince.get(listDirKey)
 
     if (sessionLoading[path]) {
-      if (startedAt && now - startedAt > SSH_FILE_EXPLORER_STALE_LOAD_MS) {
+      if (!startedAt) {
+        console.warn('[SshStore] loadMore: clearing orphaned loading state', { sessionId, path })
+        listDirInFlightSince.delete(listDirKey)
+        set((s) => ({
+          fileExplorerLoading: {
+            ...s.fileExplorerLoading,
+            [sessionId]: { ...(s.fileExplorerLoading[sessionId] ?? {}), [path]: false }
+          }
+        }))
+      } else if (now - startedAt > SSH_FILE_EXPLORER_STALE_LOAD_MS) {
         console.warn('[SshStore] Clearing stale list-dir loading state', { sessionId, path })
         listDirInFlightSince.delete(listDirKey)
         set((s) => ({

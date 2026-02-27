@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
-import { Settings, BrainCircuit, Info, Server, Puzzle, Cable, Loader2, Download, Github, Sparkles, ShieldCheck, Layers, HardDriveDownload, HardDriveUpload, Trash2, Globe, Wand2, BookOpen, Save, RefreshCw } from 'lucide-react'
+import { useEffect, useState, useCallback } from 'react'
+import { Settings, BrainCircuit, Info, Server, Puzzle, Cable, Loader2, Github, Sparkles, ShieldCheck, Layers, HardDriveDownload, HardDriveUpload, Trash2, Globe, Wand2, BookOpen, Save, RefreshCw } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { AnimatePresence } from 'motion/react'
 import { useUIStore, type SettingsTab } from '@renderer/stores/ui-store'
@@ -38,56 +38,6 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { readTextFile, resolveGlobalMemoryPath } from '@renderer/lib/agent/memory-files'
 import packageJson from '../../../../../package.json'
 
-const GITHUB_RELEASE_API_URL = 'https://api.github.com/repos/AIDotNet/OpenCowork/releases/latest'
-
-interface GithubAsset {
-  id: number
-  name: string
-  browser_download_url: string
-  size: number
-}
-
-interface GithubReleaseResponse {
-  tag_name?: string
-  name?: string
-  html_url?: string
-  assets?: GithubAsset[]
-}
-
-interface DownloadAsset {
-  id: string
-  label: string
-  url: string
-  sizeLabel: string
-}
-
-const releaseAssetMatchers: {
-  id: string
-  label: string
-  test: (name: string) => boolean
-}[] = [
-  {
-    id: 'win-exe',
-    label: 'Windows Installer (.exe)',
-    test: (name) => name.endsWith('-setup.exe') && !name.endsWith('.blockmap'),
-  },
-  {
-    id: 'win-blockmap',
-    label: 'Windows Blockmap',
-    test: (name) => name.endsWith('-setup.exe.blockmap'),
-  },
-  {
-    id: 'linux-appimage',
-    label: 'Linux AppImage',
-    test: (name) => name.toLowerCase().endsWith('.appimage'),
-  },
-  {
-    id: 'linux-deb',
-    label: 'Linux .deb (amd64)',
-    test: (name) => name.toLowerCase().endsWith('_amd64.deb'),
-  },
-]
-
 const DEFAULT_GLOBAL_MEMORY_TEMPLATE = `# MEMORY.md
 
 This file stores global durable memory shared across OpenCowork sessions.
@@ -116,30 +66,7 @@ function getIpcError(result: unknown): string | null {
   return typeof error === 'string' && error.trim() ? error : null
 }
 
-function formatBytes(bytes?: number): string {
-  if (!bytes || Number.isNaN(bytes)) return '—'
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB']
-  let value = bytes / 1024
-  let unitIndex = 0
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024
-    unitIndex++
-  }
-  return `${value.toFixed(1)} ${units[unitIndex]}`
-}
 
-function compareVersions(a?: string, b?: string): number {
-  if (!a || !b) return 0
-  const aParts = a.split('.').map((part) => parseInt(part, 10) || 0)
-  const bParts = b.split('.').map((part) => parseInt(part, 10) || 0)
-  const len = Math.max(aParts.length, bParts.length)
-  for (let i = 0; i < len; i++) {
-    const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0)
-    if (diff !== 0) return diff > 0 ? 1 : -1
-  }
-  return 0
-}
 
 const menuItemDefs: { id: SettingsTab; icon: React.ReactNode; labelKey: string; descKey: string }[] = [
   { id: 'general', icon: <Settings className="size-4" />, labelKey: 'general.title', descKey: 'general.subtitle' },
@@ -162,70 +89,92 @@ function GeneralPanel(): React.JSX.Element {
   const promptTokens = useDebouncedTokens(settings.systemPrompt)
   const currentVersion = packageJson.version ?? '0.0.0'
   const [latestVersion, setLatestVersion] = useState<string | null>(null)
-  const [latestAssets, setLatestAssets] = useState<DownloadAsset[]>([])
-  const [releaseUrl, setReleaseUrl] = useState<string | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
+  const [downloadingUpdate, setDownloadingUpdate] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null)
+  const [downloadedVersion, setDownloadedVersion] = useState<string | null>(null)
   const sessions = useChatStore((s) => s.sessions)
   const clearAllSessions = useChatStore((s) => s.clearAllSessions)
 
-  const fetchLatestVersion = useCallback(async () => {
+  const checkForUpdates = useCallback(async () => {
     setCheckingUpdate(true)
     setUpdateError(null)
+    setDownloadedVersion(null)
     try {
-      const res = await fetch(GITHUB_RELEASE_API_URL, {
-        cache: 'no-store',
-        headers: {
-          Accept: 'application/vnd.github+json',
-        },
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = (await res.json()) as GithubReleaseResponse
-      const tag = data.tag_name ?? data.name ?? null
-      const normalized = tag?.startsWith('v') ? tag.slice(1) : tag
-      setLatestVersion(normalized ?? null)
-      setReleaseUrl(data.html_url ?? (tag ? `https://github.com/AIDotNet/OpenCowork/releases/tag/${tag}` : null))
+      const result = (await window.electron.ipcRenderer.invoke(IPC.UPDATE_CHECK)) as
+        | { success: true; available: boolean; currentVersion: string; latestVersion: string | null }
+        | { success: false; error: string }
 
-      const assets = (data.assets ?? [])
-        .map((asset) => {
-          const matcher = releaseAssetMatchers.find((m) => m.test(asset.name))
-          if (!matcher) return null
-          return {
-            id: matcher.id,
-            label: matcher.label,
-            url: asset.browser_download_url,
-            sizeLabel: formatBytes(asset.size),
-          } satisfies DownloadAsset
-        })
-        .filter((asset): asset is DownloadAsset => Boolean(asset))
-      setLatestAssets(assets)
+      if (!result.success) {
+        setUpdateError(result.error)
+        setLatestVersion(null)
+        return
+      }
+
+      setLatestVersion(result.latestVersion)
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : String(err))
-      setLatestAssets([])
     } finally {
       setCheckingUpdate(false)
     }
   }, [])
 
   useEffect(() => {
-    void fetchLatestVersion()
-  }, [fetchLatestVersion])
+    void checkForUpdates()
+  }, [checkForUpdates])
 
-  const updateAvailable = latestVersion ? compareVersions(latestVersion, currentVersion) > 0 : false
-  const recommendedPackageId = useMemo(() => {
-    if (typeof navigator === 'undefined') return 'win-exe'
-    const ua = navigator.userAgent.toLowerCase()
-    if (ua.includes('linux')) {
-      if (ua.includes('ubuntu') || ua.includes('debian')) return 'linux-deb'
-      return 'linux-appimage'
+  const updateAvailable = Boolean(latestVersion && latestVersion !== currentVersion)
+
+  useEffect(() => {
+    const offAvailable = ipcClient.on(IPC.UPDATE_AVAILABLE, (data: unknown) => {
+      const d = data as { currentVersion: string; newVersion: string; releaseNotes: string }
+      setLatestVersion(d.newVersion)
+      setUpdateError(null)
+    })
+
+    const offProgress = ipcClient.on(IPC.UPDATE_DOWNLOAD_PROGRESS, (data: unknown) => {
+      const d = data as { percent: number }
+      setDownloadingUpdate(true)
+      setDownloadProgress(typeof d.percent === 'number' ? d.percent : null)
+    })
+
+    const offDownloaded = ipcClient.on(IPC.UPDATE_DOWNLOADED, (data: unknown) => {
+      const d = data as { version: string }
+      setDownloadingUpdate(false)
+      setDownloadProgress(null)
+      setDownloadedVersion(d.version)
+    })
+
+    const offError = ipcClient.on(IPC.UPDATE_ERROR, (data: unknown) => {
+      const d = data as { error: string }
+      setDownloadingUpdate(false)
+      setDownloadProgress(null)
+      setUpdateError(d.error)
+    })
+
+    return () => {
+      offAvailable()
+      offProgress()
+      offDownloaded()
+      offError()
     }
-    return 'win-exe'
   }, [])
 
-  const downloadOptions = latestAssets
+  const handleUpdateNow = useCallback(async () => {
+    setUpdateError(null)
+    setDownloadingUpdate(true)
+    setDownloadProgress(null)
+    setDownloadedVersion(null)
 
-  const handleDownload = useCallback((url: string) => {
-    window.open(url, '_blank', 'noopener')
+    const result = (await window.electron.ipcRenderer.invoke(IPC.UPDATE_DOWNLOAD)) as
+      | { success: true }
+      | { success: false; error: string }
+
+    if (!result.success) {
+      setDownloadingUpdate(false)
+      setUpdateError(result.error)
+    }
   }, [])
 
   const handleBackupSessions = useCallback(async () => {
@@ -312,51 +261,35 @@ function GeneralPanel(): React.JSX.Element {
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void fetchLatestVersion()} disabled={checkingUpdate}>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void checkForUpdates()} disabled={checkingUpdate}>
             {checkingUpdate && <Loader2 className="mr-1 size-3 animate-spin" />}
             {checkingUpdate ? 'Checking…' : 'Check for updates'}
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 text-xs"
-            disabled={!releaseUrl}
-            onClick={() => releaseUrl && window.open(releaseUrl, '_blank', 'noopener')}
-          >
-            View release
-          </Button>
+          {updateAvailable && (
+            <Button size="sm" className="h-7 text-xs" onClick={() => void handleUpdateNow()} disabled={downloadingUpdate}>
+              {downloadingUpdate && <Loader2 className="mr-1 size-3 animate-spin" />}
+              {downloadingUpdate ? 'Updating…' : 'Update now'}
+            </Button>
+          )}
         </div>
-        {updateError && <p className="text-xs text-destructive">Failed to check GitHub: {updateError}</p>}
+        {updateError && <p className="text-xs text-destructive">Failed to check updates: {updateError}</p>}
         {!updateError && !updateAvailable && latestVersion && !checkingUpdate && (
           <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500">You are up to date.</p>
         )}
-        {updateAvailable && (
-          <div className="space-y-3">
-            <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
-              A newer version (v{latestVersion}) is available. Choose a package to download.
-            </p>
-            <div className="grid gap-3 md:grid-cols-2">
-              {downloadOptions.map((pkg) => (
-                <div
-                  key={pkg.id}
-                  className={`rounded-lg border p-3 text-xs ${pkg.id === recommendedPackageId ? 'border-primary bg-primary/5' : 'border-border/60 bg-background/30'}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-medium">{pkg.label}</p>
-                      <p className="text-[11px] text-muted-foreground">{pkg.sizeLabel}</p>
-                    </div>
-                    {pkg.id === recommendedPackageId && (
-                      <span className="text-[10px] font-semibold uppercase text-primary">Recommended</span>
-                    )}
-                  </div>
-                  <Button size="sm" className="mt-3 h-7 w-full text-xs" onClick={() => handleDownload(pkg.url)}>
-                    <Download className="mr-1.5 size-3.5" /> Download v{latestVersion}
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
+        {updateAvailable && !downloadingUpdate && (
+          <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
+            A newer version (v{latestVersion}) is available.
+          </p>
+        )}
+        {downloadingUpdate && (
+          <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
+            Downloading update{typeof downloadProgress === 'number' ? `… ${Math.round(downloadProgress)}%` : '…'}
+          </p>
+        )}
+        {downloadedVersion && (
+          <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500">
+            Update v{downloadedVersion} downloaded. Restarting to install…
+          </p>
         )}
       </section>
 

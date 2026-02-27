@@ -256,7 +256,7 @@ function resolveOpenAiProviderConfig(
 ): { providerId: string; config: ProviderConfig } | null {
   const store = useProviderStore.getState()
   const providers = store.providers
-  const isOpenAi = (type?: string) =>
+  const isOpenAi = (type?: string): boolean =>
     type === 'openai' || type === 'openai-chat' || type === 'openai-responses'
 
   const resolveProviderConfig = (providerId: string, modelOverride?: string | null): ProviderConfig | null => {
@@ -308,13 +308,219 @@ function buildOpenAiAudioUrl(baseUrl?: string): string {
   return `${trimmed}/v1/audio/transcriptions`
 }
 
-function base64ToBlob(base64: string, mediaType: string): Blob {
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
+  const buffer = new ArrayBuffer(binary.length)
+  const bytes = new Uint8Array(buffer)
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i)
   }
-  return new Blob([bytes], { type: mediaType })
+  return buffer
+}
+
+function bytesToBlob(buffer: ArrayBuffer, mediaType: string): Blob {
+  return new Blob([buffer], { type: mediaType || 'application/octet-stream' })
+}
+
+function normalizeMediaType(mediaType?: string): string {
+  return (mediaType ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
+}
+
+const OPENAI_AUDIO_MEDIA_TYPES = new Set([
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/mpga',
+  'audio/mp4',
+  'audio/m4a',
+  'audio/x-m4a',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/wave',
+  'audio/webm',
+])
+
+function isOpenAiAudioMediaType(mediaType: string): boolean {
+  return OPENAI_AUDIO_MEDIA_TYPES.has(normalizeMediaType(mediaType))
+}
+
+function detectAudioMediaType(bytes: Uint8Array): string | undefined {
+  if (
+    bytes.length >= 12
+    && bytes[0] === 0x52
+    && bytes[1] === 0x49
+    && bytes[2] === 0x46
+    && bytes[3] === 0x46
+    && bytes[8] === 0x57
+    && bytes[9] === 0x41
+    && bytes[10] === 0x56
+    && bytes[11] === 0x45
+  ) {
+    return 'audio/wav'
+  }
+
+  if (bytes.length >= 3 && bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) {
+    return 'audio/mpeg'
+  }
+
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) {
+    return 'audio/mpeg'
+  }
+
+  if (
+    bytes.length >= 12
+    && String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]) === 'ftyp'
+  ) {
+    return 'audio/mp4'
+  }
+
+  if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+    return 'audio/webm'
+  }
+
+  if (bytes.length >= 4 && bytes[0] === 0x4f && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53) {
+    return 'audio/ogg'
+  }
+
+  return undefined
+}
+
+function extensionFromMediaType(mediaType: string): string | undefined {
+  switch (normalizeMediaType(mediaType)) {
+    case 'audio/mpeg':
+    case 'audio/mp3':
+    case 'audio/mpga':
+      return 'mp3'
+    case 'audio/mp4':
+      return 'mp4'
+    case 'audio/m4a':
+    case 'audio/x-m4a':
+      return 'm4a'
+    case 'audio/wav':
+    case 'audio/x-wav':
+    case 'audio/wave':
+      return 'wav'
+    case 'audio/webm':
+      return 'webm'
+    case 'audio/ogg':
+    case 'audio/opus':
+      return 'ogg'
+    default:
+      return undefined
+  }
+}
+
+function resolveAudioFileName(fileName: string | undefined, mediaType: string): string {
+  const baseName = (fileName ?? '').trim().split(/[\\/]/).pop()?.trim() ?? ''
+  if (baseName && /\.[a-z0-9]{2,5}$/i.test(baseName)) return baseName
+  const ext = extensionFromMediaType(mediaType)
+  if (baseName) return ext ? `${baseName}.${ext}` : baseName
+  return ext ? `audio.${ext}` : 'audio.bin'
+}
+
+function encodeAudioBufferToWav(audioBuffer: AudioBuffer): ArrayBuffer {
+  const channelCount = audioBuffer.numberOfChannels
+  const sampleRate = audioBuffer.sampleRate
+  const frameCount = audioBuffer.length
+  const bytesPerSample = 2
+  const blockAlign = channelCount * bytesPerSample
+  const dataSize = frameCount * blockAlign
+  const wav = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(wav)
+
+  const writeAscii = (offset: number, value: string): void => {
+    for (let i = 0; i < value.length; i++) {
+      view.setUint8(offset + i, value.charCodeAt(i))
+    }
+  }
+
+  writeAscii(0, 'RIFF')
+  view.setUint32(4, 36 + dataSize, true)
+  writeAscii(8, 'WAVE')
+  writeAscii(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, channelCount, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * blockAlign, true)
+  view.setUint16(32, blockAlign, true)
+  view.setUint16(34, 16, true)
+  writeAscii(36, 'data')
+  view.setUint32(40, dataSize, true)
+
+  let offset = 44
+  for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+    for (let channelIndex = 0; channelIndex < channelCount; channelIndex++) {
+      const sample = audioBuffer.getChannelData(channelIndex)[frameIndex] ?? 0
+      const clamped = Math.max(-1, Math.min(1, sample))
+      const int16 = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff
+      view.setInt16(offset, int16, true)
+      offset += bytesPerSample
+    }
+  }
+
+  return wav
+}
+
+async function transcodeToWav(buffer: ArrayBuffer): Promise<ArrayBuffer | null> {
+  try {
+    const AudioCtx = window.AudioContext
+      || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtx) return null
+
+    const ctx = new AudioCtx()
+    try {
+      const decoded = await ctx.decodeAudioData(buffer.slice(0))
+      return encodeAudioBufferToWav(decoded)
+    } finally {
+      await ctx.close().catch(() => {})
+    }
+  } catch (err) {
+    console.warn('[PluginAutoReply] Failed to transcode audio to wav', err)
+    return null
+  }
+}
+
+async function normalizeAudioUpload(args: {
+  base64: string
+  mediaType: string
+  fileName: string
+}): Promise<{ blob: Blob; fileName: string }> {
+  const buffer = base64ToArrayBuffer(args.base64)
+  const bytes = new Uint8Array(buffer)
+  const declaredMediaType = normalizeMediaType(args.mediaType)
+  const detectedMediaType = detectAudioMediaType(bytes)
+  const effectiveMediaType = (detectedMediaType ?? declaredMediaType) || 'application/octet-stream'
+
+  if (detectedMediaType && declaredMediaType && detectedMediaType !== declaredMediaType) {
+    console.warn('[PluginAutoReply] Audio media type mismatch, using detected type', {
+      declaredMediaType,
+      detectedMediaType,
+    })
+  }
+
+  const normalizedEffectiveMediaType = normalizeMediaType(effectiveMediaType)
+  const looksLikeWav = normalizedEffectiveMediaType === 'audio/wav'
+    || normalizedEffectiveMediaType === 'audio/x-wav'
+    || normalizedEffectiveMediaType === 'audio/wave'
+  const shouldForceWavRebuild = looksLikeWav && detectedMediaType !== 'audio/wav'
+
+  if (!isOpenAiAudioMediaType(effectiveMediaType) || shouldForceWavRebuild) {
+    if (shouldForceWavRebuild) {
+      console.warn('[PluginAutoReply] Declared WAV does not match bytes, rebuilding WAV payload')
+    }
+    const transcoded = await transcodeToWav(buffer)
+    if (transcoded) {
+      return {
+        blob: bytesToBlob(transcoded, 'audio/wav'),
+        fileName: resolveAudioFileName(args.fileName, 'audio/wav'),
+      }
+    }
+  }
+
+  return {
+    blob: bytesToBlob(buffer, effectiveMediaType),
+    fileName: resolveAudioFileName(args.fileName, effectiveMediaType),
+  }
 }
 
 async function transcribeFeishuAudio(args: {
@@ -327,8 +533,8 @@ async function transcribeFeishuAudio(args: {
 }): Promise<string> {
   const url = buildOpenAiAudioUrl(args.baseUrl)
   const form = new FormData()
-  const blob = base64ToBlob(args.base64, args.mediaType)
-  form.append('file', blob, args.fileName)
+  const normalized = await normalizeAudioUpload(args)
+  form.append('file', normalized.blob, normalized.fileName)
   form.append('model', args.model)
 
   const res = await fetch(url, {
@@ -417,6 +623,12 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   // ── Check feature toggles ──
   const pluginMeta = usePluginStore.getState().plugins.find((p) => p.id === pluginId)
   const features = pluginMeta?.features ?? { autoReply: true, streamingReply: true, autoStart: true }
+  const pluginTypeFromStore = (pluginMeta?.type ?? '').toLowerCase()
+  const pluginTypeFromTask = (pluginType ?? '').toLowerCase()
+  const isFeishuPlugin = pluginTypeFromStore === 'feishu-bot'
+    || pluginTypeFromTask === 'feishu-bot'
+    || pluginTypeFromStore === 'feishu'
+    || pluginTypeFromTask === 'feishu'
   if (!features.autoReply) {
     console.log(`[PluginAutoReply] Auto-reply disabled for plugin ${pluginId}, skipping`)
     return
@@ -460,7 +672,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
 
   let effectiveContent = task.content
 
-  if (task.audio && pluginMeta?.type === 'feishu-bot') {
+  if (task.audio && isFeishuPlugin) {
     const speechProviderId = providerStore.activeSpeechProviderId
     const speechModelId = providerStore.activeSpeechModelId
     if (!speechProviderId || !speechModelId) {
@@ -486,7 +698,6 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
         messageId: task.messageId,
         fileKey: task.audio.fileKey,
         type: 'file',
-        mediaType: task.audio.mediaType,
       }) as { ok?: boolean; base64?: string; mediaType?: string; error?: string }
 
       if (!download?.base64 || download.error) {
@@ -494,10 +705,15 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
         return
       }
 
+      const reportedMediaType = (download.mediaType ?? '').trim().toLowerCase()
+      const effectiveMediaType = (reportedMediaType && reportedMediaType !== 'application/octet-stream'
+        ? reportedMediaType
+        : task.audio.mediaType) ?? 'application/octet-stream'
+
       const transcript = await transcribeFeishuAudio({
         base64: download.base64,
-        mediaType: download.mediaType ?? task.audio.mediaType ?? 'audio/mpeg',
-        fileName: task.audio.fileName ?? 'audio.wav',
+        mediaType: effectiveMediaType,
+        fileName: task.audio.fileName ?? 'audio',
         model: openAiConfig.config.model,
         apiKey: openAiConfig.config.apiKey,
         baseUrl: openAiConfig.config.baseUrl,
@@ -511,6 +727,13 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       await sendPluginNotice(`语音转写失败：${msg}`)
       return
     }
+  } else if (task.audio) {
+    console.warn('[PluginAutoReply] Skip audio transcription because plugin type is not Feishu', {
+      pluginId,
+      messageId: task.messageId,
+      pluginTypeFromTask: pluginType,
+      pluginTypeFromStore: pluginMeta?.type,
+    })
   }
 
   // ── Start CardKit streaming card (only if streamingReply feature enabled) ──
@@ -656,7 +879,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
 
   // Inject plugin session auto-reply context
   // (pluginMeta already resolved above from usePluginStore)
-  const isFeishu = pluginMeta?.type === 'feishu-bot'
+  const isFeishu = isFeishuPlugin
 
   // ── Inject mandatory security prompt (highest priority, before all other context) ──
   const securityPrompt = buildSecurityPrompt(permissions, pluginWorkDir)
@@ -708,14 +931,13 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
 
   // Load AGENTS.md memory file from working directory
   let agentsMemory: string | undefined
-  let globalMemory: string | undefined
   if (session.workingFolder) {
     const projectMemoryPath = joinFsPath(session.workingFolder, 'AGENTS.md')
     agentsMemory = await loadOptionalMemoryFile(ipcClient, projectMemoryPath)
   }
 
   const globalMemorySnapshot = await loadGlobalMemorySnapshot(ipcClient)
-  globalMemory = globalMemorySnapshot.content
+  const globalMemory = globalMemorySnapshot.content
   const globalMemoryPath = globalMemorySnapshot.path
 
   const systemPrompt = buildSystemPrompt({
@@ -827,6 +1049,43 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
 
   let fullText = ''
   let lastError: string | null = null
+  const toolInputThrottle = new Map<
+    string,
+    { lastFlush: number; pending?: Record<string, unknown>; timer?: ReturnType<typeof setTimeout> }
+  >()
+
+  const flushToolInput = (toolCallId: string): void => {
+    const entry = toolInputThrottle.get(toolCallId)
+    if (!entry?.pending) return
+    entry.lastFlush = Date.now()
+    const pending = entry.pending
+    entry.pending = undefined
+    useAgentStore.getState().updateToolCall(toolCallId, { input: pending })
+  }
+
+  const scheduleToolInputUpdate = (toolCallId: string, partialInput: Record<string, unknown>): void => {
+    const now = Date.now()
+    const entry = toolInputThrottle.get(toolCallId) ?? { lastFlush: 0 }
+    entry.pending = partialInput
+    toolInputThrottle.set(toolCallId, entry)
+
+    if (now - entry.lastFlush >= 60) {
+      if (entry.timer) {
+        clearTimeout(entry.timer)
+        entry.timer = undefined
+      }
+      flushToolInput(toolCallId)
+      return
+    }
+
+    if (!entry.timer) {
+      entry.timer = setTimeout(() => {
+        entry.timer = undefined
+        flushToolInput(toolCallId)
+      }, 60)
+    }
+  }
+
   for await (const event of loop) {
     if (ac.signal.aborted) break
 
@@ -873,14 +1132,13 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
 
       case 'tool_use_args_delta':
         useChatStore.getState().updateToolUseInput(sessionId, assistantMsgId, event.toolCallId, event.partialInput)
-        useAgentStore.getState().updateToolCall(event.toolCallId, {
-          input: event.partialInput,
-        })
+        scheduleToolInputUpdate(event.toolCallId, event.partialInput)
         break
 
       case 'tool_use_generated':
         console.log(`[PluginAutoReply] Tool call: ${event.toolUseBlock.name}`)
         useChatStore.getState().updateToolUseInput(sessionId, assistantMsgId, event.toolUseBlock.id, event.toolUseBlock.input)
+        flushToolInput(event.toolUseBlock.id)
         useAgentStore.getState().updateToolCall(event.toolUseBlock.id, {
           input: event.toolUseBlock.input,
         })

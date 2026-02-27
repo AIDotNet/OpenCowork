@@ -1,7 +1,8 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, app } from 'electron'
 import { Client, type ConnectConfig, type ClientChannel, type SFTPWrapper } from 'ssh2'
 import * as fs from 'fs'
 import * as path from 'path'
+import archiver from 'archiver'
 import {
   startSshConfigWatcher,
   onSshConfigChange,
@@ -108,6 +109,218 @@ type SftpDirCursor =
 const sftpListDirCache = new Map<string, SftpDirCacheEntry>()
 const sftpDirCursors = new Map<string, SftpDirCursor>()
 
+type UploadStage =
+  | 'compress'
+  | 'upload'
+  | 'remote_unzip'
+  | 'cleanup'
+  | 'done'
+  | 'error'
+  | 'canceled'
+
+type UploadProgress = {
+  current?: number
+  total?: number
+  percent?: number
+}
+
+type UploadEvent = {
+  taskId: string
+  connectionId: string
+  stage: UploadStage
+  progress?: UploadProgress
+  message?: string
+}
+
+type UploadTaskState = {
+  taskId: string
+  connectionId: string
+  canceled: boolean
+  cancel: (reason?: string) => Promise<void>
+  localTempZipPath?: string
+  remoteTempZipPath?: string
+}
+
+const uploadTasks = new Map<string, UploadTaskState>()
+
+function broadcastUploadEvent(evt: UploadEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('ssh:fs:upload:events', evt)
+  }
+}
+
+function nowStamp(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return (
+    String(d.getFullYear()) +
+    pad(d.getMonth() + 1) +
+    pad(d.getDate()) +
+    '-' +
+    pad(d.getHours()) +
+    pad(d.getMinutes()) +
+    pad(d.getSeconds())
+  )
+}
+
+async function ensureRemoteDir(session: SshLikeSession, remoteDir: string): Promise<void> {
+  const sftp = await getSftp(session)
+  await sftpMkdirRecursive(sftp, remoteDir)
+}
+
+async function sftpUnlinkSafe(session: SshLikeSession, remotePath: string): Promise<void> {
+  const sftp = await getSftp(session)
+  await new Promise<void>((resolve) => {
+    sftp.unlink(remotePath, () => resolve())
+  })
+}
+
+async function checkRemoteCommandExists(session: SshClientSession, cmd: string): Promise<boolean> {
+  const result = await sshExec(session, `command -v ${cmd} >/dev/null 2>&1`)
+  return result.exitCode === 0
+}
+
+function formatUnzipInstallHint(): string {
+  return 'Remote unzip not found. Please install unzip (e.g. sudo apt-get install unzip / yum install unzip).'
+}
+
+async function zipLocalFolder(
+  taskId: string,
+  connectionId: string,
+  folderPath: string
+): Promise<string> {
+  const stat = await fs.promises.stat(folderPath)
+  if (!stat.isDirectory()) throw new Error('Selected path is not a folder')
+
+  const baseName = path.basename(folderPath)
+  const zipName = `${baseName}-${nowStamp()}-${Math.random().toString(36).slice(2, 6)}.zip`
+  const tempDir = path.join(app.getPath('temp'), 'open-cowork-uploads')
+  await fs.promises.mkdir(tempDir, { recursive: true })
+  const zipPath = path.join(tempDir, zipName)
+
+  broadcastUploadEvent({
+    taskId,
+    connectionId,
+    stage: 'compress',
+    message: 'Compressing folder...'
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    const output = fs.createWriteStream(zipPath)
+    const zip = archiver('zip', { zlib: { level: 9 } })
+
+    output.on('close', () => resolve())
+    output.on('error', (err) => reject(err))
+
+    zip.on('warning', (err) => {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
+      reject(err)
+    })
+    zip.on('error', (err) => reject(err))
+
+    zip.on('progress', (data) => {
+      const processed = data.entries.processed
+      const total = data.entries.total
+      const percent = total > 0 ? Math.round((processed / total) * 100) : undefined
+      broadcastUploadEvent({
+        taskId,
+        connectionId,
+        stage: 'compress',
+        progress: { current: processed, total, percent },
+        message: 'Compressing folder...'
+      })
+    })
+
+    zip.pipe(output)
+    zip.directory(folderPath, false)
+    void zip.finalize()
+  })
+
+  return zipPath
+}
+
+async function uploadFileWithProgress(
+  taskId: string,
+  connectionId: string,
+  session: SshLikeSession,
+  localPath: string,
+  remotePath: string,
+  task: UploadTaskState
+): Promise<void> {
+  const stat = await fs.promises.stat(localPath)
+  const total = stat.size
+  let sent = 0
+
+  broadcastUploadEvent({
+    taskId,
+    connectionId,
+    stage: 'upload',
+    progress: { current: 0, total, percent: 0 },
+    message: 'Uploading...'
+  })
+
+  const sftp = await getSftp(session)
+  await ensureRemoteDir(session, path.posix.dirname(remotePath))
+
+  await new Promise<void>((resolve, reject) => {
+    const readStream = fs.createReadStream(localPath)
+    const writeStream = sftp.createWriteStream(remotePath)
+    let lastEmit = 0
+
+    const cleanup = () => {
+      readStream.removeAllListeners()
+      writeStream.removeAllListeners()
+    }
+
+    task.cancel = async (_reason?: string) => {
+      if (task.canceled) return
+      task.canceled = true
+      broadcastUploadEvent({ taskId, connectionId, stage: 'canceled', message: 'Canceled' })
+      readStream.destroy(new Error('Upload canceled'))
+      writeStream.destroy()
+      try {
+        await sftpUnlinkSafe(session, remotePath)
+      } catch {
+        // ignore
+      }
+    }
+
+    readStream.on('data', (chunk) => {
+      const size = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk))
+      sent += size
+      const now = Date.now()
+      if (now - lastEmit > 200) {
+        lastEmit = now
+        const percent = total > 0 ? Math.round((sent / total) * 100) : undefined
+        broadcastUploadEvent({
+          taskId,
+          connectionId,
+          stage: 'upload',
+          progress: { current: sent, total, percent },
+          message: 'Uploading...'
+        })
+      }
+    })
+
+    writeStream.on('close', () => {
+      cleanup()
+      resolve()
+    })
+
+    writeStream.on('error', (err) => {
+      cleanup()
+      reject(err)
+    })
+
+    readStream.on('error', (err) => {
+      cleanup()
+      reject(err)
+    })
+
+    readStream.pipe(writeStream)
+  })
+}
+
 class TimeoutError extends Error {
   constructor(message: string) {
     super(message)
@@ -128,7 +341,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 function isTimeoutError(err: unknown): boolean {
   return (
     err instanceof TimeoutError ||
-    (err && typeof err === 'object' && (err as { name?: string }).name === 'TimeoutError')
+    (!!err && typeof err === 'object' && (err as { name?: string }).name === 'TimeoutError')
   )
 }
 
@@ -727,6 +940,244 @@ export function registerSshHandlers(): void {
   )
 
   ipcMain.handle(
+    'ssh:auth:install-public-key',
+    async (_event, args: { connectionId: string; publicKey: string }) => {
+      try {
+        const publicKey = (args.publicKey ?? '').trim()
+        if (!publicKey) return { error: 'Public key is empty' }
+
+        await withFileSession(args.connectionId, async (session) => {
+          const cmd =
+            `mkdir -p ~/.ssh && ` +
+            `chmod 700 ~/.ssh && ` +
+            `touch ~/.ssh/authorized_keys && ` +
+            `chmod 600 ~/.ssh/authorized_keys && ` +
+            `printf %s\\n ${shellEscape(publicKey)} >> ~/.ssh/authorized_keys`
+          const result = await sshExec(session, cmd, 15000)
+          if (result.exitCode !== 0) {
+            throw new Error(result.stderr || 'Failed to install public key')
+          }
+        })
+
+        return { success: true }
+      } catch (err) {
+        return { error: String(err) }
+      }
+    }
+  )
+
+  // ── SFTP/SSH: Zip directory (remote) ──
+
+  ipcMain.handle(
+    'ssh:fs:zip-dir',
+    async (_event, args: { connectionId: string; dirPath: string }) => {
+      try {
+        const sshSession = findSessionByConnection(args.connectionId)
+        if (!sshSession) return { error: 'No active SSH session for this connection' }
+
+        return await withFileSession(args.connectionId, async (fileSession) => {
+          const resolvedDir = await resolveSftpPath(fileSession, args.dirPath)
+          const parent = path.posix.dirname(resolvedDir)
+          const base = path.posix.basename(resolvedDir)
+          const outName = `${base}-${nowStamp()}-${Math.random().toString(36).slice(2, 6)}.zip`
+          const outPath = parent === '/' ? `/${outName}` : `${parent}/${outName}`
+
+          const hasZip = await checkRemoteCommandExists(sshSession, 'zip')
+          if (!hasZip) {
+            return {
+              error:
+                'Remote zip not found. Please install zip (e.g. sudo apt-get install zip / yum install zip).'
+            }
+          }
+
+          const cmd = `cd ${shellEscape(parent)} && zip -r ${shellEscape(outName)} ${shellEscape(base)} >/dev/null`
+          const execResult = await sshExec(sshSession, cmd, 10 * 60_000)
+          if (execResult.exitCode !== 0) {
+            return { error: execResult.stderr || 'Zip failed' }
+          }
+          return { outputPath: outPath }
+        })
+      } catch (err) {
+        return { error: String(err) }
+      }
+    }
+  )
+
+  // ── SFTP/SSH: Upload (file/folder) with progress events ──
+
+  ipcMain.handle(
+    'ssh:fs:upload:start',
+    async (
+      _event,
+      args: {
+        connectionId: string
+        remoteDir: string
+        localPath: string
+        kind?: 'file' | 'folder'
+      }
+    ) => {
+      const taskId = `ssh-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      try {
+        const sshSession = findSessionByConnection(args.connectionId)
+        if (!sshSession) return { error: 'No active SSH session for this connection' }
+
+        const task: UploadTaskState = {
+          taskId,
+          connectionId: args.connectionId,
+          canceled: false,
+          cancel: async () => {
+            task.canceled = true
+            broadcastUploadEvent({ taskId, connectionId: args.connectionId, stage: 'canceled' })
+          }
+        }
+        uploadTasks.set(taskId, task)
+
+        void (async () => {
+          try {
+            const localStat = await fs.promises.stat(args.localPath)
+            const kind: 'file' | 'folder' = args.kind
+              ? args.kind
+              : localStat.isDirectory()
+                ? 'folder'
+                : 'file'
+
+            await withFileSession(args.connectionId, async (fileSession) => {
+              const resolvedRemoteDir = await resolveSftpPath(fileSession, args.remoteDir)
+
+              if (kind === 'folder') {
+                const folderName = path.basename(args.localPath)
+                const localZipPath = await zipLocalFolder(taskId, args.connectionId, args.localPath)
+                task.localTempZipPath = localZipPath
+
+                const tmpDir = `${resolvedRemoteDir}/.open-cowork-tmp`
+                const remoteTmpZip = `${tmpDir}/${folderName}-${nowStamp()}-${Math.random().toString(36).slice(2, 6)}.zip`
+                task.remoteTempZipPath = remoteTmpZip
+
+                await ensureRemoteDir(fileSession, tmpDir)
+                await uploadFileWithProgress(
+                  taskId,
+                  args.connectionId,
+                  fileSession,
+                  localZipPath,
+                  remoteTmpZip,
+                  task
+                )
+
+                if (task.canceled) return
+                broadcastUploadEvent({
+                  taskId,
+                  connectionId: args.connectionId,
+                  stage: 'remote_unzip',
+                  message: 'Unzipping on remote...'
+                })
+
+                const hasUnzip = await checkRemoteCommandExists(sshSession, 'unzip')
+                if (!hasUnzip) {
+                  throw new Error(formatUnzipInstallHint())
+                }
+
+                const destDir = `${resolvedRemoteDir}/${folderName}`
+                const unzipCmd = `mkdir -p ${shellEscape(destDir)} && unzip -o ${shellEscape(remoteTmpZip)} -d ${shellEscape(destDir)} >/dev/null`
+                const unzipResult = await sshExec(sshSession, unzipCmd, 20 * 60_000)
+                if (unzipResult.exitCode !== 0) {
+                  throw new Error(unzipResult.stderr || 'Remote unzip failed')
+                }
+
+                if (task.canceled) return
+                broadcastUploadEvent({
+                  taskId,
+                  connectionId: args.connectionId,
+                  stage: 'cleanup',
+                  message: 'Cleaning up...'
+                })
+
+                try {
+                  await sftpUnlinkSafe(fileSession, remoteTmpZip)
+                } catch {
+                  // ignore
+                }
+                try {
+                  await fs.promises.unlink(localZipPath)
+                } catch {
+                  // ignore
+                }
+
+                broadcastUploadEvent({
+                  taskId,
+                  connectionId: args.connectionId,
+                  stage: 'done',
+                  message: 'Upload complete'
+                })
+              } else {
+                const fileName = path.basename(args.localPath)
+                const remoteFilePath = `${resolvedRemoteDir}/${fileName}`
+                await uploadFileWithProgress(
+                  taskId,
+                  args.connectionId,
+                  fileSession,
+                  args.localPath,
+                  remoteFilePath,
+                  task
+                )
+
+                if (task.canceled) return
+                broadcastUploadEvent({
+                  taskId,
+                  connectionId: args.connectionId,
+                  stage: 'done',
+                  message: 'Upload complete'
+                })
+              }
+            })
+          } catch (err) {
+            broadcastUploadEvent({
+              taskId,
+              connectionId: args.connectionId,
+              stage: task.canceled ? 'canceled' : 'error',
+              message: String(err)
+            })
+
+            if (task.localTempZipPath) {
+              try {
+                await fs.promises.unlink(task.localTempZipPath)
+              } catch {
+                // ignore
+              }
+            }
+            if (task.remoteTempZipPath) {
+              try {
+                await withFileSession(args.connectionId, async (fileSession) => {
+                  await sftpUnlinkSafe(fileSession, task.remoteTempZipPath as string)
+                })
+              } catch {
+                // ignore
+              }
+            }
+          } finally {
+            uploadTasks.delete(taskId)
+          }
+        })()
+
+        return { taskId }
+      } catch (err) {
+        uploadTasks.delete(taskId)
+        return { error: String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle('ssh:fs:upload:cancel', async (_event, args: { taskId: string }) => {
+    const task = uploadTasks.get(args.taskId)
+    if (!task) return { error: 'Task not found' }
+    try {
+      await task.cancel('Canceled by user')
+      return { success: true }
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  ipcMain.handle(
     'ssh:group:update',
     async (_event, args: { id: string; name?: string; sortOrder?: number }) => {
       try {
@@ -1281,11 +1732,20 @@ export function registerSshHandlers(): void {
       }
     ) => {
       try {
+        console.log('[SSH:list-dir] START', {
+          connectionId: args.connectionId,
+          path: args.path,
+          limit: args.limit,
+          cursor: !!args.cursor,
+          refresh: args.refresh
+        })
         return await withFileSession(args.connectionId, async (session) => {
           const resolvedPath = await resolveSftpPath(session, args.path)
           const now = Date.now()
+          console.log('[SSH:list-dir] pruning caches', { resolvedPath })
           pruneSftpListDirCache(now)
           await pruneSftpDirCursors(now)
+          console.log('[SSH:list-dir] prune done')
 
           const rawLimit = Number.isFinite(args.limit) ? Number(args.limit) : 0
           const limit = rawLimit > 0 ? Math.min(rawLimit, 1000) : 0
@@ -1314,8 +1774,12 @@ export function registerSshHandlers(): void {
           if (!limit) {
             if (!refresh && cached && cached.complete && cacheFresh) {
               cached.lastAccess = now
+              console.log('[SSH:list-dir] returning cached (no limit)', {
+                count: cached.entries.length
+              })
               return cached.entries
             }
+            console.log('[SSH:list-dir] readAll (no limit)', { resolvedPath })
             const entries = await readAllSftpDirEntries(session, resolvedPath)
             sftpListDirCache.set(cacheKey, {
               entries,
@@ -1323,11 +1787,13 @@ export function registerSshHandlers(): void {
               createdAt: now,
               lastAccess: now
             })
+            console.log('[SSH:list-dir] readAll done', { count: entries.length })
             return entries
           }
 
           if (!refresh && cached && cached.complete && cacheFresh) {
             cached.lastAccess = now
+            console.log('[SSH:list-dir] returning cached (paged)', { count: cached.entries.length })
             const cursorId = `sftp-cache-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
             const cursor: SftpDirCursor = {
               id: cursorId,
@@ -1342,7 +1808,9 @@ export function registerSshHandlers(): void {
             return readFromCacheCursor(cursor, limit)
           }
 
+          console.log('[SSH:list-dir] opendir', { resolvedPath, limit })
           const handle = await openSftpDir(session, resolvedPath)
+          console.log('[SSH:list-dir] opendir OK, reading cursor')
           const cursorId = `sftp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
           const cursor: SftpDirCursor = {
             id: cursorId,
@@ -1354,10 +1822,69 @@ export function registerSshHandlers(): void {
             lastAccess: now
           }
           const result = await readFromSftpCursor(cursor, session, cacheKey, limit)
+          console.log('[SSH:list-dir] cursor read done', {
+            entries: result.entries.length,
+            hasMore: result.hasMore
+          })
           if (result.hasMore && result.nextCursor) {
             sftpDirCursors.set(cursorId, cursor)
           }
           return result
+        })
+      } catch (err) {
+        console.error('[SSH:list-dir] ERROR', { path: args.path, error: String(err) })
+        return { error: String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle('ssh:fs:home-dir', async (_event, args: { connectionId: string }) => {
+    try {
+      return await withFileSession(args.connectionId, async (session) => {
+        const homeDir = await getHomeDir(session)
+        if (!homeDir) return { error: 'Failed to resolve home dir' }
+        return { path: homeDir }
+      })
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  ipcMain.handle(
+    'ssh:fs:download',
+    async (_event, args: { connectionId: string; remotePath: string; localPath: string }) => {
+      try {
+        return await withFileSession(args.connectionId, async (session) => {
+          const sftp = await getSftp(session)
+          const remotePath = await resolveSftpPath(session, args.remotePath)
+
+          await fs.promises.mkdir(path.dirname(args.localPath), { recursive: true })
+
+          await new Promise<void>((resolve, reject) => {
+            const readStream = sftp.createReadStream(remotePath)
+            const writeStream = fs.createWriteStream(args.localPath)
+
+            const onError = (e: unknown) => {
+              try {
+                readStream.destroy()
+              } catch {
+                // ignore
+              }
+              try {
+                writeStream.destroy()
+              } catch {
+                // ignore
+              }
+              reject(e instanceof Error ? e : new Error(String(e)))
+            }
+
+            readStream.on('error', onError)
+            writeStream.on('error', onError)
+            writeStream.on('close', () => resolve())
+            readStream.pipe(writeStream)
+          })
+
+          return { success: true }
         })
       } catch (err) {
         return { error: String(err) }

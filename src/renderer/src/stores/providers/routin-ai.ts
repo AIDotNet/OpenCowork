@@ -10,6 +10,22 @@ export const routinAiPreset: BuiltinProviderPreset = {
   defaultEnabled: true,
   defaultModel: 'mimo-v2-flash',
   defaultModels: [
+    {
+      id: "mimo-v2-flash", name: "Mimo V2 Flash",
+      icon: 'mimo',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 131072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.09,
+      outputPrice: 0.29,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+      },
+    },
     // ── OpenAI — GPT-4o family (cache: 50% off input) ──
     {
       id: 'gpt-4o',
@@ -623,23 +639,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       inputPrice: 0.14,
       outputPrice: 0.56
     },
-    {
-      id: "mimo-v2-flash", name: "Mimo V2 Flash",
-      icon: 'mimo',
-      enabled: true,
-      contextLength: 262_144,
-      maxOutputTokens: 131072,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 0.09,
-      outputPrice: 0.29,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-      },
-    },
-
     { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', icon: 'claude', type: 'anthropic', enabled: true, contextLength: 200_000, maxOutputTokens: 64_384, supportsVision: true, supportsFunctionCall: true, inputPrice: 5, outputPrice: 25, cacheCreationPrice: 6.25, cacheHitPrice: 0.5, supportsThinking: true, thinkingConfig: { bodyParams: { thinking: { type: 'enabled', budget_tokens: 10000 } }, forceTemperature: 1 } },
     { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', icon: 'claude', type: 'anthropic', enabled: true, contextLength: 200_000, maxOutputTokens: 64_384, supportsVision: true, supportsFunctionCall: true, inputPrice: 3, outputPrice: 15, cacheCreationPrice: 3.75, cacheHitPrice: 0.3, supportsThinking: true, thinkingConfig: { bodyParams: { thinking: { type: 'enabled', budget_tokens: 10000 } }, forceTemperature: 1 } },
     { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5', icon: 'claude', type: 'anthropic', enabled: true, contextLength: 200_000, maxOutputTokens: 64_384, supportsVision: true, supportsFunctionCall: true, inputPrice: 3, outputPrice: 15, cacheCreationPrice: 3.75, cacheHitPrice: 0.3, supportsThinking: true, thinkingConfig: { bodyParams: { thinking: { type: 'enabled', budget_tokens: 10000 } }, forceTemperature: 1 } },

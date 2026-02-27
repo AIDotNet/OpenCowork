@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Save, X, ChevronDown, ChevronRight, FolderOpen } from 'lucide-react'
+import { Save, X, ChevronDown, ChevronRight, FolderOpen, KeyRound } from 'lucide-react'
 import { useSshStore, type SshConnection, type SshGroup } from '@renderer/stores/ssh-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import {
@@ -10,9 +11,10 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
+  SelectValue
 } from '@renderer/components/ui/select'
 import { Separator } from '@renderer/components/ui/separator'
+import { toast } from 'sonner'
 
 interface SshConnectionFormProps {
   connection: SshConnection | null
@@ -21,13 +23,11 @@ interface SshConnectionFormProps {
   onSaved: () => void
 }
 
-const DEFAULT_SSH_WORKDIR = '~/workspace'
-
 export function SshConnectionForm({
   connection,
   groups,
   onClose,
-  onSaved,
+  onSaved
 }: SshConnectionFormProps): React.JSX.Element {
   const { t } = useTranslation('ssh')
   const isEditing = !!connection
@@ -41,23 +41,102 @@ export function SshConnectionForm({
   const [privateKeyPath, setPrivateKeyPath] = useState(connection?.privateKeyPath ?? '')
   const [passphrase, setPassphrase] = useState('')
   const [groupId, setGroupId] = useState<string>(connection?.groupId ?? '__none__')
-  const initialDefaultDirectory = connection
-    ? (connection.defaultDirectory ?? '')
-    : DEFAULT_SSH_WORKDIR
+  const initialDefaultDirectory = connection?.defaultDirectory ?? ''
   const [defaultDirectory, setDefaultDirectory] = useState(initialDefaultDirectory)
   const [startupCommand, setStartupCommand] = useState(connection?.startupCommand ?? '')
   const [proxyJump, setProxyJump] = useState(connection?.proxyJump ?? '')
-  const [keepAliveInterval, setKeepAliveInterval] = useState(String(connection?.keepAliveInterval ?? 60))
+  const [keepAliveInterval, setKeepAliveInterval] = useState(
+    String(connection?.keepAliveInterval ?? 60)
+  )
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const handleSelectKeyFile = async (): Promise<void> => {
-    const result = (await ipcClient.invoke('fs:select-file')) as {
-      canceled?: boolean
-      filePaths?: string[]
+  const loadDefaultPublicKey = async (): Promise<
+    { pubPath: string; pubContent: string; privateKeyPath?: string } | { error: string }
+  > => {
+    const homeResult = await ipcClient.invoke(IPC.APP_HOMEDIR)
+    const homeDir =
+      homeResult && typeof homeResult === 'object' && 'path' in homeResult
+        ? String((homeResult as { path?: string }).path ?? '')
+        : String(homeResult ?? '')
+    if (!homeDir) return { error: 'Failed to resolve home directory' }
+
+    const sshDir = `${homeDir}\\.ssh`
+    const candidates = ['id_ed25519', 'id_rsa', 'id_ecdsa', 'id_dsa', 'identity']
+
+    for (const base of candidates) {
+      const pubPath = `${sshDir}\\${base}.pub`
+      const doc = await ipcClient.invoke(IPC.FS_READ_DOCUMENT, { path: pubPath })
+      if (
+        doc &&
+        typeof doc === 'object' &&
+        'content' in doc &&
+        (doc as { content?: string }).content
+      ) {
+        const pubContent = String((doc as { content: string }).content)
+        const privateKeyPath = `${sshDir}\\${base}`
+        return { pubPath, pubContent, privateKeyPath }
+      }
     }
-    if (!result.canceled && result.filePaths?.[0]) {
-      setPrivateKeyPath(result.filePaths[0])
+
+    return { error: 'No public key found under ~/.ssh' }
+  }
+
+  const handleSelectKeyFile = async (): Promise<void> => {
+    const result = await ipcClient.invoke(IPC.FS_SELECT_FILE)
+    if (!result || typeof result !== 'object') return
+    if ((result as { canceled?: boolean }).canceled) return
+    const filePath = (result as { path?: string }).path
+    if (filePath) setPrivateKeyPath(filePath)
+  }
+
+  const handleAutoLoadPublicKey = async (): Promise<void> => {
+    try {
+      const result = await loadDefaultPublicKey()
+      if ('error' in result) {
+        toast.error(t('form.publicKeyLoadFailed'))
+        return
+      }
+
+      await navigator.clipboard.writeText(result.pubContent)
+      toast.success(t('form.publicKeyCopied'))
+
+      if (!privateKeyPath && result.privateKeyPath) {
+        setPrivateKeyPath(result.privateKeyPath)
+      }
+    } catch (err) {
+      toast.error(String(err))
+    }
+  }
+
+  const handleInstallPublicKeyToRemote = async (): Promise<void> => {
+    if (!connection?.id) {
+      toast.error(t('form.saveBeforeInstallKey'))
+      return
+    }
+    try {
+      const result = await loadDefaultPublicKey()
+      if ('error' in result) {
+        toast.error(t('form.publicKeyLoadFailed'))
+        return
+      }
+
+      const installResult = await ipcClient.invoke(IPC.SSH_AUTH_INSTALL_PUBLIC_KEY, {
+        connectionId: connection.id,
+        publicKey: result.pubContent
+      })
+      if (installResult && typeof installResult === 'object' && 'error' in installResult) {
+        toast.error(String((installResult as { error?: string }).error ?? 'Install failed'))
+        return
+      }
+
+      toast.success(t('form.publicKeyInstalled'))
+      if (result.privateKeyPath) {
+        setAuthType('privateKey')
+        if (!privateKeyPath) setPrivateKeyPath(result.privateKeyPath)
+      }
+    } catch (err) {
+      toast.error(String(err))
     }
   }
 
@@ -79,7 +158,7 @@ export function SshConnectionForm({
         defaultDirectory: defaultDirectory || undefined,
         startupCommand: startupCommand || undefined,
         proxyJump: proxyJump || undefined,
-        keepAliveInterval: parseInt(keepAliveInterval, 10) || 60,
+        keepAliveInterval: parseInt(keepAliveInterval, 10) || 60
       }
 
       if (isEditing) {
@@ -91,7 +170,7 @@ export function SshConnectionForm({
           passphrase: passphrase || null,
           defaultDirectory: defaultDirectory || null,
           startupCommand: startupCommand || null,
-          proxyJump: proxyJump || null,
+          proxyJump: proxyJump || null
         })
       } else {
         await useSshStore.getState().createConnection(data)
@@ -177,13 +256,24 @@ export function SshConnectionForm({
         {/* Password */}
         {authType === 'password' && (
           <Field label={t('form.password')}>
-            <Input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={isEditing ? '••••••••' : t('form.passwordPlaceholder')}
-              className="h-8 text-xs"
-              type="password"
-            />
+            <div className="flex gap-1.5">
+              <Input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={isEditing ? '••••••••' : t('form.passwordPlaceholder')}
+                className="h-8 text-xs flex-1"
+                type="password"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 text-xs shrink-0"
+                onClick={() => void handleInstallPublicKeyToRemote()}
+              >
+                <KeyRound className="size-3" />
+                {t('form.installPublicKey')}
+              </Button>
+            </div>
           </Field>
         )}
 
@@ -207,6 +297,15 @@ export function SshConnectionForm({
                 >
                   <FolderOpen className="size-3" />
                   {t('form.selectKeyFile')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1 text-xs shrink-0"
+                  onClick={() => void handleAutoLoadPublicKey()}
+                >
+                  <KeyRound className="size-3" />
+                  {t('form.autoLoadPublicKey')}
                 </Button>
               </div>
             </Field>
@@ -255,9 +354,12 @@ export function SshConnectionForm({
               <Input
                 value={defaultDirectory}
                 onChange={(e) => setDefaultDirectory(e.target.value)}
-                placeholder={t('form.defaultDirectoryPlaceholder')}
+                placeholder="/home/username/workspace"
                 className="h-8 text-xs"
               />
+              <p className="mt-1 text-[10px] text-muted-foreground/70">
+                {t('form.defaultDirectoryHint')}
+              </p>
             </Field>
             <Field label={t('form.startupCommand')}>
               <Input
@@ -310,7 +412,7 @@ export function SshConnectionForm({
 function Field({
   label,
   className,
-  children,
+  children
 }: {
   label: string
   className?: string
@@ -318,9 +420,7 @@ function Field({
 }): React.JSX.Element {
   return (
     <div className={className}>
-      <label className="mb-1 block text-[10px] font-medium text-muted-foreground/70">
-        {label}
-      </label>
+      <label className="mb-1 block text-[10px] font-medium text-muted-foreground/70">{label}</label>
       {children}
     </div>
   )

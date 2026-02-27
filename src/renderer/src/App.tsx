@@ -265,7 +265,7 @@ function App(): React.JSX.Element {
 
       useNotifyStore.getState().push(
         `🎉 新版本 ${d.newVersion} 可用`,
-        d.releaseNotes || '点击下载按钮开始更新',
+        d.releaseNotes || '点击“立即更新”开始更新',
         {
           type: 'info',
           persistent: true,

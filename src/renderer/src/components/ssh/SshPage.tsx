@@ -12,11 +12,20 @@ import {
   RotateCcw,
   Terminal,
   FileText,
-  Loader2,
+  Upload,
+  Loader2
 } from 'lucide-react'
 import { useSshStore, type SshTab } from '@renderer/stores/ssh-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { Button } from '@renderer/components/ui/button'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetTrigger
+} from '@renderer/components/ui/sheet'
 import { cn } from '@renderer/lib/utils'
 import { toast } from 'sonner'
 import { SshConnectionList } from './SshConnectionList'
@@ -34,6 +43,12 @@ export function SshPage(): React.JSX.Element {
   const fileExplorerOpen = useSshStore((s) => s.fileExplorerOpen)
   const loadAll = useSshStore((s) => s.loadAll)
   const _loaded = useSshStore((s) => s._loaded)
+  const uploadTasks = useSshStore((s) => s.uploadTasks)
+
+  const uploadTaskList = Object.values(uploadTasks).sort((a, b) => b.updatedAt - a.updatedAt)
+  const activeUploadCount = uploadTaskList.filter(
+    (t) => t.stage !== 'done' && t.stage !== 'error' && t.stage !== 'canceled'
+  ).length
 
   // Track which tabs have been mounted (for keep-alive)
   const mountedTabsRef = useRef<Set<string>>(new Set())
@@ -46,7 +61,10 @@ export function SshPage(): React.JSX.Element {
   useEffect(() => {
     const cleanup = window.electron.ipcRenderer.on(
       'ssh:status',
-      (_event: unknown, data: { sessionId: string; connectionId: string; status: string; error?: string }) => {
+      (
+        _event: unknown,
+        data: { sessionId: string; connectionId: string; status: string; error?: string }
+      ) => {
         const store = useSshStore.getState()
         if (data.status === 'disconnected') {
           store.removeSession(data.sessionId)
@@ -59,75 +77,80 @@ export function SshPage(): React.JSX.Element {
         }
       }
     )
-    return () => { cleanup() }
+    return () => {
+      cleanup()
+    }
   }, [])
 
-  const handleConnect = useCallback(async (connectionId: string) => {
-    const store = useSshStore.getState()
-    const conn = store.connections.find((c) => c.id === connectionId)
-    if (!conn) return
+  const handleConnect = useCallback(
+    async (connectionId: string) => {
+      const store = useSshStore.getState()
+      const conn = store.connections.find((c) => c.id === connectionId)
+      if (!conn) return
 
-    // If a terminal tab is already open, just focus it
-    const existingTab = store.openTabs.find(
-      (tab) => tab.connectionId === connectionId && tab.type === 'terminal'
-    )
-    if (existingTab) {
-      store.setActiveTab(existingTab.id)
-      return
-    }
+      // If a terminal tab is already open, just focus it
+      const existingTab = store.openTabs.find(
+        (tab) => tab.connectionId === connectionId && tab.type === 'terminal'
+      )
+      if (existingTab) {
+        store.setActiveTab(existingTab.id)
+        return
+      }
 
-    // If already connected elsewhere, reuse the existing session
-    const existingSession = Object.values(store.sessions).find(
-      (session) => session.connectionId === connectionId && session.status === 'connected'
-    )
-    if (existingSession) {
-      const tabId = `tab-${existingSession.id}`
+      // If already connected elsewhere, reuse the existing session
+      const existingSession = Object.values(store.sessions).find(
+        (session) => session.connectionId === connectionId && session.status === 'connected'
+      )
+      if (existingSession) {
+        const tabId = `tab-${existingSession.id}`
+        store.openTab({
+          id: tabId,
+          type: 'terminal',
+          sessionId: existingSession.id,
+          connectionId,
+          connectionName: conn.name,
+          title: conn.name
+        })
+        return
+      }
+
+      const pendingTabId = `pending-${connectionId}-${Date.now()}`
       store.openTab({
-        id: tabId,
+        id: pendingTabId,
         type: 'terminal',
-        sessionId: existingSession.id,
+        sessionId: null,
         connectionId,
         connectionName: conn.name,
         title: conn.name,
+        status: 'connecting'
       })
-      return
-    }
 
-    const pendingTabId = `pending-${connectionId}-${Date.now()}`
-    store.openTab({
-      id: pendingTabId,
-      type: 'terminal',
-      sessionId: null,
-      connectionId,
-      connectionName: conn.name,
-      title: conn.name,
-      status: 'connecting',
-    })
+      const sessionId = await store.connect(connectionId)
+      if (!sessionId) {
+        store.closeTab(pendingTabId)
+        toast.error(t('connectionFailed'))
+        return
+      }
 
-    const sessionId = await store.connect(connectionId)
-    if (!sessionId) {
-      store.closeTab(pendingTabId)
-      toast.error(t('connectionFailed'))
-      return
-    }
+      const stillOpen = useSshStore.getState().openTabs.find((tab) => tab.id === pendingTabId)
+      if (!stillOpen) {
+        await store.disconnect(sessionId)
+        return
+      }
 
-    const stillOpen = useSshStore.getState().openTabs.find((tab) => tab.id === pendingTabId)
-    if (!stillOpen) {
-      await store.disconnect(sessionId)
-      return
-    }
-
-    const resolvedTabId = `tab-${sessionId}`
-    const tab: SshTab = {
-      id: resolvedTabId,
-      type: 'terminal',
-      sessionId,
-      connectionId,
-      connectionName: conn.name,
-      title: conn.name,
-    }
-    store.replaceTab(pendingTabId, tab)
-  }, [t])
+      const resolvedTabId = `tab-${sessionId}`
+      const tab: SshTab = {
+        id: resolvedTabId,
+        type: 'terminal',
+        sessionId,
+        connectionId,
+        connectionName: conn.name,
+        title: conn.name
+      }
+      store.replaceTab(pendingTabId, tab)
+    },
+    [t]
+  )
 
   const handleCloseTab = useCallback((tabId: string) => {
     mountedTabsRef.current.delete(tabId)
@@ -141,8 +164,9 @@ export function SshPage(): React.JSX.Element {
     if (!activeTab) return
 
     const tabCount =
-      store.openTabs.filter((t) => t.connectionId === activeTab.connectionId && t.type === 'terminal')
-        .length + 1
+      store.openTabs.filter(
+        (t) => t.connectionId === activeTab.connectionId && t.type === 'terminal'
+      ).length + 1
     const pendingTabId = `pending-${activeTab.connectionId}-${Date.now()}`
     store.openTab({
       id: pendingTabId,
@@ -151,7 +175,7 @@ export function SshPage(): React.JSX.Element {
       connectionId: activeTab.connectionId,
       connectionName: activeTab.connectionName,
       title: `${activeTab.connectionName} (${tabCount})`,
-      status: 'connecting',
+      status: 'connecting'
     })
 
     const sessionId = await store.connect(activeTab.connectionId)
@@ -174,7 +198,7 @@ export function SshPage(): React.JSX.Element {
       sessionId,
       connectionId: activeTab.connectionId,
       connectionName: activeTab.connectionName,
-      title: `${activeTab.connectionName} (${tabCount})`,
+      title: `${activeTab.connectionName} (${tabCount})`
     }
     store.replaceTab(pendingTabId, tab)
   }, [t])
@@ -190,10 +214,11 @@ export function SshPage(): React.JSX.Element {
     activeTab?.type === 'terminal' && activeTab.sessionId ? sessions[activeTab.sessionId] : null
   const explorerSessionId = activeTab
     ? (activeTab.sessionId ??
-        Object.values(sessions).find(
-          (session) => session.connectionId === activeTab.connectionId && session.status === 'connected'
-        )?.id ??
-        null)
+      Object.values(sessions).find(
+        (session) =>
+          session.connectionId === activeTab.connectionId && session.status === 'connected'
+      )?.id ??
+      null)
     : null
   const showTerminalView = openTabs.length > 0 && activeTabId
 
@@ -214,6 +239,97 @@ export function SshPage(): React.JSX.Element {
         </button>
         <Monitor className="size-4 text-primary" />
         <span className="text-sm font-medium">{t('title')}</span>
+
+        <Sheet>
+          <SheetTrigger asChild>
+            <button
+              className={cn(
+                'ml-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors',
+                activeUploadCount > 0 && 'text-primary'
+              )}
+              title="Uploads"
+            >
+              <Upload className="size-3.5" />
+              <span>Uploads</span>
+              {activeUploadCount > 0 && (
+                <span className="ml-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                  {activeUploadCount}
+                </span>
+              )}
+            </button>
+          </SheetTrigger>
+          <SheetContent className="sm:max-w-md">
+            <SheetHeader>
+              <SheetTitle>Uploads</SheetTitle>
+              <SheetDescription>Compression / upload / unzip progress</SheetDescription>
+            </SheetHeader>
+            <div className="flex flex-col gap-2 px-4 pb-4">
+              {uploadTaskList.length === 0 ? (
+                <div className="text-xs text-muted-foreground">No uploads</div>
+              ) : (
+                uploadTaskList.map((task) => {
+                  const percent = task.progress?.percent
+                  const showCancel =
+                    task.stage !== 'done' && task.stage !== 'error' && task.stage !== 'canceled'
+                  const showClear = !showCancel
+                  return (
+                    <div key={task.taskId} className="rounded border border-border p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium">{task.taskId}</div>
+                          <div className="truncate text-[11px] text-muted-foreground">
+                            {task.stage}
+                            {task.message ? ` · ${task.message}` : ''}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {showCancel && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void useSshStore.getState().cancelUpload(task.taskId)}
+                            >
+                              Cancel
+                            </Button>
+                          )}
+                          {showClear && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => useSshStore.getState().clearUploadTask(task.taskId)}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-2">
+                        <div className="h-1.5 w-full rounded bg-muted">
+                          <div
+                            className="h-1.5 rounded bg-primary transition-all"
+                            style={{ width: typeof percent === 'number' ? `${percent}%` : '0%' }}
+                          />
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
+                          <span>{typeof percent === 'number' ? `${percent}%` : ''}</span>
+                          <span>
+                            {typeof task.progress?.current === 'number'
+                              ? `${task.progress.current}`
+                              : ''}
+                            {typeof task.progress?.total === 'number'
+                              ? ` / ${task.progress.total}`
+                              : ''}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
 
         {showTerminalView && (
           <>
@@ -270,12 +386,12 @@ export function SshPage(): React.JSX.Element {
                   const session = tab.sessionId ? sessions[tab.sessionId] : null
                   const isTerminal = tab.type === 'terminal'
                   const isConnected = isTerminal && !!session && session.status === 'connected'
-                  const isConnecting = isTerminal && (
-                    tab.sessionId ? session?.status === 'connecting' : tab.status === 'connecting'
-                  )
-                  const isError = isTerminal && (
-                    tab.sessionId ? session?.status === 'error' : tab.status === 'error'
-                  )
+                  const isConnecting =
+                    isTerminal &&
+                    (tab.sessionId ? session?.status === 'connecting' : tab.status === 'connecting')
+                  const isError =
+                    isTerminal &&
+                    (tab.sessionId ? session?.status === 'error' : tab.status === 'error')
                   return (
                     <div
                       key={tab.id}

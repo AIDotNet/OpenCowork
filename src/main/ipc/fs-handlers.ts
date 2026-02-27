@@ -454,6 +454,20 @@ export function registerFsHandlers(): void {
     }
   )
 
+  ipcMain.handle(
+    'fs:select-save-file',
+    async (_event, args?: { defaultPath?: string; filters?: Electron.FileFilter[] }) => {
+      const win = BrowserWindow.getFocusedWindow()
+      if (!win) return { canceled: true }
+      const result = await dialog.showSaveDialog(win, {
+        defaultPath: args?.defaultPath,
+        filters: args?.filters
+      })
+      if (result.canceled || !result.filePath) return { canceled: true }
+      return { path: result.filePath }
+    }
+  )
+
   // Binary file read (returns base64)
   ipcMain.handle('fs:read-file-binary', async (_event, args: { path: string }) => {
     try {

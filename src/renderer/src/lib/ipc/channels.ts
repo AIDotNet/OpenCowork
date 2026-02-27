@@ -14,6 +14,7 @@ export const IPC = {
 
   // File System
   FS_SELECT_FILE: 'fs:select-file',
+  FS_SELECT_SAVE_FILE: 'fs:select-save-file',
   FS_READ_DOCUMENT: 'fs:read-document',
   FS_READ_FILE: 'fs:read-file',
   FS_WRITE_FILE: 'fs:write-file',
@@ -123,7 +124,11 @@ export const IPC = {
 
   // App Updates
   UPDATE_AVAILABLE: 'update:available',
+  UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_DOWNLOAD_PROGRESS: 'update:download-progress',
+  UPDATE_DOWNLOADED: 'update:downloaded',
+  UPDATE_ERROR: 'update:error',
 
   // Skills
   SKILLS_LIST: 'skills:list',
@@ -188,9 +193,18 @@ export const IPC = {
   SSH_FS_MOVE: 'ssh:fs:move',
   SSH_FS_GLOB: 'ssh:fs:glob',
   SSH_FS_GREP: 'ssh:fs:grep',
+  SSH_FS_HOME_DIR: 'ssh:fs:home-dir',
+  SSH_FS_ZIP_DIR: 'ssh:fs:zip-dir',
+  SSH_FS_DOWNLOAD: 'ssh:fs:download',
+  SSH_FS_UPLOAD_START: 'ssh:fs:upload:start',
+  SSH_FS_UPLOAD_CANCEL: 'ssh:fs:upload:cancel',
+  SSH_FS_UPLOAD_EVENTS: 'ssh:fs:upload:events',
+
+  // SSH Auth
+  SSH_AUTH_INSTALL_PUBLIC_KEY: 'ssh:auth:install-public-key',
 
   // SSH Remote Exec
-  SSH_EXEC: 'ssh:exec',
+  SSH_EXEC: 'ssh:exec'
 } as const
 
 export type IPCChannel = (typeof IPC)[keyof typeof IPC]

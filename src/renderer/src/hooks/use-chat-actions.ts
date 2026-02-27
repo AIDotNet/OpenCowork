@@ -1038,6 +1038,32 @@ export function useChatActions(): {
         ? session.externalChatId.replace(/^plugin:[^:]+:chat:/, '')
         : undefined
 
+      // Tool input throttling state — defined before try block so finally can safely dispose
+      const toolInputThrottle = new Map<
+        string,
+        { lastFlush: number; pending?: Record<string, unknown>; timer?: ReturnType<typeof setTimeout> }
+      >()
+      const chatToolInputThrottle = new Map<
+        string,
+        {
+          lastFlush: number
+          pending?: Record<string, unknown>
+          timer?: ReturnType<typeof setTimeout>
+          lastSent?: string
+        }
+      >()
+
+      const disposeToolInputQueues = (): void => {
+        for (const entry of toolInputThrottle.values()) {
+          if (entry.timer) clearTimeout(entry.timer)
+        }
+        for (const entry of chatToolInputThrottle.values()) {
+          if (entry.timer) clearTimeout(entry.timer)
+        }
+        toolInputThrottle.clear()
+        chatToolInputThrottle.clear()
+      }
+
       try {
         const messages = useChatStore.getState().getSessionMessages(sessionId)
         let messagesToSend = messages.slice(0, -1) // Exclude the empty assistant placeholder
@@ -1113,6 +1139,80 @@ export function useChatActions(): {
         let thinkingDone = false
         let hasThinkingDelta = false
         streamDeltaBuffer = createStreamDeltaBuffer(sessionId!, assistantMsgId)
+
+        const flushChatToolInput = (toolCallId: string): void => {
+          const entry = chatToolInputThrottle.get(toolCallId)
+          if (!entry?.pending) return
+          const snapshot = JSON.stringify(entry.pending)
+          if (snapshot === entry.lastSent) {
+            entry.pending = undefined
+            return
+          }
+          entry.lastFlush = Date.now()
+          entry.lastSent = snapshot
+          const pending = entry.pending
+          entry.pending = undefined
+          useChatStore.getState().updateToolUseInput(sessionId!, assistantMsgId, toolCallId, pending)
+        }
+
+        const flushToolInput = (toolCallId: string): void => {
+          const entry = toolInputThrottle.get(toolCallId)
+          if (!entry?.pending) return
+          entry.lastFlush = Date.now()
+          const pending = entry.pending
+          entry.pending = undefined
+          useAgentStore.getState().updateToolCall(toolCallId, { input: pending })
+        }
+
+        const scheduleChatToolInputUpdate = (
+          toolCallId: string,
+          partialInput: Record<string, unknown>
+        ): void => {
+          const now = Date.now()
+          const entry = chatToolInputThrottle.get(toolCallId) ?? { lastFlush: 0 }
+          entry.pending = partialInput
+          chatToolInputThrottle.set(toolCallId, entry)
+
+          if (now - entry.lastFlush >= 100) {
+            if (entry.timer) {
+              clearTimeout(entry.timer)
+              entry.timer = undefined
+            }
+            flushChatToolInput(toolCallId)
+            return
+          }
+
+          if (!entry.timer) {
+            entry.timer = setTimeout(() => {
+              entry.timer = undefined
+              flushChatToolInput(toolCallId)
+            }, 100)
+          }
+        }
+
+        const scheduleToolInputUpdate = (toolCallId: string, partialInput: Record<string, unknown>): void => {
+          const now = Date.now()
+          const entry = toolInputThrottle.get(toolCallId) ?? { lastFlush: 0 }
+          entry.pending = partialInput
+          toolInputThrottle.set(toolCallId, entry)
+
+          if (now - entry.lastFlush >= 60) {
+            if (entry.timer) {
+              clearTimeout(entry.timer)
+              entry.timer = undefined
+            }
+            flushToolInput(toolCallId)
+            return
+          }
+
+          if (!entry.timer) {
+            entry.timer = setTimeout(() => {
+              entry.timer = undefined
+              flushToolInput(toolCallId)
+            }, 60)
+          }
+        }
+
         for await (const event of loop) {
           if (abortController.signal.aborted) break
 
@@ -1190,16 +1290,16 @@ export function useChatActions(): {
 
             case 'tool_use_args_delta':
               // Real-time partial args update via partial-json parsing
-              streamDeltaBuffer.setToolInput(event.toolCallId, event.partialInput)
-              useAgentStore.getState().updateToolCall(event.toolCallId, {
-                input: event.partialInput
-              })
+              scheduleChatToolInputUpdate(event.toolCallId, event.partialInput)
+              scheduleToolInputUpdate(event.toolCallId, event.partialInput)
               break
 
             case 'tool_use_generated':
               // Args fully streamed — update the existing block's input (final)
               streamDeltaBuffer.setToolInput(event.toolUseBlock.id, event.toolUseBlock.input)
               streamDeltaBuffer.flushNow()
+              flushChatToolInput(event.toolUseBlock.id)
+              flushToolInput(event.toolUseBlock.id)
               useAgentStore.getState().updateToolCall(event.toolUseBlock.id, {
                 input: event.toolUseBlock.input
               })
@@ -1335,6 +1435,7 @@ export function useChatActions(): {
       } finally {
         streamDeltaBuffer?.flushNow()
         streamDeltaBuffer?.dispose()
+        disposeToolInputQueues()
         // Defensive cleanup: if provider stream ended without completing a tool call,
         // avoid leaving tool cards stuck at "receiving args".
         const { executedToolCalls, pendingToolCalls, updateToolCall } = useAgentStore.getState()

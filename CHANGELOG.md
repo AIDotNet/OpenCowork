@@ -3,6 +3,20 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.1] - 2026-02-28
+
+### Added
+- **SFTP folder uploads** — the SSH file explorer can now select a local directory, compress it automatically, upload with progress updates, and unzip it on the remote server so large projects arrive intact.
+- **Remote zip helper** — any remote directory can be compressed in-place from the explorer’s context menu, making it easier to download or archive server snapshots.
+- **Public key bootstrap** — the SSH connection form can auto-detect local `~/.ssh` keys, copy the public key to the clipboard, and install it on the target host for passwordless auth in a couple of clicks.
+
+### Changed
+- **SSH upload pipeline** — uploads stream through a reusable session pool with richer progress reporting, cancellation, and automatic cleanup of temporary archives.
+- **SSH UI polish** — file explorer menus surface the new folder upload/zip actions, and the connection form highlights public-key helper buttons directly next to auth inputs.
+
+### Fixed
+- **SFTP reliability** — remote folder creation, retries, and cursor pagination were hardened to keep large directory trees in sync even on slower servers.
+
 ## [0.3.0] - 2026-02-27
 
 ### Added

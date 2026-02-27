@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/React-19.x-blue" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-5.9-blue" alt="TypeScript">
   <img src="https://img.shields.io/badge/License-Apache_2.0-green" alt="License">
-  <img src="https://img.shields.io/badge/Version-0.3.0-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.3.1-orange" alt="Version">
 </p>
 
 ---

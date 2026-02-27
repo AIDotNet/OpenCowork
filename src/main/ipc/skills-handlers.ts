@@ -396,11 +396,15 @@ export function registerSkillsHandlers(): void {
     const githubUrl = String(s['github'] ?? s['github_url'] ?? '')
     const parsed = githubUrl ? parseGitHubOwnerRepo(githubUrl) : null
 
+    // Prioritize parsed GitHub URL over API fields
+    const owner = String(parsed?.owner ?? s['owner'] ?? s['github_owner'] ?? '')
+    const repo = String(parsed?.repo ?? s['repo'] ?? s['github_repo'] ?? s['name'] ?? '')
+
     return {
       id: String(s['id'] ?? s['name'] ?? index),
       name: String(s['name'] ?? ''),
-      owner: String(s['owner'] ?? s['github_owner'] ?? parsed?.owner ?? ''),
-      repo: String(s['repo'] ?? s['github_repo'] ?? parsed?.repo ?? s['name'] ?? ''),
+      owner,
+      repo,
       rank: Number(s['stars'] ?? s['rank'] ?? 0),
       installs: Number(s['installs'] ?? s['downloads'] ?? 0),
       url: String(s['url'] ?? s['marketplace_url'] ?? `https://skillsmp.com/skills/${s['name'] ?? ''}`),

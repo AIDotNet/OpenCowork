@@ -801,18 +801,30 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
     try {
       const activeProvider = await ensureAuthForRequest()
       if (!activeProvider) return
-      const isAnthropic = activeProvider.type === 'anthropic'
-      const baseUrl = (activeProvider.baseUrl || (isAnthropic ? 'https://api.anthropic.com' : 'https://api.openai.com/v1')).trim().replace(/\/+$/, '')
-      const url = isAnthropic ? `${baseUrl}/v1/messages` : `${baseUrl}/chat/completions`
+      const model = testModelId || activeProvider.models[0]?.id || 'mimo-v2-flash'
+      const modelConfig = activeProvider.models.find((m) => m.id === model)
+      const requestType = modelConfig?.type ?? activeProvider.type
+      const isAnthropic = requestType === 'anthropic'
+      const isResponses = requestType === 'openai-responses'
+      const defaultBaseUrl = isAnthropic ? 'https://api.anthropic.com' : 'https://api.openai.com/v1'
+      const baseUrl = (activeProvider.baseUrl || defaultBaseUrl).trim().replace(/\/+$/, '')
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      let url: string
+      let body: string
       if (isAnthropic) {
+        url = `${baseUrl}/v1/messages`
         headers['x-api-key'] = activeProvider.apiKey
         headers['anthropic-version'] = '2023-06-01'
-      } else {
+        body = JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] })
+      } else if (isResponses) {
+        url = `${baseUrl}/responses`
         if (activeProvider.apiKey) headers['Authorization'] = `Bearer ${activeProvider.apiKey}`
+        body = JSON.stringify({ model, input: [{ type: 'message', role: 'user', content: 'Hi' }], stream: true })
+      } else {
+        url = `${baseUrl}/chat/completions`
+        if (activeProvider.apiKey) headers['Authorization'] = `Bearer ${activeProvider.apiKey}`
+        body = JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] })
       }
-      const model = testModelId || activeProvider.models[0]?.id || 'mimo-v2-flash'
-      const body = JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] })
       const result = await window.electron.ipcRenderer.invoke('api:request', { url, method: 'POST', headers, body, useSystemProxy: activeProvider.useSystemProxy })
       if (result?.error) {
         toast.error(t('provider.connectionFailed'), { description: result.error })

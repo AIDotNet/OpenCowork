@@ -398,9 +398,46 @@ class OpenAIChatProvider implements APIProvider {
       function: {
         name: t.name,
         description: t.description,
-        parameters: t.inputSchema,
+        parameters: this.normalizeToolSchema(t.inputSchema),
       },
     }))
+  }
+
+  /**
+   * OpenAI Chat Completions expects a root object schema with `properties`.
+   * Our Task tool uses `oneOf` at the root, so collapse it into a single
+   * object schema for compatibility.
+   */
+  private normalizeToolSchema(schema: ToolDefinition['inputSchema']): Record<string, unknown> {
+    if ('properties' in schema) return schema
+
+    const mergedProperties: Record<string, unknown> = {}
+    let requiredIntersection: string[] | null = null
+
+    for (const variant of schema.oneOf) {
+      for (const [key, value] of Object.entries(variant.properties ?? {})) {
+        if (!(key in mergedProperties)) mergedProperties[key] = value
+      }
+
+      const required = variant.required ?? []
+      if (requiredIntersection === null) {
+        requiredIntersection = [...required]
+      } else {
+        requiredIntersection = requiredIntersection.filter((key) => required.includes(key))
+      }
+    }
+
+    const normalized: Record<string, unknown> = {
+      type: 'object',
+      properties: mergedProperties,
+      additionalProperties: false,
+    }
+
+    if (requiredIntersection && requiredIntersection.length > 0) {
+      normalized.required = requiredIntersection
+    }
+
+    return normalized
   }
 }
 

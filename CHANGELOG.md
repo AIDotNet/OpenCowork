@@ -3,6 +3,21 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.2] - 2026-03-01
+
+### Changed
+- **Skill bootstrap path** — bundled skills are now copied into `~/agents/skills/` on startup (without overwriting user changes), aligning the renderer Skill tool with the main-process directory layout.
+- **File mutation UI** — Right Panel, Tool cards, file change cards, and Translate timeline icons now focus on the Write/Edit/Delete tools that actually exist, so MultiEdit-only affordances are removed and stats stay accurate.
+- **Provider test requests** — the Provider panel’s “Test connection” button selects the proper endpoint based on each model’s protocol (OpenAI Chat vs Responses vs Anthropic), enabling realistic health checks even with custom base URLs.
+- **Clipboard export** — chat-to-image export now writes PNG data through the main-process clipboard IPC, fixing large-image copy failures on Windows caused by browser-side base64 conversions.
+
+### Fixed
+- **Translate agent buffer safety** — defensive Write handling prevents late completion/status strings from overwriting the translation buffer; agents now end with `TRANSLATION_DONE` without clobbering content.
+- **Context menu alignment** — the mode-switch context menu spacing is restored (`gap-2`), keeping icons aligned with labels.
+
+### Removed
+- **Offline Skills Market cache** — the 1,800-line `resources/skills-market/skills.json` bundle and related downloader script were removed; Skills Market always queries the live API so the app footprint stays small.
+
 ## [0.3.1] - 2026-02-28
 
 ### Added

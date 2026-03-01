@@ -73,15 +73,6 @@ export function inputSummary(name: string, input: Record<string, unknown>): stri
     const expl = typeof input.explanation === 'string' ? ` — ${input.explanation.slice(0, 50)}` : ''
     return `${p}${expl}`
   }
-  if (name === 'MultiEdit') {
-    const p = String(input.file_path ?? input.path ?? '')
-      .split(/[\\/]/)
-      .slice(-2)
-      .join('/')
-    const count = Array.isArray(input.edits) ? ` (${input.edits.length} edits)` : ''
-    const expl = typeof input.explanation === 'string' ? ` — ${input.explanation.slice(0, 40)}` : ''
-    return `${p}${count}${expl}`
-  }
   if (name === 'Delete') {
     const p = String(input.file_path ?? input.path ?? '')
     return `delete: ${p.split(/[\\/]/).slice(-2).join('/')}`
@@ -1279,7 +1270,7 @@ function StructuredInput({
 }
 
 // Tools that auto-expand when they have output (mutation/action tools)
-const EXPAND_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'Delete', 'Bash', 'TaskCreate'])
+const EXPAND_TOOLS = new Set(['Edit', 'Write', 'Delete', 'Bash', 'TaskCreate'])
 
 export function ToolStatusDot({
   status
@@ -1329,37 +1320,6 @@ export function ToolStatusDot({
   }
 }
 
-function MultiEditList({ edits, filePath }: { edits: any[]; filePath: string }): React.JSX.Element | null {
-  if (!edits || edits.length === 0) return null
-  return (
-    <div className="space-y-2">
-      {edits.map((edit: any, i: number) => (
-        <div key={i}>
-          {edits.length > 1 && (
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <span className="text-[9px] text-muted-foreground/40 font-mono">
-                edit {i + 1}/{edits.length}
-              </span>
-              {typeof edit?.explanation === 'string' && (
-                <span className="text-[9px] text-muted-foreground/30 truncate">
-                  {edit.explanation}
-                </span>
-              )}
-            </div>
-          )}
-          {typeof edit?.old_string === 'string' && typeof edit?.new_string === 'string' ? (
-            <DiffBlock
-              oldStr={edit.old_string}
-              newStr={edit.new_string}
-              filePath={filePath}
-            />
-          ) : null}
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export function ToolCallCard({
   toolUseId,
   name,
@@ -1382,13 +1342,6 @@ export function ToolCallCard({
   const summary = inputSummary(name, input)
   const elapsed =
     startedAt && completedAt ? ((completedAt - startedAt) / 1000).toFixed(1) + 's' : null
-
-  const multiEdits: any[] = React.useMemo(() => {
-    if (name === 'MultiEdit' && Array.isArray(input.edits)) {
-      return input.edits as any[]
-    }
-    return []
-  }, [name, input.edits])
 
   return (
     <div className="my-5 min-w-0 overflow-hidden">
@@ -1431,23 +1384,14 @@ export function ToolCallCard({
       {/* Expanded details */}
       {open && (
         <div className="mt-1.5 space-y-2 pl-5 min-w-0 overflow-hidden">
-          {/* Diff view for Edit tools */}
-          {(name === 'Edit' || name === 'MultiEdit') &&
-            !!input.old_string &&
-            !!input.new_string && (
+          {/* Diff view for Edit tool */}
+          {name === 'Edit' && !!input.old_string && !!input.new_string && (
               <DiffBlock
                 oldStr={String(input.old_string)}
                 newStr={String(input.new_string)}
                 filePath={String(input.file_path ?? input.path ?? '')}
               />
             )}
-          {/* MultiEdit: show all edits as diffs */}
-          {name === 'MultiEdit' && multiEdits.length > 0 && (
-             <MultiEditList
-               edits={multiEdits}
-               filePath={String(input.file_path ?? input.path ?? '')}
-             />
-          )}
           {/* Write: show content with syntax highlighting */}
           {name === 'Write' && !!input.content && (
             <div>
@@ -1483,7 +1427,6 @@ export function ToolCallCard({
           {/* Structured Input — tool-specific rendering */}
           {!(
             (name === 'Edit' && !!input.old_string) ||
-            (name === 'MultiEdit' && (!!input.old_string || Array.isArray(input.edits))) ||
             (name === 'Write' && !!input.content) ||
             (name === 'TaskCreate' && !!input.subject)
           ) && <StructuredInput name={name} input={input} />}
@@ -1520,7 +1463,7 @@ export function ToolCallCard({
             <TaskListOutputBlock output={outputAsString(output)!} />
           )}
           {output &&
-            ['Edit', 'MultiEdit', 'Write', 'Delete'].includes(name) &&
+            ['Edit', 'Write', 'Delete'].includes(name) &&
             (() => {
               const s = outputAsString(output) ?? ''
               return (
@@ -1553,7 +1496,6 @@ export function ToolCallCard({
               'TaskGet',
               'TaskList',
               'Edit',
-              'MultiEdit',
               'Write',
               'Delete',
               'AskUserQuestion'

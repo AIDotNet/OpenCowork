@@ -44,11 +44,6 @@ const toolMeta: Record<
     label: 'Edit File',
     risk: 'medium'
   },
-  MultiEdit: {
-    icon: <FileEdit className="size-4 text-amber-500" />,
-    label: 'Multi-Edit File',
-    risk: 'medium'
-  },
   Bash: {
     icon: <Terminal className="size-4 text-red-500" />,
     label: 'Shell Command',
@@ -176,7 +171,6 @@ function formatToolSummary(name: string, input: Record<string, unknown>): string
   if (name === 'Bash') return String(input.command ?? '')
   if (name === 'Write') return `Create/overwrite: ${input.file_path ?? input.path ?? ''}`
   if (name === 'Edit') return `Edit: ${input.file_path ?? input.path ?? ''}`
-  if (name === 'MultiEdit') return `Multi-edit: ${input.file_path ?? input.path ?? ''}`
   if (name === 'Read') return `Read: ${input.file_path ?? input.path ?? ''}`
   if (name === 'Glob') return `Pattern: ${input.pattern ?? ''} in ${input.path ?? '.'}`
   if (name === 'Grep') return `Search: "${input.pattern ?? ''}" in ${input.path ?? '.'}`
@@ -271,7 +265,7 @@ export function PermissionDialog({
                 </div>
               )}
               {workingFolder &&
-                ['Bash', 'Write', 'Edit', 'MultiEdit', 'Delete', 'LS', 'Glob', 'Grep'].includes(
+                ['Bash', 'Write', 'Edit', 'Delete', 'LS', 'Glob', 'Grep'].includes(
                   toolCall?.name ?? ''
                 ) && (
                   <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60">

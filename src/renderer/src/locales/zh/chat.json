@@ -55,7 +55,6 @@
       "Read": "读取文件",
       "Write": "写入文件",
       "Edit": "编辑文件",
-      "MultiEdit": "多处编辑",
       "Bash": "Shell 命令",
       "LS": "列出目录",
       "Glob": "查找文件",

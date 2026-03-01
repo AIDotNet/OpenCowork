@@ -1,4 +1,4 @@
-import { ipcMain, shell } from 'electron'
+import { ipcMain, shell, app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -16,7 +16,7 @@ export interface MarketSkillInfo {
   source_path?: string
 }
 
-const SKILLS_DIR = path.join(os.homedir(), '.open-cowork', 'skills')
+const SKILLS_DIR = path.join(os.homedir(), 'agents', 'skills')
 const SKILLS_FILENAME = 'SKILL.md'
 
 /**
@@ -33,6 +33,57 @@ function copyDirRecursive(src: string, dest: string): void {
     } else {
       fs.copyFileSync(srcPath, destPath)
     }
+  }
+}
+
+/**
+ * Resolve the path to the bundled resources/skills/ directory.
+ * - Dev: <project>/resources/skills/
+ * - Production: <app>/resources/skills/ (asarUnpacked)
+ */
+function getBundledSkillsDir(): string {
+  const isDev = !app.isPackaged
+
+  if (isDev) {
+    return path.join(app.getAppPath(), 'resources', 'skills')
+  }
+
+  const unpackedDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'skills')
+  if (fs.existsSync(unpackedDir)) {
+    return unpackedDir
+  }
+
+  return path.join(process.resourcesPath, 'resources', 'skills')
+}
+
+/**
+ * Copy built-in skills from resources/skills/ to ~/agents/skills/.
+ * Only copies a skill if it does not already exist in the target,
+ * so user modifications are preserved.
+ */
+function ensureBuiltinSkills(): void {
+  try {
+    const bundledDir = getBundledSkillsDir()
+    if (!fs.existsSync(bundledDir)) {
+      console.warn('[Skills] Bundled skills directory not found:', bundledDir)
+      return
+    }
+
+    if (!fs.existsSync(SKILLS_DIR)) {
+      fs.mkdirSync(SKILLS_DIR, { recursive: true })
+    }
+
+    const entries = fs.readdirSync(bundledDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const sourceDir = path.join(bundledDir, entry.name)
+      const targetDir = path.join(SKILLS_DIR, entry.name)
+      if (fs.existsSync(targetDir)) continue
+
+      copyDirRecursive(sourceDir, targetDir)
+    }
+  } catch (err) {
+    console.error('[Skills] Failed to initialize builtin skills:', err)
   }
 }
 
@@ -99,9 +150,11 @@ function extractDescription(content: string, fallback: string): string {
 }
 
 export function registerSkillsHandlers(): void {
+  // Initialize builtin skills on startup
+  ensureBuiltinSkills()
 
   /**
-   * skills:list 鈥?scan ~/.open-cowork/skills/ and return all available skills.
+   * skills:list — scan ~/agents/skills/ and return all available skills.
    * Each subdirectory containing a SKILL.md is treated as a skill.
    */
   ipcMain.handle('skills:list', async (): Promise<SkillInfo[]> => {
@@ -195,7 +248,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:delete 鈥?remove a skill directory from ~/.open-cowork/skills/.
+   * skills:delete — remove a skill directory from ~/agents/skills/.
    */
   ipcMain.handle('skills:delete', async (_event, args: { name: string }): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -227,7 +280,7 @@ export function registerSkillsHandlers(): void {
   })
 
   /**
-   * skills:add-from-folder 鈥?copy a skill from a source folder into ~/.open-cowork/skills/.
+   * skills:add-from-folder — copy a skill from a source folder into ~/agents/skills/.
    * Expects the source folder to contain a SKILL.md file.
    */
   ipcMain.handle('skills:add-from-folder', async (_event, args: { sourcePath: string }): Promise<{ success: boolean; name?: string; error?: string }> => {

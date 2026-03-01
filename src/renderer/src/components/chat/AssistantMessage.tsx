@@ -597,7 +597,6 @@ export function AssistantMessage({
       'TaskUpdate',
       'Write',
       'Edit',
-      'MultiEdit',
       'Delete',
       'AskUserQuestion'
     ])
@@ -692,7 +691,7 @@ export function AssistantMessage({
           </ScaleIn>
         )
       }
-      if (['Write', 'Edit', 'MultiEdit', 'Delete'].includes(block.name)) {
+      if (['Write', 'Edit', 'Delete'].includes(block.name)) {
         const result = toolResults?.get(block.id)
         const liveTc = effectiveLiveToolCallMap?.get(block.id)
         return (

@@ -9,7 +9,7 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { cn } from '@renderer/lib/utils'
 
-const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit'])
+const FILE_TOOLS = new Set(['Write', 'Edit'])
 const DELETE_TOOLS = new Set(['Delete'])
 
 const PREVIEWABLE_EXTENSIONS = new Set(['.html', '.htm', '.md', '.mdx', '.markdown', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico', '.docx', '.pdf'])

@@ -60,8 +60,7 @@ function AgentTimeline({
 
   const toolIcon = (name: string): React.JSX.Element => {
     if (name === 'Write') return <FileText className="size-3 text-blue-400" />
-    if (name === 'Edit' || name === 'MultiEdit')
-      return <Pencil className="size-3 text-emerald-400" />
+    if (name === 'Edit') return <Pencil className="size-3 text-emerald-400" />
     if (name === 'FileRead') return <Upload className="size-3 text-amber-400" />
     return <Bot className="size-3 text-muted-foreground" />
   }

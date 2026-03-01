@@ -240,146 +240,6 @@ const editHandler: ToolHandler = {
   },
 }
 
-const multiEditHandler: ToolHandler = {
-  definition: {
-    name: 'MultiEdit',
-    description:
-      'This is a tool for making multiple edits to a single file in one operation. It is built on top of the Edit tool and allows you to perform multiple find-and-replace operations efficiently. Prefer this tool over the Edit tool when you need to make multiple edits to the same file.\n\nBefore using this tool:\n\n1. Use the Read tool to understand the file\'s contents and context\n2. Verify the directory path is correct\n\nTo make multiple file edits, provide the following:\n1. file_path: Absolute path or relative to the working folder\n2. edits: An array of edit operations to perform, where each edit contains:\n   - old_string: The text to replace (must match the file contents exactly, including all whitespace and indentation)\n   - new_string: The edited text to replace the old_string\n   - replace_all: Replace all occurences of old_string. This parameter is optional and defaults to false.\n\nIMPORTANT:\n- All edits are applied in sequence, in the order they are provided\n- Each edit operates on the result of the previous edit\n- All edits must be valid for the operation to succeed - if any edit fails, none will be applied\n- This tool is ideal when you need to make several changes to different parts of the same file\n- For Jupyter notebooks (.ipynb files), use the NotebookEdit instead\n\nCRITICAL REQUIREMENTS:\n1. All edits follow the same requirements as the single Edit tool\n2. The edits are atomic - either all succeed or none are applied\n3. Plan your edits carefully to avoid conflicts between sequential operations\n\nWARNING:\n- The tool will fail if edits.old_string doesn\'t match the file contents exactly (including whitespace)\n- The tool will fail if edits.old_string and edits.new_string are the same\n- Since edits are applied in sequence, ensure that earlier edits don\'t affect the text that later edits are trying to find\n\nWhen making edits:\n- Ensure all edits result in idiomatic, correct code\n- Do not leave the code in a broken state\n- Use absolute paths or paths relative to the working folder\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\n\nIf you want to create a new file, use:\n- A new file path, including dir name if needed\n- First edit: empty old_string and the new file\'s contents as new_string\n- Subsequent edits: normal edit operations on the created content',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        file_path: {
-          type: 'string',
-          description: 'Absolute path or relative to the working folder',
-        },
-        edits: {
-          type: 'array',
-          description: 'Array of edit operations to perform sequentially on the file',
-          minItems: 1,
-          items: {
-            type: 'object',
-            properties: {
-              old_string: {
-                type: 'string',
-                description: 'The text to replace',
-              },
-              new_string: {
-                type: 'string',
-                description: 'The text to replace it with',
-              },
-              replace_all: {
-                type: 'boolean',
-                default: false,
-                description: 'Replace all occurences of old_string (default false).',
-              },
-            },
-            required: ['old_string', 'new_string'],
-            additionalProperties: false,
-          },
-        },
-      },
-      required: ['file_path', 'edits'],
-    },
-  },
-  execute: async (input, ctx) => {
-    const filePath = typeof input.file_path === 'string' ? input.file_path : ''
-    if (!filePath) {
-      throw new Error('MultiEdit requires a non-empty "file_path" string')
-    }
-
-    if (!Array.isArray(input.edits) || input.edits.length === 0) {
-      throw new Error('MultiEdit requires a non-empty "edits" array')
-    }
-
-    const resolvedPath = resolveToolPath(filePath, ctx.workingFolder)
-    const readCh = isSsh(ctx) ? IPC.SSH_FS_READ_FILE : IPC.FS_READ_FILE
-    const readArgs = isSsh(ctx) ? sshArgs(ctx, { path: resolvedPath }) : { path: resolvedPath }
-    const readResult = await ctx.ipc.invoke(readCh, readArgs)
-
-    let content: string
-    if (typeof readResult === 'string') {
-      const readError = tryParseReadError(readResult)
-      if (readError) {
-        if (readError.includes('ENOENT')) {
-          content = ''
-        } else {
-          throw new Error(`MultiEdit read failed: ${readError}`)
-        }
-      } else {
-        content = readResult
-      }
-    } else if (!readResult) {
-      content = ''
-    } else if (typeof readResult === 'object' && (readResult as { type?: unknown }).type === 'image') {
-      throw new Error('MultiEdit only supports text files')
-    } else {
-      content = String(readResult)
-    }
-
-    let updatedContent = content
-
-    for (let i = 0; i < input.edits.length; i += 1) {
-      const edit = input.edits[i]
-      if (!edit || typeof edit !== 'object') {
-        throw new Error(`MultiEdit edits[${i}] must be an object`)
-      }
-
-      const oldStr = (edit as { old_string?: unknown }).old_string
-      const newStr = (edit as { new_string?: unknown }).new_string
-      const replaceAll = Boolean((edit as { replace_all?: unknown }).replace_all)
-
-      if (typeof newStr !== 'string') {
-        throw new Error(`MultiEdit edits[${i}] requires a string new_string`)
-      }
-      if (typeof oldStr !== 'string') {
-        throw new Error(`MultiEdit edits[${i}] requires an old_string string`)
-      }
-      if (oldStr === newStr) {
-        return JSON.stringify({ error: `MultiEdit edits[${i}] old_string and new_string must differ` })
-      }
-
-      if (replaceAll) {
-        if (oldStr.length === 0) {
-          throw new Error(`MultiEdit edits[${i}] cannot use replace_all with an empty old_string`)
-        }
-        if (!updatedContent.includes(oldStr)) {
-          return JSON.stringify({ error: `MultiEdit edits[${i}] old_string not found in file` })
-        }
-        updatedContent = updatedContent.split(oldStr).join(newStr)
-      } else {
-        if (oldStr.length === 0) {
-          // Append at beginning when old_string is empty (supports new file creation)
-          updatedContent = newStr + updatedContent
-          continue
-        }
-        const idx = updatedContent.indexOf(oldStr)
-        if (idx === -1) {
-          return JSON.stringify({ error: `MultiEdit edits[${i}] old_string not found in file` })
-        }
-        updatedContent =
-          updatedContent.slice(0, idx) + newStr + updatedContent.slice(idx + oldStr.length)
-      }
-    }
-
-    const writeCh = isSsh(ctx) ? IPC.SSH_FS_WRITE_FILE : IPC.FS_WRITE_FILE
-    const writeArgs = isSsh(ctx)
-      ? sshArgs(ctx, { path: resolvedPath, content: updatedContent })
-      : { path: resolvedPath, content: updatedContent }
-    await ctx.ipc.invoke(writeCh, writeArgs)
-    return JSON.stringify({ success: true })
-  },
-  requiresApproval: (input, ctx) => {
-    if (isSsh(ctx)) return false
-    const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
-    // Plugin context: check write permission
-    if (ctx.pluginPermissions) {
-      return !isPluginPathAllowed(filePath, ctx, 'write')
-    }
-    if (!ctx.workingFolder) return true
-    return !filePath.startsWith(ctx.workingFolder)
-  },
-}
-
 const lsHandler: ToolHandler = {
   definition: {
     name: 'LS',
@@ -424,7 +284,6 @@ export function registerFsTools(): void {
   toolRegistry.register(readHandler)
   toolRegistry.register(writeHandler)
   toolRegistry.register(editHandler)
-  toolRegistry.register(multiEditHandler)
   toolRegistry.register(lsHandler)
 }
 
@@ -432,20 +291,4 @@ function isErrorResult(value: unknown): value is { error: string } {
   if (!value || typeof value !== 'object') return false
   const error = (value as { error?: unknown }).error
   return typeof error === 'string' && error.length > 0
-}
-
-function tryParseReadError(value: string): string | null {
-  if (!value.trim().startsWith('{')) return null
-  try {
-    const parsed = JSON.parse(value) as unknown
-    if (!parsed || typeof parsed !== 'object') return null
-    const entries = Object.entries(parsed)
-    if (entries.length !== 1) return null
-    const errorEntry = entries[0]
-    if (errorEntry[0] !== 'error') return null
-    const errVal = errorEntry[1]
-    return typeof errVal === 'string' && errVal.length > 0 ? errVal : null
-  } catch {
-    return null
-  }
 }

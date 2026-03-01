@@ -73,7 +73,7 @@ function createSkillHandler(skills: { name: string; description: string }[]): To
 }
 
 /**
- * Load available skills from ~/.open-cowork/skills/ via IPC,
+ * Load available skills from ~/agents/skills/ via IPC,
  * then register the Skill tool with embedded skill descriptions.
  *
  * This is async because it reads skill metadata via IPC from the main process.

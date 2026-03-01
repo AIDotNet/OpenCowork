@@ -35,7 +35,7 @@ import { cn } from '@renderer/lib/utils'
 import { AnimatePresence } from 'motion/react'
 import { FadeIn } from '@renderer/components/animate-ui'
 
-const ALL_FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'Delete'])
+const ALL_FILE_TOOLS = new Set(['Write', 'Edit', 'Delete'])
 
 const tabDefs: { value: RightPanelTab; labelKey: string; icon: React.ReactNode }[] = [
   { value: 'steps', labelKey: 'steps', icon: <ListChecks className="size-4" /> },

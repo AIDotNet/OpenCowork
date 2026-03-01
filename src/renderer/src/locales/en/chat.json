@@ -55,7 +55,6 @@
       "Read": "Read File",
       "Write": "Write File",
       "Edit": "Edit File",
-      "MultiEdit": "Multi-Edit File",
       "Bash": "Shell Command",
       "LS": "List Directory",
       "Glob": "Find Files",

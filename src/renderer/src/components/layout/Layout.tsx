@@ -34,6 +34,7 @@ import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
 import { toast } from 'sonner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
 import { AnimatePresence } from 'motion/react'
 import { PageTransition, PanelTransition } from '@renderer/components/animate-ui'
@@ -559,11 +560,13 @@ export function Layout(): React.JSX.Element {
       })
 
       const base64 = dataUrl.split(',')[1]
-      const binary = atob(base64)
-      const bytes = new Uint8Array(binary.length)
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-      const blob = new Blob([bytes], { type: 'image/png' })
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      const result = (await ipcClient.invoke(IPC.CLIPBOARD_WRITE_IMAGE, { data: base64 })) as {
+        success?: boolean
+        error?: string
+      }
+      if (!result?.success) {
+        throw new Error(result?.error || 'Clipboard write failed')
+      }
       toast.success(t('layout.imageCopied', { defaultValue: 'Image copied to clipboard' }))
     } catch (err) {
       console.error('Export image failed:', err)

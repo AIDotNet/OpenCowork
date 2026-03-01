@@ -83,30 +83,6 @@ const TRANSLATION_TOOLS: ToolDefinition[] = [
     }
   },
   {
-    name: 'MultiEdit',
-    description:
-      'Perform multiple find-and-replace operations on the translation buffer in one call. ' +
-      'Each edit is applied sequentially to the result of the previous edit.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        edits: {
-          type: 'array',
-          description: 'Ordered list of edit operations.',
-          items: {
-            type: 'object',
-            properties: {
-              old_string: { type: 'string', description: 'Text to find.' },
-              new_string: { type: 'string', description: 'Replacement text.' }
-            },
-            required: ['old_string', 'new_string']
-          }
-        }
-      },
-      required: ['edits']
-    }
-  },
-  {
     name: 'Read',
     description: 'Read and return the current contents of the translation buffer.',
     inputSchema: {
@@ -171,10 +147,9 @@ You are a senior professional translator specializing in producing accurate, nat
 <source_language>${sourceName}</source_language>
 
 <tools_available>
-You have access to five tools that operate on a shared translation buffer:
+You have access to four tools that operate on a shared translation buffer:
 - Write(content): Replace the entire buffer with full translated text only. Use this once for the initial complete translation.
 - Edit(old_string, new_string): Find and replace a specific substring in the buffer.
-- MultiEdit(edits): Perform multiple sequential find-and-replace operations in one call.
 - Read(): Read the current buffer contents to review your translation.
 - FileRead(file_path): Read a file from disk if you need to access additional context or the source file directly.
 </tools_available>
@@ -184,7 +159,7 @@ You have access to five tools that operate on a shared translation buffer:
 2. Identify the text type (technical, literary, conversational, etc.) and adapt translation style accordingly.
 3. Call Write() once with your complete, high-quality initial translation.
 4. If necessary, call Read() to review the translation.
-5. Use Edit() or MultiEdit() to refine specific phrases, improve fluency, or fix inaccuracies.
+5. Use Edit() to refine specific phrases, improve fluency, or fix inaccuracies.
 6. Never use Write() for status text (for example: "translation complete" / "翻译已完成").
 7. When the translation is complete and polished, stop calling tools and respond with exactly: TRANSLATION_DONE
 </translation_process>
@@ -203,7 +178,7 @@ You have access to five tools that operate on a shared translation buffer:
 3. Do NOT add preamble, commentary, or metadata to the translation output.
 4. Do NOT emit <think> blocks or reasoning in the buffer — only translated text.
 5. Never call Write with meta/status text like "done", "translation complete", or "翻译已完成".
-6. If the buffer already contains translation content, prefer Edit/MultiEdit to preserve content integrity.
+6. If the buffer already contains translation content, prefer Edit to preserve content integrity.
 </rules>`
 }
 
@@ -227,8 +202,8 @@ function buildUserMessage(
 You are performing translation task #${iteration}.
 Target language: ${targetName}.
 Source language: ${sourceName}.
-Use your translation tools (Write, Edit, MultiEdit, Read, FileRead) to build the translation in the buffer.
-Never output translated text directly in your message — use Write/Edit/MultiEdit for translation content only.
+Use your translation tools (Write, Edit, Read, FileRead) to build the translation in the buffer.
+Never output translated text directly in your message — use Write/Edit for translation content only.
 When finished, stop calling tools and reply exactly "TRANSLATION_DONE" (plain text, no tool calls).
 Do not call Write() with completion/status text.
 </system-remind>`
@@ -242,7 +217,7 @@ Translation requirements:
 - Produce a complete, faithful, and natural translation
 - Preserve all formatting, structure, code blocks, and special syntax exactly
 - Maintain the original tone and register
-- Start by calling Write() with the complete translation, then use Edit()/MultiEdit() to refine if needed
+- Start by calling Write() with the complete translation, then use Edit() to refine if needed
 - Never use Write() for completion/status text like "translation complete" or "翻译已完成"
 - Do NOT include any commentary or explanation in the buffer — only the translated text`
   }
@@ -300,21 +275,6 @@ function executeTool(
       }
       buffer.value = buffer.value.replace(oldStr, newStr)
       return Promise.resolve(JSON.stringify({ ok: true }))
-    }
-    case 'MultiEdit': {
-      const edits = Array.isArray(input.edits)
-        ? (input.edits as Array<{ old_string: string; new_string: string }>)
-        : []
-      const errors: string[] = []
-      for (const edit of edits) {
-        if (!buffer.value.includes(edit.old_string)) {
-          errors.push(`"${edit.old_string.slice(0, 40)}" not found`)
-          continue
-        }
-        buffer.value = buffer.value.replace(edit.old_string, edit.new_string)
-      }
-      if (errors.length > 0) return Promise.resolve(JSON.stringify({ ok: true, warnings: errors }))
-      return Promise.resolve(JSON.stringify({ ok: true, applied: edits.length }))
     }
     case 'Read': {
       return Promise.resolve(buffer.value || '(buffer is empty)')
@@ -498,8 +458,8 @@ export async function runTranslationAgent({
         }
       }
 
-      // Emit buffer update after Write/Edit/MultiEdit
-      if (!isError && (tu.name === 'Write' || tu.name === 'Edit' || tu.name === 'MultiEdit')) {
+      // Emit buffer update after Write/Edit
+      if (!isError && (tu.name === 'Write' || tu.name === 'Edit')) {
         onEvent({ type: 'buffer_update', content: buffer.value })
       }
       onEvent({ type: 'tool_result', name: tu.name, output, isError })

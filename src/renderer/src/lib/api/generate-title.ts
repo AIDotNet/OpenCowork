@@ -9,11 +9,16 @@ export interface SessionTitleResult {
   icon: string
 }
 
-interface FriendlyMessageParams {
+export interface FriendlyMessageParams {
   language: 'zh' | 'en'
   status: 'idle' | 'pending' | 'error' | 'streaming' | 'agents' | 'background'
   detail?: string
 }
+
+const stripReasoningBlocks = (value: string): string =>
+  value
+    .replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '')
+    .replace(/<\/think>/gi, '')
 
 const FRIENDLY_SYSTEM_PROMPT = `You generate a single friendly sentence for the app title bar.
 Rules:
@@ -82,8 +87,7 @@ export async function generateFriendlyMessage(
     }
     clearTimeout(timeout)
 
-    const cleaned = text
-      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    const cleaned = stripReasoningBlocks(text)
       .replace(/```[\s\S]*?```/g, '')
       .trim()
     if (!cleaned) return null
@@ -162,8 +166,7 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
     clearTimeout(timeout)
 
     // Strip thinking tags, markdown fences, and surrounding whitespace
-    const cleaned = title
-      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    const cleaned = stripReasoningBlocks(title)
       .replace(/```(?:json)?\s*([\s\S]*?)```/g, '$1')
       .trim()
     if (!cleaned) return null
@@ -175,7 +178,7 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0])
         if (parsed.title && parsed.icon) {
-          let t = String(parsed.title).replace(/<think>[\s\S]*?<\/think>/gi, '').trim().replace(/^["']|["']$/g, '').trim()
+          let t = stripReasoningBlocks(String(parsed.title)).trim().replace(/^["']|["']$/g, '').trim()
           if (t.length > 40) t = t.slice(0, 40) + '...'
           return { title: t, icon: String(parsed.icon).trim() }
         }
@@ -183,7 +186,7 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
     } catch { /* fall through to plain-text fallback */ }
 
     // Fallback: treat entire response as title, use default icon
-    let plainTitle = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/^["']|["']$/g, '').replace(/[{}]/g, '').trim()
+    let plainTitle = stripReasoningBlocks(cleaned).replace(/^["']|["']$/g, '').replace(/[{}]/g, '').trim()
     if (plainTitle.length > 40) plainTitle = plainTitle.slice(0, 40) + '...'
     return { title: plainTitle, icon: 'message-square' }
   } catch {

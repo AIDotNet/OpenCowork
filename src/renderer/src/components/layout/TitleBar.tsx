@@ -27,7 +27,7 @@ import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
-import { generateFriendlyMessage } from '@renderer/lib/api/generate-title'
+import { generateFriendlyMessage, type FriendlyMessageParams } from '@renderer/lib/api/generate-title'
 import { useTheme } from 'next-themes'
 import { useTranslation } from 'react-i18next'
 import { WindowControls } from './WindowControls'
@@ -99,7 +99,10 @@ export function TitleBar(): React.JSX.Element {
     return true
   }, [fastModelInfo])
 
-  const { statusType, statusSummary } = useMemo(() => {
+  const { statusType, statusSummary } = useMemo<{
+    statusType: FriendlyMessageParams['status']
+    statusSummary: string
+  }>(() => {
     if (errorCount > 0) {
       return { statusType: 'error', statusSummary: `errors=${errorCount}` }
     }

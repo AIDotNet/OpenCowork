@@ -12,7 +12,7 @@ import { AnimatePresence, motion } from 'motion/react'
 // ── Types ────────────────────────────────────────────────────────
 
 interface FileChangeCardProps {
-  /** Tool name: Write, Edit, MultiEdit, Delete */
+  /** Tool name: Write, Edit, Delete */
   name: string
   input: Record<string, unknown>
   output?: ToolResultContent
@@ -151,7 +151,6 @@ function FileIcon({ name }: { name: string }): React.JSX.Element {
     case 'Delete':
       return <FileX2 className="size-4 text-destructive" />
     case 'Edit':
-    case 'MultiEdit':
       return <FileEdit className="size-4 text-amber-500" />
     default:
       return <FileCode className="size-4 text-muted-foreground" />
@@ -181,20 +180,6 @@ function ChangeStats({ name, input }: { name: string; input: Record<string, unkn
       <span className="flex items-center gap-1 text-[10px]">
         <span className="text-green-400/70">+{added}</span>
         <span className="text-red-400/70">-{removed}</span>
-      </span>
-    )
-  }
-  if (name === 'MultiEdit') {
-    const edits = Array.isArray(input.edits) ? input.edits as Array<Record<string, unknown>> : []
-    let totalAdded = 0, totalRemoved = 0
-    for (const edit of edits) {
-      totalRemoved += String(edit.old_string ?? '').split('\n').length
-      totalAdded += String(edit.new_string ?? '').split('\n').length
-    }
-    return (
-      <span className="flex items-center gap-1 text-[10px]">
-        <span className="text-green-400/70">+{totalAdded}</span>
-        <span className="text-red-400/70">-{totalRemoved}</span>
       </span>
     )
   }
@@ -387,23 +372,6 @@ export function FileChangeCard({
               <InlineDiff oldStr={String(input.old_string)} newStr={String(input.new_string)} />
             )}
 
-            {/* MultiEdit: multiple diffs */}
-            {name === 'MultiEdit' && Array.isArray(input.edits) && (
-              <div className="divide-y divide-zinc-800/40">
-                {(input.edits as Array<Record<string, unknown>>).map((edit, i) => (
-                  <div key={i}>
-                    {(input.edits as unknown[]).length > 1 && typeof edit.explanation === 'string' && (
-                      <div className="px-3 py-1 text-[9px] text-zinc-500/60 bg-zinc-900/50">
-                        edit {i + 1}/{(input.edits as unknown[]).length}: {edit.explanation}
-                      </div>
-                    )}
-                    {edit.old_string && edit.new_string ? (
-                      <InlineDiff oldStr={String(edit.old_string)} newStr={String(edit.new_string)} />
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            )}
 
             {/* Write: new file content */}
             {name === 'Write' && !!input.content && (

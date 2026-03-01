@@ -16,7 +16,7 @@ const categoryMap: Record<string, { label: string; icon: React.ReactNode }> = {
 }
 
 function getCategory(name: string): string {
-  if (['Read', 'Write', 'Edit', 'MultiEdit', 'LS', 'Delete'].includes(name)) return 'filesystem'
+  if (['Read', 'Write', 'Edit', 'LS', 'Delete'].includes(name)) return 'filesystem'
   if (['Glob', 'Grep'].includes(name)) return 'search'
   if (['Bash'].includes(name)) return 'shell'
   if (['TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList'].includes(name)) return 'task'
@@ -92,7 +92,7 @@ export function SkillsPanel(): React.JSX.Element {
                       approval
                     </span>
                   )}
-                  {['Write', 'Edit', 'MultiEdit', 'Delete'].includes(tool.name) && (
+                  {['Write', 'Edit', 'Delete'].includes(tool.name) && (
                     <span className="rounded bg-amber-500/10 px-1 py-px text-[8px] text-amber-500">
                       approval
                     </span>

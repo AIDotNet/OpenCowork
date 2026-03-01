@@ -3,6 +3,15 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.3] - 2026-03-02
+
+### Fixed
+- **Plugin auto-reply helper functions** — added missing utility functions (`getProviderConfig`, `resolveModelSupportsVision`, `resolveOpenAiProviderConfig`, `transcribeFeishuAudio`, `hasQueuedPluginTasks`, `handlePluginAutoReply`) to fix runtime errors in plugin auto-reply workflow.
+- **Feishu audio transcription** — implemented OpenAI-compatible speech-to-text API integration for processing voice messages in Feishu plugin conversations.
+
+### Changed
+- **Error message improvements** — refined user-facing error messages in plugin auto-reply flow with clearer Chinese text and better formatting.
+
 ## [0.3.2] - 2026-03-01
 
 ### Changed

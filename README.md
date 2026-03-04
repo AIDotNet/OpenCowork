@@ -28,6 +28,11 @@
 
 ---
 
+## WeChat
+
+<img width="1146" height="1611" alt="1000051498" src="https://github.com/user-attachments/assets/363ff2eb-c5e5-427f-a67d-c5d3eaed7cd2" />
+
+
 ## Project Overview
 
 OpenCowork is a desktop AI agent collaboration workspace built with Electron, React, and TypeScript. It is designed for local, tool-enabled automation rather than chat-only workflows. Agents can read and write files, run shell commands, search code, schedule tasks, and coordinate with teammates.

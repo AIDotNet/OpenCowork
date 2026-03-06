@@ -141,20 +141,12 @@ const webFetchHandler: ToolHandler = {
           description: 'A single URL to fetch'
         },
         urls: {
-          oneOf: [
-            {
-              type: 'string',
-              description: 'A single URL to fetch'
-            },
-            {
-              type: 'array',
-              items: {
-                type: 'string'
-              },
-              minItems: 1,
-              description: 'A list of URLs to fetch'
-            }
-          ]
+          type: 'array',
+          items: {
+            type: 'string'
+          },
+          minItems: 1,
+          description: 'A list of URLs to fetch'
         },
         format: {
           type: 'string',
@@ -163,7 +155,6 @@ const webFetchHandler: ToolHandler = {
           description: 'Output format, defaults to markdown'
         }
       },
-      anyOf: [{ required: ['url'] }, { required: ['urls'] }],
       additionalProperties: false
     }
   },

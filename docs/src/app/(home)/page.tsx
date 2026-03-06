@@ -221,7 +221,7 @@ export default function HomePage() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full size-2 bg-emerald-500"></span>
             </span>
-            v0.4.2 已发布 <span className="text-zinc-600">|</span> Apache 2.0 <span className="text-zinc-600">|</span> 完全开源
+            v0.4.3 已发布 <span className="text-zinc-600">|</span> Apache 2.0 <span className="text-zinc-600">|</span> 完全开源
           </motion.div>
 
           <h1 className="text-5xl sm:text-7xl lg:text-8xl font-extrabold tracking-tight leading-[1.1]">

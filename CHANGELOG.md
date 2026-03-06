@@ -3,6 +3,15 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.4.3] - 2026-03-06
+
+### Fixed
+- **Tool schema definitions** — added `additionalProperties` support to tool parameter schema for better OpenAI API compatibility.
+- **WebFetch tool schema** — simplified URL parameter schema by removing complex `oneOf`/`anyOf` patterns, improving reliability with various LLM providers.
+
+### Removed
+- **qqbot submodule** — removed git submodule to simplify repository structure.
+
 ## [0.4.2] - 2026-03-06
 
 ### Added

@@ -1,0 +1,128 @@
+---
+title: QQ 机器人集成
+description: 配置 QQ 官方机器人实现 AI 自动回复，支持私聊、群聊和频道消息。
+---
+
+# QQ 机器人集成 / QQ Bot Integration
+
+OpenCowork 通过腾讯 QQ 官方 Gateway WebSocket 连接 QQ 机器人平台，支持 C2C 私聊、群聊和频道消息的自动回复。
+
+## 前置要求 / Prerequisites
+
+1. 在 [QQ 开放平台](https://q.qq.com/) 注册开发者账号
+2. 创建机器人应用
+3. 获取 App ID 和 Client Secret
+4. 机器人已通过审核并上线
+
+## 配置步骤 / Setup
+
+### 1. 创建 QQ 机器人
+
+1. 访问 [QQ 开放平台](https://q.qq.com/) → 机器人管理
+2. 创建一个新的机器人应用
+3. 填写机器人名称、描述和头像
+4. 完成审核流程
+
+### 2. 获取凭证
+
+在机器人应用的管理页面获取并复制：
+
+- `App ID` — 机器人应用 ID
+- `Client Secret` — 机器人应用密钥
+
+### 3. 在 OpenCowork 中配置
+
+进入 **设置 → 插件 → QQ Bot**，填入：
+
+| 配置项 | 说明 | 必填 |
+|--------|------|------|
+| App ID | QQ 机器人应用 ID | ✅ |
+| Client Secret | QQ 机器人应用密钥 | ✅ |
+
+### 4. 启动插件
+
+点击开关启用 QQ Bot 插件，机器人将通过 Gateway WebSocket 连接到 QQ 服务器并开始监听消息。
+
+## 支持的消息场景 / Supported Scenarios
+
+| 场景 | 事件类型 | 说明 |
+|------|---------|------|
+| C2C 私聊 | `C2C_MESSAGE_CREATE` | 用户与机器人的一对一私聊 |
+| 群聊 @ | `GROUP_AT_MESSAGE_CREATE` | 在群组中 @ 机器人触发回复 |
+| 频道 @ | `AT_MESSAGE_CREATE` | 在 QQ 频道中 @ 机器人触发回复 |
+
+## 使用方式 / Usage
+
+- **私聊**：直接向机器人发送消息
+- **群聊**：将机器人添加到群组，@机器人 触发回复
+- **频道**：将机器人添加到频道，@机器人 触发回复
+
+## 常见问题 / FAQ
+
+### Q: 消息没有被接收到
+
+**A:** 检查以下几点：
+
+1. 确认 App ID 和 Client Secret 正确
+2. 确认机器人已通过审核并上线
+3. 确认机器人已被添加到对应的群组或频道
+4. 查看 OpenCowork 日志是否有连接错误
+
+### Q: 回复消息没有出现
+
+**A:**
+
+1. 确认机器人有对应场景的发送消息权限
+2. 群聊和频道场景下，需先收到用户 @ 消息后才能回复
+3. 检查 OpenCowork 日志中的发送错误
+
+### Q: 连接频繁断开
+
+**A:**
+
+- OpenCowork 内置了自动重连机制（指数退避：1s → 2s → 5s → 10s → 30s）
+- 检查网络连接是否稳定
+- 确认 Access Token 未过期（令牌会自动刷新）
+
+## 技术细节 / Technical Details
+
+### 架构
+
+```
+QQ Gateway 服务器
+  ↓ (WebSocket 推送)
+QQService (handleGatewayMessage)
+  ↓ (解析消息事件)
+ChannelManager
+  ↓ (触发)
+Agent Loop (auto-reply)
+  ↓ (生成回复)
+QQ API (sendMessage)
+  ↓ (REST API)
+QQ 服务器
+  ↓ (投放到用户)
+用户
+```
+
+### Gateway 连接流程
+
+1. 通过 App ID 和 Client Secret 获取 Access Token
+2. 调用 `/gateway` 接口获取 WebSocket 连接地址
+3. 建立 WebSocket 连接，接收 Hello（op=10）获取心跳间隔
+4. 发送 Identify（op=2）进行鉴权
+5. 收到 Ready 事件后开始监听消息
+6. 定时发送心跳（op=1）保持连接
+7. 收到 Reconnect（op=7）或 Invalid Session（op=9）时自动重连
+
+### 消息类型
+
+| 类型 | 接收 | 发送 |
+|------|------|------|
+| 文本 | ✅ | ✅ |
+| 回复引用 | ✅ | ✅ |
+
+### 权限与安全
+
+- `forceApproval=true`：自动回复模式下，所有工具调用无需用户确认
+- 建议在插件配置中设置安全规则，限制可执行的工具
+- Access Token 自动缓存并在过期前自动刷新

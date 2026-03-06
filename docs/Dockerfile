@@ -1,16 +1,33 @@
+# ── electron-build ─────────────────────────────────────────
+FROM electronuserland/builder:22-wine AS electron-builder
+WORKDIR /workspace
+COPY package.json ./
+RUN npm install
+COPY . .
+# Build Windows and Linux apps
+RUN npm run build:win && npm run build:linux
+
+# ── docs-deps ──────────────────────────────────────────────
 FROM node:22-alpine AS base
 
-# ── deps ──────────────────────────────────────────────
 FROM base AS deps
 WORKDIR /app
-COPY package.json ./
+COPY docs/package.json ./
 RUN npm install --ignore-scripts
 
-# ── build ─────────────────────────────────────────────
+# ── docs-build ─────────────────────────────────────────────
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY docs/ .
+
+# Extract built desktop apps
+RUN mkdir -p public/downloads
+COPY --from=electron-builder /workspace/dist/ /tmp/dist/
+RUN find /tmp/dist -name "*.exe" -exec cp {} public/downloads/OpenCowork-Windows-Setup.exe \; || true
+RUN find /tmp/dist -name "*.AppImage" -exec cp {} public/downloads/OpenCowork.AppImage \; || true
+RUN find /tmp/dist -name "*.deb" -exec cp {} public/downloads/OpenCowork.deb \; || true
+
 RUN npm rebuild esbuild lightningcss
 RUN npm run postinstall
 RUN npm run build

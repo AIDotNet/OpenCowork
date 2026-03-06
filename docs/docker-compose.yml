@@ -1,8 +1,8 @@
 services:
   docs:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docs/Dockerfile
     image: hejiale010426/open-cowork-docs:latest
     environment:
       NODE_ENV: production

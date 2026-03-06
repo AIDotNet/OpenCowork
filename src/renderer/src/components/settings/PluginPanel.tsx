@@ -10,7 +10,7 @@ import {
   ChevronDown,
   Check,
   Shield,
-  X,
+  X
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
@@ -33,6 +33,7 @@ import {
   DiscordIcon,
   WhatsAppIcon,
   WeComIcon,
+  QQIcon
 } from '@renderer/components/icons/plugin-icons'
 
 // ─── Channel Icon Helper ───
@@ -44,11 +45,18 @@ const CHANNEL_ICON_COMPONENTS: Record<string, React.FC<React.SVGProps<SVGSVGElem
   discord: DiscordIcon,
   whatsapp: WhatsAppIcon,
   wecom: WeComIcon,
+  qq: QQIcon
 }
 
 export const ChannelSettingsPanel = ChannelPanel
 
-function ChannelIcon({ icon, className = '' }: { icon: string; className?: string }): React.JSX.Element {
+function ChannelIcon({
+  icon,
+  className = ''
+}: {
+  icon: string
+  className?: string
+}): React.JSX.Element {
   const IconComponent = CHANNEL_ICON_COMPONENTS[icon]
   if (IconComponent) {
     return <IconComponent className={`shrink-0 ${className}`} />
@@ -95,9 +103,7 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
   const [localFeatures, setLocalFeatures] = useState<PluginFeatures>(
     plugin.features ?? { autoReply: true, streamingReply: true, autoStart: true }
   )
-  const [localTools, setLocalTools] = useState<Record<string, boolean>>(
-    plugin.tools ?? {}
-  )
+  const [localTools, setLocalTools] = useState<Record<string, boolean>>(plugin.tools ?? {})
   const [localPerms, setLocalPerms] = useState<PluginPermissions>(
     plugin.permissions ?? DEFAULT_PLUGIN_PERMISSIONS
   )
@@ -184,14 +190,20 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
       setNewReadPath('')
       return
     }
-    const next = { ...localPerms, readablePathPrefixes: [...localPerms.readablePathPrefixes, trimmed] }
+    const next = {
+      ...localPerms,
+      readablePathPrefixes: [...localPerms.readablePathPrefixes, trimmed]
+    }
     setLocalPerms(next)
     setNewReadPath('')
     debouncedSave({ permissions: next })
   }
 
   const handleRemoveReadPath = (path: string): void => {
-    const next = { ...localPerms, readablePathPrefixes: localPerms.readablePathPrefixes.filter((p) => p !== path) }
+    const next = {
+      ...localPerms,
+      readablePathPrefixes: localPerms.readablePathPrefixes.filter((p) => p !== path)
+    }
     setLocalPerms(next)
     debouncedSave({ permissions: next })
   }
@@ -213,13 +225,12 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
           <ChannelIcon icon={descriptor?.icon ?? ''} className="size-8" />
           <div>
             <h3 className="text-sm font-semibold">{localName}</h3>
-            <p className="text-xs text-muted-foreground">{descriptor?.description ?? plugin.type}</p>
+            <p className="text-xs text-muted-foreground">
+              {descriptor?.description ?? plugin.type}
+            </p>
           </div>
         </div>
-        <Switch
-          checked={plugin.enabled}
-          onCheckedChange={() => toggleChannelEnabled(plugin.id)}
-        />
+        <Switch checked={plugin.enabled} onCheckedChange={() => toggleChannelEnabled(plugin.id)} />
       </div>
 
       <Separator className="mb-4" />
@@ -277,7 +288,10 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
           className="min-h-[80px] text-xs resize-none"
           value={localSystemPrompt}
           onChange={(e) => handleSystemPromptChange(e.target.value)}
-          placeholder={t('plugin.systemPromptPlaceholder', 'Optional: set a custom system prompt for this plugin\'s auto-replies...')}
+          placeholder={t(
+            'plugin.systemPromptPlaceholder',
+            "Optional: set a custom system prompt for this plugin's auto-replies..."
+          )}
         />
       </section>
 
@@ -292,10 +306,17 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
               {localModel ? (
                 <>
                   <ModelIcon modelId={localModel} size={12} className="shrink-0 opacity-70" />
-                  <span className="flex-1 truncate">{localModel.split('/').pop()?.replace(/-\d{8}$/, '') ?? localModel}</span>
+                  <span className="flex-1 truncate">
+                    {localModel
+                      .split('/')
+                      .pop()
+                      ?.replace(/-\d{8}$/, '') ?? localModel}
+                  </span>
                 </>
               ) : (
-                <span className="flex-1 text-muted-foreground">{t('channel.modelDefault', 'Use global default')}</span>
+                <span className="flex-1 text-muted-foreground">
+                  {t('channel.modelDefault', 'Use global default')}
+                </span>
               )}
               <ChevronDown className="size-3 shrink-0 opacity-50" />
             </button>
@@ -307,11 +328,20 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
                 'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-muted/60 transition-colors',
                 !localModel && 'bg-muted/40 font-medium'
               )}
-              onClick={() => { handleModelChange('__default__'); setModelPopoverOpen(false) }}
+              onClick={() => {
+                handleModelChange('__default__')
+                setModelPopoverOpen(false)
+              }}
             >
-              {!localModel ? <Check className="size-3 text-primary" /> : <span className="size-3" />}
+              {!localModel ? (
+                <Check className="size-3 text-primary" />
+              ) : (
+                <span className="size-3" />
+              )}
               <div className="flex flex-col items-start flex-1 min-w-0">
-                <span className="text-muted-foreground">{t('channel.modelDefault', 'Use global default')}</span>
+                <span className="text-muted-foreground">
+                  {t('channel.modelDefault', 'Use global default')}
+                </span>
                 {globalDefaultModel && (
                   <span className="text-[10px] text-muted-foreground/50 truncate w-full">
                     {globalDefaultModel.model.name}
@@ -321,7 +351,9 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
             </button>
             <Separator className="my-1" />
             {enabledProviders.map((provider) => {
-              const models = provider.models.filter((m) => m.enabled && (!m.category || m.category === 'chat'))
+              const models = provider.models.filter(
+                (m) => m.enabled && (!m.category || m.category === 'chat')
+              )
               if (models.length === 0) return null
               return (
                 <div key={provider.id}>
@@ -338,11 +370,22 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
                           'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-muted/60 transition-colors',
                           isActive && 'bg-muted/40 font-medium'
                         )}
-                        onClick={() => { handleModelChange(m.id, provider.id); setModelPopoverOpen(false) }}
+                        onClick={() => {
+                          handleModelChange(m.id, provider.id)
+                          setModelPopoverOpen(false)
+                        }}
                       >
-                        {isActive
-                          ? <Check className="size-3 text-primary shrink-0" />
-                          : <ModelIcon icon={m.icon} modelId={m.id} providerBuiltinId={provider.builtinId} size={12} className="opacity-60 shrink-0" />}
+                        {isActive ? (
+                          <Check className="size-3 text-primary shrink-0" />
+                        ) : (
+                          <ModelIcon
+                            icon={m.icon}
+                            modelId={m.id}
+                            providerBuiltinId={provider.builtinId}
+                            size={12}
+                            className="opacity-60 shrink-0"
+                          />
+                        )}
                         <span className="truncate">{m.name || m.id.replace(/-\d{8}$/, '')}</span>
                       </button>
                     )
@@ -353,7 +396,10 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
           </PopoverContent>
         </Popover>
         <p className="text-[10px] text-muted-foreground">
-          {t('channel.modelHint', 'Model used for auto-reply. Leave default to use the globally active model.')}
+          {t(
+            'channel.modelHint',
+            'Model used for auto-reply. Leave default to use the globally active model.'
+          )}
         </p>
       </section>
 
@@ -364,7 +410,12 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs">{t('channel.autoReply', 'Auto Reply')}</p>
-              <p className="text-[10px] text-muted-foreground">{t('channel.autoReplyDesc', 'Automatically reply to incoming messages using the Agent')}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {t(
+                  'channel.autoReplyDesc',
+                  'Automatically reply to incoming messages using the Agent'
+                )}
+              </p>
             </div>
             <Switch
               checked={localFeatures.autoReply}
@@ -376,7 +427,12 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs">{t('channel.streamingReply', 'Streaming Reply')}</p>
-              <p className="text-[10px] text-muted-foreground">{t('channel.streamingReplyDesc', 'Stream responses in real-time via CardKit (Feishu only)')}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {t(
+                  'channel.streamingReplyDesc',
+                  'Stream responses in real-time via CardKit (Feishu only)'
+                )}
+              </p>
             </div>
             <Switch
               checked={localFeatures.streamingReply}
@@ -388,7 +444,12 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs">{t('channel.autoStart', 'Auto Start')}</p>
-              <p className="text-[10px] text-muted-foreground">{t('channel.autoStartDesc', 'Automatically start this plugin when the app launches')}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {t(
+                  'channel.autoStartDesc',
+                  'Automatically start this plugin when the app launches'
+                )}
+              </p>
             </div>
             <Switch
               checked={localFeatures.autoStart}
@@ -449,7 +510,10 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
             <div>
               <p className="text-xs">{t('channel.allowReadHome', 'Read Home Directory')}</p>
               <p className="text-[10px] text-muted-foreground">
-                {t('channel.allowReadHomeDesc', 'Allow reading files under your home directory (~)')}
+                {t(
+                  'channel.allowReadHomeDesc',
+                  'Allow reading files under your home directory (~)'
+                )}
               </p>
             </div>
             <Switch
@@ -466,7 +530,10 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
               <div className="space-y-1.5">
                 <p className="text-xs">{t('channel.readablePaths', 'Allowed Read Paths')}</p>
                 <p className="text-[10px] text-muted-foreground">
-                  {t('channel.readablePathsDesc', 'Whitelist specific directories the plugin can read')}
+                  {t(
+                    'channel.readablePathsDesc',
+                    'Whitelist specific directories the plugin can read'
+                  )}
                 </p>
                 {localPerms.readablePathPrefixes.length > 0 && (
                   <div className="flex flex-wrap gap-1">
@@ -492,7 +559,9 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
                     placeholder="/home/user/docs"
                     value={newReadPath}
                     onChange={(e) => setNewReadPath(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddReadPath() }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleAddReadPath()
+                    }}
                   />
                   <Button
                     variant="outline"
@@ -529,9 +598,14 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
           {/* Write Outside */}
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs">{t('channel.allowWriteOutside', 'Write Outside Working Dir')}</p>
+              <p className="text-xs">
+                {t('channel.allowWriteOutside', 'Write Outside Working Dir')}
+              </p>
               <p className="text-[10px] text-muted-foreground">
-                {t('channel.allowWriteOutsideDesc', 'Allow writing files outside the plugin directory')}
+                {t(
+                  'channel.allowWriteOutsideDesc',
+                  'Allow writing files outside the plugin directory'
+                )}
               </p>
             </div>
             <Switch
@@ -653,8 +727,8 @@ function ChannelConfigPanel({ plugin }: { plugin: PluginInstance }): React.JSX.E
 // ─── Category grouping for built-in plugins ───
 
 const PLUGIN_CATEGORIES: { label: string; types: string[] }[] = [
-  { label: 'China', types: ['feishu-bot', 'dingtalk-bot', 'wecom-bot'] },
-  { label: 'International', types: ['telegram-bot', 'discord-bot', 'whatsapp-bot'] },
+  { label: 'China', types: ['feishu-bot', 'dingtalk-bot', 'wecom-bot', 'qq-bot'] },
+  { label: 'International', types: ['telegram-bot', 'discord-bot', 'whatsapp-bot'] }
 ]
 
 // ─── Main Plugin Panel ───
@@ -688,7 +762,9 @@ export function ChannelPanel(): React.JSX.Element {
   const filteredChannels = useMemo(() => {
     if (!searchQuery.trim()) return channels
     const q = searchQuery.toLowerCase()
-    return channels.filter((p) => p.name.toLowerCase().includes(q) || p.type.toLowerCase().includes(q))
+    return channels.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.type.toLowerCase().includes(q)
+    )
   }, [channels, searchQuery])
 
   const selectedChannel = channels.find((p) => p.id === selectedChannelId)
@@ -721,7 +797,9 @@ export function ChannelPanel(): React.JSX.Element {
           {/* List — grouped by category */}
           <div className="flex-1 overflow-y-auto py-1">
             {PLUGIN_CATEGORIES.map((category) => {
-              const categoryPlugins = filteredChannels.filter((p) => category.types.includes(p.type))
+              const categoryPlugins = filteredChannels.filter((p) =>
+                category.types.includes(p.type)
+              )
               if (categoryPlugins.length === 0) return null
               return (
                 <div key={category.label} className="px-2 pt-2 pb-1">
@@ -743,7 +821,10 @@ export function ChannelPanel(): React.JSX.Element {
                         onClick={() => setSelectedChannel(p.id)}
                       >
                         <span className={p.enabled ? '' : 'opacity-40'}>
-                          <ChannelIcon icon={getDescriptor(p.type)?.icon ?? ''} className="size-4" />
+                          <ChannelIcon
+                            icon={getDescriptor(p.type)?.icon ?? ''}
+                            className="size-4"
+                          />
                         </span>
                         <span className="flex-1 truncate text-xs">{p.name}</span>
                         {p.enabled && (
@@ -771,7 +852,9 @@ export function ChannelPanel(): React.JSX.Element {
             })}
 
             {/* Non-categorized channels (user-added, if any) */}
-            {filteredChannels.filter((p) => !PLUGIN_CATEGORIES.some((c) => c.types.includes(p.type))).length > 0 && (
+            {filteredChannels.filter(
+              (p) => !PLUGIN_CATEGORIES.some((c) => c.types.includes(p.type))
+            ).length > 0 && (
               <div className="px-2 pt-2 pb-1">
                 <p className="text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider px-1 mb-1">
                   {t('channel.custom', 'Custom')}
@@ -793,7 +876,10 @@ export function ChannelPanel(): React.JSX.Element {
                         onClick={() => setSelectedChannel(p.id)}
                       >
                         <span className={p.enabled ? '' : 'opacity-40'}>
-                          <ChannelIcon icon={getDescriptor(p.type)?.icon ?? ''} className="size-4" />
+                          <ChannelIcon
+                            icon={getDescriptor(p.type)?.icon ?? ''}
+                            className="size-4"
+                          />
                         </span>
                         <span className="flex-1 truncate text-xs">{p.name}</span>
                         {p.enabled && (

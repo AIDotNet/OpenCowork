@@ -837,7 +837,9 @@ export const routinAiPreset: BuiltinProviderPreset = {
       icon: 'doubao',
       enabled: true,
       category: 'image',
-      type: 'openai-images'
+      type: 'openai-images',
+      supportsVision: true,
+      supportsFunctionCall: false,
     },
     {
       id: 'doubao-seedream-4-0-250828',
@@ -845,7 +847,9 @@ export const routinAiPreset: BuiltinProviderPreset = {
       icon: 'doubao',
       enabled: true,
       category: 'image',
-      type: 'openai-images'
+      type: 'openai-images',
+      supportsVision: true,
+      supportsFunctionCall: false,
     },
     {
       id: 'doubao-seedream-5-0-260128',
@@ -853,7 +857,9 @@ export const routinAiPreset: BuiltinProviderPreset = {
       icon: 'doubao',
       enabled: true,
       category: 'image',
-      type: 'openai-images'
+      type: 'openai-images',
+      supportsVision: true,
+      supportsFunctionCall: false,
     },
     {
       id: 'doubao-seedream-3-0-t2i-250415',
@@ -861,7 +867,9 @@ export const routinAiPreset: BuiltinProviderPreset = {
       icon: 'doubao',
       enabled: true,
       category: 'image',
-      type: 'openai-images'
+      type: 'openai-images',
+      supportsVision: true,
+      supportsFunctionCall: false,
     },
     {
       id: 'claude-opus-4-6',

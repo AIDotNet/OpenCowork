@@ -153,6 +153,7 @@ export const IPC = {
 
   // Web Search
   WEB_SEARCH: 'web:search',
+  WEB_FETCH: 'web:fetch',
   WEB_SEARCH_CONFIG: 'web:search-config',
   WEB_SEARCH_PROVIDERS: 'web:search-providers',
 

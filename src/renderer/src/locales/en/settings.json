@@ -2,7 +2,13 @@
   "page": {
     "title": "Settings",
     "subtitle": "Preferences & Model Settings",
-    "poweredBy": "Powered by OpenCowork"
+    "poweredBy": "Powered by OpenCowork",
+    "groups": {
+      "foundation": "Foundation",
+      "ai": "AI Capabilities",
+      "extensions": "Extensions & Integrations",
+      "about": "About"
+    }
   },
   "general": {
     "title": "General Settings",
@@ -110,6 +116,10 @@
     "speechModelDesc": "Model used for speech transcription (OpenAI-compatible)",
     "selectSpeechModel": "Select speech model",
     "speechModelNoProviders": "No OpenAI-compatible providers enabled",
+    "imageModel": "Image Model",
+    "imageModelDesc": "Default global image model used by the image plugin",
+    "selectImageModel": "Select image model",
+    "noImageModels": "No enabled image models found. Enable one in AI Providers first.",
     "temperature": "Temperature",
     "temperatureDesc": "Control the randomness of generated text",
     "precise": "Precise",
@@ -118,6 +128,40 @@
     "random": "Random",
     "maxTokens": "Max Tokens",
     "maxTokensDesc": "Maximum token limit per response"
+  },
+  "plugin": {
+    "title": "Plugins",
+    "subtitle": "Configure optional Tool plugins. All plugins are disabled by default",
+    "enable": "Enable plugin",
+    "enableDesc": "The Agent only gets the related Tool after the plugin is enabled and configured",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "selectPlugin": "Select a plugin to configure",
+    "modelSource": "Image model source",
+    "modelSourceDesc": "Reuse the global image model or override it for this plugin",
+    "useGlobalModel": "Use global image model",
+    "overrideModel": "Override model for this plugin",
+    "globalModelMissing": "No global image model is configured yet. Set one in Model Configuration first.",
+    "provider": "Provider",
+    "model": "Image model",
+    "selectProvider": "Select provider",
+    "selectModel": "Select image model",
+    "toolStatus": "Tool status",
+    "toolStatusDesc": "The image Tool is only exposed when the plugin is enabled and the model is valid.",
+    "toolArgs": "Available args: prompt, count",
+    "status": {
+      "disabled": "The plugin is disabled, so `ImageGenerate` is not exposed to the Agent.",
+      "not_ready": "The plugin is enabled, but no valid image model is configured yet.",
+      "ready": "The plugin is ready. The Agent can call `ImageGenerate` to create images."
+    },
+    "items": {
+      "image": {
+        "title": "Image Plugin",
+        "description": "Expose a dedicated image-generation Tool to the Agent.",
+        "promptTitle": "Tool usage constraints",
+        "promptDesc": "Enable this only when you want the Agent to directly generate images. The Tool accepts only `prompt` and `count`, and uses the configured image model."
+      }
+    }
   },
   "about": {
     "title": "About",
@@ -466,6 +510,10 @@
     "whatsapp": {
       "phoneNumberId": "Phone Number ID",
       "accessToken": "Access Token"
+    },
+    "qq": {
+      "appId": "App ID",
+      "clientSecret": "Client Secret"
     }
   },
   "mcp": {

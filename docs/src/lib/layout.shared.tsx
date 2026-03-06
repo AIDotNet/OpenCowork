@@ -12,9 +12,7 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: 'OpenCowork',
     },
-    links: [
-      { text: 'Skills', url: '/skills' },
-    ],
+    links: [],
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };
 }

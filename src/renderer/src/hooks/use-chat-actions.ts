@@ -33,20 +33,39 @@ import type {
   RequestTiming
 } from '@renderer/lib/api/types'
 import { setLastDebugInfo } from '@renderer/lib/debug-store'
-import type { ImageAttachment } from '@renderer/components/chat/InputArea'
+import {
+  QUEUED_IMAGE_ONLY_TEXT,
+  cloneImageAttachments,
+  extractEditableUserMessageDraft,
+  hasEditableDraftContent,
+  imageAttachmentToContentBlock,
+  isEditableUserMessage,
+  type EditableUserMessageDraft,
+  type ImageAttachment
+} from '@renderer/lib/image-attachments'
 import type { AgentLoopConfig } from '@renderer/lib/agent/types'
 import { ApiStreamError } from '@renderer/lib/ipc/api-stream'
 import { compressMessages } from '@renderer/lib/agent/context-compression'
 import type { CompressionConfig } from '@renderer/lib/agent/context-compression'
 import { useChannelStore } from '@renderer/stores/channel-store'
-import { registerPluginTools, unregisterPluginTools, isPluginToolsRegistered } from '@renderer/lib/channel/plugin-tools'
+import { useAppPluginStore } from '@renderer/stores/app-plugin-store'
+import {
+  registerPluginTools,
+  unregisterPluginTools,
+  isPluginToolsRegistered
+} from '@renderer/lib/channel/plugin-tools'
 import { useMcpStore } from '@renderer/stores/mcp-store'
-import { registerMcpTools, unregisterMcpTools, isMcpToolsRegistered } from '@renderer/lib/mcp/mcp-tools'
+import {
+  registerMcpTools,
+  unregisterMcpTools,
+  isMcpToolsRegistered
+} from '@renderer/lib/mcp/mcp-tools'
 import {
   joinFsPath,
   loadOptionalMemoryFile,
   loadGlobalMemorySnapshot
 } from '@renderer/lib/agent/memory-files'
+import { IMAGE_GENERATE_TOOL_NAME } from '@renderer/lib/app-plugin/types'
 
 /** Per-session abort controllers — module-level so concurrent sessions don't overwrite each other */
 const sessionAbortControllers = new Map<string, AbortController>()
@@ -72,11 +91,9 @@ This message was inserted after that run finished.
 Treat the following user query as the latest instruction and respond to it directly.
 </system-reminder>`
 
-const QUEUED_IMAGE_ONLY_TEXT = '[User attached images without additional text.]'
-
-function cloneImageAttachments(images?: ImageAttachment[]): ImageAttachment[] | undefined {
-  if (!images || images.length === 0) return undefined
-  return images.map((img) => ({ ...img }))
+function cloneOptionalImageAttachments(images?: ImageAttachment[]): ImageAttachment[] | undefined {
+  const cloned = cloneImageAttachments(images)
+  return cloned.length > 0 ? cloned : undefined
 }
 
 function resolveProviderDefaultModelId(providerId: string): string | null {
@@ -86,6 +103,12 @@ function resolveProviderDefaultModelId(providerId: string): string | null {
   if (provider.defaultModel) {
     const model = provider.models.find((m) => m.id === provider.defaultModel)
     if (model) return model.id
+  }
+  const enabledChatModels = provider.models.filter(
+    (m) => m.enabled && (!m.category || m.category === 'chat')
+  )
+  if (enabledChatModels.length > 0) {
+    return enabledChatModels[0].id
   }
   const enabledModels = provider.models.filter((m) => m.enabled)
   return enabledModels[0]?.id ?? provider.models[0]?.id ?? null
@@ -121,8 +144,8 @@ function toPendingItem(msg: QueuedSessionMessage): PendingSessionMessageItem {
   return {
     id: msg.id,
     text: msg.text,
-    images: cloneImageAttachments(msg.images) ?? [],
-    createdAt: msg.createdAt,
+    images: cloneImageAttachments(msg.images),
+    createdAt: msg.createdAt
   }
 }
 
@@ -137,14 +160,22 @@ export function getPendingSessionMessages(sessionId: string): PendingSessionMess
   return pendingSessionMessageViews.get(sessionId) ?? EMPTY_PENDING_SESSION_MESSAGES
 }
 
-export function updatePendingSessionMessageText(sessionId: string, messageId: string, text: string): boolean {
+export function updatePendingSessionMessageDraft(
+  sessionId: string,
+  messageId: string,
+  draft: EditableUserMessageDraft
+): boolean {
   const queue = pendingSessionMessages.get(sessionId)
   if (!queue || queue.length === 0) return false
   let changed = false
   const next = queue.map((msg) => {
     if (msg.id !== messageId) return msg
     changed = true
-    return { ...msg, text }
+    return {
+      ...msg,
+      text: draft.text,
+      images: cloneOptionalImageAttachments(draft.images)
+    }
   })
   if (!changed) return false
   replaceSessionPendingMessages(sessionId, next)
@@ -181,9 +212,9 @@ function enqueuePendingSessionMessage(
       id: nanoid(),
       createdAt: Date.now(),
       text: msg.text,
-      images: cloneImageAttachments(msg.images),
-      source: msg.source,
-    },
+      images: cloneOptionalImageAttachments(msg.images),
+      source: msg.source
+    }
   ]
   replaceSessionPendingMessages(sessionId, next)
   return next.length
@@ -197,7 +228,7 @@ function dequeuePendingSessionMessage(sessionId: string): QueuedSessionMessage |
   return {
     ...head,
     text: head.text,
-    images: cloneImageAttachments(head.images),
+    images: cloneOptionalImageAttachments(head.images)
   }
 }
 
@@ -210,11 +241,37 @@ export function hasPendingSessionMessagesForSession(sessionId: string): boolean 
   return hasPendingSessionMessages(sessionId)
 }
 
+interface EditableUserMessageTarget {
+  index: number
+  draft: EditableUserMessageDraft
+}
+
+function findLastEditableUserMessage(messages: UnifiedMessage[]): EditableUserMessageTarget | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!isEditableUserMessage(message)) {
+      continue
+    }
+
+    return {
+      index,
+      draft: extractEditableUserMessageDraft(message.content)
+    }
+  }
+
+  return null
+}
+
 // ── Team lead auto-trigger: teammate messages → new agent turn ──
 
 /** Module-level ref to the latest sendMessage function from the hook */
 let _sendMessageFn:
-  | ((text: string, images?: ImageAttachment[], source?: MessageSource, targetSessionId?: string) => Promise<void>)
+  | ((
+      text: string,
+      images?: ImageAttachment[],
+      source?: MessageSource,
+      targetSessionId?: string
+    ) => Promise<void>)
   | null = null
 
 /** Queue of teammate messages to lead waiting to be processed */
@@ -274,7 +331,10 @@ function ensureTeamLeadListener(): void {
     if (event.type === 'team_end') {
       pendingLeadMessages.length = 0
       _autoTriggerCount = 0
-      if (_drainTimer) { clearTimeout(_drainTimer); _drainTimer = null }
+      if (_drainTimer) {
+        clearTimeout(_drainTimer)
+        _drainTimer = null
+      }
     }
   })
 }
@@ -293,7 +353,7 @@ function drainLeadMessages(): void {
   if (_autoTriggerCount >= MAX_AUTO_TRIGGERS) {
     console.warn(
       `[Team] Auto-trigger limit reached (${MAX_AUTO_TRIGGERS}). ` +
-      `${pendingLeadMessages.length} messages pending. Waiting for user input.`
+        `${pendingLeadMessages.length} messages pending. Waiting for user input.`
     )
     return
   }
@@ -317,11 +377,11 @@ function drainLeadMessages(): void {
     const pending = team.tasks.filter((t) => t.status === 'pending').length
     parts.push(
       `\n---\n**Team Progress**: ${completed}/${total} tasks completed` +
-      (inProgress > 0 ? `, ${inProgress} in progress` : '') +
-      (pending > 0 ? `, ${pending} pending` : '') +
-      (completed < total
-        ? '. Other teammates are still working — review the report(s) above, then end your turn and wait for remaining reports unless immediate action is needed.'
-        : '. All tasks completed — compile the final summary from all reports and then call TeamDelete to clean up the team.')
+        (inProgress > 0 ? `, ${inProgress} in progress` : '') +
+        (pending > 0 ? `, ${pending} pending` : '') +
+        (completed < total
+          ? '. Other teammates are still working — review the report(s) above, then end your turn and wait for remaining reports unless immediate action is needed.'
+          : '. All tasks completed — compile the final summary from all reports and then call TeamDelete to clean up the team.')
     )
   }
 
@@ -481,1035 +541,1089 @@ export function useChatActions(): {
   ) => Promise<void>
   stopStreaming: () => void
   retryLastMessage: () => Promise<void>
-  editAndResend: (newContent: string) => Promise<void>
+  editAndResend: (draft: EditableUserMessageDraft) => Promise<void>
   manualCompressContext: (focusPrompt?: string) => Promise<void>
 } {
-  const sendMessage = useCallback(async (
-    text: string,
-    images?: ImageAttachment[],
-    source?: MessageSource,
-    targetSessionId?: string
-  ): Promise<void> => {
-    // Reset auto-trigger counter and unpause when user manually sends a message
-    if (source !== 'team') {
-      _autoTriggerCount = 0
-      _autoTriggerPaused = false
-    }
-
-    const chatStore = useChatStore.getState()
-    const settings = useSettingsStore.getState()
-    const agentStore = useAgentStore.getState()
-    const uiStore = useUIStore.getState()
-
-    const providerStore = useProviderStore.getState()
-    const activeProvider = providerStore.getActiveProvider()
-    if (activeProvider) {
-      const ready = await ensureProviderAuthReady(activeProvider.id)
-      if (!ready) {
-        const authHint =
-          activeProvider.authMode === 'oauth'
-            ? 'Please connect via OAuth in Settings'
-            : activeProvider.authMode === 'channel'
-              ? 'Please complete channel login in Settings'
-              : 'Please configure API key in Settings'
-        toast.error('Authentication required', {
-          description: authHint,
-          action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
-        })
-        return
-      }
-    }
-
-    // Build provider config from provider-store (new system) with fallback to settings-store
-    const providerConfig = providerStore.getActiveProviderConfig()
-    const effectiveMaxTokens = providerStore.getEffectiveMaxTokens(settings.maxTokens)
-    const activeModelThinkingConfig = providerStore.getActiveModelThinkingConfig()
-    const thinkingEnabled = settings.thinkingEnabled && !!activeModelThinkingConfig
-    const activeModelConfig = useProviderStore.getState().getActiveModelConfig()
-    const baseProviderConfig: ProviderConfig | null = providerConfig
-      ? {
-        ...providerConfig,
-        maxTokens: effectiveMaxTokens,
-        temperature: settings.temperature,
-        systemPrompt: settings.systemPrompt || undefined,
-        thinkingEnabled,
-        thinkingConfig: activeModelThinkingConfig,
-        reasoningEffort: settings.reasoningEffort,
-        responseSummary: activeModelConfig?.responseSummary,
-        enablePromptCache: activeModelConfig?.enablePromptCache,
-        enableSystemPromptCache: activeModelConfig?.enableSystemPromptCache
-      }
-      : settings.apiKey
-        ? {
-          type: settings.provider,
-          apiKey: settings.apiKey,
-          baseUrl: settings.baseUrl || undefined,
-          model: settings.model,
-          maxTokens: effectiveMaxTokens,
-          temperature: settings.temperature,
-          systemPrompt: settings.systemPrompt || undefined,
-          thinkingEnabled,
-          thinkingConfig: activeModelThinkingConfig,
-          reasoningEffort: settings.reasoningEffort,
-          responseSummary: activeModelConfig?.responseSummary,
-          enablePromptCache: activeModelConfig?.enablePromptCache,
-          enableSystemPromptCache: activeModelConfig?.enableSystemPromptCache
-        }
-        : null
-
-    if (!baseProviderConfig || (!baseProviderConfig.apiKey && baseProviderConfig.requiresApiKey !== false)) {
-      toast.error('API key required', {
-        description: 'Please configure an AI provider in Settings',
-        action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
-      })
-      return
-    }
-
-    if (targetSessionId && !chatStore.sessions.some((s) => s.id === targetSessionId)) {
-      // Session may have been created externally (e.g. channel auto-reply in main process).
-      // Try reloading from DB before giving up.
-      console.log(`[sendMessage] Session ${targetSessionId} not in store, reloading from DB...`)
-      await useChatStore.getState().loadFromDb()
-      const refreshedStore = useChatStore.getState()
-      if (!refreshedStore.sessions.some((s) => s.id === targetSessionId)) {
-        console.warn(`[sendMessage] Session ${targetSessionId} still not found after DB reload, aborting`)
-        replaceSessionPendingMessages(targetSessionId, [])
-        return
-      }
-    }
-
-    // Ensure we have an active session
-    let sessionId = targetSessionId ?? chatStore.activeSessionId
-    if (!sessionId) {
-      sessionId = chatStore.createSession(uiStore.mode)
-    }
-    await chatStore.loadSessionMessages(sessionId)
-
-    const sessionForSsh = chatStore.sessions.find((s) => s.id === sessionId)
-    if (sessionForSsh?.sshConnectionId) {
-      const sshStore = useSshStore.getState()
-      const connectionId = sessionForSsh.sshConnectionId
-      const connectionName =
-        sshStore.connections.find((c) => c.id === connectionId)?.name ?? connectionId
-      const existing = Object.values(sshStore.sessions).find(
-        (s) => s.connectionId === connectionId && s.status === 'connected'
-      )
-      if (!existing) {
-        const connectedId = await sshStore.connect(connectionId)
-        if (!connectedId) {
-          toast.error('SSH connection unavailable', {
-            description: connectionName,
-          })
-          return
-        }
+  const sendMessage = useCallback(
+    async (
+      text: string,
+      images?: ImageAttachment[],
+      source?: MessageSource,
+      targetSessionId?: string
+    ): Promise<void> => {
+      // Reset auto-trigger counter and unpause when user manually sends a message
+      if (source !== 'team') {
+        _autoTriggerCount = 0
+        _autoTriggerPaused = false
       }
 
-      const workingFolder = sessionForSsh.workingFolder?.trim()
-      if (workingFolder) {
-        const mkdirResult = (await ipcClient.invoke(IPC.SSH_FS_MKDIR, {
-          connectionId,
-          path: workingFolder,
-        })) as { error?: string }
-        if (mkdirResult?.error) {
-          toast.error('SSH working directory unavailable', {
-            description: mkdirResult.error,
-          })
-          return
-        }
-      }
-    }
+      const chatStore = useChatStore.getState()
+      const settings = useSettingsStore.getState()
+      const agentStore = useAgentStore.getState()
+      const uiStore = useUIStore.getState()
 
-    const hasActiveRun = hasActiveSessionRun(sessionId)
-    const statusIsRunning = useAgentStore.getState().runningSessions[sessionId] === 'running'
-    const shouldQueue = hasActiveRun || (statusIsRunning && source !== 'queued')
-
-    if (shouldQueue) {
-      enqueuePendingSessionMessage(sessionId, { text, images, source })
-      return
-    }
-
-    // After a manual abort, stale errored/orphaned tool blocks can remain at tail
-    // and break the next request. Clean them before appending new user input.
-    chatStore.sanitizeToolErrorsForResend(sessionId)
-
-    // Strip old system-reminder blocks from previous messages to prevent accumulation
-    chatStore.stripOldSystemReminders(sessionId)
-
-    baseProviderConfig.sessionId = sessionId
-
-    // Override provider config for channel sessions using latest channel settings
-    // Regular user sessions should use the global active provider/model from ModelSwitcher
-    const sessionForProvider = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-    if (sessionForProvider?.pluginId) {
-      const channelMeta = useChannelStore.getState().channels.find((p) => p.id === sessionForProvider.pluginId)
-      const channelProviderId = channelMeta
-        ? (channelMeta.providerId ?? null)
-        : (sessionForProvider.providerId ?? null)
-      let channelModelId = channelMeta
-        ? (channelMeta.model ?? null)
-        : (sessionForProvider.modelId ?? null)
-      if (channelProviderId && !channelModelId) {
-        channelModelId = resolveProviderDefaultModelId(channelProviderId)
-      }
-
-      if (channelProviderId && channelModelId) {
-        const ready = await ensureProviderAuthReady(channelProviderId)
+      const providerStore = useProviderStore.getState()
+      const activeProvider = providerStore.getActiveProvider()
+      if (activeProvider) {
+        const ready = await ensureProviderAuthReady(activeProvider.id)
         if (!ready) {
+          const authHint =
+            activeProvider.authMode === 'oauth'
+              ? 'Please connect via OAuth in Settings'
+              : activeProvider.authMode === 'channel'
+                ? 'Please complete channel login in Settings'
+                : 'Please configure API key in Settings'
           toast.error('Authentication required', {
-            description: 'Please sign in to the session provider in Settings',
+            description: authHint,
             action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
           })
           return
         }
-
-        const sessionProviderConfig = providerStore.getProviderConfigById(
-          channelProviderId, channelModelId
-        )
-        if (sessionProviderConfig?.apiKey) {
-          baseProviderConfig.type = sessionProviderConfig.type
-          baseProviderConfig.apiKey = sessionProviderConfig.apiKey
-          baseProviderConfig.baseUrl = sessionProviderConfig.baseUrl
-          baseProviderConfig.model = sessionProviderConfig.model
-          baseProviderConfig.requiresApiKey = sessionProviderConfig.requiresApiKey
-          baseProviderConfig.useSystemProxy = sessionProviderConfig.useSystemProxy
-          baseProviderConfig.userAgent = sessionProviderConfig.userAgent
-          baseProviderConfig.requestOverrides = sessionProviderConfig.requestOverrides
-          baseProviderConfig.responseSummary = sessionProviderConfig.responseSummary
-            ?? useProviderStore.getState().getActiveModelConfig()?.responseSummary
-          baseProviderConfig.enablePromptCache = sessionProviderConfig.enablePromptCache
-            ?? useProviderStore.getState().getActiveModelConfig()?.enablePromptCache
-          baseProviderConfig.enableSystemPromptCache = sessionProviderConfig.enableSystemPromptCache
-            ?? useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache
-        }
-      }
-    }
-
-    const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-    const sessionMode = sessionSnapshot?.mode ?? uiStore.mode
-
-    // Add user message (multi-modal when images attached)
-    let userContent: string | ContentBlock[]
-    const isQueuedInsertion = source === 'queued'
-    const normalizedText = text.trim()
-    const textForUserBlock = normalizedText || (images && images.length > 0 ? QUEUED_IMAGE_ONLY_TEXT : '')
-
-    if (isQueuedInsertion) {
-      const queuedBlocks: ContentBlock[] = [
-        { type: 'text', text: QUEUED_MESSAGE_SYSTEM_REMIND },
-        { type: 'text', text: textForUserBlock || text }
-      ]
-      if (images && images.length > 0) {
-        queuedBlocks.push(
-          ...images.map((img) => {
-            const base64 = img.dataUrl.replace(/^data:[^;]+;base64,/, '')
-            return {
-              type: 'image' as const,
-              source: { type: 'base64' as const, mediaType: img.mediaType, data: base64 }
-            }
-          })
-        )
-      }
-      userContent = queuedBlocks
-    } else if (images && images.length > 0) {
-      // Images present: always use ContentBlock[] format
-      userContent = [
-        ...images.map((img) => {
-          const base64 = img.dataUrl.replace(/^data:[^;]+;base64,/, '')
-          return {
-            type: 'image' as const,
-            source: { type: 'base64' as const, mediaType: img.mediaType, data: base64 }
-          }
-        }),
-        ...(text ? [{ type: 'text' as const, text }] : [])
-      ]
-    } else {
-      // No images: use simple string
-      userContent = text
-    }
-
-    const userMsg: UnifiedMessage = {
-      id: nanoid(),
-      role: 'user',
-      content: userContent,
-      createdAt: Date.now(),
-      ...(source && { source })
-    }
-    chatStore.addMessage(sessionId, userMsg)
-
-    // Auto-title: fire-and-forget AI title + icon generation for the first message (skip for team notifications)
-    const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-    if (session && session.title === 'New Conversation') {
-      const capturedSessionId = sessionId
-      generateSessionTitle(text)
-        .then((result) => {
-          if (result) {
-            const store = useChatStore.getState()
-            store.updateSessionTitle(capturedSessionId, result.title)
-            store.updateSessionIcon(capturedSessionId, result.icon)
-          }
-        })
-        .catch(() => {
-          /* keep default title on failure */
-        })
-    }
-
-    // Create assistant placeholder message
-    const assistantMsgId = nanoid()
-    const assistantMsg: UnifiedMessage = {
-      id: assistantMsgId,
-      role: 'assistant',
-      content: '',
-      createdAt: Date.now()
-    }
-    chatStore.addMessage(sessionId, assistantMsg)
-    chatStore.setStreamingMessageId(sessionId, assistantMsgId)
-
-    const isImageRequest = baseProviderConfig.type === 'openai-images'
-    if (isImageRequest) {
-      chatStore.setGeneratingImage(assistantMsgId, true)
-    }
-
-    // Setup abort controller (per-session)
-    // If this session already has a running agent, abort it first
-    const existingAc = sessionAbortControllers.get(sessionId)
-    if (existingAc) existingAc.abort()
-    const abortController = new AbortController()
-    sessionAbortControllers.set(sessionId, abortController)
-
-    const mode = sessionMode
-
-    if (mode === 'chat') {
-      // Simple chat mode: single API call, no tools
-      const chatSystemPrompt = [
-        'You are OpenCowork, a helpful AI assistant. Be concise, accurate, and friendly.',
-        "Before responding, follow this thinking process: (1) Understand — identify what the user truly needs, not just the literal words; consider context and implicit constraints. (2) Expand — think about the best way to solve the problem, consider edge cases, potential pitfalls, and better alternatives the user may not have thought of. (3) Validate — before finalizing, verify your answer is logically consistent: does it actually help the user achieve their stated goal? Check the full causal chain — if the user follows your advice, will they accomplish what they want? Watch for hidden contradictions (e.g. if someone needs to wash their car, they must bring the car — suggesting they walk defeats the purpose). (4) Respond — deliver a well-reasoned, logically sound answer that best fits the user's real needs. Think first, answer second — never rush to conclusions.",
-        'CRITICAL RULE: Before giving your final answer, always ask yourself: "If the user follows my advice step by step, will they actually achieve their stated goal?" If the answer is no, your response has a logical flaw — stop and reconsider. The user\'s goal defines the constraints; never give advice that makes the goal impossible.',
-        'Use markdown formatting in your responses. Use code blocks with language identifiers for code.',
-        settings.systemPrompt ? `\n## Additional Instructions\n${settings.systemPrompt}` : ''
-      ]
-        .filter(Boolean)
-        .join('\n')
-      // NOTE: thinkingEnabled is handled below when building the final config
-      const chatConfig: ProviderConfig = { ...baseProviderConfig, systemPrompt: chatSystemPrompt }
-      agentStore.setSessionStatus(sessionId, 'running')
-      try {
-        await runSimpleChat(sessionId, assistantMsgId, chatConfig, abortController.signal)
-      } finally {
-        agentStore.setSessionStatus(sessionId, 'completed')
-        sessionAbortControllers.delete(sessionId)
-        dispatchNextQueuedMessage(sessionId)
-      }
-    } else {
-      // Cowork / Code mode: agent loop with tools
-      const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-
-      // Dynamic plugin tool registration based on active channels
-      const activeChannels = useChannelStore.getState().getActiveChannels()
-      if (activeChannels.length > 0 && !isPluginToolsRegistered()) {
-        registerPluginTools()
-      } else if (activeChannels.length === 0 && isPluginToolsRegistered()) {
-        unregisterPluginTools()
       }
 
-      // Dynamic MCP tool registration based on active MCPs
-      const activeMcps = useMcpStore.getState().getActiveMcps()
-      const activeMcpTools = useMcpStore.getState().getActiveMcpTools()
-      if (activeMcps.length > 0 && Object.keys(activeMcpTools).length > 0) {
-        registerMcpTools(activeMcps, activeMcpTools)
-      } else if (activeMcps.length === 0 && isMcpToolsRegistered()) {
-        unregisterMcpTools()
-      }
-
-      // Filter out team tools when the feature is disabled. Capture after registration changes.
-      const allToolDefs = toolRegistry.getDefinitions()
-      const finalToolDefs = allToolDefs
-      let finalEffectiveToolDefs = settings.teamToolsEnabled
-        ? finalToolDefs
-        : finalToolDefs.filter((t) => !TEAM_TOOL_NAMES.has(t.name))
-
-      // Plan mode: restrict to read-only + planning tools
-      const isPlanMode = useUIStore.getState().planMode
-      if (isPlanMode) {
-        finalEffectiveToolDefs = finalEffectiveToolDefs.filter((t) => PLAN_MODE_ALLOWED_TOOLS.has(t.name))
-      }
-
-      // Image models: disable all tools (image generation doesn't use tools)
+      // Build provider config from provider-store (new system) with fallback to settings-store
+      const providerConfig = providerStore.getActiveProviderConfig()
+      const effectiveMaxTokens = providerStore.getEffectiveMaxTokens(settings.maxTokens)
+      const activeModelThinkingConfig = providerStore.getActiveModelThinkingConfig()
+      const thinkingEnabled = settings.thinkingEnabled && !!activeModelThinkingConfig
       const activeModelConfig = useProviderStore.getState().getActiveModelConfig()
-      if (activeModelConfig?.category === 'image') {
-        finalEffectiveToolDefs = []
-      }
-
-      // Build channel info for system prompt — inject channel metadata + per-channel system prompts
-      let userPrompt = settings.systemPrompt || ''
-      if (activeChannels.length > 0) {
-        const channelLines: string[] = ['\n## Active Channels']
-        for (const c of activeChannels) {
-          channelLines.push(`- **${c.name}** (channel_id: \`${c.id}\`, type: ${c.type})`)
-          if (c.userSystemPrompt?.trim()) {
-            channelLines.push(`  Channel instructions: ${c.userSystemPrompt.trim()}`)
+      const baseProviderConfig: ProviderConfig | null = providerConfig
+        ? {
+            ...providerConfig,
+            maxTokens: effectiveMaxTokens,
+            temperature: settings.temperature,
+            systemPrompt: settings.systemPrompt || undefined,
+            thinkingEnabled,
+            thinkingConfig: activeModelThinkingConfig,
+            reasoningEffort: settings.reasoningEffort,
+            responseSummary: activeModelConfig?.responseSummary,
+            enablePromptCache: activeModelConfig?.enablePromptCache,
+            enableSystemPromptCache: activeModelConfig?.enableSystemPromptCache
           }
-          const desc = useChannelStore.getState().getDescriptor(c.type)
-          const toolNames = desc?.tools ?? []
-          if (toolNames.length > 0) {
-            const enabled = toolNames.filter((name) => c.tools?.[name] !== false)
-            const disabled = toolNames.filter((name) => c.tools?.[name] === false)
-            channelLines.push(`  Enabled tools: ${enabled.length > 0 ? enabled.join(', ') : 'none'}`)
-            if (disabled.length > 0) {
-              channelLines.push(`  Disabled tools: ${disabled.join(', ')}`)
+        : settings.apiKey
+          ? {
+              type: settings.provider,
+              apiKey: settings.apiKey,
+              baseUrl: settings.baseUrl || undefined,
+              model: settings.model,
+              maxTokens: effectiveMaxTokens,
+              temperature: settings.temperature,
+              systemPrompt: settings.systemPrompt || undefined,
+              thinkingEnabled,
+              thinkingConfig: activeModelThinkingConfig,
+              reasoningEffort: settings.reasoningEffort,
+              responseSummary: activeModelConfig?.responseSummary,
+              enablePromptCache: activeModelConfig?.enablePromptCache,
+              enableSystemPromptCache: activeModelConfig?.enableSystemPromptCache
             }
-          }
-        }
-        // Check if any active channel is Feishu (has file/image send capability)
-        const hasFeishuChannel = activeChannels.some((c) => c.type === 'feishu-bot')
-
-        channelLines.push(
-          '',
-          'Use plugin_id (set to channel_id) when calling Plugin* tools (PluginSendMessage, PluginReplyMessage, PluginGetGroupMessages, PluginListGroups, PluginSummarizeGroup, PluginGetCurrentChatMessages).',
-          'Always confirm with the user before sending messages on their behalf.',
-          '',
-          '### Generating & Delivering Files via Channels',
-          'When the user asks you to generate reports, documents, or any deliverable and wants it sent to a chat:',
-          '1. **Write the file** using the Write tool (e.g. `report.md`, `analysis.csv`, `summary.html`).',
-          hasFeishuChannel
-            ? '2. **Send the file** using FeishuSendFile (for Feishu chats) or share key content via PluginSendMessage (for other platforms).'
-            : '2. **Share the content** via PluginSendMessage, or inform the user where the file was saved.',
-          '3. **Provide a brief summary** in your response so the user knows what was generated.',
-          'Prefer writing to a file + sending it over pasting long content (>30 lines) directly in chat messages.'
-        )
-        const channelSection = channelLines.join('\n')
-        userPrompt = userPrompt ? `${userPrompt}\n${channelSection}` : channelSection
-      }
-
-      // Build MCP info for system prompt — inject active MCP server metadata and tool mappings
-      if (activeMcps.length > 0) {
-        const mcpLines: string[] = ['\n## Active MCP Servers']
-        for (const srv of activeMcps) {
-          const tools = activeMcpTools[srv.id] ?? []
-          mcpLines.push(`- **${srv.name}** (${tools.length} tools, transport: ${srv.transport})`)
-          if (srv.description?.trim()) {
-            mcpLines.push(`  ${srv.description.trim()}`)
-          }
-          if (tools.length > 0) {
-            mcpLines.push(`  Available tools: ${tools.map((t) => `\`mcp__${srv.id}__${t.name}\``).join(', ')}`)
-          }
-        }
-        mcpLines.push(
-          '',
-          'MCP tools are prefixed with `mcp__{serverId}__{toolName}`. Call them like any other tool — they are routed to the corresponding MCP server automatically.',
-          'MCP tools require user approval before execution.'
-        )
-        const mcpSection = mcpLines.join('\n')
-        userPrompt = userPrompt ? `${userPrompt}\n${mcpSection}` : mcpSection
-      }
-
-      // Channel session context: inject reply instructions when this session belongs to a channel
-      if (session?.pluginId && session?.externalChatId) {
-        const channelMeta = useChannelStore.getState().channels.find((p) => p.id === session.pluginId)
-        const chatId = session.externalChatId.replace(/^plugin:[^:]+:chat:/, '')
-        const isFeishu = channelMeta?.type === 'feishu-bot'
-        const channelDescriptor = channelMeta ? useChannelStore.getState().getDescriptor(channelMeta.type) : undefined
-        const toolNames = channelDescriptor?.tools ?? []
-        const enabledTools = toolNames.filter((name) => channelMeta?.tools?.[name] !== false)
-        const disabledTools = toolNames.filter((name) => channelMeta?.tools?.[name] === false)
-        const senderLabel = session.pluginSenderName || session.pluginSenderId || 'unknown'
-        const channelCtx = [
-          `\n## Channel Auto-Reply Context`,
-          `This session is handling messages from channel **${channelMeta?.name ?? session.pluginId}** (channel_id: \`${session.pluginId}\`).`,
-          `Chat ID: \`${chatId}\``,
-          `Chat Type: ${session.pluginChatType ?? 'unknown'}`,
-          `Sender: ${senderLabel} (id: ${session.pluginSenderId ?? 'unknown'})`,
-          `Enabled tools: ${enabledTools.length > 0 ? enabledTools.join(', ') : 'none'}`,
-          disabledTools.length > 0 ? `Disabled tools: ${disabledTools.join(', ')}` : '',
-          `Your response will be streamed directly to the user in real-time via the channel.`,
-          `Just respond naturally — the streaming pipeline handles delivery automatically.`,
-          `If you need to send an additional message, use PluginSendMessage with plugin_id="${session.pluginId}" and chat_id="${chatId}".`,
-          isFeishu ? [
-            `\n### Feishu Media Tools`,
-            `You can send images and files to this chat:`,
-            `- **FeishuSendImage**: Send an image file (screenshot, generated image, etc.)`,
-            `- **FeishuSendFile**: Send a file (PDF, document, spreadsheet, etc.)`,
-            `Both require plugin_id="${session.pluginId}" and chat_id="${chatId}".`,
-          ].join('\n') : '',
-          channelMeta?.userSystemPrompt?.trim() ? `\nChannel-specific instructions: ${channelMeta.userSystemPrompt.trim()}` : '',
-        ].filter(Boolean).join('\n')
-        userPrompt = userPrompt ? `${userPrompt}\n${channelCtx}` : channelCtx
-      }
-
-      // Load AGENTS.md memory file from working directory
-      let agentsMemory: string | undefined
-      if (session?.workingFolder) {
-        const projectMemoryPath = joinFsPath(session.workingFolder, 'AGENTS.md')
-        agentsMemory = await loadOptionalMemoryFile(ipcClient, projectMemoryPath)
-      }
-
-      const globalMemorySnapshot = await loadGlobalMemorySnapshot(ipcClient)
-      const globalMemory = globalMemorySnapshot.content
-      const globalMemoryPath = globalMemorySnapshot.path
-
-      const agentSystemPrompt = buildSystemPrompt({
-        mode: mode as 'cowork' | 'code',
-        workingFolder: session?.workingFolder,
-        userSystemPrompt: userPrompt || undefined,
-        toolDefs: finalEffectiveToolDefs,
-        language: useSettingsStore.getState().language,
-        planMode: isPlanMode,
-        agentsMemory,
-        globalMemory,
-        globalMemoryPath
-      })
-      const agentProviderConfig: ProviderConfig = {
-        ...baseProviderConfig,
-        systemPrompt: agentSystemPrompt
-      }
-      // Context compression setup
-      const activeModelCfg = useProviderStore.getState().getActiveModelConfig()
-      const compressionConfig: CompressionConfig | null =
-        settings.contextCompressionEnabled && activeModelCfg?.contextLength
-          ? { enabled: true, contextLength: activeModelCfg.contextLength, threshold: 0.8, preCompressThreshold: 0.65 }
           : null
 
-      const loopConfig: AgentLoopConfig = {
-        maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
-        provider: agentProviderConfig,
-        tools: finalEffectiveToolDefs,
-        systemPrompt: agentSystemPrompt,
-        workingFolder: session?.workingFolder,
-        signal: abortController.signal,
-        ...(compressionConfig && {
-          contextCompression: {
-            config: compressionConfig,
-            compressFn: async (msgs) => {
-              // If session has an active plan, pin its summary so compression preserves plan context
-              let planPinnedContext: string | undefined
-              if (sessionId) {
-                const plan = usePlanStore.getState().getPlanBySession(sessionId)
-                if (plan) {
-                  planPinnedContext = plan.content
-                }
+      if (
+        !baseProviderConfig ||
+        (!baseProviderConfig.apiKey && baseProviderConfig.requiresApiKey !== false)
+      ) {
+        toast.error('API key required', {
+          description: 'Please configure an AI provider in Settings',
+          action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
+        })
+        return
+      }
+
+      if (targetSessionId && !chatStore.sessions.some((s) => s.id === targetSessionId)) {
+        // Session may have been created externally (e.g. channel auto-reply in main process).
+        // Try reloading from DB before giving up.
+        console.log(`[sendMessage] Session ${targetSessionId} not in store, reloading from DB...`)
+        await useChatStore.getState().loadFromDb()
+        const refreshedStore = useChatStore.getState()
+        if (!refreshedStore.sessions.some((s) => s.id === targetSessionId)) {
+          console.warn(
+            `[sendMessage] Session ${targetSessionId} still not found after DB reload, aborting`
+          )
+          replaceSessionPendingMessages(targetSessionId, [])
+          return
+        }
+      }
+
+      // Ensure we have an active session
+      let sessionId = targetSessionId ?? chatStore.activeSessionId
+      if (!sessionId) {
+        sessionId = chatStore.createSession(uiStore.mode)
+      }
+      await chatStore.loadSessionMessages(sessionId)
+
+      const sessionForSsh = chatStore.sessions.find((s) => s.id === sessionId)
+      if (sessionForSsh?.sshConnectionId) {
+        const sshStore = useSshStore.getState()
+        const connectionId = sessionForSsh.sshConnectionId
+        const connectionName =
+          sshStore.connections.find((c) => c.id === connectionId)?.name ?? connectionId
+        const existing = Object.values(sshStore.sessions).find(
+          (s) => s.connectionId === connectionId && s.status === 'connected'
+        )
+        if (!existing) {
+          const connectedId = await sshStore.connect(connectionId)
+          if (!connectedId) {
+            toast.error('SSH connection unavailable', {
+              description: connectionName
+            })
+            return
+          }
+        }
+
+        const workingFolder = sessionForSsh.workingFolder?.trim()
+        if (workingFolder) {
+          const mkdirResult = (await ipcClient.invoke(IPC.SSH_FS_MKDIR, {
+            connectionId,
+            path: workingFolder
+          })) as { error?: string }
+          if (mkdirResult?.error) {
+            toast.error('SSH working directory unavailable', {
+              description: mkdirResult.error
+            })
+            return
+          }
+        }
+      }
+
+      const hasActiveRun = hasActiveSessionRun(sessionId)
+      const statusIsRunning = useAgentStore.getState().runningSessions[sessionId] === 'running'
+      const shouldQueue = hasActiveRun || (statusIsRunning && source !== 'queued')
+
+      if (shouldQueue) {
+        enqueuePendingSessionMessage(sessionId, { text, images, source })
+        return
+      }
+
+      // After a manual abort, stale errored/orphaned tool blocks can remain at tail
+      // and break the next request. Clean them before appending new user input.
+      chatStore.sanitizeToolErrorsForResend(sessionId)
+
+      // Strip old system-reminder blocks from previous messages to prevent accumulation
+      chatStore.stripOldSystemReminders(sessionId)
+
+      baseProviderConfig.sessionId = sessionId
+
+      // Override provider config for channel sessions using latest channel settings
+      // Regular user sessions should use the global active provider/model from ModelSwitcher
+      const sessionForProvider = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+      if (sessionForProvider?.pluginId) {
+        const channelMeta = useChannelStore
+          .getState()
+          .channels.find((p) => p.id === sessionForProvider.pluginId)
+        const channelProviderId = channelMeta
+          ? (channelMeta.providerId ?? null)
+          : (sessionForProvider.providerId ?? null)
+        let channelModelId = channelMeta
+          ? (channelMeta.model ?? null)
+          : (sessionForProvider.modelId ?? null)
+        if (channelProviderId && !channelModelId) {
+          channelModelId = resolveProviderDefaultModelId(channelProviderId)
+        }
+
+        if (channelProviderId && channelModelId) {
+          const ready = await ensureProviderAuthReady(channelProviderId)
+          if (!ready) {
+            toast.error('Authentication required', {
+              description: 'Please sign in to the session provider in Settings',
+              action: {
+                label: 'Open Settings',
+                onClick: () => uiStore.openSettingsPage('provider')
               }
-              const { messages: compressed } = await compressMessages(
-                msgs,
-                agentProviderConfig, // use main model
-                abortController.signal,
-                undefined,
-                undefined,
-                planPinnedContext
-              )
-              // Sync compressed messages to chat store
-              if (sessionId) {
-                useChatStore.getState().replaceSessionMessages(sessionId, compressed)
-              }
-              return compressed
+            })
+            return
+          }
+
+          const sessionProviderConfig = providerStore.getProviderConfigById(
+            channelProviderId,
+            channelModelId
+          )
+          if (sessionProviderConfig?.apiKey) {
+            baseProviderConfig.type = sessionProviderConfig.type
+            baseProviderConfig.apiKey = sessionProviderConfig.apiKey
+            baseProviderConfig.baseUrl = sessionProviderConfig.baseUrl
+            baseProviderConfig.model = sessionProviderConfig.model
+            baseProviderConfig.requiresApiKey = sessionProviderConfig.requiresApiKey
+            baseProviderConfig.useSystemProxy = sessionProviderConfig.useSystemProxy
+            baseProviderConfig.userAgent = sessionProviderConfig.userAgent
+            baseProviderConfig.requestOverrides = sessionProviderConfig.requestOverrides
+            baseProviderConfig.responseSummary =
+              sessionProviderConfig.responseSummary ??
+              useProviderStore.getState().getActiveModelConfig()?.responseSummary
+            baseProviderConfig.enablePromptCache =
+              sessionProviderConfig.enablePromptCache ??
+              useProviderStore.getState().getActiveModelConfig()?.enablePromptCache
+            baseProviderConfig.enableSystemPromptCache =
+              sessionProviderConfig.enableSystemPromptCache ??
+              useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache
+          }
+        }
+      }
+
+      const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+      const sessionMode = sessionSnapshot?.mode ?? uiStore.mode
+
+      // Add user message (multi-modal when images attached)
+      let userContent: string | ContentBlock[]
+      const isQueuedInsertion = source === 'queued'
+      const normalizedText = text.trim()
+      const textForUserBlock =
+        normalizedText || (images && images.length > 0 ? QUEUED_IMAGE_ONLY_TEXT : '')
+
+      if (isQueuedInsertion) {
+        const queuedBlocks: ContentBlock[] = [
+          { type: 'text', text: QUEUED_MESSAGE_SYSTEM_REMIND },
+          { type: 'text', text: textForUserBlock || text }
+        ]
+        if (images && images.length > 0) {
+          queuedBlocks.push(...images.map(imageAttachmentToContentBlock))
+        }
+        userContent = queuedBlocks
+      } else if (images && images.length > 0) {
+        // Images present: always use ContentBlock[] format
+        userContent = [
+          ...images.map(imageAttachmentToContentBlock),
+          ...(text ? [{ type: 'text' as const, text }] : [])
+        ]
+      } else {
+        // No images: use simple string
+        userContent = text
+      }
+
+      const userMsg: UnifiedMessage = {
+        id: nanoid(),
+        role: 'user',
+        content: userContent,
+        createdAt: Date.now(),
+        ...(source && { source })
+      }
+      chatStore.addMessage(sessionId, userMsg)
+
+      // Auto-title: fire-and-forget AI title + icon generation for the first message (skip for team notifications)
+      const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+      if (session && session.title === 'New Conversation') {
+        const capturedSessionId = sessionId
+        generateSessionTitle(text)
+          .then((result) => {
+            if (result) {
+              const store = useChatStore.getState()
+              store.updateSessionTitle(capturedSessionId, result.title)
+              store.updateSessionIcon(capturedSessionId, result.icon)
             }
+          })
+          .catch(() => {
+            /* keep default title on failure */
+          })
+      }
+
+      // Create assistant placeholder message
+      const assistantMsgId = nanoid()
+      const assistantMsg: UnifiedMessage = {
+        id: assistantMsgId,
+        role: 'assistant',
+        content: '',
+        createdAt: Date.now()
+      }
+      chatStore.addMessage(sessionId, assistantMsg)
+      chatStore.setStreamingMessageId(sessionId, assistantMsgId)
+
+      const isImageRequest = baseProviderConfig.type === 'openai-images'
+      if (isImageRequest) {
+        chatStore.setGeneratingImage(assistantMsgId, true)
+      }
+
+      // Setup abort controller (per-session)
+      // If this session already has a running agent, abort it first
+      const existingAc = sessionAbortControllers.get(sessionId)
+      if (existingAc) existingAc.abort()
+      const abortController = new AbortController()
+      sessionAbortControllers.set(sessionId, abortController)
+
+      const mode = sessionMode
+
+      if (mode === 'chat') {
+        // Simple chat mode: single API call, no tools
+        const chatSystemPrompt = [
+          'You are OpenCowork, a helpful AI assistant. Be concise, accurate, and friendly.',
+          "Before responding, follow this thinking process: (1) Understand — identify what the user truly needs, not just the literal words; consider context and implicit constraints. (2) Expand — think about the best way to solve the problem, consider edge cases, potential pitfalls, and better alternatives the user may not have thought of. (3) Validate — before finalizing, verify your answer is logically consistent: does it actually help the user achieve their stated goal? Check the full causal chain — if the user follows your advice, will they accomplish what they want? Watch for hidden contradictions (e.g. if someone needs to wash their car, they must bring the car — suggesting they walk defeats the purpose). (4) Respond — deliver a well-reasoned, logically sound answer that best fits the user's real needs. Think first, answer second — never rush to conclusions.",
+          'CRITICAL RULE: Before giving your final answer, always ask yourself: "If the user follows my advice step by step, will they actually achieve their stated goal?" If the answer is no, your response has a logical flaw — stop and reconsider. The user\'s goal defines the constraints; never give advice that makes the goal impossible.',
+          'Use markdown formatting in your responses. Use code blocks with language identifiers for code.',
+          settings.systemPrompt ? `\n## Additional Instructions\n${settings.systemPrompt}` : ''
+        ]
+          .filter(Boolean)
+          .join('\n')
+        // NOTE: thinkingEnabled is handled below when building the final config
+        const chatConfig: ProviderConfig = { ...baseProviderConfig, systemPrompt: chatSystemPrompt }
+        agentStore.setSessionStatus(sessionId, 'running')
+        try {
+          await runSimpleChat(sessionId, assistantMsgId, chatConfig, abortController.signal)
+        } finally {
+          agentStore.setSessionStatus(sessionId, 'completed')
+          sessionAbortControllers.delete(sessionId)
+          dispatchNextQueuedMessage(sessionId)
+        }
+      } else {
+        // Cowork / Code mode: agent loop with tools
+        const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+
+        // Dynamic plugin tool registration based on active channels
+        const activeChannels = useChannelStore.getState().getActiveChannels()
+        if (activeChannels.length > 0 && !isPluginToolsRegistered()) {
+          registerPluginTools()
+        } else if (activeChannels.length === 0 && isPluginToolsRegistered()) {
+          unregisterPluginTools()
+        }
+
+        // Dynamic MCP tool registration based on active MCPs
+        const activeMcps = useMcpStore.getState().getActiveMcps()
+        const activeMcpTools = useMcpStore.getState().getActiveMcpTools()
+        if (activeMcps.length > 0 && Object.keys(activeMcpTools).length > 0) {
+          registerMcpTools(activeMcps, activeMcpTools)
+        } else if (activeMcps.length === 0 && isMcpToolsRegistered()) {
+          unregisterMcpTools()
+        }
+
+        // Filter out team tools when the feature is disabled. Capture after registration changes.
+        const allToolDefs = toolRegistry.getDefinitions()
+        const finalToolDefs = allToolDefs
+        let finalEffectiveToolDefs = settings.teamToolsEnabled
+          ? finalToolDefs
+          : finalToolDefs.filter((t) => !TEAM_TOOL_NAMES.has(t.name))
+
+        // Plan mode: restrict to read-only + planning tools
+        const isPlanMode = useUIStore.getState().planMode
+        if (isPlanMode) {
+          finalEffectiveToolDefs = finalEffectiveToolDefs.filter((t) =>
+            PLAN_MODE_ALLOWED_TOOLS.has(t.name)
+          )
+        }
+
+        // Image models: disable all tools (image generation doesn't use tools)
+        const activeModelConfig = useProviderStore.getState().getActiveModelConfig()
+        if (activeModelConfig?.category === 'image') {
+          finalEffectiveToolDefs = []
+        }
+
+        // Build channel info for system prompt — inject channel metadata + per-channel system prompts
+        let userPrompt = settings.systemPrompt || ''
+        if (activeChannels.length > 0) {
+          const channelLines: string[] = ['\n## Active Channels']
+          for (const c of activeChannels) {
+            channelLines.push(`- **${c.name}** (channel_id: \`${c.id}\`, type: ${c.type})`)
+            if (c.userSystemPrompt?.trim()) {
+              channelLines.push(`  Channel instructions: ${c.userSystemPrompt.trim()}`)
+            }
+            const desc = useChannelStore.getState().getDescriptor(c.type)
+            const toolNames = desc?.tools ?? []
+            if (toolNames.length > 0) {
+              const enabled = toolNames.filter((name) => c.tools?.[name] !== false)
+              const disabled = toolNames.filter((name) => c.tools?.[name] === false)
+              channelLines.push(
+                `  Enabled tools: ${enabled.length > 0 ? enabled.join(', ') : 'none'}`
+              )
+              if (disabled.length > 0) {
+                channelLines.push(`  Disabled tools: ${disabled.join(', ')}`)
+              }
+            }
+          }
+          // Check if any active channel is Feishu (has file/image send capability)
+          const hasFeishuChannel = activeChannels.some((c) => c.type === 'feishu-bot')
+
+          channelLines.push(
+            '',
+            'Use plugin_id (set to channel_id) when calling Plugin* tools (PluginSendMessage, PluginReplyMessage, PluginGetGroupMessages, PluginListGroups, PluginSummarizeGroup, PluginGetCurrentChatMessages).',
+            'Always confirm with the user before sending messages on their behalf.',
+            '',
+            '### Generating & Delivering Files via Channels',
+            'When the user asks you to generate reports, documents, or any deliverable and wants it sent to a chat:',
+            '1. **Write the file** using the Write tool (e.g. `report.md`, `analysis.csv`, `summary.html`).',
+            hasFeishuChannel
+              ? '2. **Send the file** using FeishuSendFile (for Feishu chats) or share key content via PluginSendMessage (for other platforms).'
+              : '2. **Share the content** via PluginSendMessage, or inform the user where the file was saved.',
+            '3. **Provide a brief summary** in your response so the user knows what was generated.',
+            'Prefer writing to a file + sending it over pasting long content (>30 lines) directly in chat messages.'
+          )
+          const channelSection = channelLines.join('\n')
+          userPrompt = userPrompt ? `${userPrompt}\n${channelSection}` : channelSection
+        }
+
+        // Build MCP info for system prompt — inject active MCP server metadata and tool mappings
+        if (activeMcps.length > 0) {
+          const mcpLines: string[] = ['\n## Active MCP Servers']
+          for (const srv of activeMcps) {
+            const tools = activeMcpTools[srv.id] ?? []
+            mcpLines.push(`- **${srv.name}** (${tools.length} tools, transport: ${srv.transport})`)
+            if (srv.description?.trim()) {
+              mcpLines.push(`  ${srv.description.trim()}`)
+            }
+            if (tools.length > 0) {
+              mcpLines.push(
+                `  Available tools: ${tools.map((t) => `\`mcp__${srv.id}__${t.name}\``).join(', ')}`
+              )
+            }
+          }
+          mcpLines.push(
+            '',
+            'MCP tools are prefixed with `mcp__{serverId}__{toolName}`. Call them like any other tool — they are routed to the corresponding MCP server automatically.',
+            'MCP tools require user approval before execution.'
+          )
+          const mcpSection = mcpLines.join('\n')
+          userPrompt = userPrompt ? `${userPrompt}\n${mcpSection}` : mcpSection
+        }
+
+        const imagePluginConfig = useAppPluginStore.getState().getResolvedImagePluginConfig()
+        if (imagePluginConfig) {
+          const imagePluginSection = [
+            '\n## Enabled Plugins',
+            `- **Image Plugin** is enabled. Use \`${IMAGE_GENERATE_TOOL_NAME}\` when the user explicitly asks you to generate or render an image.`,
+            `- Required input: \`prompt\` (complete visual description). Optional input: \`count\` (1-4, defaults to 1).`,
+            '- Do not use it for normal text answers, code, or file generation tasks.',
+            `- Current image model: ${imagePluginConfig.model}`
+          ].join('\n')
+          userPrompt = userPrompt ? `${userPrompt}\n${imagePluginSection}` : imagePluginSection
+        }
+
+        // Channel session context: inject reply instructions when this session belongs to a channel
+        if (session?.pluginId && session?.externalChatId) {
+          const channelMeta = useChannelStore
+            .getState()
+            .channels.find((p) => p.id === session.pluginId)
+          const chatId = session.externalChatId.replace(/^plugin:[^:]+:chat:/, '')
+          const isFeishu = channelMeta?.type === 'feishu-bot'
+          const channelDescriptor = channelMeta
+            ? useChannelStore.getState().getDescriptor(channelMeta.type)
+            : undefined
+          const toolNames = channelDescriptor?.tools ?? []
+          const enabledTools = toolNames.filter((name) => channelMeta?.tools?.[name] !== false)
+          const disabledTools = toolNames.filter((name) => channelMeta?.tools?.[name] === false)
+          const senderLabel = session.pluginSenderName || session.pluginSenderId || 'unknown'
+          const channelCtx = [
+            `\n## Channel Auto-Reply Context`,
+            `This session is handling messages from channel **${channelMeta?.name ?? session.pluginId}** (channel_id: \`${session.pluginId}\`).`,
+            `Chat ID: \`${chatId}\``,
+            `Chat Type: ${session.pluginChatType ?? 'unknown'}`,
+            `Sender: ${senderLabel} (id: ${session.pluginSenderId ?? 'unknown'})`,
+            `Enabled tools: ${enabledTools.length > 0 ? enabledTools.join(', ') : 'none'}`,
+            disabledTools.length > 0 ? `Disabled tools: ${disabledTools.join(', ')}` : '',
+            `Your response will be streamed directly to the user in real-time via the channel.`,
+            `Just respond naturally — the streaming pipeline handles delivery automatically.`,
+            `If you need to send an additional message, use PluginSendMessage with plugin_id="${session.pluginId}" and chat_id="${chatId}".`,
+            isFeishu
+              ? [
+                  `\n### Feishu Media Tools`,
+                  `You can send images and files to this chat:`,
+                  `- **FeishuSendImage**: Send an image file (screenshot, generated image, etc.)`,
+                  `- **FeishuSendFile**: Send a file (PDF, document, spreadsheet, etc.)`,
+                  `Both require plugin_id="${session.pluginId}" and chat_id="${chatId}".`
+                ].join('\n')
+              : '',
+            channelMeta?.userSystemPrompt?.trim()
+              ? `\nChannel-specific instructions: ${channelMeta.userSystemPrompt.trim()}`
+              : ''
+          ]
+            .filter(Boolean)
+            .join('\n')
+          userPrompt = userPrompt ? `${userPrompt}\n${channelCtx}` : channelCtx
+        }
+
+        // Load AGENTS.md memory file from working directory
+        let agentsMemory: string | undefined
+        if (session?.workingFolder) {
+          const projectMemoryPath = joinFsPath(session.workingFolder, 'AGENTS.md')
+          agentsMemory = await loadOptionalMemoryFile(ipcClient, projectMemoryPath)
+        }
+
+        const globalMemorySnapshot = await loadGlobalMemorySnapshot(ipcClient)
+        const globalMemory = globalMemorySnapshot.content
+        const globalMemoryPath = globalMemorySnapshot.path
+
+        const agentSystemPrompt = buildSystemPrompt({
+          mode: mode as 'cowork' | 'code',
+          workingFolder: session?.workingFolder,
+          userSystemPrompt: userPrompt || undefined,
+          toolDefs: finalEffectiveToolDefs,
+          language: useSettingsStore.getState().language,
+          planMode: isPlanMode,
+          agentsMemory,
+          globalMemory,
+          globalMemoryPath
+        })
+        const agentProviderConfig: ProviderConfig = {
+          ...baseProviderConfig,
+          systemPrompt: agentSystemPrompt
+        }
+        // Context compression setup
+        const activeModelCfg = useProviderStore.getState().getActiveModelConfig()
+        const compressionConfig: CompressionConfig | null =
+          settings.contextCompressionEnabled && activeModelCfg?.contextLength
+            ? {
+                enabled: true,
+                contextLength: activeModelCfg.contextLength,
+                threshold: 0.8,
+                preCompressThreshold: 0.65
+              }
+            : null
+
+        const loopConfig: AgentLoopConfig = {
+          maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
+          provider: agentProviderConfig,
+          tools: finalEffectiveToolDefs,
+          systemPrompt: agentSystemPrompt,
+          workingFolder: session?.workingFolder,
+          signal: abortController.signal,
+          ...(compressionConfig && {
+            contextCompression: {
+              config: compressionConfig,
+              compressFn: async (msgs) => {
+                // If session has an active plan, pin its summary so compression preserves plan context
+                let planPinnedContext: string | undefined
+                if (sessionId) {
+                  const plan = usePlanStore.getState().getPlanBySession(sessionId)
+                  if (plan) {
+                    planPinnedContext = plan.content
+                  }
+                }
+                const { messages: compressed } = await compressMessages(
+                  msgs,
+                  agentProviderConfig, // use main model
+                  abortController.signal,
+                  undefined,
+                  undefined,
+                  planPinnedContext
+                )
+                // Sync compressed messages to chat store
+                if (sessionId) {
+                  useChatStore.getState().replaceSessionMessages(sessionId, compressed)
+                }
+                return compressed
+              }
+            }
+          })
+        }
+
+        agentStore.setRunning(true)
+        agentStore.setSessionStatus(sessionId, 'running')
+        agentStore.clearToolCalls()
+
+        // Accumulate usage across all iterations + SubAgent runs
+        const accumulatedUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
+        const requestTimings: RequestTiming[] = []
+        const loopStartedAt = Date.now()
+
+        // Subscribe to SubAgent events during agent loop
+        const unsubSubAgent = subAgentEvents.on((event) => {
+          useAgentStore.getState().handleSubAgentEvent(event, sessionId!)
+          // Accumulate SubAgent token usage into the parent message
+          if (event.type === 'sub_agent_end' && event.result?.usage) {
+            mergeUsage(accumulatedUsage, event.result.usage)
+            useChatStore
+              .getState()
+              .updateMessage(sessionId!, assistantMsgId, { usage: { ...accumulatedUsage } })
           }
         })
-      }
 
-      agentStore.setRunning(true)
-      agentStore.setSessionStatus(sessionId, 'running')
-      agentStore.clearToolCalls()
+        // NOTE: Team events are handled by a persistent global subscription
+        // in register.ts — not scoped here, because teammate loops outlive the lead's loop.
 
-      // Accumulate usage across all iterations + SubAgent runs
-      const accumulatedUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
-      const requestTimings: RequestTiming[] = []
-      const loopStartedAt = Date.now()
-
-      // Subscribe to SubAgent events during agent loop
-      const unsubSubAgent = subAgentEvents.on((event) => {
-        useAgentStore.getState().handleSubAgentEvent(event, sessionId!)
-        // Accumulate SubAgent token usage into the parent message
-        if (event.type === 'sub_agent_end' && event.result?.usage) {
-          mergeUsage(accumulatedUsage, event.result.usage)
-          useChatStore
-            .getState()
-            .updateMessage(sessionId!, assistantMsgId, { usage: { ...accumulatedUsage } })
-        }
-      })
-
-      // NOTE: Team events are handled by a persistent global subscription
-      // in register.ts — not scoped here, because teammate loops outlive the lead's loop.
-
-      // Request notification permission on first agent run
-      if (Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => { })
-      }
-
-      let streamDeltaBuffer: StreamDeltaBuffer | null = null
-
-      // Extract channel context from session so tools like CronAdd can auto-inject routing
-      const sessionChannelId = session?.pluginId
-      const sessionChannelChatId = session?.externalChatId
-        ? session.externalChatId.replace(/^plugin:[^:]+:chat:/, '')
-        : undefined
-
-      // Tool input throttling state — defined before try block so finally can safely dispose
-      const toolInputThrottle = new Map<
-        string,
-        { lastFlush: number; pending?: Record<string, unknown>; timer?: ReturnType<typeof setTimeout> }
-      >()
-      const chatToolInputThrottle = new Map<
-        string,
-        {
-          lastFlush: number
-          pending?: Record<string, unknown>
-          timer?: ReturnType<typeof setTimeout>
-          lastSent?: string
-        }
-      >()
-
-      const disposeToolInputQueues = (): void => {
-        for (const entry of toolInputThrottle.values()) {
-          if (entry.timer) clearTimeout(entry.timer)
-        }
-        for (const entry of chatToolInputThrottle.values()) {
-          if (entry.timer) clearTimeout(entry.timer)
-        }
-        toolInputThrottle.clear()
-        chatToolInputThrottle.clear()
-      }
-
-      try {
-        const messages = useChatStore.getState().getSessionMessages(sessionId)
-        let messagesToSend = messages.slice(0, -1) // Exclude the empty assistant placeholder
-
-        // Build and inject dynamic context into the last user message
-        const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-        const sessionMode = sessionSnapshot?.mode ?? uiStore.mode
-        const shouldInjectContext = (sessionMode === 'cowork' || sessionMode === 'code')
-
-        if (shouldInjectContext && messagesToSend.length > 0) {
-          const { buildDynamicContext } = await import('@renderer/lib/agent/dynamic-context')
-          const dynamicContext = buildDynamicContext({ sessionId })
-
-          if (dynamicContext) {
-            // Find the last user message and prepend dynamic context to its content
-            const lastUserIndex = messagesToSend.findLastIndex(m => m.role === 'user')
-            if (lastUserIndex >= 0) {
-              const lastUserMsg = messagesToSend[lastUserIndex]
-              const contextBlock = { type: 'text' as const, text: dynamicContext }
-
-              let newContent: ContentBlock[]
-              if (typeof lastUserMsg.content === 'string') {
-                newContent = [contextBlock, { type: 'text' as const, text: lastUserMsg.content }]
-              } else {
-                newContent = [contextBlock, ...lastUserMsg.content]
-              }
-
-              console.log('[Dynamic Context] Injecting context into last user message:', {
-                messageId: lastUserMsg.id,
-                originalContentType: typeof lastUserMsg.content,
-                newContentLength: newContent.length,
-                contextPreview: dynamicContext.substring(0, 100)
-              })
-
-              messagesToSend = [
-                ...messagesToSend.slice(0, lastUserIndex),
-                { ...lastUserMsg, content: newContent },
-                ...messagesToSend.slice(lastUserIndex + 1)
-              ]
-            }
-          }
+        // Request notification permission on first agent run
+        if (Notification.permission === 'default') {
+          Notification.requestPermission().catch(() => {})
         }
 
-        const loop = runAgentLoop(
-          messagesToSend,
-          loopConfig,
+        let streamDeltaBuffer: StreamDeltaBuffer | null = null
+
+        // Extract channel context from session so tools like CronAdd can auto-inject routing
+        const sessionChannelId = session?.pluginId
+        const sessionChannelChatId = session?.externalChatId
+          ? session.externalChatId.replace(/^plugin:[^:]+:chat:/, '')
+          : undefined
+
+        // Tool input throttling state — defined before try block so finally can safely dispose
+        const toolInputThrottle = new Map<
+          string,
           {
-            sessionId,
-            workingFolder: session?.workingFolder,
-            sshConnectionId: session?.sshConnectionId,
-            signal: abortController.signal,
-            ipc: ipcClient,
-            ...(sessionChannelId && sessionChannelChatId && {
-              pluginId: sessionChannelId,
-              pluginChatId: sessionChannelChatId,
-              pluginChatType: session?.pluginChatType,
-              pluginSenderId: session?.pluginSenderId,
-              pluginSenderName: session?.pluginSenderName,
-            }),
-          },
-          async (tc) => {
-            const autoApprove = useSettingsStore.getState().autoApprove
-            if (autoApprove) return true
-            // Per-session tool approval memory: skip re-approval for previously approved tools
-            const approved = useAgentStore.getState().approvedToolNames
-            if (approved.includes(tc.name)) return true
-            const result = await agentStore.requestApproval(tc.id)
-            if (result) useAgentStore.getState().addApprovedTool(tc.name)
-            return result
+            lastFlush: number
+            pending?: Record<string, unknown>
+            timer?: ReturnType<typeof setTimeout>
           }
-        )
-
-        let thinkingDone = false
-        let hasThinkingDelta = false
-        streamDeltaBuffer = createStreamDeltaBuffer(sessionId!, assistantMsgId)
-
-        const flushChatToolInput = (toolCallId: string): void => {
-          const entry = chatToolInputThrottle.get(toolCallId)
-          if (!entry?.pending) return
-          const snapshot = JSON.stringify(entry.pending)
-          if (snapshot === entry.lastSent) {
-            entry.pending = undefined
-            return
+        >()
+        const chatToolInputThrottle = new Map<
+          string,
+          {
+            lastFlush: number
+            pending?: Record<string, unknown>
+            timer?: ReturnType<typeof setTimeout>
+            lastSent?: string
           }
-          entry.lastFlush = Date.now()
-          entry.lastSent = snapshot
-          const pending = entry.pending
-          entry.pending = undefined
-          useChatStore.getState().updateToolUseInput(sessionId!, assistantMsgId, toolCallId, pending)
+        >()
+
+        const disposeToolInputQueues = (): void => {
+          for (const entry of toolInputThrottle.values()) {
+            if (entry.timer) clearTimeout(entry.timer)
+          }
+          for (const entry of chatToolInputThrottle.values()) {
+            if (entry.timer) clearTimeout(entry.timer)
+          }
+          toolInputThrottle.clear()
+          chatToolInputThrottle.clear()
         }
 
-        const flushToolInput = (toolCallId: string): void => {
-          const entry = toolInputThrottle.get(toolCallId)
-          if (!entry?.pending) return
-          entry.lastFlush = Date.now()
-          const pending = entry.pending
-          entry.pending = undefined
-          useAgentStore.getState().updateToolCall(toolCallId, { input: pending })
-        }
+        try {
+          const messages = useChatStore.getState().getSessionMessages(sessionId)
+          let messagesToSend = messages.slice(0, -1) // Exclude the empty assistant placeholder
 
-        const scheduleChatToolInputUpdate = (
-          toolCallId: string,
-          partialInput: Record<string, unknown>
-        ): void => {
-          const now = Date.now()
-          const entry = chatToolInputThrottle.get(toolCallId) ?? { lastFlush: 0 }
-          entry.pending = partialInput
-          chatToolInputThrottle.set(toolCallId, entry)
+          // Build and inject dynamic context into the last user message
+          const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+          const sessionMode = sessionSnapshot?.mode ?? uiStore.mode
+          const shouldInjectContext = sessionMode === 'cowork' || sessionMode === 'code'
 
-          if (now - entry.lastFlush >= 100) {
-            if (entry.timer) {
-              clearTimeout(entry.timer)
-              entry.timer = undefined
-            }
-            flushChatToolInput(toolCallId)
-            return
-          }
+          if (shouldInjectContext && messagesToSend.length > 0) {
+            const { buildDynamicContext } = await import('@renderer/lib/agent/dynamic-context')
+            const dynamicContext = buildDynamicContext({ sessionId })
 
-          if (!entry.timer) {
-            entry.timer = setTimeout(() => {
-              entry.timer = undefined
-              flushChatToolInput(toolCallId)
-            }, 100)
-          }
-        }
+            if (dynamicContext) {
+              // Find the last user message and prepend dynamic context to its content
+              const lastUserIndex = messagesToSend.findLastIndex((m) => m.role === 'user')
+              if (lastUserIndex >= 0) {
+                const lastUserMsg = messagesToSend[lastUserIndex]
+                const contextBlock = { type: 'text' as const, text: dynamicContext }
 
-        const scheduleToolInputUpdate = (toolCallId: string, partialInput: Record<string, unknown>): void => {
-          const now = Date.now()
-          const entry = toolInputThrottle.get(toolCallId) ?? { lastFlush: 0 }
-          entry.pending = partialInput
-          toolInputThrottle.set(toolCallId, entry)
+                let newContent: ContentBlock[]
+                if (typeof lastUserMsg.content === 'string') {
+                  newContent = [contextBlock, { type: 'text' as const, text: lastUserMsg.content }]
+                } else {
+                  newContent = [contextBlock, ...lastUserMsg.content]
+                }
 
-          if (now - entry.lastFlush >= 60) {
-            if (entry.timer) {
-              clearTimeout(entry.timer)
-              entry.timer = undefined
-            }
-            flushToolInput(toolCallId)
-            return
-          }
+                console.log('[Dynamic Context] Injecting context into last user message:', {
+                  messageId: lastUserMsg.id,
+                  originalContentType: typeof lastUserMsg.content,
+                  newContentLength: newContent.length,
+                  contextPreview: dynamicContext.substring(0, 100)
+                })
 
-          if (!entry.timer) {
-            entry.timer = setTimeout(() => {
-              entry.timer = undefined
-              flushToolInput(toolCallId)
-            }, 60)
-          }
-        }
-
-        for await (const event of loop) {
-          if (abortController.signal.aborted) break
-
-          switch (event.type) {
-            case 'thinking_delta':
-              hasThinkingDelta = true
-              streamDeltaBuffer.pushThinking(event.thinking)
-              break
-
-            case 'thinking_encrypted':
-              if (event.thinkingEncryptedContent && event.thinkingEncryptedProvider) {
-                useChatStore.getState().setThinkingEncryptedContent(
-                  sessionId!,
-                  assistantMsgId,
-                  event.thinkingEncryptedContent,
-                  event.thinkingEncryptedProvider
-                )
+                messagesToSend = [
+                  ...messagesToSend.slice(0, lastUserIndex),
+                  { ...lastUserMsg, content: newContent },
+                  ...messagesToSend.slice(lastUserIndex + 1)
+                ]
               }
-              break
+            }
+          }
 
-            case 'text_delta':
-              if (!thinkingDone) {
-                const chunk = event.text ?? ''
-                const closeThinkTagMatch = hasThinkingDelta
-                  ? chunk.match(/<\s*\/\s*think\s*>/i)
-                  : null
-                const keepThinkingOpen = hasThinkingDelta && !closeThinkTagMatch
-                if (!keepThinkingOpen) {
-                  if (closeThinkTagMatch && closeThinkTagMatch.index !== undefined) {
-                    const beforeClose = chunk.slice(0, closeThinkTagMatch.index)
-                    const afterClose = chunk.slice(
-                      closeThinkTagMatch.index + closeThinkTagMatch[0].length
+          const loop = runAgentLoop(
+            messagesToSend,
+            loopConfig,
+            {
+              sessionId,
+              workingFolder: session?.workingFolder,
+              sshConnectionId: session?.sshConnectionId,
+              signal: abortController.signal,
+              ipc: ipcClient,
+              ...(sessionChannelId &&
+                sessionChannelChatId && {
+                  pluginId: sessionChannelId,
+                  pluginChatId: sessionChannelChatId,
+                  pluginChatType: session?.pluginChatType,
+                  pluginSenderId: session?.pluginSenderId,
+                  pluginSenderName: session?.pluginSenderName
+                })
+            },
+            async (tc) => {
+              const autoApprove = useSettingsStore.getState().autoApprove
+              if (autoApprove) return true
+              // Per-session tool approval memory: skip re-approval for previously approved tools
+              const approved = useAgentStore.getState().approvedToolNames
+              if (approved.includes(tc.name)) return true
+              const result = await agentStore.requestApproval(tc.id)
+              if (result) useAgentStore.getState().addApprovedTool(tc.name)
+              return result
+            }
+          )
+
+          let thinkingDone = false
+          let hasThinkingDelta = false
+          streamDeltaBuffer = createStreamDeltaBuffer(sessionId!, assistantMsgId)
+
+          const flushChatToolInput = (toolCallId: string): void => {
+            const entry = chatToolInputThrottle.get(toolCallId)
+            if (!entry?.pending) return
+            const snapshot = JSON.stringify(entry.pending)
+            if (snapshot === entry.lastSent) {
+              entry.pending = undefined
+              return
+            }
+            entry.lastFlush = Date.now()
+            entry.lastSent = snapshot
+            const pending = entry.pending
+            entry.pending = undefined
+            useChatStore
+              .getState()
+              .updateToolUseInput(sessionId!, assistantMsgId, toolCallId, pending)
+          }
+
+          const flushToolInput = (toolCallId: string): void => {
+            const entry = toolInputThrottle.get(toolCallId)
+            if (!entry?.pending) return
+            entry.lastFlush = Date.now()
+            const pending = entry.pending
+            entry.pending = undefined
+            useAgentStore.getState().updateToolCall(toolCallId, { input: pending })
+          }
+
+          const scheduleChatToolInputUpdate = (
+            toolCallId: string,
+            partialInput: Record<string, unknown>
+          ): void => {
+            const now = Date.now()
+            const entry = chatToolInputThrottle.get(toolCallId) ?? { lastFlush: 0 }
+            entry.pending = partialInput
+            chatToolInputThrottle.set(toolCallId, entry)
+
+            if (now - entry.lastFlush >= 100) {
+              if (entry.timer) {
+                clearTimeout(entry.timer)
+                entry.timer = undefined
+              }
+              flushChatToolInput(toolCallId)
+              return
+            }
+
+            if (!entry.timer) {
+              entry.timer = setTimeout(() => {
+                entry.timer = undefined
+                flushChatToolInput(toolCallId)
+              }, 100)
+            }
+          }
+
+          const scheduleToolInputUpdate = (
+            toolCallId: string,
+            partialInput: Record<string, unknown>
+          ): void => {
+            const now = Date.now()
+            const entry = toolInputThrottle.get(toolCallId) ?? { lastFlush: 0 }
+            entry.pending = partialInput
+            toolInputThrottle.set(toolCallId, entry)
+
+            if (now - entry.lastFlush >= 60) {
+              if (entry.timer) {
+                clearTimeout(entry.timer)
+                entry.timer = undefined
+              }
+              flushToolInput(toolCallId)
+              return
+            }
+
+            if (!entry.timer) {
+              entry.timer = setTimeout(() => {
+                entry.timer = undefined
+                flushToolInput(toolCallId)
+              }, 60)
+            }
+          }
+
+          for await (const event of loop) {
+            if (abortController.signal.aborted) break
+
+            switch (event.type) {
+              case 'thinking_delta':
+                hasThinkingDelta = true
+                streamDeltaBuffer.pushThinking(event.thinking)
+                break
+
+              case 'thinking_encrypted':
+                if (event.thinkingEncryptedContent && event.thinkingEncryptedProvider) {
+                  useChatStore
+                    .getState()
+                    .setThinkingEncryptedContent(
+                      sessionId!,
+                      assistantMsgId,
+                      event.thinkingEncryptedContent,
+                      event.thinkingEncryptedProvider
                     )
-                    if (beforeClose) {
-                      streamDeltaBuffer.pushThinking(beforeClose)
+                }
+                break
+
+              case 'text_delta':
+                if (!thinkingDone) {
+                  const chunk = event.text ?? ''
+                  const closeThinkTagMatch = hasThinkingDelta
+                    ? chunk.match(/<\s*\/\s*think\s*>/i)
+                    : null
+                  const keepThinkingOpen = hasThinkingDelta && !closeThinkTagMatch
+                  if (!keepThinkingOpen) {
+                    if (closeThinkTagMatch && closeThinkTagMatch.index !== undefined) {
+                      const beforeClose = chunk.slice(0, closeThinkTagMatch.index)
+                      const afterClose = chunk.slice(
+                        closeThinkTagMatch.index + closeThinkTagMatch[0].length
+                      )
+                      if (beforeClose) {
+                        streamDeltaBuffer.pushThinking(beforeClose)
+                      }
+                      streamDeltaBuffer.flushNow()
+                      thinkingDone = true
+                      useChatStore.getState().completeThinking(sessionId!, assistantMsgId)
+                      if (afterClose) {
+                        streamDeltaBuffer.pushText(afterClose)
+                      }
+                      break
                     }
-                    streamDeltaBuffer.flushNow()
                     thinkingDone = true
+                    streamDeltaBuffer.flushNow()
                     useChatStore.getState().completeThinking(sessionId!, assistantMsgId)
-                    if (afterClose) {
-                      streamDeltaBuffer.pushText(afterClose)
-                    }
-                    break
                   }
+                }
+                streamDeltaBuffer.pushText(event.text)
+                break
+
+              case 'image_generated':
+                // Flush any pending text before adding image
+                streamDeltaBuffer.flushNow()
+                if (!thinkingDone) {
                   thinkingDone = true
-                  streamDeltaBuffer.flushNow()
                   useChatStore.getState().completeThinking(sessionId!, assistantMsgId)
                 }
-              }
-              streamDeltaBuffer.pushText(event.text)
-              break
-
-            case 'image_generated':
-              // Flush any pending text before adding image
-              streamDeltaBuffer.flushNow()
-              if (!thinkingDone) {
-                thinkingDone = true
-                useChatStore.getState().completeThinking(sessionId!, assistantMsgId)
-              }
-              // Add image block to assistant message
-              if (event.imageBlock) {
-                useChatStore.getState().appendContentBlock(sessionId!, assistantMsgId, event.imageBlock)
-              }
-              // Clear generating state after first image
-              useChatStore.getState().setGeneratingImage(assistantMsgId, false)
-              break
-
-            case 'image_error':
-              streamDeltaBuffer.flushNow()
-              if (!thinkingDone) {
-                thinkingDone = true
-                useChatStore.getState().completeThinking(sessionId!, assistantMsgId)
-              }
-              if (event.imageError) {
-                useChatStore.getState().appendContentBlock(sessionId!, assistantMsgId, {
-                  type: 'image_error',
-                  code: event.imageError.code,
-                  message: event.imageError.message,
-                })
-              }
-              useChatStore.getState().setGeneratingImage(assistantMsgId, false)
-              break
-
-            case 'tool_use_streaming_start':
-              // Preserve stream order: flush any pending thinking/text before inserting tool block.
-              streamDeltaBuffer.flushNow()
-              if (!thinkingDone) {
-                thinkingDone = true
-                useChatStore.getState().completeThinking(sessionId!, assistantMsgId)
-              }
-              // Immediately show tool card with name while args are still streaming
-              useChatStore.getState().appendToolUse(sessionId!, assistantMsgId, {
-                type: 'tool_use',
-                id: event.toolCallId,
-                name: event.toolName,
-                input: {}
-              })
-              useAgentStore.getState().addToolCall({
-                id: event.toolCallId,
-                name: event.toolName,
-                input: {},
-                status: 'streaming',
-                requiresApproval: false
-              })
-              break
-
-            case 'tool_use_args_delta':
-              // Real-time partial args update via partial-json parsing
-              scheduleChatToolInputUpdate(event.toolCallId, event.partialInput)
-              scheduleToolInputUpdate(event.toolCallId, event.partialInput)
-              break
-
-            case 'tool_use_generated':
-              // Args fully streamed — update the existing block's input (final)
-              streamDeltaBuffer.setToolInput(event.toolUseBlock.id, event.toolUseBlock.input)
-              streamDeltaBuffer.flushNow()
-              flushChatToolInput(event.toolUseBlock.id)
-              flushToolInput(event.toolUseBlock.id)
-              useAgentStore.getState().updateToolCall(event.toolUseBlock.id, {
-                input: event.toolUseBlock.input
-              })
-              break
-
-            case 'tool_call_start':
-              useAgentStore.getState().addToolCall(event.toolCall)
-              break
-
-            case 'tool_call_approval_needed': {
-              // Skip adding to pendingToolCalls when auto-approve is active —
-              // the callback will return true immediately, so no dialog needed.
-              const willAutoApprove =
-                useSettingsStore.getState().autoApprove ||
-                useAgentStore.getState().approvedToolNames.includes(event.toolCall.name)
-              if (!willAutoApprove) {
-                useAgentStore.getState().addToolCall(event.toolCall)
-              }
-              break
-            }
-
-            case 'tool_call_result':
-              useAgentStore.getState().updateToolCall(event.toolCall.id, {
-                status: event.toolCall.status,
-                output: event.toolCall.output,
-                error: event.toolCall.error,
-                completedAt: event.toolCall.completedAt
-              })
-              break
-
-            case 'iteration_end':
-              streamDeltaBuffer.flushNow()
-              // Reset so the next iteration's thinking block gets properly completed
-              thinkingDone = false
-              // When an iteration ends with tool results, append tool_result user message.
-              // The next iteration's text/tool_use will continue appending to the same assistant message.
-              if (event.toolResults && event.toolResults.length > 0) {
-                const toolResultMsg: UnifiedMessage = {
-                  id: nanoid(),
-                  role: 'user',
-                  content: event.toolResults.map((tr) => ({
-                    type: 'tool_result' as const,
-                    toolUseId: tr.toolUseId,
-                    content: tr.content,
-                    isError: tr.isError
-                  })),
-                  createdAt: Date.now()
+                // Add image block to assistant message
+                if (event.imageBlock) {
+                  useChatStore
+                    .getState()
+                    .appendContentBlock(sessionId!, assistantMsgId, event.imageBlock)
                 }
-                useChatStore.getState().addMessage(sessionId!, toolResultMsg)
-              }
-              // If there are queued user messages, abort the loop now.
-              // At this point tools have finished and tool_results are appended,
-              // so aborting here prevents the next API request from starting
-              // and lets the finally block dispatch the queued message immediately.
-              if (hasPendingSessionMessages(sessionId!)) {
-                console.log(`[ChatActions] Queued message detected at iteration_end, aborting loop for session ${sessionId}`)
-                abortController.abort()
-              }
-              break
+                // Clear generating state after first image
+                useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+                break
 
-            case 'message_end':
-              streamDeltaBuffer.flushNow()
-              if (!thinkingDone) {
-                thinkingDone = true
-                useChatStore.getState().completeThinking(sessionId!, assistantMsgId)
+              case 'image_error':
+                streamDeltaBuffer.flushNow()
+                if (!thinkingDone) {
+                  thinkingDone = true
+                  useChatStore.getState().completeThinking(sessionId!, assistantMsgId)
+                }
+                if (event.imageError) {
+                  useChatStore.getState().appendContentBlock(sessionId!, assistantMsgId, {
+                    type: 'image_error',
+                    code: event.imageError.code,
+                    message: event.imageError.message
+                  })
+                }
+                useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+                break
+
+              case 'tool_use_streaming_start':
+                // Preserve stream order: flush any pending thinking/text before inserting tool block.
+                streamDeltaBuffer.flushNow()
+                if (!thinkingDone) {
+                  thinkingDone = true
+                  useChatStore.getState().completeThinking(sessionId!, assistantMsgId)
+                }
+                // Immediately show tool card with name while args are still streaming
+                useChatStore.getState().appendToolUse(sessionId!, assistantMsgId, {
+                  type: 'tool_use',
+                  id: event.toolCallId,
+                  name: event.toolName,
+                  input: {}
+                })
+                useAgentStore.getState().addToolCall({
+                  id: event.toolCallId,
+                  name: event.toolName,
+                  input: {},
+                  status: 'streaming',
+                  requiresApproval: false
+                })
+                break
+
+              case 'tool_use_args_delta':
+                // Real-time partial args update via partial-json parsing
+                scheduleChatToolInputUpdate(event.toolCallId, event.partialInput)
+                scheduleToolInputUpdate(event.toolCallId, event.partialInput)
+                break
+
+              case 'tool_use_generated':
+                // Args fully streamed — update the existing block's input (final)
+                streamDeltaBuffer.setToolInput(event.toolUseBlock.id, event.toolUseBlock.input)
+                streamDeltaBuffer.flushNow()
+                flushChatToolInput(event.toolUseBlock.id)
+                flushToolInput(event.toolUseBlock.id)
+                useAgentStore.getState().updateToolCall(event.toolUseBlock.id, {
+                  input: event.toolUseBlock.input
+                })
+                break
+
+              case 'tool_call_start':
+                useAgentStore.getState().addToolCall(event.toolCall)
+                break
+
+              case 'tool_call_approval_needed': {
+                // Skip adding to pendingToolCalls when auto-approve is active —
+                // the callback will return true immediately, so no dialog needed.
+                const willAutoApprove =
+                  useSettingsStore.getState().autoApprove ||
+                  useAgentStore.getState().approvedToolNames.includes(event.toolCall.name)
+                if (!willAutoApprove) {
+                  useAgentStore.getState().addToolCall(event.toolCall)
+                }
+                break
               }
-              if (event.usage) {
-                mergeUsage(accumulatedUsage, event.usage)
-                // contextTokens = last API call's input tokens (overwrite, not accumulate)
-                accumulatedUsage.contextTokens = event.usage.contextTokens ?? event.usage.inputTokens
-              }
-              if (event.timing) {
-                requestTimings.push(event.timing)
-                accumulatedUsage.requestTimings = [...requestTimings]
-              }
-              if (event.usage || event.timing) {
+
+              case 'tool_call_result':
+                useAgentStore.getState().updateToolCall(event.toolCall.id, {
+                  status: event.toolCall.status,
+                  output: event.toolCall.output,
+                  error: event.toolCall.error,
+                  completedAt: event.toolCall.completedAt
+                })
+                break
+
+              case 'iteration_end':
+                streamDeltaBuffer.flushNow()
+                // Reset so the next iteration's thinking block gets properly completed
+                thinkingDone = false
+                // When an iteration ends with tool results, append tool_result user message.
+                // The next iteration's text/tool_use will continue appending to the same assistant message.
+                if (event.toolResults && event.toolResults.length > 0) {
+                  const toolResultMsg: UnifiedMessage = {
+                    id: nanoid(),
+                    role: 'user',
+                    content: event.toolResults.map((tr) => ({
+                      type: 'tool_result' as const,
+                      toolUseId: tr.toolUseId,
+                      content: tr.content,
+                      isError: tr.isError
+                    })),
+                    createdAt: Date.now()
+                  }
+                  useChatStore.getState().addMessage(sessionId!, toolResultMsg)
+                }
+                // If there are queued user messages, abort the loop now.
+                // At this point tools have finished and tool_results are appended,
+                // so aborting here prevents the next API request from starting
+                // and lets the finally block dispatch the queued message immediately.
+                if (hasPendingSessionMessages(sessionId!)) {
+                  console.log(
+                    `[ChatActions] Queued message detected at iteration_end, aborting loop for session ${sessionId}`
+                  )
+                  abortController.abort()
+                }
+                break
+
+              case 'message_end':
+                streamDeltaBuffer.flushNow()
+                if (!thinkingDone) {
+                  thinkingDone = true
+                  useChatStore.getState().completeThinking(sessionId!, assistantMsgId)
+                }
+                if (event.usage) {
+                  mergeUsage(accumulatedUsage, event.usage)
+                  // contextTokens = last API call's input tokens (overwrite, not accumulate)
+                  accumulatedUsage.contextTokens =
+                    event.usage.contextTokens ?? event.usage.inputTokens
+                }
+                if (event.timing) {
+                  requestTimings.push(event.timing)
+                  accumulatedUsage.requestTimings = [...requestTimings]
+                }
+                if (event.usage || event.timing) {
+                  useChatStore
+                    .getState()
+                    .updateMessage(sessionId!, assistantMsgId, { usage: { ...accumulatedUsage } })
+                }
+                break
+
+              case 'loop_end': {
+                streamDeltaBuffer.flushNow()
+                accumulatedUsage.totalDurationMs = Date.now() - loopStartedAt
+                if (requestTimings.length > 0) {
+                  accumulatedUsage.requestTimings = [...requestTimings]
+                }
                 useChatStore
                   .getState()
                   .updateMessage(sessionId!, assistantMsgId, { usage: { ...accumulatedUsage } })
+                break
               }
-              break
 
-            case 'loop_end': {
-              streamDeltaBuffer.flushNow()
-              accumulatedUsage.totalDurationMs = Date.now() - loopStartedAt
-              if (requestTimings.length > 0) {
-                accumulatedUsage.requestTimings = [...requestTimings]
-              }
-              useChatStore
-                .getState()
-                .updateMessage(sessionId!, assistantMsgId, { usage: { ...accumulatedUsage } })
-              break
+              case 'request_debug':
+                streamDeltaBuffer.flushNow()
+                if (useSettingsStore.getState().devMode && event.debugInfo) {
+                  setLastDebugInfo(assistantMsgId, event.debugInfo)
+                }
+                break
+
+              case 'context_compression_start':
+                toast.info('正在压缩上下文...', { description: '历史消息将被压缩为记忆摘要' })
+                break
+
+              case 'context_compressed':
+                toast.success('上下文已压缩', {
+                  description: `${event.originalCount} 条消息 → ${event.newCount} 条（核心信息已保留）`
+                })
+                break
+
+              case 'error':
+                streamDeltaBuffer.flushNow()
+                console.error('[Agent Loop Error]', event.error)
+                toast.error('Agent Error', { description: event.error.message })
+                break
             }
-
-            case 'request_debug':
-              streamDeltaBuffer.flushNow()
-              if (useSettingsStore.getState().devMode && event.debugInfo) {
-                setLastDebugInfo(assistantMsgId, event.debugInfo)
-              }
-              break
-
-            case 'context_compression_start':
-              toast.info('正在压缩上下文...', { description: '历史消息将被压缩为记忆摘要' })
-              break
-
-            case 'context_compressed':
-              toast.success('上下文已压缩', {
-                description: `${event.originalCount} 条消息 → ${event.newCount} 条（核心信息已保留）`
-              })
-              break
-
-            case 'error':
-              streamDeltaBuffer.flushNow()
-              console.error('[Agent Loop Error]', event.error)
-              toast.error('Agent Error', { description: event.error.message })
-              break
           }
-        }
-      } catch (err) {
-        streamDeltaBuffer?.flushNow()
-        console.error('[Agent Loop Exception]', err)
-        if (!abortController.signal.aborted) {
-          const errMsg = err instanceof Error ? err.message : String(err)
+        } catch (err) {
+          streamDeltaBuffer?.flushNow()
           console.error('[Agent Loop Exception]', err)
-          toast.error('Agent failed', { description: errMsg })
-          useChatStore
-            .getState()
-            .appendTextDelta(sessionId!, assistantMsgId, `\n\n> **Error:** ${errMsg}`)
-          if (err instanceof ApiStreamError && useSettingsStore.getState().devMode) {
-            setLastDebugInfo(assistantMsgId, err.debugInfo as RequestDebugInfo)
+          if (!abortController.signal.aborted) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error('[Agent Loop Exception]', err)
+            toast.error('Agent failed', { description: errMsg })
+            useChatStore
+              .getState()
+              .appendTextDelta(sessionId!, assistantMsgId, `\n\n> **Error:** ${errMsg}`)
+            if (err instanceof ApiStreamError && useSettingsStore.getState().devMode) {
+              setLastDebugInfo(assistantMsgId, err.debugInfo as RequestDebugInfo)
+            }
           }
-        }
-      } finally {
-        streamDeltaBuffer?.flushNow()
-        streamDeltaBuffer?.dispose()
-        disposeToolInputQueues()
-        // Clear image generating state
-        useChatStore.getState().setGeneratingImage(assistantMsgId, false)
-        // Defensive cleanup: if provider stream ended without completing a tool call,
-        // avoid leaving tool cards stuck at "receiving args".
-        const { executedToolCalls, pendingToolCalls, updateToolCall } = useAgentStore.getState()
-        for (const tc of [...executedToolCalls, ...pendingToolCalls]) {
-          if (tc.status === 'streaming') {
-            updateToolCall(tc.id, {
-              status: 'error',
-              error: 'Tool call stream ended before execution',
-              completedAt: Date.now()
-            })
+        } finally {
+          streamDeltaBuffer?.flushNow()
+          streamDeltaBuffer?.dispose()
+          disposeToolInputQueues()
+          // Clear image generating state
+          useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+          // Defensive cleanup: if provider stream ended without completing a tool call,
+          // avoid leaving tool cards stuck at "receiving args".
+          const { executedToolCalls, pendingToolCalls, updateToolCall } = useAgentStore.getState()
+          for (const tc of [...executedToolCalls, ...pendingToolCalls]) {
+            if (tc.status === 'streaming') {
+              updateToolCall(tc.id, {
+                status: 'error',
+                error: 'Tool call stream ended before execution',
+                completedAt: Date.now()
+              })
+            }
           }
-        }
-        unsubSubAgent()
-        agentStore.setSessionStatus(sessionId, 'completed')
-        chatStore.setStreamingMessageId(sessionId, null)
-        sessionAbortControllers.delete(sessionId)
-        // Derive global isRunning from remaining running sessions
-        const hasOtherRunning = Object.values(useAgentStore.getState().runningSessions).some(
-          (s) => s === 'running'
-        )
-        agentStore.setRunning(hasOtherRunning)
-        dispatchNextQueuedMessage(sessionId)
-        // Notify when agent finishes and window is not focused
-        if (!document.hasFocus() && Notification.permission === 'granted') {
-          new Notification('OpenCowork', { body: 'Agent finished working', silent: true })
-        }
+          unsubSubAgent()
+          agentStore.setSessionStatus(sessionId, 'completed')
+          chatStore.setStreamingMessageId(sessionId, null)
+          sessionAbortControllers.delete(sessionId)
+          // Derive global isRunning from remaining running sessions
+          const hasOtherRunning = Object.values(useAgentStore.getState().runningSessions).some(
+            (s) => s === 'running'
+          )
+          agentStore.setRunning(hasOtherRunning)
+          dispatchNextQueuedMessage(sessionId)
+          // Notify when agent finishes and window is not focused
+          if (!document.hasFocus() && Notification.permission === 'granted') {
+            new Notification('OpenCowork', { body: 'Agent finished working', silent: true })
+          }
 
-        // If there's an active team, set up the lead message listener
-        // and drain any messages that arrived while the loop was running.
-        if (useTeamStore.getState().activeTeam) {
-          ensureTeamLeadListener()
-          // Schedule a debounced drain to batch reports that arrive close together
-          scheduleDrain()
+          // If there's an active team, set up the lead message listener
+          // and drain any messages that arrived while the loop was running.
+          if (useTeamStore.getState().activeTeam) {
+            ensureTeamLeadListener()
+            // Schedule a debounced drain to batch reports that arrive close together
+            scheduleDrain()
+          }
         }
       }
-    }
-  }, [])
+    },
+    []
+  )
 
   useEffect(() => {
     ensureTeamLeadListener()
@@ -1558,45 +1672,47 @@ export function useChatActions(): {
     const chatStore = useChatStore.getState()
     const sessionId = chatStore.activeSessionId
     if (!sessionId) return
+
     await chatStore.loadSessionMessages(sessionId)
-    const lastUserText = chatStore.removeLastAssistantMessage(sessionId)
-    if (lastUserText) {
-      // Also remove the last user message — sendMessage will re-add it
-      chatStore.removeLastUserMessage(sessionId)
-      await sendMessage(lastUserText)
-    }
+    const messages = chatStore.getSessionMessages(sessionId)
+    const lastEditable = findLastEditableUserMessage(messages)
+    if (!lastEditable) return
+
+    const removedAssistant = chatStore.removeLastAssistantMessage(sessionId)
+    if (!removedAssistant) return
+
+    chatStore.removeLastUserMessage(sessionId)
+    await sendMessage(
+      lastEditable.draft.text,
+      lastEditable.draft.images.length > 0
+        ? cloneImageAttachments(lastEditable.draft.images)
+        : undefined
+    )
   }, [sendMessage])
 
   const editAndResend = useCallback(
-    async (newContent: string) => {
+    async (draft: EditableUserMessageDraft) => {
       stopStreaming()
       const chatStore = useChatStore.getState()
       const sessionId = chatStore.activeSessionId
       if (!sessionId) return
+
       await chatStore.loadSessionMessages(sessionId)
       const messages = chatStore.getSessionMessages(sessionId)
-      // Find the last real user message (has text content, not just tool_result blocks)
-      let editIdx = -1
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const m = messages[i]
-        if (m.role === 'user') {
-          if (typeof m.content === 'string') {
-            editIdx = i
-            break
-          }
-          if (m.content.some((b) => b.type === 'text')) {
-            editIdx = i
-            break
-          }
-        }
+      const target = findLastEditableUserMessage(messages)
+      if (!target) return
+
+      const nextDraft: EditableUserMessageDraft = {
+        text: draft.text.trim(),
+        images: cloneImageAttachments(draft.images)
       }
-      if (editIdx < 0) return
+      if (!hasEditableDraftContent(nextDraft)) return
+
       // Truncate from the edited message onward (removes it + all subsequent messages)
-      chatStore.truncateMessagesFrom(sessionId, editIdx)
-      // Re-send with edited content
-      await sendMessage(newContent)
+      chatStore.truncateMessagesFrom(sessionId, target.index)
+      await sendMessage(nextDraft.text, nextDraft.images.length > 0 ? nextDraft.images : undefined)
     },
-    [sendMessage]
+    [sendMessage, stopStreaming]
   )
 
   const manualCompressContext = useCallback(async (focusPrompt?: string) => {
@@ -1621,12 +1737,15 @@ export function useChatActions(): {
 
     // Limitation 2: minimum message count
     if (messages.length < MIN_MESSAGES) {
-      toast.error('无法压缩', { description: `至少需要 ${MIN_MESSAGES} 条消息才能进行压缩（当前 ${messages.length} 条）` })
+      toast.error('无法压缩', {
+        description: `至少需要 ${MIN_MESSAGES} 条消息才能进行压缩（当前 ${messages.length} 条）`
+      })
       return
     }
 
     // Limitation 3: check if there's already a compressed summary as the 2nd message — avoid double-compressing too soon
-    const hasRecentSummary = messages.length > 1 &&
+    const hasRecentSummary =
+      messages.length > 1 &&
       typeof messages[1]?.content === 'string' &&
       messages[1].content.startsWith('[Context Memory')
     if (hasRecentSummary && messages.length < MIN_MESSAGES + 4) {
@@ -1653,14 +1772,14 @@ export function useChatActions(): {
 
     const config: ProviderConfig | null = providerConfig
       ? {
-        ...providerConfig,
-        maxTokens: effectiveMaxTokens,
-        temperature: settings.temperature,
-        systemPrompt: settings.systemPrompt || undefined,
-        thinkingEnabled,
-        thinkingConfig: activeModelThinkingConfig,
-        reasoningEffort: settings.reasoningEffort
-      }
+          ...providerConfig,
+          maxTokens: effectiveMaxTokens,
+          temperature: settings.temperature,
+          systemPrompt: settings.systemPrompt || undefined,
+          thinkingEnabled,
+          thinkingConfig: activeModelThinkingConfig,
+          reasoningEffort: settings.reasoningEffort
+        }
       : null
 
     if (!config) {
@@ -1677,7 +1796,8 @@ export function useChatActions(): {
         return
       }
       const sessionProviderConfig = providerStore.getProviderConfigById(
-        compressSession.providerId, compressSession.modelId
+        compressSession.providerId,
+        compressSession.modelId
       )
       if (sessionProviderConfig?.apiKey) {
         config.type = sessionProviderConfig.type
@@ -1761,8 +1881,10 @@ export function sendPlanRevision(planId: string, feedback: string): void {
     `The plan **${plan.title}** was rejected.`,
     feedback ? `Feedback:\n${feedback}` : '',
     '',
-    'Please revise the plan accordingly. Provide the updated plan in chat, then call SavePlan with the full content and summary, and ExitPlanMode.',
-  ].filter(Boolean).join('\n')
+    'Please revise the plan accordingly. Provide the updated plan in chat, then call SavePlan with the full content and summary, and ExitPlanMode.'
+  ]
+    .filter(Boolean)
+    .join('\n')
 
   _sendMessageFn(prompt)
 }
@@ -1801,20 +1923,20 @@ async function runSimpleChat(
           break
         case 'thinking_encrypted':
           if (event.thinkingEncryptedContent && event.thinkingEncryptedProvider) {
-            useChatStore.getState().setThinkingEncryptedContent(
-              sessionId,
-              assistantMsgId,
-              event.thinkingEncryptedContent,
-              event.thinkingEncryptedProvider
-            )
+            useChatStore
+              .getState()
+              .setThinkingEncryptedContent(
+                sessionId,
+                assistantMsgId,
+                event.thinkingEncryptedContent,
+                event.thinkingEncryptedProvider
+              )
           }
           break
         case 'text_delta':
           if (!thinkingDone) {
             const chunk = event.text ?? ''
-            const closeThinkTagMatch = hasThinkingDelta
-              ? chunk.match(/<\s*\/\s*think\s*>/i)
-              : null
+            const closeThinkTagMatch = hasThinkingDelta ? chunk.match(/<\s*\/\s*think\s*>/i) : null
             const keepThinkingOpen = hasThinkingDelta && !closeThinkTagMatch
             if (!keepThinkingOpen) {
               if (closeThinkTagMatch && closeThinkTagMatch.index !== undefined) {
@@ -1861,7 +1983,7 @@ async function runSimpleChat(
             useChatStore.getState().appendContentBlock(sessionId, assistantMsgId, {
               type: 'image_error',
               code: event.imageError.code,
-              message: event.imageError.message,
+              message: event.imageError.message
             })
           }
           useChatStore.getState().setGeneratingImage(assistantMsgId, false)
@@ -1874,7 +1996,10 @@ async function runSimpleChat(
           }
           if (event.usage) {
             useChatStore.getState().updateMessage(sessionId, assistantMsgId, {
-              usage: { ...event.usage, contextTokens: event.usage.contextTokens ?? event.usage.inputTokens }
+              usage: {
+                ...event.usage,
+                contextTokens: event.usage.contextTokens ?? event.usage.inputTokens
+              }
             })
           }
           break

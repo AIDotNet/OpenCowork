@@ -7,12 +7,13 @@ import { Users, ChevronDown } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { SlideIn } from '@renderer/components/animate-ui'
+import type { EditableUserMessageDraft } from '@renderer/lib/image-attachments'
 
 interface MessageItemProps {
   message: UnifiedMessage
   isStreaming?: boolean
   isLastUserMessage?: boolean
-  onEditUserMessage?: (newContent: string) => void
+  onEditUserMessage?: (draft: EditableUserMessageDraft) => void
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
   liveToolCallMap?: Map<string, ToolCallState> | null
 }
@@ -38,9 +39,7 @@ function TeamNotification({ content }: { content: string }): React.JSX.Element {
         className="flex w-full items-center gap-2 px-3 py-2 text-left cursor-pointer"
       >
         <Users className="size-3.5 text-cyan-500 shrink-0" />
-        <span className="text-[11px] font-medium text-cyan-600 dark:text-cyan-400">
-          {from}
-        </span>
+        <span className="text-[11px] font-medium text-cyan-600 dark:text-cyan-400">{from}</span>
         <span className="flex-1" />
         <ChevronDown
           className={`size-3.5 text-muted-foreground/50 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
@@ -73,7 +72,15 @@ function MessageItemInner({
       case 'user': {
         // Team notification messages (source: 'team') are rendered differently
         if (message.source === 'team') {
-          return <TeamNotification content={typeof message.content === 'string' ? message.content : JSON.stringify(message.content)} />
+          return (
+            <TeamNotification
+              content={
+                typeof message.content === 'string'
+                  ? message.content
+                  : JSON.stringify(message.content)
+              }
+            />
+          )
         }
         // Regular user message - pass content directly to UserMessage component
         // UserMessage will handle ContentBlock[] extraction and system-remind filtering

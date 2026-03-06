@@ -61,20 +61,22 @@ export interface Session {
 // --- DB persistence helpers (fire-and-forget) ---
 
 function dbCreateSession(s: Session): void {
-  ipcClient.invoke('db:sessions:create', {
-    id: s.id,
-    title: s.title,
-    icon: s.icon,
-    mode: s.mode,
-    createdAt: s.createdAt,
-    updatedAt: s.updatedAt,
-    projectId: s.projectId,
-    workingFolder: s.workingFolder,
-    sshConnectionId: s.sshConnectionId,
-    pinned: s.pinned,
-    providerId: s.providerId,
-    modelId: s.modelId,
-  }).catch(() => {})
+  ipcClient
+    .invoke('db:sessions:create', {
+      id: s.id,
+      title: s.title,
+      icon: s.icon,
+      mode: s.mode,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      projectId: s.projectId,
+      workingFolder: s.workingFolder,
+      sshConnectionId: s.sshConnectionId,
+      pinned: s.pinned,
+      providerId: s.providerId,
+      modelId: s.modelId
+    })
+    .catch(() => {})
 }
 
 function dbUpdateSession(id: string, patch: Record<string, unknown>): void {
@@ -90,15 +92,17 @@ function dbClearAllSessions(): void {
 }
 
 function dbCreateProject(project: Project): void {
-  ipcClient.invoke('db:projects:create', {
-    id: project.id,
-    name: project.name,
-    workingFolder: project.workingFolder,
-    sshConnectionId: project.sshConnectionId,
-    pluginId: project.pluginId,
-    createdAt: project.createdAt,
-    updatedAt: project.updatedAt,
-  }).catch(() => {})
+  ipcClient
+    .invoke('db:projects:create', {
+      id: project.id,
+      name: project.name,
+      workingFolder: project.workingFolder,
+      sshConnectionId: project.sshConnectionId,
+      pluginId: project.pluginId,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt
+    })
+    .catch(() => {})
 }
 
 function dbUpdateProject(id: string, patch: Record<string, unknown>): void {
@@ -110,15 +114,17 @@ function dbDeleteProject(id: string): void {
 }
 
 function dbAddMessage(sessionId: string, msg: UnifiedMessage, sortOrder: number): void {
-  ipcClient.invoke('db:messages:add', {
-    id: msg.id,
-    sessionId,
-    role: msg.role,
-    content: JSON.stringify(msg.content),
-    createdAt: msg.createdAt,
-    usage: msg.usage ? JSON.stringify(msg.usage) : null,
-    sortOrder,
-  }).catch(() => {})
+  ipcClient
+    .invoke('db:messages:add', {
+      id: msg.id,
+      sessionId,
+      role: msg.role,
+      content: JSON.stringify(msg.content),
+      createdAt: msg.createdAt,
+      usage: msg.usage ? JSON.stringify(msg.usage) : null,
+      sortOrder
+    })
+    .catch(() => {})
 }
 
 function dbUpdateMessage(msgId: string, content: unknown, usage?: unknown): void {
@@ -144,6 +150,8 @@ function stripThinkTagMarkers(text: string): string {
 }
 
 function dbFlushMessage(_sessionId: string, msg: UnifiedMessage, _sortOrder: number): void {
+  void _sessionId
+  void _sortOrder
   const key = msg.id
   const existing = _pendingFlush.get(key)
   if (existing) clearTimeout(existing)
@@ -156,7 +164,13 @@ function dbFlushMessage(_sessionId: string, msg: UnifiedMessage, _sortOrder: num
   )
 }
 
-function dbFlushMessageImmediate(_sessionId: string, msg: UnifiedMessage, _sortOrder: number): void {
+function dbFlushMessageImmediate(
+  _sessionId: string,
+  msg: UnifiedMessage,
+  _sortOrder: number
+): void {
+  void _sessionId
+  void _sortOrder
   const existing = _pendingFlush.get(msg.id)
   if (existing) {
     clearTimeout(existing)
@@ -181,7 +195,9 @@ interface ChatStore {
 
   // Project CRUD
   setActiveProject: (id: string | null) => void
-  createProject: (input?: Partial<Pick<Project, 'name' | 'workingFolder' | 'sshConnectionId' | 'pluginId'>>) => Promise<string>
+  createProject: (
+    input?: Partial<Pick<Project, 'name' | 'workingFolder' | 'sshConnectionId' | 'pluginId'>>
+  ) => Promise<string>
   renameProject: (projectId: string, name: string) => void
   deleteProject: (projectId: string) => Promise<void>
   updateProjectDirectory: (
@@ -207,7 +223,7 @@ interface ChatStore {
   togglePinSession: (sessionId: string) => void
   restoreSession: (session: Session) => void
   clearAllSessions: () => void
-  removeLastAssistantMessage: (sessionId: string) => string | null
+  removeLastAssistantMessage: (sessionId: string) => boolean
   removeLastUserMessage: (sessionId: string) => void
   truncateMessagesFrom: (sessionId: string, fromIndex: number) => void
   replaceSessionMessages: (sessionId: string, messages: UnifiedMessage[]) => void
@@ -227,7 +243,12 @@ interface ChatStore {
   ) => void
   completeThinking: (sessionId: string, msgId: string) => void
   appendToolUse: (sessionId: string, msgId: string, toolUse: ToolUseBlock) => void
-  updateToolUseInput: (sessionId: string, msgId: string, toolUseId: string, input: Record<string, unknown>) => void
+  updateToolUseInput: (
+    sessionId: string,
+    msgId: string,
+    toolUseId: string,
+    input: Record<string, unknown>
+  ) => void
   appendContentBlock: (sessionId: string, msgId: string, block: ContentBlock) => void
 
   // Streaming state (per-session)
@@ -290,7 +311,7 @@ function rowToProject(row: ProjectRow): Project {
     updatedAt: row.updated_at,
     workingFolder: row.working_folder ?? undefined,
     sshConnectionId: row.ssh_connection_id ?? undefined,
-    pluginId: row.plugin_id ?? undefined,
+    pluginId: row.plugin_id ?? undefined
   }
 }
 
@@ -313,7 +334,7 @@ function rowToSession(row: SessionRow, messages: UnifiedMessage[] = []): Session
     pluginId: row.plugin_id ?? undefined,
     externalChatId: row.external_chat_id ?? undefined,
     providerId: row.provider_id ?? undefined,
-    modelId: row.model_id ?? undefined,
+    modelId: row.model_id ?? undefined
   }
 }
 
@@ -329,7 +350,7 @@ function rowToMessage(row: MessageRow): UnifiedMessage {
     role: row.role as UnifiedMessage['role'],
     content,
     createdAt: row.created_at,
-    usage: row.usage ? JSON.parse(row.usage) : undefined,
+    usage: row.usage ? JSON.parse(row.usage) : undefined
   }
 }
 
@@ -467,7 +488,7 @@ export const useChatStore = create<ChatStore>()(
         sshConnectionId: input?.sshConnectionId ?? null,
         pluginId: input?.pluginId ?? null,
         createdAt: now,
-        updatedAt: now,
+        updatedAt: now
       }
 
       try {
@@ -487,7 +508,7 @@ export const useChatStore = create<ChatStore>()(
           updatedAt: now,
           workingFolder: payload.workingFolder ?? undefined,
           sshConnectionId: payload.sshConnectionId ?? undefined,
-          pluginId: payload.pluginId ?? undefined,
+          pluginId: payload.pluginId ?? undefined
         }
         set((state) => {
           state.projects.unshift(fallbackProject)
@@ -512,21 +533,21 @@ export const useChatStore = create<ChatStore>()(
 
       dbUpdateProject(projectId, {
         name: nextName,
-        updatedAt: now,
+        updatedAt: now
       })
     },
 
     deleteProject: async (projectId) => {
       const localSessionIds = get()
-        .sessions
-        .filter((session) => session.projectId === projectId)
+        .sessions.filter((session) => session.projectId === projectId)
         .map((session) => session.id)
 
       let deletedSessionIds = localSessionIds
       try {
-        const result = (await ipcClient.invoke('db:projects:delete', projectId)) as
-          | { projectId: string; sessionIds: string[] }
-          | null
+        const result = (await ipcClient.invoke('db:projects:delete', projectId)) as {
+          projectId: string
+          sessionIds: string[]
+        } | null
         if (result?.sessionIds) {
           deletedSessionIds = Array.from(new Set([...localSessionIds, ...result.sessionIds]))
         }
@@ -570,9 +591,7 @@ export const useChatStore = create<ChatStore>()(
           !state.projects.some((project) => project.id === state.activeProjectId)
         ) {
           state.activeProjectId =
-            state.projects.find((project) => !project.pluginId)?.id
-            ?? state.projects[0]?.id
-            ?? null
+            state.projects.find((project) => !project.pluginId)?.id ?? state.projects[0]?.id ?? null
         }
 
         shouldEnsureDefaultProject = state.projects.length === 0
@@ -617,11 +636,11 @@ export const useChatStore = create<ChatStore>()(
 
       const nextWorkingFolder =
         patch.workingFolder !== undefined
-          ? patch.workingFolder ?? undefined
+          ? (patch.workingFolder ?? undefined)
           : current.workingFolder
       const nextSshConnectionId =
         patch.sshConnectionId !== undefined
-          ? patch.sshConnectionId ?? undefined
+          ? (patch.sshConnectionId ?? undefined)
           : current.sshConnectionId
 
       if (
@@ -632,8 +651,7 @@ export const useChatStore = create<ChatStore>()(
       }
 
       const affectedSessionIds = get()
-        .sessions
-        .filter((session) => session.projectId === projectId)
+        .sessions.filter((session) => session.projectId === projectId)
         .map((session) => session.id)
 
       set((state) => {
@@ -655,14 +673,14 @@ export const useChatStore = create<ChatStore>()(
       dbUpdateProject(projectId, {
         workingFolder: nextWorkingFolder ?? null,
         sshConnectionId: nextSshConnectionId ?? null,
-        updatedAt: now,
+        updatedAt: now
       })
 
       for (const sessionId of affectedSessionIds) {
         dbUpdateSession(sessionId, {
           workingFolder: nextWorkingFolder ?? null,
           sshConnectionId: nextSshConnectionId ?? null,
-          updatedAt: now,
+          updatedAt: now
         })
       }
     },
@@ -734,11 +752,11 @@ export const useChatStore = create<ChatStore>()(
           const activeSession = sessions.find((session) => session.id === nextActiveSessionId)
           const preferredProjectId = activeSession?.projectId
           nextActiveProjectId =
-            preferredProjectId
-            ?? state.activeProjectId
-            ?? projects.find((project) => !project.pluginId)?.id
-            ?? projects[0]?.id
-            ?? null
+            preferredProjectId ??
+            state.activeProjectId ??
+            projects.find((project) => !project.pluginId)?.id ??
+            projects[0]?.id ??
+            null
           state.activeProjectId = nextActiveProjectId
         })
 
@@ -773,14 +791,13 @@ export const useChatStore = create<ChatStore>()(
       const { activeProviderId, activeModelId } = useProviderStore.getState()
 
       let targetProjectId =
-        projectId
-        ?? get().activeProjectId
-        ?? get().projects.find((project) => !project.pluginId)?.id
-        ?? get().projects[0]?.id
-        ?? null
+        projectId ??
+        get().activeProjectId ??
+        get().projects.find((project) => !project.pluginId)?.id ??
+        get().projects[0]?.id ??
+        null
 
-      let targetProject =
-        get().projects.find((project) => project.id === targetProjectId)
+      const targetProject = get().projects.find((project) => project.id === targetProjectId)
 
       if (targetProject) {
         targetProjectId = targetProject.id
@@ -799,7 +816,7 @@ export const useChatStore = create<ChatStore>()(
         workingFolder: targetProject?.workingFolder,
         sshConnectionId: targetProject?.sshConnectionId,
         providerId: activeProviderId ?? undefined,
-        modelId: activeModelId || undefined,
+        modelId: activeModelId || undefined
       }
       set((state) => {
         state.sessions.push(newSession)
@@ -810,22 +827,24 @@ export const useChatStore = create<ChatStore>()(
       })
       dbCreateSession(newSession)
       if (!targetProjectId) {
-        void get().ensureDefaultProject().then((project) => {
-          if (!project) return
-          set((state) => {
-            const session = state.sessions.find((item) => item.id === id)
-            if (!session || session.projectId) return
-            session.projectId = project.id
-            session.workingFolder = project.workingFolder
-            session.sshConnectionId = project.sshConnectionId
-            state.activeProjectId = project.id
+        void get()
+          .ensureDefaultProject()
+          .then((project) => {
+            if (!project) return
+            set((state) => {
+              const session = state.sessions.find((item) => item.id === id)
+              if (!session || session.projectId) return
+              session.projectId = project.id
+              session.workingFolder = project.workingFolder
+              session.sshConnectionId = project.sshConnectionId
+              state.activeProjectId = project.id
+            })
+            dbUpdateSession(id, {
+              projectId: project.id,
+              workingFolder: project.workingFolder ?? null,
+              sshConnectionId: project.sshConnectionId ?? null
+            })
           })
-          dbUpdateSession(id, {
-            projectId: project.id,
-            workingFolder: project.workingFolder ?? null,
-            sshConnectionId: project.sshConnectionId ?? null,
-          })
-        })
       }
       useTaskStore.getState().clearTasks()
       usePlanStore.getState().setActivePlan(null)
@@ -972,7 +991,7 @@ export const useChatStore = create<ChatStore>()(
       if (!session) return
       if (session.projectId) {
         get().updateProjectDirectory(session.projectId, {
-          sshConnectionId: connectionId,
+          sshConnectionId: connectionId
         })
         return
       }
@@ -1011,11 +1030,11 @@ export const useChatStore = create<ChatStore>()(
 
     restoreSession: (session) => {
       let targetProjectId =
-        session.projectId
-        ?? get().activeProjectId
-        ?? get().projects.find((project) => !project.pluginId)?.id
-        ?? get().projects[0]?.id
-        ?? null
+        session.projectId ??
+        get().activeProjectId ??
+        get().projects.find((project) => !project.pluginId)?.id ??
+        get().projects[0]?.id ??
+        null
 
       const project = get().projects.find((item) => item.id === targetProjectId)
       if (project) {
@@ -1028,7 +1047,7 @@ export const useChatStore = create<ChatStore>()(
         workingFolder: session.workingFolder ?? project?.workingFolder,
         sshConnectionId: session.sshConnectionId ?? project?.sshConnectionId,
         messageCount: session.messageCount ?? session.messages.length,
-        messagesLoaded: session.messagesLoaded ?? true,
+        messagesLoaded: session.messagesLoaded ?? true
       }
       set((state) => {
         state.sessions.push(normalizedSession)
@@ -1039,22 +1058,24 @@ export const useChatStore = create<ChatStore>()(
       })
       dbCreateSession(normalizedSession)
       if (!targetProjectId) {
-        void get().ensureDefaultProject().then((defaultProject) => {
-          if (!defaultProject) return
-          set((state) => {
-            const target = state.sessions.find((item) => item.id === normalizedSession.id)
-            if (!target || target.projectId) return
-            target.projectId = defaultProject.id
-            target.workingFolder = defaultProject.workingFolder
-            target.sshConnectionId = defaultProject.sshConnectionId
-            state.activeProjectId = defaultProject.id
+        void get()
+          .ensureDefaultProject()
+          .then((defaultProject) => {
+            if (!defaultProject) return
+            set((state) => {
+              const target = state.sessions.find((item) => item.id === normalizedSession.id)
+              if (!target || target.projectId) return
+              target.projectId = defaultProject.id
+              target.workingFolder = defaultProject.workingFolder
+              target.sshConnectionId = defaultProject.sshConnectionId
+              state.activeProjectId = defaultProject.id
+            })
+            dbUpdateSession(normalizedSession.id, {
+              projectId: defaultProject.id,
+              workingFolder: defaultProject.workingFolder ?? null,
+              sshConnectionId: defaultProject.sshConnectionId ?? null
+            })
           })
-          dbUpdateSession(normalizedSession.id, {
-            projectId: defaultProject.id,
-            workingFolder: defaultProject.workingFolder ?? null,
-            sshConnectionId: defaultProject.sshConnectionId ?? null,
-          })
-        })
       }
       normalizedSession.messages.forEach((msg, i) => dbAddMessage(normalizedSession.id, msg, i))
       useTaskStore.getState().clearTasks()
@@ -1129,7 +1150,7 @@ export const useChatStore = create<ChatStore>()(
         workingFolder: source.workingFolder,
         sshConnectionId: source.sshConnectionId,
         providerId: source.providerId,
-        modelId: source.modelId,
+        modelId: source.modelId
       }
       set((state) => {
         state.sessions.push(newSession)
@@ -1147,17 +1168,25 @@ export const useChatStore = create<ChatStore>()(
 
     removeLastAssistantMessage: (sessionId) => {
       const session = get().sessions.find((s) => s.id === sessionId)
-      if (!session || session.messages.length === 0) return null
+      if (!session || session.messages.length === 0) return false
       // Find the last assistant message, skipping trailing tool_result-only user messages
       let assistantIdx = -1
       for (let i = session.messages.length - 1; i >= 0; i--) {
         const m = session.messages[i]
-        if (m.role === 'assistant') { assistantIdx = i; break }
+        if (m.role === 'assistant') {
+          assistantIdx = i
+          break
+        }
         // Skip tool_result-only user messages (they are API-level, not real user input)
-        if (m.role === 'user' && Array.isArray(m.content) && m.content.every((b) => b.type === 'tool_result')) continue
+        if (
+          m.role === 'user' &&
+          Array.isArray(m.content) &&
+          m.content.every((b) => b.type === 'tool_result')
+        )
+          continue
         break // hit a real user message or something else — stop
       }
-      if (assistantIdx < 0) return null
+      if (assistantIdx < 0) return false
       // Truncate from the assistant message onward (removes it + trailing tool_result messages)
       set((state) => {
         const s = state.sessions.find((s) => s.id === sessionId)
@@ -1168,13 +1197,7 @@ export const useChatStore = create<ChatStore>()(
       })
       const newLen = get().sessions.find((s) => s.id === sessionId)?.messages.length ?? 0
       dbTruncateMessagesFrom(sessionId, newLen)
-      // Return the last user message text for retry
-      const updated = get().sessions.find((s) => s.id === sessionId)
-      const lastUser = updated?.messages.findLast((m) => m.role === 'user')
-      if (!lastUser) return null
-      if (typeof lastUser.content === 'string') return lastUser.content
-      const textBlocks = lastUser.content.filter((b) => b.type === 'text')
-      return textBlocks.length > 0 ? textBlocks.map((b) => b.type === 'text' ? b.text : '').join('\n') : null
+      return true
     },
 
     removeLastUserMessage: (sessionId) => {
@@ -1525,25 +1548,27 @@ export const useChatStore = create<ChatStore>()(
       if (msg) dbFlushMessageImmediate(sessionId, msg, idx)
     },
 
-    setStreamingMessageId: (sessionId, id) => set((state) => {
-      if (id) {
-        state.streamingMessages[sessionId] = id
-      } else {
-        delete state.streamingMessages[sessionId]
-      }
-      // Sync convenience field when updating the active session
-      if (sessionId === state.activeSessionId) {
-        state.streamingMessageId = id
-      }
-    }),
+    setStreamingMessageId: (sessionId, id) =>
+      set((state) => {
+        if (id) {
+          state.streamingMessages[sessionId] = id
+        } else {
+          delete state.streamingMessages[sessionId]
+        }
+        // Sync convenience field when updating the active session
+        if (sessionId === state.activeSessionId) {
+          state.streamingMessageId = id
+        }
+      }),
 
-    setGeneratingImage: (msgId, generating) => set((state) => {
-      if (generating) {
-        state.generatingImageMessages[msgId] = true
-      } else {
-        delete state.generatingImageMessages[msgId]
-      }
-    }),
+    setGeneratingImage: (msgId, generating) =>
+      set((state) => {
+        if (generating) {
+          state.generatingImageMessages[msgId] = true
+        } else {
+          delete state.generatingImageMessages[msgId]
+        }
+      }),
 
     getActiveSession: () => {
       const { sessions, activeSessionId } = get()
@@ -1553,6 +1578,6 @@ export const useChatStore = create<ChatStore>()(
     getSessionMessages: (sessionId) => {
       const session = get().sessions.find((s) => s.id === sessionId)
       return session?.messages ?? []
-    },
+    }
   }))
 )

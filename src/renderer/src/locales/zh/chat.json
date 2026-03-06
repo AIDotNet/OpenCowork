@@ -106,6 +106,17 @@
       "stopped": "已停止",
       "error": "错误",
       "exited": "已退出"
+    },
+    "imagePlugin": {
+      "title": "图片插件",
+      "running": "正在执行图片生成 Tool",
+      "completed": "图片生成已完成",
+      "failed": "图片生成失败",
+      "prompt": "提示词",
+      "generating": "正在生成图片...",
+      "result": "生成结果（{{count}} 张）",
+      "notes": "补充说明",
+      "countValue": "数量 {{count}}"
     }
   },
   "subAgent": {

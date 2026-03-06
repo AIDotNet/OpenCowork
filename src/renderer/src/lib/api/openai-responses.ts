@@ -4,7 +4,7 @@ import type {
   StreamEvent,
   ToolDefinition,
   UnifiedMessage,
-  ContentBlock,
+  ContentBlock
 } from './types'
 import { ipcStreamRequest, maskHeaders } from '../ipc/api-stream'
 import { loadPrompt } from '../prompts/prompt-loader'
@@ -61,7 +61,7 @@ class OpenAIResponsesProvider implements APIProvider {
     const body: Record<string, unknown> = {
       model: config.model,
       input: this.formatMessages(messages, config.systemPrompt, !!config.thinkingEnabled),
-      stream: true,
+      stream: true
     }
 
     // Enable prompt caching for OpenAI endpoints to reduce costs
@@ -73,6 +73,7 @@ class OpenAIResponsesProvider implements APIProvider {
       body.tools = this.formatTools(tools)
     }
     if (config.temperature !== undefined) body.temperature = config.temperature
+    if (config.serviceTier) body.service_tier = config.serviceTier
     if (config.maxTokens) body.max_output_tokens = config.maxTokens
 
     // Merge thinking/reasoning params when enabled; explicit disable params when off
@@ -108,8 +109,8 @@ class OpenAIResponsesProvider implements APIProvider {
     }
 
     const overridesBody = config.requestOverrides?.body
-    const hasInstructionsOverride = !!overridesBody &&
-      Object.prototype.hasOwnProperty.call(overridesBody, 'instructions')
+    const hasInstructionsOverride =
+      !!overridesBody && Object.prototype.hasOwnProperty.call(overridesBody, 'instructions')
 
     if (!hasInstructionsOverride && config.instructionsPrompt) {
       const instructions = await loadPrompt(config.instructionsPrompt)
@@ -118,8 +119,8 @@ class OpenAIResponsesProvider implements APIProvider {
           type: 'error',
           error: {
             type: 'config_error',
-            message: `Instructions prompt "${config.instructionsPrompt}" not found`,
-          },
+            message: `Instructions prompt "${config.instructionsPrompt}" not found`
+          }
         }
         return
       }
@@ -132,7 +133,7 @@ class OpenAIResponsesProvider implements APIProvider {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
+      Authorization: `Bearer ${config.apiKey}`
     }
     if (config.userAgent) headers['User-Agent'] = config.userAgent
     applyHeaderOverrides(headers, config)
@@ -140,7 +141,16 @@ class OpenAIResponsesProvider implements APIProvider {
     const bodyStr = JSON.stringify(body)
 
     // Yield debug info for dev mode inspection
-    yield { type: 'request_debug', debugInfo: { url, method: 'POST', headers: maskHeaders(headers), body: bodyStr, timestamp: Date.now() } }
+    yield {
+      type: 'request_debug',
+      debugInfo: {
+        url,
+        method: 'POST',
+        headers: maskHeaders(headers),
+        body: bodyStr,
+        timestamp: Date.now()
+      }
+    }
 
     const argBuffers = new Map<string, string>()
     const emittedThinkingEncrypted = new Set<string>()
@@ -173,7 +183,7 @@ class OpenAIResponsesProvider implements APIProvider {
       return {
         type: 'thinking_encrypted',
         thinkingEncryptedContent: trimmed,
-        thinkingEncryptedProvider: 'openai-responses',
+        thinkingEncryptedProvider: 'openai-responses'
       }
     }
 
@@ -185,7 +195,7 @@ class OpenAIResponsesProvider implements APIProvider {
       signal,
       useSystemProxy: config.useSystemProxy,
       providerId: config.providerId,
-      providerBuiltinId: config.providerBuiltinId,
+      providerBuiltinId: config.providerBuiltinId
     })) {
       if (!sse.data || sse.data === '[DONE]') continue
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -230,7 +240,7 @@ class OpenAIResponsesProvider implements APIProvider {
             yield {
               type: 'tool_call_start',
               toolCallId: data.item.call_id,
-              toolName: data.item.name,
+              toolName: data.item.name
             }
           } else if (data.item?.type === 'reasoning') {
             const thinkingEncryptedEvent = tryBuildThinkingEncryptedEvent(
@@ -271,9 +281,19 @@ class OpenAIResponsesProvider implements APIProvider {
 
         case 'response.function_call_arguments.done':
           try {
-            yield { type: 'tool_call_end', toolCallId: data.call_id, toolName: data.name, toolCallInput: JSON.parse(data.arguments) }
+            yield {
+              type: 'tool_call_end',
+              toolCallId: data.call_id,
+              toolName: data.name,
+              toolCallInput: JSON.parse(data.arguments)
+            }
           } catch {
-            yield { type: 'tool_call_end', toolCallId: data.call_id, toolName: data.name, toolCallInput: {} }
+            yield {
+              type: 'tool_call_end',
+              toolCallId: data.call_id,
+              toolName: data.name,
+              toolCallInput: {}
+            }
           }
           break
 
@@ -310,20 +330,22 @@ class OpenAIResponsesProvider implements APIProvider {
             stopReason: data.response.status,
             usage: data.response.usage
               ? {
-                inputTokens: rawInputTokens,
-                outputTokens: data.response.usage.output_tokens ?? 0,
-                contextTokens: rawInputTokens,
-                ...(cachedTokens > 0 ? { cacheReadTokens: cachedTokens } : {}),
-                ...(data.response.usage.output_tokens_details?.reasoning_tokens
-                  ? { reasoningTokens: data.response.usage.output_tokens_details.reasoning_tokens }
-                  : {}),
-              }
+                  inputTokens: rawInputTokens,
+                  outputTokens: data.response.usage.output_tokens ?? 0,
+                  contextTokens: rawInputTokens,
+                  ...(cachedTokens > 0 ? { cacheReadTokens: cachedTokens } : {}),
+                  ...(data.response.usage.output_tokens_details?.reasoning_tokens
+                    ? {
+                        reasoningTokens: data.response.usage.output_tokens_details.reasoning_tokens
+                      }
+                    : {})
+                }
               : undefined,
             timing: {
               totalMs: requestCompletedAt - requestStartedAt,
               ttftMs: firstTokenAt ? firstTokenAt - requestStartedAt : undefined,
-              tps: computeTps(outputTokens, firstTokenAt, requestCompletedAt),
-            },
+              tps: computeTps(outputTokens, firstTokenAt, requestCompletedAt)
+            }
           }
           break
         }
@@ -364,9 +386,10 @@ class OpenAIResponsesProvider implements APIProvider {
           const parts: unknown[] = []
           for (const b of blocks) {
             if (b.type === 'image') {
-              const url = b.source.type === 'base64'
-                ? `data:${b.source.mediaType || 'image/png'};base64,${b.source.data}`
-                : b.source.url || ''
+              const url =
+                b.source.type === 'base64'
+                  ? `data:${b.source.mediaType || 'image/png'};base64,${b.source.data}`
+                  : b.source.url || ''
               parts.push({ type: 'input_image', image_url: url })
             } else if (b.type === 'text') {
               parts.push({ type: 'input_text', text: b.text })
@@ -387,14 +410,13 @@ class OpenAIResponsesProvider implements APIProvider {
               includeEncryptedReasoning &&
               m.role === 'assistant' &&
               block.encryptedContent &&
-              (block.encryptedContentProvider === 'openai-responses' || !block.encryptedContentProvider)
+              (block.encryptedContentProvider === 'openai-responses' ||
+                !block.encryptedContentProvider)
             ) {
               input.push({
                 type: 'reasoning',
-                summary: block.thinking
-                  ? [{ type: 'summary_text', text: block.thinking }]
-                  : [],
-                encrypted_content: block.encryptedContent,
+                summary: block.thinking ? [{ type: 'summary_text', text: block.thinking }] : [],
+                encrypted_content: block.encryptedContent
               })
             }
             break
@@ -404,26 +426,26 @@ class OpenAIResponsesProvider implements APIProvider {
               call_id: block.id,
               name: block.name,
               arguments: JSON.stringify(block.input),
-              status: 'completed',
+              status: 'completed'
             })
             break
           case 'tool_result': {
             // OpenAI Responses API function_call_output only supports string output
             let output: string
             if (Array.isArray(block.content)) {
-              const textParts = block.content.filter((cb) => cb.type === 'text').map((cb) => cb.type === 'text' ? cb.text : '')
+              const textParts = block.content
+                .filter((cb) => cb.type === 'text')
+                .map((cb) => (cb.type === 'text' ? cb.text : ''))
               const imageParts = block.content.filter((cb) => cb.type === 'image')
-              output = [
-                ...textParts,
-                ...imageParts.map(() => '[Image attached]'),
-              ].join('\n') || '[Image]'
+              output =
+                [...textParts, ...imageParts.map(() => '[Image attached]')].join('\n') || '[Image]'
             } else {
               output = block.content
             }
             input.push({
               type: 'function_call_output',
               call_id: block.toolUseId,
-              output,
+              output
             })
             break
           }
@@ -442,7 +464,7 @@ class OpenAIResponsesProvider implements APIProvider {
       description: t.description,
       parameters: this.normalizeToolSchema(t.inputSchema),
       // Keep non-strict behavior for existing tool schemas (Chat Completions parity).
-      strict: false,
+      strict: false
     }))
   }
 
@@ -473,7 +495,7 @@ class OpenAIResponsesProvider implements APIProvider {
     const normalized: Record<string, unknown> = {
       type: 'object',
       properties: mergedProperties,
-      additionalProperties: false,
+      additionalProperties: false
     }
 
     if (requiredIntersection && requiredIntersection.length > 0) {
@@ -484,7 +506,11 @@ class OpenAIResponsesProvider implements APIProvider {
   }
 }
 
-function computeTps(outputTokens: number, firstTokenAt: number | null, completedAt: number): number | undefined {
+function computeTps(
+  outputTokens: number,
+  firstTokenAt: number | null,
+  completedAt: number
+): number | undefined {
   if (!firstTokenAt || outputTokens <= 0) return undefined
   const durationMs = completedAt - firstTokenAt
   if (durationMs <= 0) return undefined

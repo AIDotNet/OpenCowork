@@ -20,7 +20,7 @@ import {
   PanelLeftClose,
   FolderOpen,
   FolderPlus,
-  ChevronRight,
+  ChevronRight
 } from 'lucide-react'
 import { DynamicIcon } from 'lucide-react/dynamic'
 import {
@@ -31,7 +31,7 @@ import {
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
-  ContextMenuTrigger,
+  ContextMenuTrigger
 } from '@renderer/components/ui/context-menu'
 import { Input } from '@renderer/components/ui/input'
 import { Button } from '@renderer/components/ui/button'
@@ -43,14 +43,14 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialogTitle
 } from '@renderer/components/ui/alert-dialog'
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
+  DialogTitle
 } from '@renderer/components/ui/dialog'
 import { toast } from 'sonner'
 import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
@@ -64,7 +64,7 @@ import { cn } from '@renderer/lib/utils'
 const modeIcons: Record<SessionMode, React.ReactNode> = {
   chat: <MessageSquare className="size-4" />,
   cowork: <Briefcase className="size-4" />,
-  code: <Code2 className="size-4" />,
+  code: <Code2 className="size-4" />
 }
 
 interface SessionListItem {
@@ -96,28 +96,44 @@ export function SessionListPanel(): React.JSX.Element {
         id: project.id,
         name: project.name,
         updatedAt: project.updatedAt,
-        pluginId: project.pluginId,
+        pluginId: project.pluginId
       })),
     [projectsRaw]
   )
-  // Subscribe to sessions array directly - Zustand will detect changes via reference equality
-  const sessionsRaw = useChatStore((s) => s.sessions)
-  const sessions = useMemo<SessionListItem[]>(
-    () =>
-      sessionsRaw.map((session) => ({
-        id: session.id,
-        title: session.title,
-        icon: session.icon,
-        mode: session.mode,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        pinned: session.pinned,
-        messageCount: session.messageCount,
-        pluginId: session.pluginId,
-        projectId: session.projectId,
-      })),
-    [sessionsRaw]
+  const sessionDigest = useChatStore((s) =>
+    s.sessions
+      .map((session) =>
+        [
+          session.id,
+          session.title,
+          session.icon ?? '',
+          session.mode,
+          session.createdAt,
+          session.updatedAt,
+          session.pinned ? 1 : 0,
+          session.messageCount,
+          session.messagesLoaded ? 1 : 0,
+          session.pluginId ?? '',
+          session.projectId ?? ''
+        ].join('|')
+      )
+      .join('¦')
   )
+  const sessions = useMemo<SessionListItem[]>(() => {
+    void sessionDigest
+    return useChatStore.getState().sessions.map((session) => ({
+      id: session.id,
+      title: session.title,
+      icon: session.icon,
+      mode: session.mode,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      pinned: session.pinned,
+      messageCount: session.messageCount,
+      pluginId: session.pluginId,
+      projectId: session.projectId
+    }))
+  }, [sessionDigest])
   const activeProjectId = useChatStore((s) => s.activeProjectId)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const deleteSession = useChatStore((s) => s.deleteSession)
@@ -157,13 +173,8 @@ export function SessionListPanel(): React.JSX.Element {
   } | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
-  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(
-    () => new Set()
-  )
-  const projectIdSet = useMemo(
-    () => new Set(projects.map((project) => project.id)),
-    [projects]
-  )
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set())
+  const projectIdSet = useMemo(() => new Set(projects.map((project) => project.id)), [projects])
   const getSessionSnapshot = useCallback(
     (sessionId: string) =>
       useChatStore.getState().sessions.find((session) => session.id === sessionId),
@@ -179,9 +190,7 @@ export function SessionListPanel(): React.JSX.Element {
     if (!deleteTarget) return null
     const id = deleteTarget.id
     const isAgentRunning = runningSessions[id] === 'running'
-    const hasActiveSubAgents = Object.values(activeSubAgents).some(
-      (sa) => sa.sessionId === id
-    )
+    const hasActiveSubAgents = Object.values(activeSubAgents).some((sa) => sa.sessionId === id)
     const hasActiveTeam = activeTeam?.sessionId === id
     const hasRunning = isAgentRunning || hasActiveSubAgents || hasActiveTeam
     return { isAgentRunning, hasActiveSubAgents, hasActiveTeam, hasRunning }
@@ -203,9 +212,9 @@ export function SessionListPanel(): React.JSX.Element {
     toast.success(t('sidebar_toast.sessionDeleted'), {
       action: {
         label: t('action.undo', { ns: 'common' }),
-        onClick: () => useChatStore.getState().restoreSession(snapshot),
+        onClick: () => useChatStore.getState().restoreSession(snapshot)
       },
-      duration: 5000,
+      duration: 5000
     })
   }, [deleteTarget, deleteSession, getSessionSnapshot, runningSessions, t])
 
@@ -270,7 +279,7 @@ export function SessionListPanel(): React.JSX.Element {
       setProjectDeleteTarget({
         id: projectId,
         name: projectName,
-        sessionCount,
+        sessionCount
       })
     },
     []
@@ -321,6 +330,7 @@ export function SessionListPanel(): React.JSX.Element {
     const snippetBySessionId = new Map<string, string>()
     if (!searchQuery) return { matchedIds, snippetBySessionId }
 
+    void sessionDigest
     const rawSessions = useChatStore.getState().sessions
     for (const session of rawSessions) {
       if (
@@ -347,9 +357,7 @@ export function SessionListPanel(): React.JSX.Element {
         const start = Math.max(0, idx - 20)
         const snippet =
           (start > 0 ? '...' : '') +
-          text
-            .slice(start, idx + searchQuery.length + 30)
-            .replace(/\n/g, ' ') +
+          text.slice(start, idx + searchQuery.length + 30).replace(/\n/g, ' ') +
           (idx + searchQuery.length + 30 < text.length ? '...' : '')
         snippetBySessionId.set(session.id, snippet)
         break
@@ -357,7 +365,7 @@ export function SessionListPanel(): React.JSX.Element {
     }
 
     return { matchedIds, snippetBySessionId }
-  }, [searchQuery, sessions])
+  }, [searchQuery, sessionDigest])
 
   const filteredSessions = searchQuery
     ? sortedSessions.filter((session) => {
@@ -382,12 +390,10 @@ export function SessionListPanel(): React.JSX.Element {
   }, [filteredSessions])
 
   const filteredProjectGroups = useMemo(() => {
-    const sortedProjects = projects
-      .slice()
-      .sort((a, b) => {
-        if (!!a.pluginId !== !!b.pluginId) return a.pluginId ? 1 : -1
-        return b.updatedAt - a.updatedAt
-      })
+    const sortedProjects = projects.slice().sort((a, b) => {
+      if (!!a.pluginId !== !!b.pluginId) return a.pluginId ? 1 : -1
+      return b.updatedAt - a.updatedAt
+    })
 
     const visibleGroups = sortedProjects
       .filter((project) => {
@@ -398,7 +404,7 @@ export function SessionListPanel(): React.JSX.Element {
       .map((project) => ({
         project,
         items: sessionsByProject.get(project.id) ?? [],
-        isMissing: false,
+        isMissing: false
       }))
 
     const knownIds = new Set(sortedProjects.map((project) => project.id))
@@ -408,10 +414,10 @@ export function SessionListPanel(): React.JSX.Element {
         project: {
           id: projectId,
           name: t('sidebar.unknownProject', { defaultValue: 'Unknown Project' }),
-          updatedAt: Date.now(),
+          updatedAt: Date.now()
         },
         items,
-        isMissing: true,
+        isMissing: true
       })
     }
 
@@ -428,9 +434,7 @@ export function SessionListPanel(): React.JSX.Element {
               {t('sidebar.conversations')}
             </span>
             {sessions.length > 0 && (
-              <span className="text-[10px] text-muted-foreground">
-                ({sessions.length})
-              </span>
+              <span className="text-[10px] text-muted-foreground">({sessions.length})</span>
             )}
           </div>
           <div className="flex items-center gap-1">
@@ -440,9 +444,7 @@ export function SessionListPanel(): React.JSX.Element {
                 size="icon"
                 className="size-6"
                 onClick={() => {
-                  const withMessages = sessions.filter(
-                    (s) => s.messageCount > 0
-                  )
+                  const withMessages = sessions.filter((s) => s.messageCount > 0)
                   Promise.all(withMessages.map((s) => handleExport(s.id)))
                     .then(() => toast.success(t('sidebar_toast.exported')))
                     .catch(() => {})
@@ -524,9 +526,7 @@ export function SessionListPanel(): React.JSX.Element {
         <div className="flex-1 overflow-y-auto px-1.5">
           {filteredProjectGroups.length === 0 ? (
             <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-              {sessions.length === 0
-                ? t('sidebar.noConversations')
-                : t('sidebar.noMatches')}
+              {sessions.length === 0 ? t('sidebar.noConversations') : t('sidebar.noMatches')}
             </div>
           ) : (
             <>
@@ -535,329 +535,316 @@ export function SessionListPanel(): React.JSX.Element {
                 const canManageProject = !group.isMissing && projectIdSet.has(group.project.id)
 
                 return (
-                <div key={group.project.id} className="mb-1.5">
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild>
-                      <button
-                        className={cn(
-                          'mb-0.5 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] font-medium transition-colors',
-                          activeProjectId === group.project.id
-                            ? 'bg-muted text-foreground'
-                            : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
-                        )}
-                        onClick={() => setActiveProject(group.project.id)}
-                        title={group.project.name}
-                      >
-                        <span
-                          className="inline-flex size-4 shrink-0 items-center justify-center"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            toggleProjectCollapsed(group.project.id)
-                          }}
-                        >
-                          <ChevronRight
-                            className={cn(
-                              'size-3.5 transition-transform duration-200 ease-in-out',
-                              !isCollapsed && 'rotate-90'
-                            )}
-                          />
-                        </span>
-                        <FolderOpen className="size-3.5 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate">{group.project.name}</span>
-                        <span className="text-[10px] text-muted-foreground/60">{group.items.length}</span>
-                      </button>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="w-48">
-                      <ContextMenuItem
-                        disabled={!canManageProject}
-                        onClick={() => handleRenameProject(group.project.id, group.project.name)}
-                      >
-                        <Pencil className="size-4" />
-                        {t('action.rename', { ns: 'common' })}
-                      </ContextMenuItem>
-                      <ContextMenuSeparator />
-                      <ContextMenuItem
-                        variant="destructive"
-                        disabled={!canManageProject}
-                        onClick={() =>
-                          handleDeleteProject(
-                            group.project.id,
-                            group.project.name,
-                            group.items.length
-                          )
-                        }
-                      >
-                        <Trash2 className="size-4" />
-                        {t('action.delete', { ns: 'common' })}
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
-                  <div
-                    className={cn(
-                      'grid transition-[grid-template-rows,opacity] duration-200 ease-in-out',
-                      isCollapsed
-                        ? 'grid-rows-[0fr] opacity-0 pointer-events-none'
-                        : 'grid-rows-[1fr] opacity-100'
-                    )}
-                  >
-                    <div className="overflow-hidden">
-                      {group.items.map((session) => (
-                  <ContextMenu key={session.id}>
-                    <ContextMenuTrigger asChild>
-                      <button
-                        className={cn(
-                          'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
-                          session.id === activeSessionId &&
-                            useUIStore.getState().chatView === 'session' &&
-                            !useUIStore.getState().settingsPageOpen
-                            ? 'bg-accent text-accent-foreground'
-                            : 'text-foreground/80 hover:bg-muted/60'
-                        )}
-                        onClick={() => {
-                          setActiveSession(session.id)
-                          useUIStore.getState().navigateToSession()
-                        }}
-                        onDoubleClick={(e) => {
-                          e.preventDefault()
-                          setEditingId(session.id)
-                          setEditTitle(session.title)
-                          setTimeout(() => editRef.current?.select(), 0)
-                        }}
-                      >
-                        <span className="shrink-0">
-                          {session.pinned ? (
-                            <Pin className="size-3.5 text-muted-foreground/50" />
-                          ) : session.icon ? (
-                            <DynamicIcon
-                              name={session.icon as never}
-                              className="size-4"
-                            />
-                          ) : (
-                            modeIcons[session.mode]
+                  <div key={group.project.id} className="mb-1.5">
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <button
+                          className={cn(
+                            'mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition-colors',
+                            activeProjectId === group.project.id
+                              ? 'bg-muted text-foreground'
+                              : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
                           )}
-                        </span>
-                        {editingId === session.id ? (
-                          <input
-                            ref={editRef}
-                            value={editTitle}
-                            onChange={(e) => setEditTitle(e.target.value)}
-                            onBlur={() => {
-                              const trimmed = editTitle.trim()
-                              if (trimmed && trimmed !== session.title) {
-                                useChatStore
-                                  .getState()
-                                  .updateSessionTitle(session.id, trimmed)
-                                toast.success(
-                                  t('action.rename', { ns: 'common' })
-                                )
-                              }
-                              setEditingId(null)
+                          onClick={() => setActiveProject(group.project.id)}
+                          title={group.project.name}
+                        >
+                          <span
+                            className="inline-flex size-4 shrink-0 items-center justify-center"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              toggleProjectCollapsed(group.project.id)
                             }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter')
-                                (e.target as HTMLInputElement).blur()
-                              if (e.key === 'Escape') {
-                                setEditingId(null)
-                              }
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="h-6 w-full min-w-0 rounded border bg-background px-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                          />
-                        ) : (
-                          <div className="flex min-w-0 flex-1 flex-col">
-                            <span className="truncate text-sm leading-5">
-                              {session.title}
-                            </span>
-                            {searchQuery &&
-                              !session.title
-                                .toLowerCase()
-                                .includes(searchQuery) &&
-                              contentSearchMeta.snippetBySessionId.get(
-                                session.id
-                              ) && (
-                                <span className="truncate text-[9px] text-muted-foreground/40">
-                                  {contentSearchMeta.snippetBySessionId.get(
-                                    session.id
+                          >
+                            <ChevronRight
+                              className={cn(
+                                'size-3.5 transition-transform duration-200 ease-in-out',
+                                !isCollapsed && 'rotate-90'
+                              )}
+                            />
+                          </span>
+                          <FolderOpen className="size-4 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">{group.project.name}</span>
+                          <span className="text-xs text-muted-foreground/60">
+                            {group.items.length}
+                          </span>
+                        </button>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-48">
+                        <ContextMenuItem
+                          disabled={!canManageProject}
+                          onClick={() => handleRenameProject(group.project.id, group.project.name)}
+                        >
+                          <Pencil className="size-4" />
+                          {t('action.rename', { ns: 'common' })}
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          variant="destructive"
+                          disabled={!canManageProject}
+                          onClick={() =>
+                            handleDeleteProject(
+                              group.project.id,
+                              group.project.name,
+                              group.items.length
+                            )
+                          }
+                        >
+                          <Trash2 className="size-4" />
+                          {t('action.delete', { ns: 'common' })}
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                    <div
+                      className={cn(
+                        'grid transition-[grid-template-rows,opacity] duration-200 ease-in-out',
+                        isCollapsed
+                          ? 'grid-rows-[0fr] opacity-0 pointer-events-none'
+                          : 'grid-rows-[1fr] opacity-100'
+                      )}
+                    >
+                      <div className="overflow-hidden">
+                        {group.items.map((session) => (
+                          <ContextMenu key={session.id}>
+                            <ContextMenuTrigger asChild>
+                              <button
+                                className={cn(
+                                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors',
+                                  session.id === activeSessionId &&
+                                    useUIStore.getState().chatView === 'session' &&
+                                    !useUIStore.getState().settingsPageOpen
+                                    ? 'bg-accent text-accent-foreground'
+                                    : 'text-foreground/80 hover:bg-muted/60'
+                                )}
+                                onClick={() => {
+                                  setActiveSession(session.id)
+                                  useUIStore.getState().navigateToSession()
+                                }}
+                                onDoubleClick={(e) => {
+                                  e.preventDefault()
+                                  setEditingId(session.id)
+                                  setEditTitle(session.title)
+                                  setTimeout(() => editRef.current?.select(), 0)
+                                }}
+                              >
+                                <span className="shrink-0">
+                                  {session.pinned ? (
+                                    <Pin className="size-3.5 text-muted-foreground/50" />
+                                  ) : session.icon ? (
+                                    <DynamicIcon name={session.icon as never} className="size-4" />
+                                  ) : (
+                                    modeIcons[session.mode]
                                   )}
                                 </span>
+                                {editingId === session.id ? (
+                                  <input
+                                    ref={editRef}
+                                    value={editTitle}
+                                    onChange={(e) => setEditTitle(e.target.value)}
+                                    onBlur={() => {
+                                      const trimmed = editTitle.trim()
+                                      if (trimmed && trimmed !== session.title) {
+                                        useChatStore
+                                          .getState()
+                                          .updateSessionTitle(session.id, trimmed)
+                                        toast.success(t('action.rename', { ns: 'common' }))
+                                      }
+                                      setEditingId(null)
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                                      if (e.key === 'Escape') {
+                                        setEditingId(null)
+                                      }
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="h-6 w-full min-w-0 rounded border bg-background px-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                                  />
+                                ) : (
+                                  <div className="flex min-w-0 flex-1 flex-col">
+                                    <span className="truncate text-sm leading-4">
+                                      {session.title}
+                                    </span>
+                                    {searchQuery &&
+                                      !session.title.toLowerCase().includes(searchQuery) &&
+                                      contentSearchMeta.snippetBySessionId.get(session.id) && (
+                                        <span className="truncate text-[9px] text-muted-foreground/40">
+                                          {contentSearchMeta.snippetBySessionId.get(session.id)}
+                                        </span>
+                                      )}
+                                  </div>
+                                )}
+                                {editingId !== session.id && (
+                                  <span className="ml-auto flex shrink-0 items-center gap-1">
+                                    {runningSessions[session.id] === 'running' && (
+                                      <Loader2 className="size-3.5 animate-spin text-blue-500" />
+                                    )}
+                                    {runningSessions[session.id] === 'completed' && (
+                                      <CheckCircle2 className="size-3.5 text-emerald-500" />
+                                    )}
+                                    {session.pinned && (
+                                      <Pin className="size-3 text-muted-foreground/30 -rotate-45" />
+                                    )}
+                                    {session.mode !== mode && (
+                                      <span className="rounded bg-muted px-1 py-px text-[8px] uppercase text-muted-foreground/40">
+                                        {session.mode}
+                                      </span>
+                                    )}
+                                    {session.messageCount > 0 && (
+                                      <span className="text-[10px] text-muted-foreground/40">
+                                        {session.messageCount}
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                              </button>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent className="w-48">
+                              <ContextMenuItem
+                                onClick={() =>
+                                  openRenameDialog('session', session.id, session.title)
+                                }
+                              >
+                                <Pencil className="size-4" />
+                                {t('action.rename', { ns: 'common' })}
+                              </ContextMenuItem>
+                              {session.messageCount > 0 && (
+                                <>
+                                  <ContextMenuItem
+                                    onClick={async () => {
+                                      await handleExport(session.id)
+                                      toast.success(t('sidebar_toast.exportedOne'))
+                                    }}
+                                  >
+                                    <Download className="size-4" />
+                                    {t('sidebar.exportAsMarkdown')}
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={async () => {
+                                      await useChatStore.getState().loadSessionMessages(session.id)
+                                      const snapshot = getSessionSnapshot(session.id)
+                                      if (!snapshot) return
+                                      const json = JSON.stringify(snapshot, null, 2)
+                                      const blob = new Blob([json], {
+                                        type: 'application/json'
+                                      })
+                                      const url = URL.createObjectURL(blob)
+                                      const a = document.createElement('a')
+                                      a.href = url
+                                      a.download = `${
+                                        session.title
+                                          .replace(/[^a-zA-Z0-9-_ ]/g, '')
+                                          .slice(0, 50)
+                                          .trim() || 'session'
+                                      }.json`
+                                      a.click()
+                                      URL.revokeObjectURL(url)
+                                      toast.success(t('sidebar_toast.exportedAsJson'))
+                                    }}
+                                  >
+                                    <Download className="size-4" />
+                                    {t('sidebar.exportAsJson')}
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      duplicateSession(session.id)
+                                      toast.success(t('sidebar_toast.sessionDuplicated'))
+                                    }}
+                                  >
+                                    <Copy className="size-4" />
+                                    {t('action.duplicate', { ns: 'common' })}
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator />
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      clearSessionMessages(session.id)
+                                      toast.success(t('sidebar_toast.messagesCleared'))
+                                    }}
+                                  >
+                                    <Eraser className="size-4" />
+                                    {t('sidebar.clearMessages')}
+                                  </ContextMenuItem>
+                                </>
                               )}
-                          </div>
-                        )}
-                        {editingId !== session.id && (
-                          <span className="ml-auto flex shrink-0 items-center gap-1">
-                            {runningSessions[session.id] === 'running' && (
-                              <Loader2 className="size-3.5 animate-spin text-blue-500" />
-                            )}
-                            {runningSessions[session.id] === 'completed' && (
-                              <CheckCircle2 className="size-3.5 text-emerald-500" />
-                            )}
-                            {session.pinned && (
-                              <Pin className="size-3 text-muted-foreground/30 -rotate-45" />
-                            )}
-                            {session.mode !== mode && (
-                              <span className="rounded bg-muted px-1 py-px text-[8px] uppercase text-muted-foreground/40">
-                                {session.mode}
-                              </span>
-                            )}
-                            {session.messageCount > 0 && (
-                              <span className="text-[10px] text-muted-foreground/40">
-                                {session.messageCount}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </button>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="w-48">
-                      <ContextMenuItem
-                        onClick={() => openRenameDialog('session', session.id, session.title)}
-                      >
-                        <Pencil className="size-4" />
-                        {t('action.rename', { ns: 'common' })}
-                      </ContextMenuItem>
-                      {session.messageCount > 0 && (
-                        <>
-                          <ContextMenuItem
-                            onClick={async () => {
-                              await handleExport(session.id)
-                              toast.success(t('sidebar_toast.exportedOne'))
-                            }}
-                          >
-                            <Download className="size-4" />
-                            {t('sidebar.exportAsMarkdown')}
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            onClick={async () => {
-                              await useChatStore
-                                .getState()
-                                .loadSessionMessages(session.id)
-                              const snapshot = getSessionSnapshot(session.id)
-                              if (!snapshot) return
-                              const json = JSON.stringify(snapshot, null, 2)
-                              const blob = new Blob([json], {
-                                type: 'application/json',
-                              })
-                              const url = URL.createObjectURL(blob)
-                              const a = document.createElement('a')
-                              a.href = url
-                              a.download = `${session.title.replace(/[^a-zA-Z0-9-_ ]/g, '').slice(0, 50).trim() || 'session'}.json`
-                              a.click()
-                              URL.revokeObjectURL(url)
-                              toast.success(t('sidebar_toast.exportedAsJson'))
-                            }}
-                          >
-                            <Download className="size-4" />
-                            {t('sidebar.exportAsJson')}
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            onClick={() => {
-                              duplicateSession(session.id)
-                              toast.success(
-                                t('sidebar_toast.sessionDuplicated')
-                              )
-                            }}
-                          >
-                            <Copy className="size-4" />
-                            {t('action.duplicate', { ns: 'common' })}
-                          </ContextMenuItem>
-                          <ContextMenuSeparator />
-                          <ContextMenuItem
-                            onClick={() => {
-                              clearSessionMessages(session.id)
-                              toast.success(
-                                t('sidebar_toast.messagesCleared')
-                              )
-                            }}
-                          >
-                            <Eraser className="size-4" />
-                            {t('sidebar.clearMessages')}
-                          </ContextMenuItem>
-                        </>
-                      )}
-                      <ContextMenuItem
-                        onClick={() => {
-                          togglePinSession(session.id)
-                          toast.success(
-                            session.pinned
-                              ? t('sidebar_toast.unpinned')
-                              : t('sidebar_toast.pinnedMsg')
-                          )
-                        }}
-                      >
-                        {session.pinned ? (
-                          <PinOff className="size-4" />
-                        ) : (
-                          <Pin className="size-4" />
-                        )}
-                        {session.pinned
-                          ? t('action.unpin', { ns: 'common' })
-                          : t('sidebar.pinToTop')}
-                      </ContextMenuItem>
-                      <ContextMenuSub>
-                        <ContextMenuSubTrigger>
-                          {modeIcons[session.mode]}
-                          {t('sidebar.switchMode')}
-                        </ContextMenuSubTrigger>
-                        <ContextMenuSubContent>
-                          {(['chat', 'cowork', 'code'] as const).map((m) => (
-                            <ContextMenuItem
-                              key={m}
-                              disabled={session.mode === m}
-                              onClick={() => {
-                                updateSessionMode(session.id, m)
-                                toast.success(
-                                  t('sidebar_toast.switchedMode', { mode: m })
-                                )
-                              }}
-                            >
-                              {modeIcons[m]}
-                              <span className="capitalize">{m}</span>
-                            </ContextMenuItem>
-                          ))}
-                        </ContextMenuSubContent>
-                      </ContextMenuSub>
-                      <ContextMenuSeparator />
-                      <ContextMenuItem
-                        variant="destructive"
-                        onClick={() => {
-                          const hasRunning =
-                            runningSessions[session.id] === 'running' ||
-                            Object.values(activeSubAgents).some(
-                              (sa) => sa.sessionId === session.id
-                            ) ||
-                            activeTeam?.sessionId === session.id
-                          if (session.messageCount > 0 || hasRunning) {
-                            setDeleteTarget({
-                              id: session.id,
-                              title: session.title,
-                              msgCount: session.messageCount,
-                            })
-                            return
-                          }
-                          const snapshot = getSessionSnapshot(session.id)
-                          if (!snapshot) return
-                          deleteSession(snapshot.id)
-                          toast.success(t('sidebar_toast.sessionDeleted'), {
-                            action: {
-                              label: t('action.undo', { ns: 'common' }),
-                              onClick: () =>
-                                useChatStore
-                                  .getState()
-                                  .restoreSession(snapshot),
-                            },
-                            duration: 5000,
-                          })
-                        }}
-                      >
-                        <Trash2 className="size-4" />
-                        {t('action.delete', { ns: 'common' })}
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
-                      ))}
+                              <ContextMenuItem
+                                onClick={() => {
+                                  togglePinSession(session.id)
+                                  toast.success(
+                                    session.pinned
+                                      ? t('sidebar_toast.unpinned')
+                                      : t('sidebar_toast.pinnedMsg')
+                                  )
+                                }}
+                              >
+                                {session.pinned ? (
+                                  <PinOff className="size-4" />
+                                ) : (
+                                  <Pin className="size-4" />
+                                )}
+                                {session.pinned
+                                  ? t('action.unpin', { ns: 'common' })
+                                  : t('sidebar.pinToTop')}
+                              </ContextMenuItem>
+                              <ContextMenuSub>
+                                <ContextMenuSubTrigger>
+                                  {modeIcons[session.mode]}
+                                  {t('sidebar.switchMode')}
+                                </ContextMenuSubTrigger>
+                                <ContextMenuSubContent>
+                                  {(['chat', 'cowork', 'code'] as const).map((m) => (
+                                    <ContextMenuItem
+                                      key={m}
+                                      disabled={session.mode === m}
+                                      onClick={() => {
+                                        updateSessionMode(session.id, m)
+                                        toast.success(t('sidebar_toast.switchedMode', { mode: m }))
+                                      }}
+                                    >
+                                      {modeIcons[m]}
+                                      <span className="capitalize">{m}</span>
+                                    </ContextMenuItem>
+                                  ))}
+                                </ContextMenuSubContent>
+                              </ContextMenuSub>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem
+                                variant="destructive"
+                                onClick={() => {
+                                  const hasRunning =
+                                    runningSessions[session.id] === 'running' ||
+                                    Object.values(activeSubAgents).some(
+                                      (sa) => sa.sessionId === session.id
+                                    ) ||
+                                    activeTeam?.sessionId === session.id
+                                  if (session.messageCount > 0 || hasRunning) {
+                                    setDeleteTarget({
+                                      id: session.id,
+                                      title: session.title,
+                                      msgCount: session.messageCount
+                                    })
+                                    return
+                                  }
+                                  const snapshot = getSessionSnapshot(session.id)
+                                  if (!snapshot) return
+                                  deleteSession(snapshot.id)
+                                  toast.success(t('sidebar_toast.sessionDeleted'), {
+                                    action: {
+                                      label: t('action.undo', { ns: 'common' }),
+                                      onClick: () =>
+                                        useChatStore.getState().restoreSession(snapshot)
+                                    },
+                                    duration: 5000
+                                  })
+                                }}
+                              >
+                                <Trash2 className="size-4" />
+                                {t('action.delete', { ns: 'common' })}
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        ))}
+                      </div>
                     </div>
                   </div>
-              </div>
                 )
               })}
             </>
@@ -868,19 +855,14 @@ export function SessionListPanel(): React.JSX.Element {
         <div className="border-t px-3 py-2">
           <p className="text-center text-[10px] text-muted-foreground/25">
             {sessions.length} {t('sidebar.sessions')} ·{' '}
-            {sessions.reduce((sum, session) => sum + session.messageCount, 0)}{' '}
-            {t('sidebar.msgs')}
+            {sessions.reduce((sum, session) => sum + session.messageCount, 0)} {t('sidebar.msgs')}
             {(() => {
               const rawSessions = useChatStore.getState().sessions
               let total = rawSessions.reduce(
                 (a, s) =>
                   a +
                   s.messages.reduce(
-                    (b, m) =>
-                      b +
-                      (m.usage
-                        ? m.usage.inputTokens + m.usage.outputTokens
-                        : 0),
+                    (b, m) => b + (m.usage ? m.usage.inputTokens + m.usage.outputTokens : 0),
                     0
                   ),
                 0
@@ -888,7 +870,7 @@ export function SessionListPanel(): React.JSX.Element {
               const teamState = useTeamStore.getState()
               const allMembers = [
                 ...(teamState.activeTeam?.members ?? []),
-                ...teamState.teamHistory.flatMap((t) => t.members),
+                ...teamState.teamHistory.flatMap((t) => t.members)
               ]
               for (const m of allMembers) {
                 if (m.usage) total += m.usage.inputTokens + m.usage.outputTokens
@@ -908,25 +890,21 @@ export function SessionListPanel(): React.JSX.Element {
       >
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('sidebar.deleteConversation')}
-            </AlertDialogTitle>
+            <AlertDialogTitle>{t('sidebar.deleteConversation')}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>
                   {t('sidebar.deleteConfirm', {
-                    title: deleteTarget?.title,
+                    title: deleteTarget?.title
                   })}
                 </p>
                 {deleteTargetRunningInfo?.hasRunning && (
                   <p className="text-destructive font-medium">
                     ⚠ This session has active tasks that will be stopped:
                     {[
-                      deleteTargetRunningInfo.isAgentRunning &&
-                        'running agent',
-                      deleteTargetRunningInfo.hasActiveSubAgents &&
-                        'running sub-agents',
-                      deleteTargetRunningInfo.hasActiveTeam && 'active team',
+                      deleteTargetRunningInfo.isAgentRunning && 'running agent',
+                      deleteTargetRunningInfo.hasActiveSubAgents && 'running sub-agents',
+                      deleteTargetRunningInfo.hasActiveTeam && 'active team'
                     ]
                       .filter(Boolean)
                       .join(', ')}
@@ -937,9 +915,7 @@ export function SessionListPanel(): React.JSX.Element {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>
-              {t('action.cancel', { ns: 'common' })}
-            </AlertDialogCancel>
+            <AlertDialogCancel>{t('action.cancel', { ns: 'common' })}</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={confirmDelete}>
               {deleteTargetRunningInfo?.hasRunning
                 ? t('sidebar.stopAndDelete')
@@ -964,17 +940,15 @@ export function SessionListPanel(): React.JSX.Element {
               {t('sidebar.deleteProjectConfirm', {
                 defaultValue:
                   (projectDeleteTarget?.sessionCount ?? 0) > 0
-                    ? `Delete project "${projectDeleteTarget?.name ?? ''}" and ${(projectDeleteTarget?.sessionCount ?? 0)} sessions?`
+                    ? `Delete project "${projectDeleteTarget?.name ?? ''}" and ${projectDeleteTarget?.sessionCount ?? 0} sessions?`
                     : `Delete project "${projectDeleteTarget?.name ?? ''}"?`,
                 projectName: projectDeleteTarget?.name ?? '',
-                count: projectDeleteTarget?.sessionCount ?? 0,
+                count: projectDeleteTarget?.sessionCount ?? 0
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>
-              {t('action.cancel', { ns: 'common' })}
-            </AlertDialogCancel>
+            <AlertDialogCancel>{t('action.cancel', { ns: 'common' })}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
@@ -1016,18 +990,10 @@ export function SessionListPanel(): React.JSX.Element {
             }}
           />
           <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setRenameDialog(null)}
-            >
+            <Button variant="outline" size="sm" onClick={() => setRenameDialog(null)}>
               {t('action.cancel', { ns: 'common' })}
             </Button>
-            <Button
-              size="sm"
-              onClick={confirmRename}
-              disabled={!renameValue.trim()}
-            >
+            <Button size="sm" onClick={confirmRename} disabled={!renameValue.trim()}>
               {t('action.rename', { ns: 'common' })}
             </Button>
           </DialogFooter>

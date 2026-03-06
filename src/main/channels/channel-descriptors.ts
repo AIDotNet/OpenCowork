@@ -6,7 +6,7 @@ const wsRelayField = {
   label: 'channel.wsUrl',
   type: 'text' as const,
   required: false,
-  placeholder: 'wss://your-relay-server/ws',
+  placeholder: 'wss://your-relay-server/ws'
 }
 
 const COMMON_PLUGIN_TOOLS = [
@@ -15,7 +15,7 @@ const COMMON_PLUGIN_TOOLS = [
   'PluginGetGroupMessages',
   'PluginListGroups',
   'PluginSummarizeGroup',
-  'PluginGetCurrentChatMessages',
+  'PluginGetCurrentChatMessages'
 ]
 
 const FEISHU_PLUGIN_TOOLS = [
@@ -31,7 +31,7 @@ const FEISHU_PLUGIN_TOOLS = [
   'FeishuBitableGetRecords',
   'FeishuBitableCreateRecords',
   'FeishuBitableUpdateRecords',
-  'FeishuBitableDeleteRecords',
+  'FeishuBitableDeleteRecords'
 ]
 
 /** Built-in channel provider descriptors */
@@ -50,15 +50,15 @@ export const CHANNEL_PROVIDERS: ChannelProviderDescriptor[] = [
         label: 'channel.feishu.appId',
         type: 'text',
         required: true,
-        placeholder: 'cli_xxxxx',
+        placeholder: 'cli_xxxxx'
       },
       {
         key: 'appSecret',
         label: 'channel.feishu.appSecret',
         type: 'secret',
-        required: true,
-      },
-    ],
+        required: true
+      }
+    ]
   },
   {
     type: 'dingtalk-bot',
@@ -72,22 +72,22 @@ export const CHANNEL_PROVIDERS: ChannelProviderDescriptor[] = [
         key: 'appKey',
         label: 'channel.dingtalk.appKey',
         type: 'text',
-        required: true,
+        required: true
       },
       {
         key: 'appSecret',
         label: 'channel.dingtalk.appSecret',
         type: 'secret',
-        required: true,
+        required: true
       },
       {
         key: 'cardTemplateId',
         label: 'channel.dingtalk.cardTemplateId',
         type: 'text',
         required: false,
-        placeholder: 'AI streaming card template ID (optional)',
-      },
-    ],
+        placeholder: 'AI streaming card template ID (optional)'
+      }
+    ]
   },
   {
     type: 'wecom-bot',
@@ -101,22 +101,56 @@ export const CHANNEL_PROVIDERS: ChannelProviderDescriptor[] = [
         key: 'corpId',
         label: 'channel.wecom.corpId',
         type: 'text',
-        required: true,
+        required: true
       },
       {
         key: 'secret',
         label: 'channel.wecom.secret',
         type: 'secret',
-        required: true,
+        required: true
       },
       {
         key: 'agentId',
         label: 'channel.wecom.agentId',
         type: 'text',
-        required: true,
+        required: true
       },
-      wsRelayField,
-    ],
+      wsRelayField
+    ]
+  },
+  {
+    type: 'qq-bot',
+    displayName: 'QQ Bot',
+    description: 'Tencent QQ Bot (official Gateway WS)',
+    icon: 'qq',
+    builtin: true,
+    tools: COMMON_PLUGIN_TOOLS,
+    configSchema: [
+      {
+        key: 'appId',
+        label: 'channel.qq.appId',
+        type: 'text',
+        required: true
+      },
+      {
+        key: 'clientSecret',
+        label: 'channel.qq.clientSecret',
+        type: 'secret',
+        required: true
+      },
+      {
+        key: 'useSandbox',
+        label: 'channel.qq.useSandbox',
+        type: 'text',
+        placeholder: 'true / false'
+      },
+      {
+        key: 'markdownSupport',
+        label: 'channel.qq.markdownSupport',
+        type: 'text',
+        placeholder: 'true / false'
+      }
+    ]
   },
   // ── International ──
   {
@@ -131,10 +165,10 @@ export const CHANNEL_PROVIDERS: ChannelProviderDescriptor[] = [
         key: 'botToken',
         label: 'channel.telegram.botToken',
         type: 'secret',
-        required: true,
+        required: true
       },
-      wsRelayField,
-    ],
+      wsRelayField
+    ]
   },
   {
     type: 'discord-bot',
@@ -148,9 +182,9 @@ export const CHANNEL_PROVIDERS: ChannelProviderDescriptor[] = [
         key: 'botToken',
         label: 'channel.discord.botToken',
         type: 'secret',
-        required: true,
-      },
-    ],
+        required: true
+      }
+    ]
   },
   {
     type: 'whatsapp-bot',
@@ -164,15 +198,15 @@ export const CHANNEL_PROVIDERS: ChannelProviderDescriptor[] = [
         key: 'phoneNumberId',
         label: 'channel.whatsapp.phoneNumberId',
         type: 'text',
-        required: true,
+        required: true
       },
       {
         key: 'accessToken',
         label: 'channel.whatsapp.accessToken',
         type: 'secret',
-        required: true,
+        required: true
       },
-      wsRelayField,
-    ],
-  },
+      wsRelayField
+    ]
+  }
 ]

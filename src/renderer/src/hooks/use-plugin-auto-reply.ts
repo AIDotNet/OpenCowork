@@ -16,7 +16,7 @@ import { runAgentLoop } from '@renderer/lib/agent/agent-loop'
 import { toolRegistry } from '@renderer/lib/agent/tool-registry'
 import { buildSystemPrompt } from '@renderer/lib/agent/system-prompt'
 import { useSettingsStore } from '@renderer/stores/settings-store'
-import { useProviderStore } from '@renderer/stores/provider-store'
+import { useProviderStore, modelSupportsVision } from '@renderer/stores/provider-store'
 import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { useChatStore } from '@renderer/stores/chat-store'
@@ -811,7 +811,7 @@ function resolveModelSupportsVision(providerId: string | null, modelId: string):
   const provider = store.providers.find((p) => p.id === providerId)
   if (!provider) return false
   const model = provider.models.find((m) => m.id === modelId)
-  return model?.supportsVision ?? false
+  return modelSupportsVision(model, provider.type)
 }
 
 function resolveOpenAiProviderConfig(

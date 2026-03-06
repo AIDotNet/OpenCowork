@@ -5,12 +5,14 @@ import type {
   AIProvider,
   AIModelConfig,
   ProviderConfig,
+  ProviderType,
   ModelCategory,
-  RequestOverrides,
+  RequestOverrides
 } from '../lib/api/types'
 import { builtinProviderPresets } from './providers'
 import type { BuiltinProviderPreset } from './providers'
 import { configStorage } from '../lib/ipc/config-storage'
+import { useSettingsStore } from './settings-store'
 
 export { builtinProviderPresets }
 export type { BuiltinProviderPreset }
@@ -37,8 +39,19 @@ function createProviderFromPreset(preset: BuiltinProviderPreset): AIProvider {
     ...(preset.channelConfig ? { channelConfig: { ...preset.channelConfig } } : {}),
     ...(preset.requestOverrides ? { requestOverrides: { ...preset.requestOverrides } } : {}),
     ...(preset.instructionsPrompt ? { instructionsPrompt: preset.instructionsPrompt } : {}),
-    ...(preset.ui ? { ui: { ...preset.ui } } : {}),
+    ...(preset.ui ? { ui: { ...preset.ui } } : {})
   }
+}
+
+export function modelSupportsVision(
+  model: AIModelConfig | null | undefined,
+  providerType?: ProviderType
+): boolean {
+  if (!model) return providerType === 'openai-images'
+  const requestType = model.type ?? providerType
+  return Boolean(
+    model.supportsVision || model.category === 'image' || requestType === 'openai-images'
+  )
 }
 
 export function normalizeProviderBaseUrl(
@@ -124,6 +137,20 @@ function buildRequestOverrides(
   return ensureTemperatureOmit(merged, modelId)
 }
 
+function supportsPriorityServiceTier(providerBuiltinId?: string, modelId?: string): boolean {
+  if (!providerBuiltinId || !modelId) return false
+  if (providerBuiltinId === 'openai') return true
+  return providerBuiltinId === 'routin-ai' && modelId === 'gpt-5.4'
+}
+
+function resolveServiceTier(
+  providerBuiltinId?: string,
+  modelId?: string
+): ProviderConfig['serviceTier'] | undefined {
+  if (!useSettingsStore.getState().fastModeEnabled) return undefined
+  return supportsPriorityServiceTier(providerBuiltinId, modelId) ? 'priority' : undefined
+}
+
 function mergeBuiltinModels(
   existingModels: AIModelConfig[],
   presetModels: AIModelConfig[]
@@ -138,7 +165,7 @@ function mergeBuiltinModels(
     return {
       ...existingModel,
       ...presetModel,
-      enabled: existingModel.enabled,
+      enabled: existingModel.enabled
     }
   })
 
@@ -173,6 +200,36 @@ function resolveProviderDefaultModelIdByCategory(
   return enabledModels[0]?.id ?? categoryModels[0]?.id ?? ''
 }
 
+function resolveFirstProviderIdByCategory(
+  providers: AIProvider[],
+  category: ModelCategory
+): string | null {
+  const enabledProvider = providers.find(
+    (provider) =>
+      provider.enabled &&
+      provider.models.some((model) => model.enabled && (model.category ?? 'chat') === category)
+  )
+  if (enabledProvider) return enabledProvider.id
+
+  return (
+    providers.find((provider) =>
+      provider.models.some((model) => (model.category ?? 'chat') === category)
+    )?.id ?? null
+  )
+}
+
+function resolveValidModelIdByCategory(
+  provider: AIProvider,
+  modelId: string,
+  category: ModelCategory
+): string {
+  const current = provider.models.find((model) => model.id === modelId)
+  if (current && current.enabled && (current.category ?? 'chat') === category) {
+    return current.id
+  }
+  return resolveProviderDefaultModelIdByCategory(provider, category)
+}
+
 // --- Store ---
 
 interface ProviderStore {
@@ -185,6 +242,8 @@ interface ProviderStore {
   activeTranslationModelId: string
   activeSpeechProviderId: string | null
   activeSpeechModelId: string
+  activeImageProviderId: string | null
+  activeImageModelId: string
 
   // CRUD
   addProvider: (provider: AIProvider) => void
@@ -209,6 +268,8 @@ interface ProviderStore {
   setActiveTranslationModel: (modelId: string) => void
   setActiveSpeechProvider: (providerId: string) => void
   setActiveSpeechModel: (modelId: string) => void
+  setActiveImageProvider: (providerId: string) => void
+  setActiveImageModel: (modelId: string) => void
 
   // Derived
   getActiveProvider: () => AIProvider | null
@@ -221,6 +282,8 @@ interface ProviderStore {
   getTranslationProviderConfig: () => ProviderConfig | null
   /** Build provider config for speech recognition; returns null if not configured */
   getSpeechProviderConfig: () => ProviderConfig | null
+  /** Build provider config for image generation; returns null if not configured */
+  getImageProviderConfig: () => ProviderConfig | null
   /** Clamp user maxTokens to model's maxOutputTokens if exceeded */
   getEffectiveMaxTokens: (userMaxTokens: number, modelId?: string) => number
   /** Whether the active model supports thinking and its config */
@@ -244,10 +307,11 @@ export const useProviderStore = create<ProviderStore>()(
       activeTranslationModelId: '',
       activeSpeechProviderId: null,
       activeSpeechModelId: '',
+      activeImageProviderId: null,
+      activeImageModelId: '',
       _migrated: false,
 
-      addProvider: (provider) =>
-        set((s) => ({ providers: [...s.providers, provider] })),
+      addProvider: (provider) => set((s) => ({ providers: [...s.providers, provider] })),
 
       addProviderFromPreset: (builtinId) => {
         const preset = builtinProviderPresets.find((p) => p.builtinId === builtinId)
@@ -261,7 +325,7 @@ export const useProviderStore = create<ProviderStore>()(
 
       updateProvider: (id, patch) =>
         set((s) => ({
-          providers: s.providers.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+          providers: s.providers.map((p) => (p.id === id ? { ...p, ...patch } : p))
         })),
 
       removeProvider: (id) =>
@@ -272,26 +336,24 @@ export const useProviderStore = create<ProviderStore>()(
             s.activeTranslationProviderId === id ? null : s.activeTranslationProviderId,
           activeTranslationModelId:
             s.activeTranslationProviderId === id ? '' : s.activeTranslationModelId,
-          activeSpeechProviderId:
-            s.activeSpeechProviderId === id ? null : s.activeSpeechProviderId,
-          activeSpeechModelId:
-            s.activeSpeechProviderId === id ? '' : s.activeSpeechModelId,
+          activeSpeechProviderId: s.activeSpeechProviderId === id ? null : s.activeSpeechProviderId,
+          activeSpeechModelId: s.activeSpeechProviderId === id ? '' : s.activeSpeechModelId,
+          activeImageProviderId: s.activeImageProviderId === id ? null : s.activeImageProviderId,
+          activeImageModelId: s.activeImageProviderId === id ? '' : s.activeImageModelId,
           activeFastProviderId: s.activeFastProviderId === id ? null : s.activeFastProviderId,
-          activeFastModelId: s.activeFastProviderId === id ? '' : s.activeFastModelId,
+          activeFastModelId: s.activeFastProviderId === id ? '' : s.activeFastModelId
         })),
 
       toggleProviderEnabled: (id) =>
         set((s) => ({
-          providers: s.providers.map((p) =>
-            p.id === id ? { ...p, enabled: !p.enabled } : p
-          ),
+          providers: s.providers.map((p) => (p.id === id ? { ...p, enabled: !p.enabled } : p))
         })),
 
       addModel: (providerId, model) =>
         set((s) => ({
           providers: s.providers.map((p) =>
             p.id === providerId ? { ...p, models: [...p.models, model] } : p
-          ),
+          )
         })),
 
       updateModel: (providerId, modelId, patch) =>
@@ -299,20 +361,18 @@ export const useProviderStore = create<ProviderStore>()(
           providers: s.providers.map((p) =>
             p.id === providerId
               ? {
-                ...p,
-                models: p.models.map((m) => (m.id === modelId ? { ...m, ...patch } : m)),
-              }
+                  ...p,
+                  models: p.models.map((m) => (m.id === modelId ? { ...m, ...patch } : m))
+                }
               : p
-          ),
+          )
         })),
 
       removeModel: (providerId, modelId) =>
         set((s) => ({
           providers: s.providers.map((p) =>
-            p.id === providerId
-              ? { ...p, models: p.models.filter((m) => m.id !== modelId) }
-              : p
-          ),
+            p.id === providerId ? { ...p, models: p.models.filter((m) => m.id !== modelId) } : p
+          )
         })),
 
       toggleModelEnabled: (providerId, modelId) =>
@@ -320,32 +380,32 @@ export const useProviderStore = create<ProviderStore>()(
           providers: s.providers.map((p) =>
             p.id === providerId
               ? {
-                ...p,
-                models: p.models.map((m) =>
-                  m.id === modelId ? { ...m, enabled: !m.enabled } : m
-                ),
-              }
+                  ...p,
+                  models: p.models.map((m) =>
+                    m.id === modelId ? { ...m, enabled: !m.enabled } : m
+                  )
+                }
               : p
-          ),
+          )
         })),
 
       setProviderModels: (providerId, models) =>
         set((s) => ({
-          providers: s.providers.map((p) =>
-            p.id === providerId ? { ...p, models } : p
-          ),
+          providers: s.providers.map((p) => (p.id === providerId ? { ...p, models } : p))
         })),
 
       setActiveProvider: (providerId) => {
         const provider = get().providers.find((p) => p.id === providerId)
         if (!provider) return
 
-        const defaultModelId = resolveProviderDefaultModelId(provider)
+        const defaultModelId =
+          resolveProviderDefaultModelIdByCategory(provider, 'chat') ||
+          resolveProviderDefaultModelId(provider)
 
         set((state) => {
           const nextState: Partial<ProviderStore> = {
             activeProviderId: providerId,
-            activeModelId: defaultModelId,
+            activeModelId: defaultModelId
           }
 
           if (!state.activeFastProviderId) {
@@ -362,7 +422,9 @@ export const useProviderStore = create<ProviderStore>()(
       setActiveFastProvider: (providerId) => {
         const provider = get().providers.find((p) => p.id === providerId)
         if (!provider) return
-        const defaultModelId = resolveProviderDefaultModelId(provider)
+        const defaultModelId =
+          resolveProviderDefaultModelIdByCategory(provider, 'chat') ||
+          resolveProviderDefaultModelId(provider)
         set({ activeFastProviderId: providerId, activeFastModelId: defaultModelId })
       },
 
@@ -379,10 +441,12 @@ export const useProviderStore = create<ProviderStore>()(
       setActiveTranslationProvider: (providerId) => {
         const provider = get().providers.find((p) => p.id === providerId)
         if (!provider) return
-        const defaultModelId = resolveProviderDefaultModelId(provider)
+        const defaultModelId =
+          resolveProviderDefaultModelIdByCategory(provider, 'chat') ||
+          resolveProviderDefaultModelId(provider)
         set({
           activeTranslationProviderId: providerId,
-          activeTranslationModelId: defaultModelId,
+          activeTranslationModelId: defaultModelId
         })
       },
 
@@ -394,11 +458,23 @@ export const useProviderStore = create<ProviderStore>()(
         const defaultModelId = resolveProviderDefaultModelIdByCategory(provider, 'speech')
         set({
           activeSpeechProviderId: providerId,
-          activeSpeechModelId: defaultModelId,
+          activeSpeechModelId: defaultModelId
         })
       },
 
       setActiveSpeechModel: (modelId) => set({ activeSpeechModelId: modelId }),
+
+      setActiveImageProvider: (providerId) => {
+        const provider = get().providers.find((p) => p.id === providerId)
+        if (!provider) return
+        const defaultModelId = resolveProviderDefaultModelIdByCategory(provider, 'image')
+        set({
+          activeImageProviderId: providerId,
+          activeImageModelId: defaultModelId
+        })
+      },
+
+      setActiveImageModel: (modelId) => set({ activeImageModelId: modelId }),
 
       getActiveProvider: () => {
         const { providers, activeProviderId } = get()
@@ -441,6 +517,7 @@ export const useProviderStore = create<ProviderStore>()(
           activeModel?.requestOverrides,
           activeModel?.id ?? activeModelId
         )
+        const serviceTier = resolveServiceTier(provider.builtinId, activeModel?.id ?? activeModelId)
         return {
           type: requestType,
           apiKey: provider.apiKey,
@@ -448,14 +525,19 @@ export const useProviderStore = create<ProviderStore>()(
           model: activeModelId,
           providerId: provider.id,
           providerBuiltinId: provider.builtinId,
+          ...(serviceTier ? { serviceTier } : {}),
           requiresApiKey: provider.requiresApiKey,
-          ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
+          ...(provider.useSystemProxy !== undefined
+            ? { useSystemProxy: provider.useSystemProxy }
+            : {}),
           responseSummary: activeModel?.responseSummary,
           enablePromptCache: activeModel?.enablePromptCache,
           enableSystemPromptCache: activeModel?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
           ...(requestOverrides ? { requestOverrides } : {}),
-          ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
+          ...(provider.instructionsPrompt
+            ? { instructionsPrompt: provider.instructionsPrompt }
+            : {})
         }
       },
 
@@ -465,7 +547,7 @@ export const useProviderStore = create<ProviderStore>()(
           activeTranslationProviderId,
           activeTranslationModelId,
           getActiveProviderConfig,
-          getProviderConfigById,
+          getProviderConfigById
         } = get()
 
         if (!activeTranslationProviderId) {
@@ -477,19 +559,30 @@ export const useProviderStore = create<ProviderStore>()(
           return getActiveProviderConfig()
         }
 
-        const resolvedModelId = activeTranslationModelId || resolveProviderDefaultModelId(provider)
+        const resolvedModelId =
+          activeTranslationModelId ||
+          resolveProviderDefaultModelIdByCategory(provider, 'chat') ||
+          resolveProviderDefaultModelId(provider)
         if (!resolvedModelId) {
           return getActiveProviderConfig()
         }
 
-        return getProviderConfigById(activeTranslationProviderId, resolvedModelId)
-          ?? getActiveProviderConfig()
+        return (
+          getProviderConfigById(activeTranslationProviderId, resolvedModelId) ??
+          getActiveProviderConfig()
+        )
       },
 
       getSpeechProviderConfig: () => {
         const { activeSpeechProviderId, activeSpeechModelId, getProviderConfigById } = get()
         if (!activeSpeechProviderId || !activeSpeechModelId) return null
         return getProviderConfigById(activeSpeechProviderId, activeSpeechModelId)
+      },
+
+      getImageProviderConfig: () => {
+        const { activeImageProviderId, activeImageModelId, getProviderConfigById } = get()
+        if (!activeImageProviderId || !activeImageModelId) return null
+        return getProviderConfigById(activeImageProviderId, activeImageModelId)
       },
 
       getProviderConfigById: (providerId, modelId) => {
@@ -501,12 +594,15 @@ export const useProviderStore = create<ProviderStore>()(
         let requestType = model?.type ?? provider.type
         if (model?.category === 'image') {
           requestType = 'openai-images'
-          console.log('[Provider Store] Image model detected in getProviderConfigById, routing to openai-images provider', {
-            modelId,
-            originalType: model?.type,
-            providerType: provider.type,
-            finalType: requestType
-          })
+          console.log(
+            '[Provider Store] Image model detected in getProviderConfigById, routing to openai-images provider',
+            {
+              modelId,
+              originalType: model?.type,
+              providerType: provider.type,
+              finalType: requestType
+            }
+          )
         }
 
         const normalizedBaseUrl = provider.baseUrl
@@ -517,6 +613,7 @@ export const useProviderStore = create<ProviderStore>()(
           model?.requestOverrides,
           model?.id ?? modelId
         )
+        const serviceTier = resolveServiceTier(provider.builtinId, model?.id ?? modelId)
         return {
           type: requestType,
           apiKey: provider.apiKey,
@@ -524,14 +621,19 @@ export const useProviderStore = create<ProviderStore>()(
           model: modelId,
           providerId: provider.id,
           providerBuiltinId: provider.builtinId,
+          ...(serviceTier ? { serviceTier } : {}),
           requiresApiKey: provider.requiresApiKey,
-          ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
+          ...(provider.useSystemProxy !== undefined
+            ? { useSystemProxy: provider.useSystemProxy }
+            : {}),
           responseSummary: model?.responseSummary,
           enablePromptCache: model?.enablePromptCache,
           enableSystemPromptCache: model?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
           ...(requestOverrides ? { requestOverrides } : {}),
-          ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
+          ...(provider.instructionsPrompt
+            ? { instructionsPrompt: provider.instructionsPrompt }
+            : {})
         }
       },
 
@@ -544,19 +646,23 @@ export const useProviderStore = create<ProviderStore>()(
         const model =
           (activeFastModelId && provider.models.some((m) => m.id === activeFastModelId)
             ? activeFastModelId
-            : resolveProviderDefaultModelId(provider)) || ''
+            : resolveProviderDefaultModelIdByCategory(provider, 'chat') ||
+              resolveProviderDefaultModelId(provider)) || ''
         const fastModel = provider.models.find((m) => m.id === model)
 
         // Override provider type for image category models
         let requestType = fastModel?.type ?? provider.type
         if (fastModel?.category === 'image') {
           requestType = 'openai-images'
-          console.log('[Provider Store] Image model detected in getFastProviderConfig, routing to openai-images provider', {
-            modelId: model,
-            originalType: fastModel?.type,
-            providerType: provider.type,
-            finalType: requestType
-          })
+          console.log(
+            '[Provider Store] Image model detected in getFastProviderConfig, routing to openai-images provider',
+            {
+              modelId: model,
+              originalType: fastModel?.type,
+              providerType: provider.type,
+              finalType: requestType
+            }
+          )
         }
 
         const normalizedBaseUrl = provider.baseUrl
@@ -567,6 +673,7 @@ export const useProviderStore = create<ProviderStore>()(
           fastModel?.requestOverrides,
           fastModel?.id ?? model
         )
+        const serviceTier = resolveServiceTier(provider.builtinId, fastModel?.id ?? model)
         return {
           type: requestType,
           apiKey: provider.apiKey,
@@ -574,14 +681,19 @@ export const useProviderStore = create<ProviderStore>()(
           model,
           providerId: provider.id,
           providerBuiltinId: provider.builtinId,
+          ...(serviceTier ? { serviceTier } : {}),
           requiresApiKey: provider.requiresApiKey,
-          ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
+          ...(provider.useSystemProxy !== undefined
+            ? { useSystemProxy: provider.useSystemProxy }
+            : {}),
           responseSummary: fastModel?.responseSummary,
           enablePromptCache: fastModel?.enablePromptCache,
           enableSystemPromptCache: fastModel?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
           ...(requestOverrides ? { requestOverrides } : {}),
-          ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
+          ...(provider.instructionsPrompt
+            ? { instructionsPrompt: provider.instructionsPrompt }
+            : {})
         }
       },
 
@@ -606,7 +718,7 @@ export const useProviderStore = create<ProviderStore>()(
         return model?.thinkingConfig
       },
 
-      _markMigrated: () => set({ _migrated: true }),
+      _markMigrated: () => set({ _migrated: true })
     }),
     {
       name: 'opencowork-providers',
@@ -621,8 +733,10 @@ export const useProviderStore = create<ProviderStore>()(
         activeTranslationModelId: state.activeTranslationModelId,
         activeSpeechProviderId: state.activeSpeechProviderId,
         activeSpeechModelId: state.activeSpeechModelId,
-        _migrated: state._migrated,
-      }),
+        activeImageProviderId: state.activeImageProviderId,
+        activeImageModelId: state.activeImageModelId,
+        _migrated: state._migrated
+      })
     }
   )
 )
@@ -663,7 +777,11 @@ function ensureBuiltinPresets(): void {
       }
       if (preset.builtinId === 'codex-oauth') {
         const trimmedBaseUrl = existing.baseUrl.trim().replace(/\/+$/, '')
-        if (!trimmedBaseUrl || trimmedBaseUrl === 'https://api.openai.com/v1' || trimmedBaseUrl === 'https://api.openai.com') {
+        if (
+          !trimmedBaseUrl ||
+          trimmedBaseUrl === 'https://api.openai.com/v1' ||
+          trimmedBaseUrl === 'https://api.openai.com'
+        ) {
           patch.baseUrl = preset.defaultBaseUrl
         }
       }
@@ -688,7 +806,10 @@ function ensureBuiltinPresets(): void {
             merged.clientId = preset.oauthConfig.clientId
             changed = true
           }
-          if (merged.clientIdLocked === undefined && preset.oauthConfig.clientIdLocked !== undefined) {
+          if (
+            merged.clientIdLocked === undefined &&
+            preset.oauthConfig.clientIdLocked !== undefined
+          ) {
             merged.clientIdLocked = preset.oauthConfig.clientIdLocked
             changed = true
           }
@@ -716,7 +837,10 @@ function ensureBuiltinPresets(): void {
             } else {
               for (const [key, value] of Object.entries(preset.oauthConfig.extraParams)) {
                 const existingValue = merged.extraParams[key]
-                if (!existingValue || (typeof existingValue === 'string' && !existingValue.trim())) {
+                if (
+                  !existingValue ||
+                  (typeof existingValue === 'string' && !existingValue.trim())
+                ) {
                   merged.extraParams[key] = value
                   changed = true
                 }
@@ -776,17 +900,94 @@ function ensureBuiltinPresets(): void {
   }
 
   const state = useProviderStore.getState()
+  const activeProvider = state.activeProviderId
+    ? state.providers.find((provider) => provider.id === state.activeProviderId)
+    : null
+  if (activeProvider) {
+    const nextChatModelId = resolveValidModelIdByCategory(
+      activeProvider,
+      state.activeModelId,
+      'chat'
+    )
+    if (nextChatModelId && nextChatModelId !== state.activeModelId) {
+      state.setActiveModel(nextChatModelId)
+    }
+  }
+
   if (!state.activeTranslationProviderId) {
     const fallbackProviderId = state.activeProviderId
     if (fallbackProviderId) {
       state.setActiveTranslationProvider(fallbackProviderId)
     }
-  } else if (!state.activeTranslationModelId) {
-    state.setActiveTranslationProvider(state.activeTranslationProviderId)
+  } else {
+    const translationProvider = state.providers.find(
+      (provider) => provider.id === state.activeTranslationProviderId
+    )
+    if (translationProvider) {
+      const nextTranslationModelId = resolveValidModelIdByCategory(
+        translationProvider,
+        state.activeTranslationModelId,
+        'chat'
+      )
+      if (nextTranslationModelId && nextTranslationModelId !== state.activeTranslationModelId) {
+        state.setActiveTranslationModel(nextTranslationModelId)
+      }
+    }
   }
 
-  if (state.activeSpeechProviderId && !state.activeSpeechModelId) {
-    state.setActiveSpeechProvider(state.activeSpeechProviderId)
+  const fastProviderId = state.activeFastProviderId ?? state.activeProviderId
+  if (fastProviderId) {
+    const fastProvider = state.providers.find((provider) => provider.id === fastProviderId)
+    if (fastProvider) {
+      if (!state.activeFastProviderId) {
+        state.setActiveFastProvider(fastProvider.id)
+      } else {
+        const nextFastModelId = resolveValidModelIdByCategory(
+          fastProvider,
+          state.activeFastModelId,
+          'chat'
+        )
+        if (nextFastModelId && nextFastModelId !== state.activeFastModelId) {
+          state.setActiveFastModel(nextFastModelId)
+        }
+      }
+    }
+  }
+
+  const imageProviderId =
+    state.activeImageProviderId ?? resolveFirstProviderIdByCategory(state.providers, 'image')
+  if (imageProviderId) {
+    const imageProvider = state.providers.find((provider) => provider.id === imageProviderId)
+    if (imageProvider) {
+      if (state.activeImageProviderId !== imageProviderId) {
+        state.setActiveImageProvider(imageProviderId)
+      } else {
+        const nextImageModelId = resolveValidModelIdByCategory(
+          imageProvider,
+          state.activeImageModelId,
+          'image'
+        )
+        if (nextImageModelId && nextImageModelId !== state.activeImageModelId) {
+          state.setActiveImageModel(nextImageModelId)
+        }
+      }
+    }
+  }
+
+  if (state.activeSpeechProviderId) {
+    const speechProvider = state.providers.find(
+      (provider) => provider.id === state.activeSpeechProviderId
+    )
+    if (speechProvider) {
+      const nextSpeechModelId = resolveValidModelIdByCategory(
+        speechProvider,
+        state.activeSpeechModelId,
+        'speech'
+      )
+      if (nextSpeechModelId && nextSpeechModelId !== state.activeSpeechModelId) {
+        state.setActiveSpeechModel(nextSpeechModelId)
+      }
+    }
   }
 }
 

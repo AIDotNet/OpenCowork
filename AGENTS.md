@@ -55,6 +55,12 @@ Docs workspace commands:
   - Screenshots/recordings for UI updates
   - Platform impact notes when packaging behavior changes
 
+## Release & Publishing Guidelines
+
+- When bumping the application version or publishing a new release, you MUST update the documentation site accordingly:
+  - Update the version number displayed on the documentation homepage (`docs/src/app/(home)/page.tsx`).
+  - Ensure the local download links and references match the newly built release assets.
+
 ## Security & Configuration Tips
 
 - Do not commit secrets, API keys, or local user data.

@@ -15,6 +15,7 @@ import { FadeIn, ScaleIn } from '@renderer/components/animate-ui'
 import { ImageGeneratingLoader } from './ImageGeneratingLoader'
 import { ImageGenerationErrorCard } from './ImageGenerationErrorCard'
 import { ImagePreview } from './ImagePreview'
+import { ImagePluginToolCard } from './ImagePluginToolCard'
 import { useChatStore } from '@renderer/stores/chat-store'
 import type {
   ContentBlock,
@@ -40,6 +41,7 @@ import { useMemoizedTokens } from '@renderer/hooks/use-estimated-tokens'
 import { getLastDebugInfo } from '@renderer/lib/debug-store'
 import { MONO_FONT } from '@renderer/lib/constants'
 import type { ToolCallState } from '@renderer/lib/agent/types'
+import { IMAGE_GENERATE_TOOL_NAME } from '@renderer/lib/app-plugin/types'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
 
 interface AssistantMessageProps {
@@ -281,14 +283,48 @@ function MermaidCodeBlock({ code }: { code: string }): React.JSX.Element {
   )
 }
 
+function PlainCodeBlock({
+  language,
+  code
+}: {
+  language?: string
+  code: string
+}): React.JSX.Element {
+  return (
+    <div className="group relative rounded-lg border border-border/60 overflow-hidden my-3 shadow-sm">
+      <div className="flex items-center justify-between bg-muted/40 px-3 py-1.5 border-b border-border/60">
+        <span className="text-[10px] font-mono text-muted-foreground/70 uppercase tracking-wider">
+          {language || 'text'}
+        </span>
+        <CopyButton text={code} />
+      </div>
+      <pre
+        className="overflow-x-auto bg-[hsl(var(--muted))] px-[14px] py-[14px] text-xs leading-6"
+        style={{
+          fontFamily: MONO_FONT,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-all'
+        }}
+      >
+        {code}
+      </pre>
+    </div>
+  )
+}
+
 function CodeBlock({
   language,
-  children
+  children,
+  isStreaming = false
 }: {
   language?: string
   children: string
+  isStreaming?: boolean
 }): React.JSX.Element {
   const code = String(children).replace(/\n$/, '')
+  if (isStreaming) {
+    return <PlainCodeBlock language={language} code={code} />
+  }
   if (language?.toLowerCase() === 'mermaid') {
     return <MermaidCodeBlock code={code} />
   }
@@ -326,7 +362,13 @@ function CodeBlock({
   )
 }
 
-function MarkdownContent({ text }: { text: string }): React.JSX.Element {
+function MarkdownContent({
+  text,
+  isStreaming = false
+}: {
+  text: string
+  isStreaming?: boolean
+}): React.JSX.Element {
   const components: Components = {
     a: ({ href, children }) => (
       <a
@@ -342,9 +384,21 @@ function MarkdownContent({ text }: { text: string }): React.JSX.Element {
       </a>
     ),
     p: ({ children, ...props }) => (
-      <p className="my-1 first:mt-0 last:mb-0 leading-snug" {...props}>
+      <p
+        className="my-1 first:mt-0 last:mb-0 leading-snug whitespace-pre-wrap break-words"
+        {...props}
+      >
         {children}
       </p>
+    ),
+    img: ({ src, alt, ...props }) => (
+      <img
+        {...props}
+        src={src || ''}
+        alt={alt || ''}
+        className="my-3 block max-w-full rounded-lg border border-border/50 shadow-sm"
+        loading="lazy"
+      />
     ),
     ul: ({ children, ...props }) => (
       <ul className="my-1 last:mb-0 list-disc pl-4 space-y-0.5" {...props}>
@@ -357,7 +411,7 @@ function MarkdownContent({ text }: { text: string }): React.JSX.Element {
       </ol>
     ),
     li: ({ children, ...props }) => (
-      <li className="leading-snug [&>p]:m-0" {...props}>
+      <li className="leading-snug break-words [&>p]:m-0 [&>p]:whitespace-pre-wrap" {...props}>
         {children}
       </li>
     ),
@@ -367,6 +421,16 @@ function MarkdownContent({ text }: { text: string }): React.JSX.Element {
           {children}
         </table>
       </div>
+    ),
+    th: ({ children, ...props }) => (
+      <th className="whitespace-pre-wrap break-words" {...props}>
+        {children}
+      </th>
+    ),
+    td: ({ children, ...props }) => (
+      <td className="whitespace-pre-wrap break-words" {...props}>
+        {children}
+      </td>
     ),
     pre: ({ children }) => <>{children}</>,
     code: ({ children, className, ...props }) => {
@@ -383,7 +447,11 @@ function MarkdownContent({ text }: { text: string }): React.JSX.Element {
           </code>
         )
       }
-      return <CodeBlock language={match?.[1]}>{String(children)}</CodeBlock>
+      return (
+        <CodeBlock language={match?.[1]} isStreaming={isStreaming}>
+          {String(children)}
+        </CodeBlock>
+      )
     }
   }
 
@@ -402,7 +470,7 @@ function StreamingMarkdownContent({
   isStreaming: boolean
 }): React.JSX.Element {
   const displayed = useTypewriter(text, isStreaming)
-  return <MarkdownContent text={displayed} />
+  return <MarkdownContent text={displayed} isStreaming={isStreaming} />
 }
 
 interface ThinkSegment {
@@ -514,7 +582,9 @@ export function AssistantMessage({
 
   const effectiveLiveToolCallMap = isStreaming ? (liveToolCallMap ?? null) : null
 
-  const isGeneratingImage = useChatStore((s) => msgId ? !!s.generatingImageMessages[msgId] : false)
+  const isGeneratingImage = useChatStore((s) =>
+    msgId ? !!s.generatingImageMessages[msgId] : false
+  )
 
   const renderContent = (): React.JSX.Element => {
     // Show image generation loader when generating images
@@ -609,7 +679,8 @@ export function AssistantMessage({
       'Write',
       'Edit',
       'Delete',
-      'AskUserQuestion'
+      'AskUserQuestion',
+      IMAGE_GENERATE_TOOL_NAME
     ])
 
     /** Check if a tool_use block should use the generic ToolCallCard (groupable) */
@@ -715,6 +786,20 @@ export function AssistantMessage({
               error={liveTc?.error}
               startedAt={liveTc?.startedAt}
               completedAt={liveTc?.completedAt}
+            />
+          </ScaleIn>
+        )
+      }
+      if (block.name === IMAGE_GENERATE_TOOL_NAME) {
+        const result = toolResults?.get(block.id)
+        const liveTc = effectiveLiveToolCallMap?.get(block.id)
+        return (
+          <ScaleIn key={key} className="w-full origin-left">
+            <ImagePluginToolCard
+              input={block.input}
+              output={liveTc?.output ?? result?.content}
+              status={liveTc?.status ?? (result?.isError ? 'error' : 'completed')}
+              error={liveTc?.error}
             />
           </ScaleIn>
         )
@@ -828,9 +913,10 @@ export function AssistantMessage({
               }
               case 'image': {
                 const imgBlock = block as Extract<ContentBlock, { type: 'image' }>
-                const imgSrc = imgBlock.source.type === 'base64'
-                  ? `data:${imgBlock.source.mediaType};base64,${imgBlock.source.data}`
-                  : imgBlock.source.url ?? ''
+                const imgSrc =
+                  imgBlock.source.type === 'base64'
+                    ? `data:${imgBlock.source.mediaType};base64,${imgBlock.source.data}`
+                    : (imgBlock.source.url ?? '')
                 if (!imgSrc) return null
                 return (
                   <ScaleIn key={item.index} className="w-full origin-left">

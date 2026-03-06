@@ -1,0 +1,12 @@
+node_modules
+out
+dist
+build
+release
+.next
+.source
+.git
+.cursor
+docs/node_modules
+docs/.next
+docs/.source

@@ -11,7 +11,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
+  SelectValue
 } from '@renderer/components/ui/select'
 import { toast } from 'sonner'
 import { IPC } from '@renderer/lib/ipc/channels'
@@ -28,9 +28,9 @@ export function WebSearchPanel(): React.JSX.Element {
     { value: 'exa-mcp', label: 'Exa MCP', description: 'Exa via MCP server' },
     { value: 'bocha', label: 'Bocha', description: 'Chinese search engine' },
     { value: 'zhipu', label: 'Zhipu', description: 'ZhiPu AI search' },
-    { value: 'google', label: 'Google', description: 'Local search via browser' },
-    { value: 'bing', label: 'Bing', description: 'Local search via browser' },
-    { value: 'baidu', label: 'Baidu', description: 'Local search via browser' },
+    { value: 'google', label: 'Google', description: 'Background crawl in main process' },
+    { value: 'bing', label: 'Bing', description: 'Background crawl in main process' },
+    { value: 'baidu', label: 'Baidu', description: 'Background crawl in main process' }
   ]
 
   const handleTestSearch = useCallback(async () => {
@@ -39,7 +39,10 @@ export function WebSearchPanel(): React.JSX.Element {
       return
     }
 
-    if (!settings.webSearchApiKey && ['tavily', 'searxng', 'exa', 'exa-mcp', 'bocha', 'zhipu'].includes(settings.webSearchProvider)) {
+    if (
+      !settings.webSearchApiKey &&
+      ['tavily', 'searxng', 'exa', 'exa-mcp', 'bocha', 'zhipu'].includes(settings.webSearchProvider)
+    ) {
       toast.error(t('websearch.apiKeyRequired'))
       return
     }
@@ -54,7 +57,7 @@ export function WebSearchPanel(): React.JSX.Element {
         maxResults: settings.webSearchMaxResults,
         searchMode: 'web',
         apiKey: settings.webSearchApiKey,
-        timeout: settings.webSearchTimeout,
+        timeout: settings.webSearchTimeout
       })
 
       if ('error' in result) {
@@ -70,8 +73,10 @@ export function WebSearchPanel(): React.JSX.Element {
     }
   }, [settings, t])
 
-  const isLocalSearch = ['google', 'bing', 'baidu'].includes(settings.webSearchProvider)
-  const requiresApiKey = ['tavily', 'searxng', 'exa', 'exa-mcp', 'bocha', 'zhipu'].includes(settings.webSearchProvider)
+  const isLocalSearch = false
+  const requiresApiKey = ['tavily', 'searxng', 'exa', 'exa-mcp', 'bocha', 'zhipu'].includes(
+    settings.webSearchProvider
+  )
 
   return (
     <div className="space-y-8">
@@ -116,7 +121,9 @@ export function WebSearchPanel(): React.JSX.Element {
                   <SelectItem key={option.value} value={option.value} className="text-xs">
                     <div className="flex flex-col">
                       <span className="font-medium">{option.label}</span>
-                      <span className="text-[10px] text-muted-foreground">{option.description}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {option.description}
+                      </span>
                     </div>
                   </SelectItem>
                 ))}
@@ -143,30 +150,6 @@ export function WebSearchPanel(): React.JSX.Element {
             </section>
           )}
 
-
-          {/* Local Search Engine (for local providers) */}
-          {isLocalSearch && (
-            <section className="space-y-3">
-              <div>
-                <label className="text-sm font-medium">{t('websearch.searchEngine')}</label>
-                <p className="text-xs text-muted-foreground">{t('websearch.searchEngineDesc')}</p>
-              </div>
-              <Select
-                value={settings.webSearchEngine}
-                onValueChange={(value: any) => settings.updateSettings({ webSearchEngine: value })}
-              >
-                <SelectTrigger className="w-full text-xs">
-                  <SelectValue placeholder={t('websearch.selectEngine')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="google" className="text-xs">Google</SelectItem>
-                  <SelectItem value="bing" className="text-xs">Bing</SelectItem>
-                  <SelectItem value="baidu" className="text-xs">Baidu</SelectItem>
-                </SelectContent>
-              </Select>
-            </section>
-          )}
-
           {/* Max Results */}
           <section className="space-y-3">
             <div className="flex items-center justify-between">
@@ -181,7 +164,9 @@ export function WebSearchPanel(): React.JSX.Element {
               min={1}
               max={20}
               value={settings.webSearchMaxResults}
-              onChange={(e) => settings.updateSettings({ webSearchMaxResults: parseInt(e.target.value) || 5 })}
+              onChange={(e) =>
+                settings.updateSettings({ webSearchMaxResults: parseInt(e.target.value) || 5 })
+              }
             />
           </section>
 
@@ -200,7 +185,9 @@ export function WebSearchPanel(): React.JSX.Element {
               max={120000}
               step={1000}
               value={settings.webSearchTimeout}
-              onChange={(e) => settings.updateSettings({ webSearchTimeout: parseInt(e.target.value) || 30000 })}
+              onChange={(e) =>
+                settings.updateSettings({ webSearchTimeout: parseInt(e.target.value) || 30000 })
+              }
             />
             <div className="flex items-center gap-1">
               {[10000, 30000, 60000, 120000].map((v) => (
@@ -238,15 +225,26 @@ export function WebSearchPanel(): React.JSX.Element {
           <section className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-4">
             <h3 className="text-sm font-medium">{t('websearch.configSummary')}</h3>
             <div className="text-xs space-y-1 text-muted-foreground">
-              <p><strong>{t('websearch.provider')}:</strong> {settings.webSearchProvider}</p>
+              <p>
+                <strong>{t('websearch.provider')}:</strong> {settings.webSearchProvider}
+              </p>
               {requiresApiKey && (
-                <p><strong>{t('websearch.apiKey')}:</strong> {settings.webSearchApiKey ? '••••••••' : t('websearch.notSet')}</p>
+                <p>
+                  <strong>{t('websearch.apiKey')}:</strong>{' '}
+                  {settings.webSearchApiKey ? '••••••••' : t('websearch.notSet')}
+                </p>
               )}
               {isLocalSearch && (
-                <p><strong>{t('websearch.searchEngine')}:</strong> {settings.webSearchEngine}</p>
+                <p>
+                  <strong>{t('websearch.searchEngine')}:</strong> {settings.webSearchEngine}
+                </p>
               )}
-              <p><strong>{t('websearch.maxResults')}:</strong> {settings.webSearchMaxResults}</p>
-              <p><strong>{t('websearch.timeout')}:</strong> {settings.webSearchTimeout}ms</p>
+              <p>
+                <strong>{t('websearch.maxResults')}:</strong> {settings.webSearchMaxResults}
+              </p>
+              <p>
+                <strong>{t('websearch.timeout')}:</strong> {settings.webSearchTimeout}ms
+              </p>
             </div>
           </section>
         </>

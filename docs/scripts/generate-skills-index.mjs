@@ -8,8 +8,17 @@ const outputDir = join(__dirname, '../public/skills');
 const pagesDir = join(outputDir, 'pages');
 
 // Read skills data
-const skillsData = JSON.parse(readFileSync(skillsJsonPath, 'utf-8'));
-const skills = skillsData.skills;
+let skills = [];
+try {
+  const skillsData = JSON.parse(readFileSync(skillsJsonPath, 'utf-8'));
+  skills = skillsData.skills || [];
+} catch (error) {
+  if (error.code === 'ENOENT') {
+    console.warn(`Warning: ${skillsJsonPath} not found. Using empty skills list.`);
+  } else {
+    console.error('Error reading skills.json:', error);
+  }
+}
 
 // Create pages directory
 mkdirSync(pagesDir, { recursive: true });

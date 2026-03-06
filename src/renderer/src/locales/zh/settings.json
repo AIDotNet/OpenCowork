@@ -2,7 +2,13 @@
   "page": {
     "title": "设置",
     "subtitle": "偏好与模型设置",
-    "poweredBy": "Powered by OpenCowork"
+    "poweredBy": "Powered by OpenCowork",
+    "groups": {
+      "foundation": "基础",
+      "ai": "AI 能力",
+      "extensions": "扩展与集成",
+      "about": "关于"
+    }
   },
   "general": {
     "title": "通用设置",
@@ -110,6 +116,10 @@
     "speechModelDesc": "用于语音转写的模型（OpenAI 兼容）",
     "selectSpeechModel": "选择语音模型",
     "speechModelNoProviders": "未启用 OpenAI 兼容的服务商",
+    "imageModel": "绘图模型",
+    "imageModelDesc": "图片插件默认使用的全局图片模型",
+    "selectImageModel": "选择绘图模型",
+    "noImageModels": "未找到已启用的图片模型，请先在“AI 服务商”中启用图片模型",
     "temperature": "Temperature",
     "temperatureDesc": "控制生成文本的随机性",
     "precise": "精确",
@@ -118,6 +128,40 @@
     "random": "随机",
     "maxTokens": "最大 Token 数",
     "maxTokensDesc": "单次响应的最大 Token 限制"
+  },
+  "plugin": {
+    "title": "插件",
+    "subtitle": "配置可选 Tool 插件，默认均为禁用",
+    "enable": "启用插件",
+    "enableDesc": "启用并配置完成后，Agent 才会获得对应 Tool",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "selectPlugin": "选择一个插件开始配置",
+    "modelSource": "图片模型来源",
+    "modelSourceDesc": "你可以复用全局绘图模型，或为该插件单独指定图片模型",
+    "useGlobalModel": "使用全局绘图模型",
+    "overrideModel": "为插件单独指定模型",
+    "globalModelMissing": "全局绘图模型尚未配置，请先到“模型配置”里设置绘图模型。",
+    "provider": "服务商",
+    "model": "图片模型",
+    "selectProvider": "选择服务商",
+    "selectModel": "选择图片模型",
+    "toolStatus": "Tool 状态",
+    "toolStatusDesc": "只有在插件启用且模型有效时，图片 Tool 才会暴露给 Agent。",
+    "toolArgs": "可用参数：prompt、count",
+    "status": {
+      "disabled": "插件未启用，`ImageGenerate` 不会暴露给 Agent。",
+      "not_ready": "插件已启用，但尚未配置有效的图片模型。",
+      "ready": "插件已就绪，Agent 可以调用 `ImageGenerate` 生成图片。"
+    },
+    "items": {
+      "image": {
+        "title": "图片插件",
+        "description": "为 Agent 提供专用图片生成 Tool。",
+        "promptTitle": "Tool 使用约束",
+        "promptDesc": "仅当你希望 Agent 直接生成图片时再启用。Tool 只接受 `prompt` 和 `count`，并使用当前配置的图片模型执行生成。"
+      }
+    }
   },
   "about": {
     "title": "关于",
@@ -466,6 +510,10 @@
     "whatsapp": {
       "phoneNumberId": "Phone Number ID",
       "accessToken": "Access Token"
+    },
+    "qq": {
+      "appId": "App ID",
+      "clientSecret": "Client Secret"
     }
   },
   "mcp": {

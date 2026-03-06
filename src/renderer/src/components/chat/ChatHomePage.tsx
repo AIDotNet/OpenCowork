@@ -13,7 +13,7 @@ import {
   ArrowRight,
   Sparkles,
   Keyboard,
-  CheckCircle2,
+  CheckCircle2
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Badge } from '@renderer/components/ui/badge'
@@ -28,13 +28,13 @@ import { useSshStore } from '@renderer/stores/ssh-store'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { Input } from '@renderer/components/ui/input'
-import type { ImageAttachment } from '@renderer/components/chat/InputArea'
+import type { ImageAttachment } from '@renderer/lib/image-attachments'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 
 const modes: { value: AppMode; labelKey: string; icon: React.ReactNode }[] = [
@@ -49,7 +49,7 @@ const shortcutItems = [
   { combo: 'Ctrl+B', labelKey: 'messageList.sidebarShortcut' },
   { combo: 'Ctrl+/', labelKey: 'messageList.shortcutsShortcut' },
   { combo: 'Ctrl+,', labelKey: 'messageList.settingsShortcut' },
-  { combo: 'Ctrl+D', labelKey: 'messageList.duplicateShortcut' },
+  { combo: 'Ctrl+D', labelKey: 'messageList.duplicateShortcut' }
 ] as const
 
 interface DesktopDirectoryOption {
@@ -81,9 +81,9 @@ export function ChatHomePage(): React.JSX.Element {
   const ensureDefaultProject = useChatStore((s) => s.ensureDefaultProject)
   const updateProjectDirectory = useChatStore((s) => s.updateProjectDirectory)
   const activeProject =
-    projects.find((project) => project.id === activeProjectId)
-    ?? projects.find((project) => !project.pluginId)
-    ?? projects[0]
+    projects.find((project) => project.id === activeProjectId) ??
+    projects.find((project) => !project.pluginId) ??
+    projects[0]
   const workingFolder = activeProject?.workingFolder
   const sshConnectionId = activeProject?.sshConnectionId
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
@@ -156,7 +156,7 @@ export function ChatHomePage(): React.JSX.Element {
       if (!projectId) return
       updateProjectDirectory(projectId, {
         workingFolder: folderPath,
-        sshConnectionId: null,
+        sshConnectionId: null
       })
     })()
     setFolderDialogOpen(false)
@@ -172,7 +172,7 @@ export function ChatHomePage(): React.JSX.Element {
       if (!projectId) return
       updateProjectDirectory(projectId, {
         workingFolder: result.path,
-        sshConnectionId: null,
+        sshConnectionId: null
       })
       setFolderDialogOpen(false)
     }
@@ -187,7 +187,7 @@ export function ChatHomePage(): React.JSX.Element {
       if (!projectId) return
       updateProjectDirectory(projectId, {
         workingFolder: dir,
-        sshConnectionId: connId,
+        sshConnectionId: connId
       })
     })()
     setSshDirEditingId(null)
@@ -204,7 +204,7 @@ export function ChatHomePage(): React.JSX.Element {
       const folderName = result.path.split(/[\\/]/).pop() || 'New Project'
       const projectId = await createProject({
         name: folderName,
-        workingFolder: result.path,
+        workingFolder: result.path
       })
       setActiveProject(projectId)
     }
@@ -364,7 +364,12 @@ export function ChatHomePage(): React.JSX.Element {
 
           {/* Icon + title */}
           <div className="mb-5 flex flex-col gap-4 text-center sm:flex-row sm:items-start sm:text-left">
-            <div className={cn('mx-auto flex size-16 items-center justify-center rounded-3xl sm:mx-0', heroIconClass)}>
+            <div
+              className={cn(
+                'mx-auto flex size-16 items-center justify-center rounded-3xl sm:mx-0',
+                heroIconClass
+              )}
+            >
               {modeHint.icon}
             </div>
             <div className="min-w-0 flex-1">
@@ -386,12 +391,19 @@ export function ChatHomePage(): React.JSX.Element {
                 onClick={() => handleSuggestionClick(item.prompt)}
               >
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className={cn('flex size-9 items-center justify-center rounded-2xl', item.toneClass)}>
+                  <div
+                    className={cn(
+                      'flex size-9 items-center justify-center rounded-2xl',
+                      item.toneClass
+                    )}
+                  >
                     {item.icon}
                   </div>
                   <ArrowRight className="size-4 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
                 </div>
-                <p className="line-clamp-2 text-sm font-medium leading-6 text-foreground">{item.prompt}</p>
+                <p className="line-clamp-2 text-sm font-medium leading-6 text-foreground">
+                  {item.prompt}
+                </p>
                 <p className="mt-2 text-xs text-muted-foreground">
                   {t('messageList.clickToFill', { defaultValue: '点击可填入输入框' })}
                 </p>
@@ -534,7 +546,7 @@ export function ChatHomePage(): React.JSX.Element {
                                   onChange={(e) =>
                                     setSshDirInputs((prev) => ({
                                       ...prev,
-                                      [conn.id]: e.target.value,
+                                      [conn.id]: e.target.value
                                     }))
                                   }
                                   onKeyDown={(e) => {
@@ -542,7 +554,7 @@ export function ChatHomePage(): React.JSX.Element {
                                     if (e.key === 'Escape') setSshDirEditingId(null)
                                   }}
                                   placeholder={t('input.sshDirectoryPlaceholder', {
-                                    defaultValue: '/home/user/project',
+                                    defaultValue: '/home/user/project'
                                   })}
                                   className="h-6 w-40 text-[10px] bg-background/60"
                                 />
@@ -554,9 +566,7 @@ export function ChatHomePage(): React.JSX.Element {
                                     ? 'border-primary/50 text-primary'
                                     : 'border-border/70 hover:text-foreground hover:bg-muted/50'
                                 )}
-                                onClick={() =>
-                                  setSshDirEditingId(isEditingDir ? null : conn.id)
-                                }
+                                onClick={() => setSshDirEditingId(isEditingDir ? null : conn.id)}
                               >
                                 <Pencil className="size-3" />
                               </button>
@@ -574,7 +584,7 @@ export function ChatHomePage(): React.JSX.Element {
                   ) : (
                     <span className="text-[11px] text-muted-foreground/60">
                       {t('input.noSshConnections', {
-                        defaultValue: 'No SSH connections configured',
+                        defaultValue: 'No SSH connections configured'
                       })}
                     </span>
                   )}
@@ -589,46 +599,47 @@ export function ChatHomePage(): React.JSX.Element {
           <div className="mb-4 w-full max-w-3xl flex justify-center">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-2 text-xs"
-                >
+                <Button variant="outline" size="sm" className="h-8 gap-2 text-xs">
                   <FolderOpen className="size-3.5" />
                   <span className="max-w-[200px] truncate">
-                    {activeProject?.name ?? t('input.selectProject', { defaultValue: 'Select Project' })}
+                    {activeProject?.name ??
+                      t('input.selectProject', { defaultValue: 'Select Project' })}
                   </span>
                   <ChevronDown className="size-3.5 opacity-50" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="center" className="w-[280px]">
-                {projects.filter((p) => !p.pluginId).map((project) => (
-                  <DropdownMenuItem
-                    key={project.id}
-                    onClick={() => setActiveProject(project.id)}
-                    className="flex items-center gap-2"
-                  >
-                    <FolderOpen className="size-3.5" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium truncate">{project.name}</div>
-                      {project.workingFolder && (
-                        <div className="text-[10px] text-muted-foreground truncate">
-                          {project.workingFolder}
-                        </div>
+                {projects
+                  .filter((p) => !p.pluginId)
+                  .map((project) => (
+                    <DropdownMenuItem
+                      key={project.id}
+                      onClick={() => setActiveProject(project.id)}
+                      className="flex items-center gap-2"
+                    >
+                      <FolderOpen className="size-3.5" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium truncate">{project.name}</div>
+                        {project.workingFolder && (
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {project.workingFolder}
+                          </div>
+                        )}
+                      </div>
+                      {activeProject?.id === project.id && (
+                        <div className="size-1.5 rounded-full bg-primary" />
                       )}
-                    </div>
-                    {activeProject?.id === project.id && (
-                      <div className="size-1.5 rounded-full bg-primary" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
+                    </DropdownMenuItem>
+                  ))}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => void handleCreateNewProject()}
                   className="flex items-center gap-2 text-primary"
                 >
                   <Plus className="size-3.5" />
-                  <span className="text-xs">{t('input.newProject', { defaultValue: 'New Project' })}</span>
+                  <span className="text-xs">
+                    {t('input.newProject', { defaultValue: 'New Project' })}
+                  </span>
                 </DropdownMenuItem>
                 {activeProject && (
                   <DropdownMenuItem
@@ -636,7 +647,9 @@ export function ChatHomePage(): React.JSX.Element {
                     className="flex items-center gap-2"
                   >
                     <Pencil className="size-3.5" />
-                    <span className="text-xs">{t('input.changeFolder', { defaultValue: 'Change Folder' })}</span>
+                    <span className="text-xs">
+                      {t('input.changeFolder', { defaultValue: 'Change Folder' })}
+                    </span>
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>

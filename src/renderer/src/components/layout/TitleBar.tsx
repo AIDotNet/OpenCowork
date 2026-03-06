@@ -25,8 +25,7 @@ import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { useChatStore } from '@renderer/stores/chat-store'
-import { useProviderStore } from '@renderer/stores/provider-store'
-import { generateFriendlyMessage, type FriendlyMessageParams } from '@renderer/lib/api/generate-title'
+import { pickFriendlyMessage, type FriendlyStatus } from '@renderer/lib/api/generate-title'
 import { useTheme } from 'next-themes'
 import { useTranslation } from 'react-i18next'
 import { WindowControls } from './WindowControls'
@@ -45,7 +44,6 @@ export function TitleBar(): React.JSX.Element {
   const [isEditingName, setIsEditingName] = useState(false)
   const [editName, setEditName] = useState(userName)
   const [friendlyMessage, setFriendlyMessage] = useState('')
-  const messageRequestIdRef = useRef(0)
 
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const streamingMessageId = useChatStore((s) => s.streamingMessageId)
@@ -62,9 +60,6 @@ export function TitleBar(): React.JSX.Element {
     [activeSubAgents]
   )
   const activeTeam = useTeamStore((s) => s.activeTeam)
-  const activeProviderId = useProviderStore((s) => s.activeProviderId)
-  const activeFastModelId = useProviderStore((s) => s.activeFastModelId)
-  const providers = useProviderStore((s) => s.providers)
   const runningBackgroundCommands = useMemo(
     () =>
       Object.values(backgroundProcesses)
@@ -78,73 +73,24 @@ export function TitleBar(): React.JSX.Element {
     [backgroundProcesses, activeSessionId]
   )
 
-  const fastModelInfo = useMemo(() => {
-    if (!activeProviderId) return null
-    const provider = providers.find((p) => p.id === activeProviderId)
-    if (!provider) return null
-    const modelId = activeFastModelId || provider.models[0]?.id || ''
-    const model = provider.models.find((m) => m.id === modelId)
-    return { provider, model, modelId }
-  }, [activeProviderId, activeFastModelId, providers])
-
-  const fastModelReady = useMemo(() => {
-    if (!fastModelInfo) return false
-    const { provider, model, modelId } = fastModelInfo
-    if (!modelId) return false
-    if (provider.requiresApiKey !== false && !provider.apiKey) return false
-    if (!provider.enabled) return false
-    if (model && !model.enabled) return false
-    return true
-  }, [fastModelInfo])
-
-  const { statusType, statusSummary } = useMemo<{
-    statusType: FriendlyMessageParams['status']
-    statusSummary: string
-  }>(() => {
-    if (errorCount > 0) {
-      return { statusType: 'error', statusSummary: `errors=${errorCount}` }
-    }
-    if (pendingApprovals > 0) {
-      return { statusType: 'pending', statusSummary: `pending=${pendingApprovals}` }
-    }
-    if (streamingMessageId) {
-      return { statusType: 'streaming', statusSummary: 'streaming=1' }
-    }
-    if (runningSubAgents.length > 0) {
-      return { statusType: 'agents', statusSummary: `agents=${runningSubAgents.length}` }
-    }
-    if (runningBackgroundCommands.length > 0) {
-      return { statusType: 'background', statusSummary: `background=${runningBackgroundCommands.length}` }
-    }
-    return { statusType: 'idle', statusSummary: 'idle' }
+  const statusType = useMemo<FriendlyStatus>(() => {
+    if (errorCount > 0) return 'error'
+    if (pendingApprovals > 0) return 'pending'
+    if (streamingMessageId) return 'streaming'
+    if (runningSubAgents.length > 0) return 'agents'
+    if (runningBackgroundCommands.length > 0) return 'background'
+    return 'idle'
   }, [
     errorCount,
     pendingApprovals,
     streamingMessageId,
     runningSubAgents.length,
-    runningBackgroundCommands.length
+    runningBackgroundCommands.length,
   ])
 
   useEffect(() => {
-    if (!fastModelReady) {
-      setFriendlyMessage('')
-      return
-    }
-    const requestId = messageRequestIdRef.current + 1
-    messageRequestIdRef.current = requestId
-    generateFriendlyMessage({
-      language,
-      status: statusType,
-      detail: statusSummary
-    })
-      .then((message) => {
-        if (messageRequestIdRef.current !== requestId) return
-        if (message) setFriendlyMessage(message)
-      })
-      .catch(() => {
-        if (messageRequestIdRef.current !== requestId) return
-      })
-  }, [fastModelReady, language, statusType, statusSummary])
+    setFriendlyMessage(pickFriendlyMessage(statusType, language))
+  }, [statusType, language])
 
   const toggleTheme = (): void => {
     setTheme(theme === 'dark' ? 'light' : 'dark')
@@ -314,7 +260,7 @@ export function TitleBar(): React.JSX.Element {
             </div>
           </HoverCardContent>
         </HoverCard>
-        {fastModelReady && friendlyMessage && (
+        {friendlyMessage && (
           <div className="titlebar-no-drag max-w-[240px] truncate text-[11px] text-muted-foreground/80">
             {friendlyMessage}
           </div>

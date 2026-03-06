@@ -141,6 +141,26 @@ export function createMarkdownComponents(filePath?: string): Components {
   const fileDir = filePath ? filePath.replace(/[\\/][^\\/]*$/, '') : ''
 
   return {
+    p: ({ children, ...props }) => (
+      <p className="whitespace-pre-wrap break-words" {...props}>
+        {children}
+      </p>
+    ),
+    li: ({ children, ...props }) => (
+      <li className="break-words [&>p]:whitespace-pre-wrap" {...props}>
+        {children}
+      </li>
+    ),
+    th: ({ children, ...props }) => (
+      <th className="whitespace-pre-wrap break-words" {...props}>
+        {children}
+      </th>
+    ),
+    td: ({ children, ...props }) => (
+      <td className="whitespace-pre-wrap break-words" {...props}>
+        {children}
+      </td>
+    ),
     img: ({ src, alt, ...props }) => {
       let resolvedSrc = src || ''
       if (
@@ -158,7 +178,7 @@ export function createMarkdownComponents(filePath?: string): Components {
           {...props}
           src={resolvedSrc}
           alt={alt || ''}
-          className="max-w-full rounded"
+          className="my-4 block max-w-full rounded-lg border border-border/50 shadow-sm"
           loading="lazy"
         />
       )

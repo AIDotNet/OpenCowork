@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { ChevronDown, Check, Search, Eye, Wrench, Brain, Settings2 } from 'lucide-react'
-import { useProviderStore } from '@renderer/stores/provider-store'
+import { ChevronDown, Check, Search, Eye, Wrench, Brain, Settings2, Zap } from 'lucide-react'
+import { useProviderStore, modelSupportsVision } from '@renderer/stores/provider-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
@@ -15,22 +15,25 @@ import type { AIModelConfig, AIProvider, ReasoningEffortLevel } from '@renderer/
 
 function formatContextLength(length?: number): string | null {
   if (!length) return null
-  if (length >= 1_000_000) return `${(length / 1_000_000).toFixed(length % 1_000_000 === 0 ? 0 : 1)}M`
+  if (length >= 1_000_000)
+    return `${(length / 1_000_000).toFixed(length % 1_000_000 === 0 ? 0 : 1)}M`
   if (length >= 1_000) return `${Math.round(length / 1_000)}K`
   return String(length)
 }
 
 function ModelCapabilityTags({
   model,
-  t,
+  providerType,
+  t
 }: {
   model: AIModelConfig
+  providerType?: AIProvider['type']
   t: (key: string) => string
 }): React.JSX.Element {
   const ctx = formatContextLength(model.contextLength)
   return (
     <div className="flex items-center gap-1 flex-wrap">
-      {model.supportsVision && (
+      {modelSupportsVision(model, providerType) && (
         <span className="inline-flex items-center gap-0.5 rounded-sm bg-emerald-500/10 px-1 py-px text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
           <Eye className="size-2.5" />
           {t('topbar.vision')}
@@ -62,6 +65,12 @@ interface ProviderGroup {
   models: AIModelConfig[]
 }
 
+function supportsPriorityServiceTier(providerBuiltinId?: string, modelId?: string): boolean {
+  if (!providerBuiltinId || !modelId) return false
+  if (providerBuiltinId === 'openai') return true
+  return providerBuiltinId === 'routin-ai' && modelId === 'gpt-5.4'
+}
+
 function selectModel(
   provider: AIProvider,
   modelId: string,
@@ -80,7 +89,7 @@ function selectModel(
     if (session?.pluginId) {
       void useChannelStore.getState().updateChannel(session.pluginId, {
         providerId: pid,
-        model: modelId,
+        model: modelId
       })
     }
   }
@@ -90,17 +99,21 @@ function selectModel(
 /** Settings popover shown next to model icon */
 function ModelSettingsPopover({
   model,
+  provider,
   t,
-  tChat,
+  tChat
 }: {
   model: AIModelConfig | undefined
+  provider: AIProvider | undefined
   t: (key: string) => string
   tChat: (key: string, opts?: Record<string, unknown>) => string
 }): React.JSX.Element | null {
   const supportsThinking = model?.supportsThinking ?? false
+  const supportsFastMode = supportsPriorityServiceTier(provider?.builtinId, model?.id)
   const levels = model?.thinkingConfig?.reasoningEffortLevels
   const defaultLevel = model?.thinkingConfig?.defaultReasoningEffort ?? 'medium'
   const thinkingEnabled = useSettingsStore((s) => s.thinkingEnabled)
+  const fastModeEnabled = useSettingsStore((s) => s.fastModeEnabled)
   const reasoningEffort = useSettingsStore((s) => s.reasoningEffort)
 
   const toggleThinking = useCallback(() => {
@@ -116,7 +129,7 @@ function ModelSettingsPopover({
     useSettingsStore.getState().updateSettings({ reasoningEffort: level, thinkingEnabled: true })
   }, [])
 
-  if (!supportsThinking) return null
+  if (!supportsThinking && !supportsFastMode) return null
 
   return (
     <Popover>
@@ -132,71 +145,113 @@ function ModelSettingsPopover({
       </Tooltip>
       <PopoverContent className="w-56 p-2" align="start" side="top" sideOffset={8}>
         <div className="flex flex-col gap-1">
-          {/* Section title */}
-          <div className="flex items-center gap-1.5 px-1 pb-1 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">
-            <Brain className="size-3" />
-            {t('topbar.deepThinking')}
-          </div>
-
-          {levels && levels.length > 0 ? (
+          {supportsThinking && (
             <>
-              {/* Off option */}
+              <div className="flex items-center gap-1.5 px-1 pb-1 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">
+                <Brain className="size-3" />
+                {t('topbar.deepThinking')}
+              </div>
+
+              {levels && levels.length > 0 ? (
+                <>
+                  <button
+                    type="button"
+                    className={cn(
+                      'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors text-left',
+                      !thinkingEnabled
+                        ? 'bg-accent text-accent-foreground'
+                        : 'hover:bg-muted/60 text-foreground/80'
+                    )}
+                    onClick={() =>
+                      useSettingsStore.getState().updateSettings({ thinkingEnabled: false })
+                    }
+                  >
+                    <span className="font-medium">{tChat('input.thinkingOff')}</span>
+                  </button>
+                  {levels.map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      className={cn(
+                        'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors text-left',
+                        thinkingEnabled && reasoningEffort === level
+                          ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
+                          : 'hover:bg-muted/60 text-foreground/80'
+                      )}
+                      onClick={() => setEffort(level)}
+                    >
+                      <span className="font-medium uppercase">{level}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {tChat(`input.effortDesc.${level}`)}
+                      </span>
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className={cn(
+                    'flex items-center justify-between rounded-md px-2.5 py-2 text-xs transition-colors',
+                    thinkingEnabled
+                      ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400'
+                      : 'hover:bg-muted/60 text-foreground/80'
+                  )}
+                  onClick={toggleThinking}
+                >
+                  <span className="font-medium">
+                    {thinkingEnabled
+                      ? tChat('input.disableThinking')
+                      : tChat('input.enableThinking')}
+                  </span>
+                  <span
+                    className={cn(
+                      'size-4 rounded-full border-2 transition-colors',
+                      thinkingEnabled
+                        ? 'bg-violet-500 border-violet-500'
+                        : 'border-muted-foreground/30'
+                    )}
+                  />
+                </button>
+              )}
+            </>
+          )}
+
+          {supportsThinking && supportsFastMode && (
+            <div className="my-1 border-t border-border/50" />
+          )}
+
+          {supportsFastMode && (
+            <>
+              <div className="flex items-center gap-1.5 px-1 pb-1 pt-1 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">
+                <Zap className="size-3" />
+                {t('topbar.fastMode')}
+              </div>
               <button
                 type="button"
                 className={cn(
-                  'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors text-left',
-                  !thinkingEnabled
-                    ? 'bg-accent text-accent-foreground'
+                  'flex items-center justify-between rounded-md px-2.5 py-2 text-xs transition-colors',
+                  fastModeEnabled
+                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
                     : 'hover:bg-muted/60 text-foreground/80'
                 )}
-                onClick={() => useSettingsStore.getState().updateSettings({ thinkingEnabled: false })}
+                onClick={() =>
+                  useSettingsStore.getState().updateSettings({ fastModeEnabled: !fastModeEnabled })
+                }
               >
-                <span className="font-medium">{tChat('input.thinkingOff')}</span>
-              </button>
-              {/* Effort levels */}
-              {levels.map((level) => (
-                <button
-                  key={level}
-                  type="button"
-                  className={cn(
-                    'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors text-left',
-                    thinkingEnabled && reasoningEffort === level
-                      ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
-                      : 'hover:bg-muted/60 text-foreground/80'
-                  )}
-                  onClick={() => setEffort(level)}
-                >
-                  <span className="font-medium uppercase">{level}</span>
+                <span className="flex min-w-0 flex-col text-left">
+                  <span className="font-medium">{t('topbar.fastMode')}</span>
                   <span className="text-[10px] text-muted-foreground">
-                    {tChat(`input.effortDesc.${level}`)}
+                    {t('topbar.fastModeDesc')}
                   </span>
-                </button>
-              ))}
+                </span>
+                <span
+                  className={cn(
+                    'size-4 rounded-full border-2 transition-colors shrink-0',
+                    fastModeEnabled ? 'bg-amber-500 border-amber-500' : 'border-muted-foreground/30'
+                  )}
+                />
+              </button>
             </>
-          ) : (
-            /* Simple toggle */
-            <button
-              type="button"
-              className={cn(
-                'flex items-center justify-between rounded-md px-2.5 py-2 text-xs transition-colors',
-                thinkingEnabled
-                  ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400'
-                  : 'hover:bg-muted/60 text-foreground/80'
-              )}
-              onClick={toggleThinking}
-            >
-              <span className="font-medium">
-                {thinkingEnabled ? tChat('input.disableThinking') : tChat('input.enableThinking')}
-              </span>
-              <span
-                className={cn(
-                  'size-4 rounded-full border-2 transition-colors',
-                  thinkingEnabled
-                    ? 'bg-violet-500 border-violet-500'
-                    : 'border-muted-foreground/30'
-                )}
-              />
-            </button>
           )}
         </div>
       </PopoverContent>
@@ -250,9 +305,7 @@ export function ModelSwitcher(): React.JSX.Element {
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
-              <button
-                className="inline-flex items-center gap-1 h-8 rounded-l-lg px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              >
+              <button className="inline-flex items-center gap-1 h-8 rounded-l-lg px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
                 <ModelIcon
                   icon={activeModel?.icon}
                   modelId={activeModelId}
@@ -303,7 +356,16 @@ export function ModelSwitcher(): React.JSX.Element {
                           'flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left hover:bg-muted/60 transition-colors group',
                           isActive && 'bg-primary/5'
                         )}
-                        onClick={() => selectModel(provider, m.id, activeProviderId, setActiveProvider, setActiveModel, setOpen)}
+                        onClick={() =>
+                          selectModel(
+                            provider,
+                            m.id,
+                            activeProviderId,
+                            setActiveProvider,
+                            setActiveModel,
+                            setOpen
+                          )
+                        }
                       >
                         <span className="mt-0.5 shrink-0">
                           {isActive ? (
@@ -311,14 +373,26 @@ export function ModelSwitcher(): React.JSX.Element {
                               <Check className="size-3 text-primary" />
                             </span>
                           ) : (
-                            <ModelIcon icon={m.icon} modelId={m.id} providerBuiltinId={provider.builtinId} size={20} />
+                            <ModelIcon
+                              icon={m.icon}
+                              modelId={m.id}
+                              providerBuiltinId={provider.builtinId}
+                              size={20}
+                            />
                           )}
                         </span>
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                          <span className={cn('truncate text-xs', isActive ? 'font-semibold text-primary' : 'text-foreground/80 group-hover:text-foreground')}>
+                          <span
+                            className={cn(
+                              'truncate text-xs',
+                              isActive
+                                ? 'font-semibold text-primary'
+                                : 'text-foreground/80 group-hover:text-foreground'
+                            )}
+                          >
                             {m.name || m.id.replace(/-\d{8}$/, '')}
                           </span>
-                          <ModelCapabilityTags model={m} t={t} />
+                          <ModelCapabilityTags model={m} providerType={provider.type} t={t} />
                         </div>
                       </button>
                     )
@@ -331,7 +405,7 @@ export function ModelSwitcher(): React.JSX.Element {
       </Popover>
 
       {/* Settings icon — model config popover */}
-      <ModelSettingsPopover model={activeModel} t={t} tChat={tChat} />
+      <ModelSettingsPopover model={activeModel} provider={activeProvider} t={t} tChat={tChat} />
     </div>
   )
 }

@@ -36,8 +36,30 @@ type StreamEvent =
   | { type: 'tool_use_start'; id: string; name: string }
   | { type: 'tool_use_delta'; id: string; delta: string }
   | { type: 'tool_use_end'; id: string }
+  | { type: 'image_generated'; imageBlock: ImageBlock }
+  | { type: 'image_error'; imageError: { code: ImageErrorCode; message: string } }
   | { type: 'message_stop'; usage: Usage }
 ```
+
+### 图像生成事件 / Image Events
+
+当使用图像生成模型（如 DALL·E）时，流事件中会包含图像相关事件：
+
+- `image_generated`：图像生成成功，包含 `ImageBlock`（base64 或 URL 格式）
+- `image_error`：图像生成失败，错误码包括 `timeout`、`network`、`request_aborted`、`api_error`、`unknown`
+
+## 模型分类 / Model Categories
+
+每个模型可以通过 `category` 字段标注用途：
+
+| 分类 | 说明 |
+|------|------|
+| `chat` | 聊天/对话模型（默认） |
+| `image` | 图像生成模型（如 DALL·E、Flux） |
+| `speech` | 语音模型 |
+| `embedding` | 向量嵌入模型 |
+
+图像模型需将 `category` 设置为 `image`，才能被[图像生成插件](/docs/features/app-plugins)识别和使用。
 
 ## 提供商特性 / Features
 

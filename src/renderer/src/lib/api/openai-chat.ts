@@ -4,7 +4,7 @@ import type {
   StreamEvent,
   ToolDefinition,
   UnifiedMessage,
-  ContentBlock,
+  ContentBlock
 } from './types'
 import { ipcStreamRequest, maskHeaders } from '../ipc/api-stream'
 import { registerProvider } from './provider'
@@ -62,11 +62,11 @@ class OpenAIChatProvider implements APIProvider {
       model: config.model,
       messages: this.formatMessages(messages, config.systemPrompt),
       stream: true,
-      stream_options: { include_usage: true },
+      stream_options: { include_usage: true }
     }
 
     // Enable prompt caching for OpenAI endpoints to reduce costs
-    if (config.sessionId ) {
+    if (config.sessionId) {
       body.prompt_cache_key = `opencowork-${config.sessionId}`
     }
 
@@ -75,6 +75,7 @@ class OpenAIChatProvider implements APIProvider {
       body.tool_choice = 'auto'
     }
     if (config.temperature !== undefined) body.temperature = config.temperature
+    if (config.serviceTier) body.service_tier = config.serviceTier
     if (config.maxTokens) {
       // OpenAI o-series reasoning models use max_completion_tokens instead of max_tokens
       const isReasoningModel = /^(o[1-9]|o\d+-mini)/.test(config.model)
@@ -105,7 +106,7 @@ class OpenAIChatProvider implements APIProvider {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
+      Authorization: `Bearer ${config.apiKey}`
     }
     if (config.userAgent) headers['User-Agent'] = config.userAgent
     applyHeaderOverrides(headers, config)
@@ -113,7 +114,16 @@ class OpenAIChatProvider implements APIProvider {
     const bodyStr = JSON.stringify(body)
 
     // Yield debug info for dev mode inspection
-    yield { type: 'request_debug', debugInfo: { url, method: 'POST', headers: maskHeaders(headers), body: bodyStr, timestamp: Date.now() } }
+    yield {
+      type: 'request_debug',
+      debugInfo: {
+        url,
+        method: 'POST',
+        headers: maskHeaders(headers),
+        body: bodyStr,
+        timestamp: Date.now()
+      }
+    }
 
     const toolBuffers = new Map<number, { id: string; name: string; args: string }>()
 
@@ -125,7 +135,7 @@ class OpenAIChatProvider implements APIProvider {
       signal,
       useSystemProxy: config.useSystemProxy,
       providerId: config.providerId,
-      providerBuiltinId: config.providerBuiltinId,
+      providerBuiltinId: config.providerBuiltinId
     })) {
       if (!sse.data || sse.data === '[DONE]') break
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -148,13 +158,13 @@ class OpenAIChatProvider implements APIProvider {
               outputTokens: data.usage.completion_tokens ?? 0,
               ...(data.usage.completion_tokens_details?.reasoning_tokens
                 ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
-                : {}),
+                : {})
             },
             timing: {
               totalMs: requestCompletedAt - requestStartedAt,
               ttftMs: firstTokenAt ? firstTokenAt - requestStartedAt : undefined,
-              tps: computeTps(outputTokens, firstTokenAt, requestCompletedAt),
-            },
+              tps: computeTps(outputTokens, firstTokenAt, requestCompletedAt)
+            }
           }
         }
         continue
@@ -187,7 +197,11 @@ class OpenAIChatProvider implements APIProvider {
           } else {
             if (tc.id && !buf.id) {
               buf.id = tc.id
-              yield { type: 'tool_call_start', toolCallId: tc.id, toolName: buf.name || tc.function?.name }
+              yield {
+                type: 'tool_call_start',
+                toolCallId: tc.id,
+                toolName: buf.name || tc.function?.name
+              }
             }
             if (tc.function?.name && !buf.name) buf.name = tc.function.name
           }
@@ -197,7 +211,7 @@ class OpenAIChatProvider implements APIProvider {
             yield {
               type: 'tool_call_delta',
               toolCallId: buf.id || undefined,
-              argumentsDelta: tc.function.arguments,
+              argumentsDelta: tc.function.arguments
             }
           }
         }
@@ -209,9 +223,19 @@ class OpenAIChatProvider implements APIProvider {
         for (const [, buf] of toolBuffers) {
           if (!buf.id) continue
           try {
-            yield { type: 'tool_call_end', toolCallId: buf.id, toolName: buf.name, toolCallInput: JSON.parse(buf.args) }
+            yield {
+              type: 'tool_call_end',
+              toolCallId: buf.id,
+              toolName: buf.name,
+              toolCallInput: JSON.parse(buf.args)
+            }
           } catch {
-            yield { type: 'tool_call_end', toolCallId: buf.id, toolName: buf.name, toolCallInput: {} }
+            yield {
+              type: 'tool_call_end',
+              toolCallId: buf.id,
+              toolName: buf.name,
+              toolCallInput: {}
+            }
           }
         }
         toolBuffers.clear()
@@ -236,10 +260,15 @@ class OpenAIChatProvider implements APIProvider {
               type: 'tool_call_end',
               toolCallId: buf.id,
               toolName: buf.name,
-              toolCallInput: JSON.parse(buf.args),
+              toolCallInput: JSON.parse(buf.args)
             }
           } catch {
-            yield { type: 'tool_call_end', toolCallId: buf.id, toolName: buf.name, toolCallInput: {} }
+            yield {
+              type: 'tool_call_end',
+              toolCallId: buf.id,
+              toolName: buf.name,
+              toolCallInput: {}
+            }
           }
         }
         toolBuffers.clear()
@@ -255,20 +284,22 @@ class OpenAIChatProvider implements APIProvider {
         yield {
           type: 'message_end',
           stopReason: 'stop',
-          ...(data.usage ? {
-            usage: {
-              inputTokens: data.usage.prompt_tokens ?? 0,
-              outputTokens: data.usage.completion_tokens ?? 0,
-              ...(data.usage.completion_tokens_details?.reasoning_tokens
-                ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
-                : {}),
-            },
-          } : {}),
+          ...(data.usage
+            ? {
+                usage: {
+                  inputTokens: data.usage.prompt_tokens ?? 0,
+                  outputTokens: data.usage.completion_tokens ?? 0,
+                  ...(data.usage.completion_tokens_details?.reasoning_tokens
+                    ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
+                    : {})
+                }
+              }
+            : {}),
           timing: {
             totalMs: requestCompletedAt - requestStartedAt,
             ttftMs: firstTokenAt ? firstTokenAt - requestStartedAt : undefined,
-            tps: computeTps(outputTokens, firstTokenAt, requestCompletedAt),
-          },
+            tps: computeTps(outputTokens, firstTokenAt, requestCompletedAt)
+          }
         }
         // OpenAI-compatible providers may keep connection open after stop.
         // Only break early if usage was already included in this chunk;
@@ -287,7 +318,12 @@ class OpenAIChatProvider implements APIProvider {
       for (const [, buf] of toolBuffers) {
         if (!buf.id) continue
         try {
-          yield { type: 'tool_call_end', toolCallId: buf.id, toolName: buf.name, toolCallInput: JSON.parse(buf.args) }
+          yield {
+            type: 'tool_call_end',
+            toolCallId: buf.id,
+            toolName: buf.name,
+            toolCallInput: JSON.parse(buf.args)
+          }
         } catch {
           yield { type: 'tool_call_end', toolCallId: buf.id, toolName: buf.name, toolCallInput: {} }
         }
@@ -320,9 +356,10 @@ class OpenAIChatProvider implements APIProvider {
           const parts: unknown[] = []
           for (const b of blocks) {
             if (b.type === 'image') {
-              const url = b.source.type === 'base64'
-                ? `data:${b.source.mediaType || 'image/png'};base64,${b.source.data}`
-                : b.source.url || ''
+              const url =
+                b.source.type === 'base64'
+                  ? `data:${b.source.mediaType || 'image/png'};base64,${b.source.data}`
+                  : b.source.url || ''
               parts.push({ type: 'image_url', image_url: { url } })
             } else if (b.type === 'text') {
               parts.push({ type: 'text', text: b.text })
@@ -334,7 +371,10 @@ class OpenAIChatProvider implements APIProvider {
         // Text-only ContentBlock[] (e.g., system-remind dynamic context injection)
         const userTextBlocks = blocks.filter((b) => b.type === 'text')
         if (userTextBlocks.length > 0) {
-          const parts = userTextBlocks.map((b) => ({ type: 'text', text: (b as Extract<ContentBlock, { type: 'text' }>).text }))
+          const parts = userTextBlocks.map((b) => ({
+            type: 'text',
+            text: (b as Extract<ContentBlock, { type: 'text' }>).text
+          }))
           formatted.push({ role: 'user', content: parts })
           continue
         }
@@ -369,7 +409,9 @@ class OpenAIChatProvider implements APIProvider {
       const textBlocks = blocks.filter((b) => b.type === 'text')
       const thinkingBlocks = blocks.filter((b) => b.type === 'thinking')
       const textContent = textBlocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
-      const reasoningContent = thinkingBlocks.map((b) => (b.type === 'thinking' ? b.thinking : '')).join('')
+      const reasoningContent = thinkingBlocks
+        .map((b) => (b.type === 'thinking' ? b.thinking : ''))
+        .join('')
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const msg: any = { role: 'assistant', content: textContent || null }
@@ -377,14 +419,16 @@ class OpenAIChatProvider implements APIProvider {
       if (reasoningContent) msg.reasoning_content = reasoningContent
 
       if (toolUses.length > 0) {
-        msg.tool_calls = toolUses.map((tu) => {
-          if (tu.type !== 'tool_use') return null
-          return {
-            id: tu.id,
-            type: 'function',
-            function: { name: tu.name, arguments: JSON.stringify(tu.input) },
-          }
-        }).filter(Boolean)
+        msg.tool_calls = toolUses
+          .map((tu) => {
+            if (tu.type !== 'tool_use') return null
+            return {
+              id: tu.id,
+              type: 'function',
+              function: { name: tu.name, arguments: JSON.stringify(tu.input) }
+            }
+          })
+          .filter(Boolean)
       }
       formatted.push(msg)
     }
@@ -398,8 +442,8 @@ class OpenAIChatProvider implements APIProvider {
       function: {
         name: t.name,
         description: t.description,
-        parameters: this.normalizeToolSchema(t.inputSchema),
-      },
+        parameters: this.normalizeToolSchema(t.inputSchema)
+      }
     }))
   }
 
@@ -430,7 +474,7 @@ class OpenAIChatProvider implements APIProvider {
     const normalized: Record<string, unknown> = {
       type: 'object',
       properties: mergedProperties,
-      additionalProperties: false,
+      additionalProperties: false
     }
 
     if (requiredIntersection && requiredIntersection.length > 0) {
@@ -441,7 +485,11 @@ class OpenAIChatProvider implements APIProvider {
   }
 }
 
-function computeTps(outputTokens: number, firstTokenAt: number | null, completedAt: number): number | undefined {
+function computeTps(
+  outputTokens: number,
+  firstTokenAt: number | null,
+  completedAt: number
+): number | undefined {
   if (!firstTokenAt || outputTokens <= 0) return undefined
   const durationMs = completedAt - firstTokenAt
   if (durationMs <= 0) return undefined

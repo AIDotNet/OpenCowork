@@ -1,14 +1,20 @@
 import { create } from 'zustand'
 
-
-
 export type AppMode = 'chat' | 'cowork' | 'code'
 
 export type NavItem = 'chat' | 'channels' | 'skills' | 'translate' | 'ssh'
 
 export type ChatView = 'home' | 'session'
 
-export type RightPanelTab = 'steps' | 'team' | 'artifacts' | 'context' | 'skills' | 'files' | 'plan' | 'cron'
+export type RightPanelTab =
+  | 'steps'
+  | 'team'
+  | 'artifacts'
+  | 'context'
+  | 'skills'
+  | 'files'
+  | 'plan'
+  | 'cron'
 export type RightPanelSection = 'execution' | 'resources' | 'collaboration' | 'monitoring'
 
 export type PreviewSource = 'file' | 'dev-server' | 'markdown'
@@ -27,26 +33,26 @@ export interface PreviewPanelState {
   markdownTitle?: string
 }
 
-
-
-export type SettingsTab = 'general' | 'memory' | 'provider' | 'channel' | 'mcp' | 'model' | 'websearch' | 'skillsmarket' | 'about'
+export type SettingsTab =
+  | 'general'
+  | 'memory'
+  | 'provider'
+  | 'model'
+  | 'plugin'
+  | 'channel'
+  | 'mcp'
+  | 'websearch'
+  | 'skillsmarket'
+  | 'about'
 
 export type DetailPanelContent =
-
   | { type: 'team' }
-
   | { type: 'subagent'; toolUseId?: string; text?: string }
-
   | { type: 'terminal'; processId: string }
-
   | { type: 'document'; title: string; content: string }
-
   | { type: 'report'; title: string; data: unknown }
 
-
-
 interface UIStore {
-
   mode: AppMode
 
   setMode: (mode: AppMode) => void
@@ -54,23 +60,17 @@ interface UIStore {
   activeNavItem: NavItem
   setActiveNavItem: (item: NavItem) => void
 
-
-
   leftSidebarOpen: boolean
 
   toggleLeftSidebar: () => void
 
   setLeftSidebarOpen: (open: boolean) => void
 
-
-
   rightPanelOpen: boolean
 
   toggleRightPanel: () => void
 
   setRightPanelOpen: (open: boolean) => void
-
-
 
   rightPanelTab: RightPanelTab
 
@@ -83,7 +83,6 @@ interface UIStore {
   rightPanelWidth: number
 
   setRightPanelWidth: (width: number) => void
-
 
   settingsOpen: boolean
 
@@ -107,21 +106,15 @@ interface UIStore {
   openSshPage: () => void
   closeSshPage: () => void
 
-
-
   shortcutsOpen: boolean
 
   setShortcutsOpen: (open: boolean) => void
-
-
 
   /** Text to insert into chat input (consumed by InputArea) */
 
   pendingInsertText: string | null
 
   setPendingInsertText: (text: string | null) => void
-
-
 
   /** Detail panel (between chat and right panel) */
 
@@ -163,10 +156,7 @@ interface UIStore {
   navigateToSession: () => void
 }
 
-
-
 export const useUIStore = create<UIStore>((set) => ({
-
   mode: 'chat',
 
   setMode: (mode) => set({ mode, rightPanelOpen: mode === 'cowork' }),
@@ -174,23 +164,17 @@ export const useUIStore = create<UIStore>((set) => ({
   activeNavItem: 'chat',
   setActiveNavItem: (item) => set({ activeNavItem: item, leftSidebarOpen: true }),
 
-
-
   leftSidebarOpen: true,
 
   toggleLeftSidebar: () => set((s) => ({ leftSidebarOpen: !s.leftSidebarOpen })),
 
   setLeftSidebarOpen: (open) => set({ leftSidebarOpen: open }),
 
-
-
   rightPanelOpen: false,
 
   toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
 
   setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
-
-
 
   rightPanelTab: 'steps',
 
@@ -204,80 +188,79 @@ export const useUIStore = create<UIStore>((set) => ({
 
   setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
 
-
   settingsOpen: false,
 
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 
   settingsPageOpen: false,
   settingsTab: 'general',
-  openSettingsPage: (tab) => set({
-    settingsPageOpen: true,
-    settingsTab: tab ?? 'general',
-    leftSidebarOpen: false,
-    skillsPageOpen: false,
-    translatePageOpen: false,
-    sshPageOpen: false,
-  }),
+  openSettingsPage: (tab) =>
+    set({
+      settingsPageOpen: true,
+      settingsTab: tab ?? 'general',
+      leftSidebarOpen: false,
+      skillsPageOpen: false,
+      translatePageOpen: false,
+      sshPageOpen: false
+    }),
   closeSettingsPage: () => set({ settingsPageOpen: false }),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
 
   skillsPageOpen: false,
-  openSkillsPage: () => set({
-    skillsPageOpen: true,
-    settingsPageOpen: false,
-    translatePageOpen: false,
-    sshPageOpen: false,
-    leftSidebarOpen: false,
-  }),
+  openSkillsPage: () =>
+    set({
+      skillsPageOpen: true,
+      settingsPageOpen: false,
+      translatePageOpen: false,
+      sshPageOpen: false,
+      leftSidebarOpen: false
+    }),
   closeSkillsPage: () => set({ skillsPageOpen: false }),
 
   translatePageOpen: false,
-  openTranslatePage: () => set({
-    translatePageOpen: true,
-    settingsPageOpen: false,
-    skillsPageOpen: false,
-    sshPageOpen: false,
-    leftSidebarOpen: false,
-  }),
+  openTranslatePage: () =>
+    set({
+      translatePageOpen: true,
+      settingsPageOpen: false,
+      skillsPageOpen: false,
+      sshPageOpen: false,
+      leftSidebarOpen: false
+    }),
   closeTranslatePage: () => set({ translatePageOpen: false }),
 
   sshPageOpen: false,
-  openSshPage: () => set({
-    sshPageOpen: true,
-    settingsPageOpen: false,
-    skillsPageOpen: false,
-    translatePageOpen: false,
-    leftSidebarOpen: false,
-  }),
+  openSshPage: () =>
+    set({
+      sshPageOpen: true,
+      settingsPageOpen: false,
+      skillsPageOpen: false,
+      translatePageOpen: false,
+      leftSidebarOpen: false
+    }),
   closeSshPage: () => set({ sshPageOpen: false }),
-
-
 
   shortcutsOpen: false,
 
   setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
 
-
-
   pendingInsertText: null,
 
   setPendingInsertText: (text) => set({ pendingInsertText: text }),
-
-
 
   detailPanelOpen: false,
 
   detailPanelContent: null,
 
-  openDetailPanel: (content) => set({ detailPanelOpen: true, detailPanelContent: content, rightPanelOpen: false }),
+  openDetailPanel: (content) =>
+    set({ detailPanelOpen: true, detailPanelContent: content, rightPanelOpen: false }),
 
   closeDetailPanel: () => set({ detailPanelOpen: false, detailPanelContent: null }),
 
   previewPanelOpen: false,
   previewPanelState: null,
   openFilePreview: (filePath, viewMode, sshConnectionId) => {
-    const ext = filePath.lastIndexOf('.') >= 0 ? filePath.slice(filePath.lastIndexOf('.')).toLowerCase() : ''
+    const ext =
+      filePath.lastIndexOf('.') >= 0 ? filePath.slice(filePath.lastIndexOf('.')).toLowerCase() : ''
     const previewExts = new Set(['.html', '.htm'])
     const spreadsheetExts = new Set(['.csv', '.tsv', '.xls', '.xlsx'])
     const markdownExts = new Set(['.md', '.mdx', '.markdown'])
@@ -300,72 +283,77 @@ export const useUIStore = create<UIStore>((set) => ({
         filePath,
         viewMode: viewMode ?? defaultMode,
         viewerType,
-        sshConnectionId: sshConnectionId || undefined,
+        sshConnectionId: sshConnectionId || undefined
       },
       leftSidebarOpen: false,
-      rightPanelOpen: false,
+      rightPanelOpen: false
     })
   },
-  openDevServerPreview: (projectDir, port) => set({
-    previewPanelOpen: true,
-    previewPanelState: {
-      source: 'dev-server',
-      filePath: '',
-      viewMode: 'preview',
-      viewerType: 'dev-server',
-      port,
-      projectDir,
-    },
-    leftSidebarOpen: false,
-  }),
-  openMarkdownPreview: (title, content) => set({
-    previewPanelOpen: true,
-    previewPanelState: {
-      source: 'markdown',
-      filePath: '',
-      viewMode: 'preview',
-      viewerType: 'markdown',
-      markdownContent: content,
-      markdownTitle: title,
-    },
-    leftSidebarOpen: false,
-    rightPanelOpen: false,
-  }),
+  openDevServerPreview: (projectDir, port) =>
+    set({
+      previewPanelOpen: true,
+      previewPanelState: {
+        source: 'dev-server',
+        filePath: '',
+        viewMode: 'preview',
+        viewerType: 'dev-server',
+        port,
+        projectDir
+      },
+      leftSidebarOpen: false
+    }),
+  openMarkdownPreview: (title, content) =>
+    set({
+      previewPanelOpen: true,
+      previewPanelState: {
+        source: 'markdown',
+        filePath: '',
+        viewMode: 'preview',
+        viewerType: 'markdown',
+        markdownContent: content,
+        markdownTitle: title
+      },
+      leftSidebarOpen: false,
+      rightPanelOpen: false
+    }),
   closePreviewPanel: () => set({ previewPanelOpen: false, previewPanelState: null }),
-  setPreviewViewMode: (mode) => set((s) => ({
-    previewPanelState: s.previewPanelState ? { ...s.previewPanelState, viewMode: mode } : null,
-  })),
+  setPreviewViewMode: (mode) =>
+    set((s) => ({
+      previewPanelState: s.previewPanelState ? { ...s.previewPanelState, viewMode: mode } : null
+    })),
 
   selectedFiles: [],
   setSelectedFiles: (files) => set({ selectedFiles: files }),
-  toggleFileSelection: (filePath) => set((s) => {
-    const isSelected = s.selectedFiles.includes(filePath)
-    return {
-      selectedFiles: isSelected
-        ? s.selectedFiles.filter(f => f !== filePath)
-        : [...s.selectedFiles, filePath]
-    }
-  }),
+  toggleFileSelection: (filePath) =>
+    set((s) => {
+      const isSelected = s.selectedFiles.includes(filePath)
+      return {
+        selectedFiles: isSelected
+          ? s.selectedFiles.filter((f) => f !== filePath)
+          : [...s.selectedFiles, filePath]
+      }
+    }),
   clearSelectedFiles: () => set({ selectedFiles: [] }),
 
   planMode: false,
   enterPlanMode: () => set({ planMode: true, rightPanelTab: 'plan', rightPanelOpen: true }),
 
   chatView: 'home',
-  navigateToHome: () => set({
-    chatView: 'home',
-    settingsPageOpen: false,
-    skillsPageOpen: false,
-    translatePageOpen: false,
-    sshPageOpen: false,
-  }),
-  navigateToSession: () => set({
-    chatView: 'session',
-    settingsPageOpen: false,
-    skillsPageOpen: false,
-    translatePageOpen: false,
-    sshPageOpen: false,
-  }),
-  exitPlanMode: () => set({ planMode: false }),
+  navigateToHome: () =>
+    set({
+      chatView: 'home',
+      settingsPageOpen: false,
+      skillsPageOpen: false,
+      translatePageOpen: false,
+      sshPageOpen: false
+    }),
+  navigateToSession: () =>
+    set({
+      chatView: 'session',
+      settingsPageOpen: false,
+      skillsPageOpen: false,
+      translatePageOpen: false,
+      sshPageOpen: false
+    }),
+  exitPlanMode: () => set({ planMode: false })
 }))
-

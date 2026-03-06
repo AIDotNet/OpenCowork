@@ -6,11 +6,13 @@ import { ConfirmDialogProvider } from './components/ui/confirm-dialog'
 import { ThemeProvider } from './components/theme-provider'
 import { ErrorBoundary } from './components/error-boundary'
 import { useSettingsStore } from './stores/settings-store'
-import { initProviderStore } from './stores/provider-store'
+import { initProviderStore, useProviderStore } from './stores/provider-store'
+import { initAppPluginStore, useAppPluginStore } from './stores/app-plugin-store'
 import { useChatStore } from './stores/chat-store'
 import { usePlanStore } from './stores/plan-store'
 import { useSshStore } from './stores/ssh-store'
 import { registerAllTools, updateWebSearchToolRegistration } from './lib/tools'
+import { updateAppPluginToolRegistration } from './lib/app-plugin'
 import { registerAllProviders } from './lib/api'
 import { registerAllViewers } from './lib/preview/register-viewers'
 import { initChannelEventListener } from './stores/channel-store'
@@ -37,6 +39,7 @@ import {
 registerAllProviders()
 registerAllViewers()
 initProviderStore()
+initAppPluginStore()
 
 // Register tools (async because SubAgents are loaded from .md files via IPC)
 registerAllTools().catch((err) => console.error('[App] Failed to register tools:', err))
@@ -83,7 +86,7 @@ function upsertGlobalMemoryReminder(sessionId: string, snapshot: GlobalMemorySna
     id: nanoid(),
     role: 'system',
     content: reminder,
-    createdAt: Date.now(),
+    createdAt: Date.now()
   }
   store.addMessage(sessionId, msg)
 }
@@ -142,7 +145,7 @@ function App(): React.JSX.Element {
     let ready = false
     let baselineVersion = 0
 
-    const init = async () => {
+    const init = async (): Promise<void> => {
       await loadGlobalMemorySnapshot(ipcClient)
       const snapshot = getGlobalMemorySnapshot()
       baselineVersion = snapshot.version
@@ -212,14 +215,18 @@ function App(): React.JSX.Element {
           deliveryTarget: d.deliveryTarget,
           maxIterations: d.maxIterations,
           pluginId: d.pluginId,
-          pluginChatId: d.pluginChatId,
+          pluginChatId: d.pluginChatId
         })
       }
     })
 
     const offRemoved = ipcClient.on('cron:job-removed', (data: unknown) => {
       const d = data as { jobId: string; reason: string }
-      cronEvents.emit({ type: 'job_removed', jobId: d.jobId, reason: d.reason as 'delete_after_run' | 'manual' })
+      cronEvents.emit({
+        type: 'job_removed',
+        jobId: d.jobId,
+        reason: d.reason as 'delete_after_run' | 'manual'
+      })
       useCronStore.getState().removeJob(d.jobId)
     })
 
@@ -232,7 +239,7 @@ function App(): React.JSX.Element {
         id: nanoid(),
         role: 'assistant',
         content: `<system-reminder>\n**${d.title}**\n</system-reminder>\n\n${d.body}`,
-        createdAt: Date.now(),
+        createdAt: Date.now()
       }
       _useChatStore.getState().addMessage(d.sessionId, msg)
     })
@@ -242,7 +249,8 @@ function App(): React.JSX.Element {
       if (event.type !== 'run_finished') return
       if (event.deliveryMode !== 'session') return
 
-      const targetSessionId = event.deliveryTarget || event.sessionId || _useChatStore.getState().activeSessionId
+      const targetSessionId =
+        event.deliveryTarget || event.sessionId || _useChatStore.getState().activeSessionId
       if (!targetSessionId) return
       const sessions = _useChatStore.getState().sessions
       if (!sessions.some((s) => s.id === targetSessionId)) return
@@ -259,20 +267,20 @@ function App(): React.JSX.Element {
         t('app.cron.runFinished', {
           jobName: event.jobName || event.jobId,
           statusLabel,
-          toolCallLabel,
+          toolCallLabel
         }),
         `</system-reminder>`,
         '',
         event.error
           ? t('app.cron.errorDetail', { message: event.error })
-          : event.outputSummary || t('app.cron.noOutput'),
+          : event.outputSummary || t('app.cron.noOutput')
       ].join('\n')
 
       const msg: UnifiedMessage = {
         id: nanoid(),
         role: 'user',
         content,
-        createdAt: Date.now(),
+        createdAt: Date.now()
       }
       _useChatStore.getState().addMessage(targetSessionId, msg)
     })
@@ -283,7 +291,7 @@ function App(): React.JSX.Element {
       offNotify()
       offRunFinished()
     }
-  }, [])
+  }, [t])
 
   // Reload SSH config when local JSON changes
   useEffect(() => {
@@ -302,38 +310,40 @@ function App(): React.JSX.Element {
       const d = data as { currentVersion: string; newVersion: string; releaseNotes: string }
       console.log('[App] Update available:', d)
 
-      useNotifyStore.getState().push(
-        t('app.update.availableTitle', { version: d.newVersion }),
-        d.releaseNotes || t('app.update.availableDescription'),
-        {
-          type: 'info',
-          persistent: true,
-          actions: [
-            {
-              label: t('app.update.actions.updateNow'),
-              onClick: async () => {
-                toast.info(t('app.update.downloading'))
-                const result = await window.electron.ipcRenderer.invoke('update:download')
-                if (!result.success) {
-                  toast.error(t('app.update.downloadFailed'), { description: result.error })
+      useNotifyStore
+        .getState()
+        .push(
+          t('app.update.availableTitle', { version: d.newVersion }),
+          d.releaseNotes || t('app.update.availableDescription'),
+          {
+            type: 'info',
+            persistent: true,
+            actions: [
+              {
+                label: t('app.update.actions.updateNow'),
+                onClick: async () => {
+                  toast.info(t('app.update.downloading'))
+                  const result = await window.electron.ipcRenderer.invoke('update:download')
+                  if (!result.success) {
+                    toast.error(t('app.update.downloadFailed'), { description: result.error })
+                  }
                 }
               },
-            },
-            {
-              label: t('app.update.actions.remindLater'),
-              onClick: () => {
-                toast.info(t('app.update.delayed'))
-              },
-            },
-          ],
-        }
-      )
+              {
+                label: t('app.update.actions.remindLater'),
+                onClick: () => {
+                  toast.info(t('app.update.delayed'))
+                }
+              }
+            ]
+          }
+        )
     })
 
     const offUpdateDownloaded = ipcClient.on('update:downloaded', (data: unknown) => {
       const d = data as { version: string }
       toast.success(t('app.update.downloadedTitle'), {
-        description: t('app.update.downloadedDescription', { version: d.version }),
+        description: t('app.update.downloadedDescription', { version: d.version })
       })
     })
 
@@ -363,12 +373,28 @@ function App(): React.JSX.Element {
     updateWebSearchToolRegistration(webSearchEnabled)
   }, [webSearchEnabled])
 
+  useEffect(() => {
+    updateAppPluginToolRegistration()
+
+    const unsubscribePlugin = useAppPluginStore.subscribe(() => {
+      updateAppPluginToolRegistration()
+    })
+    const unsubscribeProvider = useProviderStore.subscribe(() => {
+      updateAppPluginToolRegistration()
+    })
+
+    return () => {
+      unsubscribePlugin()
+      unsubscribeProvider()
+    }
+  }, [])
+
   // Global unhandled promise rejection handler
   useEffect(() => {
     const handler = (e: PromiseRejectionEvent): void => {
       console.error('[Unhandled Rejection]', e.reason)
       toast.error(t('app.errors.unhandledTitle'), {
-        description: e.reason?.message || String(e.reason),
+        description: e.reason?.message || String(e.reason)
       })
     }
     window.addEventListener('unhandledrejection', handler)

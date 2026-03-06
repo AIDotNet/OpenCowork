@@ -106,6 +106,17 @@
       "stopped": "stopped",
       "error": "error",
       "exited": "exited"
+    },
+    "imagePlugin": {
+      "title": "Image Plugin",
+      "running": "Running image generation",
+      "completed": "Image generation completed",
+      "failed": "Image generation failed",
+      "prompt": "Prompt",
+      "generating": "Generating images...",
+      "result": "Results ({{count}})",
+      "notes": "Notes",
+      "countValue": "Count {{count}}"
     }
   },
   "subAgent": {

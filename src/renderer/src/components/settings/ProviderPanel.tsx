@@ -41,6 +41,7 @@ import {
 import {
   useProviderStore,
   builtinProviderPresets,
+  modelSupportsVision,
   normalizeProviderBaseUrl,
 } from '@renderer/stores/provider-store'
 import { useQuotaStore, type CodexQuota, type CodexQuotaWindow } from '@renderer/stores/quota-store'
@@ -125,6 +126,13 @@ async function fetchModelsFromProvider(
       name: m.id,
       enabled: true,
     }))
+  }
+
+  if (type === 'anthropic' && builtinId) {
+    const builtinPreset = builtinProviderPresets.find((preset) => preset.builtinId === builtinId)
+    if (builtinPreset?.defaultModels.length) {
+      return builtinPreset.defaultModels.map((model) => ({ ...model }))
+    }
   }
 
   // For Anthropic: no list API, return empty
@@ -1483,7 +1491,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
                   } else if (model.category === 'embedding') {
                     capabilityIndicators.push({ key: 'category-embedding', icon: Shapes, label: t('provider.modelCategoryEmbedding') })
                   }
-                  if (model.supportsVision) {
+                  if (modelSupportsVision(model, provider.type)) {
                     capabilityIndicators.push({ key: 'vision', icon: Eye, label: t('provider.supportsVision') })
                   }
                   if (model.supportsFunctionCall !== false) {

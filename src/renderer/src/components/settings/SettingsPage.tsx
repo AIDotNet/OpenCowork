@@ -1,5 +1,26 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Settings, BrainCircuit, Info, Server, MessageSquare, Cable, Loader2, Github, Sparkles, ShieldCheck, Layers, HardDriveDownload, HardDriveUpload, Trash2, Globe, Wand2, BookOpen, Save, RefreshCw } from 'lucide-react'
+import {
+  Settings,
+  BrainCircuit,
+  Info,
+  Server,
+  MessageSquare,
+  Cable,
+  Loader2,
+  Github,
+  Sparkles,
+  ShieldCheck,
+  Layers,
+  HardDriveDownload,
+  HardDriveUpload,
+  Trash2,
+  Globe,
+  Wand2,
+  BookOpen,
+  Save,
+  RefreshCw,
+  Puzzle
+} from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { AnimatePresence } from 'motion/react'
 import { useUIStore, type SettingsTab } from '@renderer/stores/ui-store'
@@ -29,6 +50,7 @@ import { FadeIn, SlideIn } from '@renderer/components/animate-ui'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import { ProviderPanel } from './ProviderPanel'
 import { ChannelPanel } from './PluginPanel'
+import { AppPluginPanel } from './AppPluginPanel'
 import { McpPanel } from './McpPanel'
 import { WebSearchPanel } from './WebSearchPanel'
 import { SkillsMarketPanel } from './SkillsMarketPanel'
@@ -66,18 +88,90 @@ function getIpcError(result: unknown): string | null {
   return typeof error === 'string' && error.trim() ? error : null
 }
 
-
-
-const menuItemDefs: { id: SettingsTab; icon: React.ReactNode; labelKey: string; descKey: string }[] = [
-  { id: 'general', icon: <Settings className="size-4" />, labelKey: 'general.title', descKey: 'general.subtitle' },
-  { id: 'memory', icon: <BookOpen className="size-4" />, labelKey: 'memory.title', descKey: 'memory.subtitle' },
-  { id: 'provider', icon: <Server className="size-4" />, labelKey: 'provider.title', descKey: 'provider.subtitle' },
-  { id: 'channel', icon: <MessageSquare className="size-4" />, labelKey: 'channel.title', descKey: 'channel.subtitle' },
-  { id: 'mcp', icon: <Cable className="size-4" />, labelKey: 'mcp.title', descKey: 'mcp.subtitle' },
-  { id: 'model', icon: <BrainCircuit className="size-4" />, labelKey: 'model.title', descKey: 'model.subtitle' },
-  { id: 'websearch', icon: <Globe className="size-4" />, labelKey: 'websearch.title', descKey: 'websearch.subtitle' },
-  { id: 'skillsmarket', icon: <Wand2 className="size-4" />, labelKey: 'skillsmarket.title', descKey: 'skillsmarket.subtitle' },
-  { id: 'about', icon: <Info className="size-4" />, labelKey: 'about.title', descKey: 'about.subtitle' },
+const menuGroupDefs: Array<{
+  labelKey: string
+  items: { id: SettingsTab; icon: React.ReactNode; labelKey: string; descKey: string }[]
+}> = [
+  {
+    labelKey: 'page.groups.foundation',
+    items: [
+      {
+        id: 'general',
+        icon: <Settings className="size-4" />,
+        labelKey: 'general.title',
+        descKey: 'general.subtitle'
+      },
+      {
+        id: 'memory',
+        icon: <BookOpen className="size-4" />,
+        labelKey: 'memory.title',
+        descKey: 'memory.subtitle'
+      }
+    ]
+  },
+  {
+    labelKey: 'page.groups.ai',
+    items: [
+      {
+        id: 'provider',
+        icon: <Server className="size-4" />,
+        labelKey: 'provider.title',
+        descKey: 'provider.subtitle'
+      },
+      {
+        id: 'model',
+        icon: <BrainCircuit className="size-4" />,
+        labelKey: 'model.title',
+        descKey: 'model.subtitle'
+      }
+    ]
+  },
+  {
+    labelKey: 'page.groups.extensions',
+    items: [
+      {
+        id: 'plugin',
+        icon: <Puzzle className="size-4" />,
+        labelKey: 'plugin.title',
+        descKey: 'plugin.subtitle'
+      },
+      {
+        id: 'channel',
+        icon: <MessageSquare className="size-4" />,
+        labelKey: 'channel.title',
+        descKey: 'channel.subtitle'
+      },
+      {
+        id: 'mcp',
+        icon: <Cable className="size-4" />,
+        labelKey: 'mcp.title',
+        descKey: 'mcp.subtitle'
+      },
+      {
+        id: 'websearch',
+        icon: <Globe className="size-4" />,
+        labelKey: 'websearch.title',
+        descKey: 'websearch.subtitle'
+      },
+      {
+        id: 'skillsmarket',
+        icon: <Wand2 className="size-4" />,
+        labelKey: 'skillsmarket.title',
+        descKey: 'skillsmarket.subtitle'
+      }
+    ]
+  },
+  {
+    labelKey: 'page.groups.about',
+    items: [
+      {
+        id: 'about',
+        icon: <Info className="size-4" />,
+        labelKey: 'about.title',
+        descKey: 'about.subtitle'
+      }
+    ]
+  }
 ]
 
 // ─── General Settings Panel ───
@@ -101,11 +195,13 @@ function GeneralPanel(): React.JSX.Element {
     { label: t('general.appearance.fontSystem'), value: '__default__' },
     {
       label: 'Inter',
-      value: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif"
+      value:
+        "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif"
     },
     {
       label: 'Segoe UI',
-      value: "'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif"
+      value:
+        "'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif"
     },
     {
       label: 'Noto Sans',
@@ -118,7 +214,7 @@ function GeneralPanel(): React.JSX.Element {
     {
       label: 'Monospace',
       value: "ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace"
-    },
+    }
   ]
 
   const clampFontSize = (value: number): number => Math.min(20, Math.max(12, value))
@@ -129,7 +225,12 @@ function GeneralPanel(): React.JSX.Element {
     setDownloadedVersion(null)
     try {
       const result = (await window.electron.ipcRenderer.invoke(IPC.UPDATE_CHECK)) as
-        | { success: true; available: boolean; currentVersion: string; latestVersion: string | null }
+        | {
+            success: true
+            available: boolean
+            currentVersion: string
+            latestVersion: string | null
+          }
         | { success: false; error: string }
 
       if (!result.success) {
@@ -248,7 +349,11 @@ function GeneralPanel(): React.JSX.Element {
           toast.info(t('general.data.importNone'))
         }
       } catch (err) {
-        toast.error(t('general.data.importFailed', { error: err instanceof Error ? err.message : String(err) }))
+        toast.error(
+          t('general.data.importFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          })
+        )
       }
     }
     input.click()
@@ -260,7 +365,10 @@ function GeneralPanel(): React.JSX.Element {
       toast.info(t('general.data.noSessions'))
       return
     }
-    const ok = await confirm({ title: t('general.data.clearConfirm', { count: total }), variant: 'destructive' })
+    const ok = await confirm({
+      title: t('general.data.clearConfirm', { count: total }),
+      variant: 'destructive'
+    })
     if (!ok) return
     clearAllSessions()
     toast.success(t('general.data.cleared', { count: total }))
@@ -278,29 +386,39 @@ function GeneralPanel(): React.JSX.Element {
           <span className="font-medium">Update status</span>
           <span className="text-xs text-muted-foreground">
             Current v{currentVersion}
-            {latestVersion && (
-              <>
-                {' '}
-                · Latest v{latestVersion}
-              </>
-            )}
+            {latestVersion && <> · Latest v{latestVersion}</>}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void checkForUpdates()} disabled={checkingUpdate}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => void checkForUpdates()}
+            disabled={checkingUpdate}
+          >
             {checkingUpdate && <Loader2 className="mr-1 size-3 animate-spin" />}
             {checkingUpdate ? 'Checking…' : 'Check for updates'}
           </Button>
           {updateAvailable && (
-            <Button size="sm" className="h-7 text-xs" onClick={() => void handleUpdateNow()} disabled={downloadingUpdate}>
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => void handleUpdateNow()}
+              disabled={downloadingUpdate}
+            >
               {downloadingUpdate && <Loader2 className="mr-1 size-3 animate-spin" />}
               {downloadingUpdate ? 'Updating…' : 'Update now'}
             </Button>
           )}
         </div>
-        {updateError && <p className="text-xs text-destructive">Failed to check updates: {updateError}</p>}
+        {updateError && (
+          <p className="text-xs text-destructive">Failed to check updates: {updateError}</p>
+        )}
         {!updateError && !updateAvailable && latestVersion && !checkingUpdate && (
-          <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500">You are up to date.</p>
+          <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500">
+            You are up to date.
+          </p>
         )}
         {updateAvailable && !downloadingUpdate && (
           <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
@@ -309,7 +427,8 @@ function GeneralPanel(): React.JSX.Element {
         )}
         {downloadingUpdate && (
           <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
-            Downloading update{typeof downloadProgress === 'number' ? `… ${Math.round(downloadProgress)}%` : '…'}
+            Downloading update
+            {typeof downloadProgress === 'number' ? `… ${Math.round(downloadProgress)}%` : '…'}
           </p>
         )}
         {downloadedVersion && (
@@ -359,7 +478,9 @@ function GeneralPanel(): React.JSX.Element {
         <div className="space-y-2">
           <div>
             <label className="text-xs font-medium">{t('general.appearance.background')}</label>
-            <p className="text-xs text-muted-foreground">{t('general.appearance.backgroundDesc')}</p>
+            <p className="text-xs text-muted-foreground">
+              {t('general.appearance.backgroundDesc')}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Input
@@ -415,7 +536,9 @@ function GeneralPanel(): React.JSX.Element {
           <div className="flex items-center justify-between max-w-lg">
             <div>
               <label className="text-xs font-medium">{t('general.appearance.fontSize')}</label>
-              <p className="text-xs text-muted-foreground">{t('general.appearance.fontSizeDesc')}</p>
+              <p className="text-xs text-muted-foreground">
+                {t('general.appearance.fontSizeDesc')}
+              </p>
             </div>
             <span className="text-xs text-muted-foreground">{settings.fontSize}px</span>
           </div>
@@ -498,9 +621,7 @@ function GeneralPanel(): React.JSX.Element {
         <div className="flex items-center justify-between max-w-lg">
           <div>
             <label className="text-sm font-medium">{t('general.teamTools')}</label>
-            <p className="text-xs text-muted-foreground">
-              {t('general.teamToolsDesc')}
-            </p>
+            <p className="text-xs text-muted-foreground">{t('general.teamToolsDesc')}</p>
           </div>
           <Switch
             checked={settings.teamToolsEnabled}
@@ -508,9 +629,7 @@ function GeneralPanel(): React.JSX.Element {
           />
         </div>
         {settings.teamToolsEnabled && (
-          <p className="text-xs text-muted-foreground/70">
-            {t('general.teamToolsEnabled')}
-          </p>
+          <p className="text-xs text-muted-foreground/70">{t('general.teamToolsEnabled')}</p>
         )}
       </section>
 
@@ -521,13 +640,13 @@ function GeneralPanel(): React.JSX.Element {
         <div className="flex items-center justify-between max-w-lg">
           <div>
             <label className="text-sm font-medium">{t('general.contextCompression')}</label>
-            <p className="text-xs text-muted-foreground">
-              {t('general.contextCompressionDesc')}
-            </p>
+            <p className="text-xs text-muted-foreground">{t('general.contextCompressionDesc')}</p>
           </div>
           <Switch
             checked={settings.contextCompressionEnabled}
-            onCheckedChange={(checked) => settings.updateSettings({ contextCompressionEnabled: checked })}
+            onCheckedChange={(checked) =>
+              settings.updateSettings({ contextCompressionEnabled: checked })
+            }
           />
         </div>
         {settings.contextCompressionEnabled && (
@@ -731,7 +850,7 @@ function MemoryPanel(): React.JSX.Element {
     try {
       const result = await ipcClient.invoke(IPC.FS_WRITE_FILE, {
         path: memoryPath,
-        content: draftContent,
+        content: draftContent
       })
       const error = getIpcError(result)
       if (error) {
@@ -762,7 +881,9 @@ function MemoryPanel(): React.JSX.Element {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="space-y-1">
             <p className="text-sm font-medium">{t('memory.pathLabel')}</p>
-            <p className="break-all text-xs text-muted-foreground">{memoryPath || t('memory.pathUnavailable')}</p>
+            <p className="break-all text-xs text-muted-foreground">
+              {memoryPath || t('memory.pathUnavailable')}
+            </p>
           </div>
           <Button
             variant="outline"
@@ -808,7 +929,11 @@ function MemoryPanel(): React.JSX.Element {
             onClick={() => void handleSave()}
             disabled={saving || loading || !hasUnsavedChanges}
           >
-            {saving ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Save className="mr-1.5 size-3.5" />}
+            {saving ? (
+              <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+            ) : (
+              <Save className="mr-1.5 size-3.5" />
+            )}
             {saving ? t('memory.savingAction') : t('memory.saveAction')}
           </Button>
           <Button
@@ -840,6 +965,8 @@ function ModelPanel(): React.JSX.Element {
   const activeTranslationModelId = useProviderStore((s) => s.activeTranslationModelId)
   const activeSpeechProviderId = useProviderStore((s) => s.activeSpeechProviderId)
   const activeSpeechModelId = useProviderStore((s) => s.activeSpeechModelId)
+  const activeImageProviderId = useProviderStore((s) => s.activeImageProviderId)
+  const activeImageModelId = useProviderStore((s) => s.activeImageModelId)
   const setActiveProvider = useProviderStore((s) => s.setActiveProvider)
   const setActiveModel = useProviderStore((s) => s.setActiveModel)
   const setActiveFastModel = useProviderStore((s) => s.setActiveFastModel)
@@ -848,43 +975,70 @@ function ModelPanel(): React.JSX.Element {
   const setActiveTranslationModel = useProviderStore((s) => s.setActiveTranslationModel)
   const setActiveSpeechProvider = useProviderStore((s) => s.setActiveSpeechProvider)
   const setActiveSpeechModel = useProviderStore((s) => s.setActiveSpeechModel)
+  const setActiveImageProvider = useProviderStore((s) => s.setActiveImageProvider)
+  const setActiveImageModel = useProviderStore((s) => s.setActiveImageModel)
 
   const enabledProviders = providers.filter((p) => p.enabled)
-  const activeProvider = providers.find((p) => p.id === activeProviderId) ?? null
-  const fastProvider = providers.find((p) => p.id === (activeFastProviderId ?? activeProviderId)) ?? activeProvider
-  const fastProviderEnabledModels = fastProvider?.models.filter((m) => m.enabled && (!m.category || m.category === 'chat')) ?? []
-
-  const providerModelGroups = enabledProviders
+  const chatProviderGroups = enabledProviders
     .map((provider) => ({
       provider,
-      models: provider.models.filter((m) => m.enabled),
+      models: provider.models.filter(
+        (model) => model.enabled && (!model.category || model.category === 'chat')
+      )
+    }))
+    .filter((group) => group.models.length > 0)
+  const imageProviderGroups = enabledProviders
+    .map((provider) => ({
+      provider,
+      models: provider.models.filter((model) => model.enabled && model.category === 'image')
     }))
     .filter((group) => group.models.length > 0)
 
-  const hasAnyEnabledModel = providerModelGroups.length > 0
-  const buildModelValue = (providerId: string, modelId: string): string => `${providerId}::${modelId}`
+  const activeProvider =
+    chatProviderGroups.find(({ provider }) => provider.id === activeProviderId)?.provider ?? null
+  const fastProvider =
+    chatProviderGroups.find(
+      ({ provider }) => provider.id === (activeFastProviderId ?? activeProviderId)
+    )?.provider ?? activeProvider
+  const fastProviderEnabledModels =
+    fastProvider?.models.filter((m) => m.enabled && (!m.category || m.category === 'chat')) ?? []
+
+  const hasAnyEnabledModel = chatProviderGroups.length > 0
+  const hasImageModels = imageProviderGroups.length > 0
+  const buildModelValue = (providerId: string, modelId: string): string =>
+    `${providerId}::${modelId}`
   const parseModelValue = (value: string): { providerId: string; modelId: string } | null => {
     const [providerId, modelId] = value.split('::')
     if (!providerId || !modelId) return null
     return { providerId, modelId }
   }
 
-  const activeModelValue = activeProvider && activeModelId
-    ? buildModelValue(activeProvider.id, activeModelId)
-    : ''
+  const activeModelValue =
+    activeProvider && activeModelId ? buildModelValue(activeProvider.id, activeModelId) : ''
   const translationProvider =
-    providers.find((p) => p.id === (activeTranslationProviderId ?? activeProviderId)) ?? activeProvider
-  const translationProviderEnabledModels = translationProvider?.models.filter((m) => m.enabled && (!m.category || m.category === 'chat')) ?? []
+    chatProviderGroups.find(
+      ({ provider }) => provider.id === (activeTranslationProviderId ?? activeProviderId)
+    )?.provider ?? activeProvider
+  const translationProviderEnabledModels =
+    translationProvider?.models.filter(
+      (m) => m.enabled && (!m.category || m.category === 'chat')
+    ) ?? []
   const speechProvider = providers.find((p) => p.id === activeSpeechProviderId)
-  const activeSpeechModelValue = speechProvider && activeSpeechModelId
-    ? buildModelValue(speechProvider.id, activeSpeechModelId)
-    : ''
+  const activeSpeechModelValue =
+    speechProvider && activeSpeechModelId
+      ? buildModelValue(speechProvider.id, activeSpeechModelId)
+      : ''
+  const imageProvider = providers.find((p) => p.id === activeImageProviderId)
+  const activeImageModelValue =
+    imageProvider && activeImageModelId ? buildModelValue(imageProvider.id, activeImageModelId) : ''
 
-  const speechProviderGroups = providerModelGroups
-    .filter(({ provider }) => provider.type === 'openai-chat' || provider.type === 'openai-responses')
+  const speechProviderGroups = chatProviderGroups
+    .filter(
+      ({ provider }) => provider.type === 'openai-chat' || provider.type === 'openai-responses'
+    )
     .map(({ provider, models }) => ({
       provider,
-      models: models.filter((m) => m.category === 'speech'),
+      models: models.filter((m) => m.category === 'speech')
     }))
     .filter(({ models }) => models.length > 0)
   const hasSpeechModels = speechProviderGroups.length > 0
@@ -901,9 +1055,7 @@ function ModelPanel(): React.JSX.Element {
       {noProviders ? (
         <div className="rounded-lg border border-dashed p-6 text-center space-y-2">
           <p className="text-sm text-muted-foreground">{t('model.noProviders')}</p>
-          <p className="text-xs text-muted-foreground/60">
-            {t('model.noProvidersHint')}
-          </p>
+          <p className="text-xs text-muted-foreground/60">{t('model.noProvidersHint')}</p>
         </div>
       ) : (
         <>
@@ -929,7 +1081,7 @@ function ModelPanel(): React.JSX.Element {
                   <SelectValue placeholder={t('model.selectModel')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {providerModelGroups.map(({ provider, models }) => (
+                  {chatProviderGroups.map(({ provider, models }) => (
                     <SelectGroup key={provider.id}>
                       <SelectLabel className="text-[10px] uppercase tracking-wide">
                         {provider.name}
@@ -950,9 +1102,7 @@ function ModelPanel(): React.JSX.Element {
                             />
                             <div className="flex flex-col text-left">
                               <span>{m.name}</span>
-                              <span className="text-[10px] text-muted-foreground/60">
-                                {m.id}
-                              </span>
+                              <span className="text-[10px] text-muted-foreground/60">{m.id}</span>
                             </div>
                           </div>
                         </SelectItem>
@@ -962,9 +1112,7 @@ function ModelPanel(): React.JSX.Element {
                 </SelectContent>
               </Select>
             ) : (
-              <p className="text-xs text-muted-foreground/60">
-                {t('model.noModelsHint')}
-              </p>
+              <p className="text-xs text-muted-foreground/60">{t('model.noModelsHint')}</p>
             )}
           </section>
 
@@ -972,11 +1120,9 @@ function ModelPanel(): React.JSX.Element {
           <section className="space-y-3">
             <div>
               <label className="text-sm font-medium">{t('model.fastModel')}</label>
-              <p className="text-xs text-muted-foreground">
-                {t('model.fastModelDesc')}
-              </p>
+              <p className="text-xs text-muted-foreground">{t('model.fastModelDesc')}</p>
             </div>
-            {providerModelGroups.length > 0 ? (
+            {chatProviderGroups.length > 0 ? (
               <div className="space-y-2">
                 <Select
                   value={fastProvider?.id ?? ''}
@@ -986,7 +1132,7 @@ function ModelPanel(): React.JSX.Element {
                     <SelectValue placeholder={t('model.selectProvider')} />
                   </SelectTrigger>
                   <SelectContent>
-                    {providerModelGroups.map(({ provider }) => (
+                    {chatProviderGroups.map(({ provider }) => (
                       <SelectItem key={provider.id} value={provider.id} className="text-xs">
                         <span className="flex items-center gap-2">
                           <ProviderIcon builtinId={provider.builtinId} size={14} />
@@ -1026,15 +1172,11 @@ function ModelPanel(): React.JSX.Element {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <p className="text-xs text-muted-foreground/60">
-                    {t('model.noModelsHint')}
-                  </p>
+                  <p className="text-xs text-muted-foreground/60">{t('model.noModelsHint')}</p>
                 )}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground/60">
-                {t('model.noModelsHint')}
-              </p>
+              <p className="text-xs text-muted-foreground/60">{t('model.noModelsHint')}</p>
             )}
           </section>
 
@@ -1044,7 +1186,7 @@ function ModelPanel(): React.JSX.Element {
               <label className="text-sm font-medium">{t('model.translationModel')}</label>
               <p className="text-xs text-muted-foreground">{t('model.translationModelDesc')}</p>
             </div>
-            {providerModelGroups.length > 0 ? (
+            {chatProviderGroups.length > 0 ? (
               <div className="space-y-2">
                 <Select
                   value={translationProvider?.id ?? ''}
@@ -1054,8 +1196,12 @@ function ModelPanel(): React.JSX.Element {
                     <SelectValue placeholder={t('model.selectProvider')} />
                   </SelectTrigger>
                   <SelectContent>
-                    {providerModelGroups.map(({ provider }) => (
-                      <SelectItem key={`${provider.id}-translation-provider`} value={provider.id} className="text-xs">
+                    {chatProviderGroups.map(({ provider }) => (
+                      <SelectItem
+                        key={`${provider.id}-translation-provider`}
+                        value={provider.id}
+                        className="text-xs"
+                      >
                         <span className="flex items-center gap-2">
                           <ProviderIcon builtinId={provider.builtinId} size={14} />
                           {provider.name}
@@ -1067,7 +1213,9 @@ function ModelPanel(): React.JSX.Element {
 
                 {translationProviderEnabledModels.length > 0 ? (
                   <Select
-                    value={activeTranslationModelId || translationProviderEnabledModels[0]?.id || ''}
+                    value={
+                      activeTranslationModelId || translationProviderEnabledModels[0]?.id || ''
+                    }
                     onValueChange={(value) => setActiveTranslationModel(value)}
                   >
                     <SelectTrigger className="w-80 text-xs">
@@ -1075,7 +1223,11 @@ function ModelPanel(): React.JSX.Element {
                     </SelectTrigger>
                     <SelectContent>
                       {translationProviderEnabledModels.map((m) => (
-                        <SelectItem key={`translation-model-${m.id}`} value={m.id} className="text-xs">
+                        <SelectItem
+                          key={`translation-model-${m.id}`}
+                          value={m.id}
+                          className="text-xs"
+                        >
                           <div className="flex items-center gap-2">
                             <ModelIcon
                               icon={m.icon}
@@ -1099,6 +1251,61 @@ function ModelPanel(): React.JSX.Element {
               </div>
             ) : (
               <p className="text-xs text-muted-foreground/60">{t('model.noModelsHint')}</p>
+            )}
+          </section>
+
+          {/* Image Model */}
+          <section className="space-y-3">
+            <div>
+              <label className="text-sm font-medium">{t('model.imageModel')}</label>
+              <p className="text-xs text-muted-foreground">{t('model.imageModelDesc')}</p>
+            </div>
+            {hasImageModels ? (
+              <Select
+                value={activeImageModelValue}
+                onValueChange={(value) => {
+                  const parsed = parseModelValue(value)
+                  if (!parsed) return
+                  setActiveImageProvider(parsed.providerId)
+                  setActiveImageModel(parsed.modelId)
+                }}
+              >
+                <SelectTrigger className="w-80 text-xs">
+                  <SelectValue placeholder={t('model.selectImageModel')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {imageProviderGroups.map(({ provider, models }) => (
+                    <SelectGroup key={`${provider.id}-image`}>
+                      <SelectLabel className="text-[10px] uppercase tracking-wide">
+                        {provider.name}
+                      </SelectLabel>
+                      {models.map((m) => (
+                        <SelectItem
+                          key={`${provider.id}-image-${m.id}`}
+                          value={buildModelValue(provider.id, m.id)}
+                          className="text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <ModelIcon
+                              icon={m.icon}
+                              modelId={m.id}
+                              providerBuiltinId={provider.builtinId}
+                              size={16}
+                              className="text-muted-foreground/70"
+                            />
+                            <div className="flex flex-col text-left">
+                              <span>{m.name}</span>
+                              <span className="text-[10px] text-muted-foreground/60">{m.id}</span>
+                            </div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="text-xs text-muted-foreground/60">{t('model.noImageModels')}</p>
             )}
           </section>
 
@@ -1153,7 +1360,9 @@ function ModelPanel(): React.JSX.Element {
                 </SelectContent>
               </Select>
             ) : (
-              <p className="text-xs text-muted-foreground/60">{t('model.speechModelNoProviders')}</p>
+              <p className="text-xs text-muted-foreground/60">
+                {t('model.speechModelNoProviders')}
+              </p>
             )}
           </section>
         </>
@@ -1226,7 +1435,6 @@ function ModelPanel(): React.JSX.Element {
   )
 }
 
-
 function AboutPanel(): React.JSX.Element {
   const { t } = useTranslation('settings')
   const appVersion = packageJson.version ?? '0.0.0'
@@ -1234,24 +1442,24 @@ function AboutPanel(): React.JSX.Element {
     { label: t('about.version'), value: appVersion },
     { label: t('about.framework'), value: 'Electron · React · TypeScript' },
     { label: t('about.ui'), value: 'shadcn/ui · TailwindCSS' },
-    { label: t('about.license'), value: 'Apache 2.0' },
+    { label: t('about.license'), value: 'Apache 2.0' }
   ]
   const featureCards = [
     {
       icon: Sparkles,
       title: t('about.featureCards.orchestration.title'),
-      desc: t('about.featureCards.orchestration.desc'),
+      desc: t('about.featureCards.orchestration.desc')
     },
     {
       icon: ShieldCheck,
       title: t('about.featureCards.sandbox.title'),
-      desc: t('about.featureCards.sandbox.desc'),
+      desc: t('about.featureCards.sandbox.desc')
     },
     {
       icon: Layers,
       title: t('about.featureCards.channels.title'),
-      desc: t('about.featureCards.channels.desc'),
-    },
+      desc: t('about.featureCards.channels.desc')
+    }
   ]
   return (
     <div className="space-y-8">
@@ -1264,7 +1472,9 @@ function AboutPanel(): React.JSX.Element {
           variant="outline"
           size="sm"
           className="gap-1.5 text-xs"
-          onClick={() => window.open('https://github.com/AIDotNet/OpenCowork', '_blank', 'noopener')}
+          onClick={() =>
+            window.open('https://github.com/AIDotNet/OpenCowork', '_blank', 'noopener')
+          }
         >
           <Github className="size-3.5" /> GitHub
         </Button>
@@ -1279,10 +1489,15 @@ function AboutPanel(): React.JSX.Element {
                   OC
                 </div>
               </div>
-              <div className="absolute -inset-1 rounded-3xl bg-primary/10 blur-2xl" aria-hidden="true" />
+              <div
+                className="absolute -inset-1 rounded-3xl bg-primary/10 blur-2xl"
+                aria-hidden="true"
+              />
             </div>
             <div className="space-y-1">
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{t('about.heroTagline')}</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                {t('about.heroTagline')}
+              </p>
               <h3 className="text-2xl font-semibold text-foreground">OpenCowork</h3>
               <p className="text-sm text-muted-foreground">{t('about.heroDescription')}</p>
             </div>
@@ -1290,7 +1505,10 @@ function AboutPanel(): React.JSX.Element {
           <Separator className="my-6 border-border/40" />
           <div className="grid gap-4 sm:grid-cols-2">
             {meta.map((item) => (
-              <div key={item.label} className="rounded-2xl border border-border/50 bg-card px-4 py-3 text-sm">
+              <div
+                key={item.label}
+                className="rounded-2xl border border-border/50 bg-card px-4 py-3 text-sm"
+              >
                 <p className="text-xs uppercase text-muted-foreground/70">{item.label}</p>
                 <p className="mt-1 font-medium text-foreground">{item.value}</p>
               </div>
@@ -1299,12 +1517,17 @@ function AboutPanel(): React.JSX.Element {
         </section>
 
         <section className="rounded-3xl border border-border/70 bg-card/60 p-5 shadow-lg shadow-slate-900/5">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary">{t('about.workflowLabel')}</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-primary">
+            {t('about.workflowLabel')}
+          </p>
           <h4 className="mt-2 text-lg font-semibold">{t('about.workflowTitle')}</h4>
           <p className="mt-1 text-sm text-muted-foreground">{t('about.workflowDescription')}</p>
           <div className="mt-4 space-y-3">
             {featureCards.map((card) => (
-              <div key={card.title} className="flex gap-3 rounded-2xl border border-border/80 bg-background/70 px-3 py-2">
+              <div
+                key={card.title}
+                className="flex gap-3 rounded-2xl border border-border/80 bg-background/70 px-3 py-2"
+              >
                 <card.icon className="mt-0.5 size-4 text-primary" />
                 <div>
                   <p className="text-sm font-medium">{card.title}</p>
@@ -1316,7 +1539,9 @@ function AboutPanel(): React.JSX.Element {
           <Button
             className="mt-4 h-9 w-full text-xs"
             variant="secondary"
-            onClick={() => window.open('https://github.com/AIDotNet/OpenCowork/releases', '_blank', 'noopener')}
+            onClick={() =>
+              window.open('https://github.com/AIDotNet/OpenCowork/releases', '_blank', 'noopener')
+            }
           >
             {t('about.workflowCta')}
           </Button>
@@ -1334,6 +1559,7 @@ const panelMap: Record<SettingsTab, () => React.JSX.Element> = {
   general: GeneralPanel,
   memory: MemoryPanel,
   provider: ProviderPanel,
+  plugin: AppPluginPanel,
   channel: ChannelPanel,
   mcp: McpPanel,
   model: ModelPanel,
@@ -1363,40 +1589,48 @@ export function SettingsPage(): React.JSX.Element {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-1 px-3 overflow-y-auto">
-          {menuItemDefs.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setSettingsTab(item.id)}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-all duration-150 ${
-                settingsTab === item.id
-                  ? 'bg-accent text-accent-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-              }`}
-            >
-              <span
-                className={`flex items-center justify-center size-5 ${
-                  settingsTab === item.id ? 'text-accent-foreground' : 'text-muted-foreground'
-                }`}
-              >
-                {item.icon}
-              </span>
-              <span>{t(item.labelKey)}</span>
-            </button>
+        <nav className="flex-1 space-y-4 px-3 overflow-y-auto">
+          {menuGroupDefs.map((group) => (
+            <div key={group.labelKey} className="space-y-1">
+              <p className="px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+                {t(group.labelKey)}
+              </p>
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setSettingsTab(item.id)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-all duration-150 ${
+                    settingsTab === item.id
+                      ? 'bg-accent text-accent-foreground font-medium'
+                      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                  }`}
+                >
+                  <span
+                    className={`flex items-center justify-center size-5 ${
+                      settingsTab === item.id ? 'text-accent-foreground' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {item.icon}
+                  </span>
+                  <span>{t(item.labelKey)}</span>
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
 
         {/* Footer */}
-        <div className="px-5 py-4 text-[11px] text-muted-foreground/50">
-          {t('page.poweredBy')}
-        </div>
+        <div className="px-5 py-4 text-[11px] text-muted-foreground/50">{t('page.poweredBy')}</div>
       </div>
 
       {/* Right Content */}
       <div className="relative flex-1 flex flex-col min-w-0 overflow-hidden px-6 py-4">
         {/* Content */}
         <AnimatePresence mode="wait">
-          {settingsTab === 'provider' || settingsTab === 'channel' || settingsTab === 'mcp' ? (
+          {settingsTab === 'provider' ||
+          settingsTab === 'plugin' ||
+          settingsTab === 'channel' ||
+          settingsTab === 'mcp' ? (
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden pb-4" key="full-panel">
               <SlideIn key={settingsTab} direction="right" duration={0.25} className="h-full">
                 <ActivePanel />

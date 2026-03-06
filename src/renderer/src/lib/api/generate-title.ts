@@ -9,10 +9,115 @@ export interface SessionTitleResult {
   icon: string
 }
 
-export interface FriendlyMessageParams {
-  language: 'zh' | 'en'
-  status: 'idle' | 'pending' | 'error' | 'streaming' | 'agents' | 'background'
-  detail?: string
+export type FriendlyStatus = 'idle' | 'pending' | 'error' | 'streaming' | 'agents' | 'background'
+
+const FRIENDLY_MESSAGES: Record<FriendlyStatus, { zh: string[]; en: string[] }> = {
+  idle: {
+    zh: [
+      '随时准备为你效劳',
+      '有什么想法，尽管说',
+      '今天也是元气满满的一天',
+      '准备就绪，等你发令',
+      '万事俱备，只欠你开口',
+      '灵感来了就别犹豫',
+      '你的专属助手已上线',
+      '静候佳音',
+    ],
+    en: [
+      'Ready when you are',
+      'What shall we build today?',
+      'Standing by for your ideas',
+      'All systems go',
+      'Your assistant is ready',
+      'Inspiration awaits',
+      'Let\'s get things done',
+      'At your service',
+    ],
+  },
+  streaming: {
+    zh: [
+      '思考中，请稍候',
+      '正在组织回答',
+      '全力运转中',
+      '马上就好',
+      '正在为你解答',
+      '灵感涌来中',
+    ],
+    en: [
+      'Thinking...',
+      'Working on it',
+      'Almost there',
+      'Processing your request',
+      'Crafting a response',
+      'On it',
+    ],
+  },
+  pending: {
+    zh: [
+      '等待你的确认',
+      '需要你看一下',
+      '请审批操作',
+      '操作待确认',
+    ],
+    en: [
+      'Waiting for your approval',
+      'Action needs confirmation',
+      'Please review',
+      'Approval needed',
+    ],
+  },
+  error: {
+    zh: [
+      '遇到了一点问题',
+      '出了点小状况',
+      '别担心，我们来看看',
+      '需要你关注一下',
+    ],
+    en: [
+      'Something went wrong',
+      'Hit a snag',
+      'Let\'s take a look',
+      'Needs your attention',
+    ],
+  },
+  agents: {
+    zh: [
+      '子任务进行中',
+      '团队协作中',
+      '多个助手协同工作中',
+      '正在并行处理',
+    ],
+    en: [
+      'Sub-agents at work',
+      'Team is collaborating',
+      'Working in parallel',
+      'Agents are on it',
+    ],
+  },
+  background: {
+    zh: [
+      '后台任务运行中',
+      '命令执行中',
+      '后台进程工作中',
+    ],
+    en: [
+      'Background tasks running',
+      'Commands in progress',
+      'Working in the background',
+    ],
+  },
+}
+
+let lastPickIndex: Record<string, number> = {}
+
+export function pickFriendlyMessage(status: FriendlyStatus, language: 'zh' | 'en'): string {
+  const pool = FRIENDLY_MESSAGES[status]?.[language] ?? FRIENDLY_MESSAGES.idle[language]
+  const key = `${status}_${language}`
+  const prevIdx = lastPickIndex[key] ?? -1
+  let idx = Math.floor(Math.random() * pool.length)
+  if (pool.length > 1 && idx === prevIdx) idx = (idx + 1) % pool.length
+  lastPickIndex[key] = idx
+  return pool[idx]
 }
 
 const stripReasoningBlocks = (value: string): string =>
@@ -20,82 +125,28 @@ const stripReasoningBlocks = (value: string): string =>
     .replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '')
     .replace(/<\/think>/gi, '')
 
-const FRIENDLY_SYSTEM_PROMPT = `You generate a single friendly sentence for the app title bar.
-Rules:
-- Output ONE sentence only, no lists, no quotes, no emojis, no markdown.
-- Keep it short: 8 to 18 Chinese characters or 6 to 12 English words.
-- Tone: encouraging, warm, and slightly witty. You may use a short proverb or a light saying.
-- Context is provided as a status string; reflect it subtly if possible.
-- Do NOT mention models, providers, or system internals.
-- Output plain text only.`
+const stripMarkdown = (value: string): string =>
+  value
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/_(.+?)_/g, '$1')
+    .replace(/~~(.+?)~~/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
 
-export async function generateFriendlyMessage(
-  params: FriendlyMessageParams
-): Promise<string | null> {
-  const settings = useSettingsStore.getState()
-
-  const fastConfig = useProviderStore.getState().getFastProviderConfig()
-  const config: ProviderConfig | null = fastConfig
-    ? {
-        ...fastConfig,
-        maxTokens: 60,
-        temperature: 0.6,
-        systemPrompt: FRIENDLY_SYSTEM_PROMPT,
-        responseSummary: useProviderStore.getState().getActiveModelConfig()?.responseSummary,
-        enablePromptCache: useProviderStore.getState().getActiveModelConfig()?.enablePromptCache,
-        enableSystemPromptCache: useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache
-      }
-    : settings.apiKey && settings.fastModel
-      ? {
-          type: settings.provider,
-          apiKey: settings.apiKey,
-          baseUrl: settings.baseUrl || undefined,
-          model: settings.fastModel,
-          maxTokens: 60,
-          temperature: 0.6,
-          systemPrompt: FRIENDLY_SYSTEM_PROMPT,
-          responseSummary: useProviderStore.getState().getActiveModelConfig()?.responseSummary,
-          enablePromptCache: useProviderStore.getState().getActiveModelConfig()?.enablePromptCache,
-          enableSystemPromptCache: useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache
-        }
-      : null
-
-  if (!config || (config.requiresApiKey !== false && !config.apiKey)) return null
-
-  const statusLine = `status=${params.status}${params.detail ? `; ${params.detail}` : ''}`
-  const languageLine = params.language === 'zh' ? 'language=zh' : 'language=en'
-
-  const messages: UnifiedMessage[] = [
-    {
-      id: 'friendly-req',
-      role: 'user',
-      content: `${languageLine}; ${statusLine}`,
-      createdAt: Date.now()
-    }
+const looksLikeReasoning = (value: string): boolean => {
+  const markers = [
+    /思考过程/,
+    /分析.*指令/,
+    /\*\*目标\*\*/,
+    /步骤\s*\d/,
+    /^(?:\d+\.\s)/m,
+    /^\s*[-*]\s+\*\*/m,
   ]
-
-  try {
-    const provider = createProvider(config)
-    const abortController = new AbortController()
-    const timeout = setTimeout(() => abortController.abort(), 12000)
-
-    let text = ''
-    for await (const event of provider.sendMessage(messages, [], config, abortController.signal)) {
-      if (event.type === 'text_delta' && event.text) {
-        text += event.text
-      }
-    }
-    clearTimeout(timeout)
-
-    const cleaned = stripReasoningBlocks(text)
-      .replace(/```[\s\S]*?```/g, '')
-      .trim()
-    if (!cleaned) return null
-
-    return cleaned.replace(/^"|"$/g, '').trim()
-  } catch {
-    return null
-  }
+  return markers.filter((r) => r.test(value)).length >= 2
 }
 
 const TITLE_SYSTEM_PROMPT = `You are a title generator. Given a user message, produce:
@@ -165,28 +216,34 @@ export async function generateSessionTitle(userMessage: string): Promise<Session
     }
     clearTimeout(timeout)
 
-    // Strip thinking tags, markdown fences, and surrounding whitespace
+    if (looksLikeReasoning(title)) return null
+
     const cleaned = stripReasoningBlocks(title)
       .replace(/```(?:json)?\s*([\s\S]*?)```/g, '$1')
       .trim()
     if (!cleaned) return null
 
-    // Try to parse JSON response — use a non-greedy match scoped to a single object
     try {
       const jsonMatch = cleaned.match(/\{[^{}]*"title"\s*:\s*"[^"]*"[^{}]*\}/)
         ?? cleaned.match(/\{[\s\S]*?\}/)
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0])
         if (parsed.title && parsed.icon) {
-          let t = stripReasoningBlocks(String(parsed.title)).trim().replace(/^["']|["']$/g, '').trim()
+          let t = stripMarkdown(stripReasoningBlocks(String(parsed.title)))
+            .replace(/^["']|["']$/g, '')
+            .replace(/\n+/g, ' ')
+            .trim()
           if (t.length > 40) t = t.slice(0, 40) + '...'
           return { title: t, icon: String(parsed.icon).trim() }
         }
       }
     } catch { /* fall through to plain-text fallback */ }
 
-    // Fallback: treat entire response as title, use default icon
-    let plainTitle = stripReasoningBlocks(cleaned).replace(/^["']|["']$/g, '').replace(/[{}]/g, '').trim()
+    let plainTitle = stripMarkdown(stripReasoningBlocks(cleaned))
+      .replace(/^["']|["']$/g, '')
+      .replace(/[{}]/g, '')
+      .replace(/\n+/g, ' ')
+      .trim()
     if (plainTitle.length > 40) plainTitle = plainTitle.slice(0, 40) + '...'
     return { title: plainTitle, icon: 'message-square' }
   } catch {

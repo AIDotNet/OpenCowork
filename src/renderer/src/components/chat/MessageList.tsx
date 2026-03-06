@@ -9,29 +9,32 @@ import { Button } from '@renderer/components/ui/button'
 
 import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
 import type { ToolCallState } from '@renderer/lib/agent/types'
-
+import {
+  isEditableUserMessage,
+  type EditableUserMessageDraft
+} from '@renderer/lib/image-attachments'
 
 const modeHints = {
   chat: {
     icon: <MessageSquare className="size-12 text-muted-foreground/20" />,
     titleKey: 'messageList.startConversation',
-    descKey: 'messageList.startConversationDesc',
+    descKey: 'messageList.startConversationDesc'
   },
   cowork: {
     icon: <Briefcase className="size-12 text-muted-foreground/20" />,
     titleKey: 'messageList.startCowork',
-    descKey: 'messageList.startCoworkDesc',
+    descKey: 'messageList.startCoworkDesc'
   },
   code: {
     icon: <Code2 className="size-12 text-muted-foreground/20" />,
     titleKey: 'messageList.startCoding',
-    descKey: 'messageList.startCodingDesc',
-  },
+    descKey: 'messageList.startCodingDesc'
+  }
 }
 
 interface MessageListProps {
   onRetry?: () => void
-  onEditUserMessage?: (newContent: string) => void
+  onEditUserMessage?: (draft: EditableUserMessageDraft) => void
 }
 
 interface RenderableMessage {
@@ -64,12 +67,13 @@ function isToolResultOnlyUserMessage(message: UnifiedMessage): boolean {
 }
 
 function isRealUserMessage(message: UnifiedMessage): boolean {
-  if (message.role !== 'user' || message.source) return false
-  if (typeof message.content === 'string') return true
-  return message.content.some((block) => block.type === 'text')
+  return isEditableUserMessage(message)
 }
 
-function collectToolResults(blocks: ContentBlock[], target: Map<string, { content: ToolResultContent; isError?: boolean }>): void {
+function collectToolResults(
+  blocks: ContentBlock[],
+  target: Map<string, { content: ToolResultContent; isError?: boolean }>
+): void {
   for (const block of blocks) {
     if (block.type === 'tool_result') {
       target.set(block.toolUseId, { content: block.content, isError: block.isError })
@@ -91,8 +95,13 @@ function buildRenderableMessageMeta(
     }
   }
 
-  const assistantToolResults = new Map<number, Map<string, { content: ToolResultContent; isError?: boolean }>>()
-  let trailingToolResults: Map<string, { content: ToolResultContent; isError?: boolean }> | undefined
+  const assistantToolResults = new Map<
+    number,
+    Map<string, { content: ToolResultContent; isError?: boolean }>
+  >()
+  let trailingToolResults:
+    | Map<string, { content: ToolResultContent; isError?: boolean }>
+    | undefined
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
@@ -102,7 +111,12 @@ function buildRenderableMessageMeta(
       continue
     }
 
-    if (message.role === 'assistant' && Array.isArray(message.content) && trailingToolResults && trailingToolResults.size > 0) {
+    if (
+      message.role === 'assistant' &&
+      Array.isArray(message.content) &&
+      trailingToolResults &&
+      trailingToolResults.size > 0
+    ) {
       assistantToolResults.set(i, trailingToolResults)
     }
     trailingToolResults = undefined
@@ -118,7 +132,7 @@ function buildRenderableMessageMeta(
     result.push({
       messageIndex: i,
       isLastUserMessage: i === lastRealUserIndex,
-      toolResults: assistantToolResults.get(i),
+      toolResults: assistantToolResults.get(i)
     })
   }
   return { items: result, hasAssistantMessages }
@@ -126,7 +140,9 @@ function buildRenderableMessageMeta(
 
 export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): React.JSX.Element {
   const { t } = useTranslation('chat')
-  const activeSession = useChatStore((s) => s.sessions.find((session) => session.id === s.activeSessionId))
+  const activeSession = useChatStore((s) =>
+    s.sessions.find((session) => session.id === s.activeSessionId)
+  )
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const streamingMessageId = useChatStore((s) => s.streamingMessageId)
   const mode = useUIStore((s) => s.mode)
@@ -163,7 +179,7 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
       result.push({
         message,
         isLastUserMessage: item.isLastUserMessage,
-        toolResults: item.toolResults,
+        toolResults: item.toolResults
       })
     }
     return result
@@ -178,7 +194,10 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
 
   // Use content reference as a lightweight streaming update signal (avoid JSON.stringify on large blocks)
   const streamingMsg = React.useMemo(
-    () => (streamingMessageId ? messages.find((message) => message.id === streamingMessageId) ?? null : null),
+    () =>
+      streamingMessageId
+        ? (messages.find((message) => message.id === streamingMessageId) ?? null)
+        : null,
     [messages, streamingMessageId]
   )
   const streamContentSignal = streamingMsg?.content
@@ -208,7 +227,8 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
     if (!container) return
 
     const handleScroll = (): void => {
-      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight
       const threshold = isStreamingRef.current ? 150 : 5
       const nextAtBottom = distanceFromBottom <= threshold
       setIsAtBottom((prev) => (prev === nextAtBottom ? prev : nextAtBottom))
@@ -280,48 +300,58 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-6 text-center px-6">
         <div className="flex flex-col items-center gap-3">
-          <div className="rounded-2xl bg-muted/40 p-4">
-            {hint.icon}
-          </div>
+          <div className="rounded-2xl bg-muted/40 p-4">{hint.icon}</div>
           <div>
             <p className="text-base font-semibold text-foreground/80">{t(hint.titleKey)}</p>
-            <p className="mt-1.5 text-sm text-muted-foreground/60 max-w-[320px]">{t(hint.descKey)}</p>
+            <p className="mt-1.5 text-sm text-muted-foreground/60 max-w-[320px]">
+              {t(hint.descKey)}
+            </p>
           </div>
         </div>
         {mode !== 'chat' && (
-          <p className="text-[11px] text-muted-foreground/40">
-            {t('messageList.tipDropFiles')}
-          </p>
+          <p className="text-[11px] text-muted-foreground/40">{t('messageList.tipDropFiles')}</p>
         )}
         <div className="flex flex-wrap justify-center gap-2 max-w-[400px]">
-          {(mode === 'chat' ? [
-            t('messageList.explainAsync'),
-            t('messageList.compareRest'),
-            t('messageList.writeRegex'),
-          ] : mode === 'cowork' ? (activeSession?.workingFolder ? [
-            t('messageList.summarizeProject'),
-            t('messageList.findBugs'),
-            t('messageList.addErrorHandling'),
-          ] : [
-            t('messageList.reviewCodebase'),
-            t('messageList.addTests'),
-            t('messageList.refactorError'),
-          ]) : (activeSession?.workingFolder ? [
-            t('messageList.addFeature'),
-            t('messageList.writeTestsExisting'),
-            t('messageList.optimizePerformance'),
-          ] : [
-            t('messageList.buildCli'),
-            t('messageList.createRestApi'),
-            t('messageList.writeScript'),
-          ])).map((prompt) => (
+          {(mode === 'chat'
+            ? [
+                t('messageList.explainAsync'),
+                t('messageList.compareRest'),
+                t('messageList.writeRegex')
+              ]
+            : mode === 'cowork'
+              ? activeSession?.workingFolder
+                ? [
+                    t('messageList.summarizeProject'),
+                    t('messageList.findBugs'),
+                    t('messageList.addErrorHandling')
+                  ]
+                : [
+                    t('messageList.reviewCodebase'),
+                    t('messageList.addTests'),
+                    t('messageList.refactorError')
+                  ]
+              : activeSession?.workingFolder
+                ? [
+                    t('messageList.addFeature'),
+                    t('messageList.writeTestsExisting'),
+                    t('messageList.optimizePerformance')
+                  ]
+                : [
+                    t('messageList.buildCli'),
+                    t('messageList.createRestApi'),
+                    t('messageList.writeScript')
+                  ]
+          ).map((prompt) => (
             <button
               key={prompt}
               className="rounded-lg border bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 transition-colors"
               onClick={() => {
                 const textarea = document.querySelector('textarea')
                 if (textarea) {
-                  const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+                  const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                    window.HTMLTextAreaElement.prototype,
+                    'value'
+                  )?.set
                   nativeInputValueSetter?.call(textarea, prompt)
                   textarea.dispatchEvent(new Event('input', { bubbles: true }))
                   textarea.focus()
@@ -334,12 +364,42 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
         </div>
         <div className="mt-1 rounded-xl border bg-muted/30 px-5 py-3">
           <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[11px]">
-            <div className="flex items-center gap-2"><kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Ctrl+N</kbd><span className="text-muted-foreground/60">{t('messageList.newChat')}</span></div>
-            <div className="flex items-center gap-2"><kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Ctrl+K</kbd><span className="text-muted-foreground/60">{t('messageList.commands')}</span></div>
-            <div className="flex items-center gap-2"><kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Ctrl+B</kbd><span className="text-muted-foreground/60">{t('messageList.sidebarShortcut')}</span></div>
-            <div className="flex items-center gap-2"><kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Ctrl+/</kbd><span className="text-muted-foreground/60">{t('messageList.shortcutsShortcut')}</span></div>
-            <div className="flex items-center gap-2"><kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Ctrl+,</kbd><span className="text-muted-foreground/60">{t('messageList.settingsShortcut')}</span></div>
-            <div className="flex items-center gap-2"><kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Ctrl+D</kbd><span className="text-muted-foreground/60">{t('messageList.duplicateShortcut')}</span></div>
+            <div className="flex items-center gap-2">
+              <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                Ctrl+N
+              </kbd>
+              <span className="text-muted-foreground/60">{t('messageList.newChat')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                Ctrl+K
+              </kbd>
+              <span className="text-muted-foreground/60">{t('messageList.commands')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                Ctrl+B
+              </kbd>
+              <span className="text-muted-foreground/60">{t('messageList.sidebarShortcut')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                Ctrl+/
+              </kbd>
+              <span className="text-muted-foreground/60">{t('messageList.shortcutsShortcut')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                Ctrl+,
+              </kbd>
+              <span className="text-muted-foreground/60">{t('messageList.settingsShortcut')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                Ctrl+D
+              </kbd>
+              <span className="text-muted-foreground/60">{t('messageList.duplicateShortcut')}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -349,14 +409,19 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
   return (
     <div className="relative flex-1" data-message-list>
       <div ref={scrollContainerRef} className="absolute inset-0 overflow-y-auto">
-        <div ref={contentRef} data-message-content className="mx-auto max-w-3xl space-y-6 p-4 overflow-hidden">
+        <div
+          ref={contentRef}
+          data-message-content
+          className="mx-auto max-w-3xl space-y-6 p-4 overflow-hidden"
+        >
           {hiddenMessageCount > 0 && (
             <div className="flex justify-center">
               <button
                 className="rounded-md border px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
                 onClick={() => setVisibleCount((prev) => prev + LOAD_MORE_MESSAGE_STEP)}
               >
-                {t('messageList.loadMoreMessages', { defaultValue: '加载更早消息' })} ({hiddenMessageCount})
+                {t('messageList.loadMoreMessages', { defaultValue: '加载更早消息' })} (
+                {hiddenMessageCount})
               </button>
             </div>
           )}
@@ -375,7 +440,12 @@ export function MessageList({ onRetry, onEditUserMessage }: MessageListProps): R
           })}
           {!streamingMessageId && messages.length > 0 && hasAssistantMessages && onRetry && (
             <div className="flex justify-center">
-              <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground" onClick={onRetry}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 text-xs text-muted-foreground"
+                onClick={onRetry}
+              >
                 <RefreshCw className="size-3" />
                 {t('action.retry', { ns: 'common' })}
               </Button>

@@ -49,6 +49,8 @@ import { createWhatsAppService } from './channels/providers/whatsapp/whatsapp-se
 import { parseWhatsAppWsMessage } from './channels/providers/whatsapp/parse-ws-message'
 import { createWeComService } from './channels/providers/wecom/wecom-service'
 import { parseWeComWsMessage } from './channels/providers/wecom/parse-ws-message'
+import { createQQService } from './channels/providers/qq/qq-service'
+import { parseQQWsMessage } from './channels/providers/qq/parse-ws-message'
 import { setPluginManager } from './channels/auto-reply'
 
 const channelManager = new ChannelManager()
@@ -65,6 +67,8 @@ channelManager.registerFactory('whatsapp-bot', createWhatsAppService)
 channelManager.registerParser('whatsapp-bot', parseWhatsAppWsMessage)
 channelManager.registerFactory('wecom-bot', createWeComService)
 channelManager.registerParser('wecom-bot', parseWeComWsMessage)
+channelManager.registerFactory('qq-bot', createQQService)
+channelManager.registerParser('qq-bot', parseQQWsMessage)
 
 const mcpManager = new McpManager()
 
@@ -92,25 +96,19 @@ function configureChromiumCachePaths(): void {
 }
 
 function showMainWindow(): void {
-
   if (!mainWindow) {
-
     createWindow()
 
     return
-
   }
 
   if (mainWindow.isMinimized()) {
-
     mainWindow.restore()
-
   }
 
   mainWindow.show()
 
   mainWindow.focus()
-
 }
 
 function getTrayIcon() {
@@ -126,7 +124,6 @@ function getTrayIcon() {
 }
 
 function createTray(): void {
-
   if (tray) return
 
   tray = new Tray(getTrayIcon())
@@ -134,45 +131,34 @@ function createTray(): void {
   tray.setToolTip('OpenCowork')
 
   const contextMenu = Menu.buildFromTemplate([
-
     {
-
       label: 'Show App',
 
       click: () => showMainWindow()
-
     },
 
     { type: 'separator' },
 
     {
-
       label: 'Exit',
 
       click: () => {
-
         isQuiting = true
 
         app.quit()
-
       }
-
     }
-
   ])
 
   tray.setContextMenu(contextMenu)
 
   tray.on('click', showMainWindow)
-
 }
 
 function createWindow(): void {
-
   // Create the browser window.
 
   mainWindow = new BrowserWindow({
-
     width: 1280,
 
     height: 800,
@@ -189,26 +175,19 @@ function createWindow(): void {
 
     autoHideMenuBar: true,
 
-    icon:icon,
+    icon: icon,
 
     webPreferences: {
-
       preload: join(__dirname, '../preload/index.js'),
 
       sandbox: false
-
     }
-
   })
-
-
 
   const window = mainWindow
 
   if (!window) {
-
     return
-
   }
 
   // Window control IPC handlers
@@ -216,18 +195,13 @@ function createWindow(): void {
   ipcMain.handle('window:minimize', () => window.minimize())
 
   ipcMain.handle('window:maximize', () => {
-
     if (window.isMaximized()) window.unmaximize()
-
     else window.maximize()
-
   })
 
   ipcMain.handle('window:close', () => window.close())
 
   ipcMain.handle('window:isMaximized', () => window.isMaximized())
-
-
 
   // Forward maximize state changes to renderer
 
@@ -235,38 +209,23 @@ function createWindow(): void {
 
   window.on('unmaximize', () => window.webContents.send('window:maximized', false))
 
-
-
   window.on('ready-to-show', () => {
-
     window.show()
-
   })
 
-
-
   window.on('close', (event) => {
-
     if (!isQuiting) {
-
       event.preventDefault()
 
       window.hide()
-
     }
-
   })
 
   window.on('closed', () => {
-
     mainWindow = null
-
   })
 
-
-
   window.webContents.setWindowOpenHandler((details) => {
-
     const url = details.url || ''
     if (/^https?:\/\//i.test(url)) {
       void shell.openExternal(url).catch((error) => {
@@ -275,7 +234,6 @@ function createWindow(): void {
     }
 
     return { action: 'deny' }
-
   })
 
   window.webContents.on('render-process-gone', (_event, details) => {
@@ -283,7 +241,7 @@ function createWindow(): void {
       windowId: window.id,
       webContentsId: window.webContents.id,
       url: window.webContents.getURL(),
-      details,
+      details
     }
     console.error('[Main] Window render process gone:', crashInfo)
     recordCrash('window_render_process_gone', crashInfo)
@@ -293,7 +251,7 @@ function createWindow(): void {
     const hangInfo = {
       windowId: window.id,
       webContentsId: window.webContents.id,
-      url: window.webContents.getURL(),
+      url: window.webContents.getURL()
     }
     console.error('[Main] Renderer became unresponsive:', hangInfo)
     recordCrash('window_renderer_unresponsive', hangInfo)
@@ -309,30 +267,23 @@ function createWindow(): void {
         url: window.webContents.getURL(),
         validatedURL,
         errorCode,
-        errorDescription,
+        errorDescription
       }
       console.error('[Main] Renderer failed to load:', failInfo)
       recordCrash('window_did_fail_load', failInfo)
     }
   )
 
-
-
   // HMR for renderer base on electron-vite cli.
 
   // Load the remote URL for development or the local html file for production.
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-
     window.loadURL(process.env['ELECTRON_RENDERER_URL'])
-
   } else {
-
     window.loadFile(join(__dirname, '../renderer/index.html'))
-
   }
 }
-
 
 // This method will be called when Electron has finished
 
@@ -343,17 +294,13 @@ function createWindow(): void {
 // Prevent hard crashes from unhandled errors
 
 process.on('uncaughtException', (err) => {
-
   console.error('[Main] Uncaught exception:', err)
   recordCrash('main_uncaught_exception', { error: err })
-
 })
 
 process.on('unhandledRejection', (reason) => {
-
   console.error('[Main] Unhandled rejection:', reason)
   recordCrash('main_unhandled_rejection', { reason })
-
 })
 
 app.on('child-process-gone', (_event, details) => {
@@ -378,119 +325,99 @@ if (gotSingleInstanceLock) {
   })
 
   app.whenReady().then(() => {
-  // Import @electron-toolkit/utils after app is ready
-  const utils = require('@electron-toolkit/utils')
-  electronApp = utils.electronApp
-  optimizer = utils.optimizer
-  is = utils.is
+    // Import @electron-toolkit/utils after app is ready
+    const utils = require('@electron-toolkit/utils')
+    electronApp = utils.electronApp
+    optimizer = utils.optimizer
+    is = utils.is
 
-  recordCrash('app_started', {
-    userDataPath: app.getPath('userData'),
-    crashLogDir: getCrashLogDir(),
-  })
-  console.log(`[CrashLogger] Logs will be written to ${getCrashLogDir()}`)
+    recordCrash('app_started', {
+      userDataPath: app.getPath('userData'),
+      crashLogDir: getCrashLogDir()
+    })
+    console.log(`[CrashLogger] Logs will be written to ${getCrashLogDir()}`)
 
-  // Set app user model id for windows (required for notifications to work)
-  electronApp.setAppUserModelId('com.opencowork.app')
+    // Set app user model id for windows (required for notifications to work)
+    electronApp.setAppUserModelId('com.opencowork.app')
 
+    // Default open or close DevTools by F12 in development
 
+    // and ignore CommandOrControl + R in production.
 
-  // Default open or close DevTools by F12 in development
+    // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
 
-  // and ignore CommandOrControl + R in production.
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
 
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
+    // IPC test
 
-  app.on('browser-window-created', (_, window) => {
+    ipcMain.on('ping', () => console.log('pong'))
 
-    optimizer.watchWindowShortcuts(window)
+    ipcMain.handle('app:homedir', () => homedir())
 
-  })
+    // Register IPC handlers
 
+    registerFsHandlers()
 
+    registerShellHandlers()
 
-  // IPC test
+    registerApiProxyHandlers()
 
-  ipcMain.on('ping', () => console.log('pong'))
+    registerSettingsHandlers()
 
-  ipcMain.handle('app:homedir', () => homedir())
+    registerSkillsHandlers()
+    registerAgentsHandlers()
+    registerPromptsHandlers()
+    registerProcessManagerHandlers()
+    registerDbHandlers()
+    registerConfigHandlers()
+    registerSshHandlers()
+    registerChannelHandlers(channelManager)
+    registerMcpHandlers(mcpManager)
+    registerCronHandlers()
+    loadPersistedJobs()
+    registerNotifyHandlers()
+    registerWebSearchHandlers()
+    registerOauthHandlers()
 
+    // Clipboard: write PNG image from base64 data
+    ipcMain.handle('clipboard:write-image', (_event, args: { data: string }) => {
+      try {
+        const buffer = Buffer.from(args.data, 'base64')
+        const image = nativeImage.createFromBuffer(buffer)
+        if (image.isEmpty()) return { error: 'Failed to create image from data' }
+        clipboard.writeImage(image)
+        return { success: true }
+      } catch (err) {
+        return { error: String(err) }
+      }
+    })
 
+    // Auto-start plugins with autoStart feature enabled
+    void autoStartChannels(channelManager)
 
-  // Register IPC handlers
+    createWindow()
 
-  registerFsHandlers()
+    createTray()
 
-  registerShellHandlers()
+    setupAutoUpdater({
+      getMainWindow: () => mainWindow,
+      markAppWillQuit: () => {
+        isQuiting = true
+      }
+    })
 
-  registerApiProxyHandlers()
+    app.on('activate', function () {
+      // On macOS it's common to re-create a window in the app when the
 
-  registerSettingsHandlers()
+      // dock icon is clicked and there are no other windows open.
 
-  registerSkillsHandlers()
-  registerAgentsHandlers()
-  registerPromptsHandlers()
-  registerProcessManagerHandlers()
-  registerDbHandlers()
-  registerConfigHandlers()
-  registerSshHandlers()
-  registerChannelHandlers(channelManager)
-  registerMcpHandlers(mcpManager)
-  registerCronHandlers()
-  loadPersistedJobs()
-  registerNotifyHandlers()
-  registerWebSearchHandlers()
-  registerOauthHandlers()
-
-  // Clipboard: write PNG image from base64 data
-  ipcMain.handle('clipboard:write-image', (_event, args: { data: string }) => {
-    try {
-      const buffer = Buffer.from(args.data, 'base64')
-      const image = nativeImage.createFromBuffer(buffer)
-      if (image.isEmpty()) return { error: 'Failed to create image from data' }
-      clipboard.writeImage(image)
-      return { success: true }
-    } catch (err) {
-      return { error: String(err) }
-    }
-  })
-
-  // Auto-start plugins with autoStart feature enabled
-  void autoStartChannels(channelManager)
-
-
-
-  createWindow()
-
-
-
-  createTray()
-
-  setupAutoUpdater({
-    getMainWindow: () => mainWindow,
-    markAppWillQuit: () => {
-      isQuiting = true
-    },
-  })
-
-
-
-  app.on('activate', function () {
-
-    // On macOS it's common to re-create a window in the app when the
-
-    // dock icon is clicked and there are no other windows open.
-
-    if (!mainWindow) createWindow()
-
-    else showMainWindow()
-
-  })
-
+      if (!mainWindow) createWindow()
+      else showMainWindow()
+    })
   })
 }
-
-
 
 // Quit when all windows are closed, except on macOS. There, it's common
 
@@ -510,9 +437,6 @@ app.on('window-all-closed', () => {
   }
 })
 
-
-
 // In this file you can include the rest of your app's specific main process
 
 // code. You can also put them in separate files and require them here.
-

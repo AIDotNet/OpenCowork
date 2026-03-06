@@ -3,7 +3,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogHeader,
-  DialogTitle,
+  DialogTitle
 } from '@renderer/components/ui/dialog'
 import { Separator } from '@renderer/components/ui/separator'
 import { Slider } from '@renderer/components/ui/slider'
@@ -12,7 +12,13 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import { Button } from '@renderer/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@renderer/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@renderer/components/ui/select'
 import { Input } from '@renderer/components/ui/input'
 import { Settings } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -34,9 +40,12 @@ export function SettingsDialog(): React.JSX.Element {
   const setActiveModel = useProviderStore((s) => s.setActiveModel)
   const setActiveFastModel = useProviderStore((s) => s.setActiveFastModel)
 
-  const enabledProviders = providers.filter((p) => p.enabled)
-  const activeProvider = providers.find((p) => p.id === activeProviderId) ?? null
-  const enabledModels = activeProvider?.models.filter((m) => m.enabled) ?? []
+  const enabledProviders = providers.filter(
+    (p) => p.enabled && p.models.some((m) => m.enabled && (!m.category || m.category === 'chat'))
+  )
+  const activeProvider = enabledProviders.find((p) => p.id === activeProviderId) ?? null
+  const enabledModels =
+    activeProvider?.models.filter((m) => m.enabled && (!m.category || m.category === 'chat')) ?? []
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -53,7 +62,7 @@ export function SettingsDialog(): React.JSX.Element {
               <section className="space-y-2">
                 <label className="text-sm font-medium">{t('dialog.provider')}</label>
                 <Select
-                  value={activeProviderId ?? ''}
+                  value={activeProvider?.id ?? ''}
                   onValueChange={(v) => setActiveProvider(v)}
                 >
                   <SelectTrigger className="w-full text-xs">
@@ -83,7 +92,12 @@ export function SettingsDialog(): React.JSX.Element {
                       {enabledModels.map((m) => (
                         <SelectItem key={m.id} value={m.id} className="text-xs">
                           <span className="flex items-center gap-2">
-                            <ModelIcon icon={m.icon} modelId={m.id} providerBuiltinId={activeProvider?.builtinId} size={14} />
+                            <ModelIcon
+                              icon={m.icon}
+                              modelId={m.id}
+                              providerBuiltinId={activeProvider?.builtinId}
+                              size={14}
+                            />
                             {m.name}
                           </span>
                         </SelectItem>
@@ -97,9 +111,7 @@ export function SettingsDialog(): React.JSX.Element {
 
               <section className="space-y-2">
                 <label className="text-sm font-medium">{t('dialog.fastModel')}</label>
-                <p className="text-[10px] text-muted-foreground/60">
-                  {t('dialog.fastModelDesc')}
-                </p>
+                <p className="text-[10px] text-muted-foreground/60">{t('dialog.fastModelDesc')}</p>
                 {enabledModels.length > 0 ? (
                   <Select
                     value={activeFastModelId || enabledModels[0]?.id || ''}
@@ -112,7 +124,12 @@ export function SettingsDialog(): React.JSX.Element {
                       {enabledModels.map((m) => (
                         <SelectItem key={m.id} value={m.id} className="text-xs">
                           <span className="flex items-center gap-2">
-                            <ModelIcon icon={m.icon} modelId={m.id} providerBuiltinId={activeProvider?.builtinId} size={14} />
+                            <ModelIcon
+                              icon={m.icon}
+                              modelId={m.id}
+                              providerBuiltinId={activeProvider?.builtinId}
+                              size={14}
+                            />
                             {m.name}
                           </span>
                         </SelectItem>
@@ -131,7 +148,10 @@ export function SettingsDialog(): React.JSX.Element {
                 variant="outline"
                 size="sm"
                 className="gap-1.5 text-xs"
-                onClick={() => { setOpen(false); openSettingsPage('provider') }}
+                onClick={() => {
+                  setOpen(false)
+                  openSettingsPage('provider')
+                }}
               >
                 <Settings className="size-3.5" />
                 {t('dialog.configureProviders')}
@@ -186,15 +206,20 @@ export function SettingsDialog(): React.JSX.Element {
             <label className="text-sm font-medium">{t('dialog.theme')}</label>
             <Select
               value={settings.theme}
-              onValueChange={(v: 'light' | 'dark' | 'system') => { settings.updateSettings({ theme: v }); setTheme(v) }}
+              onValueChange={(v: 'light' | 'dark' | 'system') => {
+                settings.updateSettings({ theme: v })
+                setTheme(v)
+              }}
             >
               <SelectTrigger className="w-full text-xs capitalize">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {(['light', 'dark', 'system'] as const).map((themeVal) => (
-                  <SelectItem key={themeVal} value={themeVal} className="text-xs capitalize">{themeVal}</SelectItem>
-              ))}
+                  <SelectItem key={themeVal} value={themeVal} className="text-xs capitalize">
+                    {themeVal}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </section>
@@ -207,7 +232,10 @@ export function SettingsDialog(): React.JSX.Element {
               variant="ghost"
               size="sm"
               className="gap-1.5 text-xs text-muted-foreground"
-              onClick={() => { setOpen(false); openSettingsPage('general') }}
+              onClick={() => {
+                setOpen(false)
+                openSettingsPage('general')
+              }}
             >
               <Settings className="size-3.5" />
               {t('dialog.openFullSettings')}

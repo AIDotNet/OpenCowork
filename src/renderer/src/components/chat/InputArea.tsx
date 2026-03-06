@@ -14,12 +14,11 @@ import {
   Globe,
   Wand2
 } from 'lucide-react'
-import { nanoid } from 'nanoid'
 import { Button } from '@renderer/components/ui/button'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
-import { useProviderStore } from '@renderer/stores/provider-store'
+import { useProviderStore, modelSupportsVision } from '@renderer/stores/provider-store'
 import type { AIModelConfig } from '@renderer/lib/api/types'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { updateWebSearchToolRegistration } from '@renderer/lib/tools'
@@ -28,15 +27,22 @@ import { formatTokens } from '@renderer/lib/format-tokens'
 import { useDebouncedTokens } from '@renderer/hooks/use-estimated-tokens'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useTranslation } from 'react-i18next'
+import {
+  ACCEPTED_IMAGE_TYPES,
+  cloneImageAttachments,
+  fileToImageAttachment,
+  hasEditableDraftContent,
+  type EditableUserMessageDraft,
+  type ImageAttachment
+} from '@renderer/lib/image-attachments'
 import { SkillsMenu } from './SkillsMenu'
 import { ModelSwitcher } from './ModelSwitcher'
-import { useChannelStore } from '@renderer/stores/channel-store'
 import { useMcpStore } from '@renderer/stores/mcp-store'
 import {
   getPendingSessionMessages,
   removePendingSessionMessage,
   subscribePendingSessionMessages,
-  updatePendingSessionMessageText,
+  updatePendingSessionMessageDraft,
   type PendingSessionMessageItem
 } from '@renderer/hooks/use-chat-actions'
 import {
@@ -137,32 +143,6 @@ function ContextRing(): React.JSX.Element | null {
   )
 }
 
-function ActiveChannelsBadge(): React.JSX.Element | null {
-  const { t } = useTranslation('chat')
-  const activeChannelIds = useChannelStore((s) => s.activeChannelIds)
-  const channels = useChannelStore((s) => s.channels)
-  if (activeChannelIds.length === 0) return null
-  const activeNames = channels.filter((p) => activeChannelIds.includes(p.id)).map((p) => p.name)
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary cursor-default">
-          <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-          <span>{t('skills.channelCount', { count: activeChannelIds.length })}</span>
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        <p className="text-xs font-medium">{t('skills.activeChannels')}</p>
-        {activeNames.map((n) => (
-          <p key={n} className="text-xs text-muted-foreground">
-            {n}
-          </p>
-        ))}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
 function ActiveMcpsBadge(): React.JSX.Element | null {
   const { t } = useTranslation('chat')
   const activeMcpIds = useMcpStore((s) => s.activeMcpIds)
@@ -196,12 +176,6 @@ const placeholderKeys: Record<AppMode, string> = {
   code: 'input.placeholderCode'
 }
 
-export interface ImageAttachment {
-  id: string
-  dataUrl: string
-  mediaType: string
-}
-
 interface InputHistoryEntry {
   text: string
   images: ImageAttachment[]
@@ -214,8 +188,6 @@ interface InputHistoryDraft {
 }
 
 const EMPTY_QUEUED_MESSAGES: PendingSessionMessageItem[] = []
-const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
-const MAX_IMAGE_SIZE = 20 * 1024 * 1024 // 20 MB
 const INPUT_HISTORY_LIMIT = 30
 const PENDING_HISTORY_KEY = '__pending_session__'
 const MIN_INPUT_HEIGHT = 120
@@ -241,29 +213,6 @@ function areQueuedMessagesEqual(
     }
   }
   return true
-}
-
-function cloneImages(images: ImageAttachment[]): ImageAttachment[] {
-  return images.map((img) => ({ ...img }))
-}
-
-function fileToImageAttachment(file: File): Promise<ImageAttachment | null> {
-  return new Promise((resolve) => {
-    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-      resolve(null)
-      return
-    }
-    if (file.size > MAX_IMAGE_SIZE) {
-      resolve(null)
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = () => {
-      resolve({ id: nanoid(), dataUrl: reader.result as string, mediaType: file.type })
-    }
-    reader.onerror = () => resolve(null)
-    reader.readAsDataURL(file)
-  })
 }
 
 interface InputAreaProps {
@@ -292,13 +241,16 @@ export function InputArea({
   const [attachedImages, setAttachedImages] = React.useState<ImageAttachment[]>([])
   const [isOptimizing, setIsOptimizing] = React.useState(false)
   const [, setOptimizingText] = React.useState('')
-  const [optimizationOptions, setOptimizationOptions] = React.useState<Array<{title: string; focus: string; content: string}>>([])
+  const [optimizationOptions, setOptimizationOptions] = React.useState<
+    Array<{ title: string; focus: string; content: string }>
+  >([])
   const [showOptimizationDialog, setShowOptimizationDialog] = React.useState(false)
   const [selectedOptionIndex, setSelectedOptionIndex] = React.useState(0)
   const currentLanguage = useSettingsStore((state) => state.language)
   const contentScrollRef = React.useRef<HTMLDivElement>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const queueFileInputRef = React.useRef<HTMLInputElement>(null)
   const rootRef = React.useRef<HTMLDivElement>(null)
   const [inputHeight, setInputHeight] = React.useState<number | null>(null)
   const dragRef = React.useRef<{ startY: number; startH: number; maxH: number } | null>(null)
@@ -313,9 +265,9 @@ export function InputArea({
       )
     }
     const root = rootRef.current
-    const messageListEl = root?.parentElement?.querySelector('[data-message-list]') as
-      | HTMLElement
-      | null
+    const messageListEl = root?.parentElement?.querySelector(
+      '[data-message-list]'
+    ) as HTMLElement | null
     if (messageListEl) {
       const messageListHeight = messageListEl.getBoundingClientRect().height
       const available = Math.max(0, messageListHeight - MIN_MESSAGE_LIST_HEIGHT)
@@ -366,13 +318,16 @@ export function InputArea({
     return () => window.removeEventListener('resize', handleResize)
   }, [inputHeight, getMaxInputHeight])
 
-  const handleDragStart = React.useCallback((e: React.MouseEvent) => {
-    const el = containerRef.current
-    if (!el) return
-    dragRef.current = { startY: e.clientY, startH: el.offsetHeight, maxH: getMaxInputHeight() }
-    document.body.style.cursor = 'row-resize'
-    document.body.style.userSelect = 'none'
-  }, [getMaxInputHeight])
+  const handleDragStart = React.useCallback(
+    (e: React.MouseEvent) => {
+      const el = containerRef.current
+      if (!el) return
+      dragRef.current = { startY: e.clientY, startH: el.offsetHeight, maxH: getMaxInputHeight() }
+      document.body.style.cursor = 'row-resize'
+      document.body.style.userSelect = 'none'
+    },
+    [getMaxInputHeight]
+  )
   const [sentHistory, setSentHistory] = React.useState<InputHistoryEntry[]>([])
   const [historyCursor, setHistoryCursor] = React.useState<number | null>(null)
   const historyDraftRef = React.useRef<InputHistoryDraft | null>(null)
@@ -392,7 +347,7 @@ export function InputArea({
   const supportsVision = React.useMemo(() => {
     if (!activeProvider) return false
     const model = activeProvider.models.find((m) => m.id === activeModelId)
-    return model?.supportsVision ?? false
+    return modelSupportsVision(model, activeProvider.type)
   }, [activeProvider, activeModelId])
   const webSearchEnabled = useSettingsStore((s) => s.webSearchEnabled)
   const toggleWebSearch = React.useCallback(() => {
@@ -423,15 +378,18 @@ export function InputArea({
   )
   const [editingQueueItemId, setEditingQueueItemId] = React.useState<string | null>(null)
   const [editingQueueText, setEditingQueueText] = React.useState('')
+  const [editingQueueImages, setEditingQueueImages] = React.useState<ImageAttachment[]>([])
 
   const startEditQueuedMessage = React.useCallback((msg: PendingSessionMessageItem) => {
     setEditingQueueItemId(msg.id)
     setEditingQueueText(msg.text)
+    setEditingQueueImages(cloneImageAttachments(msg.images))
   }, [])
 
   const cancelEditQueuedMessage = React.useCallback(() => {
     setEditingQueueItemId(null)
     setEditingQueueText('')
+    setEditingQueueImages([])
   }, [])
 
   const removeQueuedMessage = React.useCallback(
@@ -441,30 +399,48 @@ export function InputArea({
       if (editingQueueItemId === id) {
         setEditingQueueItemId(null)
         setEditingQueueText('')
+        setEditingQueueImages([])
       }
     },
     [activeSessionId, editingQueueItemId]
   )
 
+  const addQueuedImages = React.useCallback(async (files: File[]) => {
+    const results = await Promise.all(files.map(fileToImageAttachment))
+    const valid = results.filter(Boolean) as ImageAttachment[]
+    if (valid.length > 0) {
+      setEditingQueueImages((prev) => [...prev, ...valid])
+    }
+  }, [])
+
+  const removeQueuedImage = React.useCallback((id: string) => {
+    setEditingQueueImages((prev) => prev.filter((img) => img.id !== id))
+  }, [])
+
   const saveQueuedMessage = React.useCallback(
     (id: string) => {
       if (!activeSessionId) return
-      const current = queuedMessages.find((msg) => msg.id === id)
-      if (!current) return
+      if (!queuedMessages.some((msg) => msg.id === id)) return
 
-      const nextText = editingQueueText.trim()
-      if (!nextText && current.images.length === 0) {
+      const nextDraft: EditableUserMessageDraft = {
+        text: editingQueueText.trim(),
+        images: cloneImageAttachments(editingQueueImages)
+      }
+
+      if (!hasEditableDraftContent(nextDraft)) {
         removePendingSessionMessage(activeSessionId, id)
         setEditingQueueItemId(null)
         setEditingQueueText('')
+        setEditingQueueImages([])
         return
       }
 
-      updatePendingSessionMessageText(activeSessionId, id, nextText)
+      updatePendingSessionMessageDraft(activeSessionId, id, nextDraft)
       setEditingQueueItemId(null)
       setEditingQueueText('')
+      setEditingQueueImages([])
     },
-    [activeSessionId, queuedMessages, editingQueueText]
+    [activeSessionId, queuedMessages, editingQueueText, editingQueueImages]
   )
 
   const getHistoryKey = React.useCallback(
@@ -513,7 +489,7 @@ export function InputArea({
   const applyHistoryEntry = React.useCallback(
     (entry: InputHistoryEntry) => {
       setText(entry.text)
-      setAttachedImages(cloneImages(entry.images))
+      setAttachedImages(cloneImageAttachments(entry.images))
       setSelectedSkill(null)
       requestAnimationFrame(() => {
         resizeTextarea()
@@ -525,7 +501,7 @@ export function InputArea({
   const restoreDraftFromHistory = React.useCallback(() => {
     const draft = historyDraftRef.current
     setText(draft?.text ?? '')
-    setAttachedImages(cloneImages(draft?.images ?? []))
+    setAttachedImages(cloneImageAttachments(draft?.images ?? []))
     setSelectedSkill(draft?.selectedSkill ?? null)
     historyDraftRef.current = null
     requestAnimationFrame(() => {
@@ -540,7 +516,7 @@ export function InputArea({
         if (historyCursor === null) {
           historyDraftRef.current = {
             text,
-            images: cloneImages(attachedImages),
+            images: cloneImageAttachments(attachedImages),
             selectedSkill
           }
           const latest = sentHistory.length - 1
@@ -607,6 +583,7 @@ export function InputArea({
   React.useEffect(() => {
     setEditingQueueItemId(null)
     setEditingQueueText('')
+    setEditingQueueImages([])
   }, [activeSessionId])
 
   React.useEffect(() => {
@@ -614,6 +591,7 @@ export function InputArea({
     if (queuedMessages.some((msg) => msg.id === editingQueueItemId)) return
     setEditingQueueItemId(null)
     setEditingQueueText('')
+    setEditingQueueImages([])
   }, [queuedMessages, editingQueueItemId])
 
   React.useEffect(() => {
@@ -623,7 +601,7 @@ export function InputArea({
     if (prevSessionId) {
       draftBySessionRef.current[prevSessionId] = {
         text,
-        images: cloneImages(attachedImages),
+        images: cloneImageAttachments(attachedImages),
         skill: selectedSkill
       }
     }
@@ -631,7 +609,7 @@ export function InputArea({
     // Restore draft from the new session (or clear)
     const draft = activeSessionId ? draftBySessionRef.current[activeSessionId] : undefined
     setText(draft?.text ?? '')
-    setAttachedImages(draft?.images ? cloneImages(draft.images) : [])
+    setAttachedImages(draft?.images ? cloneImageAttachments(draft.images) : [])
     setSelectedSkill(draft?.skill ?? null)
     requestAnimationFrame(() => resizeTextarea())
 
@@ -704,7 +682,7 @@ export function InputArea({
         ...prevHistory,
         {
           text: message,
-          images: cloneImages(attachedImages)
+          images: cloneImageAttachments(attachedImages)
         }
       ]
       return nextHistory.length > INPUT_HISTORY_LIMIT
@@ -846,24 +824,35 @@ export function InputArea({
       const providerStore = useProviderStore.getState()
       const { providers } = providerStore
 
-      let fastProvider = providers.find(p => p.enabled && p.models.some(m =>
-        m.enabled && (m.id.includes('haiku') || m.id.includes('4o-mini') || m.id.includes('gpt-4o-mini'))
-      ))
+      let fastProvider = providers.find(
+        (p) =>
+          p.enabled &&
+          p.models.some(
+            (m) =>
+              m.enabled &&
+              (m.id.includes('haiku') || m.id.includes('4o-mini') || m.id.includes('gpt-4o-mini'))
+          )
+      )
 
       if (!fastProvider) {
-        fastProvider = providers.find(p => p.enabled && p.models.some(m => m.enabled))
+        fastProvider = providers.find((p) => p.enabled && p.models.some((m) => m.enabled))
       }
 
       if (!fastProvider) {
         console.error('[Optimizer] No enabled provider found')
-        toast.error('No AI provider available', { description: 'Please configure an AI provider in Settings' })
+        toast.error('No AI provider available', {
+          description: 'Please configure an AI provider in Settings'
+        })
         setIsOptimizing(false)
         return
       }
 
-      const fastModel = fastProvider.models.find(m =>
-        m.enabled && (m.id.includes('haiku') || m.id.includes('4o-mini') || m.id.includes('gpt-4o-mini'))
-      ) || fastProvider.models.find(m => m.enabled)
+      const fastModel =
+        fastProvider.models.find(
+          (m) =>
+            m.enabled &&
+            (m.id.includes('haiku') || m.id.includes('4o-mini') || m.id.includes('gpt-4o-mini'))
+        ) || fastProvider.models.find((m) => m.enabled)
 
       if (!fastModel) {
         console.error('[Optimizer] No enabled model found')
@@ -889,7 +878,7 @@ export function InputArea({
       for await (const event of optimizePrompt(trimmed, providerConfig, currentLanguage)) {
         console.log('[Optimizer] Event:', event.type)
         if (event.type === 'text') {
-          setOptimizingText(prev => prev + event.content)
+          setOptimizingText((prev) => prev + event.content)
         } else if (event.type === 'result' && event.options && event.options.length > 0) {
           console.log('[Optimizer] Got results:', event.options.length, 'options')
           setOptimizationOptions(event.options)
@@ -900,7 +889,9 @@ export function InputArea({
       console.log('[Optimizer] Stream completed')
     } catch (error) {
       console.error('[Optimizer] Error:', error)
-      toast.error('Optimization failed', { description: error instanceof Error ? error.message : String(error) })
+      toast.error('Optimization failed', {
+        description: error instanceof Error ? error.message : String(error)
+      })
     } finally {
       console.log('[Optimizer] Cleanup')
       setIsOptimizing(false)
@@ -989,10 +980,7 @@ export function InputArea({
           style={inputHeight ? { height: inputHeight } : undefined}
         >
           {/* Top drag handle */}
-          <div
-            className="h-1.5 cursor-row-resize rounded-t-lg"
-            onMouseDown={handleDragStart}
-          />
+          <div className="h-1.5 cursor-row-resize rounded-t-lg" onMouseDown={handleDragStart} />
           {/* Queued message list (while current run is processing) */}
           {queuedMessages.length > 0 && (
             <div className="px-3 pt-3 pb-1">
@@ -1058,18 +1046,64 @@ export function InputArea({
                         </div>
                       </div>
                       {isEditing ? (
-                        <Textarea
-                          value={editingQueueText}
-                          onChange={(e) => setEditingQueueText(e.target.value)}
-                          className="min-h-[56px] max-h-36 resize-none border-border/70 bg-background text-xs"
-                          rows={2}
-                        />
+                        <div className="space-y-2">
+                          <Textarea
+                            value={editingQueueText}
+                            onChange={(e) => setEditingQueueText(e.target.value)}
+                            className="min-h-[56px] max-h-36 resize-none border-border/70 bg-background text-xs"
+                            rows={2}
+                          />
+                          {editingQueueImages.length > 0 && (
+                            <div className="flex gap-2 overflow-x-auto pb-1">
+                              {editingQueueImages.map((img) => (
+                                <div key={img.id} className="relative group/img shrink-0">
+                                  <img
+                                    src={img.dataUrl}
+                                    alt=""
+                                    className="size-12 rounded-md border border-border/60 object-cover shadow-sm"
+                                  />
+                                  <button
+                                    type="button"
+                                    className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm opacity-0 transition-opacity group-hover/img:opacity-100"
+                                    onClick={() => removeQueuedImage(img.id)}
+                                  >
+                                    <X className="size-2.5" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between gap-2">
+                            {editingQueueImages.length > 0 ? (
+                              <p className="text-[10px] text-muted-foreground">
+                                {t('input.queueImageCount', {
+                                  defaultValue: '{{count}} 张图片',
+                                  count: editingQueueImages.length
+                                })}
+                              </p>
+                            ) : (
+                              <span />
+                            )}
+                            {supportsVision && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-6 gap-1 px-2 text-[10px]"
+                                onClick={() => queueFileInputRef.current?.click()}
+                              >
+                                <ImagePlus className="size-3" />
+                                {t('input.attachImages')}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       ) : (
                         <div className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words pr-1 text-xs leading-relaxed">
                           {msg.text || t('input.queueImageOnly', { defaultValue: '[仅图片]' })}
                         </div>
                       )}
-                      {msg.images.length > 0 && (
+                      {!isEditing && msg.images.length > 0 && (
                         <p className="mt-1 text-[10px] text-muted-foreground">
                           {t('input.queueImageCount', {
                             defaultValue: '{{count}} 张图片',
@@ -1146,7 +1180,10 @@ export function InputArea({
                   {t('input.optimizationResults', { defaultValue: 'Optimized Prompt Options' })}
                 </DialogTitle>
                 <DialogDescription className="text-sm">
-                  {t('input.optimizationResultsDesc', { defaultValue: 'Select one of the optimized versions below to use in your prompt.' })}
+                  {t('input.optimizationResultsDesc', {
+                    defaultValue:
+                      'Select one of the optimized versions below to use in your prompt.'
+                  })}
                 </DialogDescription>
               </DialogHeader>
 
@@ -1172,16 +1209,20 @@ export function InputArea({
                       }}
                     >
                       <div className="flex items-center justify-center gap-2">
-                        <span className={`inline-flex items-center justify-center size-6 rounded-full text-xs font-bold ${
-                          selectedOptionIndex === idx
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-muted text-muted-foreground'
-                        }`}>
+                        <span
+                          className={`inline-flex items-center justify-center size-6 rounded-full text-xs font-bold ${
+                            selectedOptionIndex === idx
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-muted text-muted-foreground'
+                          }`}
+                        >
                           {idx + 1}
                         </span>
                         <div className="text-left">
                           <p className="text-sm font-semibold text-foreground">{option.title}</p>
-                          <p className="text-xs text-muted-foreground truncate max-w-[200px]">{option.focus}</p>
+                          <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                            {option.focus}
+                          </p>
                         </div>
                       </div>
                     </button>
@@ -1205,7 +1246,9 @@ export function InputArea({
                   {t('action.cancel', { ns: 'common' })}
                 </Button>
                 <Button
-                  onClick={() => handleSelectOption(optimizationOptions[selectedOptionIndex]?.content)}
+                  onClick={() =>
+                    handleSelectOption(optimizationOptions[selectedOptionIndex]?.content)
+                  }
                 >
                   {t('input.useThisOption', { defaultValue: 'Use This' })}
                 </Button>
@@ -1240,6 +1283,21 @@ export function InputArea({
               disabled={disabled || isOptimizing}
             />
           </div>
+
+          {/* Hidden file input for queue image upload */}
+          <input
+            ref={queueFileInputRef}
+            type="file"
+            accept={ACCEPTED_IMAGE_TYPES.join(',')}
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) {
+                void addQueuedImages(Array.from(e.target.files))
+              }
+              e.target.value = ''
+            }}
+          />
 
           {/* Hidden file input for image upload */}
           <input
@@ -1295,7 +1353,6 @@ export function InputArea({
                     }}
                     disabled={disabled || isStreaming}
                   />
-                  <ActiveChannelsBadge />
                   <ActiveMcpsBadge />
                 </>
               )}
@@ -1440,11 +1497,7 @@ export function InputArea({
                       onClick={handleOptimizePrompt}
                       disabled={!text.trim() || disabled || isOptimizing}
                     >
-                      {isOptimizing ? (
-                        <Spinner className="size-4" />
-                      ) : (
-                        <Wand2 className="size-4" />
-                      )}
+                      {isOptimizing ? <Spinner className="size-4" /> : <Wand2 className="size-4" />}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>

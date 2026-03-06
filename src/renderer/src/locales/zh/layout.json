@@ -69,6 +69,8 @@
     "thinking": "思考",
     "modelSettings": "模型设置",
     "deepThinking": "深度思考",
+    "fastMode": "Fast 模式",
+    "fastModeDesc": "启用后附加 service_tier=priority",
     "reasoningEffort": "推理强度",
     "backgroundCommandsCount": "{{count}} 后台",
     "backgroundCommandsTooltip": "查看并操作后台命令",

@@ -338,6 +338,8 @@ export interface ProviderConfig {
   providerId?: string
   /** Built-in provider ID (for preset-based mapping) */
   providerBuiltinId?: string
+  /** OpenAI-compatible service tier override */
+  serviceTier?: 'priority'
   maxTokens?: number
   temperature?: number
   systemPrompt?: string

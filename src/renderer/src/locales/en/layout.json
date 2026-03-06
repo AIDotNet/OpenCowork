@@ -69,6 +69,8 @@
     "thinking": "Thinking",
     "modelSettings": "Model settings",
     "deepThinking": "Deep Thinking",
+    "fastMode": "Fast Mode",
+    "fastModeDesc": "Send service_tier=priority when enabled",
     "reasoningEffort": "Reasoning Effort",
     "backgroundCommandsCount": "{{count}} bg",
     "backgroundCommandsTooltip": "View and control background commands",

@@ -22,6 +22,7 @@ interface SettingsStore {
   autoApprove: boolean
   devMode: boolean
   thinkingEnabled: boolean
+  fastModeEnabled: boolean
   reasoningEffort: ReasoningEffortLevel
   teamToolsEnabled: boolean
   contextCompressionEnabled: boolean
@@ -35,7 +36,16 @@ interface SettingsStore {
 
   // Web Search Settings
   webSearchEnabled: boolean
-  webSearchProvider: 'tavily' | 'searxng' | 'exa' | 'exa-mcp' | 'bocha' | 'zhipu' | 'google' | 'bing' | 'baidu'
+  webSearchProvider:
+    | 'tavily'
+    | 'searxng'
+    | 'exa'
+    | 'exa-mcp'
+    | 'bocha'
+    | 'zhipu'
+    | 'google'
+    | 'bing'
+    | 'baidu'
   webSearchApiKey: string
   webSearchEngine: string
   webSearchMaxResults: number
@@ -64,6 +74,7 @@ export const useSettingsStore = create<SettingsStore>()(
       autoApprove: false,
       devMode: false,
       thinkingEnabled: false,
+      fastModeEnabled: false,
       reasoningEffort: 'medium',
       teamToolsEnabled: false,
       contextCompressionEnabled: true,
@@ -87,7 +98,7 @@ export const useSettingsStore = create<SettingsStore>()(
       skillsMarketProvider: 'skillsmp',
       skillsMarketApiKey: '',
 
-      updateSettings: (patch) => set(patch),
+      updateSettings: (patch) => set(patch)
     }),
     {
       name: 'opencowork-settings',
@@ -137,6 +148,7 @@ export const useSettingsStore = create<SettingsStore>()(
         autoApprove: state.autoApprove,
         devMode: state.devMode,
         thinkingEnabled: state.thinkingEnabled,
+        fastModeEnabled: state.fastModeEnabled,
         reasoningEffort: state.reasoningEffort,
         teamToolsEnabled: state.teamToolsEnabled,
         contextCompressionEnabled: state.contextCompressionEnabled,
@@ -155,10 +167,10 @@ export const useSettingsStore = create<SettingsStore>()(
         webSearchTimeout: state.webSearchTimeout,
         // Skills Market Settings
         skillsMarketProvider: state.skillsMarketProvider,
-        skillsMarketApiKey: state.skillsMarketApiKey,
+        skillsMarketApiKey: state.skillsMarketApiKey
         // NOTE: apiKey is intentionally excluded from localStorage persistence.
         // In production, it should be stored securely in the main process.
-      }),
+      })
     }
   )
 )

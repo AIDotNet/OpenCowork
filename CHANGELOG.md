@@ -5,8 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com).
 
 ## [0.5.1] - 2026-03-10
 
+### Added
+- Added queued message lifecycle controls: queue pause/status hints, queue count/preview metadata, dedicated confirm flow for clearing queued drafts, and localized queue messages in English/Chinese.
+- Added service-tier support to request configuration so compatible providers can send `service_tier` headers (`priority`) when fast mode is enabled, with model-level `serviceTier` settings in providers.
+- Added User-Agent propagation in provider model discovery requests (including OpenAI provider routes), and set a dedicated User-Agent for Qwen provider defaults.
+
 ### Changed
-- 准备 0.5.1 发布：同步版本号及首页展示内容。
+- Enhanced queueing behavior in chat actions: stopping an active run now pauses queue dispatch, pending messages continue in order after resume/dispatch state recovery, and queued items are cleared together when session messages are cleared.
+- Improved AskUserQuestion flow with modular question block rendering, previous/next/submit navigation, and stronger state-driven answer capture.
+- Refined the Assistant message detail dialog request-body section and made plan execution flow more robust by opening the right panel automatically when implementing the active session plan.
+- Cleaned chat model popover wiring by removing an unused provider prop from `ModelSwitcher` usage.
+- Updated session deletion logic to include pending-queue counts and clean queued messages together when removing session content.
+
+### Fixed
+- Fixed model service-tier routing regression by extending provider/model config to expose `serviceTier` for GPT 5.4-class models and Codex variants, resolving priority-mode request header behavior.
+- Fixed edge handling around queued message clearing so stale pending messages no longer remain after session clear/delete operations.
 
 ## [0.5.0] - 2026-03-09
 

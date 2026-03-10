@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import {
   MessageSquare,
   CircleHelp,
@@ -32,16 +32,10 @@ import { NavRail } from './NavRail'
 import { SessionListPanel } from './SessionListPanel'
 import { RightPanel } from './RightPanel'
 import { DetailPanel } from './DetailPanel'
-import { PreviewPanel } from './PreviewPanel'
 import { MessageList } from '@renderer/components/chat/MessageList'
 import { InputArea } from '@renderer/components/chat/InputArea'
 import { SettingsDialog } from '@renderer/components/settings/SettingsDialog'
-import { SettingsPage } from '@renderer/components/settings/SettingsPage'
 import { ChatHomePage } from '@renderer/components/chat/ChatHomePage'
-import { SkillsPage } from '@renderer/components/skills/SkillsPage'
-import { TranslatePage } from '@renderer/components/translate/TranslatePage'
-import { DrawPage } from '@renderer/components/draw/DrawPage'
-import { SshPage } from '@renderer/components/ssh/SshPage'
 import { KeyboardShortcutsDialog } from '@renderer/components/settings/KeyboardShortcutsDialog'
 import { PermissionDialog } from '@renderer/components/cowork/PermissionDialog'
 import { CommandPalette } from './CommandPalette'
@@ -84,6 +78,44 @@ interface DesktopDirectoryErrorResult {
 }
 
 type DesktopDirectoryResult = DesktopDirectorySuccessResult | DesktopDirectoryErrorResult
+
+const PreviewPanel = lazy(async () => {
+  const mod = await import('./PreviewPanel')
+  return { default: mod.PreviewPanel }
+})
+
+const SettingsPage = lazy(async () => {
+  const mod = await import('@renderer/components/settings/SettingsPage')
+  return { default: mod.SettingsPage }
+})
+
+const SkillsPage = lazy(async () => {
+  const mod = await import('@renderer/components/skills/SkillsPage')
+  return { default: mod.SkillsPage }
+})
+
+const TranslatePage = lazy(async () => {
+  const mod = await import('@renderer/components/translate/TranslatePage')
+  return { default: mod.TranslatePage }
+})
+
+const DrawPage = lazy(async () => {
+  const mod = await import('@renderer/components/draw/DrawPage')
+  return { default: mod.DrawPage }
+})
+
+const SshPage = lazy(async () => {
+  const mod = await import('@renderer/components/ssh/SshPage')
+  return { default: mod.SshPage }
+})
+
+function LazyPageFallback(): React.JSX.Element {
+  return (
+    <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+      <Loader2 className="size-4 animate-spin" />
+    </div>
+  )
+}
 
 export function Layout(): React.JSX.Element {
   const { t } = useTranslation('layout')
@@ -713,7 +745,9 @@ export function Layout(): React.JSX.Element {
                 className="flex-1 min-w-0 bg-background overflow-hidden"
                 style={{ display: sshPageOpen ? undefined : 'none' }}
               >
-                <SshPage />
+                <Suspense fallback={<LazyPageFallback />}>
+                  <SshPage />
+                </Suspense>
               </div>
             )}
 
@@ -725,28 +759,36 @@ export function Layout(): React.JSX.Element {
                     key="skills-page"
                     className="flex-1 min-w-0 bg-background overflow-hidden"
                   >
-                    <SkillsPage />
+                    <Suspense fallback={<LazyPageFallback />}>
+                      <SkillsPage />
+                    </Suspense>
                   </PageTransition>
                 ) : settingsPageOpen ? (
                   <PageTransition
                     key="settings-page"
                     className="flex-1 min-w-0 bg-background overflow-hidden"
                   >
-                    <SettingsPage />
+                    <Suspense fallback={<LazyPageFallback />}>
+                      <SettingsPage />
+                    </Suspense>
                   </PageTransition>
                 ) : drawPageOpen ? (
                   <PageTransition
                     key="draw-page"
                     className="flex-1 min-w-0 bg-background overflow-hidden"
                   >
-                    <DrawPage />
+                    <Suspense fallback={<LazyPageFallback />}>
+                      <DrawPage />
+                    </Suspense>
                   </PageTransition>
                 ) : translatePageOpen ? (
                   <PageTransition
                     key="translate-page"
                     className="flex-1 min-w-0 bg-background overflow-hidden"
                   >
-                    <TranslatePage />
+                    <Suspense fallback={<LazyPageFallback />}>
+                      <TranslatePage />
+                    </Suspense>
                   </PageTransition>
                 ) : chatView === 'home' ? (
                   <PageTransition
@@ -1173,7 +1215,9 @@ export function Layout(): React.JSX.Element {
                               disabled={isStreaming}
                               className="h-full border-l border-border/50 shadow-sm z-10"
                             >
-                              <PreviewPanel />
+                              <Suspense fallback={<LazyPageFallback />}>
+                                <PreviewPanel />
+                              </Suspense>
                             </PanelTransition>
                           )}
                         </AnimatePresence>

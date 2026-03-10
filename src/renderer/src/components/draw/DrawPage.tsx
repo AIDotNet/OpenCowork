@@ -28,6 +28,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle
 } from '@renderer/components/ui/dialog'
@@ -49,6 +50,7 @@ import type {
   AIModelConfig,
   AIProvider,
   ContentBlock,
+  ProviderConfig,
   StreamEvent,
   UnifiedMessage
 } from '@renderer/lib/api/types'
@@ -58,6 +60,7 @@ import {
   imageAttachmentToContentBlock,
   type ImageAttachment
 } from '@renderer/lib/image-attachments'
+import { optimizeDrawPrompt } from '@renderer/lib/draw-prompt-optimizer'
 import {
   clearPersistedDrawRuns,
   deletePersistedDrawRun,
@@ -67,7 +70,7 @@ import {
   type DrawRunImage
 } from '@renderer/lib/draw-history'
 import { cn } from '@renderer/lib/utils'
-import { useProviderStore } from '@renderer/stores/provider-store'
+import { modelSupportsVision, useProviderStore } from '@renderer/stores/provider-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 
 interface ProviderModelGroup {
@@ -109,6 +112,50 @@ function normalizeImageSrc(event: StreamEvent): DrawRunImage | null {
   }
 }
 
+function pickFastTextModel(
+  providers: AIProvider[]
+): { provider: AIProvider; model: AIModelConfig; config: ProviderConfig } | null {
+  const enabledProviders = providers.filter(
+    (provider) =>
+      provider.enabled &&
+      provider.models.some((model) => model.enabled && (model.category ?? 'chat') === 'chat')
+  )
+
+  const provider =
+    enabledProviders.find((candidate) =>
+      candidate.models.some(
+        (model) =>
+          model.enabled &&
+          (model.category ?? 'chat') === 'chat' &&
+          (model.id.includes('haiku') ||
+            model.id.includes('4o-mini') ||
+            model.id.includes('gpt-4o-mini'))
+      )
+    ) ?? enabledProviders[0]
+
+  if (!provider) return null
+
+  const model =
+    provider.models.find(
+      (candidate) =>
+        candidate.enabled &&
+        (candidate.category ?? 'chat') === 'chat' &&
+        (candidate.id.includes('haiku') ||
+          candidate.id.includes('4o-mini') ||
+          candidate.id.includes('gpt-4o-mini'))
+    ) ??
+    provider.models.find(
+      (candidate) => candidate.enabled && (candidate.category ?? 'chat') === 'chat'
+    )
+
+  if (!model) return null
+
+  const config = useProviderStore.getState().getProviderConfigById(provider.id, model.id)
+  if (!config) return null
+
+  return { provider, model, config }
+}
+
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], {
     hour: '2-digit',
@@ -131,6 +178,9 @@ export function DrawPage(): React.JSX.Element {
   const [runs, setRuns] = useState<DrawRun[]>([])
   const [attachedImages, setAttachedImages] = useState<ImageAttachment[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false)
+  const [optimizedPrompt, setOptimizedPrompt] = useState('')
+  const [optimizationDialogOpen, setOptimizationDialogOpen] = useState(false)
   const [modelDialogOpen, setModelDialogOpen] = useState(false)
   const [dialogProviderId, setDialogProviderId] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -331,6 +381,48 @@ export function DrawPage(): React.JSX.Element {
     [setActiveImageModel, setActiveImageProvider]
   )
 
+  const handleOptimizePrompt = useCallback(async (): Promise<void> => {
+    const trimmedPrompt = prompt.trim()
+    if (!trimmedPrompt || isGenerating || isOptimizingPrompt) return
+
+    const fastTarget = pickFastTextModel(providers)
+    if (!fastTarget) {
+      toast.error(t('drawPage.optimizeUnavailable'))
+      return
+    }
+
+    setIsOptimizingPrompt(true)
+    setOptimizedPrompt('')
+
+    try {
+      const optimizeImages = modelSupportsVision(fastTarget.model, fastTarget.provider.type)
+        ? attachedImages
+        : []
+      const result = await optimizeDrawPrompt(trimmedPrompt, fastTarget.config, optimizeImages)
+      setOptimizedPrompt(result.prompt)
+      setOptimizationDialogOpen(true)
+    } catch (error) {
+      toast.error(t('drawPage.optimizeFailed'), {
+        description: error instanceof Error ? error.message : String(error)
+      })
+    } finally {
+      setIsOptimizingPrompt(false)
+    }
+  }, [attachedImages, isGenerating, isOptimizingPrompt, prompt, providers, t])
+
+  const handleUseOptimizedPrompt = useCallback((): void => {
+    if (!optimizedPrompt.trim()) return
+    setPrompt(optimizedPrompt)
+    setOptimizationDialogOpen(false)
+  }, [optimizedPrompt])
+
+  const handleOptimizationDialogChange = useCallback((open: boolean): void => {
+    setOptimizationDialogOpen(open)
+    if (!open) {
+      setOptimizedPrompt('')
+    }
+  }, [])
+
   const handleGenerate = useCallback(async (): Promise<void> => {
     const trimmedPrompt = prompt.trim()
     if (!trimmedPrompt) return
@@ -489,6 +581,8 @@ export function DrawPage(): React.JSX.Element {
     !isGenerating &&
     providerModelGroups.length > 0
 
+  const canOptimizePrompt = !!prompt.trim() && !isGenerating && !isOptimizingPrompt
+
   const selectedOptionValue =
     selectedProvider && selectedModel
       ? toOptionValue(selectedProvider.id, selectedModel.id)
@@ -599,6 +693,20 @@ export function DrawPage(): React.JSX.Element {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="h-7 gap-1 px-2 text-xs"
+                  onClick={() => void handleOptimizePrompt()}
+                  disabled={!canOptimizePrompt}
+                >
+                  {isOptimizingPrompt ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-3.5" />
+                  )}
+                  {t('drawPage.optimizePrompt')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="h-7 max-w-[190px] gap-1 px-2 text-xs"
                   onClick={() => setModelDialogOpen(true)}
                 >
@@ -693,6 +801,28 @@ export function DrawPage(): React.JSX.Element {
               </Button>
             </div>
           </div>
+
+          <Dialog open={optimizationDialogOpen} onOpenChange={handleOptimizationDialogChange}>
+            <DialogContent className="sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle className="text-sm">{t('drawPage.optimizePrompt')}</DialogTitle>
+                <DialogDescription className="text-xs">
+                  {t('drawPage.optimizePromptDesc')}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="max-h-[50vh] overflow-y-auto rounded-lg border bg-muted/30 p-3 text-sm leading-6 whitespace-pre-wrap">
+                {optimizedPrompt}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => handleOptimizationDialogChange(false)}>
+                  {t('drawPage.cancelOptimize')}
+                </Button>
+                <Button onClick={handleUseOptimizedPrompt} disabled={!optimizedPrompt.trim()}>
+                  {t('drawPage.useOptimizedPrompt')}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <Dialog open={modelDialogOpen} onOpenChange={setModelDialogOpen}>
             <DialogContent className="h-[min(85vh,720px)] max-h-[85vh] grid-rows-[auto,minmax(0,1fr)] overflow-hidden p-4 sm:max-w-2xl">

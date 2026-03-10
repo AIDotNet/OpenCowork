@@ -1,7 +1,17 @@
-import { app, shell, BrowserWindow, ipcMain, Menu, Tray, clipboard, nativeImage } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  Tray,
+  clipboard,
+  nativeImage,
+  dialog
+} from 'electron'
 
-import { join } from 'path'
-import { mkdirSync } from 'fs'
+import { join, extname } from 'path'
+import { mkdirSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 
 // Delay import of @electron-toolkit/utils to avoid accessing app before ready
@@ -41,6 +51,7 @@ import { writeCrashLog, getCrashLogDir } from './crash-logger'
 import { setupAutoUpdater } from './updater'
 
 import { createFeishuService } from './channels/providers/feishu/feishu-service'
+import { FeishuApi } from './channels/providers/feishu/feishu-api'
 import { createDingTalkService } from './channels/providers/dingtalk/dingtalk-service'
 import { createTelegramService } from './channels/providers/telegram/telegram-service'
 import { parseTelegramWsMessage } from './channels/providers/telegram/parse-ws-message'
@@ -338,7 +349,8 @@ if (gotSingleInstanceLock) {
     })
     console.log(`[CrashLogger] Logs will be written to ${getCrashLogDir()}`)
 
-    // Set app user model id for windows (required for notifications to work)
+    // Set app identity for Windows integration
+    app.setName('OpenCoWork')
     electronApp.setAppUserModelId('com.opencowork.app')
 
     // Default open or close DevTools by F12 in development
@@ -395,6 +407,47 @@ if (gotSingleInstanceLock) {
         return { error: String(err) }
       }
     })
+
+    ipcMain.handle('image:fetch-base64', async (_event, args: { url: string }) => {
+      try {
+        const buffer = await FeishuApi.downloadUrl(args.url)
+        const fileExt = extname(args.url.split('?')[0]).toLowerCase()
+        const mimeType =
+          fileExt === '.jpg' || fileExt === '.jpeg'
+            ? 'image/jpeg'
+            : fileExt === '.webp'
+              ? 'image/webp'
+              : fileExt === '.gif'
+                ? 'image/gif'
+                : 'image/png'
+        return { data: buffer.toString('base64'), mimeType }
+      } catch (err) {
+        return { error: String(err) }
+      }
+    })
+
+    ipcMain.handle(
+      'image:download',
+      async (_event, args: { url: string; defaultName?: string }) => {
+        const win = BrowserWindow.getFocusedWindow()
+        if (!win) return { canceled: true }
+        try {
+          const buffer = await FeishuApi.downloadUrl(args.url)
+          const rawName =
+            args.defaultName?.trim() ||
+            `image-${Date.now()}${extname(args.url.split('?')[0]) || '.png'}`
+          const result = await dialog.showSaveDialog(win, {
+            defaultPath: rawName,
+            filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
+          })
+          if (result.canceled || !result.filePath) return { canceled: true }
+          writeFileSync(result.filePath, buffer)
+          return { success: true, filePath: result.filePath }
+        } catch (err) {
+          return { error: String(err) }
+        }
+      }
+    )
 
     // Auto-start plugins with autoStart feature enabled
     void autoStartChannels(channelManager)

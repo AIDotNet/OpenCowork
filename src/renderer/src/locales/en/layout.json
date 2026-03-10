@@ -238,6 +238,12 @@
     "unknownError": "Generation failed. Please try again later.",
     "interrupted": "The previous generation was interrupted.",
     "noImageOutput": "The model returned no image output.",
+    "optimizePrompt": "Optimize Prompt",
+    "optimizePromptDesc": "Lightly refine the prompt from a professional image-model perspective while preserving your original intent.",
+    "useOptimizedPrompt": "Use Optimized Prompt",
+    "cancelOptimize": "Cancel",
+    "optimizeFailed": "Prompt optimization failed",
+    "optimizeUnavailable": "No fast text model is currently available.",
     "failed": "Failed",
     "completed": "Completed"
   },

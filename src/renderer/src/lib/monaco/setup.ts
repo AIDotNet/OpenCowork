@@ -107,8 +107,8 @@ export function initializeMonaco(): void {
     onlyVisible: true
   }
 
-  monacoTypeScript.typescriptDefaults.setEagerModelSync(true)
-  monacoTypeScript.javascriptDefaults.setEagerModelSync(true)
+  monacoTypeScript.typescriptDefaults.setEagerModelSync(false)
+  monacoTypeScript.javascriptDefaults.setEagerModelSync(false)
   monacoTypeScript.typescriptDefaults.setCompilerOptions(compilerOptions)
   monacoTypeScript.javascriptDefaults.setCompilerOptions(compilerOptions)
   monacoTypeScript.typescriptDefaults.setDiagnosticsOptions(diagnosticsOptions)

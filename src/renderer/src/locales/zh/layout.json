@@ -238,6 +238,12 @@
     "unknownError": "生成失败，请稍后重试。",
     "interrupted": "上次生成已中断。",
     "noImageOutput": "模型未返回任何图片内容。",
+    "optimizePrompt": "优化提示词",
+    "optimizePromptDesc": "从专业绘图模型视角轻量补足提示词细节，保留你的原始意图。",
+    "useOptimizedPrompt": "使用优化结果",
+    "cancelOptimize": "取消",
+    "optimizeFailed": "提示词优化失败",
+    "optimizeUnavailable": "当前没有可用的快速文本模型。",
     "failed": "生成失败",
     "completed": "已完成"
   },

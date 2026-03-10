@@ -8,33 +8,34 @@ interface ImagePreviewProps {
   alt?: string
 }
 
-export function ImagePreview({ src, alt = 'Generated image' }: ImagePreviewProps): React.JSX.Element {
+export function ImagePreview({
+  src,
+  alt = 'Generated image'
+}: ImagePreviewProps): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  const handleDownload = async () => {
+  const handleDownload = async (): Promise<void> => {
     try {
-      let blob: Blob
-
       if (src.startsWith('data:')) {
-        // For base64 images
         const response = await fetch(src)
-        blob = await response.blob()
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `image-${Date.now()}.png`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
       } else {
-        // For URL images, use Electron's fetch (no CORS restrictions)
-        const response = await fetch(src)
-        blob = await response.blob()
+        const fileExt = src.split('?')[0].split('.').pop()?.toLowerCase()
+        const defaultName = `image-${Date.now()}${fileExt ? `.${fileExt}` : '.png'}`
+        const result = await window.api.downloadImage({ url: src, defaultName })
+        if (result.error) throw new Error(result.error)
+        if (result.canceled) return
       }
 
-      // Create download link
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `image-${Date.now()}.png`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
       toast.success('Image downloaded')
     } catch (error) {
       console.error('Download failed:', error)
@@ -42,33 +43,28 @@ export function ImagePreview({ src, alt = 'Generated image' }: ImagePreviewProps
     }
   }
 
-  const handleCopy = async () => {
+  const handleCopy = async (): Promise<void> => {
     try {
-      let blob: Blob
+      let imageBase64: string
 
       if (src.startsWith('data:')) {
-        // For base64 images
-        const response = await fetch(src)
-        blob = await response.blob()
+        const parts = src.split(',', 2)
+        if (parts.length !== 2) throw new Error('Invalid data URL')
+        imageBase64 = parts[1]
       } else {
-        // For URL images, use Electron's fetch (no CORS restrictions)
-        const response = await fetch(src)
-        blob = await response.blob()
+        const result = await window.api.fetchImageBase64({ url: src })
+        if (result.error || !result.data) {
+          throw new Error(result.error || 'Failed to fetch image data')
+        }
+        imageBase64 = result.data
       }
 
-      // Copy image to clipboard
-      if (navigator.clipboard && ClipboardItem) {
-        // Ensure we have a valid image MIME type
-        const imageType = blob.type.startsWith('image/') ? blob.type : 'image/png'
-        await navigator.clipboard.write([
-          new ClipboardItem({ [imageType]: blob })
-        ])
-        setCopied(true)
-        toast.success('Image copied to clipboard')
-        setTimeout(() => setCopied(false), 2000)
-      } else {
-        throw new Error('Clipboard API not supported')
-      }
+      const result = await window.api.writeImageToClipboard({ data: imageBase64 })
+      if (result.error) throw new Error(result.error)
+
+      setCopied(true)
+      toast.success('Image copied to clipboard')
+      setTimeout(() => setCopied(false), 2000)
     } catch (error) {
       console.error('Copy failed:', error)
       toast.error('Failed to copy image. Please try downloading instead.')
@@ -82,12 +78,7 @@ export function ImagePreview({ src, alt = 'Generated image' }: ImagePreviewProps
         className="relative max-w-lg rounded-lg overflow-hidden border border-border/50 cursor-pointer hover:border-primary/50 transition-colors group"
         onClick={() => setIsOpen(true)}
       >
-        <img
-          src={src}
-          alt={alt}
-          className="w-full h-auto"
-          loading="lazy"
-        />
+        <img src={src} alt={alt} className="w-full h-auto" loading="lazy" />
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
           <div className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-sm font-medium bg-black/50 px-3 py-1.5 rounded-full">
             Click to enlarge

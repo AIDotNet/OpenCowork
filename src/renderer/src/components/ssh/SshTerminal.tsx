@@ -98,7 +98,7 @@ export function SshTerminal({ sessionId, connectionName: _connectionName }: SshT
       fontSize: 14,
       fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, 'Courier New', monospace",
       allowProposedApi: true,
-      scrollback: 10000,
+      scrollback: 2000,
       convertEol: true,
       theme: resolvedTheme === 'light' ? LIGHT_THEME : DARK_THEME,
     })

@@ -1,11 +1,40 @@
+import * as React from 'react'
 import { viewerRegistry } from './viewer-registry'
-import { HtmlViewer } from './viewers/html-viewer'
-import { SpreadsheetViewer } from './viewers/spreadsheet-viewer'
-import { MarkdownViewer } from './viewers/markdown-viewer'
-import { ImageViewer } from './viewers/image-viewer'
-import { DocxViewer } from './viewers/docx-viewer'
-import { PdfViewer } from './viewers/pdf-viewer'
-import { FallbackViewer } from './viewers/fallback-viewer'
+
+const HtmlViewer = React.lazy(async () => {
+  const mod = await import('./viewers/html-viewer')
+  return { default: mod.HtmlViewer }
+})
+
+const SpreadsheetViewer = React.lazy(async () => {
+  const mod = await import('./viewers/spreadsheet-viewer')
+  return { default: mod.SpreadsheetViewer }
+})
+
+const MarkdownViewer = React.lazy(async () => {
+  const mod = await import('./viewers/markdown-viewer')
+  return { default: mod.MarkdownViewer }
+})
+
+const ImageViewer = React.lazy(async () => {
+  const mod = await import('./viewers/image-viewer')
+  return { default: mod.ImageViewer }
+})
+
+const DocxViewer = React.lazy(async () => {
+  const mod = await import('./viewers/docx-viewer')
+  return { default: mod.DocxViewer }
+})
+
+const PdfViewer = React.lazy(async () => {
+  const mod = await import('./viewers/pdf-viewer')
+  return { default: mod.PdfViewer }
+})
+
+const FallbackViewer = React.lazy(async () => {
+  const mod = await import('./viewers/fallback-viewer')
+  return { default: mod.FallbackViewer }
+})
 
 export function registerAllViewers(): void {
   viewerRegistry.register({

@@ -11,7 +11,9 @@ export interface ViewerProps {
 export interface ViewerDefinition {
   type: string
   extensions: string[]
-  component: React.ComponentType<ViewerProps>
+  component:
+    | React.ComponentType<ViewerProps>
+    | React.LazyExoticComponent<React.ComponentType<ViewerProps>>
 }
 
 class ViewerRegistry {

@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: open-cowork
+appId: com.opencowork.app
+productName: OpenCoWork
 directories:
   buildResources: build
 files:
@@ -106,8 +106,10 @@ asarUnpack:
   - node_modules/ssh2/**
   - node_modules/cpu-features/**
 win:
-  executableName: open-cowork
-  signAndEditExecutable: false
+  executableName: OpenCoWork
+  icon: build/icon.ico
+  legalTrademarks: OpenCoWork
+  fileDescription: OpenCoWork
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

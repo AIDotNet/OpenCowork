@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X, Code2, Eye, RefreshCw, Save, Copy, Check, Bot } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
@@ -215,13 +215,22 @@ export function PreviewPanel(): React.JSX.Element {
             </div>
           </div>
         ) : ViewerComponent ? (
-          <ViewerComponent
-            filePath={state.filePath}
-            content={content}
-            viewMode={state.viewMode}
-            onContentChange={handleContentChange}
-            sshConnectionId={state.sshConnectionId}
-          />
+          <Suspense
+            fallback={
+              <div className="flex size-full items-center justify-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="size-4 animate-spin" />
+                Loading preview...
+              </div>
+            }
+          >
+            <ViewerComponent
+              filePath={state.filePath}
+              content={content}
+              viewMode={state.viewMode}
+              onContentChange={handleContentChange}
+              sshConnectionId={state.sshConnectionId}
+            />
+          </Suspense>
         ) : (
           <div className="flex size-full items-center justify-center text-sm text-muted-foreground">
             {t('preview.noViewer')}

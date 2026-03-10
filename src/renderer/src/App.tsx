@@ -23,7 +23,6 @@ import { cronEvents } from './lib/tools/cron-events'
 import { useCronStore } from './stores/cron-store'
 import { ipcClient } from './lib/ipc/ipc-client'
 import { runCronAgent } from './lib/tools/cron-agent-runner'
-import { initializeMonaco } from './lib/monaco/setup'
 import { useChatStore as _useChatStore } from './stores/chat-store'
 import { nanoid } from 'nanoid'
 import type { UnifiedMessage } from './lib/api/types'
@@ -38,7 +37,6 @@ import {
 // Register synchronous providers and viewers immediately at startup
 registerAllProviders()
 registerAllViewers()
-initializeMonaco()
 initProviderStore()
 initAppPluginStore()
 

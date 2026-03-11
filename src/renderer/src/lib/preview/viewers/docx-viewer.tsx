@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { FileText } from 'lucide-react'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
@@ -12,6 +13,7 @@ async function convertDocxToHtml(base64: string): Promise<string> {
 }
 
 export function DocxViewer({ filePath, sshConnectionId }: ViewerProps): React.JSX.Element {
+  const { t } = useTranslation('layout')
   const [html, setHtml] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -43,7 +45,9 @@ export function DocxViewer({ filePath, sshConnectionId }: ViewerProps): React.JS
       }
     })
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [filePath, sshConnectionId])
 
   if (loading) {
@@ -65,6 +69,9 @@ export function DocxViewer({ filePath, sshConnectionId }: ViewerProps): React.JS
 
   return (
     <div className="size-full overflow-y-auto p-6">
+      <div className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        {t('preview.docxCompatibilityHint')}
+      </div>
       <div
         className="prose prose-sm dark:prose-invert max-w-none"
         dangerouslySetInnerHTML={{ __html: html }}

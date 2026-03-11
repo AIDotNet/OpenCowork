@@ -118,6 +118,7 @@ function App(): React.JSX.Element {
   const backgroundColor = useSettingsStore((s) => s.backgroundColor)
   const fontFamily = useSettingsStore((s) => s.fontFamily)
   const fontSize = useSettingsStore((s) => s.fontSize)
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const { t } = useTranslation('common')
   const shownUpdateVersionsRef = useRef(new Set<string>())
   const updateDialogOpenRef = useRef(false)
@@ -146,7 +147,9 @@ function App(): React.JSX.Element {
     } else {
       root.style.removeProperty('--app-font-size')
     }
-  }, [backgroundColor, fontFamily, fontSize])
+
+    root.dataset.animations = animationsEnabled ? 'enabled' : 'disabled'
+  }, [backgroundColor, fontFamily, fontSize, animationsEnabled])
 
   // Load sessions and plans from SQLite on startup
   useEffect(() => {

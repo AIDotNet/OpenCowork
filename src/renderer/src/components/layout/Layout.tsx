@@ -124,6 +124,7 @@ export function Layout(): React.JSX.Element {
   const mode = useUIStore((s) => s.mode)
   const setMode = useUIStore((s) => s.setMode)
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen)
+  const toolbarCollapsedByDefault = useSettingsStore((s) => s.toolbarCollapsedByDefault)
   const detailPanelOpen = useUIStore((s) => s.detailPanelOpen)
   const previewPanelOpen = useUIStore((s) => s.previewPanelOpen)
   const chatView = useUIStore((s) => s.chatView)
@@ -285,6 +286,13 @@ export function Layout(): React.JSX.Element {
   if (sshPageOpen) sshPageEverOpened.current = true
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar)
   const _loaded = useChatStore((s) => s._loaded)
+  const appliedDefaultToolbarStateRef = useRef(false)
+
+  useEffect(() => {
+    if (appliedDefaultToolbarStateRef.current) return
+    useUIStore.getState().setLeftSidebarOpen(!toolbarCollapsedByDefault)
+    appliedDefaultToolbarStateRef.current = true
+  }, [toolbarCollapsedByDefault])
 
   // On initial DB load, restore last active session if any
   useEffect(() => {

@@ -35,6 +35,8 @@ interface SettingsStore {
   backgroundColor: string
   fontFamily: string
   fontSize: number
+  animationsEnabled: boolean
+  toolbarCollapsedByDefault: boolean
 
   // Web Search Settings
   webSearchEnabled: boolean
@@ -89,6 +91,8 @@ export const useSettingsStore = create<SettingsStore>()(
       backgroundColor: '',
       fontFamily: '',
       fontSize: 16,
+      animationsEnabled: true,
+      toolbarCollapsedByDefault: false,
 
       // Web Search Settings
       webSearchEnabled: false,
@@ -137,6 +141,12 @@ export const useSettingsStore = create<SettingsStore>()(
         if (state.fontSize === undefined || typeof state.fontSize !== 'number') {
           state.fontSize = 16
         }
+        if (state.animationsEnabled === undefined) {
+          state.animationsEnabled = true
+        }
+        if (state.toolbarCollapsedByDefault === undefined) {
+          state.toolbarCollapsedByDefault = false
+        }
         if (state.editorWorkspaceEnabled === undefined) {
           state.editorWorkspaceEnabled = false
         }
@@ -170,6 +180,8 @@ export const useSettingsStore = create<SettingsStore>()(
         backgroundColor: state.backgroundColor,
         fontFamily: state.fontFamily,
         fontSize: state.fontSize,
+        animationsEnabled: state.animationsEnabled,
+        toolbarCollapsedByDefault: state.toolbarCollapsedByDefault,
         // Web Search Settings
         webSearchEnabled: state.webSearchEnabled,
         webSearchProvider: state.webSearchProvider,

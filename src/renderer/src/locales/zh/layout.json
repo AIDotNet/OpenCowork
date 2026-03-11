@@ -323,7 +323,9 @@
     "noViewer": "没有可用于此文件类型的查看器",
     "unsavedChanges": "未保存的更改",
     "unsavedChangesDesc": "{{fileName}} 有未保存的更改，你想怎么做？",
-    "discard": "丢弃"
+    "discard": "丢弃",
+    "openInSystem": "系统打开",
+    "docxCompatibilityHint": "当前为转换后的网页预览，版式可能与 WPS 不完全一致。"
   },
   "skillsPage": {
     "title": "技能",

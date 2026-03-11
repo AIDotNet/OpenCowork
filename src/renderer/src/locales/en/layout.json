@@ -323,7 +323,9 @@
     "noViewer": "No viewer available for this file type",
     "unsavedChanges": "Unsaved Changes",
     "unsavedChangesDesc": "You have unsaved changes to {{fileName}}. What would you like to do?",
-    "discard": "Discard"
+    "discard": "Discard",
+    "openInSystem": "Open in system app",
+    "docxCompatibilityHint": "This preview is converted to web content, so layout may differ from WPS."
   },
   "skillsPage": {
     "title": "Skills",

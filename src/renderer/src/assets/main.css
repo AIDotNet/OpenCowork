@@ -189,6 +189,14 @@
   scroll-behavior: smooth;
 }
 
+:root[data-animations='disabled'] *,
+:root[data-animations='disabled'] *::before,
+:root[data-animations='disabled'] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
 /* Title bar drag region */
 .titlebar-drag {
   -webkit-app-region: drag;

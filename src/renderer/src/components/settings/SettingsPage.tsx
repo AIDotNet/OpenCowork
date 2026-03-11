@@ -603,6 +603,42 @@ function GeneralPanel(): React.JSX.Element {
 
       <Separator />
 
+      {/* Animation */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between max-w-lg">
+          <div>
+            <label className="text-sm font-medium">{t('general.animations')}</label>
+            <p className="text-xs text-muted-foreground">{t('general.animationsDesc')}</p>
+          </div>
+          <Switch
+            checked={settings.animationsEnabled}
+            onCheckedChange={(checked) => settings.updateSettings({ animationsEnabled: checked })}
+          />
+        </div>
+      </section>
+
+      <Separator />
+
+      {/* Toolbar Default Collapse */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between max-w-lg">
+          <div>
+            <label className="text-sm font-medium">{t('general.toolbarCollapsedByDefault')}</label>
+            <p className="text-xs text-muted-foreground">
+              {t('general.toolbarCollapsedByDefaultDesc')}
+            </p>
+          </div>
+          <Switch
+            checked={settings.toolbarCollapsedByDefault}
+            onCheckedChange={(checked) =>
+              settings.updateSettings({ toolbarCollapsedByDefault: checked })
+            }
+          />
+        </div>
+      </section>
+
+      <Separator />
+
       {/* Language */}
       <section className="space-y-3">
         <div>
@@ -866,6 +902,8 @@ function GeneralPanel(): React.JSX.Element {
               backgroundColor: '',
               fontFamily: '',
               fontSize: 16,
+              animationsEnabled: true,
+              toolbarCollapsedByDefault: false,
               apiKey: currentKey
             })
             setTheme('system')

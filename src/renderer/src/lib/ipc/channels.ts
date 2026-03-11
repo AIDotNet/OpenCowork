@@ -36,6 +36,8 @@ export const IPC = {
   // Shell
   SHELL_EXEC: 'shell:exec',
   SHELL_ABORT: 'shell:abort',
+  SHELL_OPEN_PATH: 'shell:openPath',
+  SHELL_OPEN_EXTERNAL: 'shell:openExternal',
 
   // Agent Changes
   AGENT_CHANGES_LIST: 'agent:changes:list',

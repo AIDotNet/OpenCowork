@@ -41,7 +41,9 @@ import { registerChannelHandlers, autoStartChannels } from './ipc/channel-handle
 import { ChannelManager } from './channels/channel-manager'
 import { registerMcpHandlers } from './ipc/mcp-handlers'
 import { registerCronHandlers } from './ipc/cron-handlers'
+import { registerInputHandlers } from './ipc/input-handlers'
 import { registerNotifyHandlers } from './ipc/notify-handlers'
+import { registerScreenshotHandlers } from './ipc/screenshot-handlers'
 import { registerWebSearchHandlers } from './ipc/web-search-handlers'
 import { registerOauthHandlers } from './ipc/oauth-handlers'
 import { loadPersistedJobs, cancelAllJobs } from './cron/cron-scheduler'
@@ -391,6 +393,8 @@ if (gotSingleInstanceLock) {
     registerChannelHandlers(channelManager)
     registerMcpHandlers(mcpManager)
     registerCronHandlers()
+    registerScreenshotHandlers()
+    registerInputHandlers()
     loadPersistedJobs()
     registerNotifyHandlers()
     registerWebSearchHandlers()

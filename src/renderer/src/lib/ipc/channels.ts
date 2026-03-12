@@ -123,6 +123,11 @@ export const IPC = {
   CRON_TOGGLE: 'cron:toggle',
   CRON_RUN_NOW: 'cron:run-now',
   CRON_RUNS: 'cron:runs',
+  CRON_RUN_CREATE: 'cron:run:create',
+  CRON_RUN_UPDATE: 'cron:run:update',
+  CRON_RUN_DETAIL: 'cron:run-detail',
+  CRON_RUN_MESSAGES_REPLACE: 'cron:run-messages:replace',
+  CRON_RUN_LOG_APPEND: 'cron:run-log:append',
   CRON_FIRED: 'cron:fired',
   CRON_JOB_REMOVED: 'cron:job-removed',
   CRON_RUN_FINISHED: 'cron:run-finished',
@@ -159,6 +164,11 @@ export const IPC = {
 
   // Clipboard
   CLIPBOARD_WRITE_IMAGE: 'clipboard:write-image',
+
+  // Desktop Control
+  DESKTOP_SCREENSHOT_CAPTURE: 'desktop:screenshot:capture',
+  DESKTOP_INPUT_CLICK: 'desktop:input:click',
+  DESKTOP_INPUT_TYPE: 'desktop:input:type',
 
   // Web Search
   WEB_SEARCH: 'web:search',

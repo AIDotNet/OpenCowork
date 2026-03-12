@@ -1,6 +1,6 @@
 {
   "name": "open-cowork",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -24,6 +24,7 @@
     "@base-ui/react": "^1.1.0",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@jitsi/robotjs": "^0.6.21",
     "@larksuiteoapi/node-sdk": "^1.59.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@monaco-editor/react": "^4.7.0",

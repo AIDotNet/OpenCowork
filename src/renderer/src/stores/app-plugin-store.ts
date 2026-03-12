@@ -5,6 +5,7 @@ import { configStorage } from '@renderer/lib/ipc/config-storage'
 import { useProviderStore } from './provider-store'
 import {
   APP_PLUGIN_DESCRIPTORS,
+  DESKTOP_CONTROL_PLUGIN_ID,
   IMAGE_PLUGIN_ID,
   type AppPluginDescriptor,
   type AppPluginId,
@@ -62,6 +63,7 @@ interface AppPluginStore {
   getEnabledPlugins: () => AppPluginInstance[]
   getResolvedImagePluginConfig: () => ProviderConfig | null
   isImageToolAvailable: () => boolean
+  isDesktopControlToolAvailable: () => boolean
 }
 
 export const useAppPluginStore = create<AppPluginStore>()(
@@ -105,7 +107,12 @@ export const useAppPluginStore = create<AppPluginStore>()(
         return providerStore.getProviderConfigById(providerId, modelId)
       },
 
-      isImageToolAvailable: () => get().getResolvedImagePluginConfig() !== null
+      isImageToolAvailable: () => get().getResolvedImagePluginConfig() !== null,
+
+      isDesktopControlToolAvailable: () => {
+        const plugin = get().getPlugin(DESKTOP_CONTROL_PLUGIN_ID)
+        return Boolean(plugin?.enabled)
+      }
     }),
     {
       name: 'opencowork-app-plugins',

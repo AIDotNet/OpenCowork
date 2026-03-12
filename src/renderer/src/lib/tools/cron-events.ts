@@ -6,6 +6,7 @@ type CronFiredEvent = {
   agentId?: string | null
   model?: string | null
   workingFolder?: string | null
+  firedAt?: number
   deliveryMode?: string
   deliveryTarget?: string | null
   maxIterations?: number

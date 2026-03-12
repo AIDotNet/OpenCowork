@@ -610,6 +610,7 @@ function GrepOutputBlock({
 
 function GlobOutputBlock({ output }: { output: string }): React.JSX.Element {
   const { t } = useTranslation('chat')
+  const maxVisibleItems = 200
   const parsed = React.useMemo(() => {
     try {
       return JSON.parse(output) as string[]
@@ -618,6 +619,8 @@ function GlobOutputBlock({ output }: { output: string }): React.JSX.Element {
     }
   }, [output])
   if (!parsed || !Array.isArray(parsed)) return <OutputBlock output={output} />
+  const visibleItems = parsed.slice(0, maxVisibleItems)
+  const hiddenCount = Math.max(0, parsed.length - visibleItems.length)
 
   return (
     <div>
@@ -631,7 +634,7 @@ function GlobOutputBlock({ output }: { output: string }): React.JSX.Element {
         className="rounded-md border bg-zinc-950 overflow-auto max-h-48 px-3 py-2 text-[11px] font-mono text-zinc-400 space-y-0.5"
         style={{ fontFamily: MONO_FONT }}
       >
-        {parsed.map((p, i) => (
+        {visibleItems.map((p, i) => (
           <div
             key={i}
             className="truncate cursor-pointer hover:text-blue-400 transition-colors"
@@ -646,6 +649,11 @@ function GlobOutputBlock({ output }: { output: string }): React.JSX.Element {
             {p}
           </div>
         ))}
+        {hiddenCount > 0 && (
+          <div className="pt-1 text-[10px] text-muted-foreground/60">
+            Showing first {visibleItems.length} results, {hiddenCount} more hidden.
+          </div>
+        )}
       </div>
     </div>
   )

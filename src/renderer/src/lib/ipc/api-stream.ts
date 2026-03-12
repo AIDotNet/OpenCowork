@@ -31,6 +31,82 @@ export function maskHeaders(headers: Record<string, string>): Record<string, str
   return masked
 }
 
+type QueueItem =
+  | { type: 'chunk'; data: string }
+  | { type: 'end' }
+  | { type: 'error'; error: string }
+
+type StreamQueueSink = {
+  push: (item: QueueItem) => void
+}
+
+type ApiStreamDispatcherState = {
+  initialized: boolean
+  requests: Map<string, StreamQueueSink>
+}
+
+const API_STREAM_DISPATCHER_KEY = '__openCoworkApiStreamDispatcher__'
+
+function getApiStreamDispatcherState(): ApiStreamDispatcherState {
+  const scope = globalThis as typeof globalThis & {
+    [API_STREAM_DISPATCHER_KEY]?: ApiStreamDispatcherState
+  }
+
+  if (!scope[API_STREAM_DISPATCHER_KEY]) {
+    scope[API_STREAM_DISPATCHER_KEY] = {
+      initialized: false,
+      requests: new Map<string, StreamQueueSink>()
+    }
+  }
+
+  return scope[API_STREAM_DISPATCHER_KEY]
+}
+
+function completeRequest(state: ApiStreamDispatcherState, requestId: string, item: QueueItem): void {
+  const request = state.requests.get(requestId)
+  if (!request) return
+  request.push(item)
+  if (item.type === 'end' || item.type === 'error') {
+    state.requests.delete(requestId)
+  }
+}
+
+function ensureApiStreamDispatcher(): void {
+  const state = getApiStreamDispatcherState()
+  if (state.initialized) return
+  if (typeof window === 'undefined' || !window.electron?.ipcRenderer) return
+
+  const ipc = window.electron.ipcRenderer
+
+  ipc.on('api:stream-chunk', (_event: unknown, data: { requestId?: string; data?: string }) => {
+    if (typeof data?.requestId !== 'string' || typeof data.data !== 'string') return
+    completeRequest(state, data.requestId, { type: 'chunk', data: data.data })
+  })
+
+  ipc.on('api:stream-end', (_event: unknown, data: { requestId?: string }) => {
+    if (typeof data?.requestId !== 'string') return
+    completeRequest(state, data.requestId, { type: 'end' })
+  })
+
+  ipc.on('api:stream-error', (_event: unknown, data: { requestId?: string; error?: string }) => {
+    if (typeof data?.requestId !== 'string') return
+    completeRequest(state, data.requestId, {
+      type: 'error',
+      error: typeof data.error === 'string' ? data.error : 'Unknown stream error'
+    })
+  })
+
+  state.initialized = true
+}
+
+function registerApiStreamRequest(requestId: string, push: (item: QueueItem) => void): () => void {
+  const state = getApiStreamDispatcherState()
+  state.requests.set(requestId, { push })
+  return () => {
+    state.requests.delete(requestId)
+  }
+}
+
 /**
  * Streams an API request through the main process IPC proxy.
  * Returns an AsyncIterable of SSE events, matching the same interface
@@ -49,12 +125,6 @@ export async function* ipcStreamRequest(params: {
   const requestId = nanoid()
   const { url, method, headers, body, signal, useSystemProxy, providerId, providerBuiltinId } =
     params
-
-  // Queue to bridge IPC callbacks → async iterator
-  type QueueItem =
-    | { type: 'chunk'; data: string }
-    | { type: 'end' }
-    | { type: 'error'; error: string }
 
   const queue: QueueItem[] = []
   let resolve: (() => void) | null = null
@@ -77,31 +147,16 @@ export async function* ipcStreamRequest(params: {
       }
     })
 
-  // Register IPC listeners
   const ipc = window.electron.ipcRenderer
+  ensureApiStreamDispatcher()
+  const unregisterRequest = registerApiStreamRequest(requestId, push)
 
-  const onChunk = (_event: unknown, data: { requestId: string; data: string }): void => {
-    if (data.requestId === requestId) push({ type: 'chunk', data: data.data })
-  }
-  const onEnd = (_event: unknown, data: { requestId: string }): void => {
-    if (data.requestId === requestId) push({ type: 'end' })
-  }
-  const onError = (_event: unknown, data: { requestId: string; error: string }): void => {
-    if (data.requestId === requestId) push({ type: 'error', error: data.error })
-  }
-
-  ipc.on('api:stream-chunk', onChunk)
-  ipc.on('api:stream-end', onEnd)
-  ipc.on('api:stream-error', onError)
-
-  // Handle abort
   const abortHandler = (): void => {
     ipc.send('api:abort', { requestId })
     push({ type: 'end' })
   }
   signal?.addEventListener('abort', abortHandler, { once: true })
 
-  // Send request to main process
   ipc.send('api:stream-request', {
     requestId,
     url,
@@ -113,7 +168,6 @@ export async function* ipcStreamRequest(params: {
     providerBuiltinId
   })
 
-  // SSE line parser state
   let buffer = ''
 
   try {
@@ -125,17 +179,16 @@ export async function* ipcStreamRequest(params: {
 
         if (item.type === 'end') {
           done = true
-          // Flush any remaining data in the SSE buffer that wasn't
-          // terminated with a double newline (some providers omit the trailing blank line).
           if (buffer.trim()) {
             const lines = buffer.split(/\r?\n/)
             const parsed: SSEEvent = { data: '' }
             const dataLines: string[] = []
             for (const line of lines) {
-              if (line.startsWith('event:'))
+              if (line.startsWith('event:')) {
                 parsed.event = line.slice(line.charAt(6) === ' ' ? 7 : 6)
-              else if (line.startsWith('data:'))
+              } else if (line.startsWith('data:')) {
                 dataLines.push(line.slice(line.charAt(5) === ' ' ? 6 : 5))
+              }
             }
             parsed.data = dataLines.join('\n')
             if (parsed.data) yield parsed
@@ -155,7 +208,6 @@ export async function* ipcStreamRequest(params: {
           })
         }
 
-        // Parse SSE from chunk
         buffer += item.data
         const events = buffer.split(/\r?\n\r?\n/)
         buffer = events.pop() || ''
@@ -166,8 +218,9 @@ export async function* ipcStreamRequest(params: {
           const dataLines: string[] = []
           for (const line of lines) {
             if (line.startsWith('event:')) parsed.event = line.slice(line.charAt(6) === ' ' ? 7 : 6)
-            else if (line.startsWith('data:'))
+            else if (line.startsWith('data:')) {
               dataLines.push(line.slice(line.charAt(5) === ' ' ? 6 : 5))
+            }
           }
           parsed.data = dataLines.join('\n')
           if (parsed.data) yield parsed
@@ -175,10 +228,7 @@ export async function* ipcStreamRequest(params: {
       }
     }
   } finally {
-    // Cleanup listeners
-    ipc.removeListener('api:stream-chunk', onChunk)
-    ipc.removeListener('api:stream-end', onEnd)
-    ipc.removeListener('api:stream-error', onError)
+    unregisterRequest()
     signal?.removeEventListener('abort', abortHandler)
   }
 }

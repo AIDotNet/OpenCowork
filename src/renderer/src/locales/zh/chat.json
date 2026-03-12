@@ -146,6 +146,34 @@
       "result": "生成结果（{{count}} 张）",
       "notes": "补充说明",
       "countValue": "数量 {{count}}"
+    },
+    "desktop": {
+      "running": "桌面操作执行中",
+      "completed": "桌面操作已完成",
+      "failed": "桌面操作失败",
+      "executing": "正在执行桌面操作...",
+      "input": "输入",
+      "output": "输出",
+      "notes": "补充说明",
+      "DesktopScreenshot": {
+        "title": "桌面截图"
+      },
+      "DesktopClick": {
+        "title": "桌面点击"
+      },
+      "DesktopType": {
+        "title": "桌面输入"
+      },
+      "screenshot": {
+        "summary": "{{width}} × {{height}}",
+        "preview": "截图预览"
+      },
+      "click": {
+        "summary": "{{action}} @ ({{x}}, {{y}})"
+      },
+      "type": {
+        "summary": "模式：{{mode}}"
+      }
     }
   },
   "subAgent": {

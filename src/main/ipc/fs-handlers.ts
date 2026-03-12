@@ -2,7 +2,7 @@ import { ipcMain, dialog, BrowserWindow, app } from 'electron'
 import { spawn } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
-import { globSync } from 'glob'
+import { glob } from 'glob'
 import { createInterface } from 'readline'
 import { recordLocalTextWriteChange } from './agent-change-handlers'
 import { createGitIgnoreMatcher } from './gitignore-utils'
@@ -73,6 +73,27 @@ const GREP_IGNORE_DIRS = new Set([
   'venv',
   'env'
 ])
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function buildGlobIgnorePatterns(pattern: string): string[] {
+  const normalizedPattern = pattern.replace(/\\/g, '/')
+  const ignorePatterns: string[] = []
+
+  for (const dirName of GREP_IGNORE_DIRS) {
+    const targetsDir = new RegExp(`(^|/)${escapeRegex(dirName)}(/|$)`).test(normalizedPattern)
+    if (targetsDir) continue
+
+    ignorePatterns.push(`${dirName}`)
+    ignorePatterns.push(`${dirName}/**`)
+    ignorePatterns.push(`**/${dirName}`)
+    ignorePatterns.push(`**/${dirName}/**`)
+  }
+
+  return ignorePatterns
+}
 
 const GREP_BINARY_EXTENSIONS = new Set([
   '.png',
@@ -617,19 +638,20 @@ export function registerFsHandlers(): void {
     try {
       const cwd = path.resolve(args.path || process.cwd())
       const matcher = await createLocalGitIgnoreContext(cwd)
-      const matches = globSync(args.pattern, { cwd })
+      const matches = await glob(args.pattern, {
+        cwd,
+        mark: true,
+        ignore: buildGlobIgnorePatterns(args.pattern)
+      })
       const filteredMatches: string[] = []
 
       for (const match of matches) {
-        const absolutePath = path.resolve(cwd, match)
-        let isDir = false
-        try {
-          isDir = fs.statSync(absolutePath).isDirectory()
-        } catch {
-          isDir = false
-        }
+        const isDir = /[\\/]$/.test(match)
+        const normalizedMatch = match.replace(/[\\/]+$/, '')
+        if (!normalizedMatch) continue
+        const absolutePath = path.resolve(cwd, normalizedMatch)
         if (await matcher.ignores(absolutePath, isDir)) continue
-        filteredMatches.push(match)
+        filteredMatches.push(normalizedMatch)
       }
 
       return filteredMatches

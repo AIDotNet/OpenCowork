@@ -1,4 +1,12 @@
-import { Image, Languages, MessageSquare, Monitor, Settings, Wand2 } from 'lucide-react'
+import {
+  CalendarDays,
+  Image,
+  Languages,
+  MessageSquare,
+  Monitor,
+  Settings,
+  Wand2
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { useUIStore, type NavItem } from '@renderer/stores/ui-store'
@@ -7,6 +15,7 @@ import packageJson from '../../../../../package.json'
 
 const navItems: { value: NavItem; icon: React.ReactNode; labelKey: string }[] = [
   { value: 'chat', icon: <MessageSquare className="size-5" />, labelKey: 'navRail.conversations' },
+  { value: 'tasks', icon: <CalendarDays className="size-5" />, labelKey: 'navRail.tasks' },
   { value: 'skills', icon: <Wand2 className="size-5" />, labelKey: 'navRail.skills' },
   { value: 'draw', icon: <Image className="size-5" />, labelKey: 'navRail.draw' },
   { value: 'translate', icon: <Languages className="size-5" />, labelKey: 'navRail.translate' },
@@ -22,8 +31,13 @@ export function NavRail(): React.JSX.Element {
   const drawPageOpen = useUIStore((s) => s.drawPageOpen)
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
   const sshPageOpen = useUIStore((s) => s.sshPageOpen)
+  const tasksPageOpen = useUIStore((s) => s.tasksPageOpen)
 
   const handleNavClick = (item: NavItem): void => {
+    if (item === 'tasks') {
+      useUIStore.getState().openTasksPage()
+      return
+    }
     if (item === 'skills') {
       useUIStore.getState().openSkillsPage()
       return
@@ -47,6 +61,7 @@ export function NavRail(): React.JSX.Element {
     if (ui.drawPageOpen) ui.closeDrawPage()
     if (ui.translatePageOpen) ui.closeTranslatePage()
     if (ui.sshPageOpen) ui.closeSshPage()
+    if (ui.tasksPageOpen) ui.closeTasksPage()
     if (activeNavItem === item && leftSidebarOpen) {
       useUIStore.getState().setLeftSidebarOpen(false)
     } else {
@@ -69,11 +84,12 @@ export function NavRail(): React.JSX.Element {
                 onClick={() => handleNavClick(item.value)}
                 className={cn(
                   'flex size-9 items-center justify-center rounded-lg transition-all duration-200',
-                  (item.value === 'skills' && skillsPageOpen) ||
+                  (item.value === 'tasks' && tasksPageOpen) ||
+                    (item.value === 'skills' && skillsPageOpen) ||
                     (item.value === 'draw' && drawPageOpen) ||
                     (item.value === 'translate' && translatePageOpen) ||
                     (item.value === 'ssh' && sshPageOpen) ||
-                    (!['skills', 'draw', 'translate', 'ssh'].includes(item.value) &&
+                    (!['tasks', 'skills', 'draw', 'translate', 'ssh'].includes(item.value) &&
                       activeNavItem === item.value &&
                       leftSidebarOpen)
                     ? 'bg-primary/10 text-primary shadow-sm'

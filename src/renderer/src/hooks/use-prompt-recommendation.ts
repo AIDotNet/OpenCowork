@@ -8,7 +8,7 @@ import {
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import type { AppMode } from '@renderer/stores/ui-store'
 
-const DEBOUNCE_MS = 600
+const DEBOUNCE_MS = 1000
 
 type RecommendationCacheValue = string | null
 
@@ -72,6 +72,10 @@ export function usePromptRecommendation({
   const [isFocused, setIsFocused] = React.useState(false)
   const [isComposing, setIsComposing] = React.useState(false)
   const [caretAtEnd, setCaretAtEnd] = React.useState(true)
+  const [isDocumentVisible, setIsDocumentVisible] = React.useState(
+    () => document.visibilityState === 'visible'
+  )
+  const [isWindowFocused, setIsWindowFocused] = React.useState(() => document.hasFocus())
   const cacheRef = React.useRef<Map<string, RecommendationCacheValue>>(new Map())
   const requestSeqRef = React.useRef(0)
   const abortRef = React.useRef<AbortController | null>(null)
@@ -87,8 +91,7 @@ export function usePromptRecommendation({
     : '__disabled__'
 
   const rawContextKey = React.useMemo(
-    () =>
-      buildContextKey(mode, text, recentMessages, selectedSkill, images, providerBindingKey),
+    () => buildContextKey(mode, text, recentMessages, selectedSkill, images, providerBindingKey),
     [mode, text, recentMessages, selectedSkill, images, providerBindingKey]
   )
 
@@ -184,7 +187,16 @@ export function usePromptRecommendation({
       cacheRef.current.set(contextKey, null)
       setFullSuggestion('')
     },
-    [applyResolvedSuggestion, fallbackSuggestion, images, language, mode, recentMessages, selectedSkill, sessionId]
+    [
+      applyResolvedSuggestion,
+      fallbackSuggestion,
+      images,
+      language,
+      mode,
+      recentMessages,
+      selectedSkill,
+      sessionId
+    ]
   )
 
   React.useEffect(() => {
@@ -198,7 +210,50 @@ export function usePromptRecommendation({
   }, [])
 
   React.useEffect(() => {
-    if (!isFocused || disabled || isStreaming || isComposing) {
+    const handleVisibilityChange = (): void => {
+      const visible = document.visibilityState === 'visible'
+      setIsDocumentVisible(visible)
+      if (!visible) {
+        abortRef.current?.abort()
+        setFullSuggestion('')
+      }
+    }
+
+    const handleWindowFocus = (): void => {
+      setIsWindowFocused(true)
+    }
+
+    const handleWindowBlur = (): void => {
+      setIsWindowFocused(false)
+      abortRef.current?.abort()
+      setFullSuggestion('')
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleWindowFocus)
+    window.addEventListener('blur', handleWindowBlur)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleWindowFocus)
+      window.removeEventListener('blur', handleWindowBlur)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    abortRef.current?.abort()
+    setFullSuggestion('')
+  }, [sessionId])
+
+  React.useEffect(() => {
+    if (
+      !isFocused ||
+      disabled ||
+      isStreaming ||
+      isComposing ||
+      !isDocumentVisible ||
+      !isWindowFocused
+    ) {
       return
     }
 
@@ -227,8 +282,10 @@ export function usePromptRecommendation({
     applyResolvedSuggestion,
     disabled,
     isComposing,
+    isDocumentVisible,
     isFocused,
     isStreaming,
+    isWindowFocused,
     rawContextKey,
     runRequest,
     text
@@ -257,32 +314,12 @@ export function usePromptRecommendation({
   const handleFocus = React.useCallback(() => {
     setIsFocused(true)
     updateCaretState()
-
-    if (disabled || isStreaming || isComposing || text.trim()) {
-      return
-    }
-
-    const contextKey = rawContextKey
-    const cached = cacheRef.current.get(contextKey)
-    if (cached !== undefined) {
-      applyResolvedSuggestion(cached, '')
-      return
-    }
-
-    void runRequest('', true, contextKey)
-  }, [
-    applyResolvedSuggestion,
-    disabled,
-    isComposing,
-    isStreaming,
-    rawContextKey,
-    runRequest,
-    text,
-    updateCaretState
-  ])
+  }, [updateCaretState])
 
   const handleBlur = React.useCallback(() => {
     setIsFocused(false)
+    abortRef.current?.abort()
+    setFullSuggestion('')
   }, [])
 
   const handleSelectionChange = React.useCallback(() => {
@@ -300,7 +337,15 @@ export function usePromptRecommendation({
   }, [updateCaretState])
 
   const suggestionText = React.useMemo(() => {
-    if (!isFocused || disabled || isStreaming || isComposing || !caretAtEnd) {
+    if (
+      !isFocused ||
+      disabled ||
+      isStreaming ||
+      isComposing ||
+      !caretAtEnd ||
+      !isDocumentVisible ||
+      !isWindowFocused
+    ) {
       return ''
     }
 
@@ -317,7 +362,17 @@ export function usePromptRecommendation({
     }
 
     return fullSuggestion.slice(text.length)
-  }, [caretAtEnd, disabled, fullSuggestion, isComposing, isFocused, isStreaming, text])
+  }, [
+    caretAtEnd,
+    disabled,
+    fullSuggestion,
+    isComposing,
+    isDocumentVisible,
+    isFocused,
+    isStreaming,
+    isWindowFocused,
+    text
+  ])
 
   const canAcceptSuggestion = suggestionText.length > 0
   const effectivePlaceholder = text.length === 0 && suggestionText ? '' : undefined

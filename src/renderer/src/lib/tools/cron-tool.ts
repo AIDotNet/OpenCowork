@@ -160,9 +160,8 @@ const cronAddHandler: ToolHandler = {
 
     useCronStore.getState().loadJobs().catch(() => {})
 
-    // Auto-open the Cron tab in the right panel so user can see the new job
-    useUIStore.getState().setRightPanelTab('cron')
-    useUIStore.getState().setRightPanelOpen(true)
+    // Auto-open the Tasks page so user can see the new job
+    useUIStore.getState().openTasksPage()
 
     return JSON.stringify({
       success: true,

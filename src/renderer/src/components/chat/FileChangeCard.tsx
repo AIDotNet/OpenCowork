@@ -90,23 +90,63 @@ function fileName(filePath: string): string {
   return parts[parts.length - 1] || filePath
 }
 
+function normalizeLineEndings(text: string): string {
+  return text.replace(/\r\n/g, '\n')
+}
+
 function lineCount(text: string): number {
-  return text.length === 0 ? 0 : text.split('\n').length
+  const normalized = normalizeLineEndings(text)
+  return normalized.length === 0 ? 0 : normalized.split('\n').length
 }
 
 type DiffLine = { type: 'keep' | 'add' | 'del'; text: string; oldNum?: number; newNum?: number }
 
+function computeLargeDiff(a: string[], b: string[]): DiffLine[] {
+  const result: DiffLine[] = []
+  const m = a.length
+  const n = b.length
+
+  let start = 0
+  while (start < m && start < n && a[start] === b[start]) {
+    result.push({ type: 'keep', text: a[start], oldNum: start + 1, newNum: start + 1 })
+    start += 1
+  }
+
+  let endA = m - 1
+  let endB = n - 1
+  while (endA >= start && endB >= start && a[endA] === b[endB]) {
+    endA -= 1
+    endB -= 1
+  }
+
+  for (let index = start; index <= endA; index += 1) {
+    result.push({ type: 'del', text: a[index], oldNum: index + 1 })
+  }
+
+  for (let index = start; index <= endB; index += 1) {
+    result.push({ type: 'add', text: b[index], newNum: index + 1 })
+  }
+
+  for (let offset = 1; endA + offset < m && endB + offset < n; offset += 1) {
+    result.push({
+      type: 'keep',
+      text: a[endA + offset],
+      oldNum: endA + offset + 1,
+      newNum: endB + offset + 1
+    })
+  }
+
+  return result
+}
+
 function computeDiff(oldStr: string, newStr: string): DiffLine[] {
-  const a = oldStr.split('\n')
-  const b = newStr.split('\n')
+  const a = normalizeLineEndings(oldStr).split('\n')
+  const b = normalizeLineEndings(newStr).split('\n')
   const m = a.length,
     n = b.length
 
   if (m * n > 100000) {
-    return [
-      ...a.map((t, i): DiffLine => ({ type: 'del', text: t, oldNum: i + 1 })),
-      ...b.map((t, i): DiffLine => ({ type: 'add', text: t, newNum: i + 1 }))
-    ]
+    return computeLargeDiff(a, b)
   }
 
   const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1))
@@ -278,12 +318,11 @@ function ChangeStats({
     const oldStr = typeof input.old_string === 'string' ? input.old_string : ''
     const newStr = typeof input.new_string === 'string' ? input.new_string : ''
     if (!oldStr && !newStr) return null
-    const removed = lineCount(oldStr)
-    const added = lineCount(newStr)
+    const stats = summarizeDiff(computeDiff(oldStr, newStr))
     return (
       <span className="flex items-center gap-1 text-[10px]">
-        <span className="text-green-400/70">+{added}</span>
-        <span className="text-red-400/70">-{removed}</span>
+        <span className="text-green-400/70">+{stats.added}</span>
+        <span className="text-red-400/70">-{stats.deleted}</span>
       </span>
     )
   }
@@ -442,6 +481,7 @@ function PendingEditPreview({ input }: { input: Record<string, unknown> }): Reac
   const oldStr = typeof input.old_string === 'string' ? input.old_string : ''
   const newStr = typeof input.new_string === 'string' ? input.new_string : ''
   const hasCounts = oldStr.length > 0 || newStr.length > 0
+  const stats = React.useMemo(() => summarizeDiff(computeDiff(oldStr, newStr)), [oldStr, newStr])
 
   return (
     <div className="px-3 py-2 space-y-1.5 text-[11px] text-muted-foreground/70">
@@ -456,7 +496,7 @@ function PendingEditPreview({ input }: { input: Record<string, unknown> }): Reac
         )}
         {hasCounts && (
           <span className="text-[10px] text-muted-foreground/50">
-            -{lineCount(oldStr)} / +{lineCount(newStr)} lines
+            -{stats.deleted} / +{stats.added} lines
           </span>
         )}
       </div>

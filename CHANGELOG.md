@@ -3,6 +3,22 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.5.5] - 2026-03-12
+
+### Added
+- Added workspace memory templates for `AGENTS.md`, `SOUL.md`, `USER.md`, and `MEMORY.md`, plus initialization handling for plugin commands.
+- Added `latest-mac.yml` so macOS builds can participate in auto-update delivery.
+
+### Changed
+- Enhanced GitHub Actions workflow reliability by adding checkout step and improving release artifact management.
+- Refined skill manifest path lookup and sorting behavior, and aligned the primary UI mode naming to `cowork` for clearer context.
+- Updated memory-management loading flow and related settings localization.
+- Updated macOS application icon assets and improved multi-platform release pipeline reliability.
+
+### Fixed
+- Fixed macOS packaging and cross-platform release pipeline issues affecting release output stability.
+- Fixed GitHub Actions workflow to properly include repository context in release uploads.
+
 ## [0.5.4] - 2026-03-12
 
 ### Added

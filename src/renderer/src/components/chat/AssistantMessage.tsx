@@ -15,6 +15,7 @@ import { ImageGeneratingLoader } from './ImageGeneratingLoader'
 import { ImageGenerationErrorCard } from './ImageGenerationErrorCard'
 import { ImagePreview } from './ImagePreview'
 import { ImagePluginToolCard } from './ImagePluginToolCard'
+import { DesktopActionToolCard } from './DesktopActionToolCard'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import type { AgentRunFileChange } from '@renderer/stores/agent-store'
@@ -44,7 +45,12 @@ import { useMemoizedTokens } from '@renderer/hooks/use-estimated-tokens'
 import { getLastDebugInfo } from '@renderer/lib/debug-store'
 import { MONO_FONT } from '@renderer/lib/constants'
 import type { ToolCallState } from '@renderer/lib/agent/types'
-import { IMAGE_GENERATE_TOOL_NAME } from '@renderer/lib/app-plugin/types'
+import {
+  DESKTOP_CLICK_TOOL_NAME,
+  DESKTOP_SCREENSHOT_TOOL_NAME,
+  DESKTOP_TYPE_TOOL_NAME,
+  IMAGE_GENERATE_TOOL_NAME
+} from '@renderer/lib/app-plugin/types'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
 
@@ -65,7 +71,10 @@ const SPECIAL_TOOLS = new Set([
   'Edit',
   'Delete',
   'AskUserQuestion',
-  IMAGE_GENERATE_TOOL_NAME
+  IMAGE_GENERATE_TOOL_NAME,
+  DESKTOP_SCREENSHOT_TOOL_NAME,
+  DESKTOP_CLICK_TOOL_NAME,
+  DESKTOP_TYPE_TOOL_NAME
 ])
 const EMPTY_LIVE_TOOL_CALLS: ToolCallState[] = []
 
@@ -862,6 +871,25 @@ export function AssistantMessage({
         return (
           <ScaleIn key={key} className="w-full origin-left">
             <ImagePluginToolCard
+              input={block.input}
+              output={liveTc?.output ?? result?.content}
+              status={liveTc?.status ?? (result?.isError ? 'error' : 'completed')}
+              error={liveTc?.error}
+            />
+          </ScaleIn>
+        )
+      }
+      if (
+        block.name === DESKTOP_SCREENSHOT_TOOL_NAME ||
+        block.name === DESKTOP_CLICK_TOOL_NAME ||
+        block.name === DESKTOP_TYPE_TOOL_NAME
+      ) {
+        const result = toolResults?.get(block.id)
+        const liveTc = effectiveLiveToolCallMap?.get(block.id)
+        return (
+          <ScaleIn key={key} className="w-full origin-left">
+            <DesktopActionToolCard
+              name={block.name}
               input={block.input}
               output={liveTc?.output ?? result?.content}
               status={liveTc?.status ?? (result?.isError ? 'error' : 'completed')}

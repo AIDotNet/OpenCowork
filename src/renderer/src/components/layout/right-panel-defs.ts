@@ -1,7 +1,6 @@
 import {
   Activity,
   ClipboardList,
-  Clock3,
   Database,
   FileOutput,
   FolderTree,
@@ -38,7 +37,6 @@ export const RIGHT_PANEL_TAB_DEFS: RightPanelTabDef[] = [
   { value: 'team', labelKey: 'team', section: 'collaboration', icon: Users },
   { value: 'skills', labelKey: 'skills', section: 'collaboration', icon: Sparkles },
   { value: 'context', labelKey: 'context', section: 'monitoring', icon: Database },
-  { value: 'cron', labelKey: 'cron', section: 'monitoring', icon: Clock3 },
 ]
 
 export const RIGHT_PANEL_TAB_ORDER: RightPanelTab[] = RIGHT_PANEL_TAB_DEFS.map((tab) => tab.value)

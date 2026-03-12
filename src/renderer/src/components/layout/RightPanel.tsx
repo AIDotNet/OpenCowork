@@ -10,7 +10,6 @@ import { FileTreePanel } from '@renderer/components/cowork/FileTreePanel'
 import { SshFileExplorer } from '@renderer/components/ssh/SshFileExplorer'
 import { TeamPanel } from '@renderer/components/cowork/TeamPanel'
 import { PlanPanel } from '@renderer/components/cowork/PlanPanel'
-import { CronPanel } from '@renderer/components/cowork/CronPanel'
 import { usePlanStore } from '@renderer/stores/plan-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
@@ -411,12 +410,6 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
                   {tab === 'plan' && (
                     <FadeIn key="plan" className="h-full">
                       <PlanPanel />
-                    </FadeIn>
-                  )}
-
-                  {tab === 'cron' && (
-                    <FadeIn key="cron" className="h-full">
-                      <CronPanel />
                     </FadeIn>
                   )}
                 </AnimatePresence>

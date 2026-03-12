@@ -190,10 +190,40 @@
     "tryAgain": "Try Again",
     "reloadApp": "Reload App",
     "copyError": "Copy Error",
-    "errorDetails": "Error details"
+    "errorDetails": "Error details",
+    "modeTooltip": {
+      "solvesTitle": "Best for",
+      "current": "Current mode",
+      "switchHint": "Switch to {{mode}} with {{shortcut}}",
+      "clarify": {
+        "summary": "Use this when the request is still fuzzy and you want the agent to slow down, ask better follow-up questions, and align on the target before acting.",
+        "solves": [
+          "Unclear requirements, incomplete context, or multiple possible interpretations",
+          "Need help turning rough ideas into concrete tasks, specs, or acceptance criteria",
+          "Want the agent to challenge assumptions before it starts making changes"
+        ]
+      },
+      "cowork": {
+        "summary": "The agent works as a collaborative partner: it explains its approach, follows a Plan-Act-Observe loop, and handles both coding and non-coding tasks like research, DevOps, or project setup. The right panel opens automatically for step tracking.",
+        "solves": [
+          "Multi-step workflows mixing research, planning, file changes, and terminal commands — the agent explains each step",
+          "Tasks beyond pure coding: project setup, documentation, DevOps, analysis, or anything requiring coordination",
+          "Situations where you want visibility into the agent's thought process and intermediate results"
+        ]
+      },
+      "code": {
+        "summary": "The agent acts as a focused pair programmer. It reads before editing, matches your codebase style, makes surgical changes, and keeps explanations minimal — letting the code speak for itself.",
+        "solves": [
+          "Precise implementation: writing features, fixing bugs, refactoring, or completing modules with engineering discipline",
+          "When you want clean code output with minimal narration — terse confirmation instead of verbose walk-throughs",
+          "Changes that demand strict attention to existing conventions, types, imports, and API contracts"
+        ]
+      }
+    }
   },
   "navRail": {
     "conversations": "Conversations",
+    "tasks": "Tasks",
     "skills": "Skills",
     "draw": "Draw",
     "translate": "Translate",

@@ -21,7 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/comp
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { cn } from '@renderer/lib/utils'
 import { InputArea } from '@renderer/components/chat/InputArea'
-import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
+import { useUIStore } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
@@ -35,12 +35,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
+import { renderModeTooltipContent, type ModeOption } from '@renderer/lib/mode-tooltips'
+import { AnimatePresence, motion } from 'motion/react'
 
-const modes: { value: AppMode; labelKey: string; icon: React.ReactNode }[] = [
+const modes: ModeOption[] = [
   { value: 'clarify', labelKey: 'mode.clarify', icon: <CircleHelp className="size-3.5" /> },
   { value: 'cowork', labelKey: 'mode.cowork', icon: <Briefcase className="size-3.5" /> },
   { value: 'code', labelKey: 'mode.code', icon: <Code2 className="size-3.5" /> }
 ]
+
+const MODE_SWITCH_TRANSITION = {
+  type: 'spring',
+  stiffness: 380,
+  damping: 30,
+  mass: 0.8
+} as const
 
 const DEFAULT_SSH_WORKDIR = ''
 interface DesktopDirectoryOption {
@@ -327,22 +336,46 @@ export function ChatHomePage(): React.JSX.Element {
               <Tooltip key={m.value}>
                 <TooltipTrigger asChild>
                   <Button
-                    variant={mode === m.value ? 'secondary' : 'ghost'}
+                    variant="ghost"
                     size="sm"
                     className={cn(
-                      'h-8 gap-1.5 rounded-lg px-3 text-xs font-medium transition-all duration-200',
+                      'relative h-8 gap-1.5 overflow-hidden rounded-lg px-3 text-xs font-medium transition-all duration-200',
                       mode === m.value
-                        ? 'bg-background shadow-sm ring-1 ring-border/50'
+                        ? 'text-foreground'
                         : 'text-muted-foreground hover:text-foreground'
                     )}
                     onClick={() => setMode(m.value)}
                   >
-                    {m.icon}
-                    {tCommon(m.labelKey)}
+                    <AnimatePresence initial={false}>
+                      {mode === m.value && (
+                        <motion.span
+                          layoutId="home-mode-switch-highlight"
+                          className="pointer-events-none absolute inset-0 rounded-lg border border-border/50 bg-background shadow-sm"
+                          transition={MODE_SWITCH_TRANSITION}
+                        />
+                      )}
+                    </AnimatePresence>
+                    <span className="relative z-10 flex items-center gap-1.5">
+                      {m.icon}
+                      {tCommon(m.labelKey)}
+                    </span>
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  {tCommon(m.labelKey)} (Ctrl+{i + 1})
+                <TooltipContent
+                  side="bottom"
+                  align="center"
+                  sideOffset={8}
+                  className="max-w-[340px] rounded-xl px-3 py-3"
+                >
+                  {renderModeTooltipContent({
+                    mode: m.value,
+                    labelKey: m.labelKey,
+                    icon: m.icon,
+                    shortcutIndex: i,
+                    isActive: mode === m.value,
+                    t: (key, options) => String(t(key, options as never)),
+                    tCommon: (key, options) => String(tCommon(key, options as never))
+                  })}
                 </TooltipContent>
               </Tooltip>
             ))}

@@ -146,6 +146,34 @@
       "result": "Results ({{count}})",
       "notes": "Notes",
       "countValue": "Count {{count}}"
+    },
+    "desktop": {
+      "running": "Desktop action in progress",
+      "completed": "Desktop action completed",
+      "failed": "Desktop action failed",
+      "executing": "Executing desktop action...",
+      "input": "Input",
+      "output": "Output",
+      "notes": "Notes",
+      "DesktopScreenshot": {
+        "title": "Desktop Screenshot"
+      },
+      "DesktopClick": {
+        "title": "Desktop Click"
+      },
+      "DesktopType": {
+        "title": "Desktop Type"
+      },
+      "screenshot": {
+        "summary": "{{width}} × {{height}}",
+        "preview": "Screenshot preview"
+      },
+      "click": {
+        "summary": "{{action}} @ ({{x}}, {{y}})"
+      },
+      "type": {
+        "summary": "Mode: {{mode}}"
+      }
     }
   },
   "subAgent": {

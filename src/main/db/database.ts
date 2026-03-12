@@ -398,48 +398,90 @@ export function getDb(): Database.Database {
   // --- Cron Jobs table ---
   db.exec(`
     CREATE TABLE IF NOT EXISTS cron_jobs (
-      id               TEXT PRIMARY KEY,
-      name             TEXT NOT NULL,
+      id                   TEXT PRIMARY KEY,
+      name                 TEXT NOT NULL,
 
-      schedule_kind    TEXT NOT NULL,
-      schedule_at      INTEGER,
-      schedule_every   INTEGER,
-      schedule_expr    TEXT,
-      schedule_tz      TEXT DEFAULT 'UTC',
+      schedule_kind        TEXT NOT NULL,
+      schedule_at          INTEGER,
+      schedule_every       INTEGER,
+      schedule_expr        TEXT,
+      schedule_tz          TEXT DEFAULT 'UTC',
 
-      prompt           TEXT NOT NULL,
-      agent_id         TEXT,
-      model            TEXT,
-      working_folder   TEXT,
-      session_id       TEXT,
+      prompt               TEXT NOT NULL,
+      agent_id             TEXT,
+      model                TEXT,
+      working_folder       TEXT,
+      session_id           TEXT,
+      source_session_title TEXT,
+      source_project_id    TEXT,
+      source_project_name  TEXT,
+      source_provider_id   TEXT,
 
-      delivery_mode    TEXT DEFAULT 'desktop',
-      delivery_target  TEXT,
+      delivery_mode        TEXT DEFAULT 'desktop',
+      delivery_target      TEXT,
 
-      enabled          INTEGER DEFAULT 1,
-      delete_after_run INTEGER DEFAULT 0,
-      max_iterations   INTEGER DEFAULT 15,
+      enabled              INTEGER DEFAULT 1,
+      delete_after_run     INTEGER DEFAULT 0,
+      max_iterations       INTEGER DEFAULT 15,
+      deleted_at           INTEGER,
 
-      last_fired_at    INTEGER,
-      fire_count       INTEGER DEFAULT 0,
-      created_at       INTEGER NOT NULL,
-      updated_at       INTEGER NOT NULL,
+      last_fired_at        INTEGER,
+      fire_count           INTEGER DEFAULT 0,
+      created_at           INTEGER NOT NULL,
+      updated_at           INTEGER NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS cron_runs (
-      id               TEXT PRIMARY KEY,
-      job_id           TEXT NOT NULL,
-      started_at       INTEGER NOT NULL,
-      finished_at      INTEGER,
-      status           TEXT DEFAULT 'running',
-      tool_call_count  INTEGER DEFAULT 0,
-      output_summary   TEXT,
-      error            TEXT,
+      id                          TEXT PRIMARY KEY,
+      job_id                      TEXT NOT NULL,
+      started_at                  INTEGER NOT NULL,
+      finished_at                 INTEGER,
+      status                      TEXT DEFAULT 'running',
+      tool_call_count             INTEGER DEFAULT 0,
+      output_summary              TEXT,
+      error                       TEXT,
+      scheduled_for               INTEGER,
+      job_name_snapshot           TEXT,
+      prompt_snapshot             TEXT,
+      source_session_id_snapshot  TEXT,
+      source_session_title_snapshot TEXT,
+      source_project_id_snapshot  TEXT,
+      source_project_name_snapshot TEXT,
+      source_provider_id_snapshot TEXT,
+      model_snapshot              TEXT,
+      working_folder_snapshot     TEXT,
+      delivery_mode_snapshot      TEXT,
+      delivery_target_snapshot    TEXT,
       FOREIGN KEY (job_id) REFERENCES cron_jobs(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS cron_run_messages (
+      id            TEXT PRIMARY KEY,
+      run_id        TEXT NOT NULL,
+      role          TEXT NOT NULL,
+      content       TEXT NOT NULL,
+      usage         TEXT,
+      message_source TEXT,
+      sort_order    INTEGER NOT NULL,
+      created_at    INTEGER NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES cron_runs(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS cron_run_logs (
+      id          TEXT PRIMARY KEY,
+      run_id      TEXT NOT NULL,
+      timestamp   INTEGER NOT NULL,
+      type        TEXT NOT NULL,
+      content     TEXT NOT NULL,
+      sort_order  INTEGER NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES cron_runs(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_cron_runs_job ON cron_runs(job_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_cron_runs_started_at ON cron_runs(started_at);
+    CREATE INDEX IF NOT EXISTS idx_cron_run_messages_run ON cron_run_messages(run_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_cron_run_logs_run ON cron_run_logs(run_id, sort_order);
   `)
 
   // --- SSH Groups table ---
@@ -522,7 +564,7 @@ export function getDb(): Database.Database {
   // Backfill projects and project_id for legacy sessions
   migrateSessionsToProjects(db)
 
-  // Migration: add plugin columns to cron_jobs if missing
+  // Migration: add plugin/source/delete columns to cron_jobs if missing
   try {
     db.exec(`ALTER TABLE cron_jobs ADD COLUMN plugin_id TEXT`)
   } catch {
@@ -533,11 +575,23 @@ export function getDb(): Database.Database {
   } catch {
     /* exists */
   }
-  if (!hasColumn(db, 'cron_jobs', 'session_id')) {
-    try {
-      db.exec(`ALTER TABLE cron_jobs ADD COLUMN session_id TEXT`)
-    } catch {
-      /* ignore */
+  const cronJobColumns = [
+    'session_id',
+    'source_session_title',
+    'source_project_id',
+    'source_project_name',
+    'source_provider_id',
+    'deleted_at'
+  ] as const
+  for (const column of cronJobColumns) {
+    if (!hasColumn(db, 'cron_jobs', column)) {
+      try {
+        db.exec(
+          `ALTER TABLE cron_jobs ADD COLUMN ${column} ${column === 'deleted_at' ? 'INTEGER' : 'TEXT'}`
+        )
+      } catch {
+        /* ignore */
+      }
     }
   }
   if (hasColumn(db, 'cron_jobs', 'session_id')) {
@@ -545,6 +599,62 @@ export function getDb(): Database.Database {
   } else {
     console.warn('[DB] Skip idx_cron_jobs_session: cron_jobs.session_id is missing')
   }
+  if (hasColumn(db, 'cron_jobs', 'deleted_at')) {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_cron_jobs_deleted_at ON cron_jobs(deleted_at)`)
+  }
+
+  // Migration: add snapshot columns to cron_runs if missing
+  const cronRunColumns: Array<{ name: string; type: string }> = [
+    { name: 'scheduled_for', type: 'INTEGER' },
+    { name: 'job_name_snapshot', type: 'TEXT' },
+    { name: 'prompt_snapshot', type: 'TEXT' },
+    { name: 'source_session_id_snapshot', type: 'TEXT' },
+    { name: 'source_session_title_snapshot', type: 'TEXT' },
+    { name: 'source_project_id_snapshot', type: 'TEXT' },
+    { name: 'source_project_name_snapshot', type: 'TEXT' },
+    { name: 'source_provider_id_snapshot', type: 'TEXT' },
+    { name: 'model_snapshot', type: 'TEXT' },
+    { name: 'working_folder_snapshot', type: 'TEXT' },
+    { name: 'delivery_mode_snapshot', type: 'TEXT' },
+    { name: 'delivery_target_snapshot', type: 'TEXT' }
+  ]
+  for (const column of cronRunColumns) {
+    if (!hasColumn(db, 'cron_runs', column.name)) {
+      try {
+        db.exec(`ALTER TABLE cron_runs ADD COLUMN ${column.name} ${column.type}`)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_cron_runs_started_at ON cron_runs(started_at)`)
+
+  // Migration: ensure transcript/log tables exist for cron runs
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cron_run_messages (
+      id             TEXT PRIMARY KEY,
+      run_id         TEXT NOT NULL,
+      role           TEXT NOT NULL,
+      content        TEXT NOT NULL,
+      usage          TEXT,
+      message_source TEXT,
+      sort_order     INTEGER NOT NULL,
+      created_at     INTEGER NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES cron_runs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_cron_run_messages_run ON cron_run_messages(run_id, sort_order);
+
+    CREATE TABLE IF NOT EXISTS cron_run_logs (
+      id         TEXT PRIMARY KEY,
+      run_id     TEXT NOT NULL,
+      timestamp  INTEGER NOT NULL,
+      type       TEXT NOT NULL,
+      content    TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES cron_runs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_cron_run_logs_run ON cron_run_logs(run_id, sort_order);
+  `)
 
   return db
 }

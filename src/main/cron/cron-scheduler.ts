@@ -19,6 +19,10 @@ export interface CronJobRecord {
   model: string | null
   working_folder: string | null
   session_id: string | null
+  source_session_title: string | null
+  source_project_id: string | null
+  source_project_name: string | null
+  source_provider_id: string | null
 
   delivery_mode: 'desktop' | 'session' | 'none'
   delivery_target: string | null
@@ -29,6 +33,7 @@ export interface CronJobRecord {
   enabled: number
   delete_after_run: number
   max_iterations: number
+  deleted_at: number | null
 
   last_fired_at: number | null
   fire_count: number
@@ -45,6 +50,18 @@ export interface CronRunRecord {
   tool_call_count: number
   output_summary: string | null
   error: string | null
+  scheduled_for: number | null
+  job_name_snapshot: string | null
+  prompt_snapshot: string | null
+  source_session_id_snapshot: string | null
+  source_session_title_snapshot: string | null
+  source_project_id_snapshot: string | null
+  source_project_name_snapshot: string | null
+  source_provider_id_snapshot: string | null
+  model_snapshot: string | null
+  working_folder_snapshot: string | null
+  delivery_mode_snapshot: string | null
+  delivery_target_snapshot: string | null
 }
 
 // ── Scheduled Handle (unified abstraction) ───────────────────────
@@ -73,7 +90,9 @@ export function isRunning(jobId: string): boolean {
 export function markRunning(jobId: string): boolean {
   if (activeRunJobIds.has(jobId)) return false
   if (activeRunJobIds.size >= maxConcurrentRuns) {
-    console.warn(`[CronScheduler] Concurrency limit reached (${maxConcurrentRuns}), skipping job ${jobId}`)
+    console.warn(
+      `[CronScheduler] Concurrency limit reached (${maxConcurrentRuns}), skipping job ${jobId}`
+    )
     return false
   }
   activeRunJobIds.add(jobId)
@@ -83,16 +102,19 @@ export function markRunning(jobId: string): boolean {
 export function markFinished(jobId: string): void {
   activeRunJobIds.delete(jobId)
 
-  // Deferred delete_after_run: now that the agent run is done, delete the job
+  // Deferred delete_after_run: now that the agent run is done, soft-delete the job
   if (pendingDeleteAfterRun.has(jobId)) {
     pendingDeleteAfterRun.delete(jobId)
     try {
       const db = getDb()
-      db.prepare('DELETE FROM cron_jobs WHERE id = ?').run(jobId)
+      const now = Date.now()
+      db.prepare(
+        'UPDATE cron_jobs SET enabled = 0, deleted_at = ?, updated_at = ? WHERE id = ?'
+      ).run(now, now, jobId)
       sendToRenderer('cron:job-removed', { jobId, reason: 'delete_after_run' })
-      console.log(`[CronScheduler] Deferred delete_after_run: removed job ${jobId}`)
+      console.log(`[CronScheduler] Deferred delete_after_run: soft-deleted job ${jobId}`)
     } catch (err) {
-      console.error(`[CronScheduler] Failed to delete job ${jobId} after run:`, err)
+      console.error(`[CronScheduler] Failed to soft-delete job ${jobId} after run:`, err)
     }
   }
 }
@@ -133,11 +155,12 @@ function onJobFired(job: CronJobRecord): void {
       model: job.model,
       workingFolder: job.working_folder,
       sessionId: job.session_id,
+      firedAt: Date.now(),
       deliveryMode: job.delivery_mode,
       deliveryTarget: job.delivery_target,
       maxIterations: job.max_iterations,
       pluginId: job.plugin_id,
-      pluginChatId: job.plugin_chat_id,
+      pluginChatId: job.plugin_chat_id
     })
 
     // Handle delete_after_run: stop the schedule handle now (prevent re-fire),
@@ -155,7 +178,7 @@ function onJobFired(job: CronJobRecord): void {
     console.error('[CronScheduler] Job fire error:', err)
     sendToRenderer('cron:fired', {
       jobId: job.id,
-      error: err instanceof Error ? err.message : String(err),
+      error: err instanceof Error ? err.message : String(err)
     })
   }
 }
@@ -197,10 +220,26 @@ export function scheduleJob(record: CronJobRecord): boolean {
   if (kind === 'every') {
     const intervalMs = record.schedule_every
     if (!intervalMs || intervalMs < 1000) return false
-    const timer = setInterval(() => {
+
+    const anchor = record.last_fired_at ?? record.updated_at ?? record.created_at
+    const now = Date.now()
+    const elapsed = Math.max(0, now - anchor)
+    const initialDelay = intervalMs - (elapsed % intervalMs || intervalMs)
+
+    let interval: NodeJS.Timeout | null = null
+    const timeout = setTimeout(() => {
       onJobFired(record)
-    }, intervalMs)
-    scheduledHandles.set(record.id, { stop: () => clearInterval(timer) })
+      interval = setInterval(() => {
+        onJobFired(record)
+      }, intervalMs)
+    }, initialDelay)
+
+    scheduledHandles.set(record.id, {
+      stop: () => {
+        clearTimeout(timeout)
+        if (interval) clearInterval(interval)
+      }
+    })
     return true
   }
 
@@ -209,7 +248,9 @@ export function scheduleJob(record: CronJobRecord): boolean {
     if (!expr || !cron.validate(expr)) return false
     const task = cron.schedule(
       expr,
-      () => { onJobFired(record) },
+      () => {
+        onJobFired(record)
+      },
       { scheduled: true, timezone: record.schedule_tz || 'UTC' }
     )
     scheduledHandles.set(record.id, { stop: () => task.stop() })
@@ -238,10 +279,12 @@ export function loadPersistedJobs(): void {
     // Clean up expired 'at' jobs that are in the past
     const now = Date.now()
     db.prepare(
-      "DELETE FROM cron_jobs WHERE schedule_kind = 'at' AND schedule_at < ? AND delete_after_run = 1"
-    ).run(now)
+      "UPDATE cron_jobs SET enabled = 0, deleted_at = COALESCE(deleted_at, ?), updated_at = ? WHERE schedule_kind = 'at' AND schedule_at < ? AND delete_after_run = 1 AND deleted_at IS NULL"
+    ).run(now, now, now)
 
-    const rows = db.prepare('SELECT * FROM cron_jobs WHERE enabled = 1').all() as CronJobRecord[]
+    const rows = db
+      .prepare('SELECT * FROM cron_jobs WHERE enabled = 1 AND deleted_at IS NULL')
+      .all() as CronJobRecord[]
     let loaded = 0
     for (const row of rows) {
       if (scheduleJob(row)) {

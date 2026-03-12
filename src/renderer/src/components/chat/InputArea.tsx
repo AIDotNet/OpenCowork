@@ -548,11 +548,7 @@ export function InputArea({
   }, [historyCursor])
   const recommendationFallback = t(defaultRecommendationKeys[mode])
   const shouldAutoAcceptRecommendation =
-    mode === 'clarify' &&
-    clarifyAutoAcceptRecommended &&
-    !disabled &&
-    !isOptimizing &&
-    !isStreaming
+    mode === 'clarify' && clarifyAutoAcceptRecommended && !disabled && !isOptimizing && !isStreaming
   const {
     suggestionText,
     measureText,
@@ -678,12 +674,12 @@ export function InputArea({
     }
   }, [])
 
-  // Auto-focus textarea when not streaming or when switching sessions
+  // Auto-focus textarea only when streaming state ends; session switching should not trigger it.
   React.useEffect(() => {
     if (!isStreaming && !disabled) {
       textareaRef.current?.focus()
     }
-  }, [isStreaming, disabled, activeSessionId])
+  }, [isStreaming, disabled])
 
   React.useEffect(() => {
     if (!shouldAutoAcceptRecommendation || !suggestionText || !text.trim()) {
@@ -730,11 +726,6 @@ export function InputArea({
     suggestionText,
     text
   ])
-
-  React.useEffect(() => {
-    if (!activeSessionId) return
-    void useChatStore.getState().loadRecentSessionMessages(activeSessionId)
-  }, [activeSessionId])
 
   React.useEffect(() => {
     setEditingQueueItemId(null)
@@ -1597,7 +1588,9 @@ export function InputArea({
                 onSelect={handleRecommendationSelectionChange}
                 onCompositionStart={handleRecommendationCompositionStart}
                 onCompositionEnd={handleRecommendationCompositionEnd}
-                placeholder={effectivePlaceholder ?? t(placeholderKeys[mode] ?? 'input.placeholder')}
+                placeholder={
+                  effectivePlaceholder ?? t(placeholderKeys[mode] ?? 'input.placeholder')
+                }
                 className="relative z-10 min-h-[60px] w-full resize-none border-0 bg-transparent dark:bg-transparent p-1 shadow-none focus-visible:ring-0 text-base md:text-sm flex-1"
                 rows={1}
                 disabled={disabled || isOptimizing}

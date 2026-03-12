@@ -1046,6 +1046,7 @@ function MemoryPanel(): React.JSX.Element {
 
   const activeFile = files[activeTab]
   const hasUnsavedChanges = activeFile.draftContent !== activeFile.savedContent
+  const canSave = activeFile.missingFile || hasUnsavedChanges
 
   const loadGlobalMemoryFiles = async (): Promise<void> => {
     setLoading(true)
@@ -1271,7 +1272,7 @@ function MemoryPanel(): React.JSX.Element {
               size="sm"
               className="h-8 text-xs"
               onClick={() => void handleSave()}
-              disabled={saving || loading || !hasUnsavedChanges}
+              disabled={saving || loading || !canSave}
             >
               {saving ? (
                 <Loader2 className="mr-1.5 size-3.5 animate-spin" />

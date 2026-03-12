@@ -185,11 +185,18 @@
     "selectModel": "Select image model",
     "toolStatus": "Tool status",
     "toolStatusDesc": "The image Tool is only exposed when the plugin is enabled and the model is valid.",
+    "toolStatusDescDesktop": "Desktop-control tools are only exposed when the plugin is enabled. Every call still requires approval.",
     "toolArgs": "Available args: prompt, count",
+    "toolArgsMap": {
+      "ImageGenerate": "Available args: prompt, count",
+      "DesktopScreenshot": "Available args: none",
+      "DesktopClick": "Available args: x, y, button, action",
+      "DesktopType": "Available args: text, key, hotkey"
+    },
     "status": {
-      "disabled": "The plugin is disabled, so `ImageGenerate` is not exposed to the Agent.",
-      "not_ready": "The plugin is enabled, but no valid image model is configured yet.",
-      "ready": "The plugin is ready. The Agent can call `ImageGenerate` to create images."
+      "disabled": "The plugin is disabled, so its tools are not exposed to the Agent.",
+      "not_ready": "The plugin is enabled, but required configuration is still missing.",
+      "ready": "The plugin is ready and its tools are available to the Agent."
     },
     "items": {
       "image": {
@@ -197,6 +204,12 @@
         "description": "Expose a dedicated image-generation Tool to the Agent.",
         "promptTitle": "Tool usage constraints",
         "promptDesc": "Enable this only when you want the Agent to directly generate images. The Tool accepts only `prompt` and `count`, and uses the configured image model."
+      },
+      "desktop-control": {
+        "title": "Desktop Control Plugin",
+        "description": "Expose desktop screenshot, click, and keyboard tools to the Agent.",
+        "promptTitle": "Tool usage constraints",
+        "promptDesc": "These tools can inspect and control the full desktop. Keep approval enabled, capture the screen before acting, and use them only when direct desktop automation is required."
       }
     }
   },

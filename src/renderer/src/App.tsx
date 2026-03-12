@@ -219,6 +219,7 @@ function App(): React.JSX.Element {
         agentId?: string | null
         model?: string | null
         workingFolder?: string | null
+        firedAt?: number
         deliveryMode?: string
         deliveryTarget?: string | null
         maxIterations?: number
@@ -239,6 +240,7 @@ function App(): React.JSX.Element {
           agentId: d.agentId,
           model: d.model,
           workingFolder: d.workingFolder,
+          firedAt: d.firedAt,
           deliveryMode: d.deliveryMode,
           deliveryTarget: d.deliveryTarget,
           maxIterations: d.maxIterations,

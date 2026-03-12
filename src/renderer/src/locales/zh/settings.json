@@ -185,11 +185,18 @@
     "selectModel": "选择图片模型",
     "toolStatus": "Tool 状态",
     "toolStatusDesc": "只有在插件启用且模型有效时，图片 Tool 才会暴露给 Agent。",
+    "toolStatusDescDesktop": "桌面控制工具仅在插件启用后才会暴露给 Agent，但每次调用仍需审批。",
     "toolArgs": "可用参数：prompt、count",
+    "toolArgsMap": {
+      "ImageGenerate": "可用参数：prompt、count",
+      "DesktopScreenshot": "可用参数：无",
+      "DesktopClick": "可用参数：x、y、button、action",
+      "DesktopType": "可用参数：text、key、hotkey"
+    },
     "status": {
-      "disabled": "插件未启用，`ImageGenerate` 不会暴露给 Agent。",
-      "not_ready": "插件已启用，但尚未配置有效的图片模型。",
-      "ready": "插件已就绪，Agent 可以调用 `ImageGenerate` 生成图片。"
+      "disabled": "插件未启用，因此其工具不会暴露给 Agent。",
+      "not_ready": "插件已启用，但所需配置尚未完成。",
+      "ready": "插件已就绪，Agent 可以调用其工具。"
     },
     "items": {
       "image": {
@@ -197,6 +204,12 @@
         "description": "为 Agent 提供专用图片生成 Tool。",
         "promptTitle": "Tool 使用约束",
         "promptDesc": "仅当你希望 Agent 直接生成图片时再启用。Tool 只接受 `prompt` 和 `count`，并使用当前配置的图片模型执行生成。"
+      },
+      "desktop-control": {
+        "title": "桌面控制插件",
+        "description": "为 Agent 提供桌面截图、坐标点击和键盘输入工具。",
+        "promptTitle": "Tool 使用约束",
+        "promptDesc": "这些工具可以读取并操作整个桌面。建议保持审批开启，先截图再操作，仅在确实需要桌面自动化时启用。"
       }
     }
   },

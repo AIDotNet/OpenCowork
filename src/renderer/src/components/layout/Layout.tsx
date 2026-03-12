@@ -49,15 +49,23 @@ import { toast } from 'sonner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
-import { AnimatePresence } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { PageTransition, PanelTransition } from '@renderer/components/animate-ui'
 import { useShallow } from 'zustand/react/shallow'
+import { renderModeTooltipContent, type ModeOption } from '@renderer/lib/mode-tooltips'
 
-const modes: { value: AppMode; labelKey: string; icon: React.ReactNode }[] = [
+const modes: ModeOption[] = [
   { value: 'clarify', labelKey: 'mode.clarify', icon: <CircleHelp className="size-3.5" /> },
   { value: 'cowork', labelKey: 'mode.cowork', icon: <Briefcase className="size-3.5" /> },
   { value: 'code', labelKey: 'mode.code', icon: <Code2 className="size-3.5" /> }
 ]
+
+const MODE_SWITCH_TRANSITION = {
+  type: 'spring',
+  stiffness: 380,
+  damping: 30,
+  mass: 0.8
+} as const
 
 const DEFAULT_SSH_WORKDIR = ''
 
@@ -106,6 +114,11 @@ const DrawPage = lazy(async () => {
 const SshPage = lazy(async () => {
   const mod = await import('@renderer/components/ssh/SshPage')
   return { default: mod.SshPage }
+})
+
+const TasksPage = lazy(async () => {
+  const mod = await import('../tasks/TasksPage')
+  return { default: mod.TasksPage }
 })
 
 function LazyPageFallback(): React.JSX.Element {
@@ -281,6 +294,7 @@ export function Layout(): React.JSX.Element {
   const drawPageOpen = useUIStore((s) => s.drawPageOpen)
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
   const sshPageOpen = useUIStore((s) => s.sshPageOpen)
+  const tasksPageOpen = useUIStore((s) => s.tasksPageOpen)
   const sshPageEverOpened = useRef(false)
   if (sshPageOpen) sshPageEverOpened.current = true
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar)
@@ -464,8 +478,8 @@ export function Layout(): React.JSX.Element {
           return
         }
         const tabs: Array<
-          'steps' | 'plan' | 'team' | 'files' | 'artifacts' | 'context' | 'skills' | 'cron'
-        > = ['steps', 'plan', 'team', 'files', 'artifacts', 'context', 'skills', 'cron']
+          'steps' | 'plan' | 'team' | 'files' | 'artifacts' | 'context' | 'skills'
+        > = ['steps', 'plan', 'team', 'files', 'artifacts', 'context', 'skills']
         const idx = tabs.indexOf(ui.rightPanelTab)
         ui.setRightPanelTab(tabs[(idx + 1) % tabs.length])
         return
@@ -734,7 +748,7 @@ export function Layout(): React.JSX.Element {
 
             {/* Session list panel */}
             <AnimatePresence>
-              {leftSidebarOpen && (
+              {leftSidebarOpen && !tasksPageOpen && (
                 <PanelTransition side="left" disabled={false} className="h-full z-10">
                   <SessionListPanel />
                 </PanelTransition>
@@ -756,7 +770,16 @@ export function Layout(): React.JSX.Element {
             {/* Main content area (hidden when SSH page is active) */}
             {!sshPageOpen && (
               <AnimatePresence mode="wait">
-                {skillsPageOpen ? (
+                {tasksPageOpen ? (
+                  <PageTransition
+                    key="tasks-page"
+                    className="flex-1 min-w-0 bg-background overflow-hidden"
+                  >
+                    <Suspense fallback={<LazyPageFallback />}>
+                      <TasksPage />
+                    </Suspense>
+                  </PageTransition>
+                ) : skillsPageOpen ? (
                   <PageTransition
                     key="skills-page"
                     className="flex-1 min-w-0 bg-background overflow-hidden"
@@ -893,22 +916,46 @@ export function Layout(): React.JSX.Element {
                                 <Tooltip key={m.value}>
                                   <TooltipTrigger asChild>
                                     <Button
-                                      variant={mode === m.value ? 'secondary' : 'ghost'}
+                                      variant="ghost"
                                       size="sm"
                                       className={cn(
-                                        'h-6 gap-1.5 rounded-md px-2.5 text-xs font-medium transition-all duration-200',
+                                        'relative h-6 gap-1.5 overflow-hidden rounded-md px-2.5 text-xs font-medium transition-all duration-200',
                                         mode === m.value
-                                          ? 'bg-background shadow-sm ring-1 ring-border/50'
+                                          ? 'text-foreground'
                                           : 'text-muted-foreground hover:text-foreground'
                                       )}
                                       onClick={() => handleModeChange(m.value)}
                                     >
-                                      {m.icon}
-                                      {tCommon(m.labelKey)}
+                                      <AnimatePresence initial={false}>
+                                        {mode === m.value && (
+                                          <motion.span
+                                            layoutId="layout-mode-switch-highlight"
+                                            className="pointer-events-none absolute inset-0 rounded-md border border-border/50 bg-background shadow-sm"
+                                            transition={MODE_SWITCH_TRANSITION}
+                                          />
+                                        )}
+                                      </AnimatePresence>
+                                      <span className="relative z-10 flex items-center gap-1.5">
+                                        {m.icon}
+                                        {tCommon(m.labelKey)}
+                                      </span>
                                     </Button>
                                   </TooltipTrigger>
-                                  <TooltipContent>
-                                    {tCommon(m.labelKey)} (Ctrl+{i + 1})
+                                  <TooltipContent
+                                    side="bottom"
+                                    align="start"
+                                    sideOffset={8}
+                                    className="max-w-[340px] rounded-xl px-3 py-3"
+                                  >
+                                    {renderModeTooltipContent({
+                                      mode: m.value,
+                                      labelKey: m.labelKey,
+                                      icon: m.icon,
+                                      shortcutIndex: i,
+                                      isActive: mode === m.value,
+                                      t,
+                                      tCommon
+                                    })}
                                   </TooltipContent>
                                 </Tooltip>
                               ))}

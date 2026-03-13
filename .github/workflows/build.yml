@@ -211,6 +211,25 @@ jobs:
             cp "$blockmap_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}-setup.exe.blockmap"
           fi
 
+      - name: Patch Windows update metadata
+        if: matrix.platform == 'win' && matrix.artifact_arch == 'amd64'
+        shell: bash
+        run: |
+          if [ -f "dist/latest.yml" ]; then
+            node -e "
+              const fs = require('fs');
+              const p = 'dist/latest.yml';
+              let c = fs.readFileSync(p, 'utf8');
+              const m = c.match(/path: (\S+\.exe)/);
+              if (m) {
+                const n = 'OpenCowork-win-amd64-setup.exe';
+                c = c.split(m[1]).join(n);
+                fs.writeFileSync(p, c);
+                console.log('Patched latest.yml:', m[1], '->', n);
+              }
+            "
+          fi
+
       - name: Upload Windows artifacts
         if: matrix.platform == 'win'
         uses: actions/upload-artifact@v6
@@ -266,6 +285,26 @@ jobs:
           if [ -n "$deb_file" ]; then
             cp "$deb_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}.deb"
           fi
+
+      - name: Patch Linux update metadata
+        if: matrix.platform == 'linux' && matrix.artifact_arch == 'amd64'
+        shell: bash
+        run: |
+          for yml in dist/latest-linux.yml dist/latest.yml; do
+            [ -f "$yml" ] || continue
+            node -e "
+              const fs = require('fs');
+              const p = process.argv[1];
+              let c = fs.readFileSync(p, 'utf8');
+              const m = c.match(/path: (\S+\.AppImage)/);
+              if (m) {
+                const n = 'OpenCowork-linux-amd64.AppImage';
+                c = c.split(m[1]).join(n);
+                fs.writeFileSync(p, c);
+                console.log('Patched ' + p + ':', m[1], '->', n);
+              }
+            " "$yml"
+          done
 
       - name: Upload Linux artifacts
         if: matrix.platform == 'linux'
@@ -383,6 +422,26 @@ jobs:
 
           cp "$yml_file" "release-assets/latest-mac-${{ matrix.artifact_arch }}.yml"
           echo "✅ Prepared $(basename "$yml_file") -> latest-mac-${{ matrix.artifact_arch }}.yml"
+
+      - name: Patch macOS update metadata
+        shell: bash
+        run: |
+          yml="release-assets/latest-mac-${{ matrix.artifact_arch }}.yml"
+          if [ -f "$yml" ]; then
+            node -e "
+              const fs = require('fs');
+              const p = process.argv[1];
+              const arch = process.argv[2];
+              let c = fs.readFileSync(p, 'utf8');
+              const m = c.match(/path: (\S+\.zip)/);
+              if (m) {
+                const n = 'OpenCowork-mac-' + arch + '.zip';
+                c = c.split(m[1]).join(n);
+                fs.writeFileSync(p, c);
+                console.log('Patched ' + p + ':', m[1], '->', n);
+              }
+            " "$yml" "${{ matrix.artifact_arch }}"
+          fi
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v6

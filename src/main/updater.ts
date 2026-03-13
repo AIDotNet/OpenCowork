@@ -71,6 +71,10 @@ function formatErrorMessage(error: unknown): string {
     return 'Current release is missing update metadata (latest.yml). Rebuild the release and upload the updater metadata assets.'
   }
 
+  if (/\b404\b/.test(message) && /releases\/download/.test(message)) {
+    return `Update package not found in this release (${message}). The release asset filename in latest.yml does not match the uploaded file.`
+  }
+
   return message
 }
 

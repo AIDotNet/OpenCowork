@@ -148,6 +148,7 @@
       "code": "For implementation, modification, and debugging suggestions"
     },
     "selectRecommendationModel": "Select recommendation model",
+    "useFastModelRecommendation": "Use fast model (default)",
     "disableRecommendation": "Not configured (disable recommendations for this mode)",
     "noModelsAvailable": "No models available for this provider",
     "translationModel": "Translation Model",

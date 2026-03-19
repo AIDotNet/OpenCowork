@@ -6,6 +6,7 @@ import {
   requestPromptRecommendation
 } from '@renderer/lib/recommendation/prompt-recommendation'
 import { useSettingsStore } from '@renderer/stores/settings-store'
+import { useProviderStore } from '@renderer/stores/provider-store'
 import type { AppMode } from '@renderer/stores/ui-store'
 
 const DEBOUNCE_MS = 1000
@@ -84,11 +85,19 @@ export function usePromptRecommendation({
   const skipNextTextRef = React.useRef<string | null>(null)
   const language = useSettingsStore((state) => state.language)
   const promptRecommendationModels = useSettingsStore((state) => state.promptRecommendationModels)
+  const activeProviderId = useProviderStore((state) => state.activeProviderId)
+  const activeFastProviderId = useProviderStore((state) => state.activeFastProviderId)
+  const activeFastModelId = useProviderStore((state) => state.activeFastModelId)
 
   const providerBinding = promptRecommendationModels[mode]
-  const providerBindingKey = providerBinding
-    ? `${providerBinding.providerId}::${providerBinding.modelId}`
-    : '__disabled__'
+  const providerBindingKey =
+    providerBinding === 'disabled'
+      ? '__disabled__'
+      : providerBinding
+        ? `${providerBinding.providerId}::${providerBinding.modelId}`
+        : activeFastProviderId || activeProviderId
+          ? `${activeFastProviderId ?? activeProviderId}::${activeFastModelId || '__auto__'}`
+          : '__fast__'
 
   const rawContextKey = React.useMemo(
     () => buildContextKey(mode, text, recentMessages, selectedSkill, images, providerBindingKey),

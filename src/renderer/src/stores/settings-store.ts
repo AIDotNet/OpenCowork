@@ -16,9 +16,11 @@ export interface SessionDefaultModelBinding extends ModelBinding {
   useGlobalActiveModel: boolean
 }
 
+export type PromptRecommendationModelBinding = ModelBinding | 'disabled' | null
+
 export type PromptRecommendationModelBindings = Record<
   'chat' | 'clarify' | 'cowork' | 'code',
-  ModelBinding | null
+  PromptRecommendationModelBinding
 >
 
 function getSystemLanguage(): 'en' | 'zh' {

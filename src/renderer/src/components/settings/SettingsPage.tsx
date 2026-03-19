@@ -1390,11 +1390,6 @@ function ModelPanel(): React.JSX.Element {
     descKey: string
   }> = [
     {
-      mode: 'chat',
-      labelKey: 'model.promptRecommendationModes.chat',
-      descKey: 'model.promptRecommendationModesDesc.chat'
-    },
-    {
       mode: 'clarify',
       labelKey: 'model.promptRecommendationModes.clarify',
       descKey: 'model.promptRecommendationModesDesc.clarify'
@@ -1417,7 +1412,12 @@ function ModelPanel(): React.JSX.Element {
     settings.updateSettings({
       promptRecommendationModels: {
         ...settings.promptRecommendationModels,
-        [mode]: value === '__none__' ? null : parseModelValue(value)
+        [mode]:
+          value === '__fast__'
+            ? null
+            : value === '__disabled__'
+              ? 'disabled'
+              : parseModelValue(value)
       }
     })
   }
@@ -1681,9 +1681,12 @@ function ModelPanel(): React.JSX.Element {
               <div className="grid gap-3 md:grid-cols-2">
                 {recommendationModeDefs.map(({ mode, labelKey, descKey }) => {
                   const binding = settings.promptRecommendationModels[mode]
-                  const value = binding
-                    ? buildModelValue(binding.providerId, binding.modelId)
-                    : '__none__'
+                  const value =
+                    binding === 'disabled'
+                      ? '__disabled__'
+                      : binding
+                        ? buildModelValue(binding.providerId, binding.modelId)
+                        : '__fast__'
                   return (
                     <div key={mode} className="rounded-lg border p-3 space-y-2">
                       <div>
@@ -1700,7 +1703,10 @@ function ModelPanel(): React.JSX.Element {
                           <SelectValue placeholder={t('model.selectRecommendationModel')} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none__" className="text-xs">
+                          <SelectItem value="__fast__" className="text-xs">
+                            {t('model.useFastModelRecommendation')}
+                          </SelectItem>
+                          <SelectItem value="__disabled__" className="text-xs">
                             {t('model.disableRecommendation')}
                           </SelectItem>
                           {chatProviderGroups.map(({ provider, models }) => (

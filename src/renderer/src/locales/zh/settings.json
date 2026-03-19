@@ -148,6 +148,7 @@
       "code": "用于实现、修改与排查类提问建议"
     },
     "selectRecommendationModel": "选择推荐模型",
+    "useFastModelRecommendation": "使用快速模型（默认）",
     "disableRecommendation": "不配置（关闭该模式推荐）",
     "noModelsAvailable": "当前服务商无可用模型",
     "translationModel": "翻译模型",

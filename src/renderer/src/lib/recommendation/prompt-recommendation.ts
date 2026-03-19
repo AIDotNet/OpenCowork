@@ -1,6 +1,9 @@
 import { nanoid } from 'nanoid'
 import { loadOptionalMemoryFile } from '@renderer/lib/agent/memory-files'
-import { imageAttachmentToContentBlock, type ImageAttachment } from '@renderer/lib/image-attachments'
+import {
+  imageAttachmentToContentBlock,
+  type ImageAttachment
+} from '@renderer/lib/image-attachments'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { createProvider } from '@renderer/lib/api/provider'
 import type { ContentBlock, ProviderConfig, UnifiedMessage } from '@renderer/lib/api/types'
@@ -53,10 +56,13 @@ function clipText(value: string, maxLength = 1200): string {
   return `${trimmed.slice(0, maxLength)}…`
 }
 
-function collectRecentConversation(messages: UnifiedMessage[]): Array<{ role: 'user' | 'assistant'; text: string }> {
+function collectRecentConversation(
+  messages: UnifiedMessage[]
+): Array<{ role: 'user' | 'assistant'; text: string }> {
   return messages
-    .filter((message): message is UnifiedMessage & { role: 'user' | 'assistant' } =>
-      message.role === 'user' || message.role === 'assistant'
+    .filter(
+      (message): message is UnifiedMessage & { role: 'user' | 'assistant' } =>
+        message.role === 'user' || message.role === 'assistant'
     )
     .map((message) => ({
       role: message.role,
@@ -94,9 +100,24 @@ function sanitizeRecommendationText(value: string): string {
 function resolveRecommendationConfig(mode: AppMode): ResolvedRecommendationConfig | null {
   const { promptRecommendationModels } = useSettingsStore.getState()
   const binding = promptRecommendationModels[mode]
-  if (!binding) return null
-
   const providerStore = useProviderStore.getState()
+
+  if (binding === 'disabled') return null
+
+  if (!binding) {
+    const config = providerStore.getFastProviderConfig()
+    if (!config) return null
+    if (config.requiresApiKey !== false && !config.apiKey) return null
+
+    const provider = providerStore.providers.find((item) => item.id === config.providerId)
+    const model = provider?.models.find((item) => item.id === config.model)
+
+    return {
+      config,
+      supportsVision: !!(provider && model && modelSupportsVision(model, provider.type))
+    }
+  }
+
   const provider = providerStore.providers.find((item) => item.id === binding.providerId)
   if (!provider || !provider.enabled) return null
 

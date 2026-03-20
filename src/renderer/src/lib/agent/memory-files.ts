@@ -160,6 +160,9 @@ export function joinFsPath(basePath: string, ...segments: string[]): string {
 export async function readTextFile(ipc: IPCClient, filePath: string): Promise<ReadTextFileResult> {
   try {
     const result = await ipc.invoke(IPC.FS_READ_FILE, { path: filePath })
+    if (result && typeof result === 'object' && 'error' in result) {
+      return { error: String((result as { error?: unknown }).error ?? 'Failed to read file') }
+    }
     if (typeof result !== 'string') {
       return { error: 'Unexpected fs:read-file response type' }
     }

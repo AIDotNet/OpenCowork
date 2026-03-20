@@ -1764,7 +1764,7 @@ export function registerSshHandlers(): void {
         }
         return content
       } catch (err) {
-        return JSON.stringify({ error: String(err) })
+        return { error: String(err) }
       }
     }
   )

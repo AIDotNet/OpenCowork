@@ -1,4 +1,5 @@
 import { toolRegistry } from '../agent/tool-registry'
+import { resolveToolPath } from './fs-tool'
 import { encodeStructuredToolResult } from './tool-result-format'
 import type { ToolHandler } from './tool-types'
 
@@ -38,7 +39,7 @@ const openPreviewHandler: ToolHandler = {
     }
   },
   execute: async (input, ctx) => {
-    const filePath = String(input.file_path)
+    const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
     const viewMode = input.view_mode as 'preview' | 'code' | undefined
     const sshConnectionId = resolveSshConnectionId(filePath, ctx.sshConnectionId)
 

@@ -98,13 +98,13 @@ function normalizePath(p: string): string {
   return normalized
 }
 
-function isAbsolutePath(p: string): boolean {
+export function isAbsolutePath(p: string): boolean {
   if (!p) return false
   if (p.startsWith('/') || p.startsWith('\\')) return true
   return /^[a-zA-Z]:[\\/]/.test(p)
 }
 
-function resolveToolPath(inputPath: unknown, workingFolder?: string): string {
+export function resolveToolPath(inputPath: unknown, workingFolder?: string): string {
   const raw = typeof inputPath === 'string' ? inputPath.trim() : ''
   const base = workingFolder?.trim()
   if (!raw || raw === '.') {
@@ -184,6 +184,7 @@ const readHandler: ToolHandler = {
       offset: input.offset,
       limit: input.limit
     })
+    if (isErrorResult(result)) throw new Error(`Read failed: ${result.error}`)
     // IPC returns { type: 'image', mediaType, data } for image files
     if (
       result &&
@@ -300,7 +301,11 @@ const editHandler: ToolHandler = {
     // Read file, perform replacement, write back
     const readCh = isSsh(ctx) ? IPC.SSH_FS_READ_FILE : IPC.FS_READ_FILE
     const readArgs = isSsh(ctx) ? sshArgs(ctx, { path: resolvedPath }) : { path: resolvedPath }
-    const content = String(await ctx.ipc.invoke(readCh, readArgs))
+    const contentResult = await ctx.ipc.invoke(readCh, readArgs)
+    if (isErrorResult(contentResult)) {
+      return encodeToolError(`Read failed: ${contentResult.error}`)
+    }
+    const content = String(contentResult)
     const oldStr = String(input.old_string)
     const newStr = String(input.new_string)
     const replaceAll = Boolean(input.replace_all)

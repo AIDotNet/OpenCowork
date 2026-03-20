@@ -18,9 +18,9 @@ Read, write, analyze, and format Excel spreadsheets (.xlsx) using Python.
 
 ## Scripts overview
 
-| Script | Purpose | Dependencies |
-|---|---|---|
-| `excel_tool.py` | Read, write, format, and analyze Excel files | `openpyxl` |
+| Script          | Purpose                                      | Dependencies |
+| --------------- | -------------------------------------------- | ------------ |
+| `excel_tool.py` | Read, write, format, and analyze Excel files | `openpyxl`   |
 
 ## Steps
 
@@ -39,6 +39,7 @@ python scripts/excel_tool.py read "INPUT.xlsx"
 ```
 
 Options:
+
 - `--sheet SHEET_NAME` — Read a specific sheet (default: active sheet)
 - `--format json` — Output as JSON instead of table
 - `--format csv` — Output as CSV
@@ -51,6 +52,7 @@ python scripts/excel_tool.py create "OUTPUT.xlsx" --from-csv "DATA.csv"
 ```
 
 Options:
+
 - `--from-csv PATH` — Import data from CSV file
 - `--from-json PATH` — Import data from JSON file
 - `--sheet SHEET_NAME` — Set the sheet name (default: Sheet1)
@@ -71,6 +73,7 @@ python scripts/excel_tool.py format "FILE.xlsx" --auto-width --header-style --fr
 ```
 
 Options:
+
 - `--auto-width` — Auto-fit column widths
 - `--header-style` — Bold white text on blue background for header
 - `--freeze-header` — Freeze the first row
@@ -94,13 +97,16 @@ python scripts/excel_tool.py formula "FILE.xlsx" --column "E" --formula "=SUM(B{
 ## Common workflows
 
 ### CSV to formatted Excel report
+
 1. `excel_tool.py create "report.xlsx" --from-csv "data.csv" --title "Monthly Report" --auto-width --header-style --freeze-header`
 
 ### Multi-sheet workbook
+
 1. `excel_tool.py create "workbook.xlsx" --from-csv "sales.csv" --sheet "Sales"`
 2. `excel_tool.py add-sheet "workbook.xlsx" --sheet "Expenses" --from-csv "expenses.csv"`
 
 ### Quick data inspection
+
 1. `excel_tool.py analyze "data.xlsx"` — overview
 2. `excel_tool.py read "data.xlsx" --sheet "Sheet1"` — view contents
 

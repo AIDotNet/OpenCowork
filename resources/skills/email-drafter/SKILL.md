@@ -17,8 +17,8 @@ Generate professional email drafts from structured input parameters.
 
 ## Scripts overview
 
-| Script | Purpose | Dependencies |
-|---|---|---|
+| Script           | Purpose                          | Dependencies           |
+| ---------------- | -------------------------------- | ---------------------- |
 | `email_draft.py` | Generate structured email drafts | Python 3 (stdlib only) |
 
 ## Steps
@@ -31,21 +31,21 @@ python scripts/email_draft.py --type TYPE --to "RECIPIENT" --subject "SUBJECT" -
 
 ### 2. Email types
 
-| Type | Description |
-|---|---|
-| `introduction` | Self-introduction or connecting two people |
-| `follow-up` | Follow up on a previous conversation or meeting |
-| `request` | Request information, meeting, or action |
-| `thank-you` | Express gratitude after meeting/event |
-| `apology` | Professional apology for delays/issues |
-| `announcement` | Announce news, changes, or updates |
-| `invitation` | Invite to meeting, event, or collaboration |
-| `rejection` | Politely decline a request or proposal |
-| `reminder` | Gentle reminder about deadlines or tasks |
-| `proposal` | Propose a project, partnership, or idea |
-| `cold-outreach` | First contact with a potential client/partner |
-| `internal-memo` | Internal team communication |
-| `custom` | Custom email from provided key points |
+| Type            | Description                                     |
+| --------------- | ----------------------------------------------- |
+| `introduction`  | Self-introduction or connecting two people      |
+| `follow-up`     | Follow up on a previous conversation or meeting |
+| `request`       | Request information, meeting, or action         |
+| `thank-you`     | Express gratitude after meeting/event           |
+| `apology`       | Professional apology for delays/issues          |
+| `announcement`  | Announce news, changes, or updates              |
+| `invitation`    | Invite to meeting, event, or collaboration      |
+| `rejection`     | Politely decline a request or proposal          |
+| `reminder`      | Gentle reminder about deadlines or tasks        |
+| `proposal`      | Propose a project, partnership, or idea         |
+| `cold-outreach` | First contact with a potential client/partner   |
+| `internal-memo` | Internal team communication                     |
+| `custom`        | Custom email from provided key points           |
 
 ### 3. Tone options
 

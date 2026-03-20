@@ -26,13 +26,16 @@ Output requirements
 Produce a structured Markdown report with these sections:
 
 # Review Summary
+
 - A short overall assessment of the current uncommitted changes.
 
 # Scope Checked
+
 - Summarize what you inspected: diff areas, changed files, and any extra context files you read.
 - Mention any important limits in certainty if relevant.
 
 # Findings
+
 - If there are meaningful findings, list them as numbered items.
 - For each finding, include:
   - A short title
@@ -43,6 +46,7 @@ Produce a structured Markdown report with these sections:
 - Do not use severity labels for this command.
 
 # Overall Assessment
+
 - Briefly state whether the changes look ready or whether the listed findings should be addressed first.
 
 If you do not find any high-value issues, say that explicitly under `# Findings` using wording such as `No high-value issues found`, and still include a brief summary of what you checked.

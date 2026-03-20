@@ -42,6 +42,7 @@ You are ...
 ```
 
 The frontmatter must explicitly include all of these fields:
+
 - `name`
 - `description`
 - `icon`
@@ -60,6 +61,7 @@ Body requirements
 
 Write the prompt body in the style of the existing sub-agents used by OpenCoWork.
 The body should usually include:
+
 - A clear role definition
 - When the agent should be used
 - A practical workflow or checklist
@@ -78,6 +80,7 @@ Quality rules
 Final response requirements
 
 After writing the file, briefly state:
+
 - The created or updated file path
 - The chosen agent name
 - A short summary of the agent's intended purpose

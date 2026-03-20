@@ -17,8 +17,8 @@ Extract text from images using Tesseract OCR via Python.
 
 ## Scripts overview
 
-| Script | Purpose | Dependencies |
-|---|---|---|
+| Script           | Purpose                                        | Dependencies            |
+| ---------------- | ---------------------------------------------- | ----------------------- |
 | `ocr_extract.py` | Extract text from images with multiple options | `pytesseract`, `Pillow` |
 
 ## Steps
@@ -26,17 +26,20 @@ Extract text from images using Tesseract OCR via Python.
 ### 1. Install dependencies (first time only)
 
 Install the Python packages:
+
 ```bash
 pip install pytesseract Pillow
 ```
 
 Install Tesseract OCR engine:
+
 - **Windows**: Download installer from https://github.com/UB-Mannheim/tesseract/wiki
 - **macOS**: `brew install tesseract`
 - **Linux (Ubuntu/Debian)**: `sudo apt install tesseract-ocr`
 - **Linux (Fedora)**: `sudo dnf install tesseract`
 
 For additional language support:
+
 - **Windows**: Select languages during installation
 - **Linux**: `sudo apt install tesseract-ocr-chi-sim` (Chinese Simplified), `tesseract-ocr-jpn` (Japanese), etc.
 
@@ -49,6 +52,7 @@ python scripts/ocr_extract.py "IMAGE_PATH"
 ```
 
 Options:
+
 - `--lang LANG` — OCR language (default: `eng`). Use `chi_sim` for Chinese, `jpn` for Japanese, `eng+chi_sim` for multiple.
 - `--save OUTPUT_PATH` — Save extracted text to a file
 - `--preprocess MODE` — Image preprocessing: `none` (default), `grayscale`, `threshold`, `blur`
@@ -56,6 +60,7 @@ Options:
 - `--psm MODE` — Tesseract page segmentation mode (0-13, default: 3 = auto)
 
 Examples:
+
 ```bash
 # Basic text extraction
 python scripts/ocr_extract.py "screenshot.png"
@@ -78,15 +83,15 @@ python scripts/ocr_extract.py "plate.jpg" --psm 7
 
 ## Page Segmentation Modes (PSM)
 
-| Mode | Description | Use Case |
-|---|---|---|
-| 3 | Fully automatic (default) | General documents |
-| 4 | Assume single column | Single-column text |
-| 6 | Assume single block | Uniform text block |
-| 7 | Single line | One line of text |
-| 8 | Single word | One word |
-| 11 | Sparse text | Text scattered on image |
-| 13 | Raw line | Single line, no OSD |
+| Mode | Description               | Use Case                |
+| ---- | ------------------------- | ----------------------- |
+| 3    | Fully automatic (default) | General documents       |
+| 4    | Assume single column      | Single-column text      |
+| 6    | Assume single block       | Uniform text block      |
+| 7    | Single line               | One line of text        |
+| 8    | Single word               | One word                |
+| 11   | Sparse text               | Text scattered on image |
+| 13   | Raw line                  | Single line, no OSD     |
 
 ## Edge cases
 

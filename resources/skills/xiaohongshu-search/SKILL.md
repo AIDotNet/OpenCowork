@@ -17,8 +17,8 @@ Extract searchable content from Xiaohongshu using one local script.
 
 ## Scripts overview
 
-| Script | Purpose | Dependencies |
-|---|---|---|
+| Script              | Purpose                              | Dependencies |
+| ------------------- | ------------------------------------ | ------------ |
 | `scripts/search.py` | 打开小红书搜索页并提取图片链接与标题 | `playwright` |
 
 ## Setup

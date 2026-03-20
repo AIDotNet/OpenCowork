@@ -13,6 +13,7 @@ Execution requirements
 - For commits created by this command, use `token@routin.ai` as the committer email (set per command, e.g. `git -c user.email=token@routin.ai commit ...`; do not change global git config).
 
 Commit drafting rules
+
 - Infer the most appropriate Conventional Commits type from the actual changes, such as `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`, or `style`.
 - Include a `scope` only when it can be inferred clearly and usefully from the changed area. If the scope is unclear, omit it.
 - Keep the subject concise, imperative, and specific.
@@ -24,6 +25,7 @@ Output requirements
 Produce the result in this structure (then execute the commits as described in Execution requirements):
 
 # Change Summary
+
 - One sentence per commit group summarizing the purpose of that group.
 
 # Commits (one per logical group)
@@ -31,6 +33,7 @@ Produce the result in this structure (then execute the commits as described in E
 For each group, output:
 
 ## Commit N: [type] subject
+
 - **Files**: list of paths to stage for this commit
 - **Optional Body**: 1-3 bullet points or short paragraph, or `No body needed`
 

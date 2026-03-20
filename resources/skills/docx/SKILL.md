@@ -1,6 +1,6 @@
 ---
 name: docx
-description: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When GLM needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks"
+description: 'Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When GLM needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks'
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -12,65 +12,70 @@ A user may ask you to create, edit, or analyze the contents of a .docx file. A .
 
 # Design requiremnet
 
-Deliver studio-quality Word documents with deep thought on content, functionality, and styling. Users often don't explicitly request advanced features (covers, TOC, backgrounds, back covers, footnotes, charts)—deeply understand needs and proactively extend. The document must have  1.3x line spacing and have charts centered horizontally.
-## Available color（choose one）
-- "Ink & Zen" Color Palette (Wabi-Sabi Style)
-The design uses a grayscale "Ink" palette to differentiate from standard business blue/morandi styles.
-Primary (Titles)：#0B1220  
-Body Text：#0F172A   
-Secondary (Subtitles)：#2B2B2B   
-Accent (UI / Decor)：#9AA6B2  
-Table Header / Subtle Background：#F1F5F9 
+Deliver studio-quality Word documents with deep thought on content, functionality, and styling. Users often don't explicitly request advanced features (covers, TOC, backgrounds, back covers, footnotes, charts)—deeply understand needs and proactively extend. The document must have 1.3x line spacing and have charts centered horizontally.
 
-- Wilderness Oasis": Sage & Deep Forest   
-Primary (Titles): #1A1F16 (Deep Forest Ink)  
-Body Text: #2D3329 (Dark Moss Gray)  
-Secondary (Subtitles): #4A5548 (Neutral Olive)  
-Accent (UI/Decor): #94A3B8 (Steady Silver)   
-Table/Background: #F8FAF7 (Ultra-Pale Mint White)  
+## Available color（choose one）
+
+- "Ink & Zen" Color Palette (Wabi-Sabi Style)
+  The design uses a grayscale "Ink" palette to differentiate from standard business blue/morandi styles.
+  Primary (Titles)：#0B1220  
+  Body Text：#0F172A  
+  Secondary (Subtitles)：#2B2B2B  
+  Accent (UI / Decor)：#9AA6B2  
+  Table Header / Subtle Background：#F1F5F9
+
+- Wilderness Oasis": Sage & Deep Forest  
+  Primary (Titles): #1A1F16 (Deep Forest Ink)  
+  Body Text: #2D3329 (Dark Moss Gray)  
+  Secondary (Subtitles): #4A5548 (Neutral Olive)  
+  Accent (UI/Decor): #94A3B8 (Steady Silver)  
+  Table/Background: #F8FAF7 (Ultra-Pale Mint White)
 
 - "Terra Cotta Afterglow": Warm Clay & Greige
-Commonly utilized by top-tier consulting firms and architectural studios, this scheme warms up the gray scale to create a tactile sensation similar to premium cashmere.   
-Primary (Titles): #26211F (Deep Charcoal Espresso)    
-Body Text: #3D3735 (Dark Umber Gray)   
-Secondary (Subtitles): #6B6361 (Warm Greige)    
-Accent (UI/Decor): #C19A6B (Terra Cotta Gold / Muted Ochre)    
-Table/Background: #FDFCFB (Off-White / Paper Texture)
+  Commonly utilized by top-tier consulting firms and architectural studios, this scheme warms up the gray scale to create a tactile sensation similar to premium cashmere.  
+  Primary (Titles): #26211F (Deep Charcoal Espresso)  
+  Body Text: #3D3735 (Dark Umber Gray)  
+  Secondary (Subtitles): #6B6361 (Warm Greige)  
+  Accent (UI/Decor): #C19A6B (Terra Cotta Gold / Muted Ochre)  
+  Table/Background: #FDFCFB (Off-White / Paper Texture)
 
 - "Midnight Code": High-Contrast Slate & Silver
-Ideal for cutting-edge technology, AI ventures, or digital transformation projects. This palette carries a slight "electric" undertone that provides superior visual penetration.   
-Primary (Titles): #020617 (Midnight Black)   
-Body Text: #1E293B (Deep Slate Blue)   
-Secondary (Subtitles): #64748B (Cool Blue-Gray)    
-Accent (UI/Decor): #94A3B8 (Steady Silver)   
-Table/Background: #F8FAFC (Glacial Blue-White)  
+  Ideal for cutting-edge technology, AI ventures, or digital transformation projects. This palette carries a slight "electric" undertone that provides superior visual penetration.  
+  Primary (Titles): #020617 (Midnight Black)  
+  Body Text: #1E293B (Deep Slate Blue)  
+  Secondary (Subtitles): #64748B (Cool Blue-Gray)  
+  Accent (UI/Decor): #94A3B8 (Steady Silver)  
+  Table/Background: #F8FAFC (Glacial Blue-White)
 
-### Chinese plot PNG method**
+### Chinese plot PNG method\*\*
+
 If using Python to generate PNGs containing Chinese characters, note that Matplotlib defaults to the DejaVu Sans font which lacks Chinese support; since the environment already has the SimHei font installed, you should set it as the default by configuring:
 
 matplotlib.font_manager.fontManager.addfont('/usr/share/fonts/truetype/chinese/SimHei.ttf')  
 plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
-
-
-
 ## Specialized Element Styling
+
 - Table Borders: Use a "Single" line style with a size of 12 and the Primary Ink color. Internal vertical borders should be set to Nil (invisible) to create a clean, modern horizontal-only look.
 - **CRITICAL: Table Cell Margins** - ALL tables MUST set `margins` property at the Table level to prevent text from touching borders. This is mandatory for professional document quality.
 
 ### Alignment and Typography
+
 CJK body: justify + 2-char indent. English: left. Table numbers: right. Headings: no indent.
 For both languages, Must use a line spacing of 1.3x (250 twips). Do not use single line spacing !!!
 
 ### CRITICAL: Chinese Quotes in JavaScript/TypeScript Code
+
 **MANDATORY**: When writing JavaScript/TypeScript code for docx-js, ALL Chinese quotation marks (""", ''') inside strings MUST be escaped as Unicode escape sequences:
+
 - Left double quote "\u201c" (")
 - Right double quote "\u201d" (")
 - Left single quote "\u2018" (')
 - Right single quote "\u2019" (')
 
 **Example - INCORRECT (will cause syntax error):**
+
 ```javascript
 new TextRun({
   text: "他说"你好""  // ERROR: Chinese quotes break JS syntax
@@ -78,28 +83,33 @@ new TextRun({
 ```
 
 **Example - CORRECT:**
+
 ```javascript
 new TextRun({
-  text: "他说\u201c你好\u201d"  // Correct: escaped Unicode
+  text: '他说\u201c你好\u201d' // Correct: escaped Unicode
 })
 ```
 
 **Alternative - Use template literals:**
+
 ```javascript
 new TextRun({
-  text: `他说"你好"`  // Also works: template literals allow Chinese quotes
+  text: `他说"你好"` // Also works: template literals allow Chinese quotes
 })
 ```
 
 ## Workflow Decision Tree
 
 ### Reading/Analyzing Content
+
 Use "Text extraction" or "Raw XML access" sections below.
 
 ### Creating New Document
+
 Use "Creating a new Word document" workflow.
 
 ### Editing Existing Document
+
 - **Your own document + simple changes**
   Use "Basic OOXML editing" workflow
 
@@ -114,6 +124,7 @@ Use "Creating a new Word document" workflow.
 **Note**: For .doc (legacy format), first convert with `libreoffice --convert-to docx file.doc`.
 
 ### Text extraction
+
 If you just need to read the text contents of a document, you should convert the document to markdown using pandoc. Pandoc provides excellent support for preserving document structure and can show tracked changes:
 
 ```bash
@@ -123,37 +134,44 @@ pandoc --track-changes=all path-to-file.docx -o output.md
 ```
 
 ### Raw XML access
+
 You need raw XML access for: comments, complex formatting, document structure, embedded media, and metadata. For any of these features, you'll need to unpack a document and read its raw XML contents.
 
 #### Unpacking a file
+
 `python ooxml/scripts/unpack.py <office_file> <output_directory>`
 
 #### Key file structures
-* `word/document.xml` - Main document contents
-* `word/comments.xml` - Comments referenced in document.xml
-* `word/media/` - Embedded images and media files
-* Tracked changes use `<w:ins>` (insertions) and `<w:del>` (deletions) tags
+
+- `word/document.xml` - Main document contents
+- `word/comments.xml` - Comments referenced in document.xml
+- `word/media/` - Embedded images and media files
+- Tracked changes use `<w:ins>` (insertions) and `<w:del>` (deletions) tags
 
 ## Creating a new Word document
 
 When creating a new Word document from scratch, use **docx-js**, but use bun instead of node to implement it. which allows you to create Word documents using JavaScript/TypeScript.
 
 ### Workflow
+
 1. **MANDATORY - READ ENTIRE FILE**: Read [`docx-js.md`](docx-js.md) (~560 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Read the full file content for detailed syntax, critical formatting rules, and best practices before proceeding with document creation.
 2. Create a JavaScript/TypeScript file using Document, Paragraph, TextRun components (You can assume all dependencies are installed, but if not, refer to the dependencies section below)
 3. Export as .docx using Packer.toBuffer()
 
 ### TOC (Table of Contents)
+
 **If the document has more than three sections, generate a table of contents.**
 
 **Implementation**: Use docx-js `TableOfContents` component to create a live TOC that auto-populates from document headings.
 
 **CRITICAL**: For TOC to work correctly:
+
 - All document headings MUST use `HeadingLevel` (e.g., `HeadingLevel.HEADING_1`)
 - Do NOT add custom styles to heading paragraphs
 - Place TOC before the actual heading content so it can scan them
 
 **Hint requirement**: A hint paragraph MUST be added immediately after the TOC component with these specifications:
+
 - **Position**: Immediately after the TOC component
 - **Alignment**: Center-aligned
 - **Color**: Gray (e.g., "999999")
@@ -175,6 +193,7 @@ python skills/docx/scripts/add_toc_placeholders.py document.docx \
 **Note**: The script supports up to 3 TOC levels for placeholder entries.
 
 **Entry format**:
+
 - `level`: Heading level (1, 2, or 3)
 - `text`: The heading text
 - `page`: Estimated page number (will be corrected when TOC is updated)
@@ -183,6 +202,7 @@ python skills/docx/scripts/add_toc_placeholders.py document.docx \
 You can extract the actual headings from the document structure to generate accurate entries. Match the heading text and hierarchy from your document content.
 
 **Benefits**:
+
 - Users see TOC content immediately on first open
 - Placeholders are automatically replaced when user updates the TOC
 - Improves perceived document quality and user experience
@@ -191,6 +211,7 @@ You can extract the actual headings from the document structure to generate accu
 
 **Page Break Restrictions**
 Page breaks are ONLY allowed in these specific locations:
+
 - Between cover page and table of contents (if TOC exists)
 - Between cover page and main content (if NO TOC exists)
 - Between table of contents and main content (if TOC exists)
@@ -198,11 +219,13 @@ Page breaks are ONLY allowed in these specific locations:
 **All content after the table of contents must flow continuously WITHOUT page breaks.**
 
 **Text and Paragraph Rules**
+
 - Complete sentences before starting a new line — do not break sentences across lines
 - Use single, consistent style for each complete sentence
 - Only start a new paragraph when the current paragraph is logically complete
 
 **List and Bullet Point Formatting**
+
 - Use left-aligned formatting (NOT justified alignment)
 - Insert a line break after each list item
 - Never place multiple items on the same line (justification stretches text)
@@ -214,6 +237,7 @@ Page breaks are ONLY allowed in these specific locations:
 When editing an existing Word document, use the **Document library** (a Python library for OOXML manipulation). The library automatically handles infrastructure setup and provides methods for document manipulation. For complex scenarios, you can access the underlying DOM directly through the library.
 
 ### Workflow
+
 1. **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~600 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Read the full file content for the Document library API and XML patterns for directly editing document files.
 2. Unpack the document: `python ooxml/scripts/unpack.py <office_file> <output_directory>`
 3. Create and run a Python script using the Document library (see "Document Library" section in ooxml.md)
@@ -249,6 +273,7 @@ doc.save('output.docx')
 ```
 
 **Key points:**
+
 - Install: `pip install python-docx` or `bun add python-docx`
 - Works directly on .docx files (no need to unpack/pack)
 - Simple API, reliable results
@@ -319,12 +344,14 @@ doc.save()
 3. **Pack the document**: `python ooxml/scripts/pack.py <unpacked_dir> <output.docx>`
 
 **When to use OOXML method:**
+
 - You need to work with tracked changes simultaneously
 - You need fine-grained control over XML structure
 - You're already working with unpacked documents
 - You need to manipulate comments in complex ways
 
 **When to use python-docx method (recommended):**
+
 - Adding comments is your primary task
 - You want simple, reliable code
 - You're working with complete .docx files
@@ -340,6 +367,7 @@ This workflow allows you to plan comprehensive tracked changes using markdown be
 When implementing tracked changes, only mark text that actually changes. Repeating unchanged text makes edits harder to review and appears unprofessional. Break replacements into: [unchanged text] + [deletion] + [insertion] + [unchanged text]. Preserve the original run's RSID for unchanged text by extracting the `<w:r>` element from the original and reusing it.
 
 Example - Changing "30 days" to "60 days" in a sentence:
+
 ```python
 # BAD - Replaces entire sentence
 '<w:del><w:r><w:delText>The term is 30 days.</w:delText></w:r></w:del><w:ins><w:r><w:t>The term is 60 days.</w:t></w:r></w:ins>'
@@ -351,6 +379,7 @@ Example - Changing "30 days" to "60 days" in a sentence:
 ### Tracked changes workflow
 
 1. **Get markdown representation**: Convert document to markdown with tracked changes preserved:
+
    ```bash
    pandoc --track-changes=all path-to-file.docx -o current.md
    ```
@@ -394,6 +423,7 @@ Example - Changing "30 days" to "60 days" in a sentence:
    **Note**: Always grep `word/document.xml` immediately before writing a script to get current line numbers and verify text content. Line numbers change after each script run.
 
 5. **Pack the document**: After all batches are complete, convert the unpacked directory back to .docx:
+
    ```bash
    python ooxml/scripts/pack.py unpacked reviewed-document.docx
    ```
@@ -410,12 +440,12 @@ Example - Changing "30 days" to "60 days" in a sentence:
      ```
    - Check that no unintended changes were introduced
 
-
 ## Converting Documents to Images
 
 To visually analyze Word documents, convert them to images using a two-step process:
 
 1. **Convert DOCX to PDF**:
+
    ```bash
    soffice --headless --convert-to pdf document.docx
    ```
@@ -427,6 +457,7 @@ To visually analyze Word documents, convert them to images using a two-step proc
    This creates files like `page-1.jpg`, `page-2.jpg`, etc.
 
 Options:
+
 - `-r 150`: Sets resolution to 150 DPI (adjust for quality/size balance)
 - `-jpeg`: Output JPEG format (use `-png` for PNG if preferred)
 - `-f N`: First page to convert (e.g., `-f 2` starts from page 2)
@@ -434,12 +465,15 @@ Options:
 - `page`: Prefix for output files
 
 Example for specific range:
+
 ```bash
 pdftoppm -jpeg -r 150 -f 2 -l 5 document.pdf page  # Converts only pages 2-5
 ```
 
 ## Code Style Guidelines
+
 **IMPORTANT**: When generating code for DOCX operations:
+
 - Write concise code
 - Avoid verbose variable names and redundant operations
 - Avoid unnecessary print statements

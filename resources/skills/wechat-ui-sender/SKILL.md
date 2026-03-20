@@ -36,18 +36,20 @@ Avoid this skill if an official API (WeCom bot/app) is available—API integrati
 
 ## Scripts overview
 
-| Script | Purpose | Dependencies |
-| --- | --- | --- |
+| Script                   | Purpose                                                                                     | Dependencies                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | `scripts/send_wechat.py` | Activate WeChat, locate contact via Ctrl+F, paste message, press Enter, optional screenshot | `pyautogui`, `pyperclip`, `pygetwindow`, `pillow`, `psutil` |
 
 ## Usage steps
 
 1. **Install dependencies (first time only)**
+
    ```bash
    pip install pyautogui pyperclip pygetwindow pillow psutil
    ```
 
 2. **Basic usage** - Write message to a markdown file first, then send
+
    ```bash
    # Create a message file first
    echo "Your message here" > message.md
@@ -57,11 +59,13 @@ Avoid this skill if an official API (WeCom bot/app) is available—API integrati
    ```
 
 3. **Auto-launch if closed**
+
    ```bash
    python scripts/send_wechat.py "Group Name" --file message.md --force-launch
    ```
 
 4. **Check WeChat status**
+
    ```bash
    python scripts/send_wechat.py "dummy" --file message.md --check-only
    ```
@@ -82,22 +86,22 @@ Avoid this skill if an official API (WeCom bot/app) is available—API integrati
 
 ## Command options
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `contact` | required | Display name or keyword for the contact/group search box |
-| `--file` | **required** | Path to a markdown file (.md, .markdown, .txt) containing the message to send |
-| `--window-title` | `微信` | Window title to match (case-sensitive partial match) |
-| `--search-delay` | 1.0 | Seconds to wait after typing contact before pressing Enter |
-| `--typing-delay` | 0.8 | Seconds to wait after pasting message before sending |
-| `--pause` | 0.8 | General pause between actions in seconds |
-| `--screenshot-dir` | None | Optional folder to store a screenshot after sending |
-| `--force-launch` | False | Force attempt to launch WeChat if not running |
-| `--max-retries` | 3 | Maximum retry attempts to find/activate WeChat window |
-| `--retry-delay` | 3.0 | Seconds to wait between retry attempts |
-| `--confirm` | False | Wait for manual contact selection after search |
-| `--confirm-delay` | 2.0 | Seconds to wait when `--confirm` is used |
-| `--check-only` | False | Only check if WeChat is running, do not send |
-| `--use-center` | False | Use window center position for input box |
+| Option             | Default      | Description                                                                   |
+| ------------------ | ------------ | ----------------------------------------------------------------------------- |
+| `contact`          | required     | Display name or keyword for the contact/group search box                      |
+| `--file`           | **required** | Path to a markdown file (.md, .markdown, .txt) containing the message to send |
+| `--window-title`   | `微信`       | Window title to match (case-sensitive partial match)                          |
+| `--search-delay`   | 1.0          | Seconds to wait after typing contact before pressing Enter                    |
+| `--typing-delay`   | 0.8          | Seconds to wait after pasting message before sending                          |
+| `--pause`          | 0.8          | General pause between actions in seconds                                      |
+| `--screenshot-dir` | None         | Optional folder to store a screenshot after sending                           |
+| `--force-launch`   | False        | Force attempt to launch WeChat if not running                                 |
+| `--max-retries`    | 3            | Maximum retry attempts to find/activate WeChat window                         |
+| `--retry-delay`    | 3.0          | Seconds to wait between retry attempts                                        |
+| `--confirm`        | False        | Wait for manual contact selection after search                                |
+| `--confirm-delay`  | 2.0          | Seconds to wait when `--confirm` is used                                      |
+| `--check-only`     | False        | Only check if WeChat is running, do not send                                  |
+| `--use-center`     | False        | Use window center position for input box                                      |
 
 > **Important**: This script ONLY supports sending markdown files. Use `--file` to specify the path to your message file. Plain text messages are no longer supported directly.
 
@@ -122,21 +126,21 @@ The script attempts to launch WeChat from these locations in order:
 
 ## Troubleshooting
 
-| Symptom | Fix |
-| --- | --- |
-| `Could not find a window matching title` | Use `--force-launch` to auto-start, or manually open WeChat. |
-| WeChat in tray | Script attempts recovery; try `--max-retries 5` for more attempts. |
-| Script hangs after Ctrl+F | Increase `--search-delay` or close pop-up dialogs. |
-| Message not sent | Ensure chat input is focused; verify there are no rich-text restrictions. |
-| Screenshot path missing | Provide `--screenshot-dir` and ensure the path is writable. |
-| Auto-launch failed | Check WeChat is installed in one of the standard paths. |
+| Symptom                                  | Fix                                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------- |
+| `Could not find a window matching title` | Use `--force-launch` to auto-start, or manually open WeChat.              |
+| WeChat in tray                           | Script attempts recovery; try `--max-retries 5` for more attempts.        |
+| Script hangs after Ctrl+F                | Increase `--search-delay` or close pop-up dialogs.                        |
+| Message not sent                         | Ensure chat input is focused; verify there are no rich-text restrictions. |
+| Screenshot path missing                  | Provide `--screenshot-dir` and ensure the path is writable.               |
+| Auto-launch failed                       | Check WeChat is installed in one of the standard paths.                   |
 
 ## Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| 0 | Success (or `--check-only` with WeChat running) |
-| 1 | Failure (or `--check-only` with WeChat not running) |
+| Code | Meaning                                             |
+| ---- | --------------------------------------------------- |
+| 0    | Success (or `--check-only` with WeChat running)     |
+| 1    | Failure (or `--check-only` with WeChat not running) |
 
 ## File list
 

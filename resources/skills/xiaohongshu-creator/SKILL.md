@@ -26,36 +26,40 @@ playwright install chromium
 ## 使用方法
 
 ### 1. 检查登录状态
+
 ```bash
 python scripts/publish.py status
 ```
 
 ### 2. 发布图文笔记
+
 ```bash
 python scripts/publish.py publish "标题" "正文内容"
 python scripts/publish.py publish "标题" "正文内容" --images "img1.jpg,img2.jpg"
 ```
 
 ### 3. 生成封面
+
 ```bash
 python scripts/cover.py "标题" --output cover.jpg
 ```
 
 ### 4. 定时发布
+
 ```bash
 python scripts/publish.py schedule "标题" "正文" --delay 7200
 ```
 
 ## 参数说明
 
-| 参数 | 说明 |
-|------|------|
-| command | publish, schedule, status |
-| title | 笔记标题 |
-| content | 笔记正文 |
-| --images | 图片路径(逗号分隔) |
-| --tags | 标签 |
-| --delay | 延迟秒数 |
+| 参数     | 说明                      |
+| -------- | ------------------------- |
+| command  | publish, schedule, status |
+| title    | 笔记标题                  |
+| content  | 笔记正文                  |
+| --images | 图片路径(逗号分隔)        |
+| --tags   | 标签                      |
+| --delay  | 延迟秒数                  |
 
 ## 注意事项
 

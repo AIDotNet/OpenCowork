@@ -19,8 +19,8 @@ Process tabular data (CSV, TSV, JSON, JSON Lines) using standard command-line to
 
 ## Scripts overview
 
-| Script | Purpose | Dependencies |
-|---|---|---|
+| Script        | Purpose                             | Dependencies           |
+| ------------- | ----------------------------------- | ---------------------- |
 | `csv_tool.py` | All-in-one CSV/JSON processing tool | Python 3 (stdlib only) |
 
 ## Steps

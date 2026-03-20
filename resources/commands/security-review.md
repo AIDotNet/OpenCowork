@@ -24,6 +24,7 @@ Security review rules
 Severity model
 
 Use only these levels:
+
 - High
 - Medium
 - Low
@@ -33,13 +34,16 @@ Output requirements
 Produce a structured Markdown report with these sections:
 
 # Security Review Summary
+
 - A short overall assessment of the security posture of the current uncommitted changes.
 
 # Scope Checked
+
 - Summarize the changed areas and any additional files or configuration you inspected.
 - Mention any important review limits if relevant.
 
 # Findings
+
 - Group findings under `## High`, `## Medium`, and `## Low`.
 - Under each severity, list only the applicable findings.
 - For each finding, include:
@@ -52,6 +56,7 @@ Produce a structured Markdown report with these sections:
   - A practical remediation recommendation
 
 # Overall Assessment
+
 - Briefly state whether the current changes appear safe to proceed with or whether the listed findings should be addressed first.
 
 If you do not find any high-value security issues, say that explicitly under `# Findings` using wording such as `No high-value security issues found`, and still summarize what you checked.

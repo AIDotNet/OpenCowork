@@ -18,23 +18,25 @@ Fetch, search, and extract content from websites.
 
 ## Scripts overview
 
-| Script | Purpose | Dependencies |
-|---|---|---|
-| `fetch_page.py` | Fetch a URL and extract readable content as Markdown | `requests`, `beautifulsoup4`, `readability-lxml`, `html2text` |
-| `search_web.py` | Search the web via DuckDuckGo | `ddgs` |
-| `crawl_dynamic.py` | Crawl JS-rendered pages with a headless browser | `crawl4ai` |
-| `extract_links.py` | Extract and categorize all links from a page | `requests`, `beautifulsoup4` |
+| Script             | Purpose                                              | Dependencies                                                  |
+| ------------------ | ---------------------------------------------------- | ------------------------------------------------------------- |
+| `fetch_page.py`    | Fetch a URL and extract readable content as Markdown | `requests`, `beautifulsoup4`, `readability-lxml`, `html2text` |
+| `search_web.py`    | Search the web via DuckDuckGo                        | `ddgs`                                                        |
+| `crawl_dynamic.py` | Crawl JS-rendered pages with a headless browser      | `crawl4ai`                                                    |
+| `extract_links.py` | Extract and categorize all links from a page         | `requests`, `beautifulsoup4`                                  |
 
 ## Steps
 
 ### 1. Install dependencies (first time only)
 
 For lightweight scraping (static pages, search, link extraction):
+
 ```bash
 pip install requests beautifulsoup4 readability-lxml html2text ddgs
 ```
 
 For dynamic / JavaScript-rendered pages (heavier, installs Playwright + Chromium):
+
 ```bash
 pip install crawl4ai
 crawl4ai-setup
@@ -53,12 +55,14 @@ python scripts/fetch_page.py "URL"
 ```
 
 Options:
+
 - `--raw` — Output full page Markdown instead of extracted article content
 - `--selector "CSS_SELECTOR"` — Extract only elements matching the CSS selector (e.g. `".article-body"`, `"table"`, `"#content"`)
 - `--save OUTPUT_PATH` — Also save output to a file
 - `--max-length N` — Truncate output to N characters (default: no limit)
 
 Examples:
+
 ```bash
 # Fetch an article
 python fetch_page.py "https://example.com/article"
@@ -79,11 +83,13 @@ python scripts/search_web.py "search query"
 ```
 
 Options:
+
 - `--max-results N` — Number of results to return (default: 10)
 - `--region REGION` — Region code, e.g. `cn-zh`, `us-en`, `jp-jp` (default: `wt-wt` for worldwide)
 - `--news` — Search news instead of general web
 
 Examples:
+
 ```bash
 # General search
 python search_web.py "Python web scraping best practices 2025"
@@ -101,6 +107,7 @@ python scripts/crawl_dynamic.py "URL"
 ```
 
 Options:
+
 - `--wait N` — Wait N seconds after page load for JS to finish (default: 3)
 - `--selector "CSS_SELECTOR"` — Wait for a specific element to appear before extracting
 - `--scroll` — Scroll to bottom of page to trigger lazy loading
@@ -116,6 +123,7 @@ python scripts/extract_links.py "URL"
 ```
 
 Options:
+
 - `--filter PATTERN` — Only show links matching a regex pattern (applied to URL)
 - `--external-only` — Only show external links
 - `--json` — Output as JSON instead of Markdown
@@ -130,15 +138,18 @@ Options:
 ## Common workflows
 
 ### Research a topic
+
 1. `search_web.py "topic"` → get relevant URLs
 2. `fetch_page.py "best_url"` → read the content
 3. Repeat for multiple sources, then synthesize
 
 ### Scrape structured data from a page
+
 1. `fetch_page.py "url" --selector "table"` → extract tables
 2. Or `fetch_page.py "url" --selector ".product-card"` → extract specific elements
 
 ### Crawl a modern web app (SPA)
+
 1. `crawl_dynamic.py "url" --wait 5 --scroll` → full JS-rendered content
 
 ## Edge cases

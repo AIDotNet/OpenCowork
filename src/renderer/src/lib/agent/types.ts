@@ -63,6 +63,7 @@ export interface AgentLoopConfig {
   /** Max loop iterations. Set <= 0 for unlimited iterations. */
   maxIterations: number
   provider: ProviderConfig
+  resolveProvider?: (messages: UnifiedMessage[]) => Promise<ProviderConfig>
   tools: ToolDefinition[]
   systemPrompt: string
   workingFolder?: string

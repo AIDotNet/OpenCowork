@@ -1,16 +1,32 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { ChevronDown, Check, Search, Eye, Wrench, Brain, Settings2, Zap, MonitorSmartphone } from 'lucide-react'
+import {
+  ChevronDown,
+  Check,
+  Search,
+  Eye,
+  Wrench,
+  Brain,
+  Settings2,
+  Zap,
+  MonitorSmartphone,
+  Loader2
+} from 'lucide-react'
 import { useProviderStore, modelSupportsVision } from '@renderer/stores/provider-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { useQuotaStore } from '@renderer/stores/quota-store'
+import { useUIStore } from '@renderer/stores/ui-store'
 
 import { useTranslation } from 'react-i18next'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 
-import { ProviderIcon, ModelIcon } from '@renderer/components/settings/provider-icons'
+import {
+  ProviderIcon,
+  ModelIcon,
+  AutoModelIcon
+} from '@renderer/components/settings/provider-icons'
 import { cn } from '@renderer/lib/utils'
 import type { AIModelConfig, AIProvider, ReasoningEffortLevel } from '@renderer/lib/api/types'
 
@@ -81,6 +97,7 @@ function selectModel(
   const pid = provider.id
   if (pid !== activeProviderId) setActiveProvider(pid)
   setActiveModel(modelId)
+  useSettingsStore.getState().updateSettings({ mainModelSelectionMode: 'manual' })
   const sessionId = useChatStore.getState().activeSessionId
   if (sessionId) {
     useChatStore.getState().updateSessionModel(sessionId, pid, modelId)
@@ -90,6 +107,18 @@ function selectModel(
         providerId: pid,
         model: modelId
       })
+    }
+  }
+  setOpen(false)
+}
+
+function selectAutoModel(setOpen: (v: boolean) => void): void {
+  useSettingsStore.getState().updateSettings({ mainModelSelectionMode: 'auto' })
+  const sessionId = useChatStore.getState().activeSessionId
+  if (sessionId) {
+    const session = useChatStore.getState().sessions.find((item) => item.id === sessionId)
+    if (!session?.pluginId) {
+      useChatStore.getState().clearSessionModelBinding(sessionId)
     }
   }
   setOpen(false)
@@ -276,20 +305,39 @@ export function ModelSwitcher(): React.JSX.Element {
   const setActiveProvider = useProviderStore((s) => s.setActiveProvider)
   const setActiveModel = useProviderStore((s) => s.setActiveModel)
   const quotaByKey = useQuotaStore((s) => s.quotaByKey)
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const sessions = useChatStore((s) => s.sessions)
+  const mainModelSelectionMode = useSettingsStore((s) => s.mainModelSelectionMode)
+  const autoSelection = useUIStore((s) => s.getAutoModelSelection(activeSessionId))
+  const autoRoutingState = useUIStore((s) => s.getAutoModelRoutingState(activeSessionId))
 
   const enabledProviders = providers.filter((p) => p.enabled)
-  const activeProvider = providers.find((p) => p.id === activeProviderId)
-  const activeModel = activeProvider?.models.find((m) => m.id === activeModelId)
+  const activeSession = sessions.find((item) => item.id === activeSessionId)
+  const sessionProviderId = activeSession?.providerId ?? null
+  const sessionModelId = activeSession?.modelId ?? null
+  const isSessionBound = Boolean(sessionProviderId && sessionModelId)
+  const displayProviderId = sessionProviderId ?? activeProviderId
+  const displayModelId = sessionModelId ?? activeModelId
+  const displayProvider = providers.find((p) => p.id === displayProviderId)
+  const displayModel = displayProvider?.models.find((m) => m.id === displayModelId)
+  const isAutoModeActive = !isSessionBound && mainModelSelectionMode === 'auto'
+  const autoResolvedProvider = autoSelection?.providerId
+    ? providers.find((provider) => provider.id === autoSelection.providerId)
+    : null
+  const autoResolvedModel = autoResolvedProvider?.models.find(
+    (model) => model.id === autoSelection?.modelId
+  )
+  const settingsModel = isAutoModeActive ? (autoResolvedModel ?? undefined) : displayModel
 
   const codexQuota = useMemo(() => {
-    if (!activeProvider || activeProvider.builtinId !== 'codex-oauth') return null
+    if (!displayProvider || displayProvider.builtinId !== 'codex-oauth') return null
     return (
-      quotaByKey[activeProvider.id] ||
-      (activeProvider.builtinId ? quotaByKey[activeProvider.builtinId] : undefined) ||
+      quotaByKey[displayProvider.id] ||
+      (displayProvider.builtinId ? quotaByKey[displayProvider.builtinId] : undefined) ||
       quotaByKey['codex'] ||
       null
     )
-  }, [activeProvider, quotaByKey])
+  }, [displayProvider, quotaByKey])
 
   const formatPercent = (value?: number): string => {
     if (value === undefined || Number.isNaN(value)) return '0%'
@@ -297,10 +345,14 @@ export function ModelSwitcher(): React.JSX.Element {
   }
 
   useEffect(() => {
-    if (open) {
+    if (!open) return
+
+    const timer = setTimeout(() => {
       setSearch('')
-      setTimeout(() => searchRef.current?.focus(), 50)
-    }
+      searchRef.current?.focus()
+    }, 50)
+
+    return () => clearTimeout(timer)
   }, [open])
 
   const groups = useMemo<ProviderGroup[]>(() => {
@@ -326,20 +378,48 @@ export function ModelSwitcher(): React.JSX.Element {
           <TooltipTrigger asChild>
             <span className="inline-flex">
               <PopoverTrigger asChild>
-                <button className="inline-flex items-center gap-1 h-8 rounded-l-lg px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
-                  <ModelIcon
-                    icon={activeModel?.icon}
-                    modelId={activeModelId}
-                    providerBuiltinId={activeProvider?.builtinId}
-                    size={20}
-                  />
+                <button className="inline-flex items-center gap-1.5 h-8 rounded-l-lg px-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+                  {isAutoModeActive ? (
+                    autoRoutingState === 'routing' ? (
+                      <Loader2 size={16} className="animate-spin text-amber-500" />
+                    ) : (
+                      <AutoModelIcon size={16} />
+                    )
+                  ) : (
+                    <ModelIcon
+                      icon={displayModel?.icon}
+                      modelId={displayModelId}
+                      providerBuiltinId={displayProvider?.builtinId}
+                      size={20}
+                    />
+                  )}
+                  <span className="max-w-24 truncate text-xs font-medium">
+                    {isAutoModeActive
+                      ? autoRoutingState === 'routing'
+                        ? t('topbar.autoModelRoutingShort')
+                        : t('topbar.autoModel')
+                      : (displayModel?.name ?? displayModelId ?? t('topbar.noModel'))}
+                  </span>
                   <ChevronDown className="size-2.5 opacity-40" />
                 </button>
               </PopoverTrigger>
             </span>
           </TooltipTrigger>
           <TooltipContent side="top">
-            {activeModel?.name || activeModelId || t('topbar.noModel')}
+            {isAutoModeActive
+              ? autoRoutingState === 'routing'
+                ? t('topbar.autoModelRouting')
+                : autoSelection?.modelName
+                  ? t('topbar.autoModelTooltip', {
+                      route: t(
+                        autoSelection.target === 'main'
+                          ? 'topbar.autoModelMain'
+                          : 'topbar.autoModelFast'
+                      ),
+                      model: autoSelection.modelName
+                    })
+                  : t('topbar.autoModelTooltipIdle')
+              : displayModel?.name || displayModelId || t('topbar.noModel')}
           </TooltipContent>
         </Tooltip>
         <PopoverContent className="w-80 p-0 overflow-hidden" align="start" sideOffset={8}>
@@ -355,6 +435,49 @@ export function ModelSwitcher(): React.JSX.Element {
             />
           </div>
           <div className="max-h-[360px] overflow-y-auto p-1">
+            <button
+              className={cn(
+                'mb-2 flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left hover:bg-muted/60 transition-colors group',
+                isAutoModeActive && 'bg-primary/5'
+              )}
+              onClick={() => selectAutoModel(setOpen)}
+            >
+              <span className="mt-0.5 flex size-5 items-center justify-center shrink-0">
+                {isAutoModeActive ? (
+                  <span className="flex size-5 items-center justify-center rounded-full bg-primary/10">
+                    <Check className="size-3 text-primary" />
+                  </span>
+                ) : (
+                  <AutoModelIcon size={18} />
+                )}
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span
+                  className={cn(
+                    'truncate text-xs',
+                    isAutoModeActive
+                      ? 'font-semibold text-primary'
+                      : 'text-foreground/80 group-hover:text-foreground'
+                  )}
+                >
+                  {t('topbar.autoModel')}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {autoRoutingState === 'routing'
+                    ? t('topbar.autoModelRouting')
+                    : autoSelection?.modelName
+                      ? t('topbar.autoModelTooltip', {
+                          route: t(
+                            autoSelection.target === 'main'
+                              ? 'topbar.autoModelMain'
+                              : 'topbar.autoModelFast'
+                          ),
+                          model: autoSelection.modelName
+                        })
+                      : t('topbar.autoModelDesc')}
+                </span>
+              </div>
+            </button>
             {groups.length === 0 ? (
               <div className="px-3 py-6 text-center text-xs text-muted-foreground/50">
                 {enabledProviders.length === 0 ? t('topbar.noProviders') : t('topbar.noModels')}
@@ -367,7 +490,10 @@ export function ModelSwitcher(): React.JSX.Element {
                     {provider.name}
                   </div>
                   {models.map((m) => {
-                    const isActive = provider.id === activeProviderId && m.id === activeModelId
+                    const isActive =
+                      !isAutoModeActive &&
+                      provider.id === displayProviderId &&
+                      m.id === displayModelId
                     return (
                       <button
                         key={`${provider.id}-${m.id}`}
@@ -492,7 +618,7 @@ export function ModelSwitcher(): React.JSX.Element {
       )}
 
       {/* Settings icon — model config popover */}
-      <ModelSettingsPopover model={activeModel} t={t} tChat={tChat} />
+      <ModelSettingsPopover model={settingsModel} t={t} tChat={tChat} />
     </div>
   )
 }

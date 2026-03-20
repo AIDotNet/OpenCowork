@@ -23,6 +23,21 @@ export type RightPanelSection = 'execution' | 'resources' | 'collaboration' | 'm
 
 export type PreviewSource = 'file' | 'dev-server' | 'markdown'
 
+export type AutoModelRoute = 'main' | 'fast'
+
+export interface AutoModelSelectionStatus {
+  source: 'auto'
+  target: AutoModelRoute
+  providerId?: string
+  modelId?: string
+  providerName?: string
+  modelName?: string
+  fallbackReason?: string
+  selectedAt: number
+}
+
+export type AutoModelRoutingState = 'idle' | 'routing'
+
 export interface PreviewPanelState {
   source: PreviewSource
   filePath: string
@@ -201,6 +216,12 @@ interface UIStore {
   /** Session-scoped UI state */
   activeScopedSessionId: string | null
   syncSessionScopedState: (sessionId: string | null) => void
+  autoModelSelectionsBySession: Record<string, AutoModelSelectionStatus | null>
+  autoModelRoutingStatesBySession: Record<string, AutoModelRoutingState>
+  setAutoModelSelection: (sessionId: string, status: AutoModelSelectionStatus | null) => void
+  getAutoModelSelection: (sessionId?: string | null) => AutoModelSelectionStatus | null
+  setAutoModelRoutingState: (sessionId: string, status: AutoModelRoutingState) => void
+  getAutoModelRoutingState: (sessionId?: string | null) => AutoModelRoutingState
 
   /** Selected files in file tree panel */
   selectedFiles: string[]
@@ -381,6 +402,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   previewPanelState: null,
   previewPanelsBySession: {},
   activeScopedSessionId: null,
+  autoModelSelectionsBySession: {},
+  autoModelRoutingStatesBySession: {},
   syncSessionScopedState: (sessionId) =>
     set((state) => {
       const scopedPreviewState = sessionId
@@ -393,6 +416,30 @@ export const useUIStore = create<UIStore>((set, get) => ({
         previewPanelState: scopedPreviewState
       }
     }),
+  setAutoModelSelection: (sessionId, status) =>
+    set((state) => ({
+      autoModelSelectionsBySession: {
+        ...state.autoModelSelectionsBySession,
+        [sessionId]: status
+      }
+    })),
+  getAutoModelSelection: (sessionId) => {
+    const targetSessionId = resolveScopedSessionId(sessionId, get().activeScopedSessionId)
+    if (!targetSessionId) return null
+    return get().autoModelSelectionsBySession[targetSessionId] ?? null
+  },
+  setAutoModelRoutingState: (sessionId, status) =>
+    set((state) => ({
+      autoModelRoutingStatesBySession: {
+        ...state.autoModelRoutingStatesBySession,
+        [sessionId]: status
+      }
+    })),
+  getAutoModelRoutingState: (sessionId) => {
+    const targetSessionId = resolveScopedSessionId(sessionId, get().activeScopedSessionId)
+    if (!targetSessionId) return 'idle'
+    return get().autoModelRoutingStatesBySession[targetSessionId] ?? 'idle'
+  },
   openFilePreview: (filePath, viewMode, sshConnectionId, sessionId) =>
     set((state) => {
       const targetSessionId = resolveScopedSessionId(sessionId, state.activeScopedSessionId)

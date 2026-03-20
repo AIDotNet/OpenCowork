@@ -1,19 +1,31 @@
 import type { RequestDebugInfo } from './api/types'
 
-/**
- * Lightweight in-memory store for request debug info.
- * Only keeps the LAST request's debug info (keyed by message ID).
- * Not persisted, not in Zustand — avoids bloating chat store and DB.
- */
-const _store = new Map<string, RequestDebugInfo>()
-
-/** Set debug info for a message, clearing any previous entry to keep only one. */
-export function setLastDebugInfo(msgId: string, info: RequestDebugInfo): void {
-  _store.clear()
-  _store.set(msgId, info)
+export interface RequestTraceInfo {
+  debugInfo?: RequestDebugInfo
+  providerId?: string
+  providerBuiltinId?: string
+  model?: string
 }
 
-/** Get debug info for a message (only available if it's the last recorded). */
-export function getLastDebugInfo(msgId: string): RequestDebugInfo | undefined {
+/**
+ * Lightweight in-memory store for per-message request metadata.
+ * Not persisted, not in Zustand — avoids bloating chat store and DB.
+ */
+const _store = new Map<string, RequestTraceInfo>()
+
+export function setRequestTraceInfo(msgId: string, patch: Partial<RequestTraceInfo>): void {
+  const current = _store.get(msgId) ?? {}
+  _store.set(msgId, { ...current, ...patch })
+}
+
+export function getRequestTraceInfo(msgId: string): RequestTraceInfo | undefined {
   return _store.get(msgId)
+}
+
+export function setLastDebugInfo(msgId: string, info: RequestDebugInfo): void {
+  setRequestTraceInfo(msgId, { debugInfo: info })
+}
+
+export function getLastDebugInfo(msgId: string): RequestDebugInfo | undefined {
+  return _store.get(msgId)?.debugInfo
 }

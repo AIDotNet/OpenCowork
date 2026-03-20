@@ -996,37 +996,43 @@ export function registerFsHandlers(): void {
     return { success: true }
   })
 
-  ipcMain.handle('fs:select-file', async (_event, args?: { filters?: Electron.FileFilter[] }) => {
-    const win = BrowserWindow.getFocusedWindow()
-    if (!win) return { canceled: true }
-    const result = await dialog.showOpenDialog(win, {
-      properties: ['openFile'],
-      filters: args?.filters ?? [
-        {
-          name: 'Documents',
-          extensions: [
-            'md',
-            'txt',
-            'docx',
-            'pdf',
-            'html',
-            'csv',
-            'json',
-            'xml',
-            'yaml',
-            'yml',
-            'ts',
-            'js',
-            'tsx',
-            'jsx'
-          ]
-        },
-        { name: 'All Files', extensions: ['*'] }
-      ]
-    })
-    if (result.canceled || result.filePaths.length === 0) return { canceled: true }
-    return { path: result.filePaths[0] }
-  })
+  ipcMain.handle(
+    'fs:select-file',
+    async (_event, args?: { filters?: Electron.FileFilter[]; multiSelections?: boolean }) => {
+      const win = BrowserWindow.getFocusedWindow()
+      if (!win) return { canceled: true }
+      const result = await dialog.showOpenDialog(win, {
+        properties: args?.multiSelections ? ['openFile', 'multiSelections'] : ['openFile'],
+        filters: args?.filters ?? [
+          {
+            name: 'Documents',
+            extensions: [
+              'md',
+              'txt',
+              'docx',
+              'pdf',
+              'html',
+              'csv',
+              'json',
+              'xml',
+              'yaml',
+              'yml',
+              'ts',
+              'js',
+              'tsx',
+              'jsx'
+            ]
+          },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      })
+      if (result.canceled || result.filePaths.length === 0) return { canceled: true }
+      return {
+        path: result.filePaths[0],
+        paths: result.filePaths
+      }
+    }
+  )
 
   ipcMain.handle('fs:read-document', async (_event, args: { path: string }) => {
     try {

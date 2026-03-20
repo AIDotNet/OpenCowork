@@ -57,7 +57,7 @@ import {
   getBillableTotalTokens
 } from '@renderer/lib/format-tokens'
 import { useMemoizedTokens } from '@renderer/hooks/use-estimated-tokens'
-import { getLastDebugInfo } from '@renderer/lib/debug-store'
+import { getLastDebugInfo, getRequestTraceInfo } from '@renderer/lib/debug-store'
 import { MONO_FONT } from '@renderer/lib/constants'
 import type { ToolCallState } from '@renderer/lib/agent/types'
 import {
@@ -1197,15 +1197,16 @@ export function AssistantMessage({
     }
   }, [t, usage])
 
-  const activeProvider = useProviderStore((s) => {
-    const pid = s.activeProviderId
+  const requestTrace = msgId ? getRequestTraceInfo(msgId) : undefined
+  const tracedProvider = useProviderStore((s) => {
+    const pid = requestTrace?.providerId
     return pid ? (s.providers.find((p) => p.id === pid) ?? null) : null
   })
-  const activeModelId = useProviderStore((s) => s.activeModelId)
-  const activeModelCfg = activeProvider?.models.find((m) => m.id === activeModelId)
+  const tracedModelId = requestTrace?.model
+  const tracedModelCfg = tracedProvider?.models.find((m) => m.id === tracedModelId)
   const modelDisplayName =
-    activeModelCfg?.name ||
-    activeModelId
+    tracedModelCfg?.name ||
+    tracedModelId
       ?.split('/')
       .pop()
       ?.replace(/-\d{8}$/, '') ||
@@ -1216,9 +1217,9 @@ export function AssistantMessage({
       <Avatar className="size-7 shrink-0 ring-1 ring-border/50">
         <AvatarFallback className="bg-gradient-to-br from-secondary to-muted text-secondary-foreground text-xs">
           <ModelIcon
-            icon={activeModelCfg?.icon}
-            modelId={activeModelId}
-            providerBuiltinId={activeProvider?.builtinId}
+            icon={tracedModelCfg?.icon}
+            modelId={tracedModelId}
+            providerBuiltinId={tracedProvider?.builtinId ?? requestTrace?.providerBuiltinId}
             size={16}
           />
         </AvatarFallback>
@@ -1251,7 +1252,13 @@ export function AssistantMessage({
             {usage
               ? (() => {
                   const u = usage!
-                  const modelCfg = useProviderStore.getState().getActiveModelConfig()
+                  const provider = requestTrace?.providerId
+                    ? useProviderStore
+                        .getState()
+                        .providers.find((item) => item.id === requestTrace.providerId)
+                    : null
+                  const modelCfg =
+                    provider?.models.find((item) => item.id === requestTrace?.model) ?? null
                   const total = getBillableTotalTokens(u, modelCfg?.type)
                   const billableInput = getBillableInputTokens(u, modelCfg?.type)
                   const cost = calculateCost(u, modelCfg)

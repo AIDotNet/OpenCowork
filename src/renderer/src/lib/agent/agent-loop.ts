@@ -43,12 +43,11 @@ export async function* runAgentLoop(
 ): AsyncGenerator<AgentEvent> {
   yield { type: 'loop_start' }
 
-  console.log('[Agent Loop] Creating provider with config:', {
+  console.log('[Agent Loop] Initial provider config:', {
     type: config.provider.type,
     model: config.provider.model,
     baseUrl: config.provider.baseUrl
   })
-  const provider = createProvider(config.provider)
   let conversationMessages = [...messages]
   let iteration = 0
   let lastInputTokens = 0
@@ -115,10 +114,15 @@ export async function* runAgentLoop(
       let streamedContent = false
 
       try {
+        const resolvedProviderConfig = config.resolveProvider
+          ? await config.resolveProvider(conversationMessages)
+          : config.provider
+        const provider = createProvider(resolvedProviderConfig)
+
         const stream = provider.sendMessage(
           conversationMessages,
           config.tools,
-          config.provider,
+          resolvedProviderConfig,
           config.signal
         )
 
@@ -285,7 +289,15 @@ export async function* runAgentLoop(
 
             case 'request_debug':
               if (event.debugInfo) {
-                yield { type: 'request_debug', debugInfo: event.debugInfo }
+                yield {
+                  type: 'request_debug',
+                  debugInfo: {
+                    ...event.debugInfo,
+                    providerId: resolvedProviderConfig.providerId,
+                    providerBuiltinId: resolvedProviderConfig.providerBuiltinId,
+                    model: resolvedProviderConfig.model
+                  }
+                }
               }
               break
 

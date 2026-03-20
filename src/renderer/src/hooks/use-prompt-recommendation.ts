@@ -23,7 +23,7 @@ interface UsePromptRecommendationParams {
   disabled: boolean
   isStreaming: boolean
   fallbackSuggestion: string
-  textareaRef: React.RefObject<HTMLTextAreaElement | null>
+  getCaretAtEnd?: () => boolean
 }
 
 interface UsePromptRecommendationResult {
@@ -67,7 +67,7 @@ export function usePromptRecommendation({
   disabled,
   isStreaming,
   fallbackSuggestion,
-  textareaRef
+  getCaretAtEnd
 }: UsePromptRecommendationParams): UsePromptRecommendationResult {
   const [fullSuggestion, setFullSuggestion] = React.useState('')
   const [isFocused, setIsFocused] = React.useState(false)
@@ -109,17 +109,13 @@ export function usePromptRecommendation({
   }, [])
 
   const updateCaretState = React.useCallback(() => {
-    const element = textareaRef.current
-    if (!element) {
+    if (!getCaretAtEnd) {
       setCaretAtEnd(true)
       return
     }
 
-    const selectionStart = element.selectionStart ?? 0
-    const selectionEnd = element.selectionEnd ?? 0
-    const isCollapsed = selectionStart === selectionEnd
-    setCaretAtEnd(isCollapsed && selectionEnd === element.value.length)
-  }, [textareaRef])
+    setCaretAtEnd(getCaretAtEnd())
+  }, [getCaretAtEnd])
 
   const applyResolvedSuggestion = React.useCallback(
     (resolvedText: string | null, requestText: string, fromFallback = false) => {

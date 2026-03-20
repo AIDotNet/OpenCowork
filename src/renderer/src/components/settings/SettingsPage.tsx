@@ -1329,6 +1329,7 @@ function ModelPanel(): React.JSX.Element {
   const { t } = useTranslation('settings')
   const settings = useSettingsStore()
   const providers = useProviderStore((s) => s.providers)
+  const mainModelSelectionMode = settings.mainModelSelectionMode
   const activeProviderId = useProviderStore((s) => s.activeProviderId)
   const activeModelId = useProviderStore((s) => s.activeModelId)
   const activeFastModelId = useProviderStore((s) => s.activeFastModelId)
@@ -1558,51 +1559,88 @@ function ModelPanel(): React.JSX.Element {
               <p className="text-xs text-muted-foreground">{t('model.mainModelDesc')}</p>
             </div>
             {hasAnyEnabledModel ? (
-              <Select
-                value={activeModelValue}
-                onValueChange={(value) => {
-                  const parsed = parseModelValue(value)
-                  if (!parsed) return
-                  if (parsed.providerId !== activeProviderId) {
-                    setActiveProvider(parsed.providerId)
+              <div className="space-y-2">
+                <Select
+                  value={mainModelSelectionMode}
+                  onValueChange={(value) =>
+                    settings.updateSettings({
+                      mainModelSelectionMode: value === 'manual' ? 'manual' : 'auto'
+                    })
                   }
-                  setActiveModel(parsed.modelId)
-                }}
-              >
-                <SelectTrigger className="w-80 text-xs">
-                  <SelectValue placeholder={t('model.selectModel')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {chatProviderGroups.map(({ provider, models }) => (
-                    <SelectGroup key={provider.id}>
-                      <SelectLabel className="text-[10px] uppercase tracking-wide">
-                        {provider.name}
-                      </SelectLabel>
-                      {models.map((m) => (
-                        <SelectItem
-                          key={`${provider.id}-${m.id}`}
-                          value={buildModelValue(provider.id, m.id)}
-                          className="text-xs"
-                        >
-                          <div className="flex items-center gap-2">
-                            <ModelIcon
-                              icon={m.icon}
-                              modelId={m.id}
-                              providerBuiltinId={provider.builtinId}
-                              size={16}
-                              className="text-muted-foreground/70"
-                            />
-                            <div className="flex flex-col text-left">
-                              <span>{m.name}</span>
-                              <span className="text-[10px] text-muted-foreground/60">{m.id}</span>
+                >
+                  <SelectTrigger className="w-80 text-xs">
+                    <SelectValue placeholder={t('model.selectMainModelMode')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto" className="text-xs">
+                      {t('model.autoMode')}
+                    </SelectItem>
+                    <SelectItem value="manual" className="text-xs">
+                      {t('model.manualMode')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground/80">
+                  {mainModelSelectionMode === 'auto'
+                    ? t('model.autoModeDesc')
+                    : t('model.manualModeDesc')}
+                </p>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    {mainModelSelectionMode === 'auto'
+                      ? t('model.autoMainCandidate')
+                      : t('model.manualMainCandidate')}
+                  </label>
+                  <p className="mt-1 text-xs text-muted-foreground/70">
+                    {t('model.manualMainCandidateDesc')}
+                  </p>
+                </div>
+                <Select
+                  value={activeModelValue}
+                  onValueChange={(value) => {
+                    const parsed = parseModelValue(value)
+                    if (!parsed) return
+                    if (parsed.providerId !== activeProviderId) {
+                      setActiveProvider(parsed.providerId)
+                    }
+                    setActiveModel(parsed.modelId)
+                  }}
+                >
+                  <SelectTrigger className="w-80 text-xs">
+                    <SelectValue placeholder={t('model.selectModel')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {chatProviderGroups.map(({ provider, models }) => (
+                      <SelectGroup key={provider.id}>
+                        <SelectLabel className="text-[10px] uppercase tracking-wide">
+                          {provider.name}
+                        </SelectLabel>
+                        {models.map((m) => (
+                          <SelectItem
+                            key={`${provider.id}-${m.id}`}
+                            value={buildModelValue(provider.id, m.id)}
+                            className="text-xs"
+                          >
+                            <div className="flex items-center gap-2">
+                              <ModelIcon
+                                icon={m.icon}
+                                modelId={m.id}
+                                providerBuiltinId={provider.builtinId}
+                                size={16}
+                                className="text-muted-foreground/70"
+                              />
+                              <div className="flex flex-col text-left">
+                                <span>{m.name}</span>
+                                <span className="text-[10px] text-muted-foreground/60">{m.id}</span>
+                              </div>
                             </div>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             ) : (
               <p className="text-xs text-muted-foreground/60">{t('model.noModelsHint')}</p>
             )}

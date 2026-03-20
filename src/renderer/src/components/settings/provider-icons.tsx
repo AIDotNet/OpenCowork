@@ -1,4 +1,4 @@
-import { Bot } from 'lucide-react'
+import { Bot, Sparkles } from 'lucide-react'
 import { useTheme } from 'next-themes'
 
 const ICON_BASE = 'https://unpkg.com/@lobehub/icons-static-png@1.83.0'
@@ -166,6 +166,16 @@ export function ModelIcon({
   if (providerBuiltinId)
     return <ProviderIcon builtinId={providerBuiltinId} size={size} className={className} />
   return <Bot size={size} className={className ?? 'text-muted-foreground'} />
+}
+
+export function AutoModelIcon({
+  size = 16,
+  className
+}: {
+  size?: number
+  className?: string
+}): React.JSX.Element {
+  return <Sparkles size={size} className={className ?? 'text-amber-500'} />
 }
 
 export function ProviderIcon({

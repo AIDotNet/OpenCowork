@@ -124,6 +124,9 @@ export interface RequestDebugInfo {
   headers: Record<string, string>
   body?: string
   timestamp: number
+  providerId?: string
+  providerBuiltinId?: string
+  model?: string
 }
 
 export interface UnifiedMessage {

@@ -42,16 +42,29 @@ import {
   type ImageAttachment
 } from '@renderer/lib/image-attachments'
 import {
-  createSelectFileTag,
-  findSelectFileTagAt,
   getSelectFileMentionQuery,
-  getSelectFileTagRanges,
-  hasSelectFileTag,
   selectFileTextToPlainText
 } from '@renderer/lib/select-file-tags'
+import {
+  createFileReferenceNode,
+  createTextReplacementNode,
+  deserializeEditorState,
+  documentHasFileReferences,
+  editorDocumentToPlainText,
+  ensureSelectedFile,
+  mergeSelectedFiles,
+  normalizeSelectionToFileBoundaries,
+  removeReferenceNode,
+  removeSelectedFile,
+  replaceEditorRange,
+  serializeEditorDocument,
+  type EditorDocumentNode,
+  type SelectedFileItem
+} from '@renderer/lib/select-file-editor'
 import { SkillsMenu } from './SkillsMenu'
 import { ModelSwitcher } from './ModelSwitcher'
-import { SelectFileInlineText } from './SelectFileInlineText'
+import { FileAwareEditor, type FileAwareEditorHandle } from './FileAwareEditor'
+import { SelectedFileBar } from './SelectedFileBar'
 import { listCommands, type CommandCatalogItem } from '@renderer/lib/commands/command-loader'
 import { useMcpStore } from '@renderer/stores/mcp-store'
 import {
@@ -211,12 +224,14 @@ const defaultRecommendationKeys: Record<AppMode, string> = {
 interface InputHistoryEntry {
   text: string
   images: ImageAttachment[]
+  selectedFiles: SelectedFileItem[]
 }
 
 interface InputHistoryDraft {
   text: string
   images: ImageAttachment[]
   selectedSkill: string | null
+  selectedFiles: SelectedFileItem[]
 }
 
 interface FileSearchItem {
@@ -311,7 +326,22 @@ export function InputArea({
   disabled = false
 }: InputAreaProps): React.JSX.Element {
   const { t } = useTranslation('chat')
-  const [text, setText] = React.useState('')
+  const [editorDocument, setEditorDocument] = React.useState<EditorDocumentNode[]>([])
+  const [selectedFiles, setSelectedFiles] = React.useState<SelectedFileItem[]>([])
+  const [highlightedFileId, setHighlightedFileId] = React.useState<string | null>(null)
+  const [editorSelection, setEditorSelection] = React.useState({ start: 0, end: 0 })
+  const text = React.useMemo(
+    () => serializeEditorDocument(editorDocument, selectedFiles),
+    [editorDocument, selectedFiles]
+  )
+  const finalSerializedText = React.useMemo(
+    () => serializeEditorDocument(editorDocument, selectedFiles, { appendUnreferencedFiles: true }),
+    [editorDocument, selectedFiles]
+  )
+  const plainText = React.useMemo(
+    () => editorDocumentToPlainText(editorDocument, selectedFiles),
+    [editorDocument, selectedFiles]
+  )
   const debouncedTokens = useDebouncedTokens(text)
   const [selectedSkill, setSelectedSkill] = React.useState<string | null>(null)
   const [slashCommands, setSlashCommands] = React.useState<CommandCatalogItem[]>([])
@@ -333,15 +363,16 @@ export function InputArea({
     (state) => state.clarifyAutoAcceptRecommended
   )
   const contentScrollRef = React.useRef<HTMLDivElement>(null)
-  const textareaRef = React.useRef<HTMLTextAreaElement>(null)
-  const suggestionMeasureRef = React.useRef<HTMLDivElement>(null)
+  const editorRef = React.useRef<FileAwareEditorHandle>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const queueFileInputRef = React.useRef<HTMLInputElement>(null)
   const rootRef = React.useRef<HTMLDivElement>(null)
-  const [inputSelection, setInputSelection] = React.useState({ start: 0, end: 0 })
   const [inputHeight, setInputHeight] = React.useState<number | null>(null)
   const dragRef = React.useRef<{ startY: number; startH: number; maxH: number } | null>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
+  const setInputSelection = setEditorSelection
+  const serializedTextRef = React.useRef(text)
+  const selectedFilesRef = React.useRef(selectedFiles)
 
   const getMaxInputHeight = React.useCallback(() => {
     const container = containerRef.current
@@ -420,9 +451,17 @@ export function InputArea({
   const historyDraftRef = React.useRef<InputHistoryDraft | null>(null)
   const historyBySessionRef = React.useRef<Record<string, InputHistoryEntry[]>>({})
   const prevSessionIdRef = React.useRef<string | null>(null)
-  /** Per-session input draft (text + images + skill) */
+  /** Per-session input draft (text + images + skill + files) */
   const draftBySessionRef = React.useRef<
-    Record<string, { text: string; images: ImageAttachment[]; skill: string | null }>
+    Record<
+      string,
+      {
+        text: string
+        images: ImageAttachment[]
+        skill: string | null
+        selectedFiles: SelectedFileItem[]
+      }
+    >
   >({})
 
   const activeProvider = useProviderStore((s) => {
@@ -444,6 +483,7 @@ export function InputArea({
     updateWebSearchToolRegistration(newEnabled)
   }, [])
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
+  const openFilePreview = useUIStore((s) => s.openFilePreview)
   const mode = useUIStore((s) => s.mode)
   const { activeSessionId, hasMessages, clearSessionMessages, sessionMessages } = useChatStore(
     useShallow((s) => {
@@ -604,12 +644,86 @@ export function InputArea({
       historyDraftRef.current = null
     }
   }, [historyCursor])
+  React.useEffect(() => {
+    serializedTextRef.current = text
+  }, [text])
+  React.useEffect(() => {
+    selectedFilesRef.current = selectedFiles
+  }, [selectedFiles])
+  const applyEditorStateFromSerializedText = React.useCallback(
+    (nextText: string, nextSelectedFiles?: SelectedFileItem[]) => {
+      const parsed = deserializeEditorState(
+        nextText,
+        workingFolder,
+        nextSelectedFiles ?? selectedFiles
+      )
+      setEditorDocument(parsed.document)
+      setSelectedFiles(parsed.selectedFiles)
+    },
+    [selectedFiles, workingFolder]
+  )
+  const setText = React.useCallback(
+    (value: string | ((prev: string) => string)) => {
+      const previousText = serializedTextRef.current
+      const previousFiles = selectedFilesRef.current
+      const nextText = typeof value === 'function' ? value(previousText) : value
+      const parsed = deserializeEditorState(nextText, workingFolder, previousFiles)
+      setEditorDocument(parsed.document)
+      setSelectedFiles(parsed.selectedFiles)
+    },
+    [workingFolder]
+  )
+
+  const focusInputAtEnd = React.useCallback(() => {
+    editorRef.current?.focusAtEnd()
+  }, [])
+
+  const getNormalizedSelection = React.useCallback(
+    (start: number, end: number) =>
+      normalizeSelectionToFileBoundaries(editorDocument, selectedFiles, start, end),
+    [editorDocument, selectedFiles]
+  )
+  const hasFileReferences = React.useMemo(
+    () => documentHasFileReferences(editorDocument),
+    [editorDocument]
+  )
+
+  const replaceSelectionWithNodes = React.useCallback(
+    (
+      replacement: EditorDocumentNode[],
+      selection: { start: number; end: number } = editorSelection,
+      cursorOffset = 0
+    ) => {
+      const normalized = getNormalizedSelection(selection.start, selection.end)
+      const nextDocument = replaceEditorRange(
+        editorDocument,
+        selectedFiles,
+        normalized.start,
+        normalized.end,
+        replacement
+      )
+      const replacementLength = replacement.reduce(
+        (sum, node) => sum + editorDocumentToPlainText([node], selectedFiles).length,
+        0
+      )
+      const nextCursor = normalized.start + replacementLength + cursorOffset
+      setEditorDocument(nextDocument)
+      requestAnimationFrame(() => {
+        editorRef.current?.focus()
+        editorRef.current?.setSelectionOffsets(nextCursor, nextCursor)
+      })
+    },
+    [editorDocument, editorSelection, getNormalizedSelection, selectedFiles]
+  )
+
   const recommendationFallback = t(defaultRecommendationKeys[mode])
   const shouldAutoAcceptRecommendation =
     mode === 'clarify' && clarifyAutoAcceptRecommended && !disabled && !isOptimizing && !isStreaming
+  const getCaretAtEnd = React.useCallback(() => {
+    return editorSelection.start === editorSelection.end && editorSelection.end === plainText.length
+  }, [editorSelection.end, editorSelection.start, plainText.length])
   const {
     suggestionText,
-    measureText,
     effectivePlaceholder,
     acceptSuggestion,
     handleFocus: handleRecommendationFocus,
@@ -627,89 +741,15 @@ export function InputArea({
     disabled: disabled || isOptimizing,
     isStreaming,
     fallbackSuggestion: recommendationFallback,
-    textareaRef
+    getCaretAtEnd
   })
-  const hasFileTags = React.useMemo(() => hasSelectFileTag(text), [text])
-  const fileTagRanges = React.useMemo(() => getSelectFileTagRanges(text), [text])
-  const resizeTextarea = React.useCallback(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.setProperty('field-sizing', 'fixed')
-    if (inputHeight) {
-      el.style.height = '100%'
-      return
-    }
-
-    el.style.height = 'auto'
-    const suggestionHeight = suggestionMeasureRef.current?.scrollHeight ?? 0
-    const contentHeight = hasFileTags ? suggestionHeight : el.scrollHeight
-    const autoMaxHeight = measureText || hasFileTags ? getMaxInputHeight() : 200
-    const nextHeight = Math.min(Math.max(contentHeight, suggestionHeight, 60), autoMaxHeight)
-    el.style.height = `${nextHeight}px`
-  }, [getMaxInputHeight, hasFileTags, inputHeight, measureText])
-
-  React.useEffect(() => {
-    resizeTextarea()
-  }, [inputHeight, resizeTextarea])
-
-  const syncInputSelection = React.useCallback(() => {
-    const el = textareaRef.current
-    if (!el) return
-
-    let start = el.selectionStart ?? 0
-    let end = el.selectionEnd ?? 0
-
-    const startTag = findSelectFileTagAt(text, start)
-    const endTag = findSelectFileTagAt(text, end)
-
-    if (start === end && startTag) {
-      const nextCursor = start - startTag.start <= startTag.end - start ? startTag.start : startTag.end
-      start = nextCursor
-      end = nextCursor
-      el.setSelectionRange(nextCursor, nextCursor)
-    } else {
-      if (startTag) start = startTag.start
-      if (endTag) end = endTag.end
-      if (start !== (el.selectionStart ?? 0) || end !== (el.selectionEnd ?? 0)) {
-        el.setSelectionRange(start, end)
-      }
-    }
-
-    setInputSelection({ start, end })
-  }, [text])
-
-  const focusInputAtEnd = React.useCallback(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.focus()
-    const cursor = el.value.length
-    el.setSelectionRange(cursor, cursor)
-    setInputSelection({ start: cursor, end: cursor })
-  }, [])
-  const expandSelectionAcrossFileTags = React.useCallback(
-    (start: number, end: number): { start: number; end: number } => {
-      let nextStart = start
-      let nextEnd = end
-
-      for (const range of fileTagRanges) {
-        const overlaps = nextStart < range.end && nextEnd > range.start
-        if (!overlaps) continue
-        if (nextStart > range.start) nextStart = range.start
-        if (nextEnd < range.end) nextEnd = range.end
-      }
-
-      return { start: nextStart, end: nextEnd }
-    },
-    [fileTagRanges]
-  )
-
   const activeFileMention = React.useMemo(() => {
-    if (inputSelection.start !== inputSelection.end) return null
-    return getSelectFileMentionQuery(text, inputSelection.end)
-  }, [inputSelection.end, inputSelection.start, text])
+    if (editorSelection.start !== editorSelection.end) return null
+    return getSelectFileMentionQuery(plainText, editorSelection.end)
+  }, [editorSelection.end, editorSelection.start, plainText])
   const fileQuery = activeFileMention?.query.trim() ?? ''
   const fileMenuOpen = Boolean(activeFileMention && fileQuery && workingFolder)
-  const slashQuery = React.useMemo(() => getSlashCommandQuery(text), [text])
+  const slashQuery = React.useMemo(() => getSlashCommandQuery(plainText), [plainText])
   const filteredSlashCommands = React.useMemo(() => {
     const query = slashQuery ?? ''
     return slashCommands
@@ -796,75 +836,79 @@ export function InputArea({
     }
   }, [fileMenuOpen, fileQuery, workingFolder])
 
-  React.useEffect(() => {
-    syncInputSelection()
-  }, [syncInputSelection, text])
-
   const insertSelectedFile = React.useCallback(
     (filePath: string) => {
       clearHistoryNavigation()
       setSelectedSkill(null)
 
-      const mention = activeFileMention
-      const tag = createSelectFileTag(filePath)
-      if (!mention || !tag) return
+      const { files: nextFiles, file } = ensureSelectedFile(selectedFiles, filePath, workingFolder)
+      if (!file) return
 
-      const before = text.slice(0, mention.start)
-      const after = text.slice(mention.end)
+      const mention = activeFileMention ?? {
+        start: editorSelection.start,
+        end: editorSelection.end
+      }
       const suffix =
-        after.startsWith(' ') || after.startsWith('\n') || after.length === 0 ? '' : ' '
-      const nextText = `${before}${tag}${suffix}${after}`
-      const nextCursor = before.length + tag.length + suffix.length
+        plainText.slice(mention.end).startsWith(' ') ||
+        plainText.slice(mention.end).startsWith('\n') ||
+        mention.end >= plainText.length
+          ? ''
+          : ' '
 
-      setText(nextText)
-      requestAnimationFrame(() => {
-        resizeTextarea()
-        const el = textareaRef.current
-        if (!el) return
-        el.focus()
-        el.setSelectionRange(nextCursor, nextCursor)
-        setInputSelection({ start: nextCursor, end: nextCursor })
-      })
+      setSelectedFiles(nextFiles)
+      replaceSelectionWithNodes(
+        [
+          createFileReferenceNode(file.id, file.sendPath),
+          ...(suffix ? [createTextReplacementNode(suffix)] : [])
+        ],
+        mention
+      )
     },
-    [activeFileMention, clearHistoryNavigation, resizeTextarea, text]
+    [
+      activeFileMention,
+      clearHistoryNavigation,
+      editorSelection.end,
+      editorSelection.start,
+      plainText,
+      replaceSelectionWithNodes,
+      selectedFiles,
+      workingFolder
+    ]
   )
 
   const insertSlashCommand = React.useCallback(
     (commandName: string) => {
       clearHistoryNavigation()
       setSelectedSkill(null)
-      setText(`/${commandName} `)
+      applyEditorStateFromSerializedText(`/${commandName} `, selectedFiles)
       requestAnimationFrame(() => {
-        resizeTextarea()
         focusInputAtEnd()
       })
     },
-    [clearHistoryNavigation, focusInputAtEnd, resizeTextarea]
+    [applyEditorStateFromSerializedText, clearHistoryNavigation, focusInputAtEnd, selectedFiles]
   )
 
   const applyHistoryEntry = React.useCallback(
     (entry: InputHistoryEntry) => {
-      setText(entry.text)
+      applyEditorStateFromSerializedText(entry.text, entry.selectedFiles)
       setAttachedImages(cloneImageAttachments(entry.images))
       setSelectedSkill(null)
       requestAnimationFrame(() => {
-        resizeTextarea()
         focusInputAtEnd()
       })
     },
-    [focusInputAtEnd, resizeTextarea]
+    [applyEditorStateFromSerializedText, focusInputAtEnd]
   )
   const restoreDraftFromHistory = React.useCallback(() => {
     const draft = historyDraftRef.current
-    setText(draft?.text ?? '')
+    applyEditorStateFromSerializedText(draft?.text ?? '', draft?.selectedFiles ?? [])
     setAttachedImages(cloneImageAttachments(draft?.images ?? []))
     setSelectedSkill(draft?.selectedSkill ?? null)
     historyDraftRef.current = null
     requestAnimationFrame(() => {
-      resizeTextarea()
       focusInputAtEnd()
     })
-  }, [focusInputAtEnd, resizeTextarea])
+  }, [applyEditorStateFromSerializedText, focusInputAtEnd])
   const navigateHistory = React.useCallback(
     (direction: 'up' | 'down') => {
       if (sentHistory.length === 0) return
@@ -873,7 +917,8 @@ export function InputArea({
           historyDraftRef.current = {
             text,
             images: cloneImageAttachments(attachedImages),
-            selectedSkill
+            selectedSkill,
+            selectedFiles: selectedFiles.map((file) => ({ ...file }))
           }
           const latest = sentHistory.length - 1
           setHistoryCursor(latest)
@@ -903,6 +948,7 @@ export function InputArea({
       text,
       attachedImages,
       selectedSkill,
+      selectedFiles,
       applyHistoryEntry,
       restoreDraftFromHistory
     ]
@@ -919,10 +965,9 @@ export function InputArea({
     }
   }, [])
 
-  // Auto-focus textarea only when streaming state ends; session switching should not trigger it.
   React.useEffect(() => {
     if (!isStreaming && !disabled) {
-      textareaRef.current?.focus()
+      editorRef.current?.focus()
     }
   }, [isStreaming, disabled])
 
@@ -942,16 +987,12 @@ export function InputArea({
     }, 1000)
 
     const timeoutId = window.setTimeout(() => {
-      if (textareaRef.current && document.activeElement !== textareaRef.current) {
-        return
-      }
       const acceptedSuggestion = acceptSuggestion()
       if (!acceptedSuggestion) return
       clearHistoryNavigation()
-      setText(acceptedSuggestion)
+      applyEditorStateFromSerializedText(acceptedSuggestion, selectedFiles)
       setAutoAcceptCountdown(null)
       requestAnimationFrame(() => {
-        resizeTextarea()
         focusInputAtEnd()
         handleRecommendationSelectionChange()
       })
@@ -963,10 +1004,11 @@ export function InputArea({
     }
   }, [
     acceptSuggestion,
+    applyEditorStateFromSerializedText,
     clearHistoryNavigation,
     focusInputAtEnd,
     handleRecommendationSelectionChange,
-    resizeTextarea,
+    selectedFiles,
     shouldAutoAcceptRecommendation,
     suggestionText,
     text
@@ -1023,16 +1065,16 @@ export function InputArea({
       draftBySessionRef.current[prevSessionId] = {
         text,
         images: cloneImageAttachments(attachedImages),
-        skill: selectedSkill
+        skill: selectedSkill,
+        selectedFiles: selectedFiles.map((file) => ({ ...file }))
       }
     }
 
     // Restore draft from the new session (or clear)
     const draft = activeSessionId ? draftBySessionRef.current[activeSessionId] : undefined
-    setText(draft?.text ?? '')
+    applyEditorStateFromSerializedText(draft?.text ?? '', draft?.selectedFiles ?? [])
     setAttachedImages(draft?.images ? cloneImageAttachments(draft.images) : [])
     setSelectedSkill(draft?.skill ?? null)
-    requestAnimationFrame(() => resizeTextarea())
 
     if (!prevSessionId && activeSessionId) {
       const pendingHistory = historyBySessionRef.current[PENDING_HISTORY_KEY]
@@ -1056,19 +1098,43 @@ export function InputArea({
   // Consume pendingInsertText from FileTree clicks
   const pendingInsert = useUIStore((s) => s.pendingInsertText)
   React.useEffect(() => {
-    if (pendingInsert) {
-      clearHistoryNavigation()
-      setText((prev) => {
-        const prefix = prev && !prev.endsWith(' ') && !prev.endsWith('\n') ? ' ' : ''
-        return `${prev}${prefix}${pendingInsert}`
-      })
-      useUIStore.getState().setPendingInsertText(null)
-      requestAnimationFrame(() => {
-        resizeTextarea()
-        focusInputAtEnd()
-      })
+    if (!pendingInsert) return
+
+    clearHistoryNavigation()
+    const parsed = deserializeEditorState(pendingInsert, workingFolder)
+    const pendingPlainText = editorDocumentToPlainText(parsed.document, parsed.selectedFiles)
+    const selection = editorRef.current?.getSelectionOffsets() ?? {
+      start: plainText.length,
+      end: plainText.length
     }
-  }, [pendingInsert, clearHistoryNavigation, focusInputAtEnd, resizeTextarea])
+    const needsPrefix =
+      selection.start === selection.end &&
+      selection.start > 0 &&
+      !/\s$/.test(plainText.slice(0, selection.start)) &&
+      pendingPlainText.length > 0 &&
+      !/^\s/.test(pendingPlainText)
+
+    const mergedFiles = mergeSelectedFiles(selectedFilesRef.current, parsed.selectedFiles)
+    const fileIdBySendPath = new Map(
+      mergedFiles.map((file) => [file.sendPath.toLowerCase(), file.id])
+    )
+    const nextDocument = parsed.document.map((node) => {
+      if (node.type !== 'file') return node
+      const sourceFile = parsed.selectedFiles.find((file) => file.id === node.fileId)
+      if (!sourceFile) return node
+      return {
+        ...node,
+        fileId: fileIdBySendPath.get(sourceFile.sendPath.toLowerCase()) ?? node.fileId
+      }
+    })
+
+    setSelectedFiles(mergedFiles)
+    replaceSelectionWithNodes(
+      [...(needsPrefix ? [createTextReplacementNode(' ')] : []), ...nextDocument],
+      selection
+    )
+    useUIStore.getState().setPendingInsertText(null)
+  }, [clearHistoryNavigation, pendingInsert, plainText, replaceSelectionWithNodes, workingFolder])
 
   // --- Image helpers ---
   const addImages = React.useCallback(
@@ -1091,13 +1157,141 @@ export function InputArea({
     [clearHistoryNavigation]
   )
 
+  const addFilesToEditor = React.useCallback(
+    (filePaths: string[], selection?: { start: number; end: number }) => {
+      const nextSelection = selection ?? editorRef.current?.getSelectionOffsets() ?? editorSelection
+      const filesToInsert: SelectedFileItem[] = []
+      let mergedFiles = selectedFiles
+
+      for (const filePath of filePaths) {
+        const ensured = ensureSelectedFile(mergedFiles, filePath, workingFolder)
+        mergedFiles = ensured.files
+        if (ensured.file) {
+          filesToInsert.push(ensured.file)
+        }
+      }
+
+      if (filesToInsert.length === 0) return
+
+      const replacement: EditorDocumentNode[] = []
+      filesToInsert.forEach((file, index) => {
+        if (index > 0) replacement.push(createTextReplacementNode('\n'))
+        replacement.push(createFileReferenceNode(file.id, file.sendPath))
+      })
+
+      setSelectedFiles(mergedFiles)
+      replaceSelectionWithNodes(replacement, nextSelection)
+    },
+    [editorSelection, replaceSelectionWithNodes, selectedFiles, workingFolder]
+  )
+
+  const handlePreviewFile = React.useCallback(
+    (file: SelectedFileItem) => {
+      openFilePreview(file.previewPath)
+    },
+    [openFilePreview]
+  )
+
+  const scrollFileBarItemIntoView = React.useCallback((fileId: string) => {
+    const target = document.getElementById(`selected-file-bar-item-${fileId}`)
+    target?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [])
+
+  const handleLocateFile = React.useCallback(
+    (fileId: string) => {
+      setHighlightedFileId(fileId)
+      const found = editorRef.current?.scrollToReference(fileId) ?? false
+      if (!found) {
+        scrollFileBarItemIntoView(fileId)
+      }
+    },
+    [scrollFileBarItemIntoView]
+  )
+
+  const handleLocateReferenceToBar = React.useCallback(
+    (fileId: string) => {
+      setHighlightedFileId(fileId)
+      scrollFileBarItemIntoView(fileId)
+    },
+    [scrollFileBarItemIntoView]
+  )
+
+  const handleRemoveSelectedFile = React.useCallback(
+    (fileId: string) => {
+      clearHistoryNavigation()
+      const nextState = removeSelectedFile(selectedFiles, editorDocument, fileId)
+      setSelectedFiles(nextState.files)
+      setEditorDocument(nextState.document)
+      if (highlightedFileId === fileId) {
+        setHighlightedFileId(null)
+      }
+    },
+    [clearHistoryNavigation, editorDocument, highlightedFileId, selectedFiles]
+  )
+
+  const handleClearSelectedFiles = React.useCallback(() => {
+    clearHistoryNavigation()
+    let nextFiles = selectedFiles
+    let nextDocument = editorDocument
+    for (const file of selectedFiles) {
+      const nextState = removeSelectedFile(nextFiles, nextDocument, file.id)
+      nextFiles = nextState.files
+      nextDocument = nextState.document
+    }
+    setSelectedFiles(nextFiles)
+    setEditorDocument(nextDocument)
+    setHighlightedFileId(null)
+  }, [clearHistoryNavigation, editorDocument, selectedFiles])
+
+  const handleRemoveReference = React.useCallback(
+    (nodeId: string) => {
+      clearHistoryNavigation()
+      setEditorDocument((current) => removeReferenceNode(current, nodeId, selectedFilesRef.current))
+    },
+    [clearHistoryNavigation]
+  )
+
+  const handleSelectFilesFromSystem = React.useCallback(async () => {
+    const result = (await ipcClient.invoke('fs:select-file', {
+      multiSelections: true
+    })) as { canceled?: boolean; paths?: string[]; path?: string }
+
+    if (result?.canceled) return
+    const paths = Array.isArray(result?.paths) ? result.paths : result?.path ? [result.path] : []
+    if (paths.length === 0) return
+
+    clearHistoryNavigation()
+    addFilesToEditor(paths)
+  }, [addFilesToEditor, clearHistoryNavigation])
+
+  const findAdjacentReferenceNode = React.useCallback(
+    (cursor: number, direction: 'before' | 'after') => {
+      let offset = 0
+      for (const node of editorDocument) {
+        const length = editorDocumentToPlainText([node], selectedFiles).length
+        const start = offset
+        const end = offset + length
+        offset = end
+
+        if (node.type !== 'file') continue
+        if (direction === 'before' && end === cursor) return node
+        if (direction === 'after' && start === cursor) return node
+      }
+      return null
+    },
+    [editorDocument, selectedFiles]
+  )
+
   const handleSend = (): void => {
-    const trimmed = text.trim()
-    if (!trimmed && attachedImages.length === 0) return
+    const serialized = finalSerializedText.trim()
+    if (!serialized && attachedImages.length === 0) return
     if (disabled || needsWorkingFolder) return
-    const hasLeadingSlashCommand = text.trimStart().startsWith('/')
+
+    const hasLeadingSlashCommand = plainText.trimStart().startsWith('/')
     const message =
-      selectedSkill && !hasLeadingSlashCommand ? `[Skill: ${selectedSkill}]\n${trimmed}` : trimmed
+      selectedSkill && !hasLeadingSlashCommand
+        ? `[Skill: ${selectedSkill}]\n${serialized}`
+        : serialized
 
     onSend(message, attachedImages.length > 0 ? attachedImages : undefined)
     updateSessionHistory((prevHistory) => {
@@ -1105,93 +1299,53 @@ export function InputArea({
         ...prevHistory,
         {
           text: message,
-          images: cloneImageAttachments(attachedImages)
+          images: cloneImageAttachments(attachedImages),
+          selectedFiles: selectedFiles.map((file) => ({ ...file }))
         }
       ]
       return nextHistory.length > INPUT_HISTORY_LIMIT
         ? nextHistory.slice(nextHistory.length - INPUT_HISTORY_LIMIT)
         : nextHistory
     })
+
     setHistoryCursor(null)
     historyDraftRef.current = null
-    setText('')
+    setEditorDocument([])
+    setSelectedFiles([])
+    setHighlightedFileId(null)
     setAttachedImages([])
     setSelectedSkill(null)
-    // Reset textarea height
-    if (textareaRef.current) {
-      if (inputHeight) {
-        textareaRef.current.style.height = '100%'
-      } else {
-        textareaRef.current.style.height = 'auto'
-      }
-    }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.nativeEvent.isComposing) return
-    if (isOptimizing) return // Disable input during optimization
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.nativeEvent.isComposing || isOptimizing) return
 
-    const target = e.currentTarget
-    const selectionStart = target.selectionStart ?? 0
-    const selectionEnd = target.selectionEnd ?? 0
+    const selectionStart = editorSelection.start
+    const selectionEnd = editorSelection.end
     const collapsed = selectionStart === selectionEnd
-    const activeTag = collapsed ? findSelectFileTagAt(text, selectionStart) : null
 
-    if (activeTag) {
-      const nextCursor =
-        selectionStart - activeTag.start <= activeTag.end - selectionStart
-          ? activeTag.start
-          : activeTag.end
-      e.preventDefault()
-      target.setSelectionRange(nextCursor, nextCursor)
-      setInputSelection({ start: nextCursor, end: nextCursor })
-      return
-    }
-
-    if (!collapsed) {
-      const expanded = expandSelectionAcrossFileTags(selectionStart, selectionEnd)
-      if (expanded.start !== selectionStart || expanded.end !== selectionEnd) {
-        target.setSelectionRange(expanded.start, expanded.end)
-        setInputSelection(expanded)
-      }
-    }
-
-    if (
-      !e.altKey &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      (e.key === 'Backspace' || e.key === 'Delete')
-    ) {
+    if (!e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'Backspace' || e.key === 'Delete')) {
       if (!collapsed) {
-        const expanded = expandSelectionAcrossFileTags(selectionStart, selectionEnd)
-        if (expanded.start !== selectionStart || expanded.end !== selectionEnd) {
+        const expanded = getNormalizedSelection(selectionStart, selectionEnd)
+        if (expanded.start !== expanded.end) {
           e.preventDefault()
-          const nextText = `${text.slice(0, expanded.start)}${text.slice(expanded.end)}`
-          setText(nextText)
-          requestAnimationFrame(() => {
-            resizeTextarea()
-            target.setSelectionRange(expanded.start, expanded.start)
-            setInputSelection({ start: expanded.start, end: expanded.start })
-          })
+          replaceSelectionWithNodes([], expanded)
           return
         }
       }
 
       if (collapsed) {
-        const adjacentTag =
-          e.key === 'Backspace'
-            ? fileTagRanges.find((range) => range.end === selectionStart)
-            : fileTagRanges.find((range) => range.start === selectionStart)
-
-        if (adjacentTag) {
+        const adjacentNode = findAdjacentReferenceNode(
+          selectionStart,
+          e.key === 'Backspace' ? 'before' : 'after'
+        )
+        if (adjacentNode) {
           e.preventDefault()
-          const nextText = `${text.slice(0, adjacentTag.start)}${text.slice(adjacentTag.end)}`
-          const nextCursor = adjacentTag.start
-          setText(nextText)
+          setEditorDocument((current) =>
+            removeReferenceNode(current, adjacentNode.id, selectedFiles)
+          )
           requestAnimationFrame(() => {
-            resizeTextarea()
-            target.setSelectionRange(nextCursor, nextCursor)
-            setInputSelection({ start: nextCursor, end: nextCursor })
+            editorRef.current?.setSelectionOffsets(selectionStart, selectionStart)
           })
           return
         }
@@ -1226,8 +1380,7 @@ export function InputArea({
       if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'Escape') {
         e.preventDefault()
         const nextCursor = activeFileMention?.start ?? 0
-        e.currentTarget.setSelectionRange(nextCursor, nextCursor)
-        setInputSelection({ start: nextCursor, end: nextCursor })
+        editorRef.current?.setSelectionOffsets(nextCursor, nextCursor)
         return
       }
     }
@@ -1264,15 +1417,15 @@ export function InputArea({
       if (acceptedSuggestion) {
         e.preventDefault()
         clearHistoryNavigation()
-        setText(acceptedSuggestion)
+        applyEditorStateFromSerializedText(acceptedSuggestion, selectedFiles)
         requestAnimationFrame(() => {
-          resizeTextarea()
           focusInputAtEnd()
           handleRecommendationSelectionChange()
         })
         return
       }
     }
+
     if (
       !e.altKey &&
       !e.ctrlKey &&
@@ -1280,64 +1433,26 @@ export function InputArea({
       !e.shiftKey &&
       (e.key === 'ArrowUp' || e.key === 'ArrowDown')
     ) {
-      const isCollapsed = selectionStart === selectionEnd
-      if (isCollapsed && e.key === 'ArrowUp' && selectionStart === 0) {
+      if (collapsed && e.key === 'ArrowUp' && selectionStart === 0) {
         e.preventDefault()
         navigateHistory('up')
         return
       }
-      if (isCollapsed && e.key === 'ArrowDown' && selectionStart === target.value.length) {
+      if (collapsed && e.key === 'ArrowDown' && selectionStart === plainText.length) {
         e.preventDefault()
         navigateHistory('down')
         return
       }
     }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
-      return
     }
   }
 
-  // Auto-resize textarea
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
-    if (isOptimizing) return // Disable input during optimization
-    clearHistoryNavigation()
-
-    let nextValue = e.target.value
-    let nextStart = e.target.selectionStart ?? nextValue.length
-    let nextEnd = e.target.selectionEnd ?? nextValue.length
-
-    const hasBrokenTagMarkup =
-      nextValue.includes('<select-file') || nextValue.includes('</select-file>') || nextValue.includes('<select-file>')
-    const nextTagCount = getSelectFileTagRanges(nextValue).length
-    if (fileTagRanges.length > 0 && hasBrokenTagMarkup && nextTagCount < fileTagRanges.length) {
-      nextValue = text
-      const expanded = expandSelectionAcrossFileTags(inputSelection.start, inputSelection.end)
-      nextStart = expanded.end
-      nextEnd = expanded.end
-      e.target.value = nextValue
-      e.target.setSelectionRange(nextStart, nextEnd)
-    }
-
-    setText(nextValue)
-    setInputSelection({
-      start: nextStart,
-      end: nextEnd
-    })
-    if (inputHeight) return
-    const el = e.target
-    // Ensure we disable field-sizing: content to control height manually
-    el.style.setProperty('field-sizing', 'fixed')
-    el.style.height = 'auto'
-    const measureHeight = suggestionMeasureRef.current?.scrollHeight ?? 0
-    const nextHeight = hasFileTags ? measureHeight : el.scrollHeight
-    el.style.height = `${Math.min(Math.max(nextHeight, 60), 200)}px`
-  }
-
-  // Paste handler for images
   const handlePaste = React.useCallback(
-    (e: React.ClipboardEvent): void => {
+    (e: React.ClipboardEvent<HTMLDivElement>): void => {
       if (!supportsVision) return
       const items = Array.from(e.clipboardData.items)
       const imageFiles = items
@@ -1346,43 +1461,37 @@ export function InputArea({
         .filter(Boolean) as File[]
       if (imageFiles.length > 0) {
         e.preventDefault()
-        addImages(imageFiles)
+        void addImages(imageFiles)
       }
     },
-    [supportsVision, addImages]
+    [addImages, supportsVision]
   )
 
-  // Drag-and-drop: images go to attachments, other files insert paths
-  const handleDrop = (e: React.DragEvent<HTMLTextAreaElement>): void => {
-    const files = e.dataTransfer?.files
-    if (files && files.length > 0) {
-      e.preventDefault()
-      const fileArr = Array.from(files)
+  const handleDropFiles = React.useCallback(
+    (fileList: FileList | null) => {
+      if (!fileList || fileList.length === 0) return
+      const fileArr = Array.from(fileList)
       const imageFiles = supportsVision
         ? fileArr.filter((f) => ACCEPTED_IMAGE_TYPES.includes(f.type))
         : []
       const otherFiles = supportsVision
         ? fileArr.filter((f) => !ACCEPTED_IMAGE_TYPES.includes(f.type))
         : fileArr
-      if (imageFiles.length > 0) addImages(imageFiles)
-      if (otherFiles.length > 0) {
-        const paths = otherFiles
-          .map((f) => (f as File & { path: string }).path)
-          .filter(Boolean)
-          .map((filePath) => {
-            if (!workingFolder || !filePath.startsWith(workingFolder)) {
-              return createSelectFileTag(filePath)
-            }
-            return createSelectFileTag(filePath.slice(workingFolder.length).replace(/^[\\/]/, ''))
-          })
-          .filter(Boolean)
-        if (paths.length > 0) {
-          const insertion = paths.join('\n')
-          setText((prev) => (prev ? `${prev}\n${insertion}` : insertion))
-        }
+
+      if (imageFiles.length > 0) {
+        void addImages(imageFiles)
       }
-    }
-  }
+
+      const paths = otherFiles
+        .map((f) => (f as File & { path?: string }).path)
+        .filter((filePath): filePath is string => Boolean(filePath))
+
+      if (paths.length > 0) {
+        addFilesToEditor(paths)
+      }
+    },
+    [addFilesToEditor, addImages, supportsVision]
+  )
 
   const [dragging, setDragging] = useLocalState(false)
 
@@ -1396,8 +1505,9 @@ export function InputArea({
   }
 
   const handleDropWrapped = (e: React.DragEvent<HTMLDivElement>): void => {
+    e.preventDefault()
     setDragging(false)
-    handleDrop(e as unknown as React.DragEvent<HTMLTextAreaElement>)
+    handleDropFiles(e.dataTransfer?.files ?? null)
   }
 
   // Optimize prompt handler
@@ -1493,17 +1603,19 @@ export function InputArea({
     }
   }, [text, isOptimizing, currentLanguage])
 
-  const handleSelectOption = React.useCallback((content: string) => {
-    setText(content)
-    setOptimizationOptions([])
-    setOptimizingText('')
-    setSelectedOptionIndex(0)
-    setShowOptimizationDialog(false)
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`
-    }
-  }, [])
+  const handleSelectOption = React.useCallback(
+    (content: string) => {
+      setText(content)
+      setOptimizationOptions([])
+      setOptimizingText('')
+      setSelectedOptionIndex(0)
+      setShowOptimizationDialog(false)
+      requestAnimationFrame(() => {
+        focusInputAtEnd()
+      })
+    },
+    [focusInputAtEnd, setText]
+  )
 
   const handleCancelOptimization = React.useCallback(() => {
     setOptimizationOptions([])
@@ -1968,76 +2080,55 @@ export function InputArea({
                 </span>
               </div>
             )}
+            <SelectedFileBar
+              files={selectedFiles}
+              highlightedFileId={highlightedFileId}
+              onPreview={handlePreviewFile}
+              onLocate={handleLocateFile}
+              onRemove={handleRemoveSelectedFile}
+              onClear={handleClearSelectedFiles}
+            />
             <div className="relative flex-1 min-h-[60px]">
-              <div
-                ref={suggestionMeasureRef}
-                aria-hidden="true"
-                className="pointer-events-none invisible absolute inset-0 whitespace-pre-wrap break-words p-1 text-base md:text-sm"
-              >
-                {hasFileTags ? (
-                  <SelectFileInlineText text={measureText || text || ' '} overlay />
-                ) : (
-                  measureText || text || ' '
-                )}
-              </div>
-              {hasFileTags && (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-1 text-base text-foreground md:text-sm"
-                >
-                  <SelectFileInlineText text={text || ' '} overlay />
-                </div>
-              )}
-              {suggestionText && !hasFileTags && (
-                <>
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-1 text-base md:text-sm text-muted-foreground/45"
-                  >
-                    <span className="invisible">{text}</span>
-                    <span>{suggestionText}</span>
+              {shouldAutoAcceptRecommendation &&
+                autoAcceptCountdown !== null &&
+                suggestionText &&
+                !hasFileReferences && (
+                  <div className="pointer-events-none absolute right-2 top-2 z-20 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                    {autoAcceptCountdown}s
                   </div>
-                  {shouldAutoAcceptRecommendation && autoAcceptCountdown !== null && (
-                    <div className="pointer-events-none absolute right-2 top-2 z-20 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-                      {autoAcceptCountdown}s
-                    </div>
-                  )}
-                </>
-              )}
-              <Textarea
-                ref={textareaRef}
-                value={text}
-                onChange={handleInput}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                onFocus={() => {
-                  handleRecommendationFocus()
-                  syncInputSelection()
-                }}
-                onBlur={handleRecommendationBlur}
-                onClick={() => {
-                  handleRecommendationSelectionChange()
-                  syncInputSelection()
-                }}
-                onKeyUp={() => {
-                  handleRecommendationSelectionChange()
-                  syncInputSelection()
-                }}
-                onSelect={() => {
-                  handleRecommendationSelectionChange()
-                  syncInputSelection()
-                }}
-                onCompositionStart={handleRecommendationCompositionStart}
-                onCompositionEnd={() => {
-                  handleRecommendationCompositionEnd()
-                  syncInputSelection()
-                }}
+                )}
+              <FileAwareEditor
+                ref={editorRef}
+                document={editorDocument}
+                files={selectedFiles}
+                disabled={disabled || isOptimizing}
                 placeholder={
                   effectivePlaceholder ?? t(placeholderKeys[mode] ?? 'input.placeholder')
                 }
-                className={`relative z-10 min-h-[60px] w-full resize-none border-0 bg-transparent dark:bg-transparent p-1 shadow-none focus-visible:ring-0 text-base md:text-sm flex-1 ${hasFileTags ? 'text-transparent caret-foreground selection:bg-primary/20' : ''}`}
-                rows={1}
-                disabled={disabled || isOptimizing}
+                suggestionText={suggestionText}
+                showSuggestion={!hasFileReferences}
+                highlightedFileId={highlightedFileId}
+                onDocumentChange={(nextDocument) => {
+                  clearHistoryNavigation()
+                  setEditorDocument(nextDocument)
+                  setHighlightedFileId(null)
+                }}
+                onSelectionChange={(selection) => {
+                  setInputSelection(selection)
+                  handleRecommendationSelectionChange()
+                }}
+                onFocus={handleRecommendationFocus}
+                onBlur={handleRecommendationBlur}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                onCompositionStart={handleRecommendationCompositionStart}
+                onCompositionEnd={handleRecommendationCompositionEnd}
+                onReferencePreview={(fileId) => {
+                  const file = selectedFiles.find((item) => item.id === fileId)
+                  if (file) handlePreviewFile(file)
+                }}
+                onReferenceLocate={handleLocateReferenceToBar}
+                onReferenceDelete={handleRemoveReference}
               />
               {fileMenuOpen && (
                 <div className="absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-xl border border-border/70 bg-popover shadow-xl">
@@ -2209,7 +2300,7 @@ export function InputArea({
                   <SkillsMenu
                     onSelectSkill={(name) => {
                       setSelectedSkill(name)
-                      textareaRef.current?.focus()
+                      editorRef.current?.focus()
                     }}
                     onSelectCommand={(name) => {
                       insertSlashCommand(name)
@@ -2263,6 +2354,23 @@ export function InputArea({
                   <TooltipContent>{t('input.attachImages')}</TooltipContent>
                 </Tooltip>
               )}
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 rounded-lg text-muted-foreground hover:text-foreground"
+                    onClick={() => void handleSelectFilesFromSystem()}
+                    disabled={disabled || isOptimizing}
+                  >
+                    <FileUp className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t('input.selectFiles', { defaultValue: '选择文件' })}
+                </TooltipContent>
+              </Tooltip>
 
               {/* Attachment / Folder button */}
               {onSelectFolder && (
@@ -2370,7 +2478,7 @@ export function InputArea({
                       size="icon"
                       className="size-8 rounded-lg text-muted-foreground hover:text-foreground disabled:opacity-50"
                       onClick={handleOptimizePrompt}
-                      disabled={!text.trim() || disabled || isOptimizing}
+                      disabled={!plainText.trim() || disabled || isOptimizing}
                     >
                       {isOptimizing ? <Spinner className="size-4" /> : <Wand2 className="size-4" />}
                     </Button>
@@ -2388,7 +2496,7 @@ export function InputArea({
                     className="h-8 rounded-lg px-3 bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-sm"
                     onClick={handleSend}
                     disabled={
-                      (!text.trim() && attachedImages.length === 0) ||
+                      (!finalSerializedText.trim() && attachedImages.length === 0) ||
                       disabled ||
                       needsWorkingFolder ||
                       isOptimizing

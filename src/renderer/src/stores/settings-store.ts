@@ -23,6 +23,8 @@ export type PromptRecommendationModelBindings = Record<
   PromptRecommendationModelBinding
 >
 
+export type MainModelSelectionMode = 'auto' | 'manual'
+
 function getSystemLanguage(): 'en' | 'zh' {
   const lang = navigator.language || navigator.languages?.[0] || 'en'
   return lang.startsWith('zh') ? 'zh' : 'en'
@@ -85,6 +87,7 @@ interface SettingsStore {
   // Prompt Recommendation Settings
   promptRecommendationModels: PromptRecommendationModelBindings
   newSessionDefaultModel: SessionDefaultModelBinding | null
+  mainModelSelectionMode: MainModelSelectionMode
 
   updateSettings: (patch: Partial<Omit<SettingsStore, 'updateSettings'>>) => void
 }
@@ -144,12 +147,13 @@ export const useSettingsStore = create<SettingsStore>()(
         code: null
       },
       newSessionDefaultModel: null,
+      mainModelSelectionMode: 'auto',
 
       updateSettings: (patch) => set(patch)
     }),
     {
       name: 'opencowork-settings',
-      version: 6,
+      version: 7,
       storage: createJSONStorage(() => ipcStorage),
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Record<string, unknown>
@@ -180,6 +184,9 @@ export const useSettingsStore = create<SettingsStore>()(
         }
         if (state.newSessionDefaultModel === undefined) {
           state.newSessionDefaultModel = null
+        }
+        if (state.mainModelSelectionMode === undefined) {
+          state.mainModelSelectionMode = 'auto'
         }
         // Add appearance settings if missing
         if (state.backgroundColor === undefined) {
@@ -258,7 +265,8 @@ export const useSettingsStore = create<SettingsStore>()(
         skillsMarketApiKey: state.skillsMarketApiKey,
         // Prompt Recommendation Settings
         promptRecommendationModels: state.promptRecommendationModels,
-        newSessionDefaultModel: state.newSessionDefaultModel
+        newSessionDefaultModel: state.newSessionDefaultModel,
+        mainModelSelectionMode: state.mainModelSelectionMode
         // NOTE: apiKey is intentionally excluded from localStorage persistence.
         // In production, it should be stored securely in the main process.
       })

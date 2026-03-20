@@ -34,9 +34,10 @@ import type {
   TokenUsage,
   RequestDebugInfo,
   ContentBlock,
-  RequestTiming
+  RequestTiming,
+  AIModelConfig
 } from '@renderer/lib/api/types'
-import { setLastDebugInfo } from '@renderer/lib/debug-store'
+import { setLastDebugInfo, setRequestTraceInfo } from '@renderer/lib/debug-store'
 import {
   QUEUED_IMAGE_ONLY_TEXT,
   cloneImageAttachments,
@@ -80,6 +81,8 @@ import {
   isDesktopControlToolName,
   resolveDesktopControlMode
 } from '@renderer/lib/app-plugin/desktop-routing'
+import { extractLatestUserInput, selectAutoModel } from '@renderer/lib/api/auto-model-selector'
+import type { AutoModelSelectionStatus } from '@renderer/stores/ui-store'
 
 const CLARIFY_ALLOWED_TOOLS = new Set([
   'AskUserQuestion',
@@ -147,6 +150,132 @@ function resolveProviderDefaultModelId(providerId: string): string | null {
   }
   const enabledModels = provider.models.filter((m) => m.enabled)
   return enabledModels[0]?.id ?? provider.models[0]?.id ?? null
+}
+
+function findProviderModel(
+  providerId: string | null | undefined,
+  modelId: string | null | undefined
+): { providerName?: string; modelName?: string; modelConfig: AIModelConfig | null } {
+  if (!providerId || !modelId) {
+    return { modelConfig: null }
+  }
+
+  const provider = useProviderStore.getState().providers.find((item) => item.id === providerId)
+  const model = provider?.models.find((item) => item.id === modelId) ?? null
+
+  return {
+    providerName: provider?.name,
+    modelName: model?.name ?? modelId,
+    modelConfig: model
+  }
+}
+
+function buildProviderConfigWithRuntimeSettings(
+  providerConfig: ProviderConfig | null,
+  modelConfig: AIModelConfig | null,
+  sessionId: string,
+  settings = useSettingsStore.getState()
+): ProviderConfig | null {
+  if (!providerConfig) {
+    return settings.apiKey
+      ? {
+          type: settings.provider,
+          apiKey: settings.apiKey,
+          baseUrl: settings.baseUrl || undefined,
+          model: settings.model,
+          maxTokens: settings.maxTokens,
+          temperature: settings.temperature,
+          systemPrompt: settings.systemPrompt || undefined,
+          thinkingEnabled: false,
+          reasoningEffort: settings.reasoningEffort
+        }
+      : null
+  }
+
+  const effectiveMaxTokens = modelConfig?.maxOutputTokens
+    ? Math.min(settings.maxTokens, modelConfig.maxOutputTokens)
+    : settings.maxTokens
+  const thinkingEnabled = settings.thinkingEnabled && !!modelConfig?.thinkingConfig
+
+  return {
+    ...providerConfig,
+    maxTokens: effectiveMaxTokens,
+    temperature: settings.temperature,
+    systemPrompt: settings.systemPrompt || undefined,
+    thinkingEnabled,
+    thinkingConfig: modelConfig?.thinkingConfig,
+    reasoningEffort: settings.reasoningEffort,
+    responseSummary: modelConfig?.responseSummary ?? providerConfig.responseSummary,
+    enablePromptCache: modelConfig?.enablePromptCache ?? providerConfig.enablePromptCache,
+    enableSystemPromptCache:
+      modelConfig?.enableSystemPromptCache ?? providerConfig.enableSystemPromptCache,
+    sessionId
+  }
+}
+
+async function resolveMainRequestProvider(options: {
+  sessionId: string
+  latestUserInput: string
+  allowTools: boolean
+  signal?: AbortSignal
+}): Promise<{
+  providerConfig: ProviderConfig | null
+  modelConfig: AIModelConfig | null
+  autoSelection: AutoModelSelectionStatus | null
+}> {
+  const settings = useSettingsStore.getState()
+  const providerStore = useProviderStore.getState()
+  const session = useChatStore.getState().sessions.find((item) => item.id === options.sessionId)
+
+  let explicitProviderId: string | null = null
+  let explicitModelId: string | null = null
+
+  if (session?.pluginId) {
+    const channelMeta = useChannelStore
+      .getState()
+      .channels.find((item) => item.id === session.pluginId)
+    explicitProviderId = channelMeta?.providerId ?? session.providerId ?? null
+    explicitModelId = channelMeta?.model ?? session.modelId ?? null
+    if (explicitProviderId && !explicitModelId) {
+      explicitModelId = resolveProviderDefaultModelId(explicitProviderId)
+    }
+  } else if (session?.providerId && session?.modelId) {
+    explicitProviderId = session.providerId
+    explicitModelId = session.modelId
+  }
+
+  if (explicitProviderId && explicitModelId) {
+    const providerConfig = providerStore.getProviderConfigById(explicitProviderId, explicitModelId)
+    return {
+      providerConfig,
+      modelConfig: findProviderModel(explicitProviderId, explicitModelId).modelConfig,
+      autoSelection: null
+    }
+  }
+
+  if (settings.mainModelSelectionMode === 'auto') {
+    const autoSelection = await selectAutoModel({
+      latestUserInput: options.latestUserInput,
+      allowTools: options.allowTools,
+      signal: options.signal
+    })
+    const providerConfig =
+      autoSelection.target === 'fast'
+        ? providerStore.getFastProviderConfig()
+        : providerStore.getActiveProviderConfig()
+    return {
+      providerConfig,
+      modelConfig: findProviderModel(providerConfig?.providerId, providerConfig?.model).modelConfig,
+      autoSelection
+    }
+  }
+
+  const providerConfig = providerStore.getActiveProviderConfig()
+  return {
+    providerConfig,
+    modelConfig: findProviderModel(providerConfig?.providerId, providerConfig?.model).modelConfig,
+    autoSelection: null
+  }
 }
 
 function notifyPendingSessionMessageListeners(): void {
@@ -846,71 +975,6 @@ export function useChatActions(): {
       const uiStore = useUIStore.getState()
 
       const providerStore = useProviderStore.getState()
-      const activeProvider = providerStore.getActiveProvider()
-      if (activeProvider) {
-        const ready = await ensureProviderAuthReady(activeProvider.id)
-        if (!ready) {
-          const authHint =
-            activeProvider.authMode === 'oauth'
-              ? 'Please connect via OAuth in Settings'
-              : activeProvider.authMode === 'channel'
-                ? 'Please complete channel login in Settings'
-                : 'Please configure API key in Settings'
-          toast.error('Authentication required', {
-            description: authHint,
-            action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
-          })
-          return
-        }
-      }
-
-      // Build provider config from provider-store (new system) with fallback to settings-store
-      const providerConfig = providerStore.getActiveProviderConfig()
-      const effectiveMaxTokens = providerStore.getEffectiveMaxTokens(settings.maxTokens)
-      const activeModelThinkingConfig = providerStore.getActiveModelThinkingConfig()
-      const thinkingEnabled = settings.thinkingEnabled && !!activeModelThinkingConfig
-      const activeModelConfig = useProviderStore.getState().getActiveModelConfig()
-      const baseProviderConfig: ProviderConfig | null = providerConfig
-        ? {
-            ...providerConfig,
-            maxTokens: effectiveMaxTokens,
-            temperature: settings.temperature,
-            systemPrompt: settings.systemPrompt || undefined,
-            thinkingEnabled,
-            thinkingConfig: activeModelThinkingConfig,
-            reasoningEffort: settings.reasoningEffort,
-            responseSummary: activeModelConfig?.responseSummary,
-            enablePromptCache: activeModelConfig?.enablePromptCache,
-            enableSystemPromptCache: activeModelConfig?.enableSystemPromptCache
-          }
-        : settings.apiKey
-          ? {
-              type: settings.provider,
-              apiKey: settings.apiKey,
-              baseUrl: settings.baseUrl || undefined,
-              model: settings.model,
-              maxTokens: effectiveMaxTokens,
-              temperature: settings.temperature,
-              systemPrompt: settings.systemPrompt || undefined,
-              thinkingEnabled,
-              thinkingConfig: activeModelThinkingConfig,
-              reasoningEffort: settings.reasoningEffort,
-              responseSummary: activeModelConfig?.responseSummary,
-              enablePromptCache: activeModelConfig?.enablePromptCache,
-              enableSystemPromptCache: activeModelConfig?.enableSystemPromptCache
-            }
-          : null
-
-      if (
-        !baseProviderConfig ||
-        (!baseProviderConfig.apiKey && baseProviderConfig.requiresApiKey !== false)
-      ) {
-        toast.error('API key required', {
-          description: 'Please configure an AI provider in Settings',
-          action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
-        })
-        return
-      }
 
       if (targetSessionId && !chatStore.sessions.some((s) => s.id === targetSessionId)) {
         // Session may have been created externally (e.g. channel auto-reply in main process).
@@ -942,7 +1006,7 @@ export function useChatActions(): {
         return
       }
 
-      const sessionForSsh = chatStore.sessions.find((s) => s.id === sessionId)
+      const sessionForSsh = useChatStore.getState().sessions.find((s) => s.id === sessionId)
       if (sessionForSsh?.sshConnectionId) {
         const sshStore = useSshStore.getState()
         const connectionId = sessionForSsh.sshConnectionId
@@ -1011,6 +1075,69 @@ export function useChatActions(): {
         return
       }
 
+      const resolvedSession = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+      const resolvedSessionMode = resolvedSession?.mode ?? uiStore.mode
+      const shouldShowAutoRouting =
+        !resolvedSession?.providerId &&
+        !resolvedSession?.pluginId &&
+        settings.mainModelSelectionMode === 'auto'
+      if (shouldShowAutoRouting) {
+        useUIStore.getState().setAutoModelRoutingState(sessionId, 'routing')
+      }
+      const providerResolution = await resolveMainRequestProvider({
+        sessionId,
+        latestUserInput: resolvedCommand.userText || text,
+        allowTools: resolvedSessionMode !== 'chat'
+      })
+      const baseProviderConfig = buildProviderConfigWithRuntimeSettings(
+        providerResolution.providerConfig,
+        providerResolution.modelConfig,
+        sessionId,
+        settings
+      )
+
+      useUIStore.getState().setAutoModelSelection(sessionId, providerResolution.autoSelection)
+      if (shouldShowAutoRouting) {
+        useUIStore.getState().setAutoModelRoutingState(sessionId, 'idle')
+      }
+
+      if (
+        !baseProviderConfig ||
+        (!baseProviderConfig.apiKey && baseProviderConfig.requiresApiKey !== false)
+      ) {
+        if (shouldShowAutoRouting) {
+          useUIStore.getState().setAutoModelRoutingState(sessionId, 'idle')
+        }
+        toast.error('API key required', {
+          description: 'Please configure an AI provider in Settings',
+          action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
+        })
+        return
+      }
+
+      if (baseProviderConfig.providerId) {
+        const ready = await ensureProviderAuthReady(baseProviderConfig.providerId)
+        if (!ready) {
+          if (shouldShowAutoRouting) {
+            useUIStore.getState().setAutoModelRoutingState(sessionId, 'idle')
+          }
+          const provider = providerStore.providers.find(
+            (item) => item.id === baseProviderConfig.providerId
+          )
+          const authHint =
+            provider?.authMode === 'oauth'
+              ? 'Please connect via OAuth in Settings'
+              : provider?.authMode === 'channel'
+                ? 'Please complete channel login in Settings'
+                : 'Please configure API key in Settings'
+          toast.error('Authentication required', {
+            description: authHint,
+            action: { label: 'Open Settings', onClick: () => uiStore.openSettingsPage('provider') }
+          })
+          return
+        }
+      }
+
       // After a manual abort, stale errored/orphaned tool blocks can remain at tail
       // and break the next request. Clean them before appending new user input.
       chatStore.sanitizeToolErrorsForResend(sessionId)
@@ -1019,65 +1146,6 @@ export function useChatActions(): {
       chatStore.stripOldSystemReminders(sessionId)
 
       baseProviderConfig.sessionId = sessionId
-
-      // Override provider config for channel sessions using latest channel settings
-      // Regular user sessions should use the global active provider/model from ModelSwitcher
-      const sessionForProvider = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-      if (sessionForProvider?.pluginId) {
-        const channelMeta = useChannelStore
-          .getState()
-          .channels.find((p) => p.id === sessionForProvider.pluginId)
-        const channelProviderId = channelMeta
-          ? (channelMeta.providerId ?? null)
-          : (sessionForProvider.providerId ?? null)
-        let channelModelId = channelMeta
-          ? (channelMeta.model ?? null)
-          : (sessionForProvider.modelId ?? null)
-        if (channelProviderId && !channelModelId) {
-          channelModelId = resolveProviderDefaultModelId(channelProviderId)
-        }
-
-        if (channelProviderId && channelModelId) {
-          const ready = await ensureProviderAuthReady(channelProviderId)
-          if (!ready) {
-            toast.error('Authentication required', {
-              description: 'Please sign in to the session provider in Settings',
-              action: {
-                label: 'Open Settings',
-                onClick: () => uiStore.openSettingsPage('provider')
-              }
-            })
-            return
-          }
-
-          const sessionProviderConfig = providerStore.getProviderConfigById(
-            channelProviderId,
-            channelModelId
-          )
-          if (sessionProviderConfig?.apiKey) {
-            baseProviderConfig.type = sessionProviderConfig.type
-            baseProviderConfig.apiKey = sessionProviderConfig.apiKey
-            baseProviderConfig.baseUrl = sessionProviderConfig.baseUrl
-            baseProviderConfig.model = sessionProviderConfig.model
-            baseProviderConfig.requiresApiKey = sessionProviderConfig.requiresApiKey
-            baseProviderConfig.useSystemProxy = sessionProviderConfig.useSystemProxy
-            baseProviderConfig.userAgent = sessionProviderConfig.userAgent
-            baseProviderConfig.requestOverrides = sessionProviderConfig.requestOverrides
-            baseProviderConfig.providerBuiltinId = sessionProviderConfig.providerBuiltinId
-            baseProviderConfig.preferResponsesWebSocket =
-              sessionProviderConfig.preferResponsesWebSocket
-            baseProviderConfig.responseSummary =
-              sessionProviderConfig.responseSummary ??
-              useProviderStore.getState().getActiveModelConfig()?.responseSummary
-            baseProviderConfig.enablePromptCache =
-              sessionProviderConfig.enablePromptCache ??
-              useProviderStore.getState().getActiveModelConfig()?.enablePromptCache
-            baseProviderConfig.enableSystemPromptCache =
-              sessionProviderConfig.enableSystemPromptCache ??
-              useProviderStore.getState().getActiveModelConfig()?.enableSystemPromptCache
-          }
-        }
-      }
 
       const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
       const sessionMode = sessionSnapshot?.mode ?? uiStore.mode
@@ -1195,6 +1263,11 @@ export function useChatActions(): {
 
         // NOTE: thinkingEnabled is handled below when building the final config
         const chatConfig: ProviderConfig = { ...baseProviderConfig, systemPrompt: chatSystemPrompt }
+        setRequestTraceInfo(assistantMsgId, {
+          providerId: chatConfig.providerId,
+          providerBuiltinId: chatConfig.providerBuiltinId,
+          model: chatConfig.model
+        })
         agentStore.setSessionStatus(sessionId, 'running')
         try {
           await runSimpleChat(sessionId, assistantMsgId, chatConfig, abortController.signal)
@@ -1246,14 +1319,14 @@ export function useChatActions(): {
         }
 
         // Image models: disable all tools (image generation doesn't use tools)
-        const activeModelConfig = useProviderStore.getState().getActiveModelConfig()
-        if (activeModelConfig?.category === 'image') {
+        const resolvedModelConfig = providerResolution.modelConfig
+        if (resolvedModelConfig?.category === 'image') {
           finalEffectiveToolDefs = []
         }
 
         const desktopControlMode = resolveDesktopControlMode({
           providerConfig: baseProviderConfig,
-          modelConfig: activeModelConfig,
+          modelConfig: resolvedModelConfig,
           desktopPluginEnabled: useAppPluginStore.getState().isDesktopControlToolAvailable()
         })
 
@@ -1445,13 +1518,17 @@ export function useChatActions(): {
           computerUseEnabled: desktopControlMode === 'computer-use',
           systemPrompt: agentSystemPrompt
         }
+        setRequestTraceInfo(assistantMsgId, {
+          providerId: agentProviderConfig.providerId,
+          providerBuiltinId: agentProviderConfig.providerBuiltinId,
+          model: agentProviderConfig.model
+        })
         // Context compression setup
-        const activeModelCfg = useProviderStore.getState().getActiveModelConfig()
         const compressionConfig: CompressionConfig | null =
-          settings.contextCompressionEnabled && activeModelCfg?.contextLength
+          settings.contextCompressionEnabled && resolvedModelConfig?.contextLength
             ? {
                 enabled: true,
-                contextLength: activeModelCfg.contextLength,
+                contextLength: resolvedModelConfig.contextLength,
                 threshold: 0.8,
                 preCompressThreshold: 0.65
               }
@@ -1460,6 +1537,43 @@ export function useChatActions(): {
         const loopConfig: AgentLoopConfig = {
           maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
           provider: agentProviderConfig,
+          resolveProvider: async (messages) => {
+            if (
+              !session?.providerId &&
+              !session?.pluginId &&
+              settings.mainModelSelectionMode === 'auto'
+            ) {
+              useUIStore.getState().setAutoModelRoutingState(sessionId, 'routing')
+            }
+            const nextResolution = await resolveMainRequestProvider({
+              sessionId,
+              latestUserInput: extractLatestUserInput(messages),
+              allowTools: effectiveToolDefs.length > 0,
+              signal: abortController.signal
+            })
+            useUIStore.getState().setAutoModelSelection(sessionId, nextResolution.autoSelection)
+            useUIStore.getState().setAutoModelRoutingState(sessionId, 'idle')
+            const nextConfig = buildProviderConfigWithRuntimeSettings(
+              nextResolution.providerConfig,
+              nextResolution.modelConfig,
+              sessionId,
+              settings
+            )
+            if (!nextConfig) {
+              return agentProviderConfig
+            }
+            const resolvedConfig: ProviderConfig = {
+              ...nextConfig,
+              computerUseEnabled: desktopControlMode === 'computer-use',
+              systemPrompt: agentSystemPrompt
+            }
+            setRequestTraceInfo(assistantMsgId, {
+              providerId: resolvedConfig.providerId,
+              providerBuiltinId: resolvedConfig.providerBuiltinId,
+              model: resolvedConfig.model
+            })
+            return resolvedConfig
+          },
           tools: effectiveToolDefs,
           systemPrompt: agentSystemPrompt,
           workingFolder: session?.workingFolder,
@@ -1958,7 +2072,12 @@ export function useChatActions(): {
 
               case 'request_debug':
                 streamDeltaBuffer.flushNow()
-                if (useSettingsStore.getState().devMode && event.debugInfo) {
+                if (event.debugInfo) {
+                  setRequestTraceInfo(assistantMsgId, {
+                    providerId: event.debugInfo.providerId,
+                    providerBuiltinId: event.debugInfo.providerBuiltinId,
+                    model: event.debugInfo.model
+                  })
                   setLastDebugInfo(assistantMsgId, event.debugInfo)
                 }
                 break
@@ -1990,7 +2109,7 @@ export function useChatActions(): {
             useChatStore
               .getState()
               .appendTextDelta(sessionId!, assistantMsgId, `\n\n> **Error:** ${errMsg}`)
-            if (err instanceof ApiStreamError && useSettingsStore.getState().devMode) {
+            if (err instanceof ApiStreamError) {
               setLastDebugInfo(assistantMsgId, err.debugInfo as RequestDebugInfo)
             }
           }
@@ -2519,8 +2638,18 @@ async function runSimpleChat(
           break
         case 'request_debug':
           streamDeltaBuffer.flushNow()
-          if (useSettingsStore.getState().devMode && event.debugInfo) {
-            setLastDebugInfo(assistantMsgId, event.debugInfo)
+          if (event.debugInfo) {
+            setRequestTraceInfo(assistantMsgId, {
+              providerId: config.providerId,
+              providerBuiltinId: config.providerBuiltinId,
+              model: config.model
+            })
+            setLastDebugInfo(assistantMsgId, {
+              ...event.debugInfo,
+              providerId: config.providerId,
+              providerBuiltinId: config.providerBuiltinId,
+              model: config.model
+            })
           }
           break
         case 'error':
@@ -2539,8 +2668,13 @@ async function runSimpleChat(
       useChatStore
         .getState()
         .appendTextDelta(sessionId, assistantMsgId, `\n\n> **Error:** ${errMsg}`)
-      if (err instanceof ApiStreamError && useSettingsStore.getState().devMode) {
-        setLastDebugInfo(assistantMsgId, err.debugInfo as RequestDebugInfo)
+      if (err instanceof ApiStreamError) {
+        setLastDebugInfo(assistantMsgId, {
+          ...(err.debugInfo as RequestDebugInfo),
+          providerId: config.providerId,
+          providerBuiltinId: config.providerBuiltinId,
+          model: config.model
+        })
       }
     }
   } finally {

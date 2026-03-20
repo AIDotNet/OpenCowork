@@ -229,6 +229,7 @@ interface ChatStore {
   setWorkingFolder: (sessionId: string, folder: string) => void
   setSshConnectionId: (sessionId: string, connectionId: string | null) => void
   updateSessionModel: (sessionId: string, providerId: string, modelId: string) => void
+  clearSessionModelBinding: (sessionId: string) => void
   setSessionPromptSnapshot: (sessionId: string, snapshot: SessionPromptSnapshot) => void
   clearSessionPromptSnapshot: (sessionId: string) => void
   clearSessionMessages: (sessionId: string) => void
@@ -917,15 +918,17 @@ export const useChatStore = create<ChatStore>()(
         targetProjectId = targetProject.id
       }
 
+      const followGlobalModel =
+        !targetProject?.providerId && newSessionDefaultModel?.useGlobalActiveModel !== false
       const sessionProviderId = targetProject?.providerId
         ? targetProject.providerId
-        : newSessionDefaultModel?.useGlobalActiveModel
-          ? (activeProviderId ?? undefined)
+        : followGlobalModel
+          ? undefined
           : (newSessionDefaultModel?.providerId ?? activeProviderId ?? undefined)
       const sessionModelId = targetProject?.providerId
         ? targetProject.modelId
-        : newSessionDefaultModel?.useGlobalActiveModel
-          ? activeModelId || undefined
+        : followGlobalModel
+          ? undefined
           : newSessionDefaultModel?.modelId || activeModelId || undefined
 
       const newSession: Session = {
@@ -1146,6 +1149,20 @@ export const useChatStore = create<ChatStore>()(
         }
       })
       dbUpdateSession(sessionId, { providerId, modelId, updatedAt: now })
+    },
+
+    clearSessionModelBinding: (sessionId) => {
+      const now = Date.now()
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (session) {
+          delete session.providerId
+          delete session.modelId
+          delete session.promptSnapshot
+          session.updatedAt = now
+        }
+      })
+      dbUpdateSession(sessionId, { providerId: null, modelId: null, updatedAt: now })
     },
 
     setSessionPromptSnapshot: (sessionId, snapshot) => {

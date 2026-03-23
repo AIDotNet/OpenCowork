@@ -6,7 +6,7 @@ function runCodesign(args) {
   execFileSync('codesign', args, { stdio: 'inherit' })
 }
 
-exports.default = async function afterSign(context) {
+exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') {
     return
   }
@@ -18,8 +18,8 @@ exports.default = async function afterSign(context) {
     throw new Error(`Expected macOS app bundle not found: ${appPath}`)
   }
 
-  // Re-sign the full bundle ad-hoc so Electron Framework and the main binary
-  // end up with the same signature identity on Apple Silicon machines.
+  // Normalize the whole bundle to one ad-hoc signature before packaging.
+  // If a real certificate is configured, electron-builder will sign again later.
   runCodesign(['--force', '--deep', '--sign', '-', '--timestamp=none', appPath])
   runCodesign(['--verify', '--deep', '--strict', '--verbose=2', appPath])
 }

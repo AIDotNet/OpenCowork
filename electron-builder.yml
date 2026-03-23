@@ -2,6 +2,7 @@ appId: com.opencowork.app
 productName: OpenCoWork
 directories:
   buildResources: build
+afterPack: build/after-sign-mac.cjs
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -120,6 +121,7 @@ nsis:
   allowToChangeInstallationDirectory: true
 mac:
   icon: resources/icon-mac.png
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.

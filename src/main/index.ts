@@ -69,6 +69,7 @@ import { createWeComService } from './channels/providers/wecom/wecom-service'
 import { parseWeComWsMessage } from './channels/providers/wecom/parse-ws-message'
 import { createQQService } from './channels/providers/qq/qq-service'
 import { parseQQWsMessage } from './channels/providers/qq/parse-ws-message'
+import { createWeixinService } from './channels/providers/weixin/weixin-service'
 import { setPluginManager } from './channels/auto-reply'
 
 const channelManager = new ChannelManager()
@@ -87,6 +88,7 @@ channelManager.registerFactory('wecom-bot', createWeComService)
 channelManager.registerParser('wecom-bot', parseWeComWsMessage)
 channelManager.registerFactory('qq-bot', createQQService)
 channelManager.registerParser('qq-bot', parseQQWsMessage)
+channelManager.registerFactory('weixin-official', createWeixinService)
 
 const mcpManager = new McpManager()
 

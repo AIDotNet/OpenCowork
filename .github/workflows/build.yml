@@ -389,6 +389,8 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.CSC_LINK || '' }}
         run: |
+          echo "csc_link=" >> "$GITHUB_OUTPUT"
+
           if [ -z "$CSC_LINK" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "auto_update_enabled=false" >> "$GITHUB_OUTPUT"
@@ -413,6 +415,7 @@ jobs:
           if printf '%s' "$CSC_LINK" | grep -Eq '^https?://'; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
             echo "auto_update_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "csc_link=${CSC_LINK}" >> "$GITHUB_OUTPUT"
             echo "::notice::macOS code signing enabled via certificate URL"
             exit 0
           fi
@@ -420,6 +423,7 @@ jobs:
           if [ -f "$CSC_LINK" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
             echo "auto_update_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "csc_link=${CSC_LINK}" >> "$GITHUB_OUTPUT"
             echo "::notice::macOS code signing enabled via local certificate file"
             exit 0
           fi
@@ -428,6 +432,7 @@ jobs:
           if [ ${#normalized_csc_link} -ge 512 ] && printf '%s' "$normalized_csc_link" | grep -Eq '^[A-Za-z0-9+/=]+$'; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
             echo "auto_update_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "csc_link=${normalized_csc_link}" >> "$GITHUB_OUTPUT"
             echo "::notice::macOS code signing enabled via base64 certificate data"
             exit 0
           fi
@@ -437,16 +442,32 @@ jobs:
           echo "::warning::macOS code signing disabled: CSC_LINK is neither a certificate file, URL, nor base64 certificate data"
 
       - name: Package ${{ matrix.platform }}-${{ matrix.artifact_arch }}
-        run: npx electron-builder --mac dmg zip --${{ matrix.build_arch }} --publish never
+        shell: bash
+        run: |
+          if [ "${MAC_SIGNING_ENABLED}" = "true" ]; then
+            export CSC_LINK="${MAC_SIGNING_CSC_LINK}"
+            export CSC_KEY_PASSWORD="${MAC_SIGNING_CSC_KEY_PASSWORD}"
+            export APPLE_ID="${MAC_SIGNING_APPLE_ID}"
+            export APPLE_APP_SPECIFIC_PASSWORD="${MAC_SIGNING_APPLE_APP_SPECIFIC_PASSWORD}"
+            export APPLE_TEAM_ID="${MAC_SIGNING_APPLE_TEAM_ID}"
+            export CSC_IDENTITY_AUTO_DISCOVERY=true
+            echo "Using configured macOS code signing credentials"
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            echo "Building macOS package without code signing"
+          fi
+
+          npx electron-builder --mac dmg zip --${{ matrix.build_arch }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ELECTRON_BUILDER_BINARIES_MIRROR: https://cdn.npmmirror.com/binaries/electron-builder-binaries/
-          CSC_LINK: ${{ steps.mac_signing.outputs.enabled == 'true' && secrets.CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ steps.mac_signing.outputs.enabled == 'true' && secrets.CSC_KEY_PASSWORD || '' }}
-          APPLE_ID: ${{ steps.mac_signing.outputs.enabled == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ steps.mac_signing.outputs.enabled == 'true' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ steps.mac_signing.outputs.enabled == 'true' && secrets.APPLE_TEAM_ID || '' }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.mac_signing.outputs.enabled }}
+          MAC_SIGNING_ENABLED: ${{ steps.mac_signing.outputs.enabled }}
+          MAC_SIGNING_CSC_LINK: ${{ steps.mac_signing.outputs.csc_link }}
+          MAC_SIGNING_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD || '' }}
+          MAC_SIGNING_APPLE_ID: ${{ secrets.APPLE_ID || '' }}
+          MAC_SIGNING_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          MAC_SIGNING_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || '' }}
 
       - name: Prepare macOS artifacts
         shell: bash

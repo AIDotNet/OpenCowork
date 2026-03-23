@@ -8,11 +8,9 @@ import {
   CircleHelp,
   Briefcase,
   Code2,
-  RefreshCw,
   ArrowDown,
   Loader2
 } from 'lucide-react'
-import { Button } from '@renderer/components/ui/button'
 
 import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
 import {
@@ -155,7 +153,6 @@ function buildRenderableMessageMeta(
 }
 
 export function MessageList({
-  onRetry,
   onEditUserMessage,
   onDeleteMessage
 }: MessageListProps): React.JSX.Element {
@@ -214,7 +211,6 @@ export function MessageList({
   const olderUnloadedMessageCount = Math.max(0, activeSessionMessageCount - messages.length)
   const hiddenMessageCount = hiddenLoadedMessageCount + olderUnloadedMessageCount
   const contentRef = React.useRef<HTMLDivElement>(null)
-  const hasAssistantMessages = renderableMeta.hasAssistantMessages
 
   const scrollToBottomImmediate = React.useCallback(() => {
     const container = scrollContainerRef.current

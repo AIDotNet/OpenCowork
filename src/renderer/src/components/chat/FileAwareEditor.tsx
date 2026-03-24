@@ -563,7 +563,7 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
     const hasContent = document.length > 0 && plainText.length > 0
 
     return (
-      <div className={cn('relative flex h-full min-h-0 flex-col', className)}>
+      <div className={cn('relative flex min-h-0 flex-col', className)}>
         {!hasContent && placeholder && (
           <div className="pointer-events-none absolute inset-0 p-1 text-base text-muted-foreground md:text-sm">
             {placeholder}

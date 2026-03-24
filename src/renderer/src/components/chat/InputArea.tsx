@@ -861,6 +861,7 @@ export function InputArea({
       .map((item) => item.command)
   }, [slashCommands, slashQuery])
   const slashMenuOpen = slashQuery !== null
+  const hasFloatingSuggestionMenu = fileMenuOpen || slashMenuOpen
 
   React.useEffect(() => {
     if (!slashMenuOpen) {
@@ -1720,7 +1721,10 @@ export function InputArea({
           className={cn(
             'relative flex flex-col border transition-shadow',
             isHomeComposer
-              ? 'overflow-hidden rounded-[30px] border-border/50 bg-[#151515] shadow-[0_30px_80px_-36px_rgba(0,0,0,0.88)] focus-within:ring-1 focus-within:ring-ring/20'
+              ? cn(
+                  'rounded-[30px] border-border/50 bg-[#151515] shadow-[0_30px_80px_-36px_rgba(0,0,0,0.88)] focus-within:ring-1 focus-within:ring-ring/20',
+                  hasFloatingSuggestionMenu ? 'z-10 overflow-visible' : 'overflow-hidden'
+                )
               : 'rounded-lg bg-background shadow-lg focus-within:shadow-xl focus-within:ring-1 focus-within:ring-ring/20',
             dragging && 'ring-2 ring-primary/50'
           )}
@@ -2120,7 +2124,9 @@ export function InputArea({
             className={cn(
               'relative flex min-h-0 flex-1 flex-col px-3',
               isHomeComposer
-                ? 'pt-5'
+                ? selectedSkill || attachedImages.length > 0
+                  ? 'pt-1.5'
+                  : 'pt-5'
                 : selectedSkill || attachedImages.length > 0
                   ? 'pt-1.5'
                   : 'pt-3'
@@ -2137,7 +2143,7 @@ export function InputArea({
                 </span>
               </div>
             )}
-            <div className="relative z-0 flex-1 min-h-0">
+            <div className="relative flex-1 min-h-0">
               {shouldAutoAcceptRecommendation &&
                 autoAcceptCountdown !== null &&
                 suggestionText &&
@@ -2174,7 +2180,12 @@ export function InputArea({
                 }}
                 onReferencePreview={handlePreviewFile}
                 onReferenceDelete={handleRemoveFileReference}
-                className="h-full w-full"
+                className={cn(
+                  'w-full',
+                  isHomeComposer && (selectedSkill || attachedImages.length > 0)
+                    ? 'h-auto'
+                    : 'h-full'
+                )}
               />
               {fileMenuOpen && (
                 <div className="absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-xl border border-border/70 bg-popover shadow-xl">

@@ -61,7 +61,6 @@ interface RenderableMetaBuildResult {
 }
 
 const EMPTY_MESSAGES: UnifiedMessage[] = []
-const EMPTY_MESSAGE_IDS: string[] = []
 const INITIAL_VISIBLE_MESSAGE_COUNT = 120
 const LOAD_MORE_MESSAGE_STEP = 80
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 80
@@ -178,19 +177,35 @@ export function MessageList({
   const activeSessionMessageCount = activeSession?.messageCount ?? 0
   const activeWorkingFolder = activeSession?.workingFolder
   const messages = activeSession?.messages ?? EMPTY_MESSAGES
-  const messageIds = React.useMemo(
-    () => (messages.length > 0 ? messages.map((message) => message.id) : EMPTY_MESSAGE_IDS),
-    [messages]
-  )
+  const messageCount = messages.length
 
   React.useEffect(() => {
     if (!activeSessionId) return
     void useChatStore.getState().loadRecentSessionMessages(activeSessionId)
   }, [activeSessionId])
 
-  const renderableMeta = React.useMemo(() => {
-    return buildRenderableMessageMeta(messages, streamingMessageId)
-  }, [messages, streamingMessageId])
+  const renderableStructureSignature = React.useMemo(
+    () =>
+      messages
+        .map(
+          (message) =>
+            `${message.id}:${message.role}:${isToolResultOnlyUserMessage(message) ? 1 : 0}`
+        )
+        .join('|'),
+    [messages]
+  )
+  const renderableMessages = React.useMemo(() => {
+    void renderableStructureSignature
+    if (!activeSessionId) return EMPTY_MESSAGES
+    return (
+      useChatStore.getState().sessions.find((session) => session.id === activeSessionId)
+        ?.messages ?? EMPTY_MESSAGES
+    )
+  }, [activeSessionId, renderableStructureSignature])
+  const renderableMeta = React.useMemo(
+    () => buildRenderableMessageMeta(renderableMessages, streamingMessageId),
+    [renderableMessages, streamingMessageId]
+  )
   const [visibleCount, setVisibleCount] = React.useState(INITIAL_VISIBLE_MESSAGE_COUNT)
   const visibleRenderableMeta = React.useMemo(() => {
     const startIndex = Math.max(0, renderableMeta.items.length - visibleCount)
@@ -199,7 +214,7 @@ export function MessageList({
   const visibleRenderableMessages = React.useMemo<RenderableMessage[]>(() => {
     const result: RenderableMessage[] = []
     for (const item of visibleRenderableMeta) {
-      const message = messages[item.messageIndex]
+      const message = renderableMessages[item.messageIndex]
       if (!message || isToolResultOnlyUserMessage(message)) continue
       result.push({
         messageId: message.id,
@@ -210,7 +225,7 @@ export function MessageList({
       })
     }
     return result
-  }, [visibleRenderableMeta, messages])
+  }, [renderableMessages, visibleRenderableMeta])
   const hiddenLoadedMessageCount = Math.max(
     0,
     renderableMeta.items.length - visibleRenderableMeta.length
@@ -218,11 +233,30 @@ export function MessageList({
   const olderUnloadedMessageCount = Math.max(0, activeSessionMessageCount - messages.length)
   const hiddenMessageCount = hiddenLoadedMessageCount + olderUnloadedMessageCount
   const contentRef = React.useRef<HTMLDivElement>(null)
+  const scheduledScrollFrameRef = React.useRef<number | null>(null)
 
   const scrollToBottomImmediate = React.useCallback(() => {
     const container = scrollContainerRef.current
     if (!container) return
     container.scrollTop = container.scrollHeight
+  }, [])
+
+  const scheduleScrollToBottom = React.useCallback(() => {
+    if (scheduledScrollFrameRef.current !== null) return
+    scheduledScrollFrameRef.current = window.requestAnimationFrame(() => {
+      scheduledScrollFrameRef.current = null
+      if (shouldStickToBottomRef.current) {
+        scrollToBottomImmediate()
+      }
+    })
+  }, [scrollToBottomImmediate])
+
+  React.useEffect(() => {
+    return () => {
+      if (scheduledScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scheduledScrollFrameRef.current)
+      }
+    }
   }, [])
 
   React.useLayoutEffect(() => {
@@ -232,45 +266,21 @@ export function MessageList({
     shouldStickToBottomRef.current = true
   }, [activeSessionId])
 
-  React.useLayoutEffect(() => {
-    const container = scrollContainerRef.current
-    const content = contentRef.current
-    if (!container || !activeSessionId) return
+  React.useEffect(() => {
+    if (!activeSessionId) return
     if (pendingInitialScrollSessionIdRef.current !== activeSessionId) return
 
-    const scroll = (): void => {
+    scrollToBottomImmediate()
+    const timer = window.setTimeout(() => {
       scrollToBottomImmediate()
-    }
+    }, 100)
 
-    scroll()
-    const id = setTimeout(scroll, 100)
-    if (messageIds.length > 0 || streamingMessageId) {
+    if (messageCount > 0 || streamingMessageId) {
       pendingInitialScrollSessionIdRef.current = null
     }
 
-    if (content) {
-      const observer = new ResizeObserver(() => {
-        scroll()
-        if (messageIds.length > 0 || streamingMessageId) {
-          pendingInitialScrollSessionIdRef.current = null
-        }
-      })
-      observer.observe(content)
-      const stopObserving = setTimeout(() => {
-        observer.disconnect()
-        if (messageIds.length > 0 || streamingMessageId) {
-          pendingInitialScrollSessionIdRef.current = null
-        }
-      }, 500)
-      return () => {
-        clearTimeout(id)
-        clearTimeout(stopObserving)
-        observer.disconnect()
-      }
-    }
-
-    return () => clearTimeout(id)
-  }, [activeSessionId, messageIds.length, scrollToBottomImmediate, streamingMessageId])
+    return () => window.clearTimeout(timer)
+  }, [activeSessionId, messageCount, scrollToBottomImmediate, streamingMessageId])
 
   // Track if user is near the bottom via scroll position
   // Use larger threshold during streaming so rapid content growth doesn't break auto-scroll
@@ -297,36 +307,26 @@ export function MessageList({
   // Auto-scroll to bottom on new messages, streaming content, and tool call state changes
   React.useEffect(() => {
     if (!shouldStickToBottomRef.current) return
-    scrollToBottomImmediate()
-  }, [messageIds.length, scrollToBottomImmediate, streamingMessageId])
+    scheduleScrollToBottom()
+  }, [messageCount, scheduleScrollToBottom, streamingMessageId])
 
   React.useEffect(() => {
     const content = contentRef.current
     if (!content) return
 
-    let frameId: number | null = null
-    const alignBottom = (): void => {
+    const observer = new ResizeObserver(() => {
       if (!shouldStickToBottomRef.current) return
-      scrollToBottomImmediate()
-      if (frameId !== null) window.cancelAnimationFrame(frameId)
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null
-        if (shouldStickToBottomRef.current) {
-          scrollToBottomImmediate()
-        }
-      })
-    }
-
-    const observer = new ResizeObserver(alignBottom)
+      scheduleScrollToBottom()
+    })
     observer.observe(content)
     return () => {
       observer.disconnect()
-      if (frameId !== null) window.cancelAnimationFrame(frameId)
     }
-  }, [activeSessionId, scrollToBottomImmediate])
+  }, [activeSessionId, scheduleScrollToBottom])
 
   const scrollToBottom = React.useCallback(() => {
     shouldStickToBottomRef.current = true
+    setIsAtBottom(true)
     scrollToBottomImmediate()
   }, [scrollToBottomImmediate])
 
@@ -532,7 +532,7 @@ export function MessageList({
       </div>
 
       {/* Scroll to bottom button */}
-      {!isAtBottom && messageIds.length > 0 && (
+      {!isAtBottom && messageCount > 0 && (
         <button
           onClick={scrollToBottom}
           className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 flex items-center gap-1.5 rounded-full border bg-background/90 backdrop-blur-sm px-3 py-1.5 text-xs text-muted-foreground shadow-lg hover:text-foreground hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5"

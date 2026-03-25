@@ -186,6 +186,10 @@ function collectTextContent(node: Node): string {
     return node.textContent || ''
   }
 
+  if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+    return Array.from(node.childNodes).map(collectTextContent).join('')
+  }
+
   if (node.nodeType !== Node.ELEMENT_NODE) {
     return ''
   }
@@ -284,15 +288,20 @@ function parseDomToDocument(root: HTMLDivElement): EditorDocumentNode[] {
 
 function getSelectionOffsets(
   root: HTMLDivElement,
-  files: SelectedFileItem[]
+  files: SelectedFileItem[],
+  fallback?: EditorSelectionOffsets
 ): EditorSelectionOffsets {
+  const plainText = editorDocumentToPlainText(parseDomToDocument(root), files)
   const selection = window.getSelection()
   if (!selection || selection.rangeCount === 0) {
-    const plainText = editorDocumentToPlainText(parseDomToDocument(root), files)
-    return { start: plainText.length, end: plainText.length }
+    return fallback ?? { start: plainText.length, end: plainText.length }
   }
 
   const range = selection.getRangeAt(0)
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) {
+    return fallback ?? { start: plainText.length, end: plainText.length }
+  }
+
   const toOffset = (container: Node, offset: number): number => {
     const tempRange = document.createRange()
     tempRange.selectNodeContents(root)
@@ -304,6 +313,41 @@ function getSelectionOffsets(
     start: toOffset(range.startContainer, range.startOffset),
     end: toOffset(range.endContainer, range.endOffset)
   }
+}
+
+function setSelectionFromPoint(root: HTMLDivElement, clientX: number, clientY: number): boolean {
+  const doc = root.ownerDocument
+  const anyDoc = doc as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+    caretRangeFromPoint?: (x: number, y: number) => Range | null
+  }
+
+  let container: Node | null = null
+  let offset = 0
+
+  const caretPosition = anyDoc.caretPositionFromPoint?.(clientX, clientY)
+  if (caretPosition) {
+    container = caretPosition.offsetNode
+    offset = caretPosition.offset
+  } else {
+    const caretRange = anyDoc.caretRangeFromPoint?.(clientX, clientY)
+    if (caretRange) {
+      container = caretRange.startContainer
+      offset = caretRange.startOffset
+    }
+  }
+
+  if (!container || !root.contains(container)) return false
+
+  const selection = doc.getSelection()
+  if (!selection) return false
+
+  const range = doc.createRange()
+  range.setStart(container, offset)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  return true
 }
 
 function setSelectionOffsets(root: HTMLDivElement, start: number, end: number): void {
@@ -412,7 +456,7 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
     const syncSelection = React.useCallback(() => {
       const root = editorRef.current
       if (!root) return selectionRef.current
-      const selection = getSelectionOffsets(root, files)
+      const selection = getSelectionOffsets(root, files, selectionRef.current)
       selectionRef.current = selection
       onSelectionChange?.(selection)
       return selection
@@ -429,7 +473,18 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
     }, [syncSelection])
 
     React.useEffect(() => {
+      const handleSelectionChange = (): void => {
+        const root = editorRef.current
+        const selection = window.getSelection()
+        if (!root || !selection || selection.rangeCount === 0) return
+        const range = selection.getRangeAt(0)
+        if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return
+        scheduleSelectionSync()
+      }
+
+      window.document.addEventListener('selectionchange', handleSelectionChange)
       return () => {
+        window.document.removeEventListener('selectionchange', handleSelectionChange)
         if (selectionSyncFrameRef.current !== null) {
           window.cancelAnimationFrame(selectionSyncFrameRef.current)
         }
@@ -437,7 +492,7 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
           window.cancelAnimationFrame(documentSyncFrameRef.current)
         }
       }
-    }, [])
+    }, [scheduleSelectionSync])
 
     React.useImperativeHandle(
       ref,
@@ -464,8 +519,8 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
         },
         getSelectionOffsets: () => {
           const root = editorRef.current
-          if (!root) return { start: 0, end: 0 }
-          return getSelectionOffsets(root, files)
+          if (!root) return selectionRef.current
+          return getSelectionOffsets(root, files, selectionRef.current)
         },
         getScrollMetrics: () => {
           const root = editorRef.current
@@ -536,8 +591,13 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
     }, [scheduleDocumentSync, syncSelection])
 
     const handleInput = React.useCallback(() => {
-      syncDocumentAndSelection()
-    }, [syncDocumentAndSelection])
+      syncSelection()
+      if (documentSyncFrameRef.current !== null) {
+        window.cancelAnimationFrame(documentSyncFrameRef.current)
+        documentSyncFrameRef.current = null
+      }
+      flushDocumentSync()
+    }, [flushDocumentSync, syncSelection])
 
     const handleCompositionUpdateInternal = React.useCallback(() => {
       syncDocumentAndSelection()
@@ -604,7 +664,16 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
           onKeyUp={() => {
             scheduleSelectionSync()
           }}
+          onMouseDown={(event) => {
+            if (event.button !== 2) return
+            setSelectionFromPoint(event.currentTarget, event.clientX, event.clientY)
+            scheduleSelectionSync()
+          }}
           onMouseUp={() => {
+            scheduleSelectionSync()
+          }}
+          onContextMenu={(event) => {
+            setSelectionFromPoint(event.currentTarget, event.clientX, event.clientY)
             scheduleSelectionSync()
           }}
           onScroll={(event) => {

@@ -86,7 +86,7 @@ function appendMemoryContext(
   if (agentsMemory) {
     parts.push(
       `\n<project_memory>`,
-      `The following is AGENTS.md from the working directory. Treat it as authoritative workspace protocol and project context.`,
+      `The following is project AGENTS.md loaded from the workspace memory layer. Treat it as authoritative workspace protocol and project context.`,
       ``,
       agentsMemory,
       `</project_memory>`

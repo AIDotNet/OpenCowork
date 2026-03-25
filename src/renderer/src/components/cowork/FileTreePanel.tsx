@@ -18,9 +18,13 @@ import {
   Check,
   AlertCircle,
   Pencil,
-  Trash2
+  Trash2,
+  Search,
+  GripVertical,
+  X
 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
+import { Input } from '@renderer/components/ui/input'
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -48,6 +52,13 @@ interface TreeNode extends FileEntry {
   loaded?: boolean
   expanded?: boolean
 }
+
+interface FileSearchItem {
+  name: string
+  path: string
+}
+
+const INTERNAL_FILE_DRAG_MIME = 'application/x-opencowork-file-paths'
 
 // --- File icon helper ---
 
@@ -130,6 +141,12 @@ function collapseTree(nodes: TreeNode[]): TreeNode[] {
     expanded: false,
     children: node.children ? collapseTree(node.children) : node.children
   }))
+}
+
+function toRelativePath(filePath: string, workingFolder?: string): string {
+  if (!workingFolder) return filePath
+  if (!filePath.startsWith(workingFolder)) return filePath
+  return filePath.slice(workingFolder.length).replace(/^[\\/]+/, '')
 }
 
 function DepthGuides({ depth }: { depth: number }): React.JSX.Element | null {
@@ -224,6 +241,7 @@ function TreeItem({
   onToggle,
   onCopyPath,
   onPreview,
+  onFileDragStart,
   editState,
   actions
 }: {
@@ -233,6 +251,7 @@ function TreeItem({
   onToggle: (path: string) => void
   onCopyPath: (path: string) => void
   onPreview: (path: string, name: string) => void
+  onFileDragStart: (event: React.DragEvent<HTMLElement>, path: string) => void
   editState: TreeEditState
   actions: TreeActions
 }): React.JSX.Element {
@@ -257,16 +276,23 @@ function TreeItem({
   const rowContent = (
     <div
       className={cn(
-        'group relative flex items-center gap-1 py-1 pr-2 text-[12px] cursor-pointer rounded-md transition-colors',
+        'group relative flex items-center gap-2 rounded-xl border px-2 py-1.5 text-[12px] transition-all',
+        isDir ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing',
         isActive
-          ? 'bg-primary/10 text-foreground ring-1 ring-primary/20'
+          ? 'border-primary/25 bg-primary/10 text-foreground shadow-sm'
           : isDir && node.expanded
-            ? 'bg-muted/40'
-            : 'hover:bg-muted/60',
+            ? 'border-border/50 bg-muted/35'
+            : 'border-transparent hover:border-border/50 hover:bg-muted/55',
         isIgnored && 'opacity-40'
       )}
-      style={{ paddingLeft: `${depth * 14 + 4}px` }}
+      style={{ paddingLeft: `${depth * 14 + 6}px` }}
       onClick={() => (isDir && !isIgnored ? onToggle(node.path) : onPreview(node.path, node.name))}
+      onDragStart={(event) => {
+        if (!isDir) {
+          onFileDragStart(event, node.path)
+        }
+      }}
+      draggable={!isDir && !isRenaming}
       title={node.path}
     >
       <DepthGuides depth={depth} />
@@ -277,29 +303,26 @@ function TreeItem({
         />
       )}
 
-      {/* Expand chevron */}
       {isDir ? (
         node.expanded ? (
-          <ChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground/60" />
         ) : (
-          <ChevronRight className="size-3 shrink-0 text-muted-foreground/50" />
+          <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />
         )
       ) : (
-        <span className="size-3 shrink-0" />
+        <GripVertical className="size-3 shrink-0 text-muted-foreground/25 transition-colors group-hover:text-muted-foreground/60" />
       )}
 
-      {/* Icon */}
       {isDir ? (
         node.expanded ? (
           <FolderOpen className="size-3.5 shrink-0 text-amber-400" />
         ) : (
-          <Folder className="size-3.5 shrink-0 text-amber-400/70" />
+          <Folder className="size-3.5 shrink-0 text-amber-400/80" />
         )
       ) : (
         fileIcon(node.name)
       )}
 
-      {/* Name or rename input */}
       {isRenaming ? (
         <input
           autoFocus
@@ -321,20 +344,26 @@ function TreeItem({
           }}
         />
       ) : (
-        <span
-          className={cn(
-            'truncate',
-            isDir ? 'text-foreground/80 font-medium' : 'text-muted-foreground'
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span
+            className={cn(
+              'truncate',
+              isDir ? 'font-medium text-foreground/85' : 'text-foreground/80'
+            )}
+          >
+            {node.name}
+          </span>
+          {!isDir && (
+            <span className="rounded-full border border-border/50 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+              拖动引用
+            </span>
           )}
-        >
-          {node.name}
-        </span>
+        </div>
       )}
 
-      {/* Copy button (files only, on hover) */}
       {!isDir && !isRenaming && (
         <button
-          className="ml-auto hidden group-hover:block shrink-0 text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+          className="shrink-0 rounded-md p-1 text-muted-foreground/35 opacity-0 transition-all hover:bg-muted hover:text-muted-foreground group-hover:opacity-100"
           onClick={(e) => {
             e.stopPropagation()
             handleCopy()
@@ -425,6 +454,7 @@ function TreeItem({
                   onToggle={onToggle}
                   onCopyPath={onCopyPath}
                   onPreview={onPreview}
+                  onFileDragStart={onFileDragStart}
                   editState={editState}
                   actions={actions}
                 />
@@ -458,6 +488,9 @@ export function FileTreePanel(): React.JSX.Element {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<FileSearchItem[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
 
   // --- Edit state for context menu actions ---
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
@@ -495,6 +528,43 @@ export function FileTreePanel(): React.JSX.Element {
   useEffect(() => {
     loadRoot()
   }, [loadRoot])
+
+  useEffect(() => {
+    const query = searchQuery.trim()
+    if (!workingFolder || !query) {
+      setSearchResults([])
+      setSearchLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setSearchLoading(true)
+    const timer = window.setTimeout(() => {
+      void ipcClient
+        .invoke('fs:search-files', {
+          path: workingFolder,
+          query,
+          limit: 100
+        })
+        .then((result) => {
+          if (cancelled) return
+          setSearchResults(Array.isArray(result) ? (result as FileSearchItem[]) : [])
+        })
+        .catch(() => {
+          if (cancelled) return
+          setSearchResults([])
+        })
+        .finally(() => {
+          if (cancelled) return
+          setSearchLoading(false)
+        })
+    }, 120)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [searchQuery, workingFolder])
 
   const handleToggle = useCallback(
     async (dirPath: string) => {
@@ -694,6 +764,8 @@ export function FileTreePanel(): React.JSX.Element {
 
   const activePath = previewPanelState?.source === 'file' ? previewPanelState.filePath : null
   const treeStats = useMemo(() => countTreeStats(tree), [tree])
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase()
+  const isSearching = normalizedSearchQuery.length > 0
 
   const editState: TreeEditState = { renamingPath, newItemParent, newItemType }
   const treeActions: TreeActions = {
@@ -711,6 +783,16 @@ export function FileTreePanel(): React.JSX.Element {
     useUIStore.getState().openFilePreview(filePath)
   }, [])
 
+  const handleFileDragStart = useCallback(
+    (event: React.DragEvent<HTMLElement>, filePath: string) => {
+      const relativePath = toRelativePath(filePath, workingFolder)
+      event.dataTransfer.effectAllowed = 'copy'
+      event.dataTransfer.setData(INTERNAL_FILE_DRAG_MIME, JSON.stringify([filePath]))
+      event.dataTransfer.setData('text/plain', relativePath)
+    },
+    [workingFolder]
+  )
+
   const handleCollapseAll = useCallback(() => {
     setTree((current) => collapseTree(current))
   }, [])
@@ -725,85 +807,182 @@ export function FileTreePanel(): React.JSX.Element {
   }
 
   return (
-    <div className="space-y-2">
-      <div className="rounded-lg border border-border/60 bg-background/60 overflow-hidden">
-        <div className="flex items-center gap-2 px-2 py-2 border-b border-border/50 bg-muted/20">
-          <FolderOpen className="size-3.5 text-amber-400 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="text-xs text-foreground truncate" title={workingFolder}>
-              {workingFolder.split(/[\\/]/).pop()}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-border/60 bg-background/70 shadow-[0_10px_30px_rgba(0,0,0,0.12)]">
+        <div className="border-b border-border/60 bg-gradient-to-b from-muted/30 to-background/30 px-3 py-3">
+          <div className="flex items-start gap-2">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10">
+              <FolderOpen className="size-4 text-amber-400" />
             </div>
-            <div className="text-[10px] text-muted-foreground truncate" title={workingFolder}>
-              {workingFolder}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <div className="truncate text-sm font-medium text-foreground" title={workingFolder}>
+                  {workingFolder.split(/[\\/]/).pop()}
+                </div>
+                <span className="rounded-full border border-primary/15 bg-primary/8 px-1.5 py-0.5 text-[10px] text-primary/80">
+                  拖到输入框可引用
+                </span>
+              </div>
+              <div className="mt-1 truncate text-[11px] text-muted-foreground" title={workingFolder}>
+                {workingFolder}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 rounded-lg"
+                onClick={handleCollapseAll}
+                disabled={tree.length === 0 || isSearching}
+                title={t('action.showLess', { ns: 'common' })}
+              >
+                <ChevronDown className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 rounded-lg"
+                onClick={() => {
+                  void loadRoot()
+                }}
+                disabled={loading}
+                title={t('action.refresh', { ns: 'common' })}
+              >
+                <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
+              </Button>
             </div>
           </div>
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-            <span className="rounded bg-muted px-1.5 py-0.5">
+
+          <div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground">
+            <span className="rounded-full border border-border/60 bg-background/80 px-2 py-1">
               {treeStats.folders} {t('unit.folders', { ns: 'common' })}
             </span>
-            <span className="rounded bg-muted px-1.5 py-0.5">
+            <span className="rounded-full border border-border/60 bg-background/80 px-2 py-1">
               {treeStats.files} {t('unit.files', { ns: 'common' })}
             </span>
+            {isSearching && (
+              <span className="rounded-full border border-primary/20 bg-primary/8 px-2 py-1 text-primary/80">
+                {searchResults.length} 个结果
+              </span>
+            )}
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            onClick={handleCollapseAll}
-            disabled={tree.length === 0}
-            title={t('action.showLess', { ns: 'common' })}
-          >
-            <ChevronDown className="size-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            onClick={loadRoot}
-            disabled={loading}
-            title={t('action.refresh', { ns: 'common' })}
-          >
-            <RefreshCw className={cn('size-3', loading && 'animate-spin')} />
-          </Button>
+
+          <div className="relative mt-3">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={t('fileTree.searchPlaceholder', { defaultValue: '搜索文件名或路径' })}
+              className="h-9 rounded-xl border-border/60 bg-background/70 pl-9 pr-9 text-sm"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                onClick={() => setSearchQuery('')}
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {error && (
-          <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-destructive">
+          <div className="flex items-center gap-1.5 border-b border-border/50 px-3 py-2 text-[11px] text-destructive">
             <AlertCircle className="size-3 shrink-0" />
             <span className="truncate">{error}</span>
           </div>
         )}
 
-        {loading && tree.length === 0 ? (
-          <div className="flex items-center justify-center py-4">
-            <RefreshCw className="size-4 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <div className="text-[12px] max-h-[calc(100vh-200px)] overflow-y-auto px-1 py-1">
-            {tree.map((node) => (
-              <TreeItem
-                key={node.path}
-                node={node}
-                depth={0}
-                activePath={activePath}
-                onToggle={handleToggle}
-                onCopyPath={handleCopyPath}
-                onPreview={handlePreview}
-                editState={editState}
-                actions={treeActions}
-              />
-            ))}
-          </div>
-        )}
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 text-[12px]">
+          {loading && tree.length === 0 ? (
+            <div className="flex h-full items-center justify-center py-8">
+              <RefreshCw className="size-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : isSearching ? (
+            searchLoading ? (
+              <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
+                <RefreshCw className="size-3.5 animate-spin" />
+                <span>{t('fileTree.searching', { defaultValue: '搜索文件中...' })}</span>
+              </div>
+            ) : searchResults.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/60 bg-muted/15 px-4 py-10 text-center">
+                <Search className="size-5 text-muted-foreground/50" />
+                <div className="text-xs text-muted-foreground">
+                  {t('fileTree.noSearchResults', { defaultValue: '没有匹配的文件' })}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {searchResults.map((file) => {
+                  const isActive = activePath === file.path
+                  const relativePath = toRelativePath(file.path, workingFolder)
+                  return (
+                    <button
+                      key={file.path}
+                      type="button"
+                      className={cn(
+                        'group flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all',
+                        isActive
+                          ? 'border-primary/25 bg-primary/10 shadow-sm'
+                          : 'border-transparent bg-background/50 hover:border-border/50 hover:bg-muted/55'
+                      )}
+                      draggable
+                      onDragStart={(event) => handleFileDragStart(event, file.path)}
+                      onClick={() => handlePreview(file.path)}
+                      title={file.path}
+                    >
+                      <GripVertical className="size-3 shrink-0 text-muted-foreground/25 transition-colors group-hover:text-muted-foreground/60" />
+                      {fileIcon(file.name)}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-foreground/90">{file.name}</div>
+                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                          {relativePath}
+                        </div>
+                      </div>
+                      <span className="rounded-full border border-border/60 bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                        拖动引用
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          ) : tree.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/60 bg-muted/15 px-4 py-10 text-center">
+              <Folder className="size-5 text-muted-foreground/50" />
+              <div className="text-xs text-muted-foreground">
+                {t('fileTree.empty', { defaultValue: '当前目录没有文件' })}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {tree.map((node) => (
+                <TreeItem
+                  key={node.path}
+                  node={node}
+                  depth={0}
+                  activePath={activePath}
+                  onToggle={handleToggle}
+                  onCopyPath={handleCopyPath}
+                  onPreview={handlePreview}
+                  onFileDragStart={handleFileDragStart}
+                  editState={editState}
+                  actions={treeActions}
+                />
+              ))}
+            </div>
+          )}
+        </div>
 
-        {tree.length > 0 && (
-          <div className="border-t border-border/50 px-2 py-1 text-[10px] text-muted-foreground/70">
-            {t('fileTree.stats', {
-              folders: treeStats.folders,
-              files: treeStats.files
-            })}
-          </div>
-        )}
+        <div className="border-t border-border/60 bg-background/40 px-3 py-2 text-[10px] text-muted-foreground/80">
+          {isSearching
+            ? t('fileTree.searchHint', { defaultValue: '点击预览，拖到输入框可插入文件引用' })
+            : t('fileTree.stats', {
+                folders: treeStats.folders,
+                files: treeStats.files
+              })}
+        </div>
       </div>
     </div>
   )

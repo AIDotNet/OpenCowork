@@ -6,7 +6,10 @@ interface ReadTextFileResult {
   error?: string
 }
 
+export const PROJECT_MEMORY_DIRNAME = '.agents'
+
 export type SessionMemoryScope = 'main' | 'shared'
+export type ProjectMemoryPathSource = 'agents-dir' | 'workspace-root'
 
 export interface GlobalMemorySnapshot {
   path?: string
@@ -41,11 +44,17 @@ export interface LayeredMemorySnapshot {
   updatedAt?: number
 }
 
-export interface GlobalMemorySnapshot {
-  path?: string
+export interface ProjectMemoryCandidatePaths {
+  preferredPath: string
+  fallbackPath: string
+}
+
+export interface ResolvedProjectMemoryFile {
+  path: string
   content?: string
-  version: number
-  updatedAt?: number
+  error?: string
+  missingFile: boolean
+  source: ProjectMemoryPathSource
 }
 
 let cachedGlobalHomePath: string | undefined
@@ -104,6 +113,10 @@ function buildDailyMemoryDates(now = new Date()): string[] {
   return dates
 }
 
+export function isMissingFileErrorMessage(error: string): boolean {
+  return /ENOENT|No such file/i.test(error)
+}
+
 async function loadDailyMemoryEntries(
   ipc: IPCClient,
   basePath: string | undefined
@@ -118,6 +131,37 @@ async function loadDailyMemoryEntries(
         date,
         path,
         content
+      }
+    })
+  )
+
+  return entries
+    .filter((entry) => entry.content?.trim())
+    .map((entry) => ({
+      date: entry.date,
+      path: entry.path,
+      content: entry.content ?? ''
+    }))
+}
+
+async function loadProjectDailyMemoryEntries(
+  ipc: IPCClient,
+  projectRootPath: string | undefined
+): Promise<DailyMemoryEntry[]> {
+  if (!projectRootPath) return []
+
+  const entries = await Promise.all(
+    buildDailyMemoryDates().map(async (date) => {
+      const resolved = await resolveProjectMemoryTextFile(
+        ipc,
+        projectRootPath,
+        'memory',
+        `${date}.md`
+      )
+      return {
+        date,
+        path: resolved.path,
+        content: resolved.error ? undefined : resolved.content
       }
     })
   )
@@ -157,6 +201,16 @@ export function joinFsPath(basePath: string, ...segments: string[]): string {
   return [trimmedBase, ...normalizedSegments].join(separator)
 }
 
+export function getProjectMemoryCandidatePaths(
+  projectRootPath: string,
+  ...segments: string[]
+): ProjectMemoryCandidatePaths {
+  return {
+    preferredPath: joinFsPath(projectRootPath, PROJECT_MEMORY_DIRNAME, ...segments),
+    fallbackPath: joinFsPath(projectRootPath, ...segments)
+  }
+}
+
 export async function readTextFile(ipc: IPCClient, filePath: string): Promise<ReadTextFileResult> {
   try {
     const result = await ipc.invoke(IPC.FS_READ_FILE, { path: filePath })
@@ -180,6 +234,56 @@ export async function readTextFile(ipc: IPCClient, filePath: string): Promise<Re
   }
 }
 
+export async function resolveTextFileWithFallbackPaths(options: {
+  readFile: (path: string) => Promise<ReadTextFileResult>
+  preferredPath: string
+  fallbackPath: string
+}): Promise<ResolvedProjectMemoryFile> {
+  const preferred = await options.readFile(options.preferredPath)
+  if (!preferred.error) {
+    return {
+      path: options.preferredPath,
+      content: preferred.content ?? '',
+      missingFile: false,
+      source: 'agents-dir'
+    }
+  }
+
+  if (!isMissingFileErrorMessage(preferred.error)) {
+    return {
+      path: options.preferredPath,
+      error: preferred.error,
+      missingFile: false,
+      source: 'agents-dir'
+    }
+  }
+
+  const fallback = await options.readFile(options.fallbackPath)
+  if (!fallback.error) {
+    return {
+      path: options.fallbackPath,
+      content: fallback.content ?? '',
+      missingFile: false,
+      source: 'workspace-root'
+    }
+  }
+
+  if (!isMissingFileErrorMessage(fallback.error)) {
+    return {
+      path: options.fallbackPath,
+      error: fallback.error,
+      missingFile: false,
+      source: 'workspace-root'
+    }
+  }
+
+  return {
+    path: options.preferredPath,
+    missingFile: true,
+    source: 'agents-dir'
+  }
+}
+
 export async function loadOptionalMemoryFile(
   ipc: IPCClient,
   filePath: string
@@ -189,6 +293,22 @@ export async function loadOptionalMemoryFile(
     return undefined
   }
   return content
+}
+
+export async function resolveProjectMemoryTextFile(
+  ipc: IPCClient,
+  projectRootPath: string,
+  ...segments: string[]
+): Promise<ResolvedProjectMemoryFile> {
+  const { preferredPath, fallbackPath } = getProjectMemoryCandidatePaths(
+    projectRootPath,
+    ...segments
+  )
+  return resolveTextFileWithFallbackPaths({
+    readFile: (path) => readTextFile(ipc, path),
+    preferredPath,
+    fallbackPath
+  })
 }
 
 export function getLayeredMemorySnapshot(): LayeredMemorySnapshot {
@@ -263,59 +383,67 @@ async function buildLayeredMemorySnapshot(
   const globalSoulPath = globalHomePath ? joinFsPath(globalHomePath, 'SOUL.md') : undefined
   const globalUserPath = globalHomePath ? joinFsPath(globalHomePath, 'USER.md') : undefined
   const globalMemoryPath = globalHomePath ? joinFsPath(globalHomePath, 'MEMORY.md') : undefined
-  const projectAgentsPath = projectRootPath ? joinFsPath(projectRootPath, 'AGENTS.md') : undefined
-  const projectSoulPath = projectRootPath ? joinFsPath(projectRootPath, 'SOUL.md') : undefined
-  const projectUserPath = projectRootPath ? joinFsPath(projectRootPath, 'USER.md') : undefined
-  const projectMemoryPath = projectRootPath ? joinFsPath(projectRootPath, 'MEMORY.md') : undefined
 
   const [
-    agentsContent,
+    projectAgentsFile,
     globalSoulContent,
-    projectSoulContent,
+    projectSoulFile,
     globalUserContent,
-    projectUserContent,
+    projectUserFile,
     globalMemoryContent,
-    projectMemoryContent,
+    projectMemoryFile,
     globalDailyMemory,
     projectDailyMemory
   ] = await Promise.all([
-    projectAgentsPath ? loadOptionalMemoryFile(ipc, projectAgentsPath) : Promise.resolve(undefined),
+    projectRootPath
+      ? resolveProjectMemoryTextFile(ipc, projectRootPath, 'AGENTS.md')
+      : Promise.resolve(undefined),
     scope === 'main' && globalSoulPath
       ? loadOptionalMemoryFile(ipc, globalSoulPath)
       : Promise.resolve(undefined),
-    scope === 'main' && projectSoulPath
-      ? loadOptionalMemoryFile(ipc, projectSoulPath)
+    scope === 'main' && projectRootPath
+      ? resolveProjectMemoryTextFile(ipc, projectRootPath, 'SOUL.md')
       : Promise.resolve(undefined),
     scope === 'main' && globalUserPath
       ? loadOptionalMemoryFile(ipc, globalUserPath)
       : Promise.resolve(undefined),
-    scope === 'main' && projectUserPath
-      ? loadOptionalMemoryFile(ipc, projectUserPath)
+    scope === 'main' && projectRootPath
+      ? resolveProjectMemoryTextFile(ipc, projectRootPath, 'USER.md')
       : Promise.resolve(undefined),
     scope === 'main' && globalMemoryPath
       ? loadOptionalMemoryFile(ipc, globalMemoryPath)
       : Promise.resolve(undefined),
-    scope === 'main' && projectMemoryPath
-      ? loadOptionalMemoryFile(ipc, projectMemoryPath)
+    scope === 'main' && projectRootPath
+      ? resolveProjectMemoryTextFile(ipc, projectRootPath, 'MEMORY.md')
       : Promise.resolve(undefined),
     scope === 'main' ? loadDailyMemoryEntries(ipc, globalHomePath) : Promise.resolve([]),
-    scope === 'main' ? loadDailyMemoryEntries(ipc, projectRootPath) : Promise.resolve([])
+    scope === 'main' ? loadProjectDailyMemoryEntries(ipc, projectRootPath) : Promise.resolve([])
   ])
 
   return {
     globalHomePath,
     projectRootPath,
-    agents: projectAgentsPath ? toOptionalEntry(projectAgentsPath, agentsContent) : undefined,
+    agents:
+      projectAgentsFile && !projectAgentsFile.error
+        ? toOptionalEntry(projectAgentsFile.path, projectAgentsFile.content)
+        : undefined,
     globalSoul: globalSoulPath ? toOptionalEntry(globalSoulPath, globalSoulContent) : undefined,
-    projectSoul: projectSoulPath ? toOptionalEntry(projectSoulPath, projectSoulContent) : undefined,
+    projectSoul:
+      projectSoulFile && !projectSoulFile.error
+        ? toOptionalEntry(projectSoulFile.path, projectSoulFile.content)
+        : undefined,
     globalUser: globalUserPath ? toOptionalEntry(globalUserPath, globalUserContent) : undefined,
-    projectUser: projectUserPath ? toOptionalEntry(projectUserPath, projectUserContent) : undefined,
+    projectUser:
+      projectUserFile && !projectUserFile.error
+        ? toOptionalEntry(projectUserFile.path, projectUserFile.content)
+        : undefined,
     globalMemory: globalMemoryPath
       ? toOptionalEntry(globalMemoryPath, globalMemoryContent)
       : undefined,
-    projectMemory: projectMemoryPath
-      ? toOptionalEntry(projectMemoryPath, projectMemoryContent)
-      : undefined,
+    projectMemory:
+      projectMemoryFile && !projectMemoryFile.error
+        ? toOptionalEntry(projectMemoryFile.path, projectMemoryFile.content)
+        : undefined,
     globalDailyMemory,
     projectDailyMemory,
     version: cachedLayeredSnapshot.version,

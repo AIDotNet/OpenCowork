@@ -255,6 +255,7 @@ export function getDb(): Database.Database {
       mode TEXT NOT NULL DEFAULT 'chat',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
+      message_count INTEGER NOT NULL DEFAULT 0,
       working_folder TEXT,
       pinned INTEGER DEFAULT 0
     );
@@ -340,6 +341,14 @@ export function getDb(): Database.Database {
       /* exists */
     }
   }
+
+  ensureColumn(db, 'sessions', 'message_count', 'INTEGER NOT NULL DEFAULT 0')
+  db.exec(
+    `UPDATE sessions
+        SET message_count = (
+          SELECT COUNT(*) FROM messages m WHERE m.session_id = sessions.id
+        )`
+  )
 
   // --- Plans table ---
   db.exec(`

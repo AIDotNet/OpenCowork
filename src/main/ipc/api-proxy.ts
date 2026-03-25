@@ -869,6 +869,49 @@ export function registerApiProxyHandlers(): void {
         })
         return
       }
+
+      const STREAM_CHUNK_FLUSH_MS = 16
+      const STREAM_CHUNK_MAX_BUFFER_CHARS = 8_192
+      let bufferedChunk = ''
+      let chunkFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+      const clearChunkFlushTimer = (): void => {
+        if (chunkFlushTimer) {
+          clearTimeout(chunkFlushTimer)
+          chunkFlushTimer = null
+        }
+      }
+
+      const flushBufferedChunk = (): void => {
+        clearChunkFlushTimer()
+        if (!bufferedChunk) return
+        const sender = getSender(event)
+        if (sender) {
+          sender.send('api:stream-chunk', {
+            requestId,
+            data: bufferedChunk
+          })
+        }
+        bufferedChunk = ''
+      }
+
+      const queueChunkFlush = (): void => {
+        if (chunkFlushTimer) return
+        chunkFlushTimer = setTimeout(() => {
+          chunkFlushTimer = null
+          flushBufferedChunk()
+        }, STREAM_CHUNK_FLUSH_MS)
+      }
+
+      const pushStreamChunk = (chunk: Buffer): void => {
+        bufferedChunk += chunk.toString()
+        if (bufferedChunk.length >= STREAM_CHUNK_MAX_BUFFER_CHARS) {
+          flushBufferedChunk()
+          return
+        }
+        queueChunkFlush()
+      }
+
       if (useSystemProxy) {
         const requestUrl = url.trim()
         const bodyBuffer = body ? Buffer.from(body, 'utf-8') : null
@@ -947,17 +990,12 @@ export function registerApiProxyHandlers(): void {
           // Stream SSE chunks to renderer
           res.on('data', (chunk: Buffer) => {
             resetIdleTimer(httpReq)
-            const sender = getSender(event)
-            if (sender) {
-              sender.send('api:stream-chunk', {
-                requestId,
-                data: chunk.toString()
-              })
-            }
+            pushStreamChunk(chunk)
           })
 
           res.on('end', () => {
             clearIdleTimer()
+            flushBufferedChunk()
             const sender = getSender(event)
             if (sender) {
               sender.send('api:stream-end', { requestId })
@@ -966,6 +1004,8 @@ export function registerApiProxyHandlers(): void {
 
           res.on('error', (err) => {
             clearIdleTimer()
+            clearChunkFlushTimer()
+            bufferedChunk = ''
             console.error(`[API Proxy] stream-request[${requestId}] response error: ${err.message}`)
             const sender = getSender(event)
             if (sender) {
@@ -997,6 +1037,8 @@ export function registerApiProxyHandlers(): void {
         httpReq.on('error', (err) => {
           clearConnectionTimer()
           clearIdleTimer()
+          clearChunkFlushTimer()
+          bufferedChunk = ''
           console.error(`[API Proxy] stream-request[${requestId}] request error: ${err.message}`)
           const sender = getSender(event)
           if (sender) {
@@ -1012,6 +1054,8 @@ export function registerApiProxyHandlers(): void {
           if (data.requestId === requestId) {
             clearConnectionTimer()
             clearIdleTimer()
+            clearChunkFlushTimer()
+            bufferedChunk = ''
             cancelNetRequest(httpReq)
             ipcMain.removeListener('api:abort', abortHandler)
           }
@@ -1022,6 +1066,8 @@ export function registerApiProxyHandlers(): void {
         httpReq.on('close', () => {
           clearConnectionTimer()
           clearIdleTimer()
+          clearChunkFlushTimer()
+          bufferedChunk = ''
           ipcMain.removeListener('api:abort', abortHandler)
         })
 
@@ -1101,17 +1147,12 @@ export function registerApiProxyHandlers(): void {
         // Stream SSE chunks to renderer
         res.on('data', (chunk: Buffer) => {
           resetIdleTimer(httpReq)
-          const sender = getSender(event)
-          if (sender) {
-            sender.send('api:stream-chunk', {
-              requestId,
-              data: chunk.toString()
-            })
-          }
+          pushStreamChunk(chunk)
         })
 
         res.on('end', () => {
           clearIdleTimer()
+          flushBufferedChunk()
           const sender = getSender(event)
           if (sender) {
             sender.send('api:stream-end', { requestId })
@@ -1120,6 +1161,8 @@ export function registerApiProxyHandlers(): void {
 
         res.on('error', (err) => {
           clearIdleTimer()
+          clearChunkFlushTimer()
+          bufferedChunk = ''
           console.error(`[API Proxy] stream-request[${requestId}] response error: ${err.message}`)
           const sender = getSender(event)
           if (sender) {
@@ -1141,6 +1184,8 @@ export function registerApiProxyHandlers(): void {
 
       httpReq.on('error', (err) => {
         clearIdleTimer()
+        clearChunkFlushTimer()
+        bufferedChunk = ''
         console.error(`[API Proxy] stream-request[${requestId}] request error: ${err.message}`)
         const sender = getSender(event)
         if (sender) {
@@ -1155,6 +1200,8 @@ export function registerApiProxyHandlers(): void {
       const abortHandler = (_event: Electron.IpcMainEvent, data: { requestId: string }): void => {
         if (data.requestId === requestId) {
           clearIdleTimer()
+          clearChunkFlushTimer()
+          bufferedChunk = ''
           httpReq.destroy()
           ipcMain.removeListener('api:abort', abortHandler)
         }
@@ -1164,6 +1211,8 @@ export function registerApiProxyHandlers(): void {
       // Clean up abort listener and timers when request completes
       httpReq.on('close', () => {
         clearIdleTimer()
+        clearChunkFlushTimer()
+        bufferedChunk = ''
         ipcMain.removeListener('api:abort', abortHandler)
       })
 

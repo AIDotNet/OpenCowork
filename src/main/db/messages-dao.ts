@@ -34,6 +34,10 @@ export function addMessage(msg: {
   sortOrder: number
 }): void {
   const db = getDb()
+  const existing = db.prepare('SELECT session_id FROM messages WHERE id = ?').get(msg.id) as
+    | { session_id: string }
+    | undefined
+
   db.prepare(
     `INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, usage, sort_order)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -46,6 +50,12 @@ export function addMessage(msg: {
     msg.usage ?? null,
     msg.sortOrder
   )
+
+  if (!existing) {
+    db.prepare(
+      'UPDATE sessions SET message_count = COALESCE(message_count, 0) + 1 WHERE id = ?'
+    ).run(msg.sessionId)
+  }
 }
 
 export function updateMessage(
@@ -74,14 +84,25 @@ export function updateMessage(
 export function clearMessages(sessionId: string): void {
   const db = getDb()
   db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId)
+  db.prepare('UPDATE sessions SET message_count = 0 WHERE id = ?').run(sessionId)
 }
 
 export function truncateMessagesFrom(sessionId: string, fromSortOrder: number): void {
   const db = getDb()
+  const removed = db
+    .prepare('SELECT COUNT(*) as cnt FROM messages WHERE session_id = ? AND sort_order >= ?')
+    .get(sessionId, fromSortOrder) as { cnt: number }
+
   db.prepare('DELETE FROM messages WHERE session_id = ? AND sort_order >= ?').run(
     sessionId,
     fromSortOrder
   )
+
+  if (removed.cnt > 0) {
+    db.prepare(
+      'UPDATE sessions SET message_count = MAX(COALESCE(message_count, 0) - ?, 0) WHERE id = ?'
+    ).run(removed.cnt, sessionId)
+  }
 }
 
 export function deleteLastMessage(sessionId: string, role: string): MessageRow | null {
@@ -93,13 +114,16 @@ export function deleteLastMessage(sessionId: string, role: string): MessageRow |
     .get(sessionId, role) as MessageRow | undefined
   if (!last) return null
   db.prepare('DELETE FROM messages WHERE id = ?').run(last.id)
+  db.prepare(
+    'UPDATE sessions SET message_count = MAX(COALESCE(message_count, 0) - 1, 0) WHERE id = ?'
+  ).run(sessionId)
   return last
 }
 
 export function getMessageCount(sessionId: string): number {
   const db = getDb()
   const row = db
-    .prepare('SELECT COUNT(*) as cnt FROM messages WHERE session_id = ?')
-    .get(sessionId) as { cnt: number }
-  return row.cnt
+    .prepare('SELECT message_count as cnt FROM sessions WHERE id = ?')
+    .get(sessionId) as { cnt?: number } | undefined
+  return row?.cnt ?? 0
 }

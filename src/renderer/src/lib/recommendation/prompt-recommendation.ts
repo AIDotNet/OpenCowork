@@ -1,5 +1,8 @@
 import { nanoid } from 'nanoid'
-import { loadOptionalMemoryFile } from '@renderer/lib/agent/memory-files'
+import {
+  getProjectMemoryCandidatePaths,
+  resolveTextFileWithFallbackPaths
+} from '@renderer/lib/agent/memory-files'
 import {
   imageAttachmentToContentBlock,
   type ImageAttachment
@@ -8,6 +11,7 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { createProvider } from '@renderer/lib/api/provider'
 import type { ContentBlock, ProviderConfig, UnifiedMessage } from '@renderer/lib/api/types'
 import { useSettingsStore } from '@renderer/stores/settings-store'
+import { useChatStore } from '@renderer/stores/chat-store'
 import { modelSupportsVision, useProviderStore } from '@renderer/stores/provider-store'
 import type { AppMode } from '@renderer/stores/ui-store'
 
@@ -192,7 +196,43 @@ function buildRequestContent(
 }
 
 async function loadAgentsFile(): Promise<string | undefined> {
-  return loadOptionalMemoryFile(ipcClient, 'AGENTS.md')
+  const { activeSessionId, sessions, projects } = useChatStore.getState()
+  const activeSession = sessions.find((session) => session.id === activeSessionId)
+  const activeProject = projects.find((project) => project.id === activeSession?.projectId)
+  const workingFolder = activeSession?.workingFolder ?? activeProject?.workingFolder
+  const sshConnectionId = activeSession?.sshConnectionId ?? activeProject?.sshConnectionId
+
+  if (!workingFolder?.trim() || sshConnectionId) {
+    return undefined
+  }
+
+  const { preferredPath, fallbackPath } = getProjectMemoryCandidatePaths(workingFolder, 'AGENTS.md')
+  const resolved = await resolveTextFileWithFallbackPaths({
+    readFile: async (path) => {
+      try {
+        const result = await ipcClient.invoke('fs:read-file', { path })
+        if (typeof result === 'string') {
+          return { content: result }
+        }
+        return {
+          error:
+            result && typeof result === 'object' && 'error' in result
+              ? String((result as { error?: unknown }).error ?? 'Failed to read file')
+              : 'Failed to read file'
+        }
+      } catch (error) {
+        return {
+          error: error instanceof Error ? error.message : String(error)
+        }
+      }
+    },
+    preferredPath,
+    fallbackPath
+  })
+
+  return resolved.error || resolved.missingFile || !resolved.content?.trim()
+    ? undefined
+    : resolved.content
 }
 
 export async function requestPromptRecommendation(

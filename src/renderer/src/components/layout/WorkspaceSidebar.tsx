@@ -82,7 +82,17 @@ const modeIcons: Record<SessionMode, React.ReactNode> = {
 type SessionListItem = ReturnType<typeof mapSession>
 type BucketKey = 'today' | 'recentThreeDays' | 'recentWeek' | 'oneMonth' | 'older'
 
-function mapSession(session: ReturnType<typeof useChatStore.getState>['sessions'][number]) {
+function mapSession(session: ReturnType<typeof useChatStore.getState>['sessions'][number]): {
+  id: string
+  title: string
+  icon?: string
+  mode: SessionMode
+  updatedAt: number
+  createdAt: number
+  pinned?: boolean
+  messageCount: number
+  projectId?: string
+} {
   return {
     id: session.id,
     title: session.title,
@@ -96,7 +106,14 @@ function mapSession(session: ReturnType<typeof useChatStore.getState>['sessions'
   }
 }
 
-function mapProject(project: ReturnType<typeof useChatStore.getState>['projects'][number]) {
+function mapProject(project: ReturnType<typeof useChatStore.getState>['projects'][number]): {
+  id: string
+  name: string
+  updatedAt: number
+  workingFolder?: string
+  pluginId?: string
+  pinned?: boolean
+} {
   return {
     id: project.id,
     name: project.name,
@@ -167,10 +184,45 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const setLeftSidebarWidth = useUIStore((state) => state.setLeftSidebarWidth)
   const persistedLeftSidebarWidth = useSettingsStore((state) => state.leftSidebarWidth)
   const updateSettings = useSettingsStore((state) => state.updateSettings)
-  const rawProjects = useChatStore((state) => state.projects)
-  const rawSessions = useChatStore((state) => state.sessions)
-  const projects = useMemo(() => rawProjects.map(mapProject), [rawProjects])
-  const sessions = useMemo(() => rawSessions.map(mapSession), [rawSessions])
+  const projectDigest = useChatStore((state) =>
+    state.projects
+      .map((project) =>
+        [
+          project.id,
+          project.name,
+          project.updatedAt,
+          project.workingFolder ?? '',
+          project.pluginId ?? '',
+          project.pinned ? 1 : 0
+        ].join('|')
+      )
+      .join('¦')
+  )
+  const sessionDigest = useChatStore((state) =>
+    state.sessions
+      .map((session) =>
+        [
+          session.id,
+          session.title,
+          session.icon ?? '',
+          session.mode,
+          session.updatedAt,
+          session.createdAt,
+          session.pinned ? 1 : 0,
+          session.messageCount,
+          session.projectId ?? ''
+        ].join('|')
+      )
+      .join('¦')
+  )
+  const projects = useMemo(() => {
+    void projectDigest
+    return useChatStore.getState().projects.map(mapProject)
+  }, [projectDigest])
+  const sessions = useMemo(() => {
+    void sessionDigest
+    return useChatStore.getState().sessions.map(mapSession)
+  }, [sessionDigest])
   const activeProjectId = useChatStore((state) => state.activeProjectId)
   const activeSessionId = useChatStore((state) => state.activeSessionId)
   const createProject = useChatStore((state) => state.createProject)
@@ -206,6 +258,20 @@ export function WorkspaceSidebar(): React.JSX.Element {
     () => new Set(runningSubAgentSessionIdsSig ? runningSubAgentSessionIdsSig.split('\u0000') : []),
     [runningSubAgentSessionIdsSig]
   )
+  const runningProjectIds = useMemo(() => {
+    const projectIds = new Set<string>()
+    for (const session of sessions) {
+      if (!session.projectId) continue
+      const isRunning =
+        runningSessions[session.id] === 'running' ||
+        runningSubAgentSessionIds.has(session.id) ||
+        activeTeamSessionId === session.id
+      if (isRunning) {
+        projectIds.add(session.projectId)
+      }
+    }
+    return projectIds
+  }, [sessions, runningSessions, runningSubAgentSessionIds, activeTeamSessionId])
   const visibleProjects = useMemo(
     () =>
       projects
@@ -217,9 +283,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
     [projects]
   )
   const activeProject =
-    visibleProjects.find((project) => project.id === activeProjectId) ??
-    visibleProjects[0] ??
-    null
+    visibleProjects.find((project) => project.id === activeProjectId) ?? visibleProjects[0] ?? null
   const chatSurfaceActive =
     !settingsPageOpen &&
     !skillsPageOpen &&
@@ -288,10 +352,13 @@ export function WorkspaceSidebar(): React.JSX.Element {
     useUIStore.getState().navigateToHome()
   }, [])
 
-  const openProject = useCallback((projectId: string) => {
-    setActiveProject(projectId)
-    useUIStore.getState().navigateToProject()
-  }, [setActiveProject])
+  const openProject = useCallback(
+    (projectId: string) => {
+      setActiveProject(projectId)
+      useUIStore.getState().navigateToProject()
+    },
+    [setActiveProject]
+  )
 
   const openArchive = useCallback(() => {
     useUIStore.getState().navigateToArchive()
@@ -321,17 +388,15 @@ export function WorkspaceSidebar(): React.JSX.Element {
   }, [activeProject?.id, scopedProjectId, setActiveProject])
 
   const handleOpenDocs = useCallback(() => {
-    useUIStore.getState().openMarkdownPreview(
-      t('sidebar.docsTitle', { defaultValue: '使用文档' }),
-      readmeZh
-    )
+    useUIStore
+      .getState()
+      .openMarkdownPreview(t('sidebar.docsTitle', { defaultValue: '使用文档' }), readmeZh)
   }, [t])
 
   const handleOpenChangelog = useCallback(() => {
-    useUIStore.getState().openMarkdownPreview(
-      t('sidebar.changelogTitle', { defaultValue: '更新日志' }),
-      changelogMd
-    )
+    useUIStore
+      .getState()
+      .openMarkdownPreview(t('sidebar.changelogTitle', { defaultValue: '更新日志' }), changelogMd)
   }, [t])
 
   const handleToggleLanguage = useCallback(() => {
@@ -352,6 +417,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
     setRenameDialog(null)
     toast.success(tCommon('action.rename'))
   }, [renameDialog, renameProject, renameValue, tCommon, updateSessionTitle])
+
+  const deferDropdownAction = useCallback((action: () => void) => {
+    window.setTimeout(action, 0)
+  }, [])
 
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return
@@ -377,15 +446,20 @@ export function WorkspaceSidebar(): React.JSX.Element {
       toast.success(t('sidebar_toast.sessionDeleted'))
     }
     setDeleteTarget(null)
-  }, [activeTeamSessionId, deleteProject, deleteSession, runningSessions, runningSubAgentSessionIds, t])
+  }, [
+    activeTeamSessionId,
+    deleteProject,
+    deleteSession,
+    deleteTarget,
+    runningSessions,
+    runningSubAgentSessionIds,
+    t
+  ])
 
-  const startRename = useCallback(
-    (dialog: NonNullable<typeof renameDialog>) => {
-      setRenameDialog(dialog)
-      setRenameValue(dialog.currentName)
-    },
-    []
-  )
+  const startRename = useCallback((dialog: NonNullable<typeof renameDialog>) => {
+    setRenameDialog(dialog)
+    setRenameValue(dialog.currentName)
+  }, [])
 
   const bucketDefs: Array<{ key: BucketKey; label: string }> = useMemo(
     () => [
@@ -497,7 +571,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
             </div>
 
             <div className="space-y-1.5 px-2.5 pb-2.5">
-              <Button className="h-8 w-full justify-start gap-2 text-[12px]" onClick={handleCreateSession}>
+              <Button
+                className="h-8 w-full justify-start gap-2 text-[12px]"
+                onClick={handleCreateSession}
+              >
                 <Plus className="size-4" />
                 {t('sidebar.newChat')}
               </Button>
@@ -517,7 +594,11 @@ export function WorkspaceSidebar(): React.JSX.Element {
                 <MessageSquare className="size-4" />
                 {t('sidebar.projectChannels', { defaultValue: '聊天频道' })}
               </Button>
-              <Button variant="ghost" className="h-8.5 w-full justify-start gap-2 text-[13px]" onClick={openHome}>
+              <Button
+                variant="ghost"
+                className="h-8.5 w-full justify-start gap-2 text-[13px]"
+                onClick={openHome}
+              >
                 <Home className="size-4" />
                 {t('sidebar.backHome', { defaultValue: '返回首页' })}
               </Button>
@@ -554,7 +635,8 @@ export function WorkspaceSidebar(): React.JSX.Element {
                         </div>
                         <div className="space-y-1">
                           {items.map((session) => {
-                            const isActive = session.id === activeSessionId && chatView === 'session'
+                            const isActive =
+                              session.id === activeSessionId && chatView === 'session'
                             const isRunning = runningSessions[session.id] === 'running'
                             return (
                               <div
@@ -575,7 +657,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                     {session.pinned ? (
                                       <Pin className="size-3.5 text-amber-500" />
                                     ) : session.icon ? (
-                                      <DynamicIcon name={session.icon as never} className="size-4" />
+                                      <DynamicIcon
+                                        name={session.icon as never}
+                                        className="size-4"
+                                      />
                                     ) : (
                                       modeIcons[session.mode]
                                     )}
@@ -589,10 +674,16 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                     </span>
                                   </span>
                                 </button>
-                                {isRunning && <Loader2 className="size-3.5 animate-spin text-primary" />}
+                                {isRunning && (
+                                  <Loader2 className="size-3.5 animate-spin text-primary" />
+                                )}
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="size-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="size-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                                    >
                                       <MoreHorizontal className="size-4" />
                                     </Button>
                                   </DropdownMenuTrigger>
@@ -602,12 +693,14 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                       {t('sidebar.openSession', { defaultValue: '打开会话' })}
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
-                                      onClick={() =>
-                                        startRename({
-                                          type: 'session',
-                                          id: session.id,
-                                          currentName: session.title
-                                        })
+                                      onSelect={() =>
+                                        deferDropdownAction(() =>
+                                          startRename({
+                                            type: 'session',
+                                            id: session.id,
+                                            currentName: session.title
+                                          })
+                                        )
                                       }
                                     >
                                       <Pencil className="size-4" />
@@ -628,7 +721,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                       ) : (
                                         <Pin className="size-4" />
                                       )}
-                                      {session.pinned ? tCommon('action.unpin') : t('sidebar.pinToTop')}
+                                      {session.pinned
+                                        ? tCommon('action.unpin')
+                                        : t('sidebar.pinToTop')}
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       onClick={async () => {
@@ -646,7 +741,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                             .getState()
                                             .sessions.find((item) => item.id === session.id)
                                           if (!full) return
-                                          await useChatStore.getState().loadSessionMessages(session.id)
+                                          await useChatStore
+                                            .getState()
+                                            .loadSessionMessages(session.id)
                                           const snapshot = useChatStore
                                             .getState()
                                             .sessions.find((item) => item.id === session.id)
@@ -675,12 +772,14 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
                                       variant="destructive"
-                                      onClick={() =>
-                                        setDeleteTarget({
-                                          type: 'session',
-                                          id: session.id,
-                                          title: session.title
-                                        })
+                                      onSelect={() =>
+                                        deferDropdownAction(() =>
+                                          setDeleteTarget({
+                                            type: 'session',
+                                            id: session.id,
+                                            title: session.title
+                                          })
+                                        )
                                       }
                                     >
                                       <Trash2 className="size-4" />
@@ -726,11 +825,15 @@ export function WorkspaceSidebar(): React.JSX.Element {
                     {userName || t('titleBar.defaultName', { defaultValue: 'OpenCowork' })}
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => useUIStore.getState().openSettingsPage('general')}>
+                  <DropdownMenuItem
+                    onClick={() => useUIStore.getState().openSettingsPage('general')}
+                  >
                     <Settings className="size-4" />
                     {t('sidebar.systemSettings')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => useUIStore.getState().openSettingsPage('memory')}>
+                  <DropdownMenuItem
+                    onClick={() => useUIStore.getState().openSettingsPage('memory')}
+                  >
                     <BookOpen className="size-4" />
                     {t('sidebar.memoryLabel', { defaultValue: '记忆' })}
                   </DropdownMenuItem>
@@ -804,14 +907,19 @@ export function WorkspaceSidebar(): React.JSX.Element {
             <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2.5">
               {filteredProjects.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">
-                  {searchQuery ? t('sidebar.noMatches') : t('sidebar.noProjects', { defaultValue: '还没有项目' })}
+                  {searchQuery
+                    ? t('sidebar.noMatches')
+                    : t('sidebar.noProjects', { defaultValue: '还没有项目' })}
                 </div>
               ) : (
                 <div className="space-y-0.5">
                   {filteredProjects.map((project) => {
                     const icon = deriveProjectIcon(project.id, sessions)
-                    const count = sessions.filter((session) => session.projectId === project.id).length
+                    const count = sessions.filter(
+                      (session) => session.projectId === project.id
+                    ).length
                     const isActive = activeProjectId === project.id && chatView !== 'home'
+                    const isRunning = runningProjectIds.has(project.id)
                     return (
                       <div
                         key={project.id}
@@ -835,11 +943,16 @@ export function WorkspaceSidebar(): React.JSX.Element {
                           </div>
                         </button>
                         <div className="flex shrink-0 items-center gap-1">
+                          {isRunning && <Loader2 className="size-3.5 animate-spin text-blue-500" />}
                           {project.pinned && <Pin className="size-3.5 text-amber-500" />}
                           <span className="text-[10px] text-muted-foreground">{count}</span>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="size-7 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                              >
                                 <MoreHorizontal className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -849,12 +962,14 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                 {t('sidebar.openProject', { defaultValue: '打开项目' })}
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                onClick={() =>
-                                  startRename({
-                                    type: 'project',
-                                    id: project.id,
-                                    currentName: project.name
-                                  })
+                                onSelect={() =>
+                                  deferDropdownAction(() =>
+                                    startRename({
+                                      type: 'project',
+                                      id: project.id,
+                                      currentName: project.name
+                                    })
+                                  )
                                 }
                               >
                                 <Pencil className="size-4" />
@@ -865,24 +980,34 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                   togglePinProject(project.id)
                                   toast.success(
                                     project.pinned
-                                      ? t('sidebar_toast.projectUnpinned', { defaultValue: '项目已取消置顶' })
-                                      : t('sidebar_toast.projectPinned', { defaultValue: '项目已置顶' })
+                                      ? t('sidebar_toast.projectUnpinned', {
+                                          defaultValue: '项目已取消置顶'
+                                        })
+                                      : t('sidebar_toast.projectPinned', {
+                                          defaultValue: '项目已置顶'
+                                        })
                                   )
                                 }}
                               >
-                                {project.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+                                {project.pinned ? (
+                                  <PinOff className="size-4" />
+                                ) : (
+                                  <Pin className="size-4" />
+                                )}
                                 {project.pinned ? tCommon('action.unpin') : t('sidebar.pinToTop')}
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 variant="destructive"
-                                onClick={() =>
-                                  setDeleteTarget({
-                                    type: 'project',
-                                    id: project.id,
-                                    name: project.name,
-                                    sessionCount: count
-                                  })
+                                onSelect={() =>
+                                  deferDropdownAction(() =>
+                                    setDeleteTarget({
+                                      type: 'project',
+                                      id: project.id,
+                                      name: project.name,
+                                      sessionCount: count
+                                    })
+                                  )
                                 }
                               >
                                 <Trash2 className="size-4" />
@@ -901,27 +1026,34 @@ export function WorkspaceSidebar(): React.JSX.Element {
         )}
 
         <div className="mt-auto px-2 py-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-8 rounded-full">
-                <CircleHelp className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" className="w-44">
-              <DropdownMenuItem onClick={() => useUIStore.getState().openSettingsPage('general')}>
-                <Settings className="size-4" />
-                {t('sidebar.systemSettings')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleOpenDocs}>
-                <BookOpen className="size-4" />
-                {t('sidebar.docsTitle', { defaultValue: '使用文档' })}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleOpenChangelog}>
-                <History className="size-4" />
-                {t('sidebar.changelogTitle', { defaultValue: '更新日志' })}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex flex-col gap-1.5">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-8 rounded-full">
+                  <CircleHelp className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" className="w-44">
+                <DropdownMenuItem onSelect={() => deferDropdownAction(handleOpenDocs)}>
+                  <BookOpen className="size-4" />
+                  {t('sidebar.docsTitle', { defaultValue: '使用文档' })}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => deferDropdownAction(handleOpenChangelog)}>
+                  <History className="size-4" />
+                  {t('sidebar.changelogTitle', { defaultValue: '更新日志' })}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Button
+              variant="ghost"
+              className="h-8 w-full justify-start gap-2 px-2.5 text-[12px] text-foreground/80 hover:bg-muted/40"
+              onClick={() => useUIStore.getState().openSettingsPage('general')}
+            >
+              <Settings className="size-4" />
+              {t('sidebar.systemSettings')}
+            </Button>
+          </div>
         </div>
 
         <div

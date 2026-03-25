@@ -55,6 +55,8 @@ function getGoogleThoughtSignature(
   return typeof signature === 'string' && signature.trim() ? signature : undefined
 }
 
+const OPENAI_COMPAT_TERMINAL_GRACE_MS = 1500
+
 class OpenAIChatProvider implements APIProvider {
   readonly name = 'OpenAI Chat Completions'
   readonly type = 'openai-chat' as const
@@ -149,137 +151,264 @@ class OpenAIChatProvider implements APIProvider {
       }
     >()
     let lastGoogleThoughtSignature: string | undefined
-
-    streamLoop: for await (const sse of ipcStreamRequest({
-      url,
-      method: 'POST',
-      headers,
-      body: bodyStr,
-      signal,
-      useSystemProxy: config.useSystemProxy,
-      providerId: config.providerId,
-      providerBuiltinId: config.providerBuiltinId
-    })) {
-      if (!sse.data || sse.data === '[DONE]') break
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let data: any
-      try {
-        data = JSON.parse(sse.data)
-      } catch {
-        continue
+    const streamAbortController = new AbortController()
+    let compatTerminalTimer: ReturnType<typeof setTimeout> | null = null
+    const clearCompatTerminalTimer = (): void => {
+      if (compatTerminalTimer) {
+        clearTimeout(compatTerminalTimer)
+        compatTerminalTimer = null
       }
-      const choice = data.choices?.[0]
+    }
+    const scheduleCompatTerminalClose = (): void => {
+      if (isOpenAI || compatTerminalTimer) return
+      compatTerminalTimer = setTimeout(() => {
+        streamAbortController.abort()
+      }, OPENAI_COMPAT_TERMINAL_GRACE_MS)
+    }
+    const abortRelay = (): void => {
+      clearCompatTerminalTimer()
+      streamAbortController.abort()
+    }
+    signal?.addEventListener('abort', abortRelay, { once: true })
 
-      if (!choice) {
-        if (data.usage) {
-          outputTokens = data.usage.completion_tokens ?? outputTokens
+    try {
+      streamLoop: for await (const sse of ipcStreamRequest({
+        url,
+        method: 'POST',
+        headers,
+        body: bodyStr,
+        signal: streamAbortController.signal,
+        useSystemProxy: config.useSystemProxy,
+        providerId: config.providerId,
+        providerBuiltinId: config.providerBuiltinId
+      })) {
+        clearCompatTerminalTimer()
+        if (!sse.data || sse.data === '[DONE]') break
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let data: any
+        try {
+          data = JSON.parse(sse.data)
+        } catch {
+          continue
+        }
+        const choice = data.choices?.[0]
+
+        if (!choice) {
+          if (data.usage) {
+            outputTokens = data.usage.completion_tokens ?? outputTokens
+            const requestCompletedAt = Date.now()
+            yield {
+              type: 'message_end',
+              usage: {
+                inputTokens: data.usage.prompt_tokens ?? 0,
+                outputTokens: data.usage.completion_tokens ?? 0,
+                ...(data.usage.completion_tokens_details?.reasoning_tokens
+                  ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
+                  : {})
+              },
+              timing: {
+                totalMs: requestCompletedAt - requestStartedAt,
+                ttftMs: firstTokenAt ? firstTokenAt - requestStartedAt : undefined,
+                tps: computeTps(outputTokens, firstTokenAt, requestCompletedAt)
+              }
+            }
+          }
+          continue
+        }
+
+        const delta = choice.delta
+
+        if (delta?.reasoning_content) {
+          if (firstTokenAt === null) firstTokenAt = Date.now()
+          yield { type: 'thinking_delta', thinking: delta.reasoning_content }
+        }
+
+        if (delta?.reasoning_encrypted_content && isGoogleCompatible) {
+          yield {
+            type: 'thinking_encrypted',
+            thinkingEncryptedContent: delta.reasoning_encrypted_content,
+            thinkingEncryptedProvider: 'google'
+          }
+        }
+
+        if (delta?.content) {
+          if (firstTokenAt === null) firstTokenAt = Date.now()
+          yield { type: 'text_delta', text: delta.content }
+        }
+
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0
+            const googleThoughtSignature = isGoogleCompatible
+              ? getGoogleThoughtSignature(tc)
+              : undefined
+            const googleExtraContent = googleThoughtSignature
+              ? { google: { thought_signature: googleThoughtSignature } }
+              : undefined
+
+            if (googleThoughtSignature && googleThoughtSignature !== lastGoogleThoughtSignature) {
+              lastGoogleThoughtSignature = googleThoughtSignature
+              yield {
+                type: 'thinking_encrypted',
+                thinkingEncryptedContent: googleThoughtSignature,
+                thinkingEncryptedProvider: 'google'
+              }
+            }
+
+            let buf = toolBuffers.get(idx)
+
+            if (!buf) {
+              buf = {
+                id: tc.id ?? '',
+                name: tc.function?.name ?? '',
+                args: '',
+                extraContent: googleExtraContent
+              }
+              toolBuffers.set(idx, buf)
+              if (tc.id) {
+                yield {
+                  type: 'tool_call_start',
+                  toolCallId: tc.id,
+                  toolName: tc.function?.name,
+                  ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
+                }
+              }
+            } else {
+              if (googleExtraContent && !buf.extraContent) {
+                buf.extraContent = googleExtraContent
+              }
+              if (tc.id && !buf.id) {
+                buf.id = tc.id
+                yield {
+                  type: 'tool_call_start',
+                  toolCallId: tc.id,
+                  toolName: buf.name || tc.function?.name,
+                  ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
+                }
+              }
+              if (tc.function?.name && !buf.name) buf.name = tc.function.name
+            }
+
+            if (tc.function?.arguments) {
+              buf.args += tc.function.arguments
+              yield {
+                type: 'tool_call_delta',
+                toolCallId: buf.id || undefined,
+                argumentsDelta: tc.function.arguments
+              }
+            }
+          }
+        }
+
+        const finishReason = choice.finish_reason as string | null | undefined
+
+        if (finishReason === 'tool_calls' || finishReason === 'function_call') {
+          for (const [, buf] of toolBuffers) {
+            if (!buf.id) continue
+            try {
+              yield {
+                type: 'tool_call_end',
+                toolCallId: buf.id,
+                toolName: buf.name,
+                toolCallInput: JSON.parse(buf.args),
+                ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
+              }
+            } catch {
+              yield {
+                type: 'tool_call_end',
+                toolCallId: buf.id,
+                toolName: buf.name,
+                toolCallInput: {},
+                ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
+              }
+            }
+          }
+          toolBuffers.clear()
+          // Some OpenAI-compatible providers never close SSE after a terminal chunk.
+          // Give them a short grace window to send a follow-up usage chunk, then end locally.
+          if (!isOpenAI) {
+            if (data.usage) break streamLoop
+            scheduleCompatTerminalClose()
+          }
+        }
+
+        // Compatibility fallback:
+        // Some providers incorrectly return stop/length while still buffering tool args.
+        if (
+          finishReason &&
+          finishReason !== 'tool_calls' &&
+          finishReason !== 'function_call' &&
+          toolBuffers.size > 0
+        ) {
+          for (const [, buf] of toolBuffers) {
+            if (!buf.id) continue
+            try {
+              yield {
+                type: 'tool_call_end',
+                toolCallId: buf.id,
+                toolName: buf.name,
+                toolCallInput: JSON.parse(buf.args)
+              }
+            } catch {
+              yield {
+                type: 'tool_call_end',
+                toolCallId: buf.id,
+                toolName: buf.name,
+                toolCallInput: {}
+              }
+            }
+          }
+          toolBuffers.clear()
+          if (!isOpenAI) {
+            if (data.usage) break streamLoop
+            scheduleCompatTerminalClose()
+          }
+        }
+
+        if (finishReason === 'stop') {
           const requestCompletedAt = Date.now()
+          if (data.usage) {
+            outputTokens = data.usage.completion_tokens ?? outputTokens
+          }
+          // Some providers include usage in the same chunk as finish_reason:'stop'
           yield {
             type: 'message_end',
-            usage: {
-              inputTokens: data.usage.prompt_tokens ?? 0,
-              outputTokens: data.usage.completion_tokens ?? 0,
-              ...(data.usage.completion_tokens_details?.reasoning_tokens
-                ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
-                : {})
-            },
+            stopReason: 'stop',
+            ...(data.usage
+              ? {
+                  usage: {
+                    inputTokens: data.usage.prompt_tokens ?? 0,
+                    outputTokens: data.usage.completion_tokens ?? 0,
+                    ...(data.usage.completion_tokens_details?.reasoning_tokens
+                      ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
+                      : {})
+                  }
+                }
+              : {}),
             timing: {
               totalMs: requestCompletedAt - requestStartedAt,
               ttftMs: firstTokenAt ? firstTokenAt - requestStartedAt : undefined,
               tps: computeTps(outputTokens, firstTokenAt, requestCompletedAt)
             }
           }
-        }
-        continue
-      }
-
-      const delta = choice.delta
-
-      if (delta?.reasoning_content) {
-        if (firstTokenAt === null) firstTokenAt = Date.now()
-        yield { type: 'thinking_delta', thinking: delta.reasoning_content }
-      }
-
-      if (delta?.reasoning_encrypted_content && isGoogleCompatible) {
-        yield {
-          type: 'thinking_encrypted',
-          thinkingEncryptedContent: delta.reasoning_encrypted_content,
-          thinkingEncryptedProvider: 'google'
-        }
-      }
-
-      if (delta?.content) {
-        if (firstTokenAt === null) firstTokenAt = Date.now()
-        yield { type: 'text_delta', text: delta.content }
-      }
-
-      if (delta?.tool_calls) {
-        for (const tc of delta.tool_calls) {
-          const idx = tc.index ?? 0
-          const googleThoughtSignature = isGoogleCompatible
-            ? getGoogleThoughtSignature(tc)
-            : undefined
-          const googleExtraContent = googleThoughtSignature
-            ? { google: { thought_signature: googleThoughtSignature } }
-            : undefined
-
-          if (googleThoughtSignature && googleThoughtSignature !== lastGoogleThoughtSignature) {
-            lastGoogleThoughtSignature = googleThoughtSignature
-            yield {
-              type: 'thinking_encrypted',
-              thinkingEncryptedContent: googleThoughtSignature,
-              thinkingEncryptedProvider: 'google'
-            }
+          // OpenAI-compatible providers may keep connection open after stop.
+          // Keep a brief window for a trailing usage chunk, then close locally.
+          if (!isOpenAI) {
+            if (data.usage) break streamLoop
+            scheduleCompatTerminalClose()
           }
+        }
 
-          let buf = toolBuffers.get(idx)
-
-          if (!buf) {
-            buf = {
-              id: tc.id ?? '',
-              name: tc.function?.name ?? '',
-              args: '',
-              extraContent: googleExtraContent
-            }
-            toolBuffers.set(idx, buf)
-            if (tc.id) {
-              yield {
-                type: 'tool_call_start',
-                toolCallId: tc.id,
-                toolName: tc.function?.name,
-                ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
-              }
-            }
-          } else {
-            if (googleExtraContent && !buf.extraContent) {
-              buf.extraContent = googleExtraContent
-            }
-            if (tc.id && !buf.id) {
-              buf.id = tc.id
-              yield {
-                type: 'tool_call_start',
-                toolCallId: tc.id,
-                toolName: buf.name || tc.function?.name,
-                ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
-              }
-            }
-            if (tc.function?.name && !buf.name) buf.name = tc.function.name
-          }
-
-          if (tc.function?.arguments) {
-            buf.args += tc.function.arguments
-            yield {
-              type: 'tool_call_delta',
-              toolCallId: buf.id || undefined,
-              argumentsDelta: tc.function.arguments
-            }
+        if (finishReason === 'length' || finishReason === 'content_filter') {
+          if (!isOpenAI) {
+            if (data.usage) break streamLoop
+            scheduleCompatTerminalClose()
           }
         }
       }
 
-      const finishReason = choice.finish_reason as string | null | undefined
-
-      if (finishReason === 'tool_calls' || finishReason === 'function_call') {
+      // Flush remaining tool buffers for providers that don't send finish_reason:'tool_calls'
+      if (toolBuffers.size > 0) {
         for (const [, buf] of toolBuffers) {
           if (!buf.id) continue
           try {
@@ -301,103 +430,10 @@ class OpenAIChatProvider implements APIProvider {
           }
         }
         toolBuffers.clear()
-        // Some OpenAI-compatible providers don't terminate SSE after tool_calls finish_reason.
-        // Only break early if usage was already included; otherwise continue to capture
-        // the separate usage chunk that many providers send after finish_reason.
-        if (!isOpenAI && data.usage) break streamLoop
       }
-
-      // Compatibility fallback:
-      // Some providers incorrectly return stop/length while still buffering tool args.
-      if (
-        finishReason &&
-        finishReason !== 'tool_calls' &&
-        finishReason !== 'function_call' &&
-        toolBuffers.size > 0
-      ) {
-        for (const [, buf] of toolBuffers) {
-          if (!buf.id) continue
-          try {
-            yield {
-              type: 'tool_call_end',
-              toolCallId: buf.id,
-              toolName: buf.name,
-              toolCallInput: JSON.parse(buf.args)
-            }
-          } catch {
-            yield {
-              type: 'tool_call_end',
-              toolCallId: buf.id,
-              toolName: buf.name,
-              toolCallInput: {}
-            }
-          }
-        }
-        toolBuffers.clear()
-        if (!isOpenAI && data.usage) break streamLoop
-      }
-
-      if (finishReason === 'stop') {
-        const requestCompletedAt = Date.now()
-        if (data.usage) {
-          outputTokens = data.usage.completion_tokens ?? outputTokens
-        }
-        // Some providers include usage in the same chunk as finish_reason:'stop'
-        yield {
-          type: 'message_end',
-          stopReason: 'stop',
-          ...(data.usage
-            ? {
-                usage: {
-                  inputTokens: data.usage.prompt_tokens ?? 0,
-                  outputTokens: data.usage.completion_tokens ?? 0,
-                  ...(data.usage.completion_tokens_details?.reasoning_tokens
-                    ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
-                    : {})
-                }
-              }
-            : {}),
-          timing: {
-            totalMs: requestCompletedAt - requestStartedAt,
-            ttftMs: firstTokenAt ? firstTokenAt - requestStartedAt : undefined,
-            tps: computeTps(outputTokens, firstTokenAt, requestCompletedAt)
-          }
-        }
-        // OpenAI-compatible providers may keep connection open after stop.
-        // Only break early if usage was already included in this chunk;
-        // otherwise continue reading to capture the separate usage chunk
-        // that many providers (e.g. Kimi, DeepSeek) send after stop.
-        if (!isOpenAI && data.usage) break streamLoop
-      }
-
-      if ((finishReason === 'length' || finishReason === 'content_filter') && !isOpenAI) {
-        if (data.usage) break streamLoop
-      }
-    }
-
-    // Flush remaining tool buffers for providers that don't send finish_reason:'tool_calls'
-    if (toolBuffers.size > 0) {
-      for (const [, buf] of toolBuffers) {
-        if (!buf.id) continue
-        try {
-          yield {
-            type: 'tool_call_end',
-            toolCallId: buf.id,
-            toolName: buf.name,
-            toolCallInput: JSON.parse(buf.args),
-            ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
-          }
-        } catch {
-          yield {
-            type: 'tool_call_end',
-            toolCallId: buf.id,
-            toolName: buf.name,
-            toolCallInput: {},
-            ...(buf.extraContent ? { toolCallExtraContent: buf.extraContent } : {})
-          }
-        }
-      }
-      toolBuffers.clear()
+    } finally {
+      clearCompatTerminalTimer()
+      signal?.removeEventListener('abort', abortRelay)
     }
   }
 

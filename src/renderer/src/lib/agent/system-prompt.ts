@@ -480,7 +480,7 @@ export function buildSystemPrompt(options: {
     if (workingFolder) {
       parts.push(
         `\n<memory_file>`,
-        `Project memory files live under the working directory (for example \`${workingFolder}/AGENTS.md\`, \`${workingFolder}/SOUL.md\`, \`${workingFolder}/USER.md\`, \`${workingFolder}/MEMORY.md\`, and \`${workingFolder}/memory/YYYY-MM-DD.md\`).`,
+        `Project memory files live under the working directory, preferably in \`${workingFolder}/.agents/\` (for example \`${workingFolder}/.agents/AGENTS.md\`, \`${workingFolder}/.agents/SOUL.md\`, \`${workingFolder}/.agents/USER.md\`, \`${workingFolder}/.agents/MEMORY.md\`, and \`${workingFolder}/.agents/memory/YYYY-MM-DD.md\`). Legacy root-level files like \`${workingFolder}/AGENTS.md\` are still supported for compatibility.`,
         `Use \`AGENTS.md\` as workspace protocol. Project SOUL/USER/MEMORY files refine or override the global layer for this workspace only.`,
         `Read before editing, preserve structure, and avoid storing secrets or unrelated temporary notes.`,
         `</memory_file>`

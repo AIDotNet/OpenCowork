@@ -226,7 +226,9 @@ interface FileSearchItem {
 
 const EMPTY_QUEUED_MESSAGES: PendingSessionMessageItem[] = []
 const EMPTY_SESSION_MESSAGES: UnifiedMessage[] = []
+const INTERNAL_FILE_DRAG_MIME = 'application/x-opencowork-file-paths'
 const MIN_INPUT_HEIGHT = 120
+const HOME_INPUT_MIN_HEIGHT = 220
 const DEFAULT_SESSION_INPUT_HEIGHT = 160
 const MAX_INPUT_HEIGHT = 500
 const MIN_MESSAGE_LIST_HEIGHT = 120
@@ -313,9 +315,11 @@ export function InputArea({
   const { t } = useTranslation('chat')
   const chatView = useUIStore((s) => s.chatView)
   const isHomeComposer = chatView === 'home'
-  const minComposerHeight = isHomeComposer ? HOME_INPUT_MIN_HEIGHT : MIN_INPUT_HEIGHT
+  const usesExpandedComposerHeight = chatView === 'home' || chatView === 'project'
+  const minComposerHeight = usesExpandedComposerHeight ? HOME_INPUT_MIN_HEIGHT : MIN_INPUT_HEIGHT
   const [documentNodes, setDocumentNodes] = React.useState<EditorDocumentNode[]>([])
   const [selectedFiles, setSelectedFiles] = React.useState<SelectedFileItem[]>([])
+  const [highlightedFileId, setHighlightedFileId] = React.useState<string | null>(null)
   const [editorSelection, setEditorSelection] = React.useState({ start: 0, end: 0 })
   const text = React.useMemo(
     () => editorDocumentToPlainText(documentNodes, selectedFiles),
@@ -345,7 +349,6 @@ export function InputArea({
   const clarifyAutoAcceptRecommended = useSettingsStore(
     (state) => state.clarifyAutoAcceptRecommended
   )
-  const chatView = useUIStore((s) => s.chatView)
   const contentScrollRef = React.useRef<HTMLDivElement>(null)
   const editorRef = React.useRef<FileAwareEditorHandle | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -354,6 +357,7 @@ export function InputArea({
   const [inputHeight, setInputHeight] = React.useState<number | null>(() =>
     chatView === 'session' ? DEFAULT_SESSION_INPUT_HEIGHT : null
   )
+  const [autoInputHeight, setAutoInputHeight] = React.useState<number>(() => minComposerHeight)
   const dragRef = React.useRef<{ startY: number; startH: number; maxH: number } | null>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
   const textRef = React.useRef(text)
@@ -701,6 +705,14 @@ export function InputArea({
     selectedFilesRef.current = selectedFiles
   }, [selectedFiles])
 
+  React.useEffect(() => {
+    if (!highlightedFileId) return
+    const timer = window.setTimeout(() => {
+      setHighlightedFileId((current) => (current === highlightedFileId ? null : current))
+    }, 1600)
+    return () => window.clearTimeout(timer)
+  }, [highlightedFileId])
+
   const applyEditorStateFromSerializedText = React.useCallback(
     (nextText: string, baseFiles: SelectedFileItem[] = selectedFilesRef.current) => {
       const nextState = deserializeEditorState(nextText, workingFolder, baseFiles)
@@ -825,7 +837,6 @@ export function InputArea({
       .map((item) => item.command)
   }, [slashCommands, slashQuery])
   const slashMenuOpen = slashQuery !== null
-  const hasFloatingSuggestionMenu = fileMenuOpen || slashMenuOpen
 
   React.useEffect(() => {
     if (!slashMenuOpen) {
@@ -980,7 +991,6 @@ export function InputArea({
     const timeoutId = window.setTimeout(() => {
       const acceptedSuggestion = acceptSuggestion()
       if (!acceptedSuggestion) return
-      clearHistoryNavigation()
       applyEditorStateFromSerializedText(acceptedSuggestion, selectedFiles)
       setAutoAcceptCountdown(null)
       requestAnimationFrame(() => {
@@ -1150,6 +1160,12 @@ export function InputArea({
     [openFilePreview]
   )
 
+  const handleLocateFileReference = React.useCallback((fileId: string) => {
+    setHighlightedFileId(fileId)
+    editorRef.current?.scrollToReference(fileId)
+    editorRef.current?.focus()
+  }, [])
+
   const handleEditorSelectionChange = React.useCallback(
     (selection: { start: number; end: number }) => {
       setEditorSelection((current) =>
@@ -1213,6 +1229,7 @@ export function InputArea({
 
     setDocumentNodes([])
     setSelectedFiles([])
+    setHighlightedFileId(null)
     setEditorSelection({ start: 0, end: 0 })
     setAttachedImages([])
     setSelectedSkill(null)
@@ -1223,9 +1240,6 @@ export function InputArea({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.nativeEvent.isComposing || isOptimizing) return
-
-    const selectionStart = editorSelection.start
-    const selectionEnd = editorSelection.end
 
     if (fileMenuOpen) {
       if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowDown') {
@@ -1335,6 +1349,20 @@ export function InputArea({
     [addImages, editorSelection, replaceSelectionWithText, supportsVision]
   )
 
+  const getDraggedFilePaths = React.useCallback((dataTransfer: DataTransfer | null): string[] => {
+    if (!dataTransfer) return []
+    const payload = dataTransfer.getData(INTERNAL_FILE_DRAG_MIME)
+    if (!payload) return []
+
+    try {
+      const parsed = JSON.parse(payload)
+      if (!Array.isArray(parsed)) return []
+      return parsed.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    } catch {
+      return []
+    }
+  }, [])
+
   const handleDropFiles = React.useCallback(
     (fileList: FileList | null) => {
       if (!fileList || fileList.length === 0) return
@@ -1363,20 +1391,42 @@ export function InputArea({
 
   const [dragging, setDragging] = useLocalState(false)
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>): void => {
-    e.preventDefault()
-    setDragging(true)
-  }
+  const handleDragOver = React.useCallback(
+    (e: React.DragEvent<HTMLDivElement>): void => {
+      const transfer = e.dataTransfer
+      const types = Array.from(transfer?.types ?? [])
+      const canHandle = types.includes('Files') || types.includes(INTERNAL_FILE_DRAG_MIME)
+      if (!canHandle) return
+      e.preventDefault()
+      if (transfer) {
+        transfer.dropEffect = 'copy'
+      }
+      setDragging(true)
+    },
+    []
+  )
 
-  const handleDragLeave = (): void => {
+  const handleDragLeave = React.useCallback((e: React.DragEvent<HTMLDivElement>): void => {
+    const nextTarget = e.relatedTarget as Node | null
+    if (nextTarget && e.currentTarget.contains(nextTarget)) return
     setDragging(false)
-  }
+  }, [])
 
-  const handleDropWrapped = (e: React.DragEvent<HTMLDivElement>): void => {
-    e.preventDefault()
-    setDragging(false)
-    handleDropFiles(e.dataTransfer?.files ?? null)
-  }
+  const handleDropWrapped = React.useCallback(
+    (e: React.DragEvent<HTMLDivElement>): void => {
+      const draggedPaths = getDraggedFilePaths(e.dataTransfer)
+      const hasNativeFiles = (e.dataTransfer?.files?.length ?? 0) > 0
+      if (draggedPaths.length === 0 && !hasNativeFiles) return
+      e.preventDefault()
+      setDragging(false)
+      if (draggedPaths.length > 0) {
+        addFilesToEditor(draggedPaths)
+        return
+      }
+      handleDropFiles(e.dataTransfer?.files ?? null)
+    },
+    [addFilesToEditor, getDraggedFilePaths, handleDropFiles]
+  )
 
   // Optimize prompt handler
   const handleOptimizePrompt = React.useCallback(async () => {
@@ -1556,7 +1606,11 @@ export function InputArea({
         <div
           ref={containerRef}
           className={`relative rounded-lg border bg-background shadow-lg transition-shadow focus-within:shadow-xl focus-within:ring-1 focus-within:ring-ring/20 flex flex-col ${dragging ? 'ring-2 ring-primary/50' : ''}`}
-          style={inputHeight !== null ? { height: inputHeight } : { maxHeight: autoMaxInputHeight }}
+          style={
+            inputHeight !== null
+              ? { height: inputHeight }
+              : { height: autoInputHeight, maxHeight: autoMaxInputHeight }
+          }
         >
           {/* Top drag handle */}
           {!isHomeComposer && (
@@ -1988,6 +2042,7 @@ export function InputArea({
                   !activeFileMention &&
                   !slashMenuOpen
                 )}
+                highlightedFileId={highlightedFileId}
                 onDocumentChange={handleEditorDocumentChange}
                 onSelectionChange={handleEditorSelectionChange}
                 onFocus={handleRecommendationFocus}
@@ -1999,6 +2054,7 @@ export function InputArea({
                   handleRecommendationCompositionEnd()
                 }}
                 onReferencePreview={handlePreviewFile}
+                onReferenceLocate={handleLocateFileReference}
                 onReferenceDelete={handleRemoveFileReference}
                 className={cn(
                   'w-full',

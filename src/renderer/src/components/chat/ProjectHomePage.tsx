@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CircleHelp,
   Briefcase,
@@ -15,7 +15,6 @@ import {
   PanelLeftOpen,
   Plus
 } from 'lucide-react'
-import { DynamicIcon } from 'lucide-react/dynamic'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@renderer/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
@@ -81,23 +80,6 @@ interface DesktopDirectoryErrorResult {
 
 type DesktopDirectoryResult = DesktopDirectorySuccessResult | DesktopDirectoryErrorResult
 
-function deriveProjectIcon(
-  projectId: string | null,
-  sessions: ReturnType<typeof useChatStore.getState>['sessions']
-): string | undefined {
-  if (!projectId) return undefined
-  const inProject = sessions.filter((session) => session.projectId === projectId)
-  const recentIcon = inProject
-    .slice()
-    .sort((left, right) => right.updatedAt - left.updatedAt)
-    .find((session) => session.icon)?.icon
-  if (recentIcon) return recentIcon
-  return inProject
-    .slice()
-    .sort((left, right) => left.createdAt - right.createdAt)
-    .find((session) => session.icon)?.icon
-}
-
 export function ProjectHomePage(): React.JSX.Element {
   const { t } = useTranslation('chat')
   const { t: tCommon } = useTranslation('common')
@@ -108,14 +90,12 @@ export function ProjectHomePage(): React.JSX.Element {
   const toggleLeftSidebar = useUIStore((state) => state.toggleLeftSidebar)
   const activeProjectId = useChatStore((state) => state.activeProjectId)
   const projects = useChatStore((state) => state.projects)
-  const sessions = useChatStore((state) => state.sessions)
   const setActiveProject = useChatStore((state) => state.setActiveProject)
   const createProject = useChatStore((state) => state.createProject)
   const updateProjectDirectory = useChatStore((state) => state.updateProjectDirectory)
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null
   const workingFolder = activeProject?.workingFolder
   const sshConnectionId = activeProject?.sshConnectionId
-  const projectIcon = deriveProjectIcon(activeProjectId, sessions)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
   const [desktopDirectories, setDesktopDirectories] = useState<DesktopDirectoryOption[]>([])
   const [desktopDirectoriesLoading, setDesktopDirectoriesLoading] = useState(false)
@@ -226,10 +206,6 @@ export function ProjectHomePage(): React.JSX.Element {
   }
 
   const normalizedWorkingFolder = workingFolder?.toLowerCase()
-  const sessionCount = useMemo(
-    () => sessions.filter((session) => session.projectId === activeProjectId).length,
-    [activeProjectId, sessions]
-  )
 
   if (!activeProject) {
     return (
@@ -324,19 +300,8 @@ export function ProjectHomePage(): React.JSX.Element {
         </div>
 
         <div className="flex flex-1 flex-col items-center justify-center py-6">
-          <div className="flex size-20 items-center justify-center rounded-[28px] border border-border/60 bg-muted/30 shadow-xl">
-            {projectIcon ? (
-              <DynamicIcon name={projectIcon as never} className="size-10 text-foreground" />
-            ) : (
-              <FolderOpen className="size-10 text-foreground" />
-            )}
-          </div>
-          <div className="mt-6 text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-3 py-1 text-xs text-muted-foreground">
-              <span>{sessionCount}</span>
-              <span>{t('projectHome.sessionsCount', { defaultValue: '个会话' })}</span>
-            </div>
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+          <div className="text-center">
+            <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
               {activeProject.name}
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">

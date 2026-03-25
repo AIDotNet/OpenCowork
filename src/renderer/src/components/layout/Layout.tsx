@@ -786,7 +786,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     !translatePageOpen &&
     !sshPageOpen
   const showEmbeddedSidebar = leftSidebarOpen
-  const showGlobalExpandButton = !leftSidebarOpen && !chatSurfaceActive
+  const showGlobalExpandButton = !leftSidebarOpen && !chatSurfaceActive && !settingsPageOpen
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -806,14 +806,22 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
             </AnimatePresence>
 
             {showGlobalExpandButton && (
-              <div className="absolute left-3 top-3 z-20">
+              <div className="titlebar-no-drag absolute left-3 top-3 z-20">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-8 rounded-lg border border-border/60 bg-background/80 backdrop-blur-sm"
-                      onClick={toggleLeftSidebar}
+                      className="titlebar-no-drag size-8 rounded-lg border border-border/60 bg-background/80 backdrop-blur-sm"
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        toggleLeftSidebar()
+                      }}
                     >
                       <PanelLeftOpen className="size-4" />
                     </Button>

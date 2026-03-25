@@ -1,10 +1,32 @@
 import type { Components } from 'react-markdown'
+import { IPC } from '../../ipc/channels'
+import { ipcClient } from '../../ipc/ipc-client'
 import { MermaidBlock } from './MermaidBlock'
 
 export function createMarkdownComponents(filePath?: string): Components {
   const fileDir = filePath ? filePath.replace(/[\\/][^\\/]*$/, '') : ''
 
   return {
+    a: ({ href, children, ...props }) => {
+      const link = href?.trim() || ''
+      const isExternalHttpLink = /^https?:\/\//i.test(link)
+
+      return (
+        <a
+          {...props}
+          href={link || href}
+          className="text-primary underline underline-offset-2 hover:text-primary/80 break-all"
+          title={link || href}
+          onClick={(event) => {
+            if (!isExternalHttpLink) return
+            event.preventDefault()
+            void ipcClient.invoke(IPC.SHELL_OPEN_EXTERNAL, link)
+          }}
+        >
+          {children}
+        </a>
+      )
+    },
     p: ({ children, ...props }) => (
       <p className="whitespace-pre-wrap break-words" {...props}>
         {children}

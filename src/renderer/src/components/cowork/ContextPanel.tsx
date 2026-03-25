@@ -83,8 +83,17 @@ export function ContextPanel(): React.JSX.Element {
   )
   const stopBackgroundProcess = useAgentStore((s) => s.stopBackgroundProcess)
   const openDetailPanel = useUIStore((s) => s.openDetailPanel)
-  const activeProvider = useProviderStore((s) => s.getActiveProvider())
-  const activeModelCfg = useProviderStore((s) => s.getActiveModelConfig())
+  const providerState = useProviderStore(
+    useShallow((s) => ({
+      providers: s.providers,
+      activeProviderId: s.activeProviderId,
+      activeModelId: s.activeModelId
+    }))
+  )
+  const activeProvider =
+    providerState.providers.find((provider) => provider.id === providerState.activeProviderId) ?? null
+  const activeModelCfg =
+    activeProvider?.models.find((model) => model.id === providerState.activeModelId) ?? null
   const fallbackProvider = useSettingsStore((s) => s.provider)
   const fallbackModel = useSettingsStore((s) => s.model)
   const provider = activeProvider?.name ?? fallbackProvider

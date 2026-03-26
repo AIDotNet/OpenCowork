@@ -492,10 +492,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       if (!targetSessionId) {
         return {
           previewPanelOpen: true,
-          previewPanelState: nextPreviewState,
-          leftSidebarOpen: false,
-          rightPanelTab: 'preview',
-          rightPanelOpen: true
+          previewPanelState: nextPreviewState
         }
       }
 
@@ -511,10 +508,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       return {
         previewPanelsBySession: nextPreviewPanelsBySession,
         previewPanelOpen: true,
-        previewPanelState: nextPreviewState,
-        leftSidebarOpen: false,
-        rightPanelTab: 'preview',
-        rightPanelOpen: true
+        previewPanelState: nextPreviewState
       }
     }),
   openDevServerPreview: (projectDir, port, sessionId) =>

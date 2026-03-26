@@ -7,6 +7,7 @@ import { Button } from '@renderer/components/ui/button'
 import { CodeEditor } from '@renderer/components/editor/CodeEditor'
 import { createSshWorkspace, getParentPath } from '@renderer/lib/monaco/workspace'
 import { useSshStore } from '@renderer/stores/ssh-store'
+import { useUIStore } from '@renderer/stores/ui-store'
 import { toast } from 'sonner'
 import { cn } from '@renderer/lib/utils'
 
@@ -54,10 +55,6 @@ export function SshFileEditor({
         explorerPath ?? connectionDefaultDirectory ?? getParentPath(filePath)
       ),
     [connectionDefaultDirectory, connectionId, explorerPath, filePath]
-  )
-
-  const connectionName = useSshStore(
-    (s) => s.connections.find((connection) => connection.id === connectionId)?.name ?? connectionId
   )
 
   const fileName = React.useMemo(() => {
@@ -132,28 +129,9 @@ export function SshFileEditor({
 
   const handleOpenFile = React.useCallback(
     (targetPath: string) => {
-      const store = useSshStore.getState()
-      const existing = store.openTabs.find(
-        (tab) =>
-          tab.type === 'file' && tab.connectionId === connectionId && tab.filePath === targetPath
-      )
-      if (existing) {
-        store.setActiveTab(existing.id)
-        return
-      }
-
-      const targetName = targetPath.split('/').pop() || targetPath
-      store.openTab({
-        id: `file-${connectionId}-${targetPath}`,
-        type: 'file',
-        sessionId: sessionId ?? null,
-        connectionId,
-        connectionName,
-        title: targetName,
-        filePath: targetPath
-      })
+      useUIStore.getState().openFilePreview(targetPath, undefined, connectionId, sessionId)
     },
-    [connectionId, connectionName, sessionId]
+    [connectionId, sessionId]
   )
 
   if (loading) {

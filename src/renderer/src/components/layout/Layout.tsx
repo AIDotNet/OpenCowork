@@ -30,6 +30,7 @@ import { cn } from '@renderer/lib/utils'
 import { TitleBar } from './TitleBar'
 import { WorkspaceSidebar } from './WorkspaceSidebar'
 import { RightPanel } from './RightPanel'
+import { PreviewPanel } from './PreviewPanel'
 import { RIGHT_PANEL_TAB_ORDER } from './right-panel-defs'
 import { MessageList } from '@renderer/components/chat/MessageList'
 import { InputArea } from '@renderer/components/chat/InputArea'
@@ -170,6 +171,9 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const mode = useUIStore((s) => s.mode)
   const setMode = useUIStore((s) => s.setMode)
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen)
+  const previewPanelOpen = useUIStore((s) => s.previewPanelOpen)
+  const previewPanelState = useUIStore((s) => s.previewPanelState)
+  const closePreviewPanel = useUIStore((s) => s.closePreviewPanel)
   const toolbarCollapsedByDefault = useSettingsStore((s) => s.toolbarCollapsedByDefault)
   const chatView = useUIStore((s) => s.chatView)
   const activeSessionView = useChatStore(
@@ -1375,6 +1379,27 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
           </div>
         </div>
       </div>
+
+      <Dialog
+        open={previewPanelOpen && previewPanelState?.source === 'file'}
+        onOpenChange={(open) => {
+          if (!open) closePreviewPanel()
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="h-[calc(100vh-4rem)] w-[calc(100vw-4rem)] max-w-6xl overflow-hidden p-0 sm:max-w-6xl"
+          onEscapeKeyDown={(event) => event.preventDefault()}
+          onPointerDownOutside={(event) => event.preventDefault()}
+        >
+          <DialogHeader className="sr-only">
+            <DialogTitle>
+              {previewPanelState?.filePath?.split(/[\\/]/).pop() ?? 'File Preview'}
+            </DialogTitle>
+          </DialogHeader>
+          <PreviewPanel embedded />
+        </DialogContent>
+      </Dialog>
 
       <CommandPalette />
       <SettingsDialog />

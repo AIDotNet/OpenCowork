@@ -41,6 +41,7 @@ import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { toast } from 'sonner'
+import { useUIStore } from '@renderer/stores/ui-store'
 
 interface SshFileExplorerProps {
   sessionId: string
@@ -204,10 +205,6 @@ export function SshFileExplorer({
   const pageInfoByPath = useSshStore((s) => s.fileExplorerPageInfo[sessionId] ?? EMPTY_PAGEINFO_MAP)
   const expandedDirs = useSshStore((s) => s.fileExplorerExpanded[sessionId] ?? EMPTY_EXPANDED_DIRS)
   const sessionStatus = useSshStore((s) => s.sessions[sessionId]?.status)
-  const connectionName = useSshStore(
-    (s) => s.connections.find((c) => c.id === connectionId)?.name ?? connectionId
-  )
-
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [newItemParent, setNewItemParent] = useState<string | null>(null)
   const [newItemType, setNewItemType] = useState<'file' | 'directory'>('file')
@@ -464,33 +461,15 @@ export function SshFileExplorer({
     [expandedDirs, sessionId]
   )
 
-  const openFileTab = useCallback(
+  const openFilePreview = useCallback(
     (entry: SshFileEntry) => {
       if (entry.size >= FILE_SIZE_LIMIT) {
         toast.error(t('fileExplorer.tooLarge'))
         return
       }
-      const store = useSshStore.getState()
-      const existing = store.openTabs.find(
-        (tab) =>
-          tab.type === 'file' && tab.connectionId === connectionId && tab.filePath === entry.path
-      )
-      if (existing) {
-        store.setActiveTab(existing.id)
-        return
-      }
-      const tabId = `file-${connectionId}-${entry.path}`
-      store.openTab({
-        id: tabId,
-        type: 'file',
-        sessionId,
-        connectionId,
-        connectionName,
-        title: entry.name,
-        filePath: entry.path
-      })
+      useUIStore.getState().openFilePreview(entry.path, undefined, connectionId, sessionId)
     },
-    [connectionId, connectionName, sessionId, t]
+    [connectionId, sessionId, t]
   )
 
   const handleDelete = useCallback(
@@ -796,7 +775,7 @@ export function SshFileExplorer({
               className="w-full"
               onClick={() => {
                 handleSelectPath(entry.path)
-                if (!isRenaming) openFileTab(entry)
+                if (!isRenaming) openFilePreview(entry)
               }}
             >
               <FileItem icon={getFileIconComponent(entry.name)} className="text-sm">
@@ -827,7 +806,7 @@ export function SshFileExplorer({
               className="gap-2 text-xs"
               onSelect={() => {
                 handleSelectPath(entry.path)
-                openFileTab(entry)
+                openFilePreview(entry)
               }}
             >
               <FileText className="size-3.5" />

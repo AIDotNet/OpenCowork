@@ -1,5 +1,13 @@
 import { getDb } from './database'
 
+const EFFECTIVE_INPUT_TOKENS_EXPR = `COALESCE(
+  billable_input_tokens,
+  CASE
+    WHEN request_type = 'openai-responses' THEN MAX(input_tokens - COALESCE(cache_read_tokens, 0), 0)
+    ELSE input_tokens
+  END
+)`
+
 export interface UsageEventRow {
   id: string
   created_at: number
@@ -53,7 +61,9 @@ export interface UsageEventsQuery {
   offset?: number
 }
 
-export function addUsageEvent(event: Omit<UsageEventRow, 'created_at'> & { created_at?: number }): void {
+export function addUsageEvent(
+  event: Omit<UsageEventRow, 'created_at'> & { created_at?: number }
+): void {
   const db = getDb()
   db.prepare(
     `INSERT INTO usage_events (
@@ -132,12 +142,12 @@ export function getUsageOverview(query: UsageEventsQuery): Record<string, unknow
   const db = getDb()
   const { clause, params } = buildWhere(query)
   return (
-    db
+    (db
       .prepare(
         `SELECT
           COUNT(*) AS request_count,
-          COALESCE(SUM(input_tokens), 0) AS input_tokens,
-          COALESCE(SUM(billable_input_tokens), 0) AS billable_input_tokens,
+          COALESCE(SUM(${EFFECTIVE_INPUT_TOKENS_EXPR}), 0) AS input_tokens,
+          COALESCE(SUM(${EFFECTIVE_INPUT_TOKENS_EXPR}), 0) AS billable_input_tokens,
           COALESCE(SUM(output_tokens), 0) AS output_tokens,
           COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens,
           COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
@@ -148,8 +158,8 @@ export function getUsageOverview(query: UsageEventsQuery): Record<string, unknow
         FROM usage_events
         ${clause}`
       )
-      .get(...params) as Record<string, unknown>
-  ) ?? {}
+      .get(...params) as Record<string, unknown>) ?? {}
+  )
 }
 
 export function getUsageDaily(query: UsageEventsQuery): Record<string, unknown>[] {
@@ -160,8 +170,10 @@ export function getUsageDaily(query: UsageEventsQuery): Record<string, unknown>[
       `SELECT
         strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day,
         COUNT(*) AS request_count,
-        COALESCE(SUM(input_tokens), 0) AS input_tokens,
+        COALESCE(SUM(${EFFECTIVE_INPUT_TOKENS_EXPR}), 0) AS input_tokens,
         COALESCE(SUM(output_tokens), 0) AS output_tokens,
+        COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens,
+        COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
         COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd,
         AVG(ttft_ms) AS avg_ttft_ms,
         AVG(total_ms) AS avg_total_ms
@@ -184,7 +196,7 @@ export function getUsageByModel(query: UsageEventsQuery): Record<string, unknown
         provider_id,
         provider_name,
         COUNT(*) AS request_count,
-        COALESCE(SUM(input_tokens), 0) AS input_tokens,
+        COALESCE(SUM(${EFFECTIVE_INPUT_TOKENS_EXPR}), 0) AS input_tokens,
         COALESCE(SUM(output_tokens), 0) AS output_tokens,
         COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens,
         COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
@@ -211,7 +223,7 @@ export function getUsageByProvider(query: UsageEventsQuery): Record<string, unkn
         provider_builtin_id,
         provider_base_url,
         COUNT(*) AS request_count,
-        COALESCE(SUM(input_tokens), 0) AS input_tokens,
+        COALESCE(SUM(${EFFECTIVE_INPUT_TOKENS_EXPR}), 0) AS input_tokens,
         COALESCE(SUM(output_tokens), 0) AS output_tokens,
         COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens,
         COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,

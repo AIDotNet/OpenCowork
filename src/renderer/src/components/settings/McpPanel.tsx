@@ -781,7 +781,13 @@ function AddServerDialog({
 
 // ─── Main MCP Panel ───
 
-export function McpPanel({ projectId }: { projectId?: string } = {}): React.JSX.Element {
+export function McpPanel({
+  projectId,
+  showHeader = true
+}: {
+  projectId?: string
+  showHeader?: boolean
+} = {}): React.JSX.Element {
   const { t } = useTranslation('settings')
   const servers = useMcpStore((s) => s.servers)
   const selectedServerId = useMcpStore((s) => s.selectedServerId)
@@ -829,14 +835,16 @@ export function McpPanel({ projectId }: { projectId?: string } = {}): React.JSX.
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="mb-3 shrink-0">
-        <h2 className="text-lg font-semibold">{t('mcp.title')}</h2>
-        <p className="text-sm text-muted-foreground">{t('mcp.subtitle')}</p>
-      </div>
+      {showHeader && (
+        <div className="mb-3 shrink-0">
+          <h2 className="text-lg font-semibold">{t('mcp.title')}</h2>
+          <p className="text-sm text-muted-foreground">{t('mcp.subtitle')}</p>
+        </div>
+      )}
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left: Server list */}
-        <div className="w-52 shrink-0 border-r flex flex-col">
+        <div className="w-60 shrink-0 border-r flex flex-col xl:w-64">
           {/* Search + Add */}
           <div className="flex items-center gap-1 p-2 border-b">
             <div className="relative flex-1">

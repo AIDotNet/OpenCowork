@@ -334,7 +334,15 @@ function ChannelConfigPanelContent({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="truncate text-xl font-semibold text-foreground">{localName}</h3>
-                <Badge variant={status === 'running' ? 'secondary' : status === 'error' ? 'destructive' : 'outline'}>
+                <Badge
+                  variant={
+                    status === 'running'
+                      ? 'secondary'
+                      : status === 'error'
+                        ? 'destructive'
+                        : 'outline'
+                  }
+                >
                   {status === 'running'
                     ? t('channel.running', 'Running')
                     : status === 'error'
@@ -342,7 +350,9 @@ function ChannelConfigPanelContent({
                       : t('channel.stopped', 'Stopped')}
                 </Badge>
                 <Badge variant={plugin.enabled ? 'outline' : 'secondary'}>
-                  {plugin.enabled ? t('channel.enabled', '已启用') : t('channel.disabled', '已停用')}
+                  {plugin.enabled
+                    ? t('channel.enabled', '已启用')
+                    : t('channel.disabled', '已停用')}
                 </Badge>
               </div>
               <p className="mt-1 truncate text-sm text-muted-foreground">
@@ -367,455 +377,495 @@ function ChannelConfigPanelContent({
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Badge variant="outline">{t('channel.platform', '平台')} · {descriptor?.displayName ?? plugin.type}</Badge>
+          <Badge variant="outline">
+            {t('channel.platform', '平台')} · {descriptor?.displayName ?? plugin.type}
+          </Badge>
           {projectId && (
             <Badge variant={isBoundToCurrentProject ? 'secondary' : 'outline'}>
               {isBoundToCurrentProject
                 ? t('channel.boundCurrentProject', '已绑定当前项目')
-                : boundProject?.name ?? t('channel.unboundProject', '未绑定项目')}
+                : (boundProject?.name ?? t('channel.unboundProject', '未绑定项目'))}
             </Badge>
           )}
           {(localModel || globalDefaultModel?.model?.name) && (
             <Badge variant="outline">
-              {t('channel.replyModelShort', '模型')} · {localModel || globalDefaultModel?.model?.name}
+              {t('channel.replyModelShort', '模型')} ·{' '}
+              {localModel || globalDefaultModel?.model?.name}
             </Badge>
           )}
         </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-
-      {/* Bot Name */}
-      <section className="grid gap-3 border-b border-border/60 pb-5 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">{t('channel.botName', 'Channel Name')}</label>
-            <Badge variant="outline" className="px-1.5 text-[10px] font-mono">name</Badge>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {t('channel.botNameDesc', '用于在项目内识别当前聊天频道。')}
-          </p>
-        </div>
-        <Input
-          className="h-10 text-sm"
-          value={localName}
-          onChange={(e) => handleNameChange(e.target.value)}
-          placeholder={descriptor?.displayName ?? 'Plugin'}
-        />
-      </section>
-
-      {/* Config fields from schema */}
-      <div className="space-y-4 border-b border-border/60 py-5">
-        {configFields.map((field) => (
-          <section key={field.key} className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium">
-                  {t(field.label, field.key)}
-                  {field.required && <span className="text-destructive ml-0.5">*</span>}
-                </label>
-                <Badge variant="outline" className="px-1.5 text-[10px] font-mono">
-                  {field.key}
-                </Badge>
-              </div>
-              {field.placeholder && (
-                <p className="text-xs text-muted-foreground">{field.placeholder}</p>
-              )}
+        {/* Bot Name */}
+        <section className="grid gap-3 border-b border-border/60 pb-5 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">{t('channel.botName', 'Channel Name')}</label>
+              <Badge variant="outline" className="px-1.5 text-[10px] font-mono">
+                name
+              </Badge>
             </div>
-            <div className="relative">
-              <Input
-                className="h-10 pr-10 text-sm"
-                type={field.type === 'secret' && !showSecrets[field.key] ? 'password' : 'text'}
-                placeholder={field.placeholder}
-                value={localConfig[field.key] ?? ''}
-                onChange={(e) => handleConfigChange(field.key, e.target.value)}
-              />
-              {field.type === 'secret' && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-1 top-1 h-8 w-8 p-0"
-                  onClick={() => toggleSecret(field.key)}
-                >
-                  {showSecrets[field.key] ? (
-                    <EyeOff className="size-3.5" />
-                  ) : (
-                    <Eye className="size-3.5" />
-                  )}
-                </Button>
-              )}
-            </div>
-          </section>
-        ))}
-      </div>
-
-      <Separator className="mb-4" />
-
-      {/* Model override */}
-      <section className="space-y-2 mb-4">
-        <label className="text-xs font-medium">{t('channel.model', 'Reply Model')}</label>
-        <Popover open={modelPopoverOpen} onOpenChange={setModelPopoverOpen}>
-          <PopoverTrigger asChild>
-            <button className="w-full flex items-center gap-2 h-8 rounded-md border border-input bg-background px-3 text-xs hover:bg-muted/40 transition-colors text-left">
-              {localModel ? (
-                <>
-                  <ModelIcon modelId={localModel} size={12} className="shrink-0 opacity-70" />
-                  <span className="flex-1 truncate">
-                    {localModel
-                      .split('/')
-                      .pop()
-                      ?.replace(/-\d{8}$/, '') ?? localModel}
-                  </span>
-                </>
-              ) : (
-                <span className="flex-1 text-muted-foreground">
-                  {t('channel.modelDefault', 'Use global default')}
-                </span>
-              )}
-              <ChevronDown className="size-3 shrink-0 opacity-50" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-64 p-1 max-h-72 overflow-y-auto" align="start">
-            {/* Default option */}
-            <button
-              className={cn(
-                'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-muted/60 transition-colors',
-                !localModel && 'bg-muted/40 font-medium'
-              )}
-              onClick={() => {
-                handleModelChange('__default__')
-                setModelPopoverOpen(false)
-              }}
-            >
-              {!localModel ? (
-                <Check className="size-3 text-primary" />
-              ) : (
-                <span className="size-3" />
-              )}
-              <div className="flex flex-col items-start flex-1 min-w-0">
-                <span className="text-muted-foreground">
-                  {t('channel.modelDefault', 'Use global default')}
-                </span>
-                {globalDefaultModel && (
-                  <span className="text-[10px] text-muted-foreground/50 truncate w-full">
-                    {globalDefaultModel.model.name}
-                  </span>
-                )}
-              </div>
-            </button>
-            <Separator className="my-1" />
-            {enabledProviders.map((provider) => {
-              const models = provider.models.filter(
-                (m) => m.enabled && (!m.category || m.category === 'chat')
-              )
-              if (models.length === 0) return null
-              return (
-                <div key={provider.id}>
-                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 px-2 py-1 uppercase tracking-wider">
-                    <ProviderIcon builtinId={provider.builtinId} size={12} />
-                    {provider.name}
-                  </div>
-                  {models.map((m) => {
-                    const isActive = localModel === m.id && localProviderId === provider.id
-                    return (
-                      <button
-                        key={m.id}
-                        className={cn(
-                          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-muted/60 transition-colors',
-                          isActive && 'bg-muted/40 font-medium'
-                        )}
-                        onClick={() => {
-                          handleModelChange(m.id, provider.id)
-                          setModelPopoverOpen(false)
-                        }}
-                      >
-                        {isActive ? (
-                          <Check className="size-3 text-primary shrink-0" />
-                        ) : (
-                          <ModelIcon
-                            icon={m.icon}
-                            modelId={m.id}
-                            providerBuiltinId={provider.builtinId}
-                            size={12}
-                            className="opacity-60 shrink-0"
-                          />
-                        )}
-                        <span className="truncate">{m.name || m.id.replace(/-\d{8}$/, '')}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )
-            })}
-          </PopoverContent>
-        </Popover>
-        <p className="text-[10px] text-muted-foreground">
-          {t(
-            'channel.modelHint',
-            'Model used for auto-reply. Leave default to use the globally active model.'
-          )}
-        </p>
-      </section>
-
-      <section className="border-b border-border/60 py-5">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium">{t('channel.advanced', '高级设置')}</p>
             <p className="text-xs text-muted-foreground">
-              {t('channel.advancedDesc', '按需展开回复策略、工具能力和权限边界。')}
+              {t('channel.botNameDesc', '用于在项目内识别当前聊天频道。')}
             </p>
           </div>
-          <Badge variant="outline">{t('channel.advancedHint', '可折叠')}</Badge>
-        </div>
-        <Accordion type="multiple" defaultValue={['features']} className="w-full">
-          <AccordionItem value="features" className="border-border/60">
-            <AccordionTrigger className="py-3 hover:no-underline">
-              <div>
-                <div className="text-sm font-medium">{t('channel.features', 'Features')}</div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t('channel.featuresDesc', '自动回复、流式回复和自动启动策略。')}
-                </p>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent className="space-y-3">
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">{t('channel.autoReply', 'Auto Reply')}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t(
-                      'channel.autoReplyDesc',
-                      'Automatically reply to incoming messages using the Agent'
-                    )}
-                  </p>
-                </div>
-                <Switch
-                  checked={localFeatures.autoReply}
-                  onCheckedChange={(v) => handleFeatureToggle('autoReply', v)}
-                  className="scale-75"
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">{t('channel.streamingReply', 'Streaming Reply')}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t(
-                      'channel.streamingReplyDesc',
-                      'Stream responses in real-time via CardKit (Feishu only)'
-                    )}
-                  </p>
-                </div>
-                <Switch
-                  checked={localFeatures.streamingReply}
-                  onCheckedChange={(v) => handleFeatureToggle('streamingReply', v)}
-                  className="scale-75"
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">{t('channel.autoStart', 'Auto Start')}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t(
-                      'channel.autoStartDesc',
-                      'Automatically start this plugin when the app launches'
-                    )}
-                  </p>
-                </div>
-                <Switch
-                  checked={localFeatures.autoStart}
-                  onCheckedChange={(v) => handleFeatureToggle('autoStart', v)}
-                  className="scale-75"
-                />
-              </div>
-            </AccordionContent>
-          </AccordionItem>
+          <Input
+            className="h-10 text-sm"
+            value={localName}
+            onChange={(e) => handleNameChange(e.target.value)}
+            placeholder={descriptor?.displayName ?? 'Plugin'}
+          />
+        </section>
 
-          {toolsList.length > 0 && (
-            <AccordionItem value="tools" className="border-border/60">
+        {/* Config fields from schema */}
+        <div className="space-y-4 border-b border-border/60 py-5">
+          {configFields.map((field) => (
+            <section
+              key={field.key}
+              className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)] md:items-start"
+            >
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium">
+                    {t(field.label, field.key)}
+                    {field.required && <span className="text-destructive ml-0.5">*</span>}
+                  </label>
+                  <Badge variant="outline" className="px-1.5 text-[10px] font-mono">
+                    {field.key}
+                  </Badge>
+                </div>
+                {field.placeholder && (
+                  <p className="text-xs text-muted-foreground">{field.placeholder}</p>
+                )}
+              </div>
+              <div className="relative">
+                <Input
+                  className="h-10 pr-10 text-sm"
+                  type={field.type === 'secret' && !showSecrets[field.key] ? 'password' : 'text'}
+                  placeholder={field.placeholder}
+                  value={localConfig[field.key] ?? ''}
+                  onChange={(e) => handleConfigChange(field.key, e.target.value)}
+                />
+                {field.type === 'secret' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1 h-8 w-8 p-0"
+                    onClick={() => toggleSecret(field.key)}
+                  >
+                    {showSecrets[field.key] ? (
+                      <EyeOff className="size-3.5" />
+                    ) : (
+                      <Eye className="size-3.5" />
+                    )}
+                  </Button>
+                )}
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <Separator className="mb-4" />
+
+        {/* Model override */}
+        <section className="space-y-2 mb-4">
+          <label className="text-xs font-medium">{t('channel.model', 'Reply Model')}</label>
+          <Popover open={modelPopoverOpen} onOpenChange={setModelPopoverOpen}>
+            <PopoverTrigger asChild>
+              <button className="w-full flex items-center gap-2 h-8 rounded-md border border-input bg-background px-3 text-xs hover:bg-muted/40 transition-colors text-left">
+                {localModel ? (
+                  <>
+                    <ModelIcon modelId={localModel} size={12} className="shrink-0 opacity-70" />
+                    <span className="flex-1 truncate">
+                      {localModel
+                        .split('/')
+                        .pop()
+                        ?.replace(/-\d{8}$/, '') ?? localModel}
+                    </span>
+                  </>
+                ) : (
+                  <span className="flex-1 text-muted-foreground">
+                    {t('channel.modelDefault', 'Use global default')}
+                  </span>
+                )}
+                <ChevronDown className="size-3 shrink-0 opacity-50" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-1 max-h-72 overflow-y-auto" align="start">
+              {/* Default option */}
+              <button
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-muted/60 transition-colors',
+                  !localModel && 'bg-muted/40 font-medium'
+                )}
+                onClick={() => {
+                  handleModelChange('__default__')
+                  setModelPopoverOpen(false)
+                }}
+              >
+                {!localModel ? (
+                  <Check className="size-3 text-primary" />
+                ) : (
+                  <span className="size-3" />
+                )}
+                <div className="flex flex-col items-start flex-1 min-w-0">
+                  <span className="text-muted-foreground">
+                    {t('channel.modelDefault', 'Use global default')}
+                  </span>
+                  {globalDefaultModel && (
+                    <span className="text-[10px] text-muted-foreground/50 truncate w-full">
+                      {globalDefaultModel.model.name}
+                    </span>
+                  )}
+                </div>
+              </button>
+              <Separator className="my-1" />
+              {enabledProviders.map((provider) => {
+                const models = provider.models.filter(
+                  (m) => m.enabled && (!m.category || m.category === 'chat')
+                )
+                if (models.length === 0) return null
+                return (
+                  <div key={provider.id}>
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 px-2 py-1 uppercase tracking-wider">
+                      <ProviderIcon builtinId={provider.builtinId} size={12} />
+                      {provider.name}
+                    </div>
+                    {models.map((m) => {
+                      const isActive = localModel === m.id && localProviderId === provider.id
+                      return (
+                        <button
+                          key={m.id}
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-muted/60 transition-colors',
+                            isActive && 'bg-muted/40 font-medium'
+                          )}
+                          onClick={() => {
+                            handleModelChange(m.id, provider.id)
+                            setModelPopoverOpen(false)
+                          }}
+                        >
+                          {isActive ? (
+                            <Check className="size-3 text-primary shrink-0" />
+                          ) : (
+                            <ModelIcon
+                              icon={m.icon}
+                              modelId={m.id}
+                              providerBuiltinId={provider.builtinId}
+                              size={12}
+                              className="opacity-60 shrink-0"
+                            />
+                          )}
+                          <span className="truncate">{m.name || m.id.replace(/-\d{8}$/, '')}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </PopoverContent>
+          </Popover>
+          <p className="text-[10px] text-muted-foreground">
+            {t(
+              'channel.modelHint',
+              'Model used for auto-reply. Leave default to use the globally active model.'
+            )}
+          </p>
+        </section>
+
+        <section className="border-b border-border/60 py-5">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">{t('channel.advanced', '高级设置')}</p>
+              <p className="text-xs text-muted-foreground">
+                {t('channel.advancedDesc', '按需展开回复策略、工具能力和权限边界。')}
+              </p>
+            </div>
+            <Badge variant="outline">{t('channel.advancedHint', '可折叠')}</Badge>
+          </div>
+          <Accordion type="multiple" defaultValue={['features']} className="w-full">
+            <AccordionItem value="features" className="border-border/60">
               <AccordionTrigger className="py-3 hover:no-underline">
                 <div>
-                  <div className="text-sm font-medium">{t('channel.tools', 'Tools')}</div>
+                  <div className="text-sm font-medium">{t('channel.features', 'Features')}</div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {t('channel.toolsPanelDesc', '控制频道可调用的专属工具集合。')}
+                    {t('channel.featuresDesc', '自动回复、流式回复和自动启动策略。')}
                   </p>
                 </div>
               </AccordionTrigger>
               <AccordionContent className="space-y-3">
-                {toolsList.map((toolName) => {
-                  const enabled = localTools?.[toolName] !== false
-                  const description = t(
-                    `channel.toolsDesc.${toolName}`,
-                    toolDefinitions[toolName] ?? ''
-                  )
-                  return (
-                    <div
-                      key={toolName}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{toolName}</p>
-                        {description && (
-                          <p className="text-xs text-muted-foreground">{description}</p>
-                        )}
-                      </div>
-                      <Switch
-                        checked={enabled}
-                        onCheckedChange={(v) => handleToolToggle(toolName, v)}
-                        className="scale-75"
-                      />
-                    </div>
-                  )
-                })}
-              </AccordionContent>
-            </AccordionItem>
-          )}
-
-          <AccordionItem value="security" className="border-border/60">
-            <AccordionTrigger className="py-3 hover:no-underline">
-              <div className="flex items-start gap-2">
-                <Shield className="mt-0.5 size-4 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-medium">
-                    {t('channel.security', 'Security & Permissions')}
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t('channel.securityDesc', '限制频道读写范围、命令执行和子代理能力。')}
-                  </p>
-                </div>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent className="space-y-3">
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">{t('channel.allowReadHome', 'Read Home Directory')}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t(
-                      'channel.allowReadHomeDesc',
-                      'Allow reading files under your home directory (~)'
-                    )}
-                  </p>
-                </div>
-                <Switch
-                  checked={localPerms.allowReadHome}
-                  onCheckedChange={(v) => handlePermToggle('allowReadHome', v)}
-                  className="scale-75"
-                />
-              </div>
-
-              {!localPerms.allowReadHome && (
-                <div className="space-y-2 rounded-xl border border-border/60 px-4 py-3">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
                   <div>
-                    <p className="text-sm font-medium">{t('channel.readablePaths', 'Allowed Read Paths')}</p>
+                    <p className="text-sm font-medium">{t('channel.autoReply', 'Auto Reply')}</p>
                     <p className="text-xs text-muted-foreground">
                       {t(
-                        'channel.readablePathsDesc',
-                        'Whitelist specific directories the plugin can read'
+                        'channel.autoReplyDesc',
+                        'Automatically reply to incoming messages using the Agent'
                       )}
                     </p>
                   </div>
-                  {localPerms.readablePathPrefixes.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {localPerms.readablePathPrefixes.map((p) => (
-                        <span
-                          key={p}
-                          className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] font-mono"
-                        >
-                          {p}
-                          <button
-                            onClick={() => handleRemoveReadPath(p)}
-                            className="text-muted-foreground hover:text-foreground"
-                          >
-                            <X className="size-2.5" />
-                          </button>
-                        </span>
-                      ))}
+                  <Switch
+                    checked={localFeatures.autoReply}
+                    onCheckedChange={(v) => handleFeatureToggle('autoReply', v)}
+                    className="scale-75"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {t('channel.streamingReply', 'Streaming Reply')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        'channel.streamingReplyDesc',
+                        'Stream responses in real-time via CardKit (Feishu only)'
+                      )}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={localFeatures.streamingReply}
+                    onCheckedChange={(v) => handleFeatureToggle('streamingReply', v)}
+                    className="scale-75"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">{t('channel.autoStart', 'Auto Start')}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        'channel.autoStartDesc',
+                        'Automatically start this plugin when the app launches'
+                      )}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={localFeatures.autoStart}
+                    onCheckedChange={(v) => handleFeatureToggle('autoStart', v)}
+                    className="scale-75"
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            {toolsList.length > 0 && (
+              <AccordionItem value="tools" className="border-border/60">
+                <AccordionTrigger className="py-3 hover:no-underline">
+                  <div>
+                    <div className="text-sm font-medium">{t('channel.tools', 'Tools')}</div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('channel.toolsPanelDesc', '控制频道可调用的专属工具集合。')}
+                    </p>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-3">
+                  {toolsList.map((toolName) => {
+                    const enabled = localTools?.[toolName] !== false
+                    const description = t(
+                      `channel.toolsDesc.${toolName}`,
+                      toolDefinitions[toolName] ?? ''
+                    )
+                    return (
+                      <div
+                        key={toolName}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{toolName}</p>
+                          {description && (
+                            <p className="text-xs text-muted-foreground">{description}</p>
+                          )}
+                        </div>
+                        <Switch
+                          checked={enabled}
+                          onCheckedChange={(v) => handleToolToggle(toolName, v)}
+                          className="scale-75"
+                        />
+                      </div>
+                    )
+                  })}
+                </AccordionContent>
+              </AccordionItem>
+            )}
+
+            <AccordionItem value="security" className="border-border/60">
+              <AccordionTrigger className="py-3 hover:no-underline">
+                <div className="flex items-start gap-2">
+                  <Shield className="mt-0.5 size-4 text-muted-foreground" />
+                  <div>
+                    <div className="text-sm font-medium">
+                      {t('channel.security', 'Security & Permissions')}
                     </div>
-                  )}
-                  <div className="flex gap-2">
-                    <Input
-                      className="h-9 flex-1 font-mono text-xs"
-                      placeholder="/home/user/docs"
-                      value={newReadPath}
-                      onChange={(e) => setNewReadPath(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleAddReadPath()
-                      }}
-                    />
-                    <Button variant="outline" size="sm" className="h-9 px-3" onClick={handleAddReadPath}>
-                      {t('channel.addPath', 'Add')}
-                    </Button>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t('channel.securityDesc', '限制频道读写范围、命令执行和子代理能力。')}
+                    </p>
                   </div>
                 </div>
-              )}
-
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">{t('channel.allowShell', 'Shell Execution')}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t('channel.allowShellDesc', 'Allow executing terminal commands (high risk)')}
-                  </p>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-3">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {t('channel.allowReadHome', 'Read Home Directory')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        'channel.allowReadHomeDesc',
+                        'Allow reading files under your home directory (~)'
+                      )}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={localPerms.allowReadHome}
+                    onCheckedChange={(v) => handlePermToggle('allowReadHome', v)}
+                    className="scale-75"
+                  />
                 </div>
-                <Switch
-                  checked={localPerms.allowShell}
-                  onCheckedChange={(v) => handlePermToggle('allowShell', v)}
-                  className="scale-75"
-                />
-              </div>
 
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">
-                    {t('channel.allowWriteOutside', 'Write Outside Working Dir')}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {t(
-                      'channel.allowWriteOutsideDesc',
-                      'Allow writing files outside the plugin directory'
+                {!localPerms.allowReadHome && (
+                  <div className="space-y-2 rounded-xl border border-border/60 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {t('channel.readablePaths', 'Allowed Read Paths')}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t(
+                          'channel.readablePathsDesc',
+                          'Whitelist specific directories the plugin can read'
+                        )}
+                      </p>
+                    </div>
+                    {localPerms.readablePathPrefixes.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {localPerms.readablePathPrefixes.map((p) => (
+                          <span
+                            key={p}
+                            className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] font-mono"
+                          >
+                            {p}
+                            <button
+                              onClick={() => handleRemoveReadPath(p)}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="size-2.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
                     )}
-                  </p>
-                </div>
-                <Switch
-                  checked={localPerms.allowWriteOutside}
-                  onCheckedChange={(v) => handlePermToggle('allowWriteOutside', v)}
-                  className="scale-75"
-                />
-              </div>
+                    <div className="flex gap-2">
+                      <Input
+                        className="h-9 flex-1 font-mono text-xs"
+                        placeholder="/home/user/docs"
+                        value={newReadPath}
+                        onChange={(e) => setNewReadPath(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleAddReadPath()
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 px-3"
+                        onClick={handleAddReadPath}
+                      >
+                        {t('channel.addPath', 'Add')}
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">{t('channel.allowSubAgents', 'Sub-Agent Tools')}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t('channel.allowSubAgentsDesc', 'Allow using Task and other sub-agent tools')}
-                  </p>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {t('channel.allowShell', 'Shell Execution')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t('channel.allowShellDesc', 'Allow executing terminal commands (high risk)')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={localPerms.allowShell}
+                    onCheckedChange={(v) => handlePermToggle('allowShell', v)}
+                    className="scale-75"
+                  />
                 </div>
-                <Switch
-                  checked={localPerms.allowSubAgents}
-                  onCheckedChange={(v) => handlePermToggle('allowSubAgents', v)}
-                  className="scale-75"
-                />
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </section>
 
-      {isWeixinOfficial && (
-        <>
-          <section className="space-y-2 mb-4">
-            <label className="text-xs font-medium">{t('channel.weixin.binding', '微信绑定')}</label>
-            <div className="rounded-md border p-3 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs">
-                    {localConfig.token
-                      ? t('channel.weixin.bound', '已绑定官方微信账号')
-                      : t('channel.weixin.unbound', '未绑定官方微信账号')}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {t('channel.weixin.bindingDesc', '通过扫码获取 token，并启用长轮询收发消息。')}
-                  </p>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {t('channel.allowWriteOutside', 'Write Outside Working Dir')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        'channel.allowWriteOutsideDesc',
+                        'Allow writing files outside the plugin directory'
+                      )}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={localPerms.allowWriteOutside}
+                    onCheckedChange={(v) => handlePermToggle('allowWriteOutside', v)}
+                    className="scale-75"
+                  />
                 </div>
-                <div className="flex items-center gap-2">
-                  {weixinQrUrl && (
+
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {t('channel.allowSubAgents', 'Sub-Agent Tools')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        'channel.allowSubAgentsDesc',
+                        'Allow using Task and other sub-agent tools'
+                      )}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={localPerms.allowSubAgents}
+                    onCheckedChange={(v) => handlePermToggle('allowSubAgents', v)}
+                    className="scale-75"
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </section>
+
+        {isWeixinOfficial && (
+          <>
+            <section className="space-y-2 mb-4">
+              <label className="text-xs font-medium">
+                {t('channel.weixin.binding', '微信绑定')}
+              </label>
+              <div className="rounded-md border p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs">
+                      {localConfig.token
+                        ? t('channel.weixin.bound', '已绑定官方微信账号')
+                        : t('channel.weixin.unbound', '未绑定官方微信账号')}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {t(
+                        'channel.weixin.bindingDesc',
+                        '通过扫码获取 token，并启用长轮询收发消息。'
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {weixinQrUrl && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => void handleWeixinBind()}
+                        disabled={weixinLoginPending}
+                      >
+                        {t('channel.weixin.refreshQr', '刷新二维码')}
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -823,48 +873,38 @@ function ChannelConfigPanelContent({
                       onClick={() => void handleWeixinBind()}
                       disabled={weixinLoginPending}
                     >
-                      {t('channel.weixin.refreshQr', '刷新二维码')}
+                      {weixinLoginPending
+                        ? t('channel.weixin.bindingInProgress', '绑定中...')
+                        : localConfig.token
+                          ? t('channel.weixin.rebind', '重新绑定')
+                          : t('channel.weixin.bind', '绑定微信')}
                     </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => void handleWeixinBind()}
-                    disabled={weixinLoginPending}
-                  >
-                    {weixinLoginPending
-                      ? t('channel.weixin.bindingInProgress', '绑定中...')
-                      : localConfig.token
-                        ? t('channel.weixin.rebind', '重新绑定')
-                        : t('channel.weixin.bind', '绑定微信')}
-                  </Button>
-                </div>
-              </div>
-              {weixinLoginMessage && (
-                <p className="text-[10px] text-muted-foreground">{weixinLoginMessage}</p>
-              )}
-              {weixinQrUrl && (
-                <div className="space-y-2">
-                  <div className="rounded-md border bg-white p-3 flex justify-center">
-                    <img
-                      src={weixinQrUrl}
-                      alt="Weixin QR"
-                      className="max-h-[420px] w-auto object-contain"
-                    />
                   </div>
-                  {weixinSessionKey && (
-                    <p className="text-[10px] text-muted-foreground font-mono break-all">
-                      session: {weixinSessionKey}
-                    </p>
-                  )}
                 </div>
-              )}
-            </div>
-          </section>
-          <Separator className="mb-4" />
-        </>
-      )}
+                {weixinLoginMessage && (
+                  <p className="text-[10px] text-muted-foreground">{weixinLoginMessage}</p>
+                )}
+                {weixinQrUrl && (
+                  <div className="space-y-2">
+                    <div className="rounded-md border bg-white p-3 flex justify-center">
+                      <img
+                        src={weixinQrUrl}
+                        alt="Weixin QR"
+                        className="max-h-[420px] w-auto object-contain"
+                      />
+                    </div>
+                    {weixinSessionKey && (
+                      <p className="text-[10px] text-muted-foreground font-mono break-all">
+                        session: {weixinSessionKey}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+            <Separator className="mb-4" />
+          </>
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-border/60 px-6 py-4">
@@ -994,7 +1034,9 @@ export function ChannelPanel({ projectId }: ChannelPanelProps = {}): React.JSX.E
   }, [projectScopedChannels, searchQuery])
 
   useEffect(() => {
-    const hasSelectedVisibleChannel = filteredChannels.some((channel) => channel.id === selectedChannelId)
+    const hasSelectedVisibleChannel = filteredChannels.some(
+      (channel) => channel.id === selectedChannelId
+    )
     if (hasSelectedVisibleChannel) return
     if (!projectId) {
       setSelectedChannel(filteredChannels[0]?.id ?? null)
@@ -1008,7 +1050,7 @@ export function ChannelPanel({ projectId }: ChannelPanelProps = {}): React.JSX.E
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col border-r border-border/60 bg-muted/10">
           <div className="border-b border-border/60 px-4 py-4">
             <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground/60">
@@ -1027,7 +1069,9 @@ export function ChannelPanel({ projectId }: ChannelPanelProps = {}): React.JSX.E
 
           <div className="flex-1 overflow-y-auto px-3 py-3">
             {PLUGIN_CATEGORIES.map((category) => {
-              const categoryPlugins = filteredChannels.filter((p) => category.types.includes(p.type))
+              const categoryPlugins = filteredChannels.filter((p) =>
+                category.types.includes(p.type)
+              )
               if (categoryPlugins.length === 0) return null
               return (
                 <section key={category.label} className="mb-4 last:mb-0">
@@ -1072,7 +1116,9 @@ export function ChannelPanel({ projectId }: ChannelPanelProps = {}): React.JSX.E
                             </div>
                             <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
                               <span className="truncate">{descriptor?.description ?? p.type}</span>
-                              {isBoundToProject && <Badge variant="outline">{t('channel.bound', '已绑定')}</Badge>}
+                              {isBoundToProject && (
+                                <Badge variant="outline">{t('channel.bound', '已绑定')}</Badge>
+                              )}
                             </div>
                           </div>
                           <Switch
@@ -1117,7 +1163,10 @@ export function ChannelPanel({ projectId }: ChannelPanelProps = {}): React.JSX.E
                           onClick={() => void handleSelectChannel(p)}
                         >
                           <div className={cn('shrink-0', !p.enabled && 'opacity-40')}>
-                            <ChannelIcon icon={getDescriptor(p.type)?.icon ?? ''} className="size-5" />
+                            <ChannelIcon
+                              icon={getDescriptor(p.type)?.icon ?? ''}
+                              className="size-5"
+                            />
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
@@ -1133,7 +1182,9 @@ export function ChannelPanel({ projectId }: ChannelPanelProps = {}): React.JSX.E
                                 )}
                               />
                             </div>
-                            <p className="mt-1 truncate text-[11px] text-muted-foreground">{p.type}</p>
+                            <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                              {p.type}
+                            </p>
                           </div>
                           <Switch
                             checked={p.enabled}

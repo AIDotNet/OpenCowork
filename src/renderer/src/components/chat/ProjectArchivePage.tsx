@@ -1,13 +1,23 @@
-import { useCallback, useEffect, useState } from 'react'
-import { FileText, Loader2, Save, ChevronRight, PanelLeftOpen, RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  ChevronRight,
+  FileText,
+  FolderOpen,
+  Loader2,
+  PanelLeftOpen,
+  RefreshCw,
+  Save
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
+import { Badge } from '@renderer/components/ui/badge'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { ChannelPanel } from '@renderer/components/settings/PluginPanel'
-import { McpPanel } from '@renderer/components/settings/McpPanel'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { useChannelStore } from '@renderer/stores/channel-store'
+import { cn } from '@renderer/lib/utils'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import {
@@ -175,6 +185,9 @@ export function ProjectArchivePage(): React.JSX.Element {
   const chatView = useUIStore((state) => state.chatView)
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null
   const viewMode = chatView === 'channels' ? 'channels' : 'archive'
+  const channels = useChannelStore((state) => state.channels)
+  const channelStatuses = useChannelStore((state) => state.channelStatuses)
+  const loadChannels = useChannelStore((state) => state.loadChannels)
   const [memoryRootPath, setMemoryRootPath] = useState('')
   const [activeFileTab, setActiveFileTab] = useState<ProjectMemoryTabId>('agents')
   const [files, setFiles] = useState<Record<ProjectMemoryTabId, ProjectMemoryFileState>>(
@@ -187,6 +200,47 @@ export function ProjectArchivePage(): React.JSX.Element {
   const activeFile = files[activeFileTab]
   const hasUnsavedChanges = activeFile.draftContent !== activeFile.savedContent
   const canSave = activeFile.missingFile || hasUnsavedChanges
+
+  const projectScopedChannels = useMemo(() => {
+    if (!activeProjectId) return channels.filter((channel) => !channel.projectId)
+    return channels.filter((channel) => !channel.projectId || channel.projectId === activeProjectId)
+  }, [activeProjectId, channels])
+
+  const enabledChannelCount = projectScopedChannels.filter((channel) => channel.enabled).length
+  const runningChannelCount = projectScopedChannels.filter(
+    (channel) => channelStatuses[channel.id] === 'running'
+  ).length
+
+  const channelSummary = useMemo(
+    () => [
+      {
+        key: 'project',
+        label: '当前项目',
+        value:
+          activeProject?.name ?? t('projectArchive.noProjectTitle', { defaultValue: '未选择项目' }),
+        meta: activeProject?.sshConnectionId ? 'SSH 工作目录' : '本地工作目录'
+      },
+      {
+        key: 'channel',
+        label: '聊天频道',
+        value: `${enabledChannelCount}/${projectScopedChannels.length} 已启用`,
+        meta:
+          runningChannelCount > 0
+            ? `${runningChannelCount} 个运行中`
+            : projectScopedChannels.length > 0
+              ? '暂无运行中'
+              : '尚未配置'
+      }
+    ],
+    [
+      activeProject?.name,
+      activeProject?.sshConnectionId,
+      enabledChannelCount,
+      projectScopedChannels.length,
+      runningChannelCount,
+      t
+    ]
+  )
 
   const readProjectTextFile = useCallback(
     async (filePath: string): Promise<{ content?: string; error?: string }> => {
@@ -304,8 +358,14 @@ export function ProjectArchivePage(): React.JSX.Element {
   }, [activeProject, readProjectTextFile, t])
 
   useEffect(() => {
+    if (viewMode !== 'archive') return
     void loadProjectMemoryFiles()
-  }, [loadProjectMemoryFiles])
+  }, [loadProjectMemoryFiles, viewMode])
+
+  useEffect(() => {
+    if (viewMode !== 'channels') return
+    void loadChannels()
+  }, [loadChannels, viewMode])
 
   const updateDraft = useCallback(
     (value: string) => {
@@ -396,7 +456,12 @@ export function ProjectArchivePage(): React.JSX.Element {
   }
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden bg-gradient-to-b from-background via-background to-muted/20 px-6 py-6">
+    <div
+      className={cn(
+        'relative flex flex-1 flex-col overflow-hidden bg-gradient-to-b from-background via-background to-muted/20',
+        viewMode === 'channels' ? 'px-4 py-4' : 'px-6 py-6'
+      )}
+    >
       {!leftSidebarOpen && (
         <Button
           variant="ghost"
@@ -407,13 +472,64 @@ export function ProjectArchivePage(): React.JSX.Element {
           <PanelLeftOpen className="size-4" />
         </Button>
       )}
-      <div className="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden">
+      <div
+        className={cn(
+          'mx-auto flex h-full w-full flex-col overflow-hidden',
+          viewMode === 'channels' ? 'max-w-[1500px]' : 'max-w-6xl'
+        )}
+      >
         <div className="flex min-h-0 flex-1 overflow-hidden rounded-3xl border border-border/60 bg-background/70 shadow-[0_24px_60px_-30px_rgba(0,0,0,0.55)] backdrop-blur-sm">
           {viewMode === 'channels' ? (
-            <div className="min-h-0 flex-1 p-4">
-              <div className="grid h-full min-h-0 grid-cols-1 gap-4 xl:grid-cols-2">
-                <ChannelPanel projectId={activeProjectId ?? undefined} />
-                <McpPanel projectId={activeProjectId ?? undefined} />
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="border-b border-border/60 px-5 py-5">
+                <div className="flex flex-col gap-4">
+                  <div className="min-w-0 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="secondary" className="gap-1.5 px-2.5 py-1">
+                        <FolderOpen className="size-3.5" />
+                        <span>{activeProject.name}</span>
+                      </Badge>
+                      <Badge variant="outline">
+                        {activeProject.sshConnectionId ? 'SSH' : '本地'}
+                      </Badge>
+                    </div>
+                    <div>
+                      <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                        聊天频道
+                      </h1>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        这里只管理项目对外的聊天入口，不在这里混入 MCP 配置。
+                      </p>
+                    </div>
+                    <p className="max-w-3xl truncate text-xs text-muted-foreground/80">
+                      {activeProject.workingFolder || '当前项目尚未绑定工作目录'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-5 flex flex-wrap items-stretch gap-3 rounded-2xl border border-border/60 bg-muted/10 px-4 py-3">
+                  {channelSummary.map((item, index) => (
+                    <div
+                      key={item.key}
+                      className={cn(
+                        'min-w-[180px] flex-1 space-y-1',
+                        index > 0 && 'border-l border-border/60 pl-4'
+                      )}
+                    >
+                      <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground/60">
+                        {item.label}
+                      </div>
+                      <div className="text-sm font-medium text-foreground">{item.value}</div>
+                      <div className="text-xs text-muted-foreground">{item.meta}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-hidden p-4">
+                <div className="h-full min-h-0 overflow-hidden rounded-[24px] border border-border/60 bg-background/80 shadow-inner">
+                  <ChannelPanel projectId={activeProjectId ?? undefined} />
+                </div>
               </div>
             </div>
           ) : loading ? (

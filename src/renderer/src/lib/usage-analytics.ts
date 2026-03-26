@@ -10,6 +10,7 @@ import type {
 } from '@renderer/lib/api/types'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
+import { getBillableInputTokens } from '@renderer/lib/format-tokens'
 
 export interface UsageAnalyticsQuery {
   from: number
@@ -62,18 +63,18 @@ function resolveProviderAndModel(
   const resolvedModelId = input.modelId ?? input.debugInfo?.model ?? input.sessionModelId ?? null
 
   let provider =
-    (input.providerId ? providers.find((item) => item.id === input.providerId) ?? null : null) ??
-    (debugProviderId ? providers.find((item) => item.id === debugProviderId) ?? null : null) ??
+    (input.providerId ? (providers.find((item) => item.id === input.providerId) ?? null) : null) ??
+    (debugProviderId ? (providers.find((item) => item.id === debugProviderId) ?? null) : null) ??
     (debugProviderBuiltinId
-      ? providers.find((item) => item.builtinId === debugProviderBuiltinId) ?? null
+      ? (providers.find((item) => item.builtinId === debugProviderBuiltinId) ?? null)
       : null) ??
     (input.sessionProviderId
-      ? providers.find((item) => item.id === input.sessionProviderId) ?? null
+      ? (providers.find((item) => item.id === input.sessionProviderId) ?? null)
       : null)
 
   let model =
     resolvedModelId && provider
-      ? provider.models.find((item) => item.id === resolvedModelId) ?? null
+      ? (provider.models.find((item) => item.id === resolvedModelId) ?? null)
       : null
 
   if (!model && resolvedModelId) {
@@ -89,14 +90,21 @@ function resolveProviderAndModel(
 
   return {
     providerId:
-      provider?.id ?? input.providerId ?? input.debugInfo?.providerId ?? input.sessionProviderId ?? null,
+      provider?.id ??
+      input.providerId ??
+      input.debugInfo?.providerId ??
+      input.sessionProviderId ??
+      null,
     modelId: model?.id ?? resolvedModelId,
     provider,
     model
   }
 }
 
-function computeCosts(usage: TokenUsage, modelConfig: AIModelConfig | null): {
+function computeCosts(
+  usage: TokenUsage,
+  modelConfig: AIModelConfig | null
+): {
   inputPrice: number | null
   outputPrice: number | null
   cacheCreationPrice: number | null
@@ -119,9 +127,9 @@ function computeCosts(usage: TokenUsage, modelConfig: AIModelConfig | null): {
   const cacheCreationCostUsd =
     cacheCreationPrice == null
       ? null
-      : (((usage.cacheCreationTokens ?? 0) * cacheCreationPrice) / 1_000_000)
+      : ((usage.cacheCreationTokens ?? 0) * cacheCreationPrice) / 1_000_000
   const cacheHitCostUsd =
-    cacheHitPrice == null ? null : (((usage.cacheReadTokens ?? 0) * cacheHitPrice) / 1_000_000)
+    cacheHitPrice == null ? null : ((usage.cacheReadTokens ?? 0) * cacheHitPrice) / 1_000_000
 
   const costs = [inputCostUsd, outputCostUsd, cacheCreationCostUsd, cacheHitCostUsd]
   const totalCostUsd = costs.every((item) => item == null)
@@ -177,14 +185,21 @@ export async function recordUsageEvent(input: {
     inputTokens: 0,
     outputTokens: 0
   }
-  const costs = computeCosts(usage, model)
+  const normalizedUsage: TokenUsage = {
+    ...usage,
+    billableInputTokens:
+      usage.billableInputTokens ?? getBillableInputTokens(usage, model?.type ?? provider?.type)
+  }
+  const costs = computeCosts(normalizedUsage, model)
   const createdAt = input.createdAt ?? Date.now()
 
   await ipcClient.invoke(IPC.USAGE_EVENTS_ADD, {
     id: nanoid(),
     created_at: createdAt,
     request_started_at:
-      input.timing && typeof input.timing.totalMs === 'number' ? createdAt - input.timing.totalMs : null,
+      input.timing && typeof input.timing.totalMs === 'number'
+        ? createdAt - input.timing.totalMs
+        : null,
     request_finished_at: createdAt,
     session_id: input.sessionId ?? null,
     message_id: input.messageId ?? null,
@@ -200,7 +215,7 @@ export async function recordUsageEvent(input: {
     model_category: model?.category ?? null,
     request_type: model?.type ?? provider?.type ?? null,
     input_tokens: usage.inputTokens ?? 0,
-    billable_input_tokens: usage.billableInputTokens ?? null,
+    billable_input_tokens: normalizedUsage.billableInputTokens ?? null,
     output_tokens: usage.outputTokens ?? 0,
     cache_creation_tokens: usage.cacheCreationTokens ?? null,
     cache_read_tokens: usage.cacheReadTokens ?? null,

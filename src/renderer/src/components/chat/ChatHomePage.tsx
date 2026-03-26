@@ -98,7 +98,7 @@ export function ChatHomePage(): React.JSX.Element {
   const updateHomeProjectDirectory = React.useCallback(
     async (patch: { workingFolder: string; sshConnectionId: string | null }): Promise<void> => {
       const chatStore = useChatStore.getState()
-      let projectId = activeProject?.id ?? activeProjectId
+      let projectId: string | null = activeProject?.id ?? activeProjectId ?? null
       if (!projectId) {
         const ensured = await chatStore.ensureDefaultProject()
         projectId = ensured?.id ?? null

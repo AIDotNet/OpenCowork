@@ -1350,13 +1350,15 @@ function MemoryPanel(): React.JSX.Element {
 // ─── Model Configuration Panel ───
 
 function AnalyticsPanel(): React.JSX.Element {
-  const { t } = useTranslation('settings')
+  const { t, i18n } = useTranslation('settings')
   const [rangeDays, setRangeDays] = useState<7 | 30 | 90>(30)
   const [loading, setLoading] = useState(true)
   const [selectedProviderId, setSelectedProviderId] = useState<string>('__all__')
   const [selectedModelId, setSelectedModelId] = useState<string>('__all__')
   const [selectedSourceKind, setSelectedSourceKind] = useState<string>('__all__')
-  const [overview, setOverview] = useState<Awaited<ReturnType<typeof getUsageOverview>> | null>(null)
+  const [overview, setOverview] = useState<Awaited<ReturnType<typeof getUsageOverview>> | null>(
+    null
+  )
   const [daily, setDaily] = useState<Record<string, unknown>[]>([])
   const [models, setModels] = useState<Record<string, unknown>[]>([])
   const [providers, setProviders] = useState<Record<string, unknown>[]>([])
@@ -1372,11 +1374,13 @@ function AnalyticsPanel(): React.JSX.Element {
   )
   const modelOptions = useMemo(
     () =>
-      useProviderStore
-        .getState()
-        .providers.flatMap((provider) =>
-          provider.models.map((model) => ({ id: model.id, name: model.name, providerId: provider.id }))
-        ),
+      useProviderStore.getState().providers.flatMap((provider) =>
+        provider.models.map((model) => ({
+          id: model.id,
+          name: model.name,
+          providerId: provider.id
+        }))
+      ),
     []
   )
   const sourceOptions = ['chat', 'agent', 'cron', 'plugin', 'draw', 'translate', 'team']
@@ -1400,13 +1404,15 @@ function AnalyticsPanel(): React.JSX.Element {
     const run = async (): Promise<void> => {
       setLoading(true)
       try {
-        const [nextOverview, nextDaily, nextModels, nextProviders, nextDetails] = await Promise.all([
-          getUsageOverview(query),
-          getUsageDaily(query),
-          getUsageByModel(query),
-          getUsageByProvider(query),
-          listUsageEvents(query)
-        ])
+        const [nextOverview, nextDaily, nextModels, nextProviders, nextDetails] = await Promise.all(
+          [
+            getUsageOverview(query),
+            getUsageDaily(query),
+            getUsageByModel(query),
+            getUsageByProvider(query),
+            listUsageEvents(query)
+          ]
+        )
         if (cancelled) return
         setOverview(nextOverview)
         setDaily(nextDaily)
@@ -1423,8 +1429,41 @@ function AnalyticsPanel(): React.JSX.Element {
     }
   }, [query])
 
+  const tokenLocale = i18n.language?.startsWith('zh') ? 'zh-CN' : 'en-US'
+  const inputTokenLabel = t('analytics.billableInputTokens', {
+    defaultValue: tokenLocale === 'zh-CN' ? '计费输入 Token' : 'Billable Input Tokens'
+  })
   const fmtInt = (value: unknown): string =>
-    new Intl.NumberFormat().format(typeof value === 'number' ? value : Number(value ?? 0))
+    new Intl.NumberFormat(tokenLocale).format(
+      typeof value === 'number' ? value : Number(value ?? 0)
+    )
+  const fmtTokenCompact = (value: unknown): string => {
+    const number = typeof value === 'number' ? value : Number(value ?? 0)
+    if (!Number.isFinite(number)) return '0'
+    return new Intl.NumberFormat(tokenLocale, {
+      notation: 'compact',
+      compactDisplay: 'short',
+      maximumFractionDigits: number >= 100000 ? 1 : 2
+    }).format(Math.max(0, number))
+  }
+  const getEffectiveInputTokens = (row: Record<string, unknown>): number => {
+    const billable = Number(row.billable_input_tokens ?? Number.NaN)
+    if (Number.isFinite(billable)) return Math.max(0, billable)
+    const input = Number(row.input_tokens ?? 0)
+    const cacheRead = Number(row.cache_read_tokens ?? 0)
+    return row.request_type === 'openai-responses' ? Math.max(0, input - cacheRead) : input
+  }
+  const renderTokenValue = (value: unknown, showRaw = false): React.JSX.Element => {
+    const compact = fmtTokenCompact(value)
+    const raw = fmtInt(value)
+    const shouldShowRaw = showRaw && compact !== raw
+    return (
+      <span title={`${raw} Token`} className="inline-flex flex-col tabular-nums leading-tight">
+        <span>{compact}</span>
+        {shouldShowRaw ? <span className="text-[11px] text-muted-foreground">{raw}</span> : null}
+      </span>
+    )
+  }
   const fmtMoney = (value: unknown): string =>
     typeof value === 'number' || typeof value === 'string'
       ? Number(value || 0).toFixed(6)
@@ -1447,39 +1486,88 @@ function AnalyticsPanel(): React.JSX.Element {
       .join(' ')
   }
 
-  const renderLineChart = (title: string, rows: Record<string, unknown>[], dataKey: string): React.JSX.Element => (
-    <section className="space-y-3 rounded-xl border border-border/60 bg-background/60 p-4">
-      <h3 className="text-sm font-semibold">{title}</h3>
-      {rows.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{t('analytics.empty')}</p>
-      ) : (
-        <>
-          <svg viewBox="0 0 100 100" className="h-40 w-full overflow-visible rounded-lg bg-muted/20">
-            <polyline
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="text-primary"
-              points={buildLinePoints([...rows].reverse(), dataKey)}
-            />
-          </svg>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {[...rows].slice(0, 4).map((row, index) => (
-              <div key={`${title}-${index}`} className="rounded-lg border border-border/40 px-3 py-2 text-xs">
-                <div className="text-muted-foreground">{String(row.day ?? '-')}</div>
-                <div className="mt-1 font-medium">{dataKey === 'total_cost_usd' ? `$${fmtMoney(row[dataKey])}` : fmtInt(row[dataKey])}</div>
-              </div>
-            ))}
+  const renderLineChart = (
+    title: string,
+    rows: Record<string, unknown>[],
+    dataKey: string
+  ): React.JSX.Element => {
+    if (rows.length === 0) {
+      return (
+        <section className="space-y-3 rounded-xl border border-border/60 bg-background/60 p-4">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          <p className="text-xs text-muted-foreground">{t('analytics.empty')}</p>
+        </section>
+      )
+    }
+
+    const latestRow = rows[0]
+    const latestValue =
+      dataKey === 'total_cost_usd'
+        ? `$${fmtMoney(latestRow[dataKey])}`
+        : renderTokenValue(latestRow[dataKey], true)
+
+    if (rows.length === 1) {
+      return (
+        <section className="space-y-3 rounded-xl border border-border/60 bg-background/60 p-4">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed border-border/40 bg-muted/20 text-center">
+            <div className="text-xs text-muted-foreground">{String(latestRow.day ?? '-')}</div>
+            <div className="mt-3 text-2xl font-semibold">{latestValue}</div>
+            <div className="mt-2 text-xs text-muted-foreground">{t('analytics.requests')} 1</div>
           </div>
-        </>
-      )}
-    </section>
-  )
+        </section>
+      )
+    }
+
+    return (
+      <section className="space-y-3 rounded-xl border border-border/60 bg-background/60 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          <div className="text-right text-xs text-muted-foreground">
+            <div>{String(latestRow.day ?? '-')}</div>
+            <div className="mt-1 font-medium text-foreground">{latestValue}</div>
+          </div>
+        </div>
+        <svg viewBox="0 0 100 100" className="h-40 w-full overflow-visible rounded-lg bg-muted/20">
+          <polyline
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="text-primary"
+            points={buildLinePoints([...rows].reverse(), dataKey)}
+          />
+        </svg>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {[...rows].slice(0, 4).map((row, index) => (
+            <div
+              key={`${title}-${index}`}
+              className="rounded-lg border border-border/40 px-3 py-2 text-xs"
+            >
+              <div className="text-muted-foreground">{String(row.day ?? '-')}</div>
+              <div className="mt-1 font-medium">
+                {dataKey === 'total_cost_usd'
+                  ? `$${fmtMoney(row[dataKey])}`
+                  : renderTokenValue(row[dataKey], true)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    )
+  }
 
   const cards = [
     { label: t('analytics.requests'), value: fmtInt(overview?.request_count) },
-    { label: t('analytics.inputTokens'), value: fmtInt(overview?.input_tokens) },
-    { label: t('analytics.outputTokens'), value: fmtInt(overview?.output_tokens) },
+    { label: inputTokenLabel, value: renderTokenValue(overview?.input_tokens, true) },
+    { label: t('analytics.outputTokens'), value: renderTokenValue(overview?.output_tokens, true) },
+    {
+      label: t('analytics.cacheCreationTokens'),
+      value: renderTokenValue(overview?.cache_creation_tokens, true)
+    },
+    {
+      label: t('analytics.cacheReadTokens'),
+      value: renderTokenValue(overview?.cache_read_tokens, true)
+    },
     { label: t('analytics.costUsd'), value: `$${fmtMoney(overview?.total_cost_usd)}` },
     { label: t('analytics.avgTtft'), value: fmtMs(overview?.avg_ttft_ms) },
     { label: t('analytics.avgTotal'), value: fmtMs(overview?.avg_total_ms) }
@@ -1488,7 +1576,11 @@ function AnalyticsPanel(): React.JSX.Element {
   const renderSimpleTable = (
     title: string,
     rows: Record<string, unknown>[],
-    columns: Array<{ key: string; label: string; render?: (row: Record<string, unknown>) => React.JSX.Element | string }>
+    columns: Array<{
+      key: string
+      label: string
+      render?: (row: Record<string, unknown>) => React.JSX.Element | string
+    }>
   ): React.JSX.Element => (
     <section className="space-y-3 rounded-xl border border-border/60 bg-background/60 p-4">
       <h3 className="text-sm font-semibold">{title}</h3>
@@ -1500,7 +1592,9 @@ function AnalyticsPanel(): React.JSX.Element {
             <thead>
               <tr className="border-b border-border/60 text-left text-muted-foreground">
                 {columns.map((column) => (
-                  <th key={column.key} className="px-2 py-2 font-medium">{column.label}</th>
+                  <th key={column.key} className="px-2 py-2 font-medium">
+                    {column.label}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -1537,7 +1631,11 @@ function AnalyticsPanel(): React.JSX.Element {
               className="h-8 text-xs"
               onClick={() => setRangeDays(days)}
             >
-              {days === 7 ? t('analytics.range7d') : days === 30 ? t('analytics.range30d') : t('analytics.range90d')}
+              {days === 7
+                ? t('analytics.range7d')
+                : days === 30
+                  ? t('analytics.range30d')
+                  : t('analytics.range90d')}
             </Button>
           ))}
         </div>
@@ -1547,11 +1645,15 @@ function AnalyticsPanel(): React.JSX.Element {
         <div className="space-y-2">
           <div className="text-xs text-muted-foreground">{t('analytics.provider')}</div>
           <Select value={selectedProviderId} onValueChange={setSelectedProviderId}>
-            <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="text-xs">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">{t('analytics.allProviders')}</SelectItem>
               {providerOptions.map((provider) => (
-                <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>
+                <SelectItem key={provider.id} value={provider.id}>
+                  {provider.name}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -1559,11 +1661,15 @@ function AnalyticsPanel(): React.JSX.Element {
         <div className="space-y-2">
           <div className="text-xs text-muted-foreground">{t('analytics.model')}</div>
           <Select value={selectedModelId} onValueChange={setSelectedModelId}>
-            <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="text-xs">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">{t('analytics.allModels')}</SelectItem>
               {modelOptions.map((model) => (
-                <SelectItem key={`${model.providerId}-${model.id}`} value={model.id}>{model.name}</SelectItem>
+                <SelectItem key={`${model.providerId}-${model.id}`} value={model.id}>
+                  {model.name}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -1571,11 +1677,15 @@ function AnalyticsPanel(): React.JSX.Element {
         <div className="space-y-2">
           <div className="text-xs text-muted-foreground">{t('analytics.source')}</div>
           <Select value={selectedSourceKind} onValueChange={setSelectedSourceKind}>
-            <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="text-xs">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">{t('analytics.allSources')}</SelectItem>
               {sourceOptions.map((source) => (
-                <SelectItem key={source} value={source}>{source}</SelectItem>
+                <SelectItem key={source} value={source}>
+                  {source}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -1591,7 +1701,10 @@ function AnalyticsPanel(): React.JSX.Element {
         <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {cards.map((card) => (
-              <div key={card.label} className="rounded-xl border border-border/60 bg-background/60 p-4">
+              <div
+                key={card.label}
+                className="rounded-xl border border-border/60 bg-background/60 p-4"
+              >
                 <div className="text-xs text-muted-foreground">{card.label}</div>
                 <div className="mt-2 text-lg font-semibold">{card.value}</div>
               </div>
@@ -1606,40 +1719,148 @@ function AnalyticsPanel(): React.JSX.Element {
           {renderSimpleTable(t('analytics.daily'), daily, [
             { key: 'day', label: t('analytics.time') },
             { key: 'request_count', label: t('analytics.requests') },
-            { key: 'input_tokens', label: t('analytics.inputTokens') },
-            { key: 'output_tokens', label: t('analytics.outputTokens') },
-            { key: 'total_cost_usd', label: t('analytics.costUsd'), render: (row) => `$${fmtMoney(row.total_cost_usd)}` },
-            { key: 'avg_ttft_ms', label: t('analytics.avgTtft'), render: (row) => fmtMs(row.avg_ttft_ms) },
-            { key: 'avg_total_ms', label: t('analytics.avgTotal'), render: (row) => fmtMs(row.avg_total_ms) }
+            {
+              key: 'input_tokens',
+              label: inputTokenLabel,
+              render: (row) => renderTokenValue(getEffectiveInputTokens(row))
+            },
+            {
+              key: 'output_tokens',
+              label: t('analytics.outputTokens'),
+              render: (row) => renderTokenValue(row.output_tokens)
+            },
+            {
+              key: 'cache_creation_tokens',
+              label: t('analytics.cacheCreationTokens'),
+              render: (row) => renderTokenValue(row.cache_creation_tokens)
+            },
+            {
+              key: 'cache_read_tokens',
+              label: t('analytics.cacheReadTokens'),
+              render: (row) => renderTokenValue(row.cache_read_tokens)
+            },
+            {
+              key: 'total_cost_usd',
+              label: t('analytics.costUsd'),
+              render: (row) => `$${fmtMoney(row.total_cost_usd)}`
+            },
+            {
+              key: 'avg_ttft_ms',
+              label: t('analytics.avgTtft'),
+              render: (row) => fmtMs(row.avg_ttft_ms)
+            },
+            {
+              key: 'avg_total_ms',
+              label: t('analytics.avgTotal'),
+              render: (row) => fmtMs(row.avg_total_ms)
+            }
           ])}
 
           {renderSimpleTable(t('analytics.models'), models, [
             { key: 'model_name', label: t('analytics.model') },
             { key: 'provider_name', label: t('analytics.provider') },
             { key: 'request_count', label: t('analytics.requests') },
-            { key: 'input_tokens', label: t('analytics.inputTokens') },
-            { key: 'output_tokens', label: t('analytics.outputTokens') },
-            { key: 'total_cost_usd', label: t('analytics.costUsd'), render: (row) => `$${fmtMoney(row.total_cost_usd)}` }
+            {
+              key: 'input_tokens',
+              label: inputTokenLabel,
+              render: (row) => renderTokenValue(getEffectiveInputTokens(row))
+            },
+            {
+              key: 'output_tokens',
+              label: t('analytics.outputTokens'),
+              render: (row) => renderTokenValue(row.output_tokens)
+            },
+            {
+              key: 'cache_creation_tokens',
+              label: t('analytics.cacheCreationTokens'),
+              render: (row) => renderTokenValue(row.cache_creation_tokens)
+            },
+            {
+              key: 'cache_read_tokens',
+              label: t('analytics.cacheReadTokens'),
+              render: (row) => renderTokenValue(row.cache_read_tokens)
+            },
+            {
+              key: 'total_cost_usd',
+              label: t('analytics.costUsd'),
+              render: (row) => `$${fmtMoney(row.total_cost_usd)}`
+            }
           ])}
 
           {renderSimpleTable(t('analytics.providers'), providers, [
             { key: 'provider_name', label: t('analytics.provider') },
             { key: 'request_count', label: t('analytics.requests') },
-            { key: 'input_tokens', label: t('analytics.inputTokens') },
-            { key: 'output_tokens', label: t('analytics.outputTokens') },
-            { key: 'total_cost_usd', label: t('analytics.costUsd'), render: (row) => `$${fmtMoney(row.total_cost_usd)}` }
+            {
+              key: 'input_tokens',
+              label: inputTokenLabel,
+              render: (row) => renderTokenValue(getEffectiveInputTokens(row))
+            },
+            {
+              key: 'output_tokens',
+              label: t('analytics.outputTokens'),
+              render: (row) => renderTokenValue(row.output_tokens)
+            },
+            {
+              key: 'cache_creation_tokens',
+              label: t('analytics.cacheCreationTokens'),
+              render: (row) => renderTokenValue(row.cache_creation_tokens)
+            },
+            {
+              key: 'cache_read_tokens',
+              label: t('analytics.cacheReadTokens'),
+              render: (row) => renderTokenValue(row.cache_read_tokens)
+            },
+            {
+              key: 'total_cost_usd',
+              label: t('analytics.costUsd'),
+              render: (row) => `$${fmtMoney(row.total_cost_usd)}`
+            }
           ])}
 
           {renderSimpleTable(t('analytics.details'), details, [
-            { key: 'created_at', label: t('analytics.time'), render: (row) => new Date(Number(row.created_at ?? 0)).toLocaleString() },
+            {
+              key: 'created_at',
+              label: t('analytics.time'),
+              render: (row) => new Date(Number(row.created_at ?? 0)).toLocaleString()
+            },
             { key: 'provider_name', label: t('analytics.provider') },
             { key: 'model_name', label: t('analytics.model') },
-            { key: 'source_kind', label: t('analytics.source'), render: (row) => <Badge variant="secondary">{String(row.source_kind ?? '-')}</Badge> },
-            { key: 'input_tokens', label: t('analytics.inputTokens') },
-            { key: 'output_tokens', label: t('analytics.outputTokens') },
+            {
+              key: 'source_kind',
+              label: t('analytics.source'),
+              render: (row) => <Badge variant="secondary">{String(row.source_kind ?? '-')}</Badge>
+            },
+            {
+              key: 'input_tokens',
+              label: inputTokenLabel,
+              render: (row) => renderTokenValue(getEffectiveInputTokens(row))
+            },
+            {
+              key: 'output_tokens',
+              label: t('analytics.outputTokens'),
+              render: (row) => renderTokenValue(row.output_tokens)
+            },
+            {
+              key: 'cache_creation_tokens',
+              label: t('analytics.cacheCreationTokens'),
+              render: (row) => renderTokenValue(row.cache_creation_tokens)
+            },
+            {
+              key: 'cache_read_tokens',
+              label: t('analytics.cacheReadTokens'),
+              render: (row) => renderTokenValue(row.cache_read_tokens)
+            },
             { key: 'ttft_ms', label: t('analytics.ttft'), render: (row) => fmtMs(row.ttft_ms) },
-            { key: 'total_ms', label: t('analytics.totalMs'), render: (row) => fmtMs(row.total_ms) },
-            { key: 'total_cost_usd', label: t('analytics.costUsd'), render: (row) => `$${fmtMoney(row.total_cost_usd)}` }
+            {
+              key: 'total_ms',
+              label: t('analytics.totalMs'),
+              render: (row) => fmtMs(row.total_ms)
+            },
+            {
+              key: 'total_cost_usd',
+              label: t('analytics.costUsd'),
+              render: (row) => `$${fmtMoney(row.total_cost_usd)}`
+            }
           ])}
         </>
       )}

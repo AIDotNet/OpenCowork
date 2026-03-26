@@ -41,7 +41,8 @@
     "expandOlderSessions": "展开历史记录（{{count}}）",
     "collapseOlderSessions": "收起历史记录",
     "sessions": "会话",
-    "msgs": "消息"
+    "msgs": "消息",
+    "changeWorkingFolder": "工作目录"
   },
   "sidebar_toast": {
     "sessionDeleted": "会话已删除",
@@ -58,7 +59,8 @@
     "invalidFile": "无效的会话文件",
     "failedParse": "JSON 解析失败",
     "imported": "已导入 {{count}} 个会话",
-    "allDeleted": "所有会话已删除"
+    "allDeleted": "所有会话已删除",
+    "projectWorkingFolderUpdated": "项目工作目录已更新"
   },
   "topbar": {
     "togglePanel": "切换面板",

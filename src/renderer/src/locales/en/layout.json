@@ -41,7 +41,8 @@
     "expandOlderSessions": "Show history ({{count}})",
     "collapseOlderSessions": "Hide history",
     "sessions": "sessions",
-    "msgs": "msgs"
+    "msgs": "msgs",
+    "changeWorkingFolder": "Working folder"
   },
   "sidebar_toast": {
     "sessionDeleted": "Session deleted",
@@ -58,7 +59,8 @@
     "invalidFile": "Invalid session file",
     "failedParse": "Failed to parse JSON",
     "imported": "Imported {{count}} session(s)",
-    "allDeleted": "All sessions deleted"
+    "allDeleted": "All sessions deleted",
+    "projectWorkingFolderUpdated": "Project working folder updated"
   },
   "topbar": {
     "togglePanel": "Toggle Panel",

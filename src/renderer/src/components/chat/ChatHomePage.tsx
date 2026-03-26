@@ -13,6 +13,7 @@ import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
 import appIconUrl from '../../../../../resources/icon.png'
 import type { ImageAttachment } from '@renderer/lib/image-attachments'
+import { WorkingFolderSelectorDialog } from './WorkingFolderSelectorDialog'
 import {
   renderModeTooltipContent,
   type ModeOption,
@@ -74,7 +75,9 @@ export function ChatHomePage(): React.JSX.Element {
     projects.find((project) => !project.pluginId) ??
     projects[0]
   const workingFolder = activeProject?.workingFolder
+  const sshConnectionId = activeProject?.sshConnectionId
   const { sendMessage } = useChatActions()
+  const [folderDialogOpen, setFolderDialogOpen] = React.useState(false)
   const activeProviderId = useProviderStore((s) => s.activeProviderId)
   const activeModelId = useProviderStore((s) => s.activeModelId)
   const providers = useProviderStore((s) => s.providers)
@@ -91,6 +94,25 @@ export function ChatHomePage(): React.JSX.Element {
     useUIStore.getState().navigateToSession()
     void sendMessage(text, images)
   }
+
+  const updateHomeProjectDirectory = React.useCallback(
+    async (patch: { workingFolder: string; sshConnectionId: string | null }): Promise<void> => {
+      const chatStore = useChatStore.getState()
+      let projectId = activeProject?.id ?? activeProjectId
+      if (!projectId) {
+        const ensured = await chatStore.ensureDefaultProject()
+        projectId = ensured?.id ?? null
+      }
+      if (!projectId) return
+      chatStore.setActiveProject(projectId)
+      chatStore.updateProjectDirectory(projectId, patch)
+    },
+    [activeProject?.id, activeProjectId]
+  )
+
+  const handleOpenFolderDialog = React.useCallback((): void => {
+    setFolderDialogOpen(true)
+  }, [])
 
   const activeSession = sessions.find((session) => session.id === activeSessionId)
   const sessionProviderId = activeSession?.providerId ?? null
@@ -274,11 +296,33 @@ export function ChatHomePage(): React.JSX.Element {
           <div className="mx-auto w-full max-w-4xl">
             <InputArea
               onSend={handleSend}
+              onSelectFolder={mode !== 'chat' ? handleOpenFolderDialog : undefined}
               workingFolder={workingFolder}
               hideWorkingFolderIndicator
               isStreaming={false}
             />
           </div>
+
+          {mode !== 'chat' && (
+            <WorkingFolderSelectorDialog
+              open={folderDialogOpen}
+              onOpenChange={setFolderDialogOpen}
+              workingFolder={workingFolder}
+              sshConnectionId={sshConnectionId}
+              onSelectLocalFolder={(folderPath) =>
+                updateHomeProjectDirectory({
+                  workingFolder: folderPath,
+                  sshConnectionId: null
+                })
+              }
+              onSelectSshFolder={(folderPath, connectionId) =>
+                updateHomeProjectDirectory({
+                  workingFolder: folderPath,
+                  sshConnectionId: connectionId
+                })
+              }
+            />
+          )}
 
           <div className="mx-auto mt-4 flex w-full max-w-3xl items-center justify-between gap-3 rounded-xl border bg-primary/5 px-5 py-3">
             <div className="min-w-0">

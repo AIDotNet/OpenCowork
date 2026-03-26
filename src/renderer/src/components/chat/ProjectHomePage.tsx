@@ -7,8 +7,6 @@ import {
   FolderOpen,
   BookOpen,
   MessageSquare,
-  Library,
-
   PanelLeftOpen
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -16,6 +14,7 @@ import { Button } from '@renderer/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { cn } from '@renderer/lib/utils'
 import { InputArea } from '@renderer/components/chat/InputArea'
+import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
@@ -69,6 +68,7 @@ export function ProjectHomePage(): React.JSX.Element {
   const workingFolder = activeProject?.workingFolder
   const sshConnectionId = activeProject?.sshConnectionId
   const { sendMessage } = useChatActions()
+  const [folderDialogOpen, setFolderDialogOpen] = React.useState(false)
 
   const handleSend = (text: string, images?: ImageAttachment[]): void => {
     if (!activeProjectId) return
@@ -78,6 +78,18 @@ export function ProjectHomePage(): React.JSX.Element {
     useUIStore.getState().navigateToSession()
     void sendMessage(text, images)
   }
+
+  const handleOpenFolderDialog = React.useCallback((): void => {
+    setFolderDialogOpen(true)
+  }, [])
+
+  const updateProjectDirectory = React.useCallback(
+    async (patch: { workingFolder: string; sshConnectionId: string | null }): Promise<void> => {
+      if (!activeProjectId) return
+      useChatStore.getState().updateProjectDirectory(activeProjectId, patch)
+    },
+    [activeProjectId]
+  )
 
   if (!activeProject) {
     return (
@@ -194,9 +206,28 @@ export function ProjectHomePage(): React.JSX.Element {
             </div>
             <InputArea
               onSend={handleSend}
+              onSelectFolder={handleOpenFolderDialog}
               workingFolder={workingFolder}
               hideWorkingFolderIndicator
               isStreaming={false}
+            />
+            <WorkingFolderSelectorDialog
+              open={folderDialogOpen}
+              onOpenChange={setFolderDialogOpen}
+              workingFolder={workingFolder}
+              sshConnectionId={sshConnectionId}
+              onSelectLocalFolder={(folderPath) =>
+                updateProjectDirectory({
+                  workingFolder: folderPath,
+                  sshConnectionId: null
+                })
+              }
+              onSelectSshFolder={(folderPath, connectionId) =>
+                updateProjectDirectory({
+                  workingFolder: folderPath,
+                  sshConnectionId: connectionId
+                })
+              }
             />
             <div className="mx-auto mt-3 flex w-full max-w-4xl items-center justify-between px-3">
               <div className="flex items-center gap-2">
@@ -217,15 +248,6 @@ export function ProjectHomePage(): React.JSX.Element {
                 >
                   <MessageSquare className="size-3.5" />
                   {t('projectHome.openChannels', { defaultValue: '聊天频道' })}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 rounded-full px-3 text-[12px] text-muted-foreground hover:text-foreground"
-                  onClick={() => useUIStore.getState().navigateToWiki()}
-                >
-                  <Library className="size-3.5" />
-                  {t('projectHome.openWiki', { defaultValue: '项目 Wiki' })}
                 </Button>
               </div>
             </div>

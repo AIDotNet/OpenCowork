@@ -6,12 +6,12 @@ import readmeZh from '../../../../../README.zh.md?raw'
 import changelogMd from '../../../../../CHANGELOG.md?raw'
 import {
   BookOpen,
-  Library,
   BarChart3,
   CalendarDays,
   ChevronDown,
   CircleHelp,
   ShieldCheck,
+  FolderInput,
   FolderOpen,
   FolderPlus,
   History,
@@ -73,6 +73,7 @@ import { abortSession, clearPendingSessionMessages } from '@renderer/hooks/use-c
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
 import { cn } from '@renderer/lib/utils'
 import { clampLeftSidebarWidth, LEFT_SIDEBAR_DEFAULT_WIDTH } from './right-panel-defs'
+import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
 import { toast } from 'sonner'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -239,6 +240,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const renameProject = useChatStore((state) => state.renameProject)
   const deleteProject = useChatStore((state) => state.deleteProject)
   const togglePinProject = useChatStore((state) => state.togglePinProject)
+  const updateProjectDirectory = useChatStore((state) => state.updateProjectDirectory)
   const deleteSession = useChatStore((state) => state.deleteSession)
   const updateSessionTitle = useChatStore((state) => state.updateSessionTitle)
   const duplicateSession = useChatStore((state) => state.duplicateSession)
@@ -263,6 +265,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
     | { type: 'session'; id: string; title: string }
     | null
   >(null)
+  const [folderPickerProjectId, setFolderPickerProjectId] = useState<string | null>(null)
   const runningSubAgentSessionIds = useMemo(
     () => new Set(runningSubAgentSessionIdsSig ? runningSubAgentSessionIdsSig.split('\u0000') : []),
     [runningSubAgentSessionIdsSig]
@@ -293,6 +296,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
   )
   const activeProject =
     visibleProjects.find((project) => project.id === activeProjectId) ?? visibleProjects[0] ?? null
+  const folderPickerProject = folderPickerProjectId
+    ? projects.find((project) => project.id === folderPickerProjectId)
+    : undefined
   const chatSurfaceActive =
     !settingsPageOpen &&
     !skillsPageOpen &&
@@ -306,7 +312,6 @@ export function WorkspaceSidebar(): React.JSX.Element {
     (chatView === 'project' ||
       chatView === 'archive' ||
       chatView === 'channels' ||
-      chatView === 'wiki' ||
       chatView === 'session')
   const scopedProjectId = isProjectScoped ? (activeProject?.id ?? null) : null
   const projectIcon = scopedProjectId ? deriveProjectIcon(scopedProjectId, sessions) : undefined
@@ -376,10 +381,6 @@ export function WorkspaceSidebar(): React.JSX.Element {
 
   const openChannels = useCallback(() => {
     useUIStore.getState().navigateToChannels()
-  }, [])
-
-  const openWiki = useCallback(() => {
-    useUIStore.getState().navigateToWiki()
   }, [])
 
   const openSession = useCallback((sessionId: string) => {
@@ -599,14 +600,6 @@ export function WorkspaceSidebar(): React.JSX.Element {
               >
                 <BookOpen className="size-4" />
                 {t('sidebar.projectArchive', { defaultValue: '项目档案' })}
-              </Button>
-              <Button
-                variant={chatView === 'wiki' ? 'secondary' : 'ghost'}
-                className="h-8 w-full justify-start gap-2 text-[12px]"
-                onClick={openWiki}
-              >
-                <Library className="size-4" />
-                {t('sidebar.projectWiki', { defaultValue: '项目 Wiki' })}
               </Button>
               <Button
                 variant={chatView === 'channels' ? 'secondary' : 'ghost'}
@@ -1011,6 +1004,16 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                 {tCommon('action.rename')}
                               </DropdownMenuItem>
                               <DropdownMenuItem
+                                onSelect={() =>
+                                  deferDropdownAction(() => setFolderPickerProjectId(project.id))
+                                }
+                              >
+                                <FolderInput className="size-4" />
+                                {t('sidebar.changeWorkingFolder', {
+                                  defaultValue: '工作目录'
+                                })}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
                                 onClick={() => {
                                   togglePinProject(project.id)
                                   toast.success(
@@ -1130,6 +1133,39 @@ export function WorkspaceSidebar(): React.JSX.Element {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <WorkingFolderSelectorDialog
+        open={!!folderPickerProjectId}
+        onOpenChange={(open) => {
+          if (!open) setFolderPickerProjectId(null)
+        }}
+        workingFolder={folderPickerProject?.workingFolder}
+        sshConnectionId={folderPickerProject?.sshConnectionId}
+        onSelectLocalFolder={(folderPath) => {
+          if (!folderPickerProjectId) return
+          updateProjectDirectory(folderPickerProjectId, {
+            workingFolder: folderPath,
+            sshConnectionId: null
+          })
+          toast.success(
+            t('sidebar_toast.projectWorkingFolderUpdated', {
+              defaultValue: '项目工作目录已更新'
+            })
+          )
+        }}
+        onSelectSshFolder={(folderPath, connectionId) => {
+          if (!folderPickerProjectId) return
+          updateProjectDirectory(folderPickerProjectId, {
+            workingFolder: folderPath,
+            sshConnectionId: connectionId
+          })
+          toast.success(
+            t('sidebar_toast.projectWorkingFolderUpdated', {
+              defaultValue: '项目工作目录已更新'
+            })
+          )
+        }}
+      />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>

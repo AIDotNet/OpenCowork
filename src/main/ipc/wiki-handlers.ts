@@ -20,13 +20,17 @@ const SOURCE_INCLUDE_PATTERNS = [
 const IGNORED_DIRS = ['node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.next', 'target']
 
 function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'wiki'
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'wiki'
+  )
 }
 
-async function createLocalIgnoreMatcher(rootDir: string) {
+async function createLocalIgnoreMatcher(
+  rootDir: string
+): Promise<Awaited<ReturnType<typeof createGitIgnoreMatcher>>> {
   return createGitIgnoreMatcher({
     rootDir,
     readIgnoreFile: async (filePath) => {
@@ -57,11 +61,13 @@ async function collectProjectFiles(rootDir: string): Promise<string[]> {
   return Array.from(result).sort((a, b) => a.localeCompare(b))
 }
 
-function deriveModuleGroups(files: string[]): Array<{ name: string; description: string; files: string[] }> {
+function deriveModuleGroups(
+  files: string[]
+): Array<{ name: string; description: string; files: string[] }> {
   const groups = new Map<string, string[]>()
   for (const file of files) {
     const parts = file.split('/').filter(Boolean)
-    const key = parts[0] === 'src' && parts[1] ? `src/${parts[1]}` : parts[0] ?? 'root'
+    const key = parts[0] === 'src' && parts[1] ? `src/${parts[1]}` : (parts[0] ?? 'root')
     const bucket = groups.get(key) ?? []
     bucket.push(file)
     groups.set(key, bucket)
@@ -111,7 +117,10 @@ function buildDocumentContent(args: {
   ].join('\n')
 }
 
-function execGit(args: string[], cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+function execGit(
+  args: string[],
+  cwd: string
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
     const child = spawn('git', args, {
       cwd,
@@ -145,14 +154,17 @@ async function getHeadCommitId(workingFolder: string): Promise<string | null> {
   return result.stdout.trim() || null
 }
 
-async function getChangedFiles(workingFolder: string, baseCommitId: string): Promise<string[] | null> {
+async function getChangedFiles(
+  workingFolder: string,
+  baseCommitId: string
+): Promise<string[] | null> {
   const result = await execGit(['diff', '--name-only', `${baseCommitId}..HEAD`], workingFolder)
   if (result.exitCode !== 0) return null
   return normalizeLines(result.stdout)
 }
 
 async function exportProjectWiki(projectId: string, workingFolder: string): Promise<string[]> {
-  const documents = wikiDao.listWikiDocuments(projectId)
+  const documents = wikiDao.listWikiLeafDocuments(projectId)
   const exportDir = path.join(workingFolder, DEFAULT_WIKI_EXPORT_DIR)
   fs.mkdirSync(exportDir, { recursive: true })
   const exportedPaths: string[] = []
@@ -168,7 +180,17 @@ async function generateProjectWiki(
   projectId: string,
   mode: 'full' | 'regenerate' | 'incremental',
   changedFiles?: string[]
-) {
+): Promise<
+  | {
+      error: string
+    }
+  | {
+      documents: ReturnType<typeof wikiDao.listWikiDocuments>
+      state: ReturnType<typeof wikiDao.getWikiProjectState>
+      exportedPaths: string[]
+      runId: string
+    }
+> {
   const project = projectsDao.getProject(projectId)
   if (!project?.working_folder) return { error: 'Project working folder is missing' }
   const workingFolder = project.working_folder
@@ -338,5 +360,30 @@ export function registerWikiHandlers(): void {
       }
     }
     return await generateProjectWiki(args.projectId, 'incremental', changedFiles)
+  })
+
+  ipcMain.handle('wiki:get-head-commit', async (_event, args: { projectId: string }) => {
+    const project = projectsDao.getProject(args.projectId)
+    if (!project?.working_folder) return { commitId: null }
+    const commitId = await getHeadCommitId(project.working_folder)
+    return { commitId }
+  })
+
+  ipcMain.handle(
+    'wiki:get-changed-files',
+    async (_event, args: { projectId: string; baseCommitId: string }) => {
+      const project = projectsDao.getProject(args.projectId)
+      if (!project?.working_folder) return { changedFiles: null }
+      const changedFiles = await getChangedFiles(project.working_folder, args.baseCommitId)
+      return { changedFiles }
+    }
+  )
+
+  ipcMain.handle('wiki:export-project', async (_event, args: { projectId: string }) => {
+    const project = projectsDao.getProject(args.projectId)
+    if (!project?.working_folder)
+      return { exportedPaths: [], error: 'Project working folder is missing' }
+    const exportedPaths = await exportProjectWiki(args.projectId, project.working_folder)
+    return { exportedPaths }
   })
 }

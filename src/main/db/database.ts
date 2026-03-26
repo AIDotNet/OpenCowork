@@ -589,11 +589,17 @@ export function getDb(): Database.Database {
       content_markdown TEXT NOT NULL DEFAULT '',
       generation_mode TEXT NOT NULL DEFAULT 'full',
       last_generated_commit_id TEXT,
+      parent_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      level INTEGER NOT NULL DEFAULT 0,
+      is_leaf INTEGER NOT NULL DEFAULT 1,
+      source_files_json TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       UNIQUE(project_id, name),
       UNIQUE(project_id, slug),
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_id) REFERENCES wiki_documents(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS wiki_sections (
@@ -654,6 +660,15 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_wiki_section_sources_section ON wiki_section_sources(section_id);
     CREATE INDEX IF NOT EXISTS idx_wiki_generation_runs_project ON wiki_generation_runs(project_id, created_at DESC);
   `)
+
+  ensureColumn(db, 'wiki_documents', 'parent_id', 'TEXT')
+  ensureColumn(db, 'wiki_documents', 'sort_order', 'INTEGER NOT NULL DEFAULT 0')
+  ensureColumn(db, 'wiki_documents', 'level', 'INTEGER NOT NULL DEFAULT 0')
+  ensureColumn(db, 'wiki_documents', 'is_leaf', 'INTEGER NOT NULL DEFAULT 1')
+  ensureColumn(db, 'wiki_documents', 'source_files_json', "TEXT NOT NULL DEFAULT '[]'")
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_wiki_documents_parent ON wiki_documents(project_id, parent_id, sort_order)'
+  )
 
   // --- Usage Events table ---
   db.exec(`

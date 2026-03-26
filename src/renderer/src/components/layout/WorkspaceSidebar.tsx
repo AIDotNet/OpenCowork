@@ -6,6 +6,7 @@ import readmeZh from '../../../../../README.zh.md?raw'
 import changelogMd from '../../../../../CHANGELOG.md?raw'
 import {
   BookOpen,
+  Library,
   BarChart3,
   CalendarDays,
   ChevronDown,
@@ -305,6 +306,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
     (chatView === 'project' ||
       chatView === 'archive' ||
       chatView === 'channels' ||
+      chatView === 'wiki' ||
       chatView === 'session')
   const scopedProjectId = isProjectScoped ? (activeProject?.id ?? null) : null
   const projectIcon = scopedProjectId ? deriveProjectIcon(scopedProjectId, sessions) : undefined
@@ -374,6 +376,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
 
   const openChannels = useCallback(() => {
     useUIStore.getState().navigateToChannels()
+  }, [])
+
+  const openWiki = useCallback(() => {
+    useUIStore.getState().navigateToWiki()
   }, [])
 
   const openSession = useCallback((sessionId: string) => {
@@ -593,6 +599,14 @@ export function WorkspaceSidebar(): React.JSX.Element {
               >
                 <BookOpen className="size-4" />
                 {t('sidebar.projectArchive', { defaultValue: '项目档案' })}
+              </Button>
+              <Button
+                variant={chatView === 'wiki' ? 'secondary' : 'ghost'}
+                className="h-8 w-full justify-start gap-2 text-[12px]"
+                onClick={openWiki}
+              >
+                <Library className="size-4" />
+                {t('sidebar.projectWiki', { defaultValue: '项目 Wiki' })}
               </Button>
               <Button
                 variant={chatView === 'channels' ? 'secondary' : 'ghost'}

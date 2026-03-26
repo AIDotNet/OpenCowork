@@ -92,6 +92,7 @@ interface AssistantMessageProps {
   isStreaming?: boolean
   usage?: TokenUsage
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
+  liveToolCallMap?: Map<string, ToolCallState> | null
   msgId?: string
   showRetry?: boolean
   onRetry?: () => void
@@ -657,6 +658,7 @@ export function AssistantMessage({
   isStreaming,
   usage,
   toolResults,
+  liveToolCallMap,
   msgId,
   showRetry,
   onRetry,
@@ -706,7 +708,9 @@ export function AssistantMessage({
   }, [isStreaming, normalizedContent])
   const liveToolCalls = useAgentStore(
     useShallow((s) => {
-      if (!isStreaming || liveToolCallIds.length === 0) return EMPTY_LIVE_TOOL_CALLS
+      if (liveToolCallMap || !isStreaming || liveToolCallIds.length === 0) {
+        return EMPTY_LIVE_TOOL_CALLS
+      }
       const idSet = new Set(liveToolCallIds)
       const matches: ToolCallState[] = []
       for (const toolCall of s.pendingToolCalls) {
@@ -719,13 +723,14 @@ export function AssistantMessage({
     })
   )
   const effectiveLiveToolCallMap = useMemo(() => {
+    if (liveToolCallMap) return liveToolCallMap
     if (!isStreaming || liveToolCalls.length === 0) return null
     const map = new Map<string, ToolCallState>()
     for (const toolCall of liveToolCalls) {
       map.set(toolCall.id, toolCall)
     }
     return map
-  }, [isStreaming, liveToolCalls])
+  }, [isStreaming, liveToolCalls, liveToolCallMap])
   const structuredToolCount = useMemo(
     () => normalizedContent?.filter((block) => block.type === 'tool_use').length ?? 0,
     [normalizedContent]

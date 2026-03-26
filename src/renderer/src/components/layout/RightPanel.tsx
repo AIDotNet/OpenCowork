@@ -11,6 +11,7 @@ import { TeamPanel } from '@renderer/components/cowork/TeamPanel'
 import { PlanPanel } from '@renderer/components/cowork/PlanPanel'
 import { usePlanStore } from '@renderer/stores/plan-store'
 import { useChatStore } from '@renderer/stores/chat-store'
+import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useTranslation } from 'react-i18next'
@@ -21,6 +22,7 @@ import { RightPanelHeader } from './RightPanelHeader'
 import { RightPanelRail } from './RightPanelRail'
 import { PreviewPanel } from './PreviewPanel'
 import { DetailPanel } from './DetailPanel'
+import { SubAgentsPanel } from './SubAgentsPanel'
 import {
   RIGHT_PANEL_DEFAULT_WIDTH,
   RIGHT_PANEL_SECTION_DEFS,
@@ -124,14 +126,26 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
     if (!activeSessionId) return false
     return Object.values(s.plans).some((p) => p.sessionId === activeSessionId)
   })
+  const hasSessionSubAgents = useAgentStore((s) => {
+    if (!activeSessionId) return false
+    const hasActive = Object.values(s.activeSubAgents).some(
+      (item) => item.sessionId === activeSessionId
+    )
+    const hasCompleted = Object.values(s.completedSubAgents).some(
+      (item) => item.sessionId === activeSessionId
+    )
+    const hasHistory = s.subAgentHistory.some((item) => item.sessionId === activeSessionId)
+    return hasActive || hasCompleted || hasHistory
+  })
   const planMode = useUIStore((s) => s.planMode)
 
   const visibleTabs = useMemo(
     () =>
       RIGHT_PANEL_TAB_DEFS.filter((item) => teamToolsEnabled || item.value !== 'team')
         .filter((item) => hasPlan || planMode || item.value !== 'plan')
+        .filter((item) => hasSessionSubAgents || item.value !== 'subagents')
         .filter((item) => (activeSession?.mode ?? mode) === 'acp' || item.value !== 'acp'),
-    [teamToolsEnabled, hasPlan, planMode, activeSession?.mode, mode]
+    [teamToolsEnabled, hasPlan, planMode, hasSessionSubAgents, activeSession?.mode, mode]
   )
 
   const availableSections = useMemo(
@@ -265,6 +279,12 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
                       </FadeIn>
                     )}
 
+                    {resolvedTab === 'subagents' && (
+                      <FadeIn key="subagents" className="h-full">
+                        <SubAgentsPanel />
+                      </FadeIn>
+                    )}
+
                     {resolvedTab === 'files' && (
                       <FadeIn key="files" className="h-full">
                         {activeSession?.sshConnectionId ? (
@@ -301,6 +321,12 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
                     {resolvedTab === 'context' && (
                       <FadeIn key="context" className="h-full">
                         <ContextPanel />
+                      </FadeIn>
+                    )}
+
+                    {resolvedTab === 'subagents' && (
+                      <FadeIn key="subagents" className="h-full">
+                        <SubAgentsPanel />
                       </FadeIn>
                     )}
 

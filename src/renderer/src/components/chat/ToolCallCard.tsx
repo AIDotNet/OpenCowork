@@ -1164,13 +1164,6 @@ function StructuredInput({
               </span>
             </div>
           )}
-          {(lineTotal !== null || charTotal !== null) && (
-            <div className="pl-[18px] text-[10px] text-muted-foreground/40">
-              {lineTotal !== null ? `${lineTotal} lines` : ''}
-              {lineTotal !== null && charTotal !== null ? ' · ' : ''}
-              {charTotal !== null ? `${charTotal} chars` : ''}
-            </div>
-          )}
           {visiblePreview && (
             <pre
               className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-2.5 py-2 text-[11px] text-foreground/80 dark:bg-zinc-950 dark:text-zinc-300/80"
@@ -1180,9 +1173,35 @@ function StructuredInput({
               {input.content_truncated ? '\n…' : ''}
             </pre>
           )}
+          {!filePath && (lineTotal !== null || charTotal !== null) && (
+            <div className="pl-[18px] text-[10px] text-muted-foreground/40">
+              {lineTotal !== null ? `${lineTotal} lines` : ''}
+              {lineTotal !== null && charTotal !== null ? ' · ' : ''}
+              {charTotal !== null ? `${charTotal} chars` : ''}
+            </div>
+          )}
         </div>
       )
     }
+  }
+
+  // SavePlan: preview-only rendering, always prefer content_preview then content
+  if (name === 'SavePlan') {
+    const preview =
+      (typeof input.content_preview === 'string' && input.content_preview) ||
+      (typeof input.content === 'string' && input.content) ||
+      ''
+    if (!preview) return <></>
+    return (
+      <div className="space-y-1">
+        <pre
+          className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-2.5 py-2 text-[11px] text-foreground/80 dark:bg-zinc-950 dark:text-zinc-300/80"
+          style={{ fontFamily: MONO_FONT }}
+        >
+          {preview}
+        </pre>
+      </div>
+    )
   }
 
   // LS: path
@@ -1578,7 +1597,7 @@ export function ToolCallCard({
             <InlineDiff oldStr={String(input.old_string)} newStr={String(input.new_string)} />
           )}
           {/* Write: show content with syntax highlighting */}
-          {showSettledWriteContent && (
+          {showSettledWriteContent && name === 'Write' && (
             <div>
               <div className="mb-1 flex items-center gap-1.5">
                 <p className="text-xs font-medium text-muted-foreground">{t('toolCall.content')}</p>

@@ -3,7 +3,7 @@ import { immer } from 'zustand/middleware/immer'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { ToolCallState } from '../lib/agent/types'
 import type { SubAgentEvent } from '../lib/agent/sub-agents/types'
-import type { ToolResultContent } from '../lib/api/types'
+import type { ToolResultContent, UnifiedMessage, ContentBlock } from '../lib/api/types'
 import { ipcStorage } from '../lib/ipc/ipc-storage'
 import { ipcClient } from '../lib/ipc/ipc-client'
 import { IPC } from '../lib/ipc/channels'
@@ -139,16 +139,45 @@ function trimToolCallArray(toolCalls: ToolCallState[]): void {
   toolCalls.splice(0, toolCalls.length - MAX_TRACKED_TOOL_CALLS)
 }
 
+type SubAgentReportStatus = 'pending' | 'submitted' | 'retrying' | 'fallback' | 'missing'
+
 interface SubAgentState {
   name: string
+  displayName?: string
   toolUseId: string
   sessionId?: string
+  description: string
+  prompt: string
   isRunning: boolean
   iteration: number
   toolCalls: ToolCallState[]
   streamingText: string
+  transcript: UnifiedMessage[]
+  currentAssistantMessageId: string | null
+  report: string
+  reportStatus: SubAgentReportStatus
   startedAt: number
   completedAt: number | null
+}
+
+function finalizeAssistantMessage(
+  sa: SubAgentState,
+  usage?: UnifiedMessage['usage'],
+  providerResponseId?: string
+): void {
+  if (!sa.currentAssistantMessageId) return
+  const message = sa.transcript.find((item) => item.id === sa.currentAssistantMessageId)
+  if (!message || message.role !== 'assistant') {
+    sa.currentAssistantMessageId = null
+    return
+  }
+  if (usage) {
+    message.usage = usage
+  }
+  if (providerResponseId) {
+    message.providerResponseId = providerResponseId
+  }
+  sa.currentAssistantMessageId = null
 }
 
 function trimCompletedSubAgentsMap(map: Record<string, SubAgentState>): void {
@@ -163,6 +192,111 @@ function trimCompletedSubAgentsMap(map: Record<string, SubAgentState>): void {
 function trimSubAgentHistory(history: SubAgentState[]): void {
   if (history.length <= MAX_SUBAGENT_HISTORY) return
   history.splice(0, history.length - MAX_SUBAGENT_HISTORY)
+}
+
+function getCurrentAssistantBlocks(sa: SubAgentState): ContentBlock[] | null {
+  if (!sa.currentAssistantMessageId) return null
+  const assistant = sa.transcript.find((message) => message.id === sa.currentAssistantMessageId)
+  if (!assistant) return null
+  if (!Array.isArray(assistant.content)) {
+    assistant.content = []
+  }
+  return assistant.content
+}
+
+function appendThinkingToSubAgent(sa: SubAgentState, thinking: string): void {
+  const blocks = getCurrentAssistantBlocks(sa)
+  if (!blocks) return
+  const last = blocks[blocks.length - 1]
+  if (last?.type === 'thinking') {
+    last.thinking += thinking
+    return
+  }
+  blocks.push({ type: 'thinking', thinking })
+}
+
+function appendThinkingEncryptedToSubAgent(
+  sa: SubAgentState,
+  encryptedContent: string,
+  provider: 'anthropic' | 'openai-responses' | 'google'
+): void {
+  const blocks = getCurrentAssistantBlocks(sa)
+  if (!blocks || !encryptedContent) return
+
+  let target: Extract<ContentBlock, { type: 'thinking' }> | null = null
+  let providerMatchedTarget: Extract<ContentBlock, { type: 'thinking' }> | null = null
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const block = blocks[index]
+    if (block.type !== 'thinking') continue
+    if (!block.encryptedContent) {
+      target = block
+      break
+    }
+    if (!providerMatchedTarget && block.encryptedContentProvider === provider) {
+      providerMatchedTarget = block
+    }
+  }
+
+  target = target ?? providerMatchedTarget
+  if (target) {
+    target.encryptedContent = encryptedContent
+    target.encryptedContentProvider = provider
+    return
+  }
+
+  blocks.push({
+    type: 'thinking',
+    thinking: '',
+    encryptedContent,
+    encryptedContentProvider: provider
+  })
+}
+
+function appendTextToSubAgent(sa: SubAgentState, text: string): void {
+  const blocks = getCurrentAssistantBlocks(sa)
+  if (!blocks) return
+  const last = blocks[blocks.length - 1]
+  if (last?.type === 'text') {
+    last.text += text
+    return
+  }
+  blocks.push({ type: 'text', text })
+}
+
+function appendBlockToSubAgent(sa: SubAgentState, block: ContentBlock): void {
+  const blocks = getCurrentAssistantBlocks(sa)
+  if (!blocks) return
+  blocks.push(block)
+}
+
+function upsertToolUseBlockInSubAgent(
+  sa: SubAgentState,
+  block: Extract<ContentBlock, { type: 'tool_use' }>
+): void {
+  const blocks = getCurrentAssistantBlocks(sa)
+  if (!blocks) return
+  const existing = blocks.findIndex((item) => item.type === 'tool_use' && item.id === block.id)
+  if (existing !== -1) {
+    blocks[existing] = block
+    return
+  }
+  blocks.push(block)
+}
+
+function updateToolUseInputInSubAgent(
+  sa: SubAgentState,
+  toolCallId: string,
+  partialInput: Record<string, unknown>
+): void {
+  const blocks = getCurrentAssistantBlocks(sa)
+  if (!blocks) return
+  const toolUseBlock = blocks.find(
+    (item): item is Extract<ContentBlock, { type: 'tool_use' }> =>
+      item.type === 'tool_use' && item.id === toolCallId
+  )
+  if (toolUseBlock) {
+    toolUseBlock.input = partialInput
+  }
 }
 
 function rebuildRunningSubAgentDerived(state: {
@@ -765,16 +899,9 @@ export const useAgentStore = create<AgentStore>()(
 
       clearToolCalls: () => {
         set((state) => {
-          // Move completed SubAgents to history before clearing
-          const completed = Object.values(state.completedSubAgents)
-          if (completed.length > 0) {
-            state.subAgentHistory.push(...completed)
-            trimSubAgentHistory(state.subAgentHistory)
-          }
           state.pendingToolCalls = []
           state.executedToolCalls = []
           state.activeSubAgents = {}
-          state.completedSubAgents = {}
           state.runningSubAgentNamesSig = ''
           state.runningSubAgentSessionIdsSig = ''
           state.approvedToolNames = []
@@ -894,12 +1021,25 @@ export const useAgentStore = create<AgentStore>()(
             case 'sub_agent_start':
               state.activeSubAgents[id] = {
                 name: event.subAgentName,
+                displayName: String(event.input.subagent_type ?? event.subAgentName),
                 toolUseId: id,
                 sessionId,
+                description: String(event.input.description ?? ''),
+                prompt: String(
+                  event.input.prompt ??
+                    event.input.query ??
+                    event.input.task ??
+                    event.input.target ??
+                    ''
+                ),
                 isRunning: true,
                 iteration: 0,
                 toolCalls: [],
                 streamingText: '',
+                transcript: [event.promptMessage],
+                currentAssistantMessageId: null,
+                report: '',
+                reportStatus: 'pending',
                 startedAt: Date.now(),
                 completedAt: null
               }
@@ -907,7 +1047,99 @@ export const useAgentStore = create<AgentStore>()(
               break
             case 'sub_agent_iteration': {
               const sa = state.activeSubAgents[id]
-              if (sa) sa.iteration = event.iteration
+              if (sa) {
+                sa.iteration = event.iteration
+                sa.currentAssistantMessageId = event.assistantMessage.id
+                sa.transcript.push(event.assistantMessage)
+              }
+              break
+            }
+            case 'sub_agent_thinking_delta': {
+              const sa = state.activeSubAgents[id]
+              if (sa) appendThinkingToSubAgent(sa, event.thinking)
+              break
+            }
+            case 'sub_agent_thinking_encrypted': {
+              const sa = state.activeSubAgents[id]
+              if (sa) {
+                appendThinkingEncryptedToSubAgent(
+                  sa,
+                  event.thinkingEncryptedContent,
+                  event.thinkingEncryptedProvider
+                )
+              }
+              break
+            }
+            case 'sub_agent_tool_use_streaming_start': {
+              const sa = state.activeSubAgents[id]
+              if (sa) {
+                upsertToolUseBlockInSubAgent(sa, {
+                  type: 'tool_use',
+                  id: event.toolCallId,
+                  name: event.toolName,
+                  input: {},
+                  ...(event.toolCallExtraContent
+                    ? { extraContent: event.toolCallExtraContent }
+                    : {})
+                })
+              }
+              break
+            }
+            case 'sub_agent_tool_use_args_delta': {
+              const sa = state.activeSubAgents[id]
+              if (sa) updateToolUseInputInSubAgent(sa, event.toolCallId, event.partialInput)
+              break
+            }
+            case 'sub_agent_tool_use_generated': {
+              const sa = state.activeSubAgents[id]
+              if (sa) upsertToolUseBlockInSubAgent(sa, event.toolUseBlock)
+              break
+            }
+            case 'sub_agent_image_generated': {
+              const sa = state.activeSubAgents[id]
+              if (sa) appendBlockToSubAgent(sa, event.imageBlock)
+              break
+            }
+            case 'sub_agent_image_error': {
+              const sa = state.activeSubAgents[id]
+              if (sa) {
+                appendBlockToSubAgent(sa, {
+                  type: 'image_error',
+                  code: event.imageError.code,
+                  message: event.imageError.message
+                })
+              }
+              break
+            }
+            case 'sub_agent_message_end': {
+              const sa = state.activeSubAgents[id]
+              if (sa) {
+                finalizeAssistantMessage(sa, event.usage, event.providerResponseId)
+              }
+              break
+            }
+            case 'sub_agent_tool_result_message': {
+              const sa = state.activeSubAgents[id]
+              if (sa) {
+                finalizeAssistantMessage(sa)
+                sa.transcript.push(event.message)
+              }
+              break
+            }
+            case 'sub_agent_user_message': {
+              const sa = state.activeSubAgents[id]
+              if (sa) {
+                finalizeAssistantMessage(sa)
+                sa.transcript.push(event.message)
+              }
+              break
+            }
+            case 'sub_agent_report_update': {
+              const sa = state.activeSubAgents[id]
+              if (sa) {
+                sa.report = event.report
+                sa.reportStatus = event.status
+              }
               break
             }
             case 'sub_agent_tool_call': {
@@ -933,6 +1165,7 @@ export const useAgentStore = create<AgentStore>()(
                   sa.streamingText + event.text,
                   MAX_STREAMING_TEXT_CHARS
                 )
+                appendTextToSubAgent(sa, event.text)
               }
               break
             }
@@ -941,6 +1174,13 @@ export const useAgentStore = create<AgentStore>()(
               if (sa) {
                 sa.isRunning = false
                 sa.completedAt = Date.now()
+                finalizeAssistantMessage(sa)
+                sa.report = event.result.finalReportMarkdown ?? sa.report
+                if (event.result.finalReportMarkdown?.trim()) {
+                  sa.reportStatus = sa.reportStatus === 'submitted' ? 'submitted' : 'fallback'
+                } else if (!sa.report.trim()) {
+                  sa.reportStatus = 'missing'
+                }
                 state.completedSubAgents[id] = sa
                 trimCompletedSubAgentsMap(state.completedSubAgents)
                 delete state.activeSubAgents[id]
@@ -1047,8 +1287,6 @@ export const useAgentStore = create<AgentStore>()(
       name: 'opencowork-agent',
       storage: createJSONStorage(() => ipcStorage),
       partialize: (state) => ({
-        completedSubAgents: state.completedSubAgents,
-        subAgentHistory: state.subAgentHistory,
         approvedToolNames: state.approvedToolNames
       })
     }

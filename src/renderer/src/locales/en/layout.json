@@ -153,8 +153,10 @@
     "plan": "Plan",
     "team": "Team",
     "files": "Files",
+    "preview": "Preview",
     "artifacts": "Artifacts",
     "context": "Context",
+    "subagents": "SubAgents",
     "acp": "ACP",
     "acpTitle": "ACP Mode",
     "acpDesc": "The main agent handles clarification, architecture, and task delegation. Implementation work must be executed by sub-agents.",
@@ -165,6 +167,22 @@
     "cron": "Cron",
     "expand": "Expand",
     "collapse": "Collapse"
+  },
+  "subAgentsPanel": {
+    "running": "Running",
+    "completed": "Completed",
+    "taskInput": "Task Input",
+    "description": "Description",
+    "prompt": "Prompt",
+    "execution": "Execution",
+    "report": "Final Report",
+    "reportPending": "The SubAgent has not submitted a final report yet.",
+    "reportMissing": "No final report was captured.",
+    "reportStatusPending": "Pending",
+    "reportStatusSubmitted": "Submitted",
+    "reportStatusRetrying": "Retrying",
+    "reportStatusFallback": "Fallback",
+    "reportStatusMissing": "Missing"
   },
   "detailPanel": {
     "team": "Team",
@@ -197,6 +215,19 @@
     "sendInput": "Send Input",
     "sendCtrlC": "Send Ctrl+C",
     "stopProcess": "Stop Process"
+  },
+  "subAgentsPanel": {
+    "running": "Running",
+    "completed": "Completed",
+    "runningShort": "Running",
+    "completedShort": "Done",
+    "prompt": "Task Prompt",
+    "description": "Description",
+    "promptLabel": "Prompt",
+    "execution": "Execution",
+    "report": "Final Report",
+    "reportRetrying": "Regenerating the final report…",
+    "reportEmpty": "No final report available"
   },
   "layout": {
     "newModeSession": "New {{mode}} session",

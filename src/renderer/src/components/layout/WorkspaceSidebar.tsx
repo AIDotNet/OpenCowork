@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
+import packageJson from '../../../../../package.json'
 import { useTranslation } from 'react-i18next'
 import appIconUrl from '../../../../../resources/icon.png'
 import readmeZh from '../../../../../README.zh.md?raw'
@@ -35,6 +36,7 @@ import {
 } from 'lucide-react'
 import { DynamicIcon } from 'lucide-react/dynamic'
 import { Button } from '@renderer/components/ui/button'
+import { Badge } from '@renderer/components/ui/badge'
 import { Input } from '@renderer/components/ui/input'
 import {
   DropdownMenu,
@@ -114,6 +116,7 @@ function mapProject(project: ReturnType<typeof useChatStore.getState>['projects'
   name: string
   updatedAt: number
   workingFolder?: string
+  sshConnectionId?: string
   pluginId?: string
   pinned?: boolean
 } {
@@ -122,6 +125,7 @@ function mapProject(project: ReturnType<typeof useChatStore.getState>['projects'
     name: project.name,
     updatedAt: project.updatedAt,
     workingFolder: project.workingFolder,
+    sshConnectionId: project.sshConnectionId,
     pluginId: project.pluginId,
     pinned: project.pinned
   }
@@ -195,6 +199,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
           project.name,
           project.updatedAt,
           project.workingFolder ?? '',
+          project.sshConnectionId ?? '',
           project.pluginId ?? '',
           project.pinned ? 1 : 0
         ].join('|')
@@ -946,8 +951,15 @@ export function WorkspaceSidebar(): React.JSX.Element {
                             {renderProjectIcon(icon, 'size-3.5')}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-[12px] font-medium text-foreground">
-                              {project.name}
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-[12px] font-medium text-foreground">
+                                {project.name}
+                              </span>
+                              {project.sshConnectionId ? (
+                                <Badge variant="secondary" className="h-4 px-1 text-[9px] leading-none">
+                                  SSH
+                                </Badge>
+                              ) : null}
                             </div>
                           </div>
                         </button>
@@ -1056,11 +1068,14 @@ export function WorkspaceSidebar(): React.JSX.Element {
 
             <Button
               variant="ghost"
-              className="h-8 w-full justify-start gap-2 px-2.5 text-[12px] text-foreground/80 hover:bg-muted/40"
+              className="h-8 w-full justify-between gap-2 px-2.5 text-[12px] text-foreground/80 hover:bg-muted/40"
               onClick={() => useUIStore.getState().openSettingsPage('general')}
             >
-              <Settings className="size-4" />
-              {t('sidebar.systemSettings')}
+              <span className="flex min-w-0 items-center gap-2">
+                <Settings className="size-4 shrink-0" />
+                <span className="truncate">{t('sidebar.systemSettings')}</span>
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground/70">v{packageJson.version}</span>
             </Button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import * as React from 'react'
 import type { ToolResultContent } from '@renderer/lib/api/types'
+import type { ToolCallState } from '@renderer/lib/agent/types'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
 import { Users, ChevronDown } from 'lucide-react'
@@ -20,6 +21,7 @@ interface MessageItemProps {
   onEditUserMessage?: (messageId: string, draft: EditableUserMessageDraft) => void
   onDeleteMessage?: (messageId: string) => void
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
+  liveToolCallMap?: Map<string, ToolCallState> | null
 }
 
 function getToolUseInputSignal(input: Record<string, unknown>): string {
@@ -111,7 +113,8 @@ function MessageItemInner({
   onRetryAssistantMessage,
   onEditUserMessage,
   onDeleteMessage,
-  toolResults
+  toolResults,
+  liveToolCallMap
 }: MessageItemProps): React.JSX.Element | null {
   if (message.id !== messageId) return null
 
@@ -153,6 +156,7 @@ function MessageItemInner({
             showRetry={isLastAssistantMessage}
             onRetry={onRetryAssistantMessage}
             onDelete={onDeleteMessage}
+            liveToolCallMap={liveToolCallMap}
           />
         )
       default:
@@ -223,7 +227,8 @@ function areEqual(prev: MessageItemProps, next: MessageItemProps): boolean {
     prev.message.source === next.message.source &&
     getContentSignal(prev.message.content) === getContentSignal(next.message.content) &&
     prevUsageSignal === nextUsageSignal &&
-    areToolResultsEqual(prev.toolResults, next.toolResults)
+    areToolResultsEqual(prev.toolResults, next.toolResults) &&
+    prev.liveToolCallMap === next.liveToolCallMap
   )
 }
 

@@ -900,71 +900,97 @@ function createSubAgentEventBuffer(sessionId: string): {
   handleEvent: (event: SubAgentEvent) => void
   dispose: () => void
 } {
-  const textBuffers = new Map<
+  const deltaBuffers = new Map<
     string,
     {
       subAgentName: string
       text: string
+      thinking: string
       timer?: ReturnType<typeof setTimeout>
     }
   >()
 
-  const flushText = (toolUseId: string): void => {
-    const entry = textBuffers.get(toolUseId)
+  const flushDelta = (toolUseId: string): void => {
+    const entry = deltaBuffers.get(toolUseId)
     if (!entry) return
     if (entry.timer) {
       clearTimeout(entry.timer)
       entry.timer = undefined
     }
-    if (!entry.text) return
-    useAgentStore.getState().handleSubAgentEvent(
-      {
-        type: 'sub_agent_text_delta',
-        subAgentName: entry.subAgentName,
-        toolUseId,
-        text: entry.text
-      },
-      sessionId
-    )
-    entry.text = ''
+    if (entry.thinking) {
+      useAgentStore.getState().handleSubAgentEvent(
+        {
+          type: 'sub_agent_thinking_delta',
+          subAgentName: entry.subAgentName,
+          toolUseId,
+          thinking: entry.thinking
+        },
+        sessionId
+      )
+      entry.thinking = ''
+    }
+    if (entry.text) {
+      useAgentStore.getState().handleSubAgentEvent(
+        {
+          type: 'sub_agent_text_delta',
+          subAgentName: entry.subAgentName,
+          toolUseId,
+          text: entry.text
+        },
+        sessionId
+      )
+      entry.text = ''
+    }
+  }
+
+  const scheduleFlush = (toolUseId: string): void => {
+    const entry = deltaBuffers.get(toolUseId)
+    if (!entry || entry.timer) return
+    entry.timer = setTimeout(() => {
+      flushDelta(toolUseId)
+    }, SUB_AGENT_TEXT_FLUSH_MS)
   }
 
   const flushAll = (): void => {
-    for (const toolUseId of textBuffers.keys()) {
-      flushText(toolUseId)
+    for (const toolUseId of deltaBuffers.keys()) {
+      flushDelta(toolUseId)
+    }
+  }
+
+  const flushBeforeBoundary = (event: SubAgentEvent): void => {
+    if ('toolUseId' in event) {
+      flushDelta(event.toolUseId)
     }
   }
 
   return {
     handleEvent: (event) => {
-      if (event.type === 'sub_agent_text_delta') {
-        const entry = textBuffers.get(event.toolUseId) ?? {
+      if (event.type === 'sub_agent_text_delta' || event.type === 'sub_agent_thinking_delta') {
+        const entry = deltaBuffers.get(event.toolUseId) ?? {
           subAgentName: event.subAgentName,
-          text: ''
+          text: '',
+          thinking: ''
         }
         entry.subAgentName = event.subAgentName
-        entry.text += event.text
-        textBuffers.set(event.toolUseId, entry)
-        if (!entry.timer) {
-          entry.timer = setTimeout(() => {
-            flushText(event.toolUseId)
-          }, SUB_AGENT_TEXT_FLUSH_MS)
+        if (event.type === 'sub_agent_text_delta') {
+          entry.text += event.text
+        } else {
+          entry.thinking += event.thinking
         }
+        deltaBuffers.set(event.toolUseId, entry)
+        scheduleFlush(event.toolUseId)
         return
       }
 
-      if (event.type === 'sub_agent_end') {
-        flushText(event.toolUseId)
-      }
-
+      flushBeforeBoundary(event)
       useAgentStore.getState().handleSubAgentEvent(event, sessionId)
     },
     dispose: () => {
       flushAll()
-      for (const entry of textBuffers.values()) {
+      for (const entry of deltaBuffers.values()) {
         if (entry.timer) clearTimeout(entry.timer)
       }
-      textBuffers.clear()
+      deltaBuffers.clear()
     }
   }
 }

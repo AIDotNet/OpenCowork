@@ -153,8 +153,10 @@
     "plan": "计划",
     "team": "团队",
     "files": "文件",
+    "preview": "预览",
     "artifacts": "产物",
     "context": "上下文",
+    "subagents": "子代理",
     "acp": "ACP",
     "acpTitle": "ACP 模式",
     "acpDesc": "当前由主 Agent 负责需求澄清、架构设计与任务分派，实现工作必须通过子代理执行。",
@@ -165,6 +167,22 @@
     "cron": "定时",
     "expand": "展开",
     "collapse": "收起"
+  },
+  "subAgentsPanel": {
+    "running": "运行中",
+    "completed": "已完成",
+    "taskInput": "任务输入",
+    "description": "描述",
+    "prompt": "prompt",
+    "execution": "执行过程",
+    "report": "总结报告",
+    "reportPending": "当前 SubAgent 尚未生成总结报告。",
+    "reportMissing": "未捕获到总结报告。",
+    "reportStatusPending": "待生成",
+    "reportStatusSubmitted": "已提交",
+    "reportStatusRetrying": "补救中",
+    "reportStatusFallback": "兜底生成",
+    "reportStatusMissing": "缺失"
   },
   "detailPanel": {
     "team": "团队",
@@ -197,6 +215,19 @@
     "sendInput": "发送输入",
     "sendCtrlC": "发送 Ctrl+C",
     "stopProcess": "停止进程"
+  },
+  "subAgentsPanel": {
+    "running": "运行中",
+    "completed": "已完成",
+    "runningShort": "运行中",
+    "completedShort": "已完成",
+    "prompt": "任务 Prompt",
+    "description": "Description",
+    "promptLabel": "Prompt",
+    "execution": "执行过程",
+    "report": "总结报告",
+    "reportRetrying": "正在补生成总结报告…",
+    "reportEmpty": "暂无总结报告"
   },
   "layout": {
     "newModeSession": "新建 {{mode}} 会话",

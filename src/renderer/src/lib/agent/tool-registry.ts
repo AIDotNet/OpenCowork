@@ -71,7 +71,8 @@ class ToolRegistry {
     input: Record<string, unknown>,
     ctx: ToolContext
   ): Promise<ToolResultContent> {
-    const handler = this.tools.get(name)
+    const handler =
+      ctx.localToolHandlers?.[name] ?? ctx.inlineToolHandlers?.[name] ?? this.tools.get(name)
     if (!handler) {
       return encodeToolError(`Unknown tool: ${name}`)
     }
@@ -84,7 +85,8 @@ class ToolRegistry {
   }
 
   checkRequiresApproval(name: string, input: Record<string, unknown>, ctx: ToolContext): boolean {
-    const handler = this.tools.get(name)
+    const handler =
+      ctx.localToolHandlers?.[name] ?? ctx.inlineToolHandlers?.[name] ?? this.tools.get(name)
     if (!handler) return true // Unknown tools always require approval
     return handler.requiresApproval?.(input, ctx) ?? false
   }

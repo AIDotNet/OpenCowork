@@ -1,4 +1,12 @@
-import type { ProviderConfig, TokenUsage } from '../../api/types'
+import type {
+  ProviderConfig,
+  TokenUsage,
+  UnifiedMessage,
+  ToolUseBlock,
+  ImageBlock,
+  ImageErrorCode,
+  ToolCallExtraContent
+} from '../../api/types'
 import type { ToolCallState } from '../types'
 import type { ToolContext } from '../../tools/tool-types'
 
@@ -57,6 +65,10 @@ export interface SubAgentResult {
   output: string
   /** Final Markdown report generated after execution */
   finalReportMarkdown?: string
+  /** Whether a non-empty report was submitted through the dedicated tool */
+  reportSubmitted?: boolean
+  /** Whether an automatic report retry prompt was injected */
+  reportRetried?: boolean
   /** Number of tool calls executed */
   toolCallCount: number
   /** Number of LLM iterations */
@@ -75,6 +87,82 @@ export type SubAgentEvent =
       subAgentName: string
       toolUseId: string
       input: Record<string, unknown>
+      promptMessage: UnifiedMessage
+    }
+  | {
+      type: 'sub_agent_iteration'
+      subAgentName: string
+      toolUseId: string
+      iteration: number
+      assistantMessage: UnifiedMessage
+    }
+  | { type: 'sub_agent_text_delta'; subAgentName: string; toolUseId: string; text: string }
+  | { type: 'sub_agent_thinking_delta'; subAgentName: string; toolUseId: string; thinking: string }
+  | {
+      type: 'sub_agent_thinking_encrypted'
+      subAgentName: string
+      toolUseId: string
+      thinkingEncryptedContent: string
+      thinkingEncryptedProvider: 'anthropic' | 'openai-responses' | 'google'
+    }
+  | {
+      type: 'sub_agent_tool_use_streaming_start'
+      subAgentName: string
+      toolUseId: string
+      toolCallId: string
+      toolName: string
+      toolCallExtraContent?: ToolCallExtraContent
+    }
+  | {
+      type: 'sub_agent_tool_use_args_delta'
+      subAgentName: string
+      toolUseId: string
+      toolCallId: string
+      partialInput: Record<string, unknown>
+    }
+  | {
+      type: 'sub_agent_tool_use_generated'
+      subAgentName: string
+      toolUseId: string
+      toolUseBlock: ToolUseBlock
+    }
+  | {
+      type: 'sub_agent_image_generated'
+      subAgentName: string
+      toolUseId: string
+      imageBlock: ImageBlock
+    }
+  | {
+      type: 'sub_agent_image_error'
+      subAgentName: string
+      toolUseId: string
+      imageError: { code: ImageErrorCode; message: string }
+    }
+  | {
+      type: 'sub_agent_message_end'
+      subAgentName: string
+      toolUseId: string
+      usage?: TokenUsage
+      providerResponseId?: string
+    }
+  | {
+      type: 'sub_agent_tool_result_message'
+      subAgentName: string
+      toolUseId: string
+      message: UnifiedMessage
+    }
+  | {
+      type: 'sub_agent_user_message'
+      subAgentName: string
+      toolUseId: string
+      message: UnifiedMessage
+    }
+  | {
+      type: 'sub_agent_report_update'
+      subAgentName: string
+      toolUseId: string
+      report: string
+      status: 'pending' | 'submitted' | 'retrying' | 'fallback' | 'missing'
     }
   | {
       type: 'sub_agent_tool_call'
@@ -82,6 +170,4 @@ export type SubAgentEvent =
       toolUseId: string
       toolCall: ToolCallState
     }
-  | { type: 'sub_agent_text_delta'; subAgentName: string; toolUseId: string; text: string }
-  | { type: 'sub_agent_iteration'; subAgentName: string; toolUseId: string; iteration: number }
   | { type: 'sub_agent_end'; subAgentName: string; toolUseId: string; result: SubAgentResult }

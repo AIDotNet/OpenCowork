@@ -1144,7 +1144,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                           <InputArea
                             onSend={sendMessage}
                             onStop={stopStreaming}
-                            onSelectFolder={mode !== 'chat' ? handleOpenFolderDialog : undefined}
+                            onSelectFolder={mode !== 'chat' && !activeSessionView.activeProjectId ? handleOpenFolderDialog : undefined}
                             workingFolder={activeWorkingFolder}
                             hideWorkingFolderIndicator
                             isStreaming={isStreaming}

@@ -26,6 +26,7 @@ export type RightPanelTab =
   | 'files'
   | 'plan'
   | 'preview'
+  | 'subagents'
   | 'acp'
 export type RightPanelSection = 'execution' | 'resources' | 'collaboration' | 'monitoring'
 
@@ -228,6 +229,9 @@ interface UIStore {
   closePreviewPanel: (sessionId?: string | null) => void
   setPreviewViewMode: (mode: 'preview' | 'code', sessionId?: string | null) => void
 
+  /** SubAgent panel */
+  openSubAgentsPanel: (toolUseId?: string | null) => void
+
   /** Session-scoped UI state */
   activeScopedSessionId: string | null
   syncSessionScopedState: (sessionId: string | null) => void
@@ -243,6 +247,10 @@ interface UIStore {
   setSelectedFiles: (files: string[]) => void
   toggleFileSelection: (filePath: string) => void
   clearSelectedFiles: () => void
+
+  /** Focused SubAgent in right panel */
+  selectedSubAgentToolUseId: string | null
+  setSelectedSubAgentToolUseId: (toolUseId: string | null) => void
 
   /** Plan mode state */
   planMode: boolean
@@ -656,6 +664,18 @@ export const useUIStore = create<UIStore>((set, get) => ({
       }
     }),
   clearSelectedFiles: () => set({ selectedFiles: [] }),
+
+  selectedSubAgentToolUseId: null,
+  setSelectedSubAgentToolUseId: (toolUseId) => set({ selectedSubAgentToolUseId: toolUseId }),
+  openSubAgentsPanel: (toolUseId) =>
+    set({
+      selectedSubAgentToolUseId: toolUseId ?? null,
+      rightPanelTab: 'subagents',
+      rightPanelSection: 'collaboration',
+      rightPanelOpen: true,
+      detailPanelOpen: false,
+      detailPanelContent: null
+    }),
 
   planMode: false,
   planModesBySession: {},

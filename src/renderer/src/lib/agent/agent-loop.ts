@@ -10,7 +10,7 @@ import type {
 import { createProvider } from '../api/provider'
 import { toolRegistry } from './tool-registry'
 import type { AgentEvent, AgentLoopConfig, ToolCallState } from './types'
-import type { ToolContext } from '../tools/tool-types'
+import type { ToolContext, ToolHandler } from '../tools/tool-types'
 import { encodeToolError } from '../tools/tool-result-format'
 import { shouldCompress, shouldPreCompress, preCompressMessages } from './context-compression'
 
@@ -248,7 +248,7 @@ export async function* runAgentLoop(
 
               const requiresApproval =
                 config.forceApproval ||
-                toolRegistry.checkRequiresApproval(endToolName, toolInput, toolCtx)
+                checkToolRequiresApproval(endToolName, toolInput, toolCtx)
 
               const tc: ToolCallState = {
                 id: toolUseBlock.id,
@@ -317,7 +317,7 @@ export async function* runAgentLoop(
               parseToolInputSnapshot(argsText, danglingName) ?? safeParseJSON(argsText)
             const requiresApproval =
               config.forceApproval ||
-              toolRegistry.checkRequiresApproval(danglingName, danglingInput, toolCtx)
+              checkToolRequiresApproval(danglingName, danglingInput, toolCtx)
             const toolUseBlock: ToolUseBlock = {
               type: 'tool_use',
               id: danglingToolId,
@@ -415,7 +415,7 @@ export async function* runAgentLoop(
       let output: ToolResultContent
       let toolError: string | undefined
       try {
-        output = await toolRegistry.execute(tc.name, tc.input, {
+        output = await executeTool(tc.name, tc.input, {
           ...toolCtx,
           currentToolUseId: tc.id
         })
@@ -486,6 +486,32 @@ export async function* runAgentLoop(
 }
 
 // --- Helpers ---
+
+function getToolHandler(name: string, toolCtx: ToolContext): ToolHandler | undefined {
+  return toolCtx.inlineToolHandlers?.[name] ?? toolRegistry.get(name)
+}
+
+function checkToolRequiresApproval(
+  name: string,
+  input: Record<string, unknown>,
+  toolCtx: ToolContext
+): boolean {
+  const handler = getToolHandler(name, toolCtx)
+  if (!handler) return true
+  return handler.requiresApproval?.(input, toolCtx) ?? false
+}
+
+async function executeTool(
+  name: string,
+  input: Record<string, unknown>,
+  toolCtx: ToolContext
+): Promise<ToolResultContent> {
+  const inlineHandler = toolCtx.inlineToolHandlers?.[name]
+  if (inlineHandler) {
+    return inlineHandler.execute(input, toolCtx)
+  }
+  return toolRegistry.execute(name, input, toolCtx)
+}
 
 function appendThinkingToBlocks(blocks: ContentBlock[], thinking: string): void {
   const last = blocks[blocks.length - 1]

@@ -146,10 +146,17 @@ function SubAgentCardInner({
   // Icon — resolve by displayName (subagent_type for unified Task, or legacy name)
   const icon = getSubAgentIcon(displayName)
 
-  // Query/task description from input (unified Task uses description/prompt)
-  const queryText = String(input.description ?? input.query ?? input.task ?? input.target ?? '')
+  // Query/task description from input (unified Task uses description + prompt)
+  const queryParts = [
+    input.description ? String(input.description) : '',
+    input.prompt ? String(input.prompt) : '',
+    input.query ? String(input.query) : '',
+    input.task ? String(input.task) : '',
+    input.target ? String(input.target) : ''
+  ].filter(Boolean)
+  const queryText = queryParts.join(' · ')
 
-  const previewSource = live?.streamingText || histText || ''
+  const previewSource = live?.report || live?.streamingText || histText || ''
   const previewText = React.useMemo(() => {
     if (!previewSource) return ''
     const limit = 420
@@ -162,11 +169,7 @@ function SubAgentCardInner({
   const hasPreview = previewText.trim().length > 0
   const handleToggleExpanded = (): void => setExpanded((prev) => !prev)
   const handleOpenPreview = (): void => {
-    useUIStore.getState().openDetailPanel({
-      type: 'subagent',
-      toolUseId,
-      text: previewSource || undefined
-    })
+    useUIStore.getState().openSubAgentsPanel(toolUseId)
   }
 
   const ChevronIcon = expanded ? ChevronDown : ChevronRight

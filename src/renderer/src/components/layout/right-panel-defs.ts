@@ -8,6 +8,7 @@ import {
   Monitor,
   ShieldCheck,
   Users,
+  Bot,
   Workflow,
   type LucideIcon
 } from 'lucide-react'
@@ -42,6 +43,7 @@ export const RIGHT_PANEL_TAB_DEFS: RightPanelTabDef[] = [
   { value: 'files', labelKey: 'files', section: 'resources', icon: FolderTree },
   { value: 'preview', labelKey: 'preview', section: 'resources', icon: Monitor },
   { value: 'artifacts', labelKey: 'artifacts', section: 'resources', icon: FileOutput },
+  { value: 'subagents', labelKey: 'subagents', section: 'collaboration', icon: Bot },
   { value: 'team', labelKey: 'team', section: 'collaboration', icon: Users },
   { value: 'context', labelKey: 'context', section: 'monitoring', icon: Database },
   { value: 'acp', labelKey: 'acp', section: 'monitoring', icon: ShieldCheck }

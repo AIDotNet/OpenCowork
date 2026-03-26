@@ -1,6 +1,11 @@
 export function inputSummary(name: string, input: Record<string, unknown>): string {
   if (name === 'Bash' && input.command) return String(input.command).slice(0, 80)
-  if (['Read', 'Write', 'LS'].includes(name)) {
+  if (['Read', 'Write', 'SavePlan', 'LS'].includes(name)) {
+    const preview =
+      name === 'SavePlan' && typeof input.content_preview === 'string'
+        ? String(input.content_preview)
+        : null
+    if (preview) return preview.slice(0, 80)
     const p = String(input.file_path ?? input.path ?? '')
     return p.split(/[\\/]/).slice(-2).join('/')
   }

@@ -155,7 +155,6 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
       ),
     [visibleTabs]
   )
-
   const resolvedTab = visibleTabs.some((tabDef) => tabDef.value === tab)
     ? tab
     : (visibleTabs[0]?.value ?? 'steps')
@@ -165,13 +164,13 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
 
   useEffect(() => {
     if (resolvedTab !== tab) {
-      queueMicrotask(() => setTab(resolvedTab))
+      setTab(resolvedTab)
     }
   }, [resolvedTab, tab, setTab])
 
   useEffect(() => {
     if (resolvedSection !== section) {
-      queueMicrotask(() => setSection(resolvedSection))
+      setSection(resolvedSection)
     }
   }, [resolvedSection, section, setSection])
 
@@ -321,12 +320,6 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
                     {resolvedTab === 'context' && (
                       <FadeIn key="context" className="h-full">
                         <ContextPanel />
-                      </FadeIn>
-                    )}
-
-                    {resolvedTab === 'subagents' && (
-                      <FadeIn key="subagents" className="h-full">
-                        <SubAgentsPanel />
                       </FadeIn>
                     )}
 

@@ -194,6 +194,34 @@ function trimSubAgentHistory(history: SubAgentState[]): void {
   history.splice(0, history.length - MAX_SUBAGENT_HISTORY)
 }
 
+function cloneSubAgentStateSnapshot(sa: SubAgentState): SubAgentState {
+  try {
+    return JSON.parse(JSON.stringify(sa)) as SubAgentState
+  } catch {
+    return {
+      ...sa,
+      toolCalls: sa.toolCalls.map((toolCall) => ({ ...toolCall })),
+      transcript: sa.transcript.map((message) => ({
+        ...message,
+        content: Array.isArray(message.content)
+          ? JSON.parse(JSON.stringify(message.content))
+          : message.content
+      }))
+    }
+  }
+}
+
+function upsertSubAgentHistory(history: SubAgentState[], sa: SubAgentState): void {
+  const snapshot = cloneSubAgentStateSnapshot(sa)
+  const existingIndex = history.findIndex((item) => item.toolUseId === snapshot.toolUseId)
+  if (existingIndex !== -1) {
+    history[existingIndex] = snapshot
+  } else {
+    history.push(snapshot)
+  }
+  trimSubAgentHistory(history)
+}
+
 function getCurrentAssistantBlocks(sa: SubAgentState): ContentBlock[] | null {
   if (!sa.currentAssistantMessageId) return null
   const assistant = sa.transcript.find((message) => message.id === sa.currentAssistantMessageId)
@@ -1123,6 +1151,7 @@ export const useAgentStore = create<AgentStore>()(
               if (sa) {
                 finalizeAssistantMessage(sa)
                 sa.transcript.push(event.message)
+                upsertSubAgentHistory(state.subAgentHistory, sa)
               }
               break
             }
@@ -1131,6 +1160,7 @@ export const useAgentStore = create<AgentStore>()(
               if (sa) {
                 finalizeAssistantMessage(sa)
                 sa.transcript.push(event.message)
+                upsertSubAgentHistory(state.subAgentHistory, sa)
               }
               break
             }
@@ -1139,6 +1169,7 @@ export const useAgentStore = create<AgentStore>()(
               if (sa) {
                 sa.report = event.report
                 sa.reportStatus = event.status
+                upsertSubAgentHistory(state.subAgentHistory, sa)
               }
               break
             }
@@ -1175,13 +1206,16 @@ export const useAgentStore = create<AgentStore>()(
                 sa.isRunning = false
                 sa.completedAt = Date.now()
                 finalizeAssistantMessage(sa)
-                sa.report = event.result.finalReportMarkdown ?? sa.report
-                if (event.result.finalReportMarkdown?.trim()) {
-                  sa.reportStatus = sa.reportStatus === 'submitted' ? 'submitted' : 'fallback'
-                } else if (!sa.report.trim()) {
-                  sa.reportStatus = 'missing'
+                if (!sa.report.trim()) {
+                  sa.report = event.result.finalReportMarkdown ?? sa.report
+                  sa.reportStatus = event.result.finalReportMarkdown?.trim()
+                    ? 'fallback'
+                    : 'missing'
+                } else if (sa.reportStatus !== 'submitted') {
+                  sa.reportStatus = sa.reportStatus === 'missing' ? 'missing' : sa.reportStatus
                 }
                 state.completedSubAgents[id] = sa
+                upsertSubAgentHistory(state.subAgentHistory, sa)
                 trimCompletedSubAgentsMap(state.completedSubAgents)
                 delete state.activeSubAgents[id]
                 rebuildRunningSubAgentDerived(state)
@@ -1287,7 +1321,8 @@ export const useAgentStore = create<AgentStore>()(
       name: 'opencowork-agent',
       storage: createJSONStorage(() => ipcStorage),
       partialize: (state) => ({
-        approvedToolNames: state.approvedToolNames
+        approvedToolNames: state.approvedToolNames,
+        subAgentHistory: state.subAgentHistory
       })
     }
   )

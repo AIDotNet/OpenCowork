@@ -87,6 +87,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui
 import { useTranslateStore } from '@renderer/stores/translate-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 
+type AssistantRenderMode = 'default' | 'transcript'
+
 interface AssistantMessageProps {
   content: string | ContentBlock[]
   isStreaming?: boolean
@@ -97,6 +99,7 @@ interface AssistantMessageProps {
   showRetry?: boolean
   onRetry?: () => void
   onDelete?: (messageId: string) => void
+  renderMode?: AssistantRenderMode
 }
 
 const MARKDOWN_WRAPPER_CLASS = 'text-sm leading-relaxed text-foreground break-words'
@@ -662,7 +665,8 @@ export function AssistantMessage({
   msgId,
   showRetry,
   onRetry,
-  onDelete
+  onDelete,
+  renderMode = 'default'
 }: AssistantMessageProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const devMode = useSettingsStore((s) => s.devMode)
@@ -787,6 +791,16 @@ export function AssistantMessage({
     }
     return items
   }, [normalizedContent])
+  const foregroundSubAgentTaskBlocks = useMemo(
+    () =>
+      normalizedContent?.filter(
+        (block): block is Extract<ContentBlock, { type: 'tool_use' }> =>
+          block.type === 'tool_use' &&
+          block.name === TASK_TOOL_NAME &&
+          !block.input.run_in_background
+      ) ?? [],
+    [normalizedContent]
+  )
 
   const renderContent = (): React.JSX.Element => {
     // Show image generation loader when generating images
@@ -1017,6 +1031,14 @@ export function AssistantMessage({
             completedAt={liveTc?.completedAt}
           />
         </ScaleIn>
+      )
+    }
+
+    if (renderMode === 'default' && foregroundSubAgentTaskBlocks.length > 0) {
+      return (
+        <div className="space-y-2">
+          {foregroundSubAgentTaskBlocks.map((block) => renderToolBlock(block, block.id))}
+        </div>
       )
     }
 

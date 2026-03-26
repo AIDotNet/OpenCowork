@@ -10,6 +10,8 @@ import { SlideIn } from '@renderer/components/animate-ui'
 import type { EditableUserMessageDraft } from '@renderer/lib/image-attachments'
 import type { UnifiedMessage } from '@renderer/lib/api/types'
 
+type MessageRenderMode = 'default' | 'transcript'
+
 interface MessageItemProps {
   message: UnifiedMessage
   messageId: string
@@ -22,6 +24,7 @@ interface MessageItemProps {
   onDeleteMessage?: (messageId: string) => void
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
   liveToolCallMap?: Map<string, ToolCallState> | null
+  renderMode?: MessageRenderMode
 }
 
 function getToolUseInputSignal(input: Record<string, unknown>): string {
@@ -114,7 +117,8 @@ function MessageItemInner({
   onEditUserMessage,
   onDeleteMessage,
   toolResults,
-  liveToolCallMap
+  liveToolCallMap,
+  renderMode = 'default'
 }: MessageItemProps): React.JSX.Element | null {
   if (message.id !== messageId) return null
 
@@ -157,6 +161,7 @@ function MessageItemInner({
             onRetry={onRetryAssistantMessage}
             onDelete={onDeleteMessage}
             liveToolCallMap={liveToolCallMap}
+            renderMode={renderMode}
           />
         )
       default:
@@ -228,7 +233,8 @@ function areEqual(prev: MessageItemProps, next: MessageItemProps): boolean {
     getContentSignal(prev.message.content) === getContentSignal(next.message.content) &&
     prevUsageSignal === nextUsageSignal &&
     areToolResultsEqual(prev.toolResults, next.toolResults) &&
-    prev.liveToolCallMap === next.liveToolCallMap
+    prev.liveToolCallMap === next.liveToolCallMap &&
+    prev.renderMode === next.renderMode
   )
 }
 

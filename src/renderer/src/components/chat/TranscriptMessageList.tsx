@@ -93,6 +93,7 @@ export function TranscriptMessageList({
             isLastAssistantMessage={message.id === lastAssistantId}
             disableAnimation
             toolResults={toolResultsLookup.get(message.id)}
+            renderMode="transcript"
           />
         </div>
       ))}

@@ -147,14 +147,16 @@ function SubAgentCardInner({
   const icon = getSubAgentIcon(displayName)
 
   // Query/task description from input (unified Task uses description + prompt)
-  const queryParts = [
-    input.description ? String(input.description) : '',
+  const descriptionText = input.description ? String(input.description) : ''
+  const promptText = [
     input.prompt ? String(input.prompt) : '',
     input.query ? String(input.query) : '',
     input.task ? String(input.task) : '',
     input.target ? String(input.target) : ''
-  ].filter(Boolean)
-  const queryText = queryParts.join(' · ')
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const queryText = [descriptionText, promptText].filter(Boolean).join(' · ')
 
   const previewSource = live?.report || live?.streamingText || histText || ''
   const previewText = React.useMemo(() => {
@@ -223,7 +225,22 @@ function SubAgentCardInner({
               </Badge>
             </div>
             {queryText && (
-              <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{queryText}</p>
+              <div className="mt-0.5 min-w-0 space-y-0.5">
+                {descriptionText && promptText && (
+                  <p
+                    className="line-clamp-1 break-words text-[11px] text-muted-foreground/55"
+                    title={descriptionText}
+                  >
+                    {descriptionText}
+                  </p>
+                )}
+                <p
+                  className="line-clamp-2 whitespace-pre-wrap break-words text-xs leading-4 text-muted-foreground/70"
+                  title={promptText || queryText}
+                >
+                  {promptText || queryText}
+                </p>
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0 text-[10px] text-muted-foreground/50">

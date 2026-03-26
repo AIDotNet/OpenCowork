@@ -204,7 +204,7 @@ export interface ToolDefinition {
 
 // --- Thinking / Reasoning Config ---
 
-export type ReasoningEffortLevel = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+export type ReasoningEffortLevel = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'max' | 'xhigh'
 
 export interface ThinkingConfig {
   /** Extra key-value pairs merged into the request body when thinking is enabled */

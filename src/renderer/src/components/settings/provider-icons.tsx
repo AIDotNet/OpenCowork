@@ -4,7 +4,8 @@ import { useTheme } from 'next-themes'
 const ICON_BASE = 'https://unpkg.com/@lobehub/icons-static-png@1.83.0'
 
 const iconUrlMap: Record<string, string> = {
-  'routin-ai': 'https://routin.ai/icons/favicon.ico'
+  'routin-ai': 'https://routin.ai/icons/favicon.ico',
+  'routin-ai-plan': 'https://routin.ai/icons/favicon.ico'
 }
 
 const providerIconSlugMap: Record<string, string> = {

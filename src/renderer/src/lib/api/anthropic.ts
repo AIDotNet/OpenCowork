@@ -10,6 +10,30 @@ import type {
 import { ipcStreamRequest, maskHeaders } from '../ipc/api-stream'
 import { registerProvider } from './provider'
 
+function resolveAnthropicEffort(
+  config: ProviderConfig
+): 'low' | 'medium' | 'high' | 'max' | undefined {
+  const levels = config.thinkingConfig?.reasoningEffortLevels
+  if (!levels || levels.length === 0) return undefined
+
+  const selected =
+    config.reasoningEffort && levels.includes(config.reasoningEffort)
+      ? config.reasoningEffort
+      : (config.thinkingConfig?.defaultReasoningEffort ?? levels[0])
+
+  switch (selected) {
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'max':
+      return selected
+    case 'xhigh':
+      return 'max'
+    default:
+      return undefined
+  }
+}
+
 class AnthropicProvider implements APIProvider {
   readonly name = 'Anthropic Messages'
   readonly type = 'anthropic' as const
@@ -23,16 +47,20 @@ class AnthropicProvider implements APIProvider {
     const requestStartedAt = Date.now()
     let firstTokenAt: number | null = null
     let outputTokens = 0
+    const automaticPromptCacheEnabled = config.enablePromptCache !== false
     const body: Record<string, unknown> = {
       model: config.model,
       max_tokens: config.maxTokens ?? 32000,
+      ...(automaticPromptCacheEnabled ? { cache_control: { type: 'ephemeral' } } : {}),
       ...(config.systemPrompt
         ? {
             system: [
               {
                 type: 'text',
                 text: config.systemPrompt,
-                ...(config.enableSystemPromptCache ? { cache_control: { type: 'ephemeral' } } : {})
+                ...(!automaticPromptCacheEnabled && config.enableSystemPromptCache
+                  ? { cache_control: { type: 'ephemeral' } }
+                  : {})
               }
             ]
           }
@@ -47,6 +75,15 @@ class AnthropicProvider implements APIProvider {
     // Merge thinking/reasoning params when enabled; explicit disable params when off
     if (config.thinkingEnabled && config.thinkingConfig) {
       Object.assign(body, config.thinkingConfig.bodyParams)
+      const effort = resolveAnthropicEffort(config)
+      if (effort) {
+        body.output_config = {
+          ...(typeof body.output_config === 'object' && body.output_config !== null
+            ? (body.output_config as Record<string, unknown>)
+            : {}),
+          effort
+        }
+      }
       if (config.thinkingConfig.forceTemperature !== undefined) {
         body.temperature = config.thinkingConfig.forceTemperature
       }
@@ -315,7 +352,15 @@ class AnthropicProvider implements APIProvider {
                 return { type: 'tool_result', tool_use_id: b.toolUseId, content: formattedContent }
               }
               case 'image':
-                return { type: 'image', source: b.source }
+                return {
+                  type: 'image',
+                  source: {
+                    type: b.source.type,
+                    media_type: b.source.mediaType,
+                    data: b.source.data,
+                    ...(b.source.url ? { url: b.source.url } : {})
+                  }
+                }
               default:
                 return { type: 'text', text: '[unsupported block]' }
             }

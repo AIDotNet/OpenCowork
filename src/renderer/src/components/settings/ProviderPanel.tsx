@@ -110,6 +110,7 @@ const REASONING_EFFORT_OPTIONS: ReasoningEffortLevel[] = [
   'low',
   'medium',
   'high',
+  'max',
   'xhigh'
 ]
 
@@ -297,7 +298,9 @@ function ModelFormDialog({
   const [maxOutputTokens, setMaxOutputTokens] = useState(initial?.maxOutputTokens?.toString() ?? '')
   const [contextCompressionThreshold, setContextCompressionThreshold] = useState(
     Math.round(
-      clampCompressionThreshold(initial?.contextCompressionThreshold ?? DEFAULT_CONTEXT_COMPRESSION_THRESHOLD) * 100
+      clampCompressionThreshold(
+        initial?.contextCompressionThreshold ?? DEFAULT_CONTEXT_COMPRESSION_THRESHOLD
+      ) * 100
     ).toString()
   )
   const [inputPrice, setInputPrice] = useState(initial?.inputPrice?.toString() ?? '')

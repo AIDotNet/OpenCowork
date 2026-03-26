@@ -21,6 +21,7 @@
       "low": "Quick reasoning",
       "medium": "Balanced",
       "high": "Thorough",
+      "max": "Maximum effort",
       "xhigh": "Maximum depth"
     },
     "selectFolder": "Select working folder",

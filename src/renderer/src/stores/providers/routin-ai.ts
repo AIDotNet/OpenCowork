@@ -1331,3 +1331,44 @@ export const routinAiPreset: BuiltinProviderPreset = {
     }
   ]
 }
+
+/** Model IDs for Routin 套餐（https://cn.routin.ai/plan/v1）：Codex 全系、GPT-5.4 系、Claude 全系 */
+const ROUTIN_AI_PLAN_MODEL_ORDER = [
+  'gpt-5-codex',
+  'gpt-5.1-codex',
+  'gpt-5.1-codex-max',
+  'gpt-5.1-codex-mini',
+  'gpt-5.2-codex',
+  'gpt-5.3-codex',
+  'gpt-5.3-codex-spark',
+  'gpt-5.4-nano',
+  'gpt-5.4-mini',
+  'gpt-5.4',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'claude-sonnet-4-5-20250929',
+  'claude-haiku-4-5-20251001',
+  'claude-opus-4-5-20251101',
+  'claude-sonnet-4-20250514',
+  'claude-opus-4-20250514'
+] as const
+
+const routinAiModelById = new Map(routinAiPreset.defaultModels.map((m) => [m.id, m]))
+
+export const routinAiPlanPreset: BuiltinProviderPreset = {
+  builtinId: 'routin-ai-plan',
+  name: 'Routin AI（套餐）',
+  type: 'openai-chat',
+  defaultBaseUrl: 'https://cn.routin.ai/plan/v1',
+  homepage: 'https://routin.ai',
+  apiKeyUrl: 'https://routin.ai/dashboard/api-keys',
+  defaultEnabled: true,
+  defaultModel: 'gpt-5.4',
+  defaultModels: ROUTIN_AI_PLAN_MODEL_ORDER.map((id) => {
+    const config = routinAiModelById.get(id)
+    if (!config) {
+      throw new Error(`routin-ai plan preset: missing model ${id}`)
+    }
+    return config
+  })
+}

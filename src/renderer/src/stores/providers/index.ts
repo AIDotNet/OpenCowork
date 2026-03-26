@@ -1,6 +1,6 @@
 export type { BuiltinProviderPreset } from './types'
 
-import { routinAiPreset } from './routin-ai'
+import { routinAiPlanPreset, routinAiPreset } from './routin-ai'
 import { openaiPreset } from './openai'
 import { anthropicPreset } from './anthropic'
 import { googlePreset } from './google'
@@ -21,6 +21,7 @@ import type { BuiltinProviderPreset } from './types'
 
 export const builtinProviderPresets: BuiltinProviderPreset[] = [
   routinAiPreset,
+  routinAiPlanPreset,
   openaiPreset,
   anthropicPreset,
   googlePreset,

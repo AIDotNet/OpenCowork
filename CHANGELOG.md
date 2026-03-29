@@ -3,6 +3,16 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.7.5] - 2026-03-29
+
+### Fixed
+
+- Stopped excluding `partial-json` from the packaged app so the main process can resolve it at startup; fixes `Cannot find module 'partial-json'` after install on Windows and other platforms.
+
+### Changed
+
+- Updated the docs homepage release badge from `v0.7.4` to `v0.7.5`.
+
 ## [0.7.4] - 2026-03-29
 
 ### Added

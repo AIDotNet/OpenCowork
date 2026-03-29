@@ -3,6 +3,25 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.7.4] - 2026-03-29
+
+### Added
+
+- Added main-process background execution for scheduled agents so cron jobs can run with progress reporting, abort support, and delivery handling outside the active chat view.
+- Added direct project creation from selected local folders by reusing the working-folder picker across workspace entry points.
+
+### Changed
+
+- Synced the Bun lockfile with the current dependency set.
+- Added a sponsors section to both `README.md` and `README.zh.md`.
+- Updated the docs homepage release badge from `v0.7.3` to `v0.7.4`.
+
+### Fixed
+
+- Normalized provider and model selection by category so chat, draw, translate, plugin, and settings pickers prefer enabled providers that are ready for authentication.
+- Stabilized chat message list auto-scroll so streaming output stays visible without causing unnecessary jumps while browsing history.
+- Fixed Weixin media API requests by forwarding `X-WECHAT-UIN` to upload and download endpoints used by media operations.
+
 ## [0.7.3] - 2026-03-27
 
 ### Changed

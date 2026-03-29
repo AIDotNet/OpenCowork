@@ -82,13 +82,19 @@ function buildXWechatUin(): string {
   return Buffer.from(String(value), 'utf8').toString('base64')
 }
 
-function buildHeaders(token?: string, routeTag?: string): Record<string, string> {
+function buildHeaders(
+  token?: string,
+  routeTag?: string,
+  wechatUin?: string
+): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    AuthorizationType: 'ilink_bot_token',
-    'X-WECHAT-UIN': buildXWechatUin()
+    AuthorizationType: 'ilink_bot_token'
   }
 
+  if (wechatUin) {
+    headers['X-WECHAT-UIN'] = wechatUin
+  }
   if (token) {
     headers.Authorization = `Bearer ${token}`
   }
@@ -104,6 +110,7 @@ async function postJson<T>(params: {
   body: unknown
   token?: string
   routeTag?: string
+  wechatUin?: string
   timeoutMs?: number
   signal?: AbortSignal
 }): Promise<T> {
@@ -116,7 +123,7 @@ async function postJson<T>(params: {
   try {
     const response = await fetch(`${normalizeBaseUrl(params.baseUrl)}/${params.path}`, {
       method: 'POST',
-      headers: buildHeaders(params.token, params.routeTag),
+      headers: buildHeaders(params.token, params.routeTag, params.wechatUin),
       body: JSON.stringify(params.body),
       signal
     })
@@ -138,6 +145,7 @@ async function postBinary(params: {
   body: unknown
   token?: string
   routeTag?: string
+  wechatUin?: string
   timeoutMs?: number
   signal?: AbortSignal
 }): Promise<{ buffer: Buffer; mediaType: string }> {
@@ -150,7 +158,7 @@ async function postBinary(params: {
   try {
     const response = await fetch(`${normalizeBaseUrl(params.baseUrl)}/${params.path}`, {
       method: 'POST',
-      headers: buildHeaders(params.token, params.routeTag),
+      headers: buildHeaders(params.token, params.routeTag, params.wechatUin),
       body: JSON.stringify(params.body),
       signal
     })
@@ -346,11 +354,15 @@ async function uploadBufferToCdn(params: {
 }
 
 export class WeixinApi {
+  private readonly wechatUin: string
+
   constructor(
     private readonly baseUrl: string,
     private readonly token: string,
     private readonly routeTag?: string
-  ) {}
+  ) {
+    this.wechatUin = buildXWechatUin()
+  }
 
   async getUpdates(
     syncBuf: string,
@@ -363,6 +375,7 @@ export class WeixinApi {
       body: { get_updates_buf: syncBuf || '' },
       token: this.token,
       routeTag: this.routeTag,
+      wechatUin: this.wechatUin,
       timeoutMs,
       signal
     })
@@ -393,6 +406,7 @@ export class WeixinApi {
       },
       token: this.token,
       routeTag: this.routeTag,
+      wechatUin: this.wechatUin,
       timeoutMs: 20000,
       signal: params.signal
     })
@@ -470,6 +484,7 @@ export class WeixinApi {
         },
         token: this.token,
         routeTag: this.routeTag,
+        wechatUin: this.wechatUin,
         timeoutMs: 20000,
         signal: params.signal
       })
@@ -498,6 +513,7 @@ export class WeixinApi {
       },
       token: this.token,
       routeTag: this.routeTag,
+      wechatUin: this.wechatUin,
       timeoutMs: 20000,
       signal: params.signal
     })

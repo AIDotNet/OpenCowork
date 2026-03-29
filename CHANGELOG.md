@@ -3,6 +3,21 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.7.6] - 2026-03-29
+
+### Added
+
+- Added `MiMo V2 Omni` and `MiMo V2 Pro` built-in Xiaomi model presets.
+
+### Changed
+
+- Remembered `reasoning effort` per model so chat and wiki generation can reuse the selected thinking level for each model.
+- Updated the docs homepage release badge from `v0.7.5` to `v0.7.6`.
+
+### Fixed
+
+- Stopped filtering legacy built-in models globally so provider presets can control deprecated model visibility explicitly.
+
 ## [0.7.5] - 2026-03-29
 
 ### Fixed

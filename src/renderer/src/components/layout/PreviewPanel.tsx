@@ -154,7 +154,7 @@ export function PreviewPanel({ embedded = false }: { embedded?: boolean }): Reac
 
   return (
     <div
-      className="relative flex min-w-0 h-full flex-col bg-background"
+      className="relative flex min-h-0 h-full min-w-0 flex-col bg-background"
       style={embedded ? undefined : { width: panelWidth }}
     >
       {/* Left-edge resize handle */}
@@ -238,7 +238,7 @@ export function PreviewPanel({ embedded = false }: { embedded?: boolean }): Reac
       </div>
 
       {/* Viewer content */}
-      <div className="flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {isMarkdown ? (
           <div className="size-full overflow-y-auto p-6">
             <div className="prose prose-sm dark:prose-invert max-w-none">

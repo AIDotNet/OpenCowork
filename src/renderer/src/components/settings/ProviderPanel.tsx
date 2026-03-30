@@ -1265,6 +1265,9 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
       if (activeProvider.oauth?.accessToken) {
         headers['Authorization'] = `Bearer ${activeProvider.oauth.accessToken}`
       }
+      if (activeProvider.oauth?.accountId) {
+        headers['Chatgpt-Account-Id'] = activeProvider.oauth.accountId
+      }
       const overrides = activeProvider.requestOverrides?.headers
       if (overrides) {
         const sid = `quota-${Date.now()}`
@@ -1329,6 +1332,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
       if (provider.oauth.expiresAt)
         payload.expires_at = new Date(provider.oauth.expiresAt).toISOString()
       if (provider.oauth.idToken) payload.id_token = provider.oauth.idToken
+      if (provider.oauth.accountId) payload.account_id = provider.oauth.accountId
       if (provider.oauth.copilotAccessToken)
         payload.copilot_access_token = provider.oauth.copilotAccessToken
       if (provider.oauth.copilotExpiresAt)
@@ -1391,6 +1395,9 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
       } else if (isResponses) {
         url = `${baseUrl}/responses`
         if (activeProvider.apiKey) headers['Authorization'] = `Bearer ${activeProvider.apiKey}`
+        if (activeProvider.oauth?.accountId) {
+          headers['Chatgpt-Account-Id'] = activeProvider.oauth.accountId
+        }
         applyHeaderOverrides(model)
         const bodyObj: Record<string, unknown> = {
           model,

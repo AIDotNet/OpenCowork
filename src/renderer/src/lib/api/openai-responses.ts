@@ -71,6 +71,7 @@ class OpenAIResponsesProvider implements APIProvider {
     signal?: AbortSignal
   ): AsyncIterable<StreamEvent> {
     let runtimeConfig = config
+    let accountId: string | undefined
     if (config.providerId) {
       const ready = await ensureProviderAuthReady(config.providerId)
       if (!ready) {
@@ -90,6 +91,7 @@ class OpenAIResponsesProvider implements APIProvider {
           baseUrl: latest.baseUrl || config.baseUrl,
           userAgent: latest.userAgent ?? config.userAgent
         }
+        accountId = latest.oauth?.accountId
       }
     }
 
@@ -186,6 +188,7 @@ class OpenAIResponsesProvider implements APIProvider {
     }
     if (runtimeConfig.userAgent) headers['User-Agent'] = runtimeConfig.userAgent
     if (runtimeConfig.serviceTier) headers.service_tier = runtimeConfig.serviceTier
+    if (accountId) headers['Chatgpt-Account-Id'] = accountId
     applyHeaderOverrides(headers, runtimeConfig)
 
     const httpBodyStr = JSON.stringify(body)

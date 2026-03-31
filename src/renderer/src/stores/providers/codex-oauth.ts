@@ -45,11 +45,11 @@ export const codexOAuthPreset: BuiltinProviderPreset = {
       conversation_id: '{{sessionId}}'
     },
     body: {
-      store: false
+      store: false,
+      instructions: ''
     },
     omitBodyKeys: ['temperature', 'max_output_tokens']
   },
-  instructionsPrompt: 'codex-instructions',
   defaultModels: [
     {
       id: 'gpt-5-codex',

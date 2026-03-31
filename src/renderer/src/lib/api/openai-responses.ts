@@ -165,7 +165,7 @@ class OpenAIResponsesProvider implements APIProvider {
 
     if (!hasInstructionsOverride && runtimeConfig.instructionsPrompt) {
       const instructions = await loadPrompt(runtimeConfig.instructionsPrompt)
-      if (!instructions) {
+      if (instructions === null) {
         yield {
           type: 'error',
           error: {

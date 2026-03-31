@@ -1142,6 +1142,8 @@ function ensureBuiltinPresets(): void {
       }
       if (preset.instructionsPrompt && existing.instructionsPrompt !== preset.instructionsPrompt) {
         patch.instructionsPrompt = preset.instructionsPrompt
+      } else if (preset.builtinId === 'codex-oauth' && existing.instructionsPrompt !== undefined) {
+        patch.instructionsPrompt = undefined
       }
       if (!existing.authMode) {
         patch.authMode = preset.authMode ?? 'apiKey'

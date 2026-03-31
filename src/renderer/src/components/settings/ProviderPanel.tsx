@@ -1286,9 +1286,10 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         stream: true,
         ...(activeProvider.requestOverrides?.body ?? {})
       }
-      const promptName = activeProvider.instructionsPrompt ?? 'codex-instructions'
-      const instructions = await loadPrompt(promptName)
-      if (instructions) bodyObj.instructions = instructions
+      if (activeProvider.instructionsPrompt) {
+        const instructions = await loadPrompt(activeProvider.instructionsPrompt)
+        if (instructions !== null) bodyObj.instructions = instructions
+      }
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 15000)
       try {
@@ -1404,10 +1405,9 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
           input: [{ type: 'message', role: 'user', content: 'Hi' }],
           stream: true
         }
-        if (activeProvider.builtinId === 'codex-oauth') {
-          const promptName = activeProvider.instructionsPrompt ?? 'codex-instructions'
-          const instructions = await loadPrompt(promptName)
-          if (instructions) bodyObj.instructions = instructions
+        if (activeProvider.instructionsPrompt) {
+          const instructions = await loadPrompt(activeProvider.instructionsPrompt)
+          if (instructions !== null) bodyObj.instructions = instructions
         }
         body = JSON.stringify(bodyObj)
       } else {

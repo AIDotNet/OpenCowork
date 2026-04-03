@@ -187,7 +187,7 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
           }}
           onClick={(e) => e.preventDefault()}
         >
-          OpenCowork
+          OpenCoWork
         </button>
         <HoverCard>
           <HoverCardTrigger asChild>

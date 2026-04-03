@@ -30,9 +30,10 @@ export function StepsPanel(): React.JSX.Element {
   const teamName = useTeamStore((s) => s.activeTeam?.name ?? 'Team')
   const teamTasks = useTeamStore((s) => s.activeTeam?.tasks ?? EMPTY_TEAM_TASKS)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const isRunning = useAgentStore((s) =>
-    activeSessionId ? s.runningSessions[activeSessionId] === 'running' : false
+  const hasStreamingMessage = useChatStore((s) =>
+    activeSessionId ? Boolean(s.streamingMessages[activeSessionId]) : false
   )
+  const isRunning = useAgentStore((s) => s.isSessionActive(activeSessionId)) || hasStreamingMessage
 
   const plan = usePlanStore((s) => {
     if (!activeSessionId) return undefined

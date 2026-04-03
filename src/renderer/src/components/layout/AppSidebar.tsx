@@ -125,6 +125,7 @@ export function AppSidebar(): React.JSX.Element {
     }))
   }, [sessionDigest])
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const streamingSessionIdsSig = useChatStore((s) => Object.keys(s.streamingMessages).sort().join('\u0000'))
   const createSession = useChatStore((s) => s.createSession)
   const deleteSession = useChatStore((s) => s.deleteSession)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
@@ -135,6 +136,13 @@ export function AppSidebar(): React.JSX.Element {
   const mode = useUIStore((s) => s.mode)
   const runningSessions = useAgentStore((s) => s.runningSessions)
   const runningSubAgentSessionIdsSig = useAgentStore((s) => s.runningSubAgentSessionIdsSig)
+  const runningBackgroundSessionIdsSig = useAgentStore((s) =>
+    Object.values(s.backgroundProcesses)
+      .filter((process) => process.sessionId && process.status === 'running')
+      .map((process) => process.sessionId as string)
+      .sort()
+      .join('\u0000')
+  )
   const activeTeamSessionId = useTeamStore((s) => s.activeTeam?.sessionId ?? null)
   const [search, setSearch] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -156,6 +164,14 @@ export function AppSidebar(): React.JSX.Element {
     () => new Set(runningSubAgentSessionIdsSig ? runningSubAgentSessionIdsSig.split('\u0000') : []),
     [runningSubAgentSessionIdsSig]
   )
+  const runningBackgroundSessionIds = useMemo(
+    () => new Set(runningBackgroundSessionIdsSig ? runningBackgroundSessionIdsSig.split('\u0000') : []),
+    [runningBackgroundSessionIdsSig]
+  )
+  const streamingSessionIds = useMemo(
+    () => new Set(streamingSessionIdsSig ? streamingSessionIdsSig.split('\u0000') : []),
+    [streamingSessionIdsSig]
+  )
 
   // Detect if the delete target has running tasks
   const deleteTargetRunningInfo = useMemo(() => {
@@ -163,10 +179,27 @@ export function AppSidebar(): React.JSX.Element {
     const id = deleteTarget.id
     const isAgentRunning = runningSessions[id] === 'running'
     const hasActiveSubAgents = runningSubAgentSessionIds.has(id)
+    const hasActiveBackgroundProcess = runningBackgroundSessionIds.has(id)
+    const hasStreaming = streamingSessionIds.has(id)
     const hasActiveTeam = activeTeamSessionId === id
-    const hasRunning = isAgentRunning || hasActiveSubAgents || hasActiveTeam
-    return { isAgentRunning, hasActiveSubAgents, hasActiveTeam, hasRunning }
-  }, [deleteTarget, runningSessions, runningSubAgentSessionIds, activeTeamSessionId])
+    const hasRunning =
+      isAgentRunning || hasActiveSubAgents || hasActiveBackgroundProcess || hasStreaming || hasActiveTeam
+    return {
+      isAgentRunning,
+      hasActiveSubAgents,
+      hasActiveBackgroundProcess,
+      hasStreaming,
+      hasActiveTeam,
+      hasRunning
+    }
+  }, [
+    deleteTarget,
+    runningSessions,
+    runningSubAgentSessionIds,
+    runningBackgroundSessionIds,
+    streamingSessionIds,
+    activeTeamSessionId
+  ])
 
   const confirmDelete = useCallback(() => {
     if (!deleteTarget) return
@@ -176,7 +209,13 @@ export function AppSidebar(): React.JSX.Element {
       return
     }
     // Abort running tasks before deleting
-    if (runningSessions[session.id] === 'running') {
+    const hasRunning =
+      runningSessions[session.id] === 'running' ||
+      runningSubAgentSessionIds.has(session.id) ||
+      runningBackgroundSessionIds.has(session.id) ||
+      streamingSessionIds.has(session.id) ||
+      activeTeamSessionId === session.id
+    if (hasRunning) {
       abortSession(session.id)
     }
     const snapshot = JSON.parse(JSON.stringify(session))
@@ -189,7 +228,17 @@ export function AppSidebar(): React.JSX.Element {
       },
       duration: 5000
     })
-  }, [deleteTarget, deleteSession, getSessionSnapshot, runningSessions, t])
+  }, [
+    activeTeamSessionId,
+    deleteTarget,
+    deleteSession,
+    getSessionSnapshot,
+    runningBackgroundSessionIds,
+    runningSessions,
+    runningSubAgentSessionIds,
+    streamingSessionIds,
+    t
+  ])
 
   const handleNewSession = (): void => {
     createSession(mode)
@@ -311,11 +360,11 @@ export function AppSidebar(): React.JSX.Element {
           <div className="flex items-center gap-2.5 px-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
             <img
               src={appIconUrl}
-              alt="OpenCowork"
+              alt="OpenCoWork"
               className="size-8 rounded-xl object-cover shadow-sm"
             />
             <span className="text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-              OpenCowork
+              OpenCoWork
             </span>
           </div>
         </SidebarHeader>
@@ -482,7 +531,11 @@ export function AppSidebar(): React.JSX.Element {
                                 )}
                                 {editingId !== session.id && (
                                   <span className="ml-auto shrink-0 flex items-center gap-1">
-                                    {runningSessions[session.id] === 'running' && (
+                                    {(runningSessions[session.id] === 'running' ||
+                                      runningSubAgentSessionIds.has(session.id) ||
+                                      runningBackgroundSessionIds.has(session.id) ||
+                                      streamingSessionIds.has(session.id) ||
+                                      activeTeamSessionId === session.id) && (
                                       <Loader2 className="size-3 animate-spin text-blue-500" />
                                     )}
                                     {runningSessions[session.id] === 'completed' && (
@@ -511,6 +564,8 @@ export function AppSidebar(): React.JSX.Element {
                                   const hasRunning =
                                     runningSessions[session.id] === 'running' ||
                                     runningSubAgentSessionIds.has(session.id) ||
+                                    runningBackgroundSessionIds.has(session.id) ||
+                                    streamingSessionIds.has(session.id) ||
                                     activeTeamSessionId === session.id
                                   if (session.messageCount > 0 || hasRunning) {
                                     setDeleteTarget({
@@ -659,6 +714,8 @@ export function AppSidebar(): React.JSX.Element {
                                 const hasRunning =
                                   runningSessions[session.id] === 'running' ||
                                   runningSubAgentSessionIds.has(session.id) ||
+                                  runningBackgroundSessionIds.has(session.id) ||
+                                  streamingSessionIds.has(session.id) ||
                                   activeTeamSessionId === session.id
                                 if (session.messageCount > 0 || hasRunning) {
                                   setDeleteTarget({

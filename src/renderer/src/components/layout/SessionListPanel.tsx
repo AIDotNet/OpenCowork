@@ -182,6 +182,7 @@ export function SessionListPanel(): React.JSX.Element {
   }, [sessionDigest])
   const activeProjectId = useChatStore((s) => s.activeProjectId)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const streamingSessionIdsSig = useChatStore((s) => Object.keys(s.streamingMessages).sort().join('\u0000'))
   const activeSessionProjectId = useMemo(
     () => sessions.find((session) => session.id === activeSessionId)?.projectId ?? null,
     [activeSessionId, sessions]
@@ -207,6 +208,13 @@ export function SessionListPanel(): React.JSX.Element {
   const providers = useProviderStore((s) => s.providers)
   const runningSessions = useAgentStore((s) => s.runningSessions)
   const runningSubAgentSessionIdsSig = useAgentStore((s) => s.runningSubAgentSessionIdsSig)
+  const runningBackgroundSessionIdsSig = useAgentStore((s) =>
+    Object.values(s.backgroundProcesses)
+      .filter((process) => process.sessionId && process.status === 'running')
+      .map((process) => process.sessionId as string)
+      .sort()
+      .join('\u0000')
+  )
   const activeTeamSessionId = useTeamStore((s) => s.activeTeam?.sessionId ?? null)
   const [search, setSearch] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -263,6 +271,14 @@ export function SessionListPanel(): React.JSX.Element {
   const runningSubAgentSessionIds = useMemo(
     () => new Set(runningSubAgentSessionIdsSig ? runningSubAgentSessionIdsSig.split('\u0000') : []),
     [runningSubAgentSessionIdsSig]
+  )
+  const runningBackgroundSessionIds = useMemo(
+    () => new Set(runningBackgroundSessionIdsSig ? runningBackgroundSessionIdsSig.split('\u0000') : []),
+    [runningBackgroundSessionIdsSig]
+  )
+  const streamingSessionIds = useMemo(
+    () => new Set(streamingSessionIdsSig ? streamingSessionIdsSig.split('\u0000') : []),
+    [streamingSessionIdsSig]
   )
   const pendingQueueSignature = useSyncExternalStore(
     subscribePendingSessionMessages,
@@ -384,13 +400,25 @@ export function SessionListPanel(): React.JSX.Element {
     const id = deleteTarget.id
     const isAgentRunning = runningSessions[id] === 'running'
     const hasActiveSubAgents = runningSubAgentSessionIds.has(id)
+    const hasActiveBackgroundProcess = runningBackgroundSessionIds.has(id)
+    const hasStreaming = streamingSessionIds.has(id)
     const hasActiveTeam = activeTeamSessionId === id
-    const hasRunning = isAgentRunning || hasActiveSubAgents || hasActiveTeam
-    return { isAgentRunning, hasActiveSubAgents, hasActiveTeam, hasRunning }
+    const hasRunning =
+      isAgentRunning || hasActiveSubAgents || hasActiveBackgroundProcess || hasStreaming || hasActiveTeam
+    return {
+      isAgentRunning,
+      hasActiveSubAgents,
+      hasActiveBackgroundProcess,
+      hasStreaming,
+      hasActiveTeam,
+      hasRunning
+    }
   }, [
     deleteTarget,
     runningSessions,
     runningSubAgentSessionIds,
+    runningBackgroundSessionIds,
+    streamingSessionIds,
     activeTeamSessionId,
     pendingQueueSignature
   ])
@@ -407,7 +435,13 @@ export function SessionListPanel(): React.JSX.Element {
       setDeleteTarget(null)
       return
     }
-    if (runningSessions[session.id] === 'running') {
+    const hasRunning =
+      runningSessions[session.id] === 'running' ||
+      runningSubAgentSessionIds.has(session.id) ||
+      runningBackgroundSessionIds.has(session.id) ||
+      streamingSessionIds.has(session.id) ||
+      activeTeamSessionId === session.id
+    if (hasRunning) {
       abortSession(session.id)
     }
     clearPendingSessionMessages(session.id)
@@ -421,7 +455,17 @@ export function SessionListPanel(): React.JSX.Element {
       },
       duration: 5000
     })
-  }, [deleteTarget, deleteSession, getSessionSnapshot, runningSessions, t])
+  }, [
+    activeTeamSessionId,
+    deleteTarget,
+    deleteSession,
+    getSessionSnapshot,
+    runningBackgroundSessionIds,
+    runningSessions,
+    runningSubAgentSessionIds,
+    streamingSessionIds,
+    t
+  ])
 
   const handleNewSession = (): void => {
     useUIStore.getState().navigateToHome()
@@ -852,7 +896,11 @@ export function SessionListPanel(): React.JSX.Element {
           )}
           {editingId !== session.id && (
             <span className="ml-auto flex shrink-0 items-center gap-1">
-              {runningSessions[session.id] === 'running' && (
+              {(runningSessions[session.id] === 'running' ||
+                runningSubAgentSessionIds.has(session.id) ||
+                runningBackgroundSessionIds.has(session.id) ||
+                streamingSessionIds.has(session.id) ||
+                activeTeamSessionId === session.id) && (
                 <Loader2 className="size-3.5 animate-spin text-blue-500" />
               )}
               {runningSessions[session.id] === 'completed' && (
@@ -991,6 +1039,8 @@ export function SessionListPanel(): React.JSX.Element {
             const hasRunning =
               runningSessions[session.id] === 'running' ||
               runningSubAgentSessionIds.has(session.id) ||
+              runningBackgroundSessionIds.has(session.id) ||
+              streamingSessionIds.has(session.id) ||
               activeTeamSessionId === session.id
             const queueCount = getPendingSessionMessageCountForSession(session.id)
             if (session.messageCount > 0 || hasRunning || queueCount > 0) {

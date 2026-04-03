@@ -305,9 +305,11 @@ export function MessageList({
     })
   )
   const mode = useUIStore((s) => s.mode)
-  const isSessionRunning = useAgentStore((s) =>
-    activeSessionId ? s.runningSessions[activeSessionId] === 'running' : false
+  const hasStreamingMessage = useChatStore((s) =>
+    activeSessionId ? Boolean(s.streamingMessages[activeSessionId]) : false
   )
+  const isSessionRunning =
+    useAgentStore((s) => s.isSessionActive(activeSessionId)) || hasStreamingMessage
   const listRef = React.useRef<VListHandle | null>(null)
   const [isAtBottom, setIsAtBottom] = React.useState(true)
   const pendingInitialScrollSessionIdRef = React.useRef<string | null>(null)

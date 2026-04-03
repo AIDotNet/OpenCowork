@@ -127,7 +127,7 @@ function ToastCard({ item }: { item: NotifyItem }): React.JSX.Element {
             <Bell className="size-2.5 text-zinc-700" />
           )}
           <span className="text-[9px] text-zinc-700 font-medium tracking-widest uppercase">
-            OpenCowork
+            OpenCoWork
           </span>
           {item.persistent && (
             <span className="text-[8px] text-zinc-600 ml-auto">click × to dismiss</span>

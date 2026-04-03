@@ -7,6 +7,7 @@ import type { ToolResultContent, UnifiedMessage, ContentBlock, TokenUsage } from
 import { ipcStorage } from '../lib/ipc/ipc-storage'
 import { ipcClient } from '../lib/ipc/ipc-client'
 import { IPC } from '../lib/ipc/channels'
+import { useTeamStore } from './team-store'
 
 // Approval resolvers live outside the store — they hold non-serializable
 // callbacks and don't need to trigger React re-renders.
@@ -30,6 +31,11 @@ const MAX_SUBAGENT_TRANSCRIPT_MESSAGES = 120
 function truncateText(value: string, max: number): string {
   if (value.length <= max) return value
   return `${value.slice(0, max)}\n... [truncated, ${value.length} chars total]`
+}
+
+function sigHasEntry(sig: string, value: string): boolean {
+  if (!sig || !value) return false
+  return sig.split('\u0000').includes(value)
 }
 
 function trimSubAgentTranscript(sa: { transcript: UnifiedMessage[] }): void {
@@ -198,6 +204,14 @@ function mergeMessageUsage(
     cacheCreationTokens: sumOptionalUsageValue(
       current.cacheCreationTokens,
       incoming.cacheCreationTokens
+    ),
+    cacheCreation5mTokens: sumOptionalUsageValue(
+      current.cacheCreation5mTokens,
+      incoming.cacheCreation5mTokens
+    ),
+    cacheCreation1hTokens: sumOptionalUsageValue(
+      current.cacheCreation1hTokens,
+      incoming.cacheCreation1hTokens
     ),
     cacheReadTokens: sumOptionalUsageValue(current.cacheReadTokens, incoming.cacheReadTokens),
     reasoningTokens: sumOptionalUsageValue(current.reasoningTokens, incoming.reasoningTokens),
@@ -665,6 +679,7 @@ interface AgentStore {
   setCurrentLoopId: (id: string | null) => void
   /** Update per-session status. 'completed' auto-clears after ~3 s. null removes entry. */
   setSessionStatus: (sessionId: string, status: 'running' | 'completed' | null) => void
+  isSessionActive: (sessionId: string | null | undefined) => boolean
   /** Switch active tool-call context: save current tool calls for prevSession, restore for nextSession */
   switchToolCallSession: (prevSessionId: string | null, nextSessionId: string | null) => void
   addToolCall: (tc: ToolCallState) => void
@@ -694,7 +709,7 @@ let processTrackingInitialized = false
 
 export const useAgentStore = create<AgentStore>()(
   persist(
-    immer((set) => ({
+    immer((set, get) => ({
       isRunning: false,
       currentLoopId: null,
       pendingToolCalls: [],
@@ -733,6 +748,22 @@ export const useAgentStore = create<AgentStore>()(
             })
           }, 3000)
         }
+      },
+
+      isSessionActive: (sessionId) => {
+        if (!sessionId) return false
+        const state = get()
+        if (state.runningSessions[sessionId] === 'running') return true
+        if (sigHasEntry(state.runningSubAgentSessionIdsSig, sessionId)) return true
+        if (
+          Object.values(state.backgroundProcesses).some(
+            (process) => process.sessionId === sessionId && process.status === 'running'
+          )
+        ) {
+          return true
+        }
+        if (useTeamStore.getState().activeTeam?.sessionId === sessionId) return true
+        return false
       },
 
       switchToolCallSession: (prevSessionId, nextSessionId) => {

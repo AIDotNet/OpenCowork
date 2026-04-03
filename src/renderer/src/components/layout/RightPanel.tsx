@@ -23,6 +23,7 @@ import { RightPanelRail } from './RightPanelRail'
 import { PreviewPanel } from './PreviewPanel'
 import { DetailPanel } from './DetailPanel'
 import { SubAgentsPanel } from './SubAgentsPanel'
+import { SubAgentExecutionDetail } from './SubAgentExecutionDetail'
 import {
   RIGHT_PANEL_DEFAULT_WIDTH,
   RIGHT_PANEL_SECTION_DEFS,
@@ -110,6 +111,9 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen)
   const detailPanelOpen = useUIStore((s) => s.detailPanelOpen)
   const previewPanelOpen = useUIStore((s) => s.previewPanelOpen)
+  const selectedSubAgentToolUseId = useUIStore((s) => s.selectedSubAgentToolUseId)
+  const subAgentExecutionDetailOpen = useUIStore((s) => s.subAgentExecutionDetailOpen)
+  const subAgentExecutionDetailToolUseId = useUIStore((s) => s.subAgentExecutionDetailToolUseId)
   const setTab = useUIStore((s) => s.setRightPanelTab)
   const setSection = useUIStore((s) => s.setRightPanelSection)
   const setRightPanelWidth = useUIStore((s) => s.setRightPanelWidth)
@@ -139,13 +143,26 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   })
   const planMode = useUIStore((s) => s.planMode)
 
+  const shouldShowSubAgentsTab =
+    hasSessionSubAgents ||
+    tab === 'subagents' ||
+    !!selectedSubAgentToolUseId ||
+    subAgentExecutionDetailOpen
+
   const visibleTabs = useMemo(
     () =>
       RIGHT_PANEL_TAB_DEFS.filter((item) => teamToolsEnabled || item.value !== 'team')
         .filter((item) => hasPlan || planMode || item.value !== 'plan')
-        .filter((item) => hasSessionSubAgents || item.value !== 'subagents')
+        .filter((item) => shouldShowSubAgentsTab || item.value !== 'subagents')
         .filter((item) => (activeSession?.mode ?? mode) === 'acp' || item.value !== 'acp'),
-    [teamToolsEnabled, hasPlan, planMode, hasSessionSubAgents, activeSession?.mode, mode]
+    [
+      teamToolsEnabled,
+      hasPlan,
+      planMode,
+      shouldShowSubAgentsTab,
+      activeSession?.mode,
+      mode
+    ]
   )
 
   const availableSections = useMemo(
@@ -280,7 +297,15 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
 
                     {resolvedTab === 'subagents' && (
                       <FadeIn key="subagents" className="h-full">
-                        <SubAgentsPanel />
+                        {subAgentExecutionDetailOpen ? (
+                          <SubAgentExecutionDetail
+                            embedded
+                            toolUseId={subAgentExecutionDetailToolUseId ?? selectedSubAgentToolUseId}
+                            onClose={() => useUIStore.getState().closeSubAgentExecutionDetail()}
+                          />
+                        ) : (
+                          <SubAgentsPanel />
+                        )}
                       </FadeIn>
                     )}
 

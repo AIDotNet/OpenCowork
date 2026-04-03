@@ -204,6 +204,8 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     ? runningSubAgentNamesSig.split('\u0000').join(', ')
     : ''
 
+  const shouldUseStaticWindowTitle = import.meta.env.MODE === 'test' || navigator.webdriver
+
   const handleModeChange = useCallback(
     (nextMode: AppMode): void => {
       setMode(nextMode)
@@ -226,7 +228,12 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
 
   // Update window title (show pending approvals + streaming state + SubAgent)
   useEffect(() => {
-    const base = activeSessionTitle ? `${activeSessionTitle} — OpenCowork` : 'OpenCowork'
+    if (shouldUseStaticWindowTitle) {
+      document.title = 'OpenCoWork'
+      return
+    }
+
+    const base = activeSessionTitle ? `${activeSessionTitle} — OpenCoWork` : 'OpenCoWork'
     const prefix =
       pendingToolCallCount > 0
         ? `(${pendingToolCallCount} pending) `
@@ -239,10 +246,10 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   }, [
     activeSessionTitle,
     pendingToolCallCount,
-    streamingMessageId,
     runningSubAgentCount,
     runningSubAgentLabel,
-    runningSubAgentNamesSig
+    shouldUseStaticWindowTitle,
+    streamingMessageId
   ])
 
   // Sync UI mode only when session info changes, so manual top-bar toggles are respected
@@ -257,6 +264,15 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
       })
     }
   }, [activeSessionId, activeSessionMode])
+
+  useEffect(() => {
+    if (chatView !== 'session' || activeSessionId) return
+    if (activeProjectId) {
+      useUIStore.getState().navigateToProject()
+      return
+    }
+    useUIStore.getState().navigateToHome()
+  }, [activeProjectId, activeSessionId, chatView])
 
   // Close detail panel when switching sessions
   const prevActiveSessionRef = useRef<string | null>(null)

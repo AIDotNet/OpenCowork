@@ -51,9 +51,10 @@ function PlanContent({ plan }: { plan: Plan }): React.JSX.Element {
   const planMode = useUIStore((s) => s.planMode)
   const enterPlanMode = useUIStore((s) => s.enterPlanMode)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const isRunning = useAgentStore((s) =>
-    activeSessionId ? s.runningSessions[activeSessionId] === 'running' : false
+  const hasStreamingMessage = useChatStore((s) =>
+    activeSessionId ? Boolean(s.streamingMessages[activeSessionId]) : false
   )
+  const isRunning = useAgentStore((s) => s.isSessionActive(activeSessionId)) || hasStreamingMessage
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectFeedback, setRejectFeedback] = useState('')
 
@@ -212,9 +213,10 @@ export function PlanPanel(): React.JSX.Element {
   })
   const planMode = useUIStore((s) => s.planMode)
   const enterPlanMode = useUIStore((s) => s.enterPlanMode)
-  const isRunning = useAgentStore((s) =>
-    activeSessionId ? s.runningSessions[activeSessionId] === 'running' : false
+  const hasStreamingMessage = useChatStore((s) =>
+    activeSessionId ? Boolean(s.streamingMessages[activeSessionId]) : false
   )
+  const isRunning = useAgentStore((s) => s.isSessionActive(activeSessionId)) || hasStreamingMessage
 
   if (!plan) {
     return (

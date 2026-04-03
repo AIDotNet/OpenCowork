@@ -13,6 +13,7 @@ import { useAgentStore } from '@renderer/stores/agent-store'
 import { MONO_FONT } from '@renderer/lib/constants'
 import { AnimatePresence, motion } from 'motion/react'
 import { Button } from '@renderer/components/ui/button'
+import { CodeDiffViewer, type DiffViewerChunk, type DiffViewerLine } from './CodeDiffViewer'
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -101,7 +102,7 @@ function lineCount(text: string): number {
   return normalized.length === 0 ? 0 : normalized.split('\n').length
 }
 
-type DiffLine = { type: 'keep' | 'add' | 'del'; text: string; oldNum?: number; newNum?: number }
+type DiffLine = DiffViewerLine
 
 function computeLargeDiff(a: string[], b: string[]): DiffLine[] {
   const result: DiffLine[] = []
@@ -186,9 +187,7 @@ function summarizeDiff(lines: DiffLine[]): { added: number; deleted: number } {
   )
 }
 
-type DiffChunk =
-  | { type: 'lines'; lines: DiffLine[] }
-  | { type: 'collapsed'; count: number; lines: DiffLine[] }
+type DiffChunk = DiffViewerChunk
 
 function foldContext(lines: DiffLine[], ctx: number = 2): DiffChunk[] {
   const chunks: DiffChunk[] = []
@@ -346,73 +345,9 @@ function ChangeStats({
 // ── Inline Diff View ─────────────────────────────────────────────
 
 function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): React.JSX.Element {
-  const { t } = useTranslation('chat')
-  const lines = React.useMemo(() => computeDiff(oldStr, newStr), [oldStr, newStr])
-  const chunks = React.useMemo(() => foldContext(lines), [lines])
-  const [expandedChunks, setExpandedChunks] = React.useState<Set<number>>(new Set())
-
-  const renderLine = (line: DiffLine, key: number): React.JSX.Element => (
-    <div
-      key={key}
-      className={cn(
-        'flex',
-        line.type === 'del' && 'bg-red-500/10',
-        line.type === 'add' && 'bg-green-500/10'
-      )}
-    >
-      <span
-        className={cn(
-          'select-none w-5 shrink-0 text-right pr-1',
-          line.type === 'del'
-            ? 'text-red-600/50 dark:text-red-400/40'
-            : line.type === 'add'
-              ? 'text-green-600/50 dark:text-green-400/40'
-              : 'text-muted-foreground/70 dark:text-zinc-600'
-        )}
-      >
-        {line.oldNum ?? line.newNum ?? ''}
-      </span>
-      <span
-        className={cn(
-          'px-1.5 flex-1',
-          line.type === 'del' && 'text-red-700/85 dark:text-red-300/80',
-          line.type === 'add' && 'text-green-700/85 dark:text-green-300/80',
-          line.type === 'keep' && 'text-foreground/70 dark:text-zinc-500'
-        )}
-      >
-        {line.type === 'del' ? '- ' : line.type === 'add' ? '+ ' : '  '}
-        {line.text}
-      </span>
-    </div>
-  )
-
-  return (
-    <div
-      className="overflow-auto max-h-64 text-[11px] font-mono leading-relaxed"
-      style={{ fontFamily: MONO_FONT }}
-    >
-      {chunks.map((chunk, ci) => {
-        if (chunk.type === 'lines') {
-          return chunk.lines.map((line, li) => renderLine(line, ci * 1000 + li))
-        }
-        if (expandedChunks.has(ci)) {
-          return chunk.lines.map((line, li) => renderLine(line, ci * 1000 + li))
-        }
-        return (
-          <button
-            key={`c${ci}`}
-            className="flex w-full items-center justify-center border-y border-border/50 py-0.5 text-[9px] text-muted-foreground/60 transition-colors hover:bg-muted/40 hover:text-foreground dark:border-zinc-800/30 dark:text-zinc-500/50 dark:hover:bg-zinc-800/30 dark:hover:text-zinc-400"
-            onClick={() => setExpandedChunks((prev) => new Set([...prev, ci]))}
-          >
-            {t('fileChange.unchangedLines', { count: chunk.count })}
-          </button>
-        )
-      })}
-    </div>
-  )
+  const chunks = React.useMemo(() => foldContext(computeDiff(oldStr, newStr)), [oldStr, newStr])
+  return <CodeDiffViewer chunks={chunks} defaultMode="split" toolbarEnd={null} />
 }
-
-// ── New File Content View ────────────────────────────────────────
 
 function NewFileContent({
   content,

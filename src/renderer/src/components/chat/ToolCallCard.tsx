@@ -31,6 +31,7 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
+import { CodeDiffViewer } from './CodeDiffViewer'
 import { inputSummary } from './tool-call-summary'
 
 interface ToolCallCardProps {
@@ -940,81 +941,25 @@ function foldContext(lines: DiffLine[], ctx: number = 2): DiffChunk[] {
 
 function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): React.JSX.Element {
   const { t } = useTranslation('chat')
-  const lines = React.useMemo(() => computeDiff(oldStr, newStr), [oldStr, newStr])
-  const chunks = React.useMemo(() => foldContext(lines), [lines])
-  const [expandedChunks, setExpandedChunks] = React.useState<Set<number>>(new Set())
-
-  const renderLine = (line: DiffLine, key: number): React.JSX.Element => (
-    <div
-      key={key}
-      className={cn(
-        'flex',
-        line.type === 'del' && 'bg-red-500/10',
-        line.type === 'add' && 'bg-green-500/10'
-      )}
-    >
-      <span
-        className={cn(
-          'select-none w-5 shrink-0 text-right pr-1',
-          line.type === 'del'
-            ? 'text-red-400/40'
-            : line.type === 'add'
-              ? 'text-green-600/50 dark:text-green-400/40'
-              : 'text-muted-foreground/70 dark:text-zinc-600'
-        )}
-      >
-        {line.oldNum ?? line.newNum ?? ''}
-      </span>
-      <span
-        className={cn(
-          'px-1.5 flex-1 font-mono',
-          line.type === 'del' && 'text-red-700/85 dark:text-red-300/80',
-          line.type === 'add' && 'text-green-700/85 dark:text-green-300/80',
-          line.type === 'keep' && 'text-foreground/70 dark:text-zinc-500'
-        )}
-        style={{ fontFamily: MONO_FONT, whiteSpace: 'pre-wrap' }}
-      >
-        {line.type === 'del' ? '- ' : line.type === 'add' ? '+ ' : '  '}
-        {line.text}
-      </span>
-    </div>
-  )
+  const chunks = React.useMemo(() => foldContext(computeDiff(oldStr, newStr)), [oldStr, newStr])
 
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-end gap-2 text-[10px] text-muted-foreground/60">
-        <CopyBtn
-          text={oldStr}
-          title={t('fileChange.copyOldString', { defaultValue: 'Copy old string' })}
-        />
-        <CopyBtn
-          text={newStr}
-          title={t('fileChange.copyNewString', { defaultValue: 'Copy new string' })}
-        />
-      </div>
-      <div
-        className="max-h-64 overflow-auto rounded-md border bg-muted/30 text-[11px] font-mono leading-relaxed dark:bg-zinc-950"
-        style={{ fontFamily: MONO_FONT }}
-      >
-        {chunks.map((chunk, ci) => {
-          if (chunk.type === 'lines') {
-            return chunk.lines.map((line, li) => renderLine(line, ci * 1000 + li))
-          }
-          if (expandedChunks.has(ci)) {
-            return chunk.lines.map((line, li) => renderLine(line, ci * 1000 + li))
-          }
-          return (
-            <button
-              key={`c${ci}`}
-              className="flex w-full items-center justify-center border-y border-border/50 py-0.5 text-[9px] text-muted-foreground/60 transition-colors hover:bg-muted/40 hover:text-foreground dark:border-zinc-800/30 dark:text-zinc-500/50 dark:hover:bg-zinc-800/30 dark:hover:text-zinc-400"
-              onClick={() => setExpandedChunks((prev) => new Set([...prev, ci]))}
-            >
-              {t('toolCall.unchangedLines', { count: chunk.count })}
-            </button>
-          )
-        })}
-      </div>
-    </div>
+    <CodeDiffViewer
+      chunks={chunks}
+      defaultMode="split"
+      toolbarEnd={
+        <>
+          <CopyBtn
+            text={oldStr}
+            title={t('fileChange.copyOldString', { defaultValue: 'Copy old string' })}
+          />
+          <CopyBtn
+            text={newStr}
+            title={t('fileChange.copyNewString', { defaultValue: 'Copy new string' })}
+          />
+        </>
+      }
+    />
   )
 }
 

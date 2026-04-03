@@ -5,15 +5,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com).
 
 ## [0.7.10] - 2026-03-30
 
-### Fixed
+### Added
 
-- Improved OpenAI streaming replay so continued runs preserve tool and message formatting more reliably.
+- Expanded the `.NET` sidecar role so more provider and message-processing work now runs outside the Electron layer.
+- Added shared normalization and replay handling in the provider pipeline to support continued runs and backend-side message shaping.
+- Added a reusable code diff viewer in the renderer so file change cards and tool call cards share the same diff presentation.
 
 ### Changed
 
-- Extracted a shared code diff viewer for file change and tool call cards to reduce duplication in the renderer.
+- Moved provider formatting, tool output shaping, and stream replay responsibilities into the `.NET` backend path.
+- Consolidated renderer diff rendering around the new shared viewer to reduce duplication between chat cards.
 - Bumped the app version to `v0.7.10`.
 - Updated the docs homepage release badge from `v0.7.9` to `v0.7.10`.
+
+### Fixed
+
+- Improved OpenAI streaming replay so continued runs preserve tool calls, assistant messages, and formatting more reliably.
+- Tightened provider message formatting for tool results and multimodal payloads to reduce replay mismatches and compatibility issues.
+- Reduced divergence between the renderer and backend by normalizing more of the message shape in the `.NET` provider layer.
+
+### Notes
+
+- This release continues the backend migration work: more logic has moved from the renderer-facing path into the `.NET` sidecar to make provider handling more consistent and easier to evolve.
 
 ## [0.7.9] - 2026-03-30
 

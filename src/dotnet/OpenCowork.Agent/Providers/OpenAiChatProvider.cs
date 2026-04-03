@@ -138,22 +138,28 @@ public sealed class OpenAiChatProvider : ILlmProvider
             },
             streamCts.Token).GetAsyncEnumerator();
 
+        async Task<OpenAiChatChunk?> ReadNextChunkAsync()
+        {
+            try
+            {
+                if (!await chunkEnumerator.MoveNextAsync())
+                    return null;
+
+                return chunkEnumerator.Current;
+            }
+            catch (OperationCanceledException) when (compatTerminalTimeoutTriggered && !ct.IsCancellationRequested)
+            {
+                return null;
+            }
+        }
+
         try
         {
             while (true)
             {
-                OpenAiChatChunk chunk;
-                try
-                {
-                    if (!await chunkEnumerator.MoveNextAsync())
-                        break;
-
-                    chunk = chunkEnumerator.Current;
-                }
-                catch (OperationCanceledException) when (compatTerminalTimeoutTriggered && !ct.IsCancellationRequested)
-                {
+                var chunk = await ReadNextChunkAsync();
+                if (chunk is null)
                     break;
-                }
 
                 ClearCompatTerminalTimer();
 

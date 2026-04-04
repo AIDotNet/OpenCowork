@@ -88,17 +88,27 @@ export class SidecarManager {
     this.onRequestFromSidecar = handler
   }
 
-  private getDevRuntime(): string {
-    return process.platform === 'win32'
-      ? 'win-x64'
-      : process.platform === 'darwin'
-        ? 'osx-arm64'
-        : 'linux-x64'
+  private getSidecarRuntime(): string {
+    if (process.platform === 'win32') {
+      return process.arch === 'arm64' ? 'win-arm64' : 'win-x64'
+    }
+
+    if (process.platform === 'darwin') {
+      return process.arch === 'x64' ? 'osx-x64' : 'osx-arm64'
+    }
+
+    return process.arch === 'arm64' ? 'linux-arm64' : 'linux-x64'
   }
 
   private getDevPublishedSidecarPath(): string {
     const ext = process.platform === 'win32' ? '.exe' : ''
-    return path.join(app.getAppPath(), 'out', 'sidecar', this.getDevRuntime(), `OpenCowork.Agent${ext}`)
+    return path.join(
+      app.getAppPath(),
+      'out',
+      'sidecar',
+      this.getSidecarRuntime(),
+      `OpenCowork.Agent${ext}`
+    )
   }
 
   private shouldAutoPublishDevSidecar(): boolean {
@@ -117,7 +127,7 @@ export class SidecarManager {
         'OpenCowork.Agent',
         'OpenCowork.Agent.csproj'
       )
-      const outputDir = path.join(app.getAppPath(), 'out', 'sidecar', this.getDevRuntime())
+      const outputDir = path.join(app.getAppPath(), 'out', 'sidecar', this.getSidecarRuntime())
 
       if (!fs.existsSync(projectPath)) {
         console.warn(`[Sidecar] Dev auto-publish skipped, project missing: ${projectPath}`)
@@ -134,7 +144,7 @@ export class SidecarManager {
           '--configuration',
           'Release',
           '--runtime',
-          this.getDevRuntime(),
+          this.getSidecarRuntime(),
           '--output',
           outputDir,
           '/p:PublishAot=true',
@@ -191,7 +201,7 @@ export class SidecarManager {
     const binaryName = `OpenCowork.Agent${ext}`
 
     if (isDev) {
-      const runtime = this.getDevRuntime()
+      const runtime = this.getSidecarRuntime()
 
       // In development, prefer the explicitly published sidecar output used by local packaging flows.
       const outPath = path.join(app.getAppPath(), 'out', 'sidecar', runtime, binaryName)
@@ -229,9 +239,24 @@ export class SidecarManager {
       return ''
     }
 
-    // In production: binary is alongside the app in extraFiles
-    const prodPath = path.join(process.resourcesPath, 'sidecar', binaryName)
-    return prodPath
+    const runtime = this.getSidecarRuntime()
+
+    // In production, tolerate both flattened and runtime-scoped sidecar layouts.
+    const prodCandidates = [
+      path.join(process.resourcesPath, 'sidecar', binaryName),
+      path.join(process.resourcesPath, 'sidecar', runtime, binaryName),
+      path.join(process.resourcesPath, 'resources', 'sidecar', binaryName),
+      path.join(process.resourcesPath, 'resources', 'sidecar', runtime, binaryName),
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'sidecar', binaryName),
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'sidecar', runtime, binaryName)
+    ]
+
+    for (const candidate of prodCandidates) {
+      if (fs.existsSync(candidate)) return candidate
+    }
+
+    console.warn(`[Sidecar] No production binary found. Checked: ${prodCandidates.join(', ')}`)
+    return prodCandidates[0]
   }
 
   async start(): Promise<boolean> {

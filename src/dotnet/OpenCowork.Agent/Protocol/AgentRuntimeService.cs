@@ -270,8 +270,6 @@ public sealed class AgentRuntimeService
                 var newString = GetString(input, "new_string", required: true);
                 var replaceAll = GetOptionalBool(input, "replace_all") ?? false;
 
-                if (!FsOperations.HasAnyPriorRead(path, ctx.ReadFileHistory))
-                    throw new InvalidOperationException("You must use the Read tool before using Edit on this file");
 
                 if (string.IsNullOrEmpty(oldString))
                     throw new InvalidOperationException("old_string must be non-empty");

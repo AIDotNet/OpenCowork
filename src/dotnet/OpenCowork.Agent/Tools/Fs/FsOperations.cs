@@ -53,13 +53,6 @@ public static class FsOperations
 
         return File.ReadAllText(path);
     }
-
-    public static bool HasAnyPriorRead(string path, IDictionary<string, DateTimeOffset>? readHistory)
-    {
-        if (readHistory is null) return false;
-        return readHistory.ContainsKey(Path.GetFullPath(path));
-    }
-
     public static void RecordRead(string path, IDictionary<string, DateTimeOffset>? readHistory)
     {
         if (readHistory is null) return;

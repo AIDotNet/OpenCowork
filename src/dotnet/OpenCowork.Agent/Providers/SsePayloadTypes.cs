@@ -215,7 +215,31 @@ public sealed class OpenAiFunctionDelta
     public string? Name { get; init; }
 
     [JsonPropertyName("arguments")]
-    public string? Arguments { get; init; }
+    public JsonElement? Arguments { get; init; }
+
+    [JsonPropertyName("args")]
+    public JsonElement? Args { get; init; }
+
+    [JsonPropertyName("input")]
+    public JsonElement? Input { get; init; }
+
+    public string? GetArgumentsChunk()
+    {
+        return ReadChunk(Arguments) ?? ReadChunk(Args) ?? ReadChunk(Input);
+    }
+
+    private static string? ReadChunk(JsonElement? element)
+    {
+        if (element is null)
+            return null;
+
+        return element.Value.ValueKind switch
+        {
+            JsonValueKind.String => element.Value.GetString(),
+            JsonValueKind.Object or JsonValueKind.Array or JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => element.Value.GetRawText(),
+            _ => null
+        };
+    }
 }
 
 public sealed class OpenAiUsage

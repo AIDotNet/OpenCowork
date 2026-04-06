@@ -597,7 +597,7 @@ export function AppSidebar(): React.JSX.Element {
                             <ContextMenuItem
                               onClick={() => {
                                 const newTitle = window.prompt(
-                                  t('sidebar.renameSession'),
+                                  t('sidebar.renameSessionPrompt'),
                                   session.title
                                 )
                                 if (newTitle?.trim() && newTitle.trim() !== session.title) {
@@ -702,7 +702,7 @@ export function AppSidebar(): React.JSX.Element {
                                     }}
                                   >
                                     {modeIcons[m]}
-                                    <span className="capitalize">{m}</span>
+                                    <span className="capitalize">{t(`sidebar.mode.${m}`)}</span>
                                   </ContextMenuItem>
                                 ))}
                               </ContextMenuSubContent>

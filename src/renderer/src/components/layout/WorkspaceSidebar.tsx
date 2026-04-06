@@ -978,7 +978,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                           <ContextMenuContent className="w-52">
                             <ContextMenuItem onClick={() => openSession(session.id)}>
                               <MessageSquare className="size-4" />
-                              {t('sidebar.openSession')}
+                              {t('topbar.openSession')}
                             </ContextMenuItem>
                             <ContextMenuItem
                               onSelect={() =>

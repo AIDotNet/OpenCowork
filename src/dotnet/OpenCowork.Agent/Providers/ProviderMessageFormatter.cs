@@ -848,8 +848,9 @@ internal static class ProviderMessageFormatter
 
             if (element.ValueKind == JsonValueKind.Object)
             {
-                return JsonSerializer.Deserialize(trimmed, AppJsonContext.Default.DictionaryStringJsonElement)
-                    ?? new Dictionary<string, JsonElement>();
+                return NormalizeToolInputObject(
+                    JsonSerializer.Deserialize(trimmed, AppJsonContext.Default.DictionaryStringJsonElement)
+                    ?? new Dictionary<string, JsonElement>());
             }
 
             if (element.ValueKind == JsonValueKind.String)
@@ -861,8 +862,9 @@ internal static class ProviderMessageFormatter
                     var nestedElement = JsonSerializer.Deserialize(nestedTrimmed, AppJsonContext.Default.JsonElement);
                     if (nestedElement.ValueKind == JsonValueKind.Object)
                     {
-                        return JsonSerializer.Deserialize(nestedTrimmed, AppJsonContext.Default.DictionaryStringJsonElement)
-                            ?? new Dictionary<string, JsonElement>();
+                        return NormalizeToolInputObject(
+                            JsonSerializer.Deserialize(nestedTrimmed, AppJsonContext.Default.DictionaryStringJsonElement)
+                            ?? new Dictionary<string, JsonElement>());
                     }
                 }
             }
@@ -872,6 +874,74 @@ internal static class ProviderMessageFormatter
         }
 
         return new Dictionary<string, JsonElement>();
+    }
+
+    public static Dictionary<string, JsonElement> NormalizeToolInputObject(Dictionary<string, JsonElement>? input)
+    {
+        if (input is null || input.Count == 0)
+            return new Dictionary<string, JsonElement>();
+
+        var current = input;
+        for (var depth = 0; depth < 4; depth++)
+        {
+            if (!TryUnwrapToolInputObject(current, out var unwrapped))
+                break;
+
+            current = unwrapped;
+            if (current.Count == 0)
+                break;
+        }
+
+        return current;
+    }
+
+    private static bool TryUnwrapToolInputObject(
+        Dictionary<string, JsonElement> input,
+        out Dictionary<string, JsonElement> unwrapped)
+    {
+        unwrapped = input;
+        if (input.Count != 1)
+            return false;
+
+        var entry = input.First();
+        if (!IsWrappedToolInputProperty(entry.Key))
+            return false;
+
+        var value = entry.Value;
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            unwrapped = JsonSerializer.Deserialize(value.GetRawText(), AppJsonContext.Default.DictionaryStringJsonElement)
+                ?? new Dictionary<string, JsonElement>();
+            return true;
+        }
+
+        if (value.ValueKind != JsonValueKind.String)
+            return false;
+
+        var nested = value.GetString();
+        if (string.IsNullOrWhiteSpace(nested))
+            return false;
+
+        try
+        {
+            var nestedTrimmed = nested.Trim();
+            var nestedElement = JsonSerializer.Deserialize(nestedTrimmed, AppJsonContext.Default.JsonElement);
+            if (nestedElement.ValueKind != JsonValueKind.Object)
+                return false;
+
+            unwrapped = JsonSerializer.Deserialize(nestedTrimmed, AppJsonContext.Default.DictionaryStringJsonElement)
+                ?? new Dictionary<string, JsonElement>();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsWrappedToolInputProperty(string key)
+    {
+        return key is "args" or "arguments" or "input";
     }
 
     private static string SerializeInput(Dictionary<string, JsonElement> input)

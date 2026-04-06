@@ -19,6 +19,7 @@
     "pluginSessions": "插件会话",
     "pinned": "已置顶",
     "renameSession": "重命名会话：",
+    "renameSessionPrompt": "重命名会话：",
     "newChat": "新建对话",
     "importSession": "导入会话 (JSON)",
     "importSuccess": "导入成功",
@@ -60,6 +61,12 @@
     "clearMessages": "清空消息",
     "pinToTop": "置顶",
     "switchMode": "切换模式",
+    "mode": {
+      "chat": "对话",
+      "clarify": "澄清",
+      "cowork": "协作",
+      "code": "编程"
+    },
     "deleteAllSessions": "删除所有会话",
     "deleteAllConfirm": "删除全部 {{count}} 个会话？此操作不可撤销。",
     "unknownProject": "未知项目",

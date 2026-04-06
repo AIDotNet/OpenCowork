@@ -239,9 +239,10 @@ public sealed class OpenAiChatProvider : ILlmProvider
                         };
                     }
 
-                    if (delta.ToolCalls is not null)
+                    var effectiveToolCalls = delta.ToolCalls ?? toolCallsFromMessage;
+                    if (effectiveToolCalls is not null)
                     {
-                        foreach (var tc in delta.ToolCalls)
+                        foreach (var tc in effectiveToolCalls)
                         {
                             firstTokenAt ??= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                             var toolKey = GetToolKey(tc);
@@ -296,9 +297,10 @@ public sealed class OpenAiChatProvider : ILlmProvider
                                 };
                             }
 
-                            if (tc.Function?.Arguments is not null)
+                            var argumentsChunk = tc.Function?.GetArgumentsChunk();
+                            if (!string.IsNullOrWhiteSpace(argumentsChunk))
                             {
-                                toolArgs[toolKey].Append(tc.Function.Arguments);
+                                toolArgs[toolKey].Append(argumentsChunk);
 
                                 if (toolIds.TryGetValue(toolKey, out toolId))
                                 {
@@ -306,7 +308,7 @@ public sealed class OpenAiChatProvider : ILlmProvider
                                     {
                                         Type = "tool_call_delta",
                                         ToolCallId = toolId,
-                                        ArgumentsDelta = tc.Function.Arguments
+                                        ArgumentsDelta = argumentsChunk
                                     };
                                 }
                             }

@@ -178,6 +178,14 @@ function parseAnsweredPairs(output: ToolResultContent | undefined): {
   }
 }
 
+function isRedundantSummary(summary: string | undefined, pairs: AnsweredPair[]): boolean {
+  const normalized = summary?.trim()
+  if (!normalized) return true
+  if (pairs.length === 0) return false
+
+  return /^User has answered your questions(?::|\.)/i.test(normalized)
+}
+
 function buildRecommendedPayload(
   questions: AskUserQuestionItem[]
 ): { payload: AskUserResolvedPayload; selections: Map<number, Set<string>> } | null {
@@ -813,7 +821,7 @@ export function AskUserQuestionCard({
           </div>
         </div>
 
-        {answeredStructured?.summary && (
+        {answeredStructured?.summary && !isRedundantSummary(answeredStructured.summary, answeredPairs) && (
           <div className="mt-3 rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
             {answeredStructured.summary}
           </div>

@@ -19,6 +19,7 @@
     "pluginSessions": "Plugin Sessions",
     "pinned": "pinned",
     "renameSession": "Rename session:",
+    "renameSessionPrompt": "Rename session:",
     "newChat": "New Chat",
     "importSession": "Import session (JSON)",
     "importSuccess": "Import successful",
@@ -60,6 +61,12 @@
     "clearMessages": "Clear Messages",
     "pinToTop": "Pin to Top",
     "switchMode": "Switch Mode",
+    "mode": {
+      "chat": "Chat",
+      "clarify": "Clarify",
+      "cowork": "Cowork",
+      "code": "Code"
+    },
     "deleteAllSessions": "Delete All Sessions",
     "deleteAllConfirm": "Delete all {{count}} sessions? This cannot be undone.",
     "unknownProject": "Unknown Project",

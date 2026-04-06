@@ -72,6 +72,7 @@ namespace OpenCowork.Agent;
 [JsonSerializable(typeof(OpenAiChatChunk))]
 [JsonSerializable(typeof(OpenAiChatChoice))]
 [JsonSerializable(typeof(OpenAiChatDelta))]
+[JsonSerializable(typeof(OpenAiChatMessage))]
 [JsonSerializable(typeof(OpenAiToolCallDelta))]
 [JsonSerializable(typeof(OpenAiFunctionDelta))]
 [JsonSerializable(typeof(OpenAiUsage))]

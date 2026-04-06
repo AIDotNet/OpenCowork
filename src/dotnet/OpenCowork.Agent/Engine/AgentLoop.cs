@@ -203,7 +203,7 @@ public static class AgentLoop
                                     yield return new ToolUseArgsDeltaEvent
                                     {
                                         ToolCallId = evt.ToolCallId,
-                                        PartialInput = partialInput
+                                        PartialInput = ProviderMessageFormatter.NormalizeToolInputObject(partialInput)
                                     };
                                 }
                             }
@@ -216,7 +216,8 @@ public static class AgentLoop
                             var matching = toolCalls.FirstOrDefault(t => t.Id == evt.ToolCallId);
                             if (matching is not null)
                             {
-                                matching.Input = evt.ToolCallInput ?? new Dictionary<string, JsonElement>();
+                                matching.Input = ProviderMessageFormatter.NormalizeToolInputObject(
+                                    evt.ToolCallInput ?? new Dictionary<string, JsonElement>());
                                 matching.Name = evt.ToolName ?? matching.Name;
                                 matching.ExtraContent = evt.ToolCallExtraContent ?? matching.ExtraContent;
                                 matching.Status = ToolCallStatus.Streaming;

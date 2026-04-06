@@ -473,49 +473,35 @@ class AnthropicProvider implements APIProvider {
       }
 
       const blocks = message.content as ContentBlock[]
-      const toolUseIds = blocks
-        .filter(
-          (block): block is Extract<ContentBlock, { type: 'tool_use' }> => block.type === 'tool_use'
-        )
-        .map((block) => block.id)
-
-      let nextBlocks = blocks
-
-      if (toolUseIds.length > 0) {
-        const nextMessage = messages[index + 1]
-        const hasImmediateToolResultMessage =
-          nextMessage?.role === 'user' &&
-          Array.isArray(nextMessage.content) &&
-          toolUseIds.every((toolUseId) =>
-            (nextMessage.content as ContentBlock[]).some(
-              (block) => block.type === 'tool_result' && block.toolUseId === toolUseId
-            )
+      const replayableToolUseIds = new Set(
+        blocks
+          .filter(
+            (block): block is Extract<ContentBlock, { type: 'tool_use' }> => block.type === 'tool_use'
           )
+          .map((block) => block.id)
+      )
 
-        if (hasImmediateToolResultMessage) {
-          for (const toolUseId of toolUseIds) validToolUseIds.add(toolUseId)
-        } else {
-          nextBlocks = nextBlocks.map((block) => {
-            if (block.type !== 'tool_use' || !toolUseIds.includes(block.id)) return block
-            return {
-              type: 'text' as const,
-              text: `[Previous tool call omitted for Anthropic replay] ${block.name} ${JSON.stringify(block.input).slice(0, 200)}`
-            }
-          })
+      const pairedToolUseIds = new Set<string>()
+      if (replayableToolUseIds.size > 0) {
+        const nextMessage = messages[index + 1]
+        if (nextMessage?.role === 'user' && Array.isArray(nextMessage.content)) {
+          for (const block of nextMessage.content as ContentBlock[]) {
+            if (block.type !== 'tool_result' || !replayableToolUseIds.has(block.toolUseId)) continue
+            pairedToolUseIds.add(block.toolUseId)
+            validToolUseIds.add(block.toolUseId)
+          }
         }
       }
 
-      const sanitizedBlocks = nextBlocks.map((block) => {
-        if (block.type !== 'tool_result') return block
-        if (validToolUseIds.has(block.toolUseId)) return block
-        const content =
-          typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
-        return {
-          type: 'text' as const,
-          text: `[Previous tool result omitted for Anthropic replay] ${content.slice(0, 300)}`
+      const sanitizedBlocks = blocks.filter((block) => {
+        if (block.type === 'tool_use') {
+          return pairedToolUseIds.has(block.id)
         }
+        if (block.type !== 'tool_result') return true
+        return validToolUseIds.has(block.toolUseId)
       })
 
+      if (sanitizedBlocks.length === 0) continue
       normalized.push({ ...message, content: sanitizedBlocks })
     }
 

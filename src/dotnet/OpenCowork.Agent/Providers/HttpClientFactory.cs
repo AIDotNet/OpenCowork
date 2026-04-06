@@ -13,7 +13,8 @@ public sealed class LlmHttpClientFactory : IDisposable
 
     public HttpClient GetClient(string? proxyUrl = null)
     {
-        var key = proxyUrl ?? "__default__";
+        var normalizedProxyUrl = string.IsNullOrWhiteSpace(proxyUrl) ? null : proxyUrl.Trim();
+        var key = normalizedProxyUrl ?? "__system__";
 
         lock (_lock)
         {
@@ -26,13 +27,10 @@ public sealed class LlmHttpClientFactory : IDisposable
                 PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
                 MaxConnectionsPerServer = 3,
                 EnableMultipleHttp2Connections = true,
+                UseProxy = true,
+                Proxy = normalizedProxyUrl is null ? HttpClient.DefaultProxy : new WebProxy(normalizedProxyUrl),
+                DefaultProxyCredentials = normalizedProxyUrl is null ? CredentialCache.DefaultCredentials : null,
             };
-
-            if (proxyUrl is not null)
-            {
-                handler.Proxy = new WebProxy(proxyUrl);
-                handler.UseProxy = true;
-            }
 
             var client = new HttpClient(handler)
             {

@@ -462,6 +462,8 @@ export interface ProviderConfig {
   organization?: string
   /** OpenAI project header */
   project?: string
+  /** Account-backed OpenAI/Codex requests may require Chatgpt-Account-Id */
+  accountId?: string
 }
 
 // --- Provider Interface ---

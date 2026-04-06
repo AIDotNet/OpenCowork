@@ -109,6 +109,7 @@ export interface SidecarProviderConfig {
   computerUseEnabled?: boolean
   organization?: string
   project?: string
+  accountId?: string
 }
 
 export interface SidecarToolDefinition {
@@ -325,7 +326,8 @@ function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig | n
       ? { computerUseEnabled: provider.computerUseEnabled }
       : {}),
     ...(provider.organization ? { organization: provider.organization } : {}),
-    ...(provider.project ? { project: provider.project } : {})
+    ...(provider.project ? { project: provider.project } : {}),
+    ...(provider.accountId ? { accountId: provider.accountId } : {})
   }
 }
 

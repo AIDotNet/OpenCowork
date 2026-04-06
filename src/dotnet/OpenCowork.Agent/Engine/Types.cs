@@ -369,6 +369,7 @@ public sealed class ProviderConfig
     public bool? ComputerUseEnabled { get; set; }
     public string? Organization { get; set; }
     public string? Project { get; set; }
+    public string? AccountId { get; set; }
 }
 
 // --- Agent Events ---

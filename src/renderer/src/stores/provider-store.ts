@@ -445,6 +445,11 @@ function resolveServiceTier(
   return model?.serviceTier
 }
 
+function resolveProviderAccountId(provider: AIProvider): string | undefined {
+  const accountId = provider.oauth?.accountId?.trim()
+  return accountId ? accountId : undefined
+}
+
 function mergeBuiltinModels(
   existingModels: AIModelConfig[],
   presetModels: AIModelConfig[],
@@ -1164,6 +1169,7 @@ export const useProviderStore = create<ProviderStore>()(
           activeModel?.id ?? activeModelId
         )
         const serviceTier = resolveServiceTier(activeModel, provider.builtinId)
+        const accountId = resolveProviderAccountId(provider)
         return {
           type: requestType,
           apiKey: provider.apiKey,
@@ -1185,7 +1191,8 @@ export const useProviderStore = create<ProviderStore>()(
           ...(requestOverrides ? { requestOverrides } : {}),
           ...(provider.instructionsPrompt
             ? { instructionsPrompt: provider.instructionsPrompt }
-            : {})
+            : {}),
+          ...(accountId ? { accountId } : {})
         }
       },
 
@@ -1268,6 +1275,7 @@ export const useProviderStore = create<ProviderStore>()(
           model?.id ?? resolvedModelId
         )
         const serviceTier = resolveServiceTier(model, provider.builtinId)
+        const accountId = resolveProviderAccountId(provider)
         return {
           type: requestType,
           apiKey: provider.apiKey,
@@ -1288,7 +1296,8 @@ export const useProviderStore = create<ProviderStore>()(
           ...(requestOverrides ? { requestOverrides } : {}),
           ...(provider.instructionsPrompt
             ? { instructionsPrompt: provider.instructionsPrompt }
-            : {})
+            : {}),
+          ...(accountId ? { accountId } : {})
         }
       },
 
@@ -1353,6 +1362,7 @@ export const useProviderStore = create<ProviderStore>()(
           fastModel?.id ?? model
         )
         const serviceTier = resolveServiceTier(fastModel, provider.builtinId)
+        const accountId = resolveProviderAccountId(provider)
         return {
           type: requestType,
           apiKey: provider.apiKey,
@@ -1373,7 +1383,8 @@ export const useProviderStore = create<ProviderStore>()(
           ...(requestOverrides ? { requestOverrides } : {}),
           ...(provider.instructionsPrompt
             ? { instructionsPrompt: provider.instructionsPrompt }
-            : {})
+            : {}),
+          ...(accountId ? { accountId } : {})
         }
       },
 

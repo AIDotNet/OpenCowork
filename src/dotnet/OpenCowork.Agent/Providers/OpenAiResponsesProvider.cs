@@ -40,6 +40,7 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         var headers = new Dictionary<string, string>
         {
             ["Content-Type"] = "application/json",
+            ["Accept"] = "text/event-stream",
             ["Authorization"] = $"Bearer {config.ApiKey}"
         };
         if (!string.IsNullOrWhiteSpace(config.UserAgent))
@@ -50,6 +51,8 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
             headers["OpenAI-Organization"] = config.Organization;
         if (!string.IsNullOrWhiteSpace(config.Project))
             headers["OpenAI-Project"] = config.Project;
+        if (!string.IsNullOrWhiteSpace(config.AccountId))
+            headers["Chatgpt-Account-Id"] = config.AccountId;
 
         ProviderMessageFormatter.ApplyHeaderOverrides(headers, config);
         var bodyBytes = await BuildRequestBodyAsync(messages, tools, config, ct);
@@ -395,7 +398,7 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
     private static JsonArray FormatResponsesInput(List<UnifiedMessage> messages, string? systemPrompt, bool includeEncryptedReasoning)
     {
         var input = new JsonArray();
-        var normalized = ProviderMessageFormatter.NormalizeMessagesForToolReplay(messages, "OpenAI Responses");
+        var normalized = ProviderMessageFormatter.NormalizeMessagesForToolReplay(messages);
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
         {

@@ -15,6 +15,7 @@ namespace OpenCowork.Agent;
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
     UseStringEnumConverter = true,
     WriteIndented = false)]
 // Primitives used in JSON-RPC id fields

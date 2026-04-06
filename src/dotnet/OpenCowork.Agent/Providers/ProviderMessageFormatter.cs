@@ -6,7 +6,7 @@ namespace OpenCowork.Agent.Providers;
 
 internal static class ProviderMessageFormatter
 {
-    public static List<UnifiedMessage> NormalizeMessagesForToolReplay(List<UnifiedMessage> messages, string providerName)
+    public static List<UnifiedMessage> NormalizeMessagesForToolReplay(List<UnifiedMessage> messages)
     {
         var normalized = new List<UnifiedMessage>(messages.Count);
         var validToolUseIds = new HashSet<string>(StringComparer.Ordinal);
@@ -27,62 +27,38 @@ internal static class ProviderMessageFormatter
                 continue;
             }
 
-            var toolUseIds = blocks
+            var replayableToolUseIds = blocks
                 .OfType<ToolUseBlock>()
                 .Select(block => block.Id)
-                .ToList();
+                .ToHashSet(StringComparer.Ordinal);
+            var pairedToolUseIds = new HashSet<string>(StringComparer.Ordinal);
 
-            var nextBlocks = new List<ContentBlock>(blocks);
-
-            if (toolUseIds.Count > 0)
+            if (replayableToolUseIds.Count > 0)
             {
                 var nextMessage = index + 1 < messages.Count ? messages[index + 1] : null;
                 var nextMessageBlocks = nextMessage?.GetBlockContent() ?? [];
-                var hasImmediateToolResultMessage = nextMessage?.Role == "user"
-                    && toolUseIds.All(toolUseId => nextMessageBlocks
-                        .OfType<ToolResultBlock>()
-                        .Any(block => block.ToolUseId == toolUseId));
-
-                if (hasImmediateToolResultMessage)
+                if (nextMessage?.Role == "user")
                 {
-                    foreach (var toolUseId in toolUseIds)
+                    foreach (var toolResult in nextMessageBlocks.OfType<ToolResultBlock>())
                     {
-                        validToolUseIds.Add(toolUseId);
+                        if (!replayableToolUseIds.Contains(toolResult.ToolUseId))
+                            continue;
+
+                        pairedToolUseIds.Add(toolResult.ToolUseId);
+                        validToolUseIds.Add(toolResult.ToolUseId);
                     }
-                }
-                else
-                {
-                    nextBlocks = nextBlocks.Select(block =>
-                    {
-                        if (block is not ToolUseBlock toolUse || !toolUseIds.Contains(toolUse.Id, StringComparer.Ordinal))
-                            return block;
-
-                        var preview = SerializeInput(toolUse.Input);
-                        if (preview.Length > 200)
-                            preview = preview[..200];
-
-                        return (ContentBlock)new TextBlock
-                        {
-                            Text = $"[Previous tool call omitted for {providerName} replay] {toolUse.Name} {preview}"
-                        };
-                    }).ToList();
                 }
             }
 
-            var sanitizedBlocks = nextBlocks.Select(block =>
+            var sanitizedBlocks = blocks.Where(block => block switch
             {
-                if (block is not ToolResultBlock toolResult || validToolUseIds.Contains(toolResult.ToolUseId))
-                    return block;
-
-                var content = SerializeToolResultContent(toolResult.GetContentValue());
-                if (content.Length > 300)
-                    content = content[..300];
-
-                return (ContentBlock)new TextBlock
-                {
-                    Text = $"[Previous tool result omitted for {providerName} replay] {content}"
-                };
+                ToolUseBlock toolUse => pairedToolUseIds.Contains(toolUse.Id),
+                ToolResultBlock toolResult => validToolUseIds.Contains(toolResult.ToolUseId),
+                _ => true
             }).ToList();
+
+            if (sanitizedBlocks.Count == 0)
+                continue;
 
             normalized.Add(new UnifiedMessage
             {
@@ -102,7 +78,7 @@ internal static class ProviderMessageFormatter
 
     public static JsonArray FormatAnthropicMessages(List<UnifiedMessage> messages, bool promptCacheEnabled = false)
     {
-        var normalized = NormalizeMessagesForToolReplay(messages, "Anthropic");
+        var normalized = NormalizeMessagesForToolReplay(messages);
         var formatted = new JsonArray();
 
         foreach (var message in normalized)
@@ -147,7 +123,7 @@ internal static class ProviderMessageFormatter
     public static JsonArray FormatOpenAiChatMessages(List<UnifiedMessage> messages, string? systemPrompt, ProviderConfig? config)
     {
         var formatted = new JsonArray();
-        var normalized = NormalizeMessagesForToolReplay(messages, "OpenAI");
+        var normalized = NormalizeMessagesForToolReplay(messages);
         var isGoogleCompatible = IsGoogleCompatible(config);
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))

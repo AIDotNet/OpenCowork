@@ -67,9 +67,7 @@ public static class SseStreamReader
         if (body is not null)
         {
             request.Content = new ByteArrayContent(body);
-            request.Content.Headers.ContentType =
-                new System.Net.Http.Headers.MediaTypeHeaderValue("application/json")
-                { CharSet = "utf-8" };
+            request.Content.Headers.TryAddWithoutValidation("Content-Type", "application/json");
         }
 
         try

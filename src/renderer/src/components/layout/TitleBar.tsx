@@ -176,6 +176,9 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
         'titlebar-drag relative flex h-10 w-full shrink-0 items-center gap-2 overflow-hidden bg-background/80 backdrop-blur-md px-3',
         isMac ? 'pl-[78px]' : 'pr-[132px]'
       )}
+      style={{
+        paddingRight: isMac ? undefined : 'calc(132px + 0.75rem)'
+      }}
     >
       {/* Left cluster: Logo + Avatar */}
       <div className="titlebar-no-drag flex shrink-0 items-center gap-2">
@@ -342,31 +345,35 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
         />
       </div>
 
-      <div className="flex-1" />
 
       {/* Right-side controls */}
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="min-w-0 flex-1" />
+      <div className="flex min-w-0 shrink items-center justify-end gap-1 overflow-hidden pr-1">
         {updateInfo && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="outline"
                 size="sm"
-                className="titlebar-no-drag h-7 gap-1.5 border-amber-500/30 bg-amber-500/10 px-2 text-[10px] text-amber-600 hover:bg-amber-500/15 dark:text-amber-400"
+                className="titlebar-no-drag hidden h-7 max-w-[min(16rem,24vw)] shrink overflow-hidden border-amber-500/30 bg-amber-500/10 px-2 text-[10px] text-amber-600 hover:bg-amber-500/15 dark:text-amber-400 xl:inline-flex"
                 onClick={onOpenUpdateDialog}
               >
-                {updateInfo.downloading ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Download className="size-3.5" />
-                )}
-                {updateInfo.downloading
-                  ? typeof updateInfo.downloadProgress === 'number'
-                    ? tCommon('app.update.downloadingShort', {
-                        progress: Math.round(updateInfo.downloadProgress)
-                      })
-                    : tCommon('app.update.downloading')
-                  : tCommon('app.update.buttonLabel', { version: updateInfo.newVersion })}
+                <span className="shrink-0">
+                  {updateInfo.downloading ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Download className="size-3.5" />
+                  )}
+                </span>
+                <span className="truncate">
+                  {updateInfo.downloading
+                    ? typeof updateInfo.downloadProgress === 'number'
+                      ? tCommon('app.update.downloadingShort', {
+                          progress: Math.round(updateInfo.downloadProgress)
+                        })
+                      : tCommon('app.update.downloading')
+                    : tCommon('app.update.buttonLabel', { version: updateInfo.newVersion })}
+                </span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>{tCommon('app.update.buttonTooltip')}</TooltipContent>
@@ -400,7 +407,7 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
         {/* Pending approval indicator */}
         {pendingApprovals > 0 && (
           <Tooltip>
-            <TooltipTrigger className="titlebar-no-drag animate-pulse rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-400 cursor-default">
+            <TooltipTrigger className="titlebar-no-drag hidden animate-pulse rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-400 cursor-default md:inline-flex">
               {t('topbar.pendingCount', { count: pendingApprovals })}
             </TooltipTrigger>
             <TooltipContent>{t('topbar.toolCallAwaiting')}</TooltipContent>
@@ -409,9 +416,9 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
 
         {/* SubAgent indicator */}
         {runningSubAgents.length > 0 && (
-          <span className="titlebar-no-drag flex items-center gap-1 rounded bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-medium text-violet-500">
-            <Brain className="size-3 animate-pulse" />
-            {runningSubAgents.join(', ')}
+          <span className="titlebar-no-drag hidden max-w-[12rem] items-center gap-1 overflow-hidden rounded bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-medium text-violet-500 lg:inline-flex">
+            <Brain className="size-3 animate-pulse shrink-0" />
+            <span className="truncate">{runningSubAgents.join(', ')}</span>
           </span>
         )}
 
@@ -423,10 +430,10 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
               ui.setRightPanelOpen(true)
               ui.setRightPanelTab('team')
             }}
-            className="titlebar-no-drag flex items-center gap-1 rounded bg-cyan-500/10 px-1.5 py-0.5 text-[9px] font-medium text-cyan-500 hover:bg-cyan-500/20 transition-colors"
+            className="titlebar-no-drag hidden max-w-[12rem] items-center gap-1 overflow-hidden rounded bg-cyan-500/10 px-1.5 py-0.5 text-[9px] font-medium text-cyan-500 hover:bg-cyan-500/20 transition-colors lg:inline-flex"
           >
-            <Users className="size-3" />
-            {activeTeamSummary.name}
+            <Users className="size-3 shrink-0" />
+            <span className="truncate">{activeTeamSummary.name}</span>
             {activeTeamSummary.total > 0 && (
               <span className="text-cyan-500/60">
                 · {activeTeamSummary.completed}/{activeTeamSummary.total}✓
@@ -444,7 +451,7 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
         {/* Error count indicator */}
         {errorCount > 0 && (
           <Tooltip>
-            <TooltipTrigger className="titlebar-no-drag rounded bg-destructive/10 px-1.5 py-0.5 text-[9px] font-medium text-destructive cursor-default">
+            <TooltipTrigger className="titlebar-no-drag hidden rounded bg-destructive/10 px-1.5 py-0.5 text-[9px] font-medium text-destructive cursor-default md:inline-flex">
               {t('topbar.errorsCount', { count: errorCount })}
             </TooltipTrigger>
             <TooltipContent>{t('topbar.toolCallsFailed', { count: errorCount })}</TooltipContent>
@@ -458,7 +465,7 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
               <Button
                 variant="ghost"
                 size="sm"
-                className="titlebar-no-drag h-7 gap-1.5 px-2 text-[10px]"
+                className="titlebar-no-drag hidden h-7 gap-1.5 px-2 text-[10px] md:inline-flex"
               >
                 <Terminal className="size-3.5" />
                 {t('topbar.backgroundCommandsCount', {

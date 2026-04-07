@@ -680,6 +680,7 @@ public sealed class AgentRunParams
     public List<UnifiedMessage> Messages { get; init; } = [];
     public ProviderConfig Provider { get; init; } = new();
     public List<ToolDefinition> Tools { get; init; } = [];
+    public string? RunId { get; init; }
     public string? SessionId { get; init; }
     public string? WorkingFolder { get; init; }
     public int MaxIterations { get; init; } = 25;

@@ -2403,6 +2403,7 @@ export function useChatActions(): {
             messages: messagesToSend,
             provider: agentProviderConfig,
             tools: effectiveToolDefs,
+            runId: assistantMsgId,
             sessionId,
             workingFolder: session?.workingFolder,
             maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
@@ -3030,9 +3031,14 @@ export function useChatActions(): {
                 const errorMessage = normalizeContinuationErrorMessage(event.error.message)
                 console.error('[Agent Loop Error]', event.error)
                 toast.error('Agent Error', { description: errorMessage })
-                useChatStore
-                  .getState()
-                  .appendTextDelta(sessionId!, assistantMsgId, `\n\n> **Error:** ${errorMessage}`)
+                useChatStore.getState().appendContentBlock(sessionId!, assistantMsgId, {
+                  type: 'agent_error',
+                  code: 'runtime_error',
+                  message: errorMessage,
+                  ...(event.errorType ? { errorType: event.errorType } : {}),
+                  ...(event.details ? { details: event.details } : {}),
+                  ...(event.stackTrace ? { stackTrace: event.stackTrace } : {})
+                })
                 break
               }
             }

@@ -443,6 +443,26 @@ function sanitizeToolBlocksForResend(messages: UnifiedMessage[]): {
     return { messages, changed: false }
   }
 
+  const trimmedMessages = [...messages]
+  let trimmedChanged = false
+  while (trimmedMessages.length > 0) {
+    const lastMessage = trimmedMessages[trimmedMessages.length - 1]
+    if (lastMessage.role !== 'assistant' || !Array.isArray(lastMessage.content)) break
+
+    const filteredBlocks = lastMessage.content.filter((block) => block.type !== 'agent_error')
+    if (filteredBlocks.length === lastMessage.content.length) break
+
+    trimmedChanged = true
+    if (filteredBlocks.length === 0) {
+      trimmedMessages.pop()
+    } else {
+      trimmedMessages[trimmedMessages.length - 1] = { ...lastMessage, content: filteredBlocks }
+      break
+    }
+  }
+
+  messages = trimmedMessages
+
   let tailStart = messages.length
   while (tailStart > 0) {
     const message = messages[tailStart - 1]
@@ -501,7 +521,7 @@ function sanitizeToolBlocksForResend(messages: UnifiedMessage[]): {
   }
 
   if (stripIds.size === 0) {
-    return { messages, changed: false }
+    return { messages, changed: trimmedChanged }
   }
 
   const strippedWriteToolUseIds = [...stripIds].filter((id) => {
@@ -566,7 +586,9 @@ function sanitizeToolBlocksForResend(messages: UnifiedMessage[]): {
     nextMessages.splice(resultMessageIndexesToRemove[i], 1)
   }
 
-  return changed ? { messages: nextMessages, changed: true } : { messages, changed: false }
+  return changed || trimmedChanged
+    ? { messages: nextMessages, changed: true }
+    : { messages, changed: false }
 }
 
 export const useChatStore = create<ChatStore>()(

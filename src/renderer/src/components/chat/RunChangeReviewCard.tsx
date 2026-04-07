@@ -58,14 +58,14 @@ export function RunChangeReviewCard({
 
   const statusLabel =
     changeSet.status === 'accepted'
-      ? 'All changes accepted'
+      ? t('fileChange.runStatus.accepted')
       : changeSet.status === 'reverted'
-        ? 'All changes reverted'
+        ? t('fileChange.runStatus.reverted')
         : changeSet.status === 'conflicted'
-          ? 'Some files need attention'
+          ? t('fileChange.runStatus.conflicted')
           : changeSet.status === 'partial'
-            ? 'Some files already handled'
-            : 'Review changes'
+            ? t('fileChange.runStatus.partial')
+            : t('fileChange.runStatus.review')
 
   return (
     <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
@@ -75,7 +75,7 @@ export function RunChangeReviewCard({
             <CheckCircle2 className="size-3.5 text-emerald-500" />
             <span>{statusLabel}</span>
             <span className="text-[10px] text-muted-foreground/60">
-              {fileLabels.length} files changed · {pendingCount} pending
+              {t('fileChange.runSummary', { files: fileLabels.length, pending: pendingCount })}
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5 text-[10px] text-muted-foreground/70">
@@ -86,19 +86,15 @@ export function RunChangeReviewCard({
             ))}
             {fileLabels.length > 5 && (
               <span className="rounded bg-background/70 px-1.5 py-0.5">
-                +{fileLabels.length - 5} more
+                {t('fileChange.moreFiles', { count: fileLabels.length - 5 })}
               </span>
             )}
           </div>
           {pendingCount > 0 && (
-            <p className="text-[10px] text-muted-foreground/60">
-              You can handle files one by one below, or apply bulk actions here.
-            </p>
+            <p className="text-[10px] text-muted-foreground/60">{t('fileChange.bulkActionsHint')}</p>
           )}
           {changeSet.status === 'conflicted' && (
-            <p className="text-[10px] text-amber-500/80">
-              Some files changed after the agent finished, so only safe files were reverted.
-            </p>
+            <p className="text-[10px] text-amber-500/80">{t('fileChange.conflictedHint')}</p>
           )}
         </div>
         <div className="flex items-center gap-2">

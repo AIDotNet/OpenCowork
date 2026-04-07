@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 import { Brain, Clock, Loader2, Maximize2, icons } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { useAgentStore } from '@renderer/stores/agent-store'
@@ -49,11 +50,26 @@ function SubAgentCardInner({
 
   const displayName = String(input.subagent_type ?? name)
   const tracked = useAgentStore(
-    (s) =>
-      s.activeSubAgents[toolUseId] ??
-      s.completedSubAgents[toolUseId] ??
-      s.subAgentHistory.find((item) => item.toolUseId === toolUseId) ??
-      null
+    useShallow((s) => {
+      const item =
+        s.activeSubAgents[toolUseId] ??
+        s.completedSubAgents[toolUseId] ??
+        s.subAgentHistory.find((entry) => entry.toolUseId === toolUseId) ??
+        null
+
+      if (!item) return null
+
+      return {
+        isRunning: item.isRunning,
+        success: item.success,
+        errorMessage: item.errorMessage,
+        iteration: item.iteration,
+        toolCallCount: item.toolCalls.length,
+        usage: item.usage ?? null,
+        startedAt: item.startedAt,
+        completedAt: item.completedAt
+      }
+    })
   )
 
   const outputStr = typeof output === 'string' ? output : undefined
@@ -110,18 +126,8 @@ function SubAgentCardInner({
     .filter(Boolean)
     .join(' · ')
 
-  const previewSource =
-    tracked?.report || tracked?.streamingText || tracked?.errorMessage || histText || ''
-  const previewText = React.useMemo(() => {
-    const trimmed = previewSource.trim()
-    if (!trimmed) return ''
-    const limit = isRunning ? 220 : 260
-    if (trimmed.length <= limit) return trimmed
-    return isRunning ? `…${trimmed.slice(-limit)}` : `${trimmed.slice(0, limit)}…`
-  }, [previewSource, isRunning])
-
   const handleOpenPanel = (): void => {
-    useUIStore.getState().openSubAgentExecutionDetail(toolUseId, histText || previewSource)
+    useUIStore.getState().openSubAgentExecutionDetail(toolUseId, histText || undefined)
   }
 
   return (
@@ -194,7 +200,7 @@ function SubAgentCardInner({
             </span>
             <span className="rounded-full border border-border/60 bg-background/70 px-2.5 py-1">
               {t('subAgent.calls', {
-                count: tracked?.toolCalls.length ?? histMeta?.toolCalls.length ?? 0
+                count: tracked?.toolCallCount ?? histMeta?.toolCalls.length ?? 0
               })}
             </span>
           </>
@@ -215,26 +221,19 @@ function SubAgentCardInner({
       <div className="mt-2 rounded-xl border border-border/60 bg-muted/20 px-2.5 py-2">
         <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/55">
           {isRunning ? <Loader2 className="size-3 animate-spin" /> : <Brain className="size-3" />}
-          <span>{isRunning ? t('subAgent.thinking') : t('subAgent.result')}</span>
+          <span>{t('subAgent.statusLabel')}</span>
         </div>
-        <p className="whitespace-pre-wrap break-words text-[12px] leading-5 text-foreground/88 line-clamp-4">
-          {previewText ||
-            (isRunning
-              ? t('subAgent.exploring', { name: displayName })
-              : t('subAgent.summaryEmpty', { defaultValue: '暂无摘要' }))}
-        </p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-[10px] font-medium text-foreground/80">
+            {isRunning ? t('subAgent.working') : isError ? t('subAgent.failed') : t('subAgent.done')}
+          </span>
+          <span className="text-[11px] text-muted-foreground/70">
+            {isRunning ? t('subAgent.openInRunsRunning') : t('subAgent.openInRunsDone')}
+          </span>
+        </div>
       </div>
 
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] text-muted-foreground/55">
-          {isRunning
-            ? t('subAgent.openInRunsRunning', {
-                defaultValue: '在右侧执行列表中查看实时进展'
-              })
-            : t('subAgent.openInRunsDone', {
-                defaultValue: '在右侧执行列表中查看完整记录'
-              })}
-        </span>
+      <div className="mt-2 flex items-center justify-end gap-2">
         <button
           onClick={handleOpenPanel}
           className="text-xs font-medium text-violet-600 transition-colors hover:text-violet-500 dark:text-violet-400"

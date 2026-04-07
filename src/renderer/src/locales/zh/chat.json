@@ -356,6 +356,7 @@
     "working": "工作中",
     "failed": "失败",
     "done": "完成",
+    "statusLabel": "状态",
     "thinking": "思考中...",
     "exploring": "{{name}} 正在探索...",
     "iter": "迭代 {{count}}",
@@ -552,7 +553,42 @@
     "deleted": "已删除",
     "fileWillBeDeleted": "文件将被删除",
     "moreLines": "+{{count}} 行更多",
-    "unchangedLines": "··· {{count}} 行未变更 ···"
+    "unchangedLines": "··· {{count}} 行未变更 ···",
+    "lineDelta": "-{{deleted}} / +{{added}} 行",
+    "charTransition": "{{from}} → {{to}} 字符",
+    "showingExcerpt": "当前展示的是长编辑参数的摘要片段",
+    "oldString": "old_string",
+    "newString": "new_string",
+    "empty": "（空）",
+    "patchSummary": "{{hunks}} 个 hunk · -{{deleted}} / +{{added}} 行",
+    "lineCount": "{{count}} 行",
+    "charCount": "{{count}} 字符",
+    "streaming": "流式生成中",
+    "kept": "该文件已保留。",
+    "restored": "该文件已恢复。",
+    "rollbackConflictDefault": "该文件在撤回时发生冲突。",
+    "individualActions": "你可以单独保留或撤回这个文件。",
+    "moreFiles": "还有 {{count}} 个",
+    "bulkActionsHint": "你可以在下方逐个处理文件，也可以在这里直接执行批量操作。",
+    "conflictedHint": "有些文件在 Agent 结束后又被改动过，所以只回滚了安全可恢复的文件。",
+    "runSummary": "共改动 {{files}} 个文件 · {{pending}} 个待处理",
+    "transport": {
+      "local": "本地",
+      "ssh": "SSH"
+    },
+    "status": {
+      "accepted": "已保留",
+      "reverted": "已撤回",
+      "conflict": "冲突",
+      "pending": "待处理"
+    },
+    "runStatus": {
+      "accepted": "全部改动已保留",
+      "reverted": "全部改动已撤回",
+      "conflicted": "部分文件需要处理",
+      "partial": "部分文件已处理",
+      "review": "查看改动"
+    }
   },
   "error": {
     "label": "错误"

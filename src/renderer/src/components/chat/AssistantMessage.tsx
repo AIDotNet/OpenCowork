@@ -29,6 +29,7 @@ import {
 import { FadeIn, ScaleIn } from '@renderer/components/animate-ui'
 import { ImageGeneratingLoader } from './ImageGeneratingLoader'
 import { ImageGenerationErrorCard } from './ImageGenerationErrorCard'
+import { AgentErrorCard } from './AgentErrorCard'
 import { ImagePreview } from './ImagePreview'
 import { ImagePluginToolCard } from './ImagePluginToolCard'
 import { DesktopActionToolCard } from './DesktopActionToolCard'
@@ -1160,6 +1161,20 @@ export function AssistantMessage({
                 return (
                   <ScaleIn key={item.index} className="w-full origin-left">
                     <ImageGenerationErrorCard code={imageError.code} message={imageError.message} />
+                  </ScaleIn>
+                )
+              }
+              case 'agent_error': {
+                const agentError = block as Extract<ContentBlock, { type: 'agent_error' }>
+                return (
+                  <ScaleIn key={item.index} className="w-full origin-left">
+                    <AgentErrorCard
+                      code={agentError.code}
+                      message={agentError.message}
+                      errorType={agentError.errorType}
+                      details={agentError.details}
+                      stackTrace={agentError.stackTrace}
+                    />
                   </ScaleIn>
                 )
               }

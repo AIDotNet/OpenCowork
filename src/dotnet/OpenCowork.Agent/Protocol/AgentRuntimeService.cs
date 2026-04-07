@@ -78,7 +78,9 @@ public sealed class AgentRuntimeService
 
     public async Task<AgentRunResult> StartRunAsync(AgentRunParams input, CancellationToken ct)
     {
-        var runId = Guid.NewGuid().ToString("N");
+        var runId = string.IsNullOrWhiteSpace(input.RunId)
+            ? Guid.NewGuid().ToString("N")
+            : input.RunId!;
         var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         if (!_activeRuns.TryAdd(runId, runCts))
             throw new InvalidOperationException("Failed to register run");
@@ -180,13 +182,7 @@ public sealed class AgentRuntimeService
     {
         RegisterRendererBridgedTool("Read", "Read a file from the filesystem", ParseSchema("""{"type":"object","properties":{"file_path":{"type":"string","description":"Absolute path or relative to the working folder"},"offset":{"type":"number","description":"Start line (1-indexed)"},"limit":{"type":"number","description":"Number of lines to read"}},"required":["file_path"]}"""));
 
-        _toolRegistry.Register(new ToolHandler
-        {
-            Definition = new ToolDefinition
-            {
-                Name = "Write",
-                Description = "Write a file to the filesystem",
-                InputSchema = ParseSchema("""
+        RegisterRendererBridgedTool("Write", "Write a file to the filesystem", ParseSchema("""
                 {
                   "type": "object",
                   "properties": {
@@ -195,24 +191,7 @@ public sealed class AgentRuntimeService
                   },
                   "required": ["file_path", "content"]
                 }
-                """)
-            },
-            Execute = async (input, ctx, token) =>
-            {
-                var path = ResolvePath(GetFilePath(input, required: true), ctx.WorkingFolder);
-                var content = GetString(input, "content", required: true);
-                await FsOperations.WriteFileAsync(path, content, token);
-                return new ToolResultContent
-                {
-                    Content = BuildJsonObject(new Dictionary<string, JsonNode?>
-                    {
-                        ["success"] = JsonValue.Create(true),
-                        ["path"] = JsonValue.Create(path)
-                    })
-                };
-            },
-            RequiresApproval = (input, ctx) => !IsWithinWorkingFolder(ResolvePath(GetFilePath(input, required: true), ctx.WorkingFolder), ctx.WorkingFolder)
-        });
+                """));
 
         RegisterRendererBridgedTool("Edit", "Perform exact string replacements in files", ParseSchema("""{"type":"object","properties":{"file_path":{"type":"string","description":"Absolute path or relative to the working folder"},"old_string":{"type":"string","description":"The text to replace"},"new_string":{"type":"string","description":"The text to replace it with"},"replace_all":{"type":"boolean","description":"Replace all occurrences of old_string"}},"required":["file_path","old_string","new_string"]}"""));
 

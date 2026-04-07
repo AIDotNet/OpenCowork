@@ -64,6 +64,8 @@ function getContentSignal(content: UnifiedMessage['content']): string {
   }
   if (last.type === 'image_error')
     return `a:${content.length}:e:${last.code}:${last.message.length}`
+  if (last.type === 'agent_error')
+    return `a:${content.length}:ae:${last.code}:${last.message.length}`
   return `a:${content.length}:i:${last.source.type}:${last.source.url ?? last.source.data?.length ?? 0}`
 }
 

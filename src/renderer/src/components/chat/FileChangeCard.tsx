@@ -214,7 +214,7 @@ function foldContext(lines: DiffLine[], ctx: number = 2): DiffChunk[] {
     } else {
       if (keepRun.length > 0) flushKeep()
       if (chunks.length > 0 && chunks[chunks.length - 1].type === 'lines') {
-        ; (chunks[chunks.length - 1] as { type: 'lines'; lines: DiffLine[] }).lines.push(line)
+        ;(chunks[chunks.length - 1] as { type: 'lines'; lines: DiffLine[] }).lines.push(line)
       } else {
         chunks.push({ type: 'lines', lines: [line] })
       }
@@ -378,7 +378,6 @@ function NewFileContent({
   const [expanded, setExpanded] = React.useState(false)
   const codeRef = React.useRef<HTMLDivElement>(null)
 
-  // During streaming, auto-scroll the code block to show latest generated lines
   React.useEffect(() => {
     if (isStreaming && codeRef.current) {
       codeRef.current.scrollTop = codeRef.current.scrollHeight
@@ -435,6 +434,7 @@ function NewFileContent({
 }
 
 function PendingEditPreview({ input }: { input: Record<string, unknown> }): React.JSX.Element {
+  const { t } = useTranslation('chat')
   const filePath = String(input.file_path ?? input.path ?? '')
   const explanation = input.explanation ? String(input.explanation) : null
   const oldStr = typeof input.old_string === 'string' ? input.old_string : ''
@@ -469,40 +469,38 @@ function PendingEditPreview({ input }: { input: Record<string, unknown> }): Reac
         {hasCounts && (
           <span className="text-[10px] text-muted-foreground/50">
             {stats
-              ? `-${stats.deleted} / +${stats.added} lines`
-              : `${oldChars} → ${newChars} chars`}
+              ? t('fileChange.lineDelta', { deleted: stats.deleted, added: stats.added })
+              : t('fileChange.charTransition', { from: oldChars, to: newChars })}
           </span>
         )}
       </div>
       {explanation && <p className="text-[11px] text-muted-foreground/60">{explanation}</p>}
       {showingExcerpt && (
-        <p className="text-[10px] text-muted-foreground/45">
-          Showing excerpt for long edit payload
-        </p>
+        <p className="text-[10px] text-muted-foreground/45">{t('fileChange.showingExcerpt')}</p>
       )}
       {(oldPreview || newPreview) && (
         <div className="grid gap-2 md:grid-cols-2">
           <div className="space-y-1">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground/45">
-              old_string
+              {t('fileChange.oldString')}
             </div>
             <pre
               className="overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-2.5 py-2 text-[11px] text-foreground/75 dark:bg-zinc-950 dark:text-zinc-300/75"
               style={{ fontFamily: MONO_FONT, maxHeight: '180px' }}
             >
-              {oldPreview || '(empty)'}
+              {oldPreview || t('fileChange.empty')}
               {input.old_string_truncated ? '\n…' : ''}
             </pre>
           </div>
           <div className="space-y-1">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground/45">
-              new_string
+              {t('fileChange.newString')}
             </div>
             <pre
               className="overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-2.5 py-2 text-[11px] text-foreground/75 dark:bg-zinc-950 dark:text-zinc-300/75"
               style={{ fontFamily: MONO_FONT, maxHeight: '180px' }}
             >
-              {newPreview || '(empty)'}
+              {newPreview || t('fileChange.empty')}
               {input.new_string_truncated ? '\n…' : ''}
             </pre>
           </div>
@@ -537,6 +535,7 @@ function summarizePatch(patch: string): { hunks: number; added: number; deleted:
 }
 
 function PendingPatchPreview({ input }: { input: Record<string, unknown> }): React.JSX.Element {
+  const { t } = useTranslation('chat')
   const filePath = String(input.file_path ?? input.path ?? '')
   const patch = typeof input.patch === 'string' ? input.patch : ''
   const preview = typeof input.patch_preview === 'string' ? input.patch_preview : patch
@@ -556,7 +555,11 @@ function PendingPatchPreview({ input }: { input: Record<string, unknown> }): Rea
           </span>
         )}
         <span className="text-[10px] text-muted-foreground/50">
-          {stats.hunks} hunks · -{stats.deleted} / +{stats.added} lines
+          {t('fileChange.patchSummary', {
+            hunks: stats.hunks,
+            deleted: stats.deleted,
+            added: stats.added
+          })}
         </span>
       </div>
       {visiblePatch && (
@@ -579,6 +582,7 @@ function PendingWritePreview({
   input: Record<string, unknown>
   isStreaming: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation('chat')
   const content = typeof input.content === 'string' ? input.content : null
   const preview = typeof input.content_preview === 'string' ? input.content_preview : null
   const lineTotal =
@@ -599,10 +603,13 @@ function PendingWritePreview({
     <div className="px-3 py-2 space-y-2">
       {(lineTotal !== null || charTotal !== null) && (
         <div className="text-[10px] text-muted-foreground/50">
-          {lineTotal !== null ? `${lineTotal} lines` : ''}
-          {lineTotal !== null && charTotal !== null ? ' · ' : ''}
-          {charTotal !== null ? `${charTotal} chars` : ''}
-          {isStreaming ? ' · streaming' : ''}
+          {[
+            lineTotal !== null ? t('fileChange.lineCount', { count: lineTotal }) : null,
+            charTotal !== null ? t('fileChange.charCount', { count: charTotal }) : null,
+            isStreaming ? t('fileChange.streaming') : null
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         </div>
       )}
       {visiblePreview && (
@@ -642,12 +649,6 @@ interface ResolvedPatchPayload {
   hunks: number
   added: number
   deleted: number
-}
-
-interface ResolvedWritePayload {
-  text: string
-  preview: string
-  lineTotal: number
 }
 
 function resolveEditPayload(input: Record<string, unknown>): ResolvedEditPayload {
@@ -707,11 +708,15 @@ function resolvePatchPayload(input: Record<string, unknown>): ResolvedPatchPaylo
   }
 }
 
-function trackedStatusLabel(change: AgentRunFileChange): string {
-  if (change.status === 'accepted') return 'Accepted'
-  if (change.status === 'reverted') return 'Reverted'
-  if (change.status === 'conflicted') return 'Conflict'
-  return 'Pending'
+function trackedStatusLabelKey(change: AgentRunFileChange): string {
+  if (change.status === 'accepted') return 'fileChange.status.accepted'
+  if (change.status === 'reverted') return 'fileChange.status.reverted'
+  if (change.status === 'conflicted') return 'fileChange.status.conflict'
+  return 'fileChange.status.pending'
+}
+
+function trackedTransportLabelKey(change: AgentRunFileChange): string {
+  return change.transport === 'ssh' ? 'fileChange.transport.ssh' : 'fileChange.transport.local'
 }
 
 function trackedStatusTone(change: AgentRunFileChange): string {
@@ -744,7 +749,6 @@ export function FileChangeCard({
   const [isAcceptingFile, setIsAcceptingFile] = React.useState(false)
   const [isRollingBackFile, setIsRollingBackFile] = React.useState(false)
 
-  // Auto-collapse successful non-Write file actions
   const prevStatusRef = React.useRef(status)
   React.useEffect(() => {
     if (
@@ -775,10 +779,9 @@ export function FileChangeCard({
   )
   const isOutputError = outputStr
     ? !!(parsedOutput && !Array.isArray(parsedOutput) && typeof parsedOutput.error === 'string') ||
-    (!parsedOutput && outputStr.length > 0)
+      (!parsedOutput && outputStr.length > 0)
     : false
 
-  // Determine border color based on status
   const borderColor =
     status === 'streaming'
       ? 'border-violet-500/30'
@@ -823,7 +826,6 @@ export function FileChangeCard({
         borderColor
       )}
     >
-      {/* Header */}
       <button
         onClick={() => setCollapsed((v) => !v)}
         className={cn(
@@ -855,8 +857,7 @@ export function FileChangeCard({
               trackedStatusTone(trackedChange)
             )}
           >
-            {trackedChange.transport === 'ssh' ? 'SSH' : 'Local'} ·{' '}
-            {trackedStatusLabel(trackedChange)}
+            {t(trackedTransportLabelKey(trackedChange))} · {t(trackedStatusLabelKey(trackedChange))}
           </span>
         )}
         {elapsed && (
@@ -867,7 +868,6 @@ export function FileChangeCard({
         <StatusIndicator status={status} />
       </button>
 
-      {/* Body — diff or content */}
       <AnimatePresence initial={false}>
         {!collapsed && (
           <motion.div
@@ -877,7 +877,6 @@ export function FileChangeCard({
             transition={{ duration: 0.2 }}
             className="overflow-hidden border-t border-inherit bg-muted/20 dark:bg-zinc-950"
           >
-            {/* Edit / PatchEdit: delay diff rendering until the tool settles */}
             {(name === 'Edit' || name === 'PatchEdit') && trackedChange && (
               <InlineDiff
                 oldStr={trackedChange.before.text ?? ''}
@@ -908,7 +907,6 @@ export function FileChangeCard({
               <PendingPatchPreview input={input} />
             )}
 
-            {/* Write: new file content or overwrite diff */}
             {name === 'Write' && trackedChange?.op === 'modify' && (
               <InlineDiff
                 oldStr={trackedChange.before.text ?? ''}
@@ -939,7 +937,6 @@ export function FileChangeCard({
                 />
               )}
 
-            {/* Delete: minimal indicator */}
             {name === 'Delete' && (
               <div className="px-3 py-2 text-[11px] text-red-400/60 italic">
                 {t('fileChange.fileWillBeDeleted')}
@@ -954,12 +951,12 @@ export function FileChangeCard({
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] text-muted-foreground/70">
               {trackedChange.status === 'accepted'
-                ? 'This file is kept.'
+                ? t('fileChange.kept')
                 : trackedChange.status === 'reverted'
-                  ? 'This file has been restored.'
+                  ? t('fileChange.restored')
                   : trackedChange.status === 'conflicted'
-                    ? (trackedChange.conflict ?? 'This file has a rollback conflict.')
-                    : 'You can keep or revert this file individually.'}
+                    ? (trackedChange.conflict ?? t('fileChange.rollbackConflictDefault'))
+                    : t('fileChange.individualActions')}
             </p>
             <div className="flex items-center gap-2">
               <Button
@@ -987,7 +984,6 @@ export function FileChangeCard({
         </div>
       )}
 
-      {/* Error / output feedback */}
       {error && (
         <div className="border-t border-destructive/20 px-3 py-1.5 bg-destructive/5">
           <p

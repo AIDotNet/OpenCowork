@@ -65,12 +65,22 @@ export interface SidecarThinkingBlock {
   encryptedContentProvider?: 'anthropic' | 'openai-responses' | 'google'
 }
 
+export interface SidecarAgentErrorBlock {
+  type: 'agent_error'
+  code: 'runtime_error' | 'tool_error' | 'unknown'
+  message: string
+  errorType?: string
+  details?: string
+  stackTrace?: string
+}
+
 export type SidecarContentBlock =
   | SidecarTextBlock
   | SidecarImageBlock
   | SidecarToolUseBlock
   | SidecarToolResultBlock
   | SidecarThinkingBlock
+  | SidecarAgentErrorBlock
 
 export interface SidecarUnifiedMessage {
   id: string
@@ -250,6 +260,15 @@ function mapSidecarContentBlock(block: ContentBlock): SidecarContentBlock | null
           ? { encryptedContentProvider: block.encryptedContentProvider }
           : {})
       }
+    case 'agent_error':
+      return {
+        type: 'agent_error',
+        code: block.code,
+        message: block.message,
+        ...(block.errorType ? { errorType: block.errorType } : {}),
+        ...(block.details ? { details: block.details } : {}),
+        ...(block.stackTrace ? { stackTrace: block.stackTrace } : {})
+      }
     default:
       return null
   }
@@ -363,11 +382,116 @@ export function buildSidecarAgentRunRequest(args: {
     messages,
     provider,
     tools: args.tools.map(mapSidecarTool),
+    ...(args.runId ? { runId: args.runId } : {}),
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
     ...(args.workingFolder ? { workingFolder: args.workingFolder } : {}),
     ...(args.compression ? { compression: args.compression } : {}),
     maxIterations: args.maxIterations,
     forceApproval: args.forceApproval
+  }
+}
+
+function normalizeSidecarContentBlock(blockValue: unknown): ContentBlock | null {
+  const block = normalizeSidecarRecord(blockValue)
+
+  switch (block.type) {
+    case 'text':
+      return typeof block.text === 'string' ? { type: 'text', text: block.text } : null
+    case 'image': {
+      const source = normalizeSidecarRecord(block.source)
+      if (source.type !== 'base64' && source.type !== 'url') return null
+      return {
+        type: 'image',
+        source: {
+          type: source.type,
+          ...(typeof source.mediaType === 'string' ? { mediaType: source.mediaType } : {}),
+          ...(typeof source.data === 'string' ? { data: source.data } : {}),
+          ...(typeof source.url === 'string' ? { url: source.url } : {}),
+          ...(typeof source.filePath === 'string' ? { filePath: source.filePath } : {})
+        }
+      }
+    }
+    case 'tool_use':
+      return {
+        type: 'tool_use',
+        id: String(block.id ?? ''),
+        name: String(block.name ?? ''),
+        input: normalizeSidecarRecord(block.input),
+        ...(block.extraContent ? { extraContent: block.extraContent } : {})
+      }
+    case 'tool_result': {
+      const content = normalizeToolResultOutput(block.content)
+      if (content === undefined) return null
+      return {
+        type: 'tool_result',
+        toolUseId: String(block.toolUseId ?? ''),
+        content,
+        ...(typeof block.isError === 'boolean' ? { isError: block.isError } : {})
+      }
+    }
+    case 'thinking':
+      return {
+        type: 'thinking',
+        thinking: String(block.thinking ?? ''),
+        ...(typeof block.encryptedContent === 'string'
+          ? { encryptedContent: block.encryptedContent }
+          : {}),
+        ...(block.encryptedContentProvider === 'anthropic' ||
+        block.encryptedContentProvider === 'openai-responses' ||
+        block.encryptedContentProvider === 'google'
+          ? { encryptedContentProvider: block.encryptedContentProvider }
+          : {})
+      }
+    case 'agent_error': {
+      const code =
+        block.code === 'runtime_error' || block.code === 'tool_error' || block.code === 'unknown'
+          ? block.code
+          : 'unknown'
+      return {
+        type: 'agent_error',
+        code,
+        message: String(block.message ?? ''),
+        ...(typeof block.errorType === 'string' ? { errorType: block.errorType } : {}),
+        ...(typeof block.details === 'string' ? { details: block.details } : {}),
+        ...(typeof block.stackTrace === 'string' ? { stackTrace: block.stackTrace } : {})
+      }
+    }
+    default:
+      return null
+  }
+}
+
+export function normalizeSidecarMessage(rawMessage: unknown): UnifiedMessage | null {
+  const message = normalizeSidecarRecord(rawMessage)
+  const id = typeof message.id === 'string' ? message.id : ''
+  const role = message.role
+  if (
+    !id ||
+    (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool')
+  ) {
+    return null
+  }
+
+  let content: string | ContentBlock[] = ''
+  if (typeof message.content === 'string') {
+    content = message.content
+  } else if (Array.isArray(message.content)) {
+    const blocks = message.content
+      .map((block) => normalizeSidecarContentBlock(block))
+      .filter((block): block is ContentBlock => block !== null)
+    content = blocks
+  }
+
+  return {
+    id,
+    role,
+    content,
+    createdAt: Number(message.createdAt ?? Date.now()),
+    ...(message.usage ? { usage: message.usage as TokenUsage } : {}),
+    ...(typeof message.providerResponseId === 'string'
+      ? { providerResponseId: message.providerResponseId }
+      : {}),
+    ...(message.source === 'team' || message.source === 'queued' ? { source: message.source } : {})
   }
 }
 
@@ -692,11 +816,16 @@ export function normalizeSidecarAgentEvent(rawEvent: unknown): AgentEvent | null
         } satisfies RequestDebugInfo
       }
     }
-    case 'error':
+    case 'error': {
+      const error = event.error instanceof Error ? event.error : createSidecarError(event)
       return {
         type: 'error',
-        error: event.error instanceof Error ? event.error : createSidecarError(event)
+        error,
+        ...(typeof event.errorType === 'string' ? { errorType: event.errorType } : {}),
+        ...(typeof event.details === 'string' ? { details: event.details } : {}),
+        ...(typeof event.stackTrace === 'string' ? { stackTrace: event.stackTrace } : {})
       }
+    }
     default:
       return null
   }

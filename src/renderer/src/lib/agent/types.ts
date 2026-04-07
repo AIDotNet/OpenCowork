@@ -134,7 +134,13 @@ export type AgentEvent =
       toolResults?: { toolUseId: string; content: ToolResultContent; isError?: boolean }[]
     }
   | { type: 'loop_end'; reason: 'completed' | 'max_iterations' | 'aborted' | 'error' }
-  | { type: 'error'; error: Error }
+  | {
+      type: 'error'
+      error: Error
+      errorType?: string
+      details?: string
+      stackTrace?: string
+    }
   | { type: 'request_debug'; debugInfo: RequestDebugInfo }
   | { type: 'context_compression_start' }
   | { type: 'context_compressed'; originalCount: number; newCount: number }

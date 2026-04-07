@@ -356,6 +356,7 @@
     "working": "working",
     "failed": "failed",
     "done": "done",
+    "statusLabel": "Status",
     "thinking": "Thinking...",
     "exploring": "{{name}} is exploring...",
     "iter": "iter {{count}}",
@@ -552,7 +553,42 @@
     "deleted": "deleted",
     "fileWillBeDeleted": "File will be deleted",
     "moreLines": "+{{count}} more lines",
-    "unchangedLines": "··· {{count}} unchanged lines ···"
+    "unchangedLines": "··· {{count}} unchanged lines ···",
+    "lineDelta": "-{{deleted}} / +{{added}} lines",
+    "charTransition": "{{from}} → {{to}} chars",
+    "showingExcerpt": "Showing excerpt for long edit payload",
+    "oldString": "old_string",
+    "newString": "new_string",
+    "empty": "(empty)",
+    "patchSummary": "{{hunks}} hunks · -{{deleted}} / +{{added}} lines",
+    "lineCount": "{{count}} lines",
+    "charCount": "{{count}} chars",
+    "streaming": "streaming",
+    "kept": "This file is kept.",
+    "restored": "This file has been restored.",
+    "rollbackConflictDefault": "This file has a rollback conflict.",
+    "individualActions": "You can keep or revert this file individually.",
+    "moreFiles": "+{{count}} more",
+    "bulkActionsHint": "You can handle files one by one below, or apply bulk actions here.",
+    "conflictedHint": "Some files changed after the agent finished, so only safe files were reverted.",
+    "runSummary": "{{files}} files changed · {{pending}} pending",
+    "transport": {
+      "local": "Local",
+      "ssh": "SSH"
+    },
+    "status": {
+      "accepted": "Accepted",
+      "reverted": "Reverted",
+      "conflict": "Conflict",
+      "pending": "Pending"
+    },
+    "runStatus": {
+      "accepted": "All changes accepted",
+      "reverted": "All changes reverted",
+      "conflicted": "Some files need attention",
+      "partial": "Some files already handled",
+      "review": "Review changes"
+    }
   },
   "error": {
     "label": "Error"

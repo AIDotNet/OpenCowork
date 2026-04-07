@@ -60,6 +60,17 @@ export interface ImageErrorBlock {
   message: string
 }
 
+export type AgentErrorCode = 'runtime_error' | 'tool_error' | 'unknown'
+
+export interface AgentErrorBlock {
+  type: 'agent_error'
+  code: AgentErrorCode
+  message: string
+  errorType?: string
+  details?: string
+  stackTrace?: string
+}
+
 export type OpenAIComputerActionType =
   | 'click'
   | 'double_click'
@@ -116,6 +127,7 @@ export type ContentBlock =
   | TextBlock
   | ImageBlock
   | ImageErrorBlock
+  | AgentErrorBlock
   | ToolUseBlock
   | ToolResultBlock
   | ThinkingBlock

@@ -19,7 +19,7 @@ const providerIconSlugMap: Record<string, string> = {
   'azure-openai': 'azureai',
   moonshot: 'moonshot',
   'moonshot-coding': 'moonshot',
-  longcat: 'anthropic',
+  longcat: 'longcat',
   qwen: 'qwen',
   'qwen-coding': 'qwen',
   baidu: 'baidu',
@@ -62,7 +62,8 @@ const modelIconSlugMap: Record<string, string> = {
   step: 'stepfun',
   doubao: 'doubao',
   ollama: 'ollama',
-  siliconcloud: 'siliconcloud'
+  siliconcloud: 'siliconcloud',
+  longcat: 'longcat'
 }
 
 const colorIconSlugs = new Set([

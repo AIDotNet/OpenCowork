@@ -39,6 +39,15 @@ export const IPC = {
   SHELL_OPEN_PATH: 'shell:openPath',
   SHELL_OPEN_EXTERNAL: 'shell:openExternal',
 
+  // Local Terminal
+  TERMINAL_CREATE: 'terminal:create',
+  TERMINAL_INPUT: 'terminal:input',
+  TERMINAL_RESIZE: 'terminal:resize',
+  TERMINAL_KILL: 'terminal:kill',
+  TERMINAL_LIST: 'terminal:list',
+  TERMINAL_OUTPUT: 'terminal:output',
+  TERMINAL_EXIT: 'terminal:exit',
+
   // Agent Changes
   AGENT_CHANGES_LIST: 'agent:changes:list',
   AGENT_CHANGES_ACCEPT: 'agent:changes:accept',

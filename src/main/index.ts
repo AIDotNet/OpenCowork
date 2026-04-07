@@ -39,6 +39,7 @@ import { registerAgentsHandlers } from './ipc/agents-handlers'
 import { registerPromptsHandlers } from './ipc/prompts-handlers'
 import { registerCommandsHandlers } from './ipc/commands-handlers'
 import { registerProcessManagerHandlers, killAllManagedProcesses } from './ipc/process-manager'
+import { registerTerminalHandlers, killAllTerminalSessions } from './ipc/terminal-handlers'
 import { registerDbHandlers } from './ipc/db-handlers'
 import { registerConfigHandlers } from './ipc/secure-key-store'
 import { registerChannelHandlers, autoStartChannels } from './ipc/channel-handlers'
@@ -637,6 +638,7 @@ if (gotSingleInstanceLock) {
     registerPromptsHandlers()
     registerCommandsHandlers()
     registerProcessManagerHandlers()
+    registerTerminalHandlers()
     registerDbHandlers()
     registerConfigHandlers()
     registerSshHandlers()
@@ -783,6 +785,7 @@ app.on('window-all-closed', () => {
   channelManager.stopAll()
   mcpManager.disconnectAll()
   killAllManagedProcesses()
+  killAllTerminalSessions()
   closeAllSshSessions()
   cancelAllJobs()
   stopAllIsolatedTeamWorkers()

@@ -26,6 +26,7 @@ export type RightPanelTab =
   | 'files'
   | 'plan'
   | 'preview'
+  | 'terminal'
   | 'subagents'
   | 'acp'
 export type RightPanelSection = 'execution' | 'resources' | 'collaboration' | 'monitoring'

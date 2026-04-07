@@ -214,6 +214,7 @@
     "team": "Team",
     "files": "Files",
     "preview": "Preview",
+    "terminal": "Terminal",
     "artifacts": "Artifacts",
     "context": "Context",
     "subagents": "SubAgents",

@@ -25,6 +25,7 @@ import { PreviewPanel } from './PreviewPanel'
 import { DetailPanel } from './DetailPanel'
 import { SubAgentsPanel } from './SubAgentsPanel'
 import { SubAgentExecutionDetail } from './SubAgentExecutionDetail'
+import { TerminalPanel } from '@renderer/components/terminal/TerminalPanel'
 import {
   RIGHT_PANEL_DEFAULT_WIDTH,
   RIGHT_PANEL_SECTION_DEFS,
@@ -157,14 +158,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
         .filter((item) => hasPlan || planMode || item.value !== 'plan')
         .filter((item) => shouldShowSubAgentsTab || item.value !== 'subagents')
         .filter((item) => (activeSession?.mode ?? mode) === 'acp' || item.value !== 'acp'),
-    [
-      teamToolsEnabled,
-      hasPlan,
-      planMode,
-      shouldShowSubAgentsTab,
-      activeSession?.mode,
-      mode
-    ]
+    [teamToolsEnabled, hasPlan, planMode, shouldShowSubAgentsTab, activeSession?.mode, mode]
   )
 
   const availableSections = useMemo(
@@ -302,7 +296,9 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
                         {subAgentExecutionDetailOpen ? (
                           <SubAgentExecutionDetail
                             embedded
-                            toolUseId={subAgentExecutionDetailToolUseId ?? selectedSubAgentToolUseId}
+                            toolUseId={
+                              subAgentExecutionDetailToolUseId ?? selectedSubAgentToolUseId
+                            }
                             inlineText={subAgentExecutionDetailInlineText ?? undefined}
                             onClose={() => useUIStore.getState().closeSubAgentExecutionDetail()}
                           />
@@ -342,6 +338,12 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
                             {t('rightPanel.previewEmpty', { defaultValue: '暂无预览内容' })}
                           </div>
                         )}
+                      </FadeIn>
+                    )}
+
+                    {resolvedTab === 'terminal' && (
+                      <FadeIn key="terminal" className="h-full">
+                        <TerminalPanel />
                       </FadeIn>
                     )}
 

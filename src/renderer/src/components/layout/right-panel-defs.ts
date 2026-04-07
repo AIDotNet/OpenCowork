@@ -10,6 +10,7 @@ import {
   Users,
   Bot,
   Workflow,
+  SquareTerminal,
   type LucideIcon
 } from 'lucide-react'
 import type { RightPanelSection, RightPanelTab } from '@renderer/stores/ui-store'
@@ -42,6 +43,7 @@ export const RIGHT_PANEL_TAB_DEFS: RightPanelTabDef[] = [
   { value: 'plan', labelKey: 'plan', section: 'execution', icon: ClipboardList },
   { value: 'files', labelKey: 'files', section: 'resources', icon: FolderTree },
   { value: 'preview', labelKey: 'preview', section: 'resources', icon: Monitor },
+  { value: 'terminal', labelKey: 'terminal', section: 'resources', icon: SquareTerminal },
   { value: 'artifacts', labelKey: 'artifacts', section: 'resources', icon: FileOutput },
   { value: 'subagents', labelKey: 'subagents', section: 'collaboration', icon: Bot },
   { value: 'team', labelKey: 'team', section: 'collaboration', icon: Users },

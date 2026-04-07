@@ -133,6 +133,7 @@ mac:
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+    - NSLocalNetworkUsageDescription: OpenCoWork needs local network access to connect to SSH hosts and local services on your network.
   notarize: false
 dmg:
   artifactName: ${name}-${version}.${ext}

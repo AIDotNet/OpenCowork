@@ -23,20 +23,95 @@ interface ProjectGroup {
   updatedAt: number
 }
 
-function extractLastMessagePreview(content: unknown): string {
-  if (typeof content === 'string') return content.replace(/\s+/g, ' ').trim()
-  if (!Array.isArray(content)) return ''
+function sanitizePreviewText(value: string): string {
+  return value
+    .replace(/<system-[^>]*>[\s\S]*?<\/system-[^>]*>/gi, ' ')
+    .replace(/<system-[^>]*>/gi, ' ')
+    .replace(/<\/system-[^>]*>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
-  const parts: string[] = []
+function extractLastMessagePreview(content: unknown): { toolNames: string[]; text: string } {
+  if (typeof content === 'string') {
+    return { toolNames: [], text: sanitizePreviewText(content) }
+  }
+  if (!Array.isArray(content) || content.length === 0) return { toolNames: [], text: '' }
+
+  const toolNames: string[] = []
+  const textParts: string[] = []
+
   for (const block of content) {
-    if (!block || typeof block !== 'object' || !("type" in block)) continue
-    const typedBlock = block as { type?: string; text?: string; thinking?: string; message?: string }
-    if (typedBlock.type === 'text' && typedBlock.text) parts.push(typedBlock.text)
-    else if (typedBlock.type === 'thinking' && typedBlock.thinking) parts.push(typedBlock.thinking)
-    else if (typedBlock.type === 'image_error' && typedBlock.message) parts.push(typedBlock.message)
+    if (!block || typeof block !== 'object' || !('type' in block)) continue
+
+    const typedBlock = block as {
+      type?: string
+      text?: string
+      thinking?: string
+      message?: string
+      name?: string
+      toolName?: string
+      toolUseId?: string
+      error?: string
+    }
+
+    if (typedBlock.type === 'tool_use') {
+      const toolName = typedBlock.name || typedBlock.toolName || typedBlock.toolUseId || 'Unknown'
+      if (toolName) toolNames.push(toolName)
+      continue
+    }
+
+    if (typedBlock.type === 'tool_result') continue
+
+    if (typedBlock.type === 'image_error' && typedBlock.message) {
+      const text = sanitizePreviewText(typedBlock.message)
+      if (text) textParts.push(text)
+      continue
+    }
+
+    if (typedBlock.type === 'agent_error' && (typedBlock.message || typedBlock.error)) {
+      const text = sanitizePreviewText(typedBlock.message || typedBlock.error || '')
+      if (text) textParts.push(text)
+      continue
+    }
+
+    if (typedBlock.type === 'text' && typedBlock.text) {
+      const text = sanitizePreviewText(typedBlock.text)
+      if (text) textParts.push(text)
+      continue
+    }
+
+    if (typedBlock.type === 'thinking' && typedBlock.thinking) {
+      const text = sanitizePreviewText(typedBlock.thinking)
+      if (text) textParts.push(text)
+    }
   }
 
-  return parts.join(' ').replace(/\s+/g, ' ').trim()
+  return { toolNames, text: textParts.join(' ').trim() }
+}
+
+function getSessionPreview(messages: Array<{ content: unknown }>): string {
+  const mergedToolNames: string[] = []
+  const textParts: string[] = []
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const preview = extractLastMessagePreview(messages[index]?.content)
+
+    for (const toolName of preview.toolNames) {
+      if (!mergedToolNames.includes(toolName)) mergedToolNames.push(toolName)
+    }
+
+    if (preview.text) {
+      textParts.unshift(preview.text)
+    }
+
+    if (mergedToolNames.length > 0 && textParts.length > 0) break
+    if (textParts.length > 0 && index < messages.length - 1) break
+  }
+
+  const toolLabel = mergedToolNames.length > 0 ? `Tool · ${mergedToolNames.join(', ')}` : ''
+  const textLabel = textParts.join(' ').trim()
+  return [toolLabel, textLabel].filter(Boolean).join(' · ')
 }
 
 function formatTime(ts: number): string {
@@ -89,14 +164,13 @@ export function RunningAgentSessionsPopover(): React.JSX.Element | null {
       if (!runningSessionIds.has(session.id) || !session.projectId) continue
       const project = projectMap.get(session.projectId)
       const existing = grouped.get(session.projectId)
-      const lastMessage = session.messages[session.messages.length - 1]
       const sessionEntry = {
         sessionId: session.id,
         title: session.title,
         updatedAt: session.updatedAt,
         mode: session.mode,
         modelLabel: session.modelId,
-        lastMessagePreview: extractLastMessagePreview(lastMessage?.content)
+        lastMessagePreview: getSessionPreview(session.messages)
       }
       if (existing) {
         existing.sessions.push(sessionEntry)
@@ -184,7 +258,7 @@ export function RunningAgentSessionsPopover(): React.JSX.Element | null {
                             )}
                           </div>
                           <div className="mt-1 line-clamp-2 text-[10px] text-muted-foreground/85">
-                            {session.lastMessagePreview || '…'}
+                            {session.lastMessagePreview || '--'}
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-1">

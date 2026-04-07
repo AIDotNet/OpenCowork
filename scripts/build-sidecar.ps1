@@ -47,13 +47,12 @@ if (Test-Path $binary) {
     $size = (Get-Item $binary).Length
     $sizeMB = [math]::Round($size / 1MB, 2)
 
-    $stagedBinary = Join-Path $OutputBase "OpenCowork.Agent$ext"
-    Get-ChildItem $OutputDir -File | ForEach-Object {
-        Copy-Item $_.FullName (Join-Path $OutputBase $_.Name) -Force
+    Get-ChildItem $OutputBase -File | ForEach-Object {
+        Remove-Item $_.FullName -Force
     }
 
     Write-Host "Built successfully: $binary ($sizeMB MB)" -ForegroundColor Green
-    Write-Host "Staged sidecar assets at $OutputBase (entry: $stagedBinary)" -ForegroundColor Green
+    Write-Host "Staged sidecar assets at $OutputDir" -ForegroundColor Green
 } else {
     Write-Host "Binary not found at $binary" -ForegroundColor Yellow
 }

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { toast } from 'sonner'
 import { ipcClient } from '../lib/ipc/ipc-client'
 import { IPC } from '../lib/ipc/channels'
 
@@ -192,6 +193,7 @@ const SLOT_ACQUIRE_TIMEOUT_MS = 10000
 
 let uploadEventsSubscribed = false
 let sshConfigChangedSubscribed = false
+let sshStatusSubscribed = false
 
 function ensureUploadEventsSubscribed(): void {
   if (uploadEventsSubscribed) return
@@ -237,6 +239,51 @@ function ensureSshConfigChangedSubscribed(): void {
 
   ipcClient.on('ssh:config:changed', () => {
     void useSshStore.getState().loadAll()
+  })
+}
+
+function ensureSshStatusSubscribed(): void {
+  if (sshStatusSubscribed) return
+  sshStatusSubscribed = true
+
+  ipcClient.on(IPC.SSH_STATUS, (payload) => {
+    if (!payload || typeof payload !== 'object') return
+    const data = payload as {
+      sessionId?: string
+      connectionId?: string
+      status?: string
+      error?: string
+    }
+    if (!data.sessionId || !data.status) return
+
+    const store = useSshStore.getState()
+    const status = data.status as SshSession['status']
+
+    if (status === 'disconnected') {
+      store.removeSession(data.sessionId)
+      return
+    }
+
+    const existing = store.sessions[data.sessionId]
+    if (!existing && data.connectionId) {
+      useSshStore.setState((state) => ({
+        sessions: {
+          ...state.sessions,
+          [data.sessionId!]: {
+            id: data.sessionId!,
+            connectionId: data.connectionId!,
+            status,
+            error: data.error
+          }
+        }
+      }))
+      return
+    }
+
+    store.updateSessionStatus(data.sessionId, status, data.error)
+    if (status === 'error' && data.error) {
+      toast.error('SSH 连接失败', { description: data.error })
+    }
   })
 }
 
@@ -375,6 +422,7 @@ interface SshStore {
 
   // Terminal sessions
   connect: (connectionId: string) => Promise<string | null>
+  openTerminalTab: (connectionId: string) => Promise<string | null>
   disconnect: (sessionId: string) => Promise<void>
   setActiveTerminal: (sessionId: string | null) => void
   setSelectedConnection: (connectionId: string | null) => void
@@ -431,6 +479,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
     try {
       ensureUploadEventsSubscribed()
       ensureSshConfigChangedSubscribed()
+      ensureSshStatusSubscribed()
       const [groupRows, connRows, sessionRows] = await Promise.all([
         ipcClient.invoke(IPC.SSH_GROUP_LIST) as Promise<SshGroupRow[] | { error: string }>,
         ipcClient.invoke(IPC.SSH_CONNECTION_LIST) as Promise<
@@ -602,17 +651,21 @@ export const useSshStore = create<SshStore>()((set, get) => ({
   // ── Terminal sessions ──
 
   connect: async (connectionId) => {
+    ensureSshStatusSubscribed()
     const result = (await ipcClient.invoke(IPC.SSH_CONNECT, { connectionId })) as {
       sessionId?: string
       error?: string
     }
     if (result.error || !result.sessionId) {
+      if (result.error) {
+        toast.error('SSH 连接失败', { description: result.error })
+      }
       return null
     }
     const session: SshSession = {
       id: result.sessionId,
       connectionId,
-      status: 'connected'
+      status: 'connecting'
     }
     set((s) => ({
       sessions: { ...s.sessions, [result.sessionId!]: session },
@@ -622,6 +675,52 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       )
     }))
     return result.sessionId
+  },
+
+  openTerminalTab: async (connectionId) => {
+    const conn = get().connections.find((item) => item.id === connectionId)
+    if (!conn) return null
+
+    const pendingTabId = `pending-${connectionId}-${Date.now()}`
+    set((state) => ({
+      openTabs: [
+        ...state.openTabs,
+        {
+          id: pendingTabId,
+          type: 'terminal',
+          sessionId: null,
+          connectionId,
+          connectionName: conn.name,
+          title: conn.name,
+          status: 'connecting'
+        }
+      ],
+      activeTabId: pendingTabId
+    }))
+
+    const sessionId = await get().connect(connectionId)
+    if (!sessionId) {
+      get().closeTab(pendingTabId)
+      return null
+    }
+
+    const stillOpen = get().openTabs.find((tab) => tab.id === pendingTabId)
+    if (!stillOpen) {
+      await get().disconnect(sessionId)
+      return null
+    }
+
+    const resolvedTabId = `tab-${sessionId}`
+    get().replaceTab(pendingTabId, {
+      id: resolvedTabId,
+      type: 'terminal',
+      sessionId,
+      connectionId,
+      connectionName: conn.name,
+      title: conn.name
+    })
+    get().setActiveTerminal(sessionId)
+    return resolvedTabId
   },
 
   disconnect: async (sessionId) => {

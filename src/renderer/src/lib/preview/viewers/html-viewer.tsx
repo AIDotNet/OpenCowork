@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import Editor from '@monaco-editor/react'
+import { CodeEditor } from '@renderer/components/editor/CodeEditor'
 import type { ViewerProps } from '../viewer-registry'
 
 export function HtmlViewer({ content, viewMode, onContentChange }: ViewerProps): React.JSX.Element {

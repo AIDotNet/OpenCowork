@@ -1,13 +1,9 @@
 import * as React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { CodeEditor } from '@renderer/components/editor/CodeEditor'
 import type { ViewerProps } from '../viewer-registry'
 import { createMarkdownComponents } from './markdown-components'
-
-const MonacoEditor = React.lazy(async () => {
-  const mod = await import('@monaco-editor/react')
-  return { default: mod.default }
-})
 
 export function MarkdownViewer({
   filePath,

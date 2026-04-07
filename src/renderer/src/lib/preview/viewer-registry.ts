@@ -1,4 +1,5 @@
 import type React from 'react'
+import type { CodeEditorHandle } from '@renderer/components/editor/CodeEditor'
 
 export interface ViewerProps {
   filePath: string
@@ -6,6 +7,7 @@ export interface ViewerProps {
   viewMode: 'preview' | 'code'
   onContentChange?: (content: string) => void
   sshConnectionId?: string
+  editorRef?: React.RefObject<CodeEditorHandle | null>
 }
 
 export interface ViewerDefinition {

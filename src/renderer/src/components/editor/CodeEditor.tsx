@@ -29,22 +29,32 @@ export interface CodeEditorProps {
   onOpenFile?: (filePath: string) => void | Promise<void>
 }
 
-export function CodeEditor({
-  filePath,
-  content,
-  height = '100%',
-  language,
-  workspace,
-  options,
-  onChange,
-  onSave,
-  onOpenFile
-}: CodeEditorProps): React.JSX.Element {
+export interface CodeEditorHandle {
+  undo: () => void
+  redo: () => void
+  focus: () => void
+}
+
+export const CodeEditor = React.forwardRef<CodeEditorHandle, CodeEditorProps>(function CodeEditor(
+  {
+    filePath,
+    content,
+    height = '100%',
+    language,
+    workspace,
+    options,
+    onChange,
+    onSave,
+    onOpenFile
+  },
+  ref
+): React.JSX.Element {
   const { resolvedTheme } = useTheme()
   const editorWorkspaceEnabled = useSettingsStore((s) => s.editorWorkspaceEnabled)
   const editorRemoteLanguageServiceEnabled = useSettingsStore(
     (s) => s.editorRemoteLanguageServiceEnabled
   )
+  const editorRef = React.useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null)
 
   const path = React.useMemo(
     () =>
@@ -64,6 +74,24 @@ export function CodeEditor({
       minimap: options?.minimap ?? defaultCodeEditorOptions.minimap
     }),
     [options]
+  )
+
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      undo: () => {
+        editorRef.current?.focus()
+        editorRef.current?.trigger('history-toolbar', 'undo', null)
+      },
+      redo: () => {
+        editorRef.current?.focus()
+        editorRef.current?.trigger('history-toolbar', 'redo', null)
+      },
+      focus: () => {
+        editorRef.current?.focus()
+      }
+    }),
+    []
   )
 
   const openImportSource = React.useCallback(
@@ -97,6 +125,8 @@ export function CodeEditor({
       monacoEditor: import('monaco-editor').editor.IStandaloneCodeEditor,
       monacoInstance: typeof import('monaco-editor')
     ) => {
+      editorRef.current = monacoEditor
+
       if (onSave) {
         monacoEditor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
           void onSave()
@@ -140,4 +170,6 @@ export function CodeEditor({
       />
     </React.Suspense>
   )
-}
+})
+
+CodeEditor.displayName = 'CodeEditor'

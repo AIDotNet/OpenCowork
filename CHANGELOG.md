@@ -3,6 +3,27 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.7.17] - 2026-04-08
+
+### Added
+
+- Improved GIF slicing by trimming transparent margins first and falling back to balanced grid slicing when transparent padding is insufficient.
+
+### Changed
+
+- Made file edit matching more robust when quote styles differ, with clearer handling for missing and non-unique patterns.
+- Kept sidecar build output compatible with legacy and external paths by copying an additional unpacked binary bundle.
+- Added a “Last 3 days” time filter and restored panel transition animation in the interface.
+
+### Fixed
+
+- Reduced GIF cutline misalignment and white-edge artifacts.
+- Stabilized file edit operations when source strings use different quote characters.
+
+### Notes
+
+- This release focuses on image-processing reliability and editor/tooling robustness.
+
 ## [0.7.16] - 2026-04-08
 
 ### Added

@@ -1,6 +1,7 @@
 import { ipcMain, shell, BrowserWindow } from 'electron'
 import { safeSendToWindow } from '../window-ipc'
 import { spawn } from 'child_process'
+import { StringDecoder } from 'string_decoder'
 
 const ANSI_ESCAPE_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g')
 const COMPACT_OUTPUT_CHAR_THRESHOLD = 6000

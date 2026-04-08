@@ -55,7 +55,9 @@ if ($LASTEXITCODE -ne 0) {
 
 # Report binary size
 $ext = if ($Runtime.StartsWith("win")) { ".exe" } else { "" }
-$binary = Join-Path $OutputDir "OpenCowork.Agent$ext"
+$binaryName = "OpenCowork.Agent$ext"
+$binary = Join-Path $OutputDir $binaryName
+$flatBinary = Join-Path $OutputBase $binaryName
 
 if (Test-Path $binary) {
     $size = (Get-Item $binary).Length
@@ -65,8 +67,11 @@ if (Test-Path $binary) {
         Remove-Item $_.FullName -Force
     }
 
+    Copy-Item $binary $flatBinary -Force
+
     Write-Host "Built successfully: $binary ($sizeMB MB)" -ForegroundColor Green
-    Write-Host "Staged sidecar assets at $OutputDir" -ForegroundColor Green
+    Write-Host "Staged runtime-scoped sidecar assets at $OutputDir" -ForegroundColor Green
+    Write-Host "Staged compatibility sidecar binary at $flatBinary" -ForegroundColor Green
 } else {
     Write-Host "Binary not found at $binary" -ForegroundColor Yellow
 }

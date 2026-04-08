@@ -4,10 +4,105 @@ import { IPC } from '../ipc/channels'
 import { encodeStructuredToolResult, encodeToolError } from './tool-result-format'
 import type { ToolHandler, ToolContext } from './tool-types'
 
+const LEFT_SINGLE_CURLY_QUOTE = '‘'
+const RIGHT_SINGLE_CURLY_QUOTE = '’'
+const LEFT_DOUBLE_CURLY_QUOTE = '“'
+const RIGHT_DOUBLE_CURLY_QUOTE = '”'
 
 function countOccurrences(content: string, value: string): number {
   if (!value) return 0
   return content.split(value).length - 1
+}
+
+function normalizeQuotes(value: string): string {
+  return value
+    .replaceAll(LEFT_SINGLE_CURLY_QUOTE, "'")
+    .replaceAll(RIGHT_SINGLE_CURLY_QUOTE, "'")
+    .replaceAll(LEFT_DOUBLE_CURLY_QUOTE, '"')
+    .replaceAll(RIGHT_DOUBLE_CURLY_QUOTE, '"')
+}
+
+function findActualString(content: string, search: string): string | null {
+  if (content.includes(search)) return search
+
+  const normalizedSearch = normalizeQuotes(search)
+  const normalizedContent = normalizeQuotes(content)
+  const searchIndex = normalizedContent.indexOf(normalizedSearch)
+  if (searchIndex === -1) return null
+
+  return content.substring(searchIndex, searchIndex + search.length)
+}
+
+function isOpeningQuoteContext(chars: string[], index: number): boolean {
+  if (index === 0) return true
+  const prev = chars[index - 1]
+  return (
+    prev === ' ' ||
+    prev === '\t' ||
+    prev === '\n' ||
+    prev === '\r' ||
+    prev === '(' ||
+    prev === '[' ||
+    prev === '{' ||
+    prev === '\u2014' ||
+    prev === '\u2013'
+  )
+}
+
+function applyCurlyDoubleQuotes(value: string): string {
+  const chars = [...value]
+  const result: string[] = []
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] === '"') {
+      result.push(
+        isOpeningQuoteContext(chars, i) ? LEFT_DOUBLE_CURLY_QUOTE : RIGHT_DOUBLE_CURLY_QUOTE
+      )
+    } else {
+      result.push(chars[i]!)
+    }
+  }
+  return result.join('')
+}
+
+function applyCurlySingleQuotes(value: string): string {
+  const chars = [...value]
+  const result: string[] = []
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] === "'") {
+      const prev = i > 0 ? chars[i - 1] : undefined
+      const next = i < chars.length - 1 ? chars[i + 1] : undefined
+      const prevIsLetter = prev !== undefined && /\p{L}/u.test(prev)
+      const nextIsLetter = next !== undefined && /\p{L}/u.test(next)
+      if (prevIsLetter && nextIsLetter) {
+        result.push(RIGHT_SINGLE_CURLY_QUOTE)
+      } else {
+        result.push(
+          isOpeningQuoteContext(chars, i) ? LEFT_SINGLE_CURLY_QUOTE : RIGHT_SINGLE_CURLY_QUOTE
+        )
+      }
+    } else {
+      result.push(chars[i]!)
+    }
+  }
+  return result.join('')
+}
+
+function preserveQuoteStyle(oldString: string, actualOldString: string, newString: string): string {
+  if (oldString === actualOldString) return newString
+
+  const hasDoubleQuotes =
+    actualOldString.includes(LEFT_DOUBLE_CURLY_QUOTE) ||
+    actualOldString.includes(RIGHT_DOUBLE_CURLY_QUOTE)
+  const hasSingleQuotes =
+    actualOldString.includes(LEFT_SINGLE_CURLY_QUOTE) ||
+    actualOldString.includes(RIGHT_SINGLE_CURLY_QUOTE)
+
+  if (!hasDoubleQuotes && !hasSingleQuotes) return newString
+
+  let result = newString
+  if (hasDoubleQuotes) result = applyCurlyDoubleQuotes(result)
+  if (hasSingleQuotes) result = applyCurlySingleQuotes(result)
+  return result
 }
 
 function normalizeReadHistoryPath(filePath: string): string {
@@ -167,7 +262,6 @@ const readHandler: ToolHandler = {
     })
     if (isErrorResult(result)) throw new Error(`Read failed: ${result.error}`)
     recordRead(ctx, resolvedPath)
-    // IPC returns { type: 'image', mediaType, data } for image files
     if (
       result &&
       typeof result === 'object' &&
@@ -184,7 +278,6 @@ const readHandler: ToolHandler = {
     return String(result)
   },
   requiresApproval: (input, ctx) => {
-    // Plugin context: check read permission
     if (ctx.channelPermissions) {
       const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
       return !isPluginPathAllowed(filePath, ctx, 'read')
@@ -240,11 +333,9 @@ const writeHandler: ToolHandler = {
   },
   requiresApproval: (input, ctx) => {
     const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
-    // Plugin context: check write permission
     if (ctx.channelPermissions) {
       return !isPluginPathAllowed(filePath, ctx, 'write')
     }
-    // Normal sessions: writing outside working folder requires approval
     if (!ctx.workingFolder) return true
     return !filePath.startsWith(ctx.workingFolder)
   }
@@ -302,19 +393,24 @@ const editHandler: ToolHandler = {
     }
 
     const content = String(contentResult)
-    const occurrences = countOccurrences(content, oldStr)
+    const actualOldStr = findActualString(content, oldStr)
 
-    if (occurrences === 0) {
-      return encodeToolError('old_string not found in file')
+    if (!actualOldStr) {
+      return encodeToolError(`String to replace not found in file.\nString: ${oldStr}`)
     }
+
+    const occurrences = countOccurrences(content, actualOldStr)
 
     if (!replaceAll && occurrences > 1) {
-      return encodeToolError('old_string is not unique in file')
+      return encodeToolError(
+        `Found ${occurrences} matches of the string to replace, but replace_all is false. To replace all occurrences, set replace_all to true. To replace only one occurrence, please provide more context to uniquely identify the instance.\nString: ${oldStr}`
+      )
     }
 
+    const nextNewStr = preserveQuoteStyle(oldStr, actualOldStr, newStr)
     const updated = replaceAll
-      ? content.split(oldStr).join(newStr)
-      : content.replace(oldStr, newStr)
+      ? content.split(actualOldStr).join(nextNewStr)
+      : content.replace(actualOldStr, nextNewStr)
 
     const writeCh = isSsh(ctx) ? IPC.SSH_FS_WRITE_FILE : IPC.FS_WRITE_FILE
     const writeArgs = isSsh(ctx)
@@ -333,9 +429,8 @@ const editHandler: ToolHandler = {
     })
   },
   requiresApproval: (input, ctx) => {
-    if (isSsh(ctx)) return false // SSH sessions: trust working folder
+    if (isSsh(ctx)) return false
     const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
-    // Plugin context: check write permission
     if (ctx.channelPermissions) {
       return !isPluginPathAllowed(filePath, ctx, 'write')
     }

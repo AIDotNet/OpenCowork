@@ -12,6 +12,9 @@ const GRID_ROWS = 3
 const FRAME_COUNT = GRID_COLUMNS * GRID_ROWS
 const FRAME_SIZE = GRID_SIZE / GRID_COLUMNS
 const VISIBLE_ALPHA_THRESHOLD = 32
+const EMPTY_EDGE_ALPHA_THRESHOLD = 8
+const GAP_LINE_ALPHA_THRESHOLD = 8
+const GAP_LINE_REQUIRED_RATIO = 0.98
 const MAX_SIZE_DRIFT_RATIO = 0.14
 const MAX_CENTER_DRIFT_RATIO = 0.08
 const MAX_BOTTOM_DRIFT_RATIO = 0.08
@@ -90,14 +93,169 @@ function buildOutputDir(runId?: string): string {
   return dir
 }
 
+function trimUniformTransparentEdges(
+  bitmap: Buffer,
+  width: number,
+  height: number
+): { x: number; y: number; width: number; height: number } {
+  let top = 0
+  let bottom = height - 1
+  let left = 0
+  let right = width - 1
+
+  const isRowTransparent = (y: number): boolean => {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4
+      if (bitmap[offset + 3] > EMPTY_EDGE_ALPHA_THRESHOLD) {
+        return false
+      }
+    }
+    return true
+  }
+
+  const isColumnTransparent = (x: number): boolean => {
+    for (let y = 0; y < height; y += 1) {
+      const offset = (y * width + x) * 4
+      if (bitmap[offset + 3] > EMPTY_EDGE_ALPHA_THRESHOLD) {
+        return false
+      }
+    }
+    return true
+  }
+
+  while (top <= bottom && isRowTransparent(top)) top += 1
+  while (bottom >= top && isRowTransparent(bottom)) bottom -= 1
+  while (left <= right && isColumnTransparent(left)) left += 1
+  while (right >= left && isColumnTransparent(right)) right -= 1
+
+  if (left > right || top > bottom) {
+    return { x: 0, y: 0, width, height }
+  }
+
+  return {
+    x: left,
+    y: top,
+    width: right - left + 1,
+    height: bottom - top + 1
+  }
+}
+
+function findGapBands(
+  bitmap: Buffer,
+  width: number,
+  height: number,
+  axis: 'row' | 'column'
+): Array<{ start: number; end: number }> {
+  const lineLength = axis === 'row' ? width : height
+  const lineCount = axis === 'row' ? height : width
+  const emptyLines: boolean[] = []
+
+  for (let line = 0; line < lineCount; line += 1) {
+    let transparentPixels = 0
+    for (let offset = 0; offset < lineLength; offset += 1) {
+      const x = axis === 'row' ? offset : line
+      const y = axis === 'row' ? line : offset
+      const pixelOffset = (y * width + x) * 4
+      if (bitmap[pixelOffset + 3] <= GAP_LINE_ALPHA_THRESHOLD) {
+        transparentPixels += 1
+      }
+    }
+    emptyLines.push(transparentPixels / lineLength >= GAP_LINE_REQUIRED_RATIO)
+  }
+
+  const bands: Array<{ start: number; end: number }> = []
+  let currentStart = -1
+
+  for (let i = 0; i < emptyLines.length; i += 1) {
+    if (emptyLines[i]) {
+      if (currentStart === -1) currentStart = i
+      continue
+    }
+
+    if (currentStart !== -1) {
+      bands.push({ start: currentStart, end: i - 1 })
+      currentStart = -1
+    }
+  }
+
+  if (currentStart !== -1) {
+    bands.push({ start: currentStart, end: emptyLines.length - 1 })
+  }
+
+  return bands
+}
+
+function selectInnerGapBands(
+  bands: Array<{ start: number; end: number }>,
+  fullSize: number
+): Array<{ start: number; end: number }> {
+  return bands
+    .filter((band) => band.start > 0 && band.end < fullSize - 1)
+    .sort((a, b) => a.start - b.start)
+}
+
+function resolveGridSegments(
+  bitmap: Buffer,
+  width: number,
+  height: number,
+  axis: 'row' | 'column',
+  count: number
+): Array<{ start: number; size: number }> {
+  const fullSize = axis === 'row' ? height : width
+  const expectedSize = fullSize / count
+  const innerBands = selectInnerGapBands(findGapBands(bitmap, width, height, axis), fullSize)
+
+  if (innerBands.length < count - 1) {
+    return Array.from({ length: count }, (_, index) => ({
+      start: Math.round(index * expectedSize),
+      size: Math.round((index + 1) * expectedSize) - Math.round(index * expectedSize)
+    }))
+  }
+
+  const chosenBands = innerBands
+    .sort((a, b) => {
+      const centerA = (a.start + a.end) / 2
+      const centerB = (b.start + b.end) / 2
+      const targetIndexA = Math.round(centerA / expectedSize) - 1
+      const targetIndexB = Math.round(centerB / expectedSize) - 1
+      const expectedCenterA = expectedSize * (targetIndexA + 1)
+      const expectedCenterB = expectedSize * (targetIndexB + 1)
+      const distanceA = Math.abs(centerA - expectedCenterA)
+      const distanceB = Math.abs(centerB - expectedCenterB)
+      return distanceA - distanceB
+    })
+    .slice(0, count - 1)
+    .sort((a, b) => a.start - b.start)
+
+  const segments: Array<{ start: number; size: number }> = []
+  let cursor = 0
+
+  for (const band of chosenBands) {
+    segments.push({ start: cursor, size: band.start - cursor })
+    cursor = band.end + 1
+  }
+
+  segments.push({ start: cursor, size: fullSize - cursor })
+
+  if (segments.length !== count || segments.some((segment) => segment.size <= 0)) {
+    return Array.from({ length: count }, (_, index) => ({
+      start: Math.round(index * expectedSize),
+      size: Math.round((index + 1) * expectedSize) - Math.round(index * expectedSize)
+    }))
+  }
+
+  return segments
+}
+
 function analyzeFrameContent(bitmap: Buffer, width: number, height: number): FrameContentStats {
+  const trimmedBounds = trimUniformTransparentEdges(bitmap, width, height)
   let minX = width
   let minY = height
   let maxX = -1
   let maxY = -1
 
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
+  for (let y = trimmedBounds.y; y < trimmedBounds.y + trimmedBounds.height; y += 1) {
+    for (let x = trimmedBounds.x; x < trimmedBounds.x + trimmedBounds.width; x += 1) {
       const offset = (y * width + x) * 4
       const alpha = bitmap[offset + 3]
 
@@ -208,17 +366,30 @@ export function registerImageGifHandlers(): void {
 
         const rawFrames: Electron.NativeImage[] = []
         const frameStats: FrameContentStats[] = []
+        const gridBitmap = normalizedGrid.toBitmap()
+        const columnSegments = resolveGridSegments(
+          gridBitmap,
+          GRID_SIZE,
+          GRID_SIZE,
+          'column',
+          GRID_COLUMNS
+        )
+        const rowSegments = resolveGridSegments(gridBitmap, GRID_SIZE, GRID_SIZE, 'row', GRID_ROWS)
 
         for (let row = 0; row < GRID_ROWS; row += 1) {
           for (let col = 0; col < GRID_COLUMNS; col += 1) {
+            const columnSegment = columnSegments[col]
+            const rowSegment = rowSegments[row]
             const frameImage = normalizedGrid.crop({
-              x: col * FRAME_SIZE,
-              y: row * FRAME_SIZE,
-              width: FRAME_SIZE,
-              height: FRAME_SIZE
+              x: columnSegment.start,
+              y: rowSegment.start,
+              width: columnSegment.size,
+              height: rowSegment.size
             })
             rawFrames.push(frameImage)
-            frameStats.push(analyzeFrameContent(frameImage.toBitmap(), FRAME_SIZE, FRAME_SIZE))
+            frameStats.push(
+              analyzeFrameContent(frameImage.toBitmap(), columnSegment.size, rowSegment.size)
+            )
           }
         }
 

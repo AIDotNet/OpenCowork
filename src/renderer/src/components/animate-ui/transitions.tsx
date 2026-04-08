@@ -247,7 +247,7 @@ export const PanelTransition = forwardRef<
     },
     ref
   ) => {
-    const animationsEnabled = false
+    const animationsEnabled = true
     const shouldDisable = disabled || !animationsEnabled
     const xInitial = side === 'right' ? 20 : -20
 

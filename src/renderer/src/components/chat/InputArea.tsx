@@ -32,6 +32,11 @@ import { formatTokens } from '@renderer/lib/format-tokens'
 import { useDebouncedTokens } from '@renderer/hooks/use-estimated-tokens'
 import { usePromptRecommendation } from '@renderer/hooks/use-prompt-recommendation'
 import { useChatStore } from '@renderer/stores/chat-store'
+import {
+  getSessionInputDraftKey,
+  hasInputDraftContent,
+  useInputDraftStore
+} from '@renderer/stores/input-draft-store'
 import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import {
@@ -517,20 +522,6 @@ export function InputArea({
     },
     [getMaxInputHeight, getMinInputHeight]
   )
-  const prevSessionIdRef = React.useRef<string | null>(null)
-  /** Per-session input draft (text + images + skill + files) */
-  const draftBySessionRef = React.useRef<
-    Record<
-      string,
-      {
-        text: string
-        images: ImageAttachment[]
-        skill: string | null
-        selectedFiles: SelectedFileItem[]
-      }
-    >
-  >({})
-
   const activeProvider = useProviderStore((s) => {
     const { providers, activeProviderId } = s
     if (!activeProviderId) return null
@@ -586,6 +577,21 @@ export function InputArea({
       }
     })
   )
+  const draftSessionId = sessionId ?? (chatView === 'session' ? activeSessionId : null)
+  const activeDraftKey = React.useMemo(
+    () => (draftSessionId ? getSessionInputDraftKey(draftSessionId) : null),
+    [draftSessionId]
+  )
+  const inputDraftHydrated = useInputDraftStore((s) => s.hydrated)
+  const persistedDraft = useInputDraftStore(
+    React.useCallback(
+      (state) => (activeDraftKey ? state.draftsByKey[activeDraftKey] ?? null : null),
+      [activeDraftKey]
+    )
+  )
+  const setPersistedDraft = useInputDraftStore((s) => s.setDraft)
+  const removePersistedDraft = useInputDraftStore((s) => s.removeDraft)
+  const draftReadyKeyRef = React.useRef<string | null>(null)
   const queuedMessagesSnapshotRef = React.useRef<PendingSessionMessageItem[]>(EMPTY_QUEUED_MESSAGES)
   const getQueuedMessagesSnapshot = React.useCallback(() => {
     const next = activeSessionId
@@ -1198,35 +1204,51 @@ export function InputArea({
   }, [activeSessionId, queuedMessages.length])
 
   React.useEffect(() => {
-    const prevSessionId = prevSessionIdRef.current
+    if (!inputDraftHydrated) return
 
-    // Save current draft to the previous session before switching
-    if (prevSessionId) {
-      draftBySessionRef.current[prevSessionId] = {
-        text: finalSerializedText,
-        images: cloneImageAttachments(attachedImages),
-        skill: selectedSkill,
-        selectedFiles: selectedFiles.map((file) => ({ ...file }))
-      }
-      // Cap stored drafts to prevent unbounded memory growth
-      const draftKeys = Object.keys(draftBySessionRef.current)
-      if (draftKeys.length > 20) {
-        const toRemove = draftKeys.slice(0, draftKeys.length - 20)
-        for (const key of toRemove) {
-          delete draftBySessionRef.current[key]
-        }
-      }
+    draftReadyKeyRef.current = null
+    applyEditorStateFromSerializedText(persistedDraft?.text ?? '', persistedDraft?.selectedFiles ?? [])
+    setAttachedImages(persistedDraft?.images ? cloneImageAttachments(persistedDraft.images) : [])
+    setSelectedSkill(persistedDraft?.skill ?? null)
+    setHighlightedFileId(null)
+    setEditorSelection({ start: 0, end: 0 })
+
+    const rafId = window.requestAnimationFrame(() => {
+      draftReadyKeyRef.current = activeDraftKey
+    })
+
+    return () => {
+      window.cancelAnimationFrame(rafId)
+    }
+  }, [activeDraftKey, applyEditorStateFromSerializedText, inputDraftHydrated, persistedDraft])
+
+  React.useEffect(() => {
+    if (!activeDraftKey || !inputDraftHydrated) return
+    if (draftReadyKeyRef.current !== activeDraftKey) return
+
+    const nextDraft = {
+      text: finalSerializedText,
+      images: cloneImageAttachments(attachedImages),
+      skill: selectedSkill,
+      selectedFiles: selectedFiles.map((file) => ({ ...file }))
     }
 
-    // Restore draft from the new session (or clear)
-    const draft = activeSessionId ? draftBySessionRef.current[activeSessionId] : undefined
-    applyEditorStateFromSerializedText(draft?.text ?? '', draft?.selectedFiles ?? [])
-    setAttachedImages(draft?.images ? cloneImageAttachments(draft.images) : [])
-    setSelectedSkill(draft?.skill ?? null)
+    if (hasInputDraftContent(nextDraft)) {
+      setPersistedDraft(activeDraftKey, nextDraft)
+      return
+    }
 
-    prevSessionIdRef.current = activeSessionId
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId])
+    removePersistedDraft(activeDraftKey)
+  }, [
+    activeDraftKey,
+    attachedImages,
+    finalSerializedText,
+    inputDraftHydrated,
+    removePersistedDraft,
+    selectedFiles,
+    selectedSkill,
+    setPersistedDraft
+  ])
 
   // Consume pendingInsertText from FileTree clicks
   const pendingInsert = useUIStore((s) => s.pendingInsertText)
@@ -1374,6 +1396,10 @@ export function InputArea({
     onSend(message, attachedImages.length > 0 ? attachedImages : undefined, {
       longRunningMode: effectiveLongRunningMode
     })
+
+    if (activeDraftKey) {
+      removePersistedDraft(activeDraftKey)
+    }
 
     setDocumentNodes([])
     setSelectedFiles([])

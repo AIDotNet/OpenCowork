@@ -17,6 +17,7 @@ import { usePlanStore } from './plan-store'
 import { useUIStore } from './ui-store'
 import { useProviderStore } from './provider-store'
 import { useSettingsStore } from './settings-store'
+import { useInputDraftStore } from './input-draft-store'
 
 export type SessionMode = 'chat' | 'clarify' | 'cowork' | 'code' | 'acp'
 
@@ -854,6 +855,7 @@ export const useChatStore = create<ChatStore>()(
           planState.deletePlan(plan.id)
         }
         taskState.deleteSessionTasks(sessionId)
+        useInputDraftStore.getState().removeSessionDraft(sessionId)
       }
       clearPendingMessageFlushes(deletedMessageIds)
       agentState.clearToolCalls()
@@ -1335,6 +1337,7 @@ export const useChatStore = create<ChatStore>()(
       const plan = usePlanStore.getState().getPlanBySession(id)
       if (plan) usePlanStore.getState().deletePlan(plan.id)
       useTaskStore.getState().deleteSessionTasks(id)
+      useInputDraftStore.getState().removeSessionDraft(id)
       clearPendingMessageFlushes(deletedSession?.messages.map((message) => message.id) ?? [])
       dbDeleteSession(id)
 
@@ -1742,6 +1745,7 @@ export const useChatStore = create<ChatStore>()(
         const plan = planState.getPlanBySession(id)
         if (plan) planState.deletePlan(plan.id)
         taskState.deleteSessionTasks(id)
+        useInputDraftStore.getState().removeSessionDraft(id)
       }
       agentState.clearToolCalls()
       useUIStore.getState().syncSessionScopedState(null)
@@ -1772,6 +1776,7 @@ export const useChatStore = create<ChatStore>()(
       const plan = usePlanStore.getState().getPlanBySession(sessionId)
       if (plan) usePlanStore.getState().deletePlan(plan.id)
       useTaskStore.getState().deleteSessionTasks(sessionId)
+      useInputDraftStore.getState().removeSessionDraft(sessionId)
     },
 
     duplicateSession: async (sessionId) => {

@@ -3,6 +3,35 @@
 All notable changes to **OpenCowork** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com).
 
+## [0.7.16] - 2026-04-08
+
+### Added
+
+- Added a dedicated local terminal panel in the right sidebar and unified local plus SSH terminal tabs into a consistent terminal workspace.
+- Added a running agent session popover and mini window with richer session details, recent message previews, and AI-powered session auto-rename support.
+- Added structured agent runtime error surfacing so execution failures are easier to inspect and diagnose.
+- Added per-session chat input draft persistence to preserve unfinished prompts across session switches.
+- Added sidecar-backed `grep` routing to improve file search handling through the backend runtime.
+
+### Changed
+
+- Enhanced the Electron process model and database schema to better support the evolving multi-process runtime architecture.
+- Exposed a shared preview editor handle and persisted Plan Mode content in guarded plan files for safer editor and planning workflows.
+- Removed `PatchEdit` tool support as part of the tool surface simplification.
+- Synced workspace lockfiles with the current repository state.
+- Bumped the app version to `v0.7.16`.
+- Updated the docs homepage release badge from `v0.7.15` to `v0.7.16`.
+
+### Fixed
+
+- Handled invalid timing values and queued image paste flow more safely in chat interactions.
+- Prevented title bar controls from crowding and stabilized mini session dialog sizing.
+- Loaded recent messages for running session previews more reliably.
+
+### Notes
+
+- This release focuses on workspace execution ergonomics: terminal integration is more complete, active agent sessions are easier to inspect, and plan/search flows have been hardened for ongoing multi-agent development.
+
 ## [0.7.15] - 2026-04-08
 
 ### Added

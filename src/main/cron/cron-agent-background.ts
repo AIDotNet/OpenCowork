@@ -2411,13 +2411,20 @@ function buildToolHandlers(): Record<string, ToolHandler> {
       const command = String(input.command ?? '').trim()
       if (!command) return encodeStructuredToolResult({ exitCode: 1, stderr: 'Missing command' })
       const timeout = Number(input.timeout ?? DEFAULT_BASH_TIMEOUT_MS)
-      const isWin = process.platform === 'win32'
       return await new Promise<string>((resolve) => {
-        const child = spawn(isWin ? `chcp 65001 >nul & ${command}` : command, {
+        const child = spawn(command, {
           cwd: ctx.workingFolder || process.cwd(),
           shell: true,
           windowsHide: true,
-          stdio: ['ignore', 'pipe', 'pipe']
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: {
+            ...process.env,
+            LANG: 'zh_CN.UTF-8',
+            LC_ALL: 'zh_CN.UTF-8',
+            LESSCHARSET: 'utf-8',
+            PYTHONIOENCODING: 'utf-8',
+            PYTHONUTF8: '1'
+          }
         })
         let stdout = ''
         let stderr = ''

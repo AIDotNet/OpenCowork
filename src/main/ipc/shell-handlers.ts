@@ -15,7 +15,7 @@ const MAX_WARNING_LINE_COUNT = 20
 const ERROR_LIKE_RE =
   /\b(error|failed|exception|traceback|fatal|panic|cannot|unable|undefined reference|syntax error|test(?:s)? failed?)\b/i
 const WARNING_LIKE_RE = /\bwarn(?:ing)?\b/i
-const SHELL_OUTPUT_ENCODING = process.platform === 'win32' ? 'gb18030' : 'utf-8'
+const SHELL_OUTPUT_ENCODING = 'utf-8'
 
 type ShellStream = 'stdout' | 'stderr'
 

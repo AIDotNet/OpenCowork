@@ -305,6 +305,28 @@ function findChange(
   return { changeSet, change }
 }
 
+function resolveSnapshotFullText(snapshot: FileSnapshot): string | null {
+  if (!snapshot.exists) return ''
+  return snapshot.fullText ?? snapshot.text ?? null
+}
+
+function getChangeDiffContent(
+  runId: string,
+  changeId: string
+): { beforeText: string; afterText: string } | { error: string } | null {
+  const found = findChange(runId, changeId)
+  if (!found) return null
+
+  const beforeText = resolveSnapshotFullText(found.change.before)
+  const afterText = resolveSnapshotFullText(found.change.after)
+
+  if (beforeText === null || afterText === null) {
+    return { error: 'Full diff is unavailable for this change' }
+  }
+
+  return { beforeText, afterText }
+}
+
 function acceptOneChange(change: TrackedFileChange): void {
   if (change.status !== 'open' && change.status !== 'conflicted') return
   change.status = 'accepted'
@@ -492,6 +514,15 @@ export function registerAgentChangeHandlers(): void {
     try {
       if (!args?.runId) return null
       return getRunChangeSet(args.runId)
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  ipcMain.handle('agent:changes:diff-content', async (_event, args: { runId: string; changeId: string }) => {
+    try {
+      if (!args?.runId || !args?.changeId) return { error: 'runId and changeId are required' }
+      return getChangeDiffContent(args.runId, args.changeId)
     } catch (err) {
       return { error: String(err) }
     }

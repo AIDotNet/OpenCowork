@@ -55,6 +55,7 @@ export type AutoModelDecisionSource =
   | 'classifier'
   | 'legacy-classifier'
   | 'fallback-main'
+  | 'fallback-fast'
   | 'fallback-last-high-confidence'
 
 export interface AutoModelSelectionStatus {
@@ -68,6 +69,7 @@ export interface AutoModelSelectionStatus {
   taskType?: AutoModelTaskType
   confidence?: AutoModelConfidence
   decisionSource?: AutoModelDecisionSource
+  toolsAllowed?: boolean
   fallbackReason?: string
   selectedAt: number
 }

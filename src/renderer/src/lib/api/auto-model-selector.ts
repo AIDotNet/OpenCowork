@@ -33,9 +33,9 @@ const AUTO_MODEL_CLASSIFIER_PROMPT = [
   'Allowed taskType values: rewrite, summarize, translate, format, qa, explain, compare, extract, plan, debug, implement, analyze, other.',
   'Allowed route values: main, fast.',
   'Allowed confidence values: high, medium, low.',
-  'Prefer fast ONLY for clearly lightweight text transforms: rewrite, summarize, translate, format.',
-  'Prefer main for qa, explain, compare, extract, plan, debug, implement, analyze, other.',
-  'If the request is ambiguous, underspecified, tool-heavy, architecture-heavy, debugging-heavy, code-writing-heavy, or multi-step, choose route=main.',
+  'Default to route=fast for any straightforward, bounded, single-turn request that can likely be answered directly.',
+  'Use route=main only for clearly complex reasoning, multi-step execution, ambiguous or underspecified asks, code-writing-heavy tasks, debugging-heavy tasks, architecture-heavy tasks, or requests that are likely to require tools.',
+  'Simple qa, explain, compare, and extract requests should usually use route=fast unless they are clearly complex.',
   'Respect the MODE in the routing header as hidden context, but classify primarily from the user text.',
   'Never output markdown, prose, or code fences.'
 ].join(' ')
@@ -105,9 +105,10 @@ function buildSelectionStatus(options: {
   taskType?: AutoModelTaskType
   confidence?: AutoModelConfidence
   decisionSource?: AutoModelDecisionSource
+  toolsAllowed?: boolean
   fallbackReason?: string
 }): AutoModelSelectionStatus {
-  const { target, config, mode, taskType, confidence, decisionSource, fallbackReason } = options
+  const { target, config, mode, taskType, confidence, decisionSource, toolsAllowed, fallbackReason } = options
   return {
     source: 'auto',
     ...(mode ? { mode } : {}),
@@ -116,6 +117,7 @@ function buildSelectionStatus(options: {
     ...(taskType ? { taskType } : {}),
     ...(confidence ? { confidence } : {}),
     ...(decisionSource ? { decisionSource } : {}),
+    ...(toolsAllowed !== undefined ? { toolsAllowed } : {}),
     ...(fallbackReason ? { fallbackReason } : {}),
     selectedAt: Date.now()
   }
@@ -198,18 +200,6 @@ function buildClassifierInput(options: {
   ].join('\n')
 }
 
-function resolveRouteForTaskType(taskType: AutoModelTaskType): 'main' | 'fast' {
-  switch (taskType) {
-    case 'rewrite':
-    case 'summarize':
-    case 'translate':
-    case 'format':
-      return 'fast'
-    default:
-      return 'main'
-  }
-}
-
 function getLastHighConfidenceSelection(
   sessionId: string | undefined
 ): AutoModelSelectionStatus | null {
@@ -227,6 +217,31 @@ function getFastModelSupportsTools(): boolean {
   return model?.supportsFunctionCall !== false
 }
 
+export function shouldAllowToolsForRequest(options: {
+  latestUserInput: string
+  mode?: AppMode
+  isContinue?: boolean
+}): boolean {
+  if (options.isContinue) return true
+  if (options.mode === 'chat') return false
+
+  const input = options.latestUserInput.trim()
+  if (!input) return false
+
+  const normalized = input.toLowerCase()
+
+  const explicitToolPatterns = [
+    /\b(read|open|inspect|search|find|grep|glob|list|ls)\b/,
+    /\b(edit|modify|change|update|patch|refactor|rename|rewrite the file|implement|fix|debug)\b/,
+    /\b(run|execute|test|build|lint|typecheck|compile|benchmark)\b/,
+    /\b(file|files|folder|directory|repo|repository|codebase|project|terminal|command|shell|bash|powershell)\b/,
+    /\b(tool|tools|agent|subagent|task|plan mode|plan)\b/,
+    /[\u4e00-\u9fff](读取|打开|查看|搜索|查找|检索|列出|修改|编辑|更新|重构|重命名|实现|修复|调试|运行|执行|测试|构建|编译|代码|文件|目录|仓库|项目|终端|命令|工具|任务|计划)/
+  ]
+
+  return explicitToolPatterns.some((pattern) => pattern.test(normalized))
+}
+
 export async function selectAutoModel(options: {
   latestUserInput: string
   sessionId?: string
@@ -240,13 +255,20 @@ export async function selectAutoModel(options: {
   const fastConfig = providerStore.getFastProviderConfig()
   const latestUserInput = options.latestUserInput.trim()
   const mode = options.mode
-  const allowTools = options.allowTools === true
+  const allowTools =
+    options.allowTools ??
+    shouldAllowToolsForRequest({
+      latestUserInput,
+      mode,
+      isContinue: options.isContinue
+    })
 
   if (!mainConfig) {
     return buildSelectionStatus({
       target: 'main',
       config: null,
       mode,
+      toolsAllowed: allowTools,
       decisionSource: 'fallback-main',
       fallbackReason: 'main_unavailable'
     })
@@ -257,6 +279,7 @@ export async function selectAutoModel(options: {
       target: 'main',
       config: mainConfig,
       mode,
+      toolsAllowed: allowTools,
       decisionSource: 'fallback-main',
       fallbackReason: 'empty_input'
     })
@@ -267,6 +290,7 @@ export async function selectAutoModel(options: {
       target: 'main',
       config: mainConfig,
       mode,
+      toolsAllowed: allowTools,
       decisionSource: 'fallback-main',
       fallbackReason: 'fast_unavailable'
     })
@@ -277,6 +301,7 @@ export async function selectAutoModel(options: {
       target: 'main',
       config: mainConfig,
       mode,
+      toolsAllowed: allowTools,
       decisionSource: 'fallback-main',
       fallbackReason: 'fast_model_tools_unsupported'
     })
@@ -287,6 +312,7 @@ export async function selectAutoModel(options: {
       target: 'main',
       config: mainConfig,
       mode,
+      toolsAllowed: allowTools,
       decisionSource: 'fallback-main',
       fallbackReason: 'fast_auth_missing'
     })
@@ -299,6 +325,7 @@ export async function selectAutoModel(options: {
         target: 'main',
         config: mainConfig,
         mode,
+        toolsAllowed: allowTools,
         decisionSource: 'fallback-main',
         fallbackReason: 'fast_auth_unavailable'
       })
@@ -352,6 +379,7 @@ export async function selectAutoModel(options: {
         target: 'main',
         config: mainConfig,
         mode,
+        toolsAllowed: allowTools,
         decisionSource: 'fallback-main',
         fallbackReason: 'sidecar_request_build_failed'
       })
@@ -364,6 +392,7 @@ export async function selectAutoModel(options: {
         target: 'main',
         config: mainConfig,
         mode,
+        toolsAllowed: allowTools,
         decisionSource: 'fallback-main',
         fallbackReason: 'sidecar_capability_unavailable'
       })
@@ -375,6 +404,7 @@ export async function selectAutoModel(options: {
         target: 'main',
         config: mainConfig,
         mode,
+        toolsAllowed: allowTools,
         decisionSource: 'fallback-main',
         fallbackReason: 'sidecar_unavailable'
       })
@@ -456,6 +486,7 @@ export async function selectAutoModel(options: {
           target: 'main',
           config: mainConfig,
           mode,
+          toolsAllowed: allowTools,
           decisionSource: 'fallback-main',
           fallbackReason: 'invalid_classifier_output'
         })
@@ -466,12 +497,14 @@ export async function selectAutoModel(options: {
             target: 'fast',
             config: fastConfig,
             mode,
+            toolsAllowed: allowTools,
             decisionSource: 'legacy-classifier'
           })
         : buildSelectionStatus({
             target: 'main',
             config: mainConfig,
             mode,
+            toolsAllowed: allowTools,
             decisionSource: 'legacy-classifier'
           })
     }
@@ -482,6 +515,7 @@ export async function selectAutoModel(options: {
         target: 'main',
         config: mainConfig,
         mode,
+        toolsAllowed: allowTools,
         decisionSource: 'fallback-main',
         fallbackReason: 'invalid_classifier_output'
       })
@@ -494,12 +528,12 @@ export async function selectAutoModel(options: {
         mode,
         taskType: parsed.taskType,
         confidence: parsed.confidence,
+        toolsAllowed: allowTools,
         decisionSource: 'fallback-main',
         fallbackReason: 'fast_model_tools_unsupported'
       })
     }
 
-    const mappedRoute = resolveRouteForTaskType(parsed.taskType)
     const lowConfidence = parsed.confidence === 'low'
     if (lowConfidence) {
       const previousHighConfidence = getLastHighConfidenceSelection(options.sessionId)
@@ -511,6 +545,7 @@ export async function selectAutoModel(options: {
               mode,
               taskType: parsed.taskType,
               confidence: parsed.confidence,
+              toolsAllowed: allowTools,
               decisionSource: 'fallback-last-high-confidence',
               fallbackReason: 'low_confidence_reuse_last_route'
             })
@@ -520,13 +555,14 @@ export async function selectAutoModel(options: {
               mode,
               taskType: parsed.taskType,
               confidence: parsed.confidence,
+              toolsAllowed: allowTools,
               decisionSource: 'fallback-last-high-confidence',
               fallbackReason: 'low_confidence_reuse_last_route'
             })
       }
     }
 
-    const target = lowConfidence ? 'main' : mappedRoute
+    const target = lowConfidence ? 'fast' : parsed.route
     return target === 'fast'
       ? buildSelectionStatus({
           target: 'fast',
@@ -534,7 +570,9 @@ export async function selectAutoModel(options: {
           mode,
           taskType: parsed.taskType,
           confidence: parsed.confidence,
-          decisionSource: 'classifier'
+          toolsAllowed: allowTools,
+          decisionSource: lowConfidence ? 'fallback-fast' : 'classifier',
+          ...(lowConfidence ? { fallbackReason: 'low_confidence_fast' } : {})
         })
       : buildSelectionStatus({
           target: 'main',
@@ -542,14 +580,15 @@ export async function selectAutoModel(options: {
           mode,
           taskType: parsed.taskType,
           confidence: parsed.confidence,
-          decisionSource: lowConfidence ? 'fallback-main' : 'classifier',
-          ...(lowConfidence ? { fallbackReason: 'low_confidence_main' } : {})
+          toolsAllowed: allowTools,
+          decisionSource: 'classifier'
         })
   } catch {
     return buildSelectionStatus({
       target: 'main',
       config: mainConfig,
       mode,
+      toolsAllowed: allowTools,
       decisionSource: 'fallback-main',
       fallbackReason: 'classification_failed'
     })

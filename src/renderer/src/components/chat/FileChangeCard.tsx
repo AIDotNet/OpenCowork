@@ -11,6 +11,8 @@ import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-form
 import type { AgentRunFileChange } from '@renderer/stores/agent-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { MONO_FONT } from '@renderer/lib/constants'
+import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 import { AnimatePresence, motion } from 'motion/react'
 import { Button } from '@renderer/components/ui/button'
 import { CodeDiffViewer, type DiffViewerChunk, type DiffViewerLine } from './CodeDiffViewer'
@@ -238,6 +240,11 @@ function foldContext(lines: DiffLine[], ctx: number = 2): DiffChunk[] {
   return chunks
 }
 
+interface TrackedDiffContent {
+  beforeText: string
+  afterText: string
+}
+
 // ── Status Icon ──────────────────────────────────────────────────
 
 function StatusIndicator({
@@ -332,17 +339,10 @@ function ChangeStats({
   }
   if (name === 'Edit') {
     if (!resolvedEdit.oldPreview && !resolvedEdit.newPreview) return null
-    const stats =
-      resolvedEdit.oldText || resolvedEdit.newText
-        ? summarizeDiff(computeDiff(resolvedEdit.oldText, resolvedEdit.newText))
-        : null
     return (
       <span className="flex items-center gap-1 text-[10px]">
-        <span className="text-green-400/70">
-          +{stats ? stats.added : Math.max(0, resolvedEdit.newChars - resolvedEdit.oldChars)}
-        </span>
-        <span className="text-red-400/70">
-          -{stats ? stats.deleted : Math.max(0, resolvedEdit.oldChars - resolvedEdit.newChars)}
+        <span className="text-muted-foreground/50">
+          {t('fileChange.charTransition', { from: resolvedEdit.oldChars, to: resolvedEdit.newChars })}
         </span>
       </span>
     )
@@ -359,9 +359,17 @@ function ChangeStats({
 
 // ── Inline Diff View ─────────────────────────────────────────────
 
-function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): React.JSX.Element {
+function InlineDiff({
+  oldStr,
+  newStr,
+  toolbarEnd = null
+}: {
+  oldStr: string
+  newStr: string
+  toolbarEnd?: React.ReactNode
+}): React.JSX.Element {
   const chunks = React.useMemo(() => foldContext(computeDiff(oldStr, newStr)), [oldStr, newStr])
-  return <CodeDiffViewer chunks={chunks} defaultMode="split" toolbarEnd={null} />
+  return <CodeDiffViewer chunks={chunks} defaultMode="split" toolbarEnd={toolbarEnd} />
 }
 
 function NewFileContent({
@@ -439,10 +447,12 @@ function NewFileContent({
 
 function SnapshotSummaryNotice({
   before,
-  after
+  after,
+  children
 }: {
   before?: AgentRunFileChange['before']
   after: AgentRunFileChange['after']
+  children?: React.ReactNode
 }): React.JSX.Element {
   const details = [
     typeof before?.lineCount === 'number' ? `before ${before.lineCount} lines` : null,
@@ -454,11 +464,14 @@ function SnapshotSummaryNotice({
     .join(' · ')
 
   return (
-    <div className="px-3 py-2 text-[11px] text-muted-foreground/65 space-y-1">
-      <p>Large file snapshot summarized to avoid storing full before/after text in memory.</p>
-      <p className="font-mono text-[10px] text-muted-foreground/45" style={{ fontFamily: MONO_FONT }}>
-        {details}
-      </p>
+    <div className="px-3 py-2 text-[11px] text-muted-foreground/65 space-y-2">
+      <div className="space-y-1">
+        <p>Large file snapshot summarized to avoid storing full before/after text in memory.</p>
+        <p className="font-mono text-[10px] text-muted-foreground/45" style={{ fontFamily: MONO_FONT }}>
+          {details}
+        </p>
+      </div>
+      {children}
       {after.previewText && (
         <pre
           className="overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 px-2.5 py-2 text-[11px] text-foreground/80 dark:bg-zinc-950 dark:text-zinc-300/80"
@@ -489,11 +502,6 @@ function PendingEditPreview({ input }: { input: Record<string, unknown> }): Reac
     typeof input.new_string_chars === 'number' ? input.new_string_chars : newStr.length
   const showingExcerpt = Boolean(input.old_string_truncated || input.new_string_truncated)
   const hasCounts = oldChars > 0 || newChars > 0
-  const canDiff = oldStr.length > 0 || newStr.length > 0
-  const stats = React.useMemo(
-    () => (canDiff ? summarizeDiff(computeDiff(oldStr, newStr)) : null),
-    [canDiff, oldStr, newStr]
-  )
 
   return (
     <div className="px-3 py-2 space-y-2 text-[11px] text-muted-foreground/70">
@@ -508,9 +516,7 @@ function PendingEditPreview({ input }: { input: Record<string, unknown> }): Reac
         )}
         {hasCounts && (
           <span className="text-[10px] text-muted-foreground/50">
-            {stats
-              ? t('fileChange.lineDelta', { deleted: stats.deleted, added: stats.added })
-              : t('fileChange.charTransition', { from: oldChars, to: newChars })}
+            {t('fileChange.charTransition', { from: oldChars, to: newChars })}
           </span>
         )}
       </div>
@@ -548,6 +554,134 @@ function PendingEditPreview({ input }: { input: Record<string, unknown> }): Reac
       )}
     </div>
   )
+}
+
+function TrackedEditDiff({ change }: { change: AgentRunFileChange }): React.JSX.Element {
+  const { t } = useTranslation('chat')
+  const [expanded, setExpanded] = React.useState(false)
+  const [content, setContent] = React.useState<TrackedDiffContent | null>(null)
+  const [isLoading, setIsLoading] = React.useState(false)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
+
+  const canRenderInline = canRenderInlineSnapshot(change.before) && canRenderInlineSnapshot(change.after)
+
+  React.useEffect(() => {
+    if (!expanded) {
+      setContent(null)
+      setIsLoading(false)
+      setLoadError(null)
+      return
+    }
+
+    if (canRenderInline) {
+      setContent({
+        beforeText: snapshotText(change.before),
+        afterText: snapshotText(change.after)
+      })
+      setLoadError(null)
+      return
+    }
+
+    let cancelled = false
+    const load = async (): Promise<void> => {
+      setIsLoading(true)
+      setLoadError(null)
+      try {
+        const result = await ipcClient.invoke(IPC.AGENT_CHANGES_DIFF_CONTENT, {
+          runId: change.runId,
+          changeId: change.id
+        })
+        if (cancelled) return
+        if (
+          result &&
+          typeof result === 'object' &&
+          'beforeText' in result &&
+          'afterText' in result &&
+          typeof result.beforeText === 'string' &&
+          typeof result.afterText === 'string'
+        ) {
+          setContent({ beforeText: result.beforeText, afterText: result.afterText })
+          return
+        }
+        if (result && typeof result === 'object' && 'error' in result && typeof result.error === 'string') {
+          setLoadError(result.error)
+          return
+        }
+        setLoadError('Failed to load full diff')
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError(err instanceof Error ? err.message : String(err))
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [canRenderInline, change])
+
+  const toolbar = (
+    <Button type="button" size="xs" variant="ghost" onClick={() => setExpanded((value) => !value)}>
+      {expanded
+        ? t('showLess', { ns: 'common', defaultValue: '收起' })
+        : t('layout:expand', { defaultValue: '展开' })}
+    </Button>
+  )
+
+  if (!expanded) {
+    if (canRenderInline) {
+      return (
+        <InlineDiff
+          oldStr={snapshotText(change.before)}
+          newStr={snapshotText(change.after)}
+          toolbarEnd={toolbar}
+        />
+      )
+    }
+
+    return (
+      <SnapshotSummaryNotice before={change.before} after={change.after}>
+        <div className="flex justify-end">{toolbar}</div>
+      </SnapshotSummaryNotice>
+    )
+  }
+
+  if (isLoading && !content) {
+    return (
+      <SnapshotSummaryNotice before={change.before} after={change.after}>
+        <div className="flex items-center justify-between gap-2">
+          <span>{t('thinking.thinkingEllipsis')}</span>
+          {toolbar}
+        </div>
+      </SnapshotSummaryNotice>
+    )
+  }
+
+  if (loadError && !content) {
+    return (
+      <SnapshotSummaryNotice before={change.before} after={change.after}>
+        <div className="space-y-2">
+          <div className="text-destructive/80">{loadError}</div>
+          <div className="flex justify-end">{toolbar}</div>
+        </div>
+      </SnapshotSummaryNotice>
+    )
+  }
+
+  if (!content) {
+    return (
+      <SnapshotSummaryNotice before={change.before} after={change.after}>
+        <div className="flex justify-end">{toolbar}</div>
+      </SnapshotSummaryNotice>
+    )
+  }
+
+  return <InlineDiff oldStr={content.beforeText} newStr={content.afterText} toolbarEnd={toolbar} />
 }
 
 function PendingWritePreview({
@@ -827,21 +961,7 @@ export function FileChangeCard({
             transition={{ duration: 0.2 }}
             className="overflow-hidden border-t border-inherit bg-muted/20 dark:bg-zinc-950"
           >
-            {name === 'Edit' &&
-              trackedChange &&
-              canRenderInlineSnapshot(trackedChange.before) &&
-              canRenderInlineSnapshot(trackedChange.after) && (
-                <InlineDiff
-                  oldStr={snapshotText(trackedChange.before)}
-                  newStr={snapshotText(trackedChange.after)}
-                />
-              )}
-            {name === 'Edit' &&
-              trackedChange &&
-              (!canRenderInlineSnapshot(trackedChange.before) ||
-                !canRenderInlineSnapshot(trackedChange.after)) && (
-                <SnapshotSummaryNotice before={trackedChange.before} after={trackedChange.after} />
-              )}
+            {name === 'Edit' && trackedChange && <TrackedEditDiff change={trackedChange} />}
             {name === 'Edit' &&
               !trackedChange &&
               status !== 'completed' &&
@@ -850,18 +970,7 @@ export function FileChangeCard({
               !trackedChange &&
               status !== 'streaming' &&
               status !== 'running' &&
-              !!(resolvedEdit.oldPreview || resolvedEdit.newPreview) &&
-              !(resolvedEdit.oldTruncated || resolvedEdit.newTruncated) && (
-                <InlineDiff oldStr={resolvedEdit.oldText} newStr={resolvedEdit.newText} />
-              )}
-            {name === 'Edit' &&
-              !trackedChange &&
-              status !== 'streaming' &&
-              status !== 'running' &&
-              !!(resolvedEdit.oldPreview || resolvedEdit.newPreview) &&
-              (resolvedEdit.oldTruncated || resolvedEdit.newTruncated) && (
-                <PendingEditPreview input={input} />
-              )}
+              !!(resolvedEdit.oldPreview || resolvedEdit.newPreview) && <PendingEditPreview input={input} />}
             {name === 'Write' &&
               trackedChange?.op === 'modify' &&
               canRenderInlineSnapshot(trackedChange.before) &&

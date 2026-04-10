@@ -31,7 +31,6 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
-import { CodeDiffViewer } from './CodeDiffViewer'
 import { inputSummary } from './tool-call-summary'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
 
@@ -54,6 +53,38 @@ function outputAsString(output: ToolResultContent | undefined): string | undefin
     .filter((b) => b.type === 'text')
     .map((b) => (b.type === 'text' ? b.text : ''))
   return texts.join('\n') || undefined
+}
+
+function deriveOutputError(output: string | undefined): string | null {
+  if (!output) return null
+  const trimmed = output.trim()
+  if (!trimmed) return null
+
+  const parsed = decodeStructuredToolResult(trimmed)
+  if (parsed) {
+    if (!Array.isArray(parsed) && typeof parsed.error === 'string' && parsed.error.trim()) {
+      return parsed.error.trim()
+    }
+    return null
+  }
+
+  return trimmed
+}
+
+function isErrorOnlyOutput(output: string | undefined): boolean {
+  if (!output) return false
+  const trimmed = output.trim()
+  if (!trimmed) return false
+
+  const parsed = decodeStructuredToolResult(trimmed)
+  if (!parsed) return true
+  if (Array.isArray(parsed)) return false
+
+  return (
+    Object.keys(parsed).length === 1 &&
+    typeof parsed.error === 'string' &&
+    parsed.error.trim().length > 0
+  )
 }
 
 /** Check if output contains image blocks */
@@ -1065,109 +1096,6 @@ function detectLang(filePath: string): string {
   return map[ext] ?? 'text'
 }
 
-type DiffLine = { type: 'keep' | 'add' | 'del'; text: string; oldNum?: number; newNum?: number }
-
-function computeDiff(oldStr: string, newStr: string): DiffLine[] {
-  const a = oldStr.split('\n')
-  const b = newStr.split('\n')
-  const m = a.length,
-    n = b.length
-
-  // Simple LCS DP for small inputs; fall back to naive for large diffs
-  if (m * n > 100000) {
-    return [
-      ...a.map((t, i): DiffLine => ({ type: 'del', text: t, oldNum: i + 1 })),
-      ...b.map((t, i): DiffLine => ({ type: 'add', text: t, newNum: i + 1 }))
-    ]
-  }
-
-  const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1))
-  for (let i = 1; i <= m; i++)
-    for (let j = 1; j <= n; j++)
-      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1])
-
-  const result: DiffLine[] = []
-  let i = m,
-    j = n
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && a[i - 1] === b[j - 1]) {
-      result.push({ type: 'keep', text: a[i - 1], oldNum: i, newNum: j })
-      i--
-      j--
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      result.push({ type: 'add', text: b[j - 1], newNum: j })
-      j--
-    } else {
-      result.push({ type: 'del', text: a[i - 1], oldNum: i })
-      i--
-    }
-  }
-  return result.reverse()
-}
-
-type DiffChunk =
-  | { type: 'lines'; lines: DiffLine[] }
-  | { type: 'collapsed'; count: number; lines: DiffLine[] }
-
-function foldContext(lines: DiffLine[], ctx: number = 2): DiffChunk[] {
-  const chunks: DiffChunk[] = []
-  let keepRun: DiffLine[] = []
-
-  const flushKeep = (): void => {
-    if (keepRun.length <= ctx * 2 + 1) {
-      chunks.push({ type: 'lines', lines: keepRun })
-    } else {
-      chunks.push({ type: 'lines', lines: keepRun.slice(0, ctx) })
-      chunks.push({
-        type: 'collapsed',
-        count: keepRun.length - ctx * 2,
-        lines: keepRun.slice(ctx, -ctx)
-      })
-      chunks.push({ type: 'lines', lines: keepRun.slice(-ctx) })
-    }
-    keepRun = []
-  }
-
-  for (const line of lines) {
-    if (line.type === 'keep') {
-      keepRun.push(line)
-    } else {
-      if (keepRun.length > 0) flushKeep()
-      if (chunks.length > 0 && chunks[chunks.length - 1].type === 'lines') {
-        ;(chunks[chunks.length - 1] as { type: 'lines'; lines: DiffLine[] }).lines.push(line)
-      } else {
-        chunks.push({ type: 'lines', lines: [line] })
-      }
-    }
-  }
-  if (keepRun.length > 0) flushKeep()
-  return chunks
-}
-
-function InlineDiff({ oldStr, newStr }: { oldStr: string; newStr: string }): React.JSX.Element {
-  const { t } = useTranslation('chat')
-  const chunks = React.useMemo(() => foldContext(computeDiff(oldStr, newStr)), [oldStr, newStr])
-
-  return (
-    <CodeDiffViewer
-      chunks={chunks}
-      defaultMode="split"
-      toolbarEnd={
-        <>
-          <CopyBtn
-            text={oldStr}
-            title={t('fileChange.copyOldString', { defaultValue: 'Copy old string' })}
-          />
-          <CopyBtn
-            text={newStr}
-            title={t('fileChange.copyNewString', { defaultValue: 'Copy new string' })}
-          />
-        </>
-      }
-    />
-  )
-}
-
 function visualizeWhitespace(text: string): string {
   return text.replace(/\t/g, '→\t').replace(/ /g, '·')
 }
@@ -1342,7 +1270,10 @@ function StructuredInput({
         {explanation && (
           <p className="pl-[18px] text-[11px] text-muted-foreground/60">{explanation}</p>
         )}
-        {(oldLineTotal !== null || newLineTotal !== null || oldCharTotal !== null || newCharTotal !== null) && (
+        {(oldLineTotal !== null ||
+          newLineTotal !== null ||
+          oldCharTotal !== null ||
+          newCharTotal !== null) && (
           <div className="pl-[18px] text-[10px] text-muted-foreground/40">
             {oldLineTotal !== null ? `-${oldLineTotal} lines` : '-? lines'}
             {' / '}
@@ -1698,13 +1629,7 @@ function StructuredInput({
 }
 
 // Tools that auto-expand when they have output (mutation/action tools)
-const EXPAND_TOOLS = new Set([
-  'Delete',
-  'Bash',
-  'TaskCreate',
-  'TaskList',
-  'visualize_show_widget'
-])
+const EXPAND_TOOLS = new Set(['Delete', 'Bash', 'TaskCreate', 'TaskList', 'visualize_show_widget'])
 
 export function ToolStatusDot({
   status
@@ -1779,16 +1704,15 @@ export function ToolCallCard({
 
   const isProcessing = status === 'streaming' || status === 'running'
   const summary = inputSummary(name, input)
+  const outputText = outputAsString(output)
+  const outputIsErrorOnly = isErrorOnlyOutput(outputText)
+  const outputError = deriveOutputError(outputText)
+  const displayError = error || (status === 'error' ? outputError : null)
+  const shouldRenderOutputPanels = !displayError || !outputIsErrorOnly
   const hideLivePayload =
     isProcessing &&
     (name === 'Write' || name === 'Edit') &&
     input.content_hidden_until_complete === true
-  const showSettledEditDiff =
-    name === 'Edit' &&
-    status !== 'streaming' &&
-    status !== 'running' &&
-    !!input.old_string &&
-    !!input.new_string
   const showSettledWriteContent =
     name === 'Write' && status !== 'streaming' && status !== 'running' && !!input.content
   const elapsed =
@@ -1860,138 +1784,141 @@ export function ToolCallCard({
             </div>
           ) : (
             <>
-          {/* Diff view for Edit tool */}
-          {showSettledEditDiff && (
-            <div className="space-y-2">
-              <StructuredInput name={name} input={input} />
-              <InlineDiff oldStr={String(input.old_string)} newStr={String(input.new_string)} />
-            </div>
-          )}
-          {/* Write: show content with syntax highlighting */}
-          {showSettledWriteContent && name === 'Write' && (
-            <div>
-              <div className="mb-1 flex items-center gap-1.5">
-                <p className="text-xs font-medium text-muted-foreground">{t('toolCall.content')}</p>
-                <span className="text-[9px] text-muted-foreground/40 font-mono">
-                  {detectLang(String(input.file_path ?? input.path ?? ''))} ·{' '}
-                  {typeof input.content === 'string' ? input.content.split('\n').length : '?'} lines
-                </span>
-                <CopyBtn text={String(input.content)} />
-              </div>
-              <LazySyntaxHighlighter
-                language={detectLang(String(input.file_path ?? input.path ?? ''))}
-                wrapLongLines
-                customStyle={{
-                  margin: 0,
-                  padding: '0.5rem',
-                  borderRadius: '0.375rem',
-                  fontSize: '11px',
-                  maxHeight: '200px',
-                  overflow: 'auto',
-                  fontFamily: MONO_FONT
-                }}
-                codeTagProps={{ style: { fontFamily: 'inherit' } }}
-              >
-                {String(input.content)}
-              </LazySyntaxHighlighter>
-            </div>
-          )}
-          {/* TaskCreate: checklist-style input */}
-          {name === 'TaskCreate' && !!input.subject && <TaskCreateInputBlock input={input} />}
-          {/* Structured Input — tool-specific rendering */}
-          {!(
-            showSettledEditDiff ||
-            showSettledWriteContent ||
-            (name === 'TaskCreate' && !!input.subject)
-          ) && <StructuredInput name={name} input={input} />}
-          {/* Output — tool-specific rendering */}
-          {name === 'visualize_show_widget' && <WidgetOutputBlock input={input} status={status} />}
-          {output && name === 'Read' && hasImageBlocks(output) && (
-            <ImageOutputBlock output={output} />
-          )}
-          {output && name === 'Read' && !hasImageBlocks(output) && outputAsString(output) && (
-            <ReadOutputBlock
-              output={outputAsString(output)!}
-              filePath={String(input.file_path ?? input.path ?? '')}
-            />
-          )}
-          {name === 'Bash' && (status === 'running' || outputAsString(output)) && (
-            <BashOutputBlock
-              output={outputAsString(output) ?? ''}
-              toolUseId={toolUseId}
-              status={status}
-            />
-          )}
-          {output && name === 'Grep' && outputAsString(output) && (
-            <GrepOutputBlock
-              output={outputAsString(output)!}
-              pattern={String(input.pattern ?? '')}
-            />
-          )}
-          {output && name === 'Glob' && outputAsString(output) && (
-            <GlobOutputBlock output={outputAsString(output)!} />
-          )}
-          {output && name === 'LS' && outputAsString(output) && (
-            <LSOutputBlock output={outputAsString(output)!} />
-          )}
-          {output && name === 'TaskList' && outputAsString(output) && (
-            <TaskListOutputBlock output={outputAsString(output)!} />
-          )}
-          {output &&
-            ['Edit', 'Write', 'Delete'].includes(name) &&
-            (() => {
-              const s = outputAsString(output) ?? ''
-              const parsed = decodeStructuredToolResult(s)
-              const success = !!(parsed && !Array.isArray(parsed) && parsed.success === true)
-              return (
-                <div className="flex items-center gap-1.5 text-xs">
-                  {success ? (
-                    <>
-                      <CheckCircle2 className="size-3 text-green-500" />
-                      <span className="text-green-500/70">{t('toolCall.appliedSuccessfully')}</span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="size-3 text-destructive" />
-                      <span className="text-destructive/70 font-mono truncate">
-                        {s.slice(0, 100)}
-                      </span>
-                    </>
-                  )}
+              {/* Write: show content with syntax highlighting */}
+              {showSettledWriteContent && name === 'Write' && (
+                <div>
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t('toolCall.content')}
+                    </p>
+                    <span className="text-[9px] text-muted-foreground/40 font-mono">
+                      {detectLang(String(input.file_path ?? input.path ?? ''))} ·{' '}
+                      {typeof input.content === 'string' ? input.content.split('\n').length : '?'}{' '}
+                      lines
+                    </span>
+                    <CopyBtn text={String(input.content)} />
+                  </div>
+                  <LazySyntaxHighlighter
+                    language={detectLang(String(input.file_path ?? input.path ?? ''))}
+                    wrapLongLines
+                    customStyle={{
+                      margin: 0,
+                      padding: '0.5rem',
+                      borderRadius: '0.375rem',
+                      fontSize: '11px',
+                      maxHeight: '200px',
+                      overflow: 'auto',
+                      fontFamily: MONO_FONT
+                    }}
+                    codeTagProps={{ style: { fontFamily: 'inherit' } }}
+                  >
+                    {String(input.content)}
+                  </LazySyntaxHighlighter>
                 </div>
-              )
-            })()}
-          {output &&
-            ![
-              'Read',
-              'Bash',
-              'Grep',
-              'Glob',
-              'LS',
-              'TaskCreate',
-              'TaskUpdate',
-              'TaskGet',
-              'TaskList',
-              'Edit',
-              'Write',
-              'Delete',
-              'AskUserQuestion',
-              'visualize_show_widget'
-            ].includes(name) &&
-            (hasImageBlocks(output) ? (
-              <ImageOutputBlock output={output} />
-            ) : outputAsString(output) ? (
-              <OutputBlock output={outputAsString(output)!} />
-            ) : null)}
-          {/* Error */}
-          {error && (
-            <div>
-              <p className="mb-1 text-xs font-medium text-destructive">{t('error.label')}</p>
-              <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive font-mono">
-                {error}
-              </pre>
-            </div>
-          )}
+              )}
+              {/* TaskCreate: checklist-style input */}
+              {name === 'TaskCreate' && !!input.subject && <TaskCreateInputBlock input={input} />}
+              {/* Structured Input — tool-specific rendering */}
+              {!(showSettledWriteContent || (name === 'TaskCreate' && !!input.subject)) && (
+                <StructuredInput name={name} input={input} />
+              )}
+              {/* Output — tool-specific rendering */}
+              {name === 'visualize_show_widget' && (
+                <WidgetOutputBlock input={input} status={status} />
+              )}
+              {output && name === 'Read' && hasImageBlocks(output) && (
+                <ImageOutputBlock output={output} />
+              )}
+              {shouldRenderOutputPanels &&
+                output &&
+                name === 'Read' &&
+                !hasImageBlocks(output) &&
+                outputText && (
+                  <ReadOutputBlock
+                    output={outputText}
+                    filePath={String(input.file_path ?? input.path ?? '')}
+                  />
+                )}
+              {shouldRenderOutputPanels &&
+                name === 'Bash' &&
+                (status === 'running' || outputText) && (
+                  <BashOutputBlock
+                    output={outputText ?? ''}
+                    toolUseId={toolUseId}
+                    status={status}
+                  />
+                )}
+              {shouldRenderOutputPanels && output && name === 'Grep' && outputText && (
+                <GrepOutputBlock output={outputText} pattern={String(input.pattern ?? '')} />
+              )}
+              {shouldRenderOutputPanels && output && name === 'Glob' && outputText && (
+                <GlobOutputBlock output={outputText} />
+              )}
+              {shouldRenderOutputPanels && output && name === 'LS' && outputText && (
+                <LSOutputBlock output={outputText} />
+              )}
+              {shouldRenderOutputPanels && output && name === 'TaskList' && outputText && (
+                <TaskListOutputBlock output={outputText} />
+              )}
+              {shouldRenderOutputPanels &&
+                output &&
+                ['Edit', 'Write', 'Delete'].includes(name) &&
+                (() => {
+                  const s = outputText ?? ''
+                  const parsed = decodeStructuredToolResult(s)
+                  const success = !!(parsed && !Array.isArray(parsed) && parsed.success === true)
+                  return (
+                    <div className="flex items-center gap-1.5 text-xs">
+                      {success ? (
+                        <>
+                          <CheckCircle2 className="size-3 text-green-500" />
+                          <span className="text-green-500/70">
+                            {t('toolCall.appliedSuccessfully')}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="size-3 text-destructive" />
+                          <span className="text-destructive/70 font-mono truncate">
+                            {s.slice(0, 100)}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  )
+                })()}
+              {shouldRenderOutputPanels &&
+                output &&
+                ![
+                  'Read',
+                  'Bash',
+                  'Grep',
+                  'Glob',
+                  'LS',
+                  'TaskCreate',
+                  'TaskUpdate',
+                  'TaskGet',
+                  'TaskList',
+                  'Edit',
+                  'Write',
+                  'Delete',
+                  'AskUserQuestion',
+                  'visualize_show_widget'
+                ].includes(name) &&
+                (hasImageBlocks(output) ? (
+                  <ImageOutputBlock output={output} />
+                ) : outputText ? (
+                  <OutputBlock output={outputText} />
+                ) : null)}
+              {/* Error */}
+              {displayError && (
+                <div>
+                  <p className="mb-1 text-xs font-medium text-destructive">{t('error.label')}</p>
+                  <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive font-mono">
+                    {displayError}
+                  </pre>
+                </div>
+              )}
             </>
           )}
         </div>

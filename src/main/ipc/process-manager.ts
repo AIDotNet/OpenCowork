@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron'
 import { safeSendToWindow } from '../window-ipc'
 import { spawn, type ChildProcess } from 'child_process'
 
-const PROCESS_OUTPUT_ENCODING = process.platform === 'win32' ? 'gb18030' : 'utf-8'
+const PROCESS_OUTPUT_ENCODING = 'utf-8'
 
 function createOutputDecoder(): TextDecoder {
   return new TextDecoder(PROCESS_OUTPUT_ENCODING)

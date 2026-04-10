@@ -292,7 +292,7 @@ export function InlineStepsPanel({ sessionId }: { sessionId?: string | null }): 
     return items
   }, [data.plan, data.planTasks, data.standaloneTasks, data.teamName, data.teamTasks])
 
-  if (!data.hasContent && !data.isRunning) {
+  if (!data.hasContent) {
     return null
   }
 

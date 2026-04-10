@@ -123,7 +123,11 @@ import {
   isDesktopControlToolName,
   resolveDesktopControlMode
 } from '@renderer/lib/app-plugin/desktop-routing'
-import { extractLatestUserInput, selectAutoModel } from '@renderer/lib/api/auto-model-selector'
+import {
+  extractLatestUserInput,
+  selectAutoModel,
+  shouldAllowToolsForRequest
+} from '@renderer/lib/api/auto-model-selector'
 import { getTailToolExecutionState } from '@renderer/components/chat/transcript-utils'
 import type { AutoModelSelectionStatus } from '@renderer/stores/ui-store'
 import { agentBridge, canSidecarHandle } from '@renderer/lib/ipc/agent-bridge'
@@ -515,7 +519,7 @@ async function resolveMainRequestProvider(options: {
   sessionId: string
   latestUserInput: string
   mode?: 'chat' | 'clarify' | 'cowork' | 'code' | 'acp'
-  allowTools: boolean
+  allowTools?: boolean
   isContinue?: boolean
   signal?: AbortSignal
 }): Promise<{
@@ -1710,6 +1714,11 @@ export function useChatActions(): {
         source === 'continue'
           ? extractLatestUserInput(inMemoryMessages)
           : resolvedCommand.userText || text
+      const requestedToolsAllowed = shouldAllowToolsForRequest({
+        latestUserInput,
+        mode: resolvedSessionMode,
+        isContinue: source === 'continue'
+      })
       if (shouldShowAutoRouting) {
         useUIStore.getState().setAutoModelRoutingState(sessionId, 'routing')
       }
@@ -1717,7 +1726,7 @@ export function useChatActions(): {
         sessionId,
         latestUserInput,
         mode: resolvedSessionMode,
-        allowTools: resolvedSessionMode !== 'chat',
+        allowTools: requestedToolsAllowed,
         isContinue: source === 'continue'
       })
       const baseProviderConfig = buildProviderConfigWithRuntimeSettings(
@@ -2128,11 +2137,19 @@ export function useChatActions(): {
           (cachedPromptSnapshot.workingFolder ?? null) === (session?.workingFolder ?? null) &&
           (cachedPromptSnapshot.sshConnectionId ?? null) === (session?.sshConnectionId ?? null)
 
-        let effectiveToolDefs = finalEffectiveToolDefs
+        const autoSelectedFastWithoutTools =
+          settings.mainModelSelectionMode === 'auto' &&
+          !resolvedSession?.providerId &&
+          !resolvedSession?.pluginId &&
+          providerResolution.autoSelection?.target === 'fast' &&
+          providerResolution.autoSelection.toolsAllowed === false &&
+          source !== 'continue'
+
+        let effectiveToolDefs = autoSelectedFastWithoutTools ? [] : finalEffectiveToolDefs
         let agentSystemPrompt = cachedPromptSnapshot?.systemPrompt ?? ''
 
         if (canReusePromptSnapshot && cachedPromptSnapshot) {
-          effectiveToolDefs = cachedPromptSnapshot.toolDefs.slice()
+          effectiveToolDefs = autoSelectedFastWithoutTools ? [] : cachedPromptSnapshot.toolDefs.slice()
         } else {
           const sshConnection = session?.sshConnectionId
             ? useSshStore

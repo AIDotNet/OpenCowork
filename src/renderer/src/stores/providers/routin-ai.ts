@@ -41,7 +41,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       inputPrice: 0.6,
       outputPrice: 3,
       cacheHitPrice: 0.1,
-      type: 'anthropic',
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },

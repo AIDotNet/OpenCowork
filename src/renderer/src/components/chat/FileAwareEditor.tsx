@@ -368,7 +368,7 @@ function setSelectionOffsets(root: HTMLDivElement, start: number, end: number): 
   } => {
     let cursor = 0
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL)
-    let current = walker.nextNode()
+    let current: Node | null = walker.nextNode()
 
     while (current) {
       if (current.nodeType === Node.TEXT_NODE) {
@@ -378,7 +378,11 @@ function setSelectionOffsets(root: HTMLDivElement, start: number, end: number): 
           return { container: current, offset: Math.max(0, target - cursor) }
         }
         cursor = nextCursor
-      } else if (current.nodeType === Node.ELEMENT_NODE) {
+        current = walker.nextNode()
+        continue
+      }
+
+      if (current.nodeType === Node.ELEMENT_NODE) {
         const element = current as HTMLElement
         if (element.matches('[data-file-ref="true"]')) {
           const fallbackText = element.dataset.fallbackText || ''
@@ -390,7 +394,11 @@ function setSelectionOffsets(root: HTMLDivElement, start: number, end: number): 
             return { container: parent, offset }
           }
           cursor = nextCursor
-        } else if (element.tagName === 'BR') {
+          current = walker.nextSibling()
+          continue
+        }
+
+        if (element.tagName === 'BR') {
           const nextCursor = cursor + 1
           if (target <= nextCursor) {
             const parent = element.parentNode || root
@@ -398,8 +406,11 @@ function setSelectionOffsets(root: HTMLDivElement, start: number, end: number): 
             return { container: parent, offset: index + 1 }
           }
           cursor = nextCursor
+          current = walker.nextSibling()
+          continue
         }
       }
+
       current = walker.nextNode()
     }
 

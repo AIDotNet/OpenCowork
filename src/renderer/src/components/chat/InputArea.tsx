@@ -2313,6 +2313,9 @@ export function InputArea({
                               event.preventDefault()
                               insertSelectedFile(file.path)
                             }}
+                            onClick={(event) => {
+                              event.preventDefault()
+                            }}
                           >
                             <FileCode2 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                             <div className="min-w-0 flex-1">

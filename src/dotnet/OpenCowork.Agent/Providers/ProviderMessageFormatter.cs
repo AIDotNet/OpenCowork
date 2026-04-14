@@ -254,8 +254,12 @@ internal static class ProviderMessageFormatter
                     ?.EncryptedContent
                 : null;
             var hasAssistantText = !string.IsNullOrWhiteSpace(textContent);
+            var hasAssistantPayload = hasAssistantText
+                || !string.IsNullOrWhiteSpace(reasoningContent)
+                || !string.IsNullOrWhiteSpace(googleThinkingSignature)
+                || toolUses.Count > 0;
 
-            if (!hasAssistantText && toolUses.Count == 0)
+            if (!hasAssistantPayload)
                 continue;
 
             var assistantMessage = new JsonObject

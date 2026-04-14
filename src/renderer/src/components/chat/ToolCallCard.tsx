@@ -87,6 +87,19 @@ function isErrorOnlyOutput(output: string | undefined): boolean {
   )
 }
 
+function isStructuredBashResult(output: string | undefined): boolean {
+  if (!output) return false
+  const parsed = decodeStructuredToolResult(output.trim())
+  if (!parsed || Array.isArray(parsed)) return false
+  return (
+    'stdout' in parsed ||
+    'stderr' in parsed ||
+    'output' in parsed ||
+    'exitCode' in parsed ||
+    'processId' in parsed
+  )
+}
+
 /** Check if output contains image blocks */
 function hasImageBlocks(output: ToolResultContent | undefined): boolean {
   return Array.isArray(output) && output.some((b) => b.type === 'image')
@@ -1734,7 +1747,8 @@ export function ToolCallCard({
   const outputText = outputAsString(output)
   const outputIsErrorOnly = isErrorOnlyOutput(outputText)
   const outputError = deriveOutputError(outputText)
-  const displayError = error || (status === 'error' ? outputError : null)
+  const suppressErrorPanel = name === 'Bash' && isStructuredBashResult(outputText)
+  const displayError = suppressErrorPanel ? null : error || (status === 'error' ? outputError : null)
   const shouldRenderOutputPanels = !displayError || !outputIsErrorOnly
   const hideLivePayload =
     isProcessing &&

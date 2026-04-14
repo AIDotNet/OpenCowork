@@ -19,6 +19,7 @@ import { useBackgroundSessionStore } from './background-session-store'
 import { useProviderStore } from './provider-store'
 import { useSettingsStore } from './settings-store'
 import { useInputDraftStore } from './input-draft-store'
+import { invalidateVisibleSessionCache } from '../lib/agent/session-runtime-router'
 import {
   summarizeToolInputForHistory,
   sanitizeMessagesForToolReplay
@@ -141,11 +142,14 @@ function dbDeleteProject(id: string): void {
   ipcClient.invoke('db:projects:delete', id).catch(() => {})
 }
 
-function sanitizeMessageContentForPersistence(content: UnifiedMessage['content']): UnifiedMessage['content'] {
+function sanitizeMessageContentForPersistence(
+  content: UnifiedMessage['content']
+): UnifiedMessage['content'] {
   if (!Array.isArray(content)) return content
-  const [sanitized] = sanitizeMessagesForToolReplay([
-    { role: 'assistant', content }
-  ]) as Array<{ role: string; content: UnifiedMessage['content'] }>
+  const [sanitized] = sanitizeMessagesForToolReplay([{ role: 'assistant', content }]) as Array<{
+    role: string
+    content: UnifiedMessage['content']
+  }>
   return sanitized.content
 }
 
@@ -236,7 +240,10 @@ function clearPendingMessageFlushes(messageIds: string[]): void {
 // sessionsById maps session id -> index into the sessions array, so all per-session
 // lookups are O(1). It must be rebuilt by syncSessionsById whenever the shape of the
 // sessions array changes (push, splice, filter, wholesale replacement).
-function syncSessionsById(state: { sessions: Session[]; sessionsById: Record<string, number> }): void {
+function syncSessionsById(state: {
+  sessions: Session[]
+  sessionsById: Record<string, number>
+}): void {
   const next: Record<string, number> = {}
   for (let i = 0; i < state.sessions.length; i++) {
     next[state.sessions[i].id] = i
@@ -694,9 +701,7 @@ async function loadRequestContextMessages(session: Session): Promise<UnifiedMess
 
   const residentMessages = session.messages
   const residentHasFullHistory =
-    session.messagesLoaded &&
-    session.loadedRangeStart === 0 &&
-    session.loadedRangeEnd >= knownCount
+    session.messagesLoaded && session.loadedRangeStart === 0 && session.loadedRangeEnd >= knownCount
 
   if (residentHasFullHistory) {
     return clampRequestContext(residentMessages)
@@ -704,7 +709,10 @@ async function loadRequestContextMessages(session: Session): Promise<UnifiedMess
 
   const residentTailStart =
     session.messagesLoaded && residentMessages.length > 0
-      ? Math.max(0, Math.min(session.loadedRangeStart, session.loadedRangeEnd - residentMessages.length))
+      ? Math.max(
+          0,
+          Math.min(session.loadedRangeStart, session.loadedRangeEnd - residentMessages.length)
+        )
       : knownCount
   const residentWeight = residentMessages.reduce(
     (total, message) => total + estimateMessageWeight(message),
@@ -731,6 +739,28 @@ async function loadRequestContextMessages(session: Session): Promise<UnifiedMess
   })) as MessageRow[]
   const fetchedMessages = msgRows.map(rowToMessage)
   return mergeResidentTailWithFetchedPrefix(residentMessages, fetchedMessages)
+}
+
+function hasMeaningfulAssistantContent(message: UnifiedMessage): boolean {
+  if (message.role !== 'assistant') return true
+  if (typeof message.content === 'string') return message.content.trim().length > 0
+  if (!Array.isArray(message.content)) return false
+
+  return message.content.some((block) => {
+    switch (block.type) {
+      case 'text':
+        return block.text.trim().length > 0
+      case 'thinking':
+        return block.thinking.trim().length > 0 || !!block.encryptedContent
+      case 'tool_use':
+      case 'image':
+      case 'image_error':
+      case 'agent_error':
+        return true
+      default:
+        return false
+    }
+  })
 }
 
 function sanitizeToolBlocksForResend(messages: UnifiedMessage[]): {
@@ -1290,14 +1320,33 @@ export const useChatStore = create<ChatStore>()(
       const olderCount = Math.max(0, latest.loadedRangeStart)
       if (olderCount === 0) return 0
       const nextCount = Math.min(limit, olderCount)
-      const offset = olderCount - nextCount
+      let offset = olderCount - nextCount
       try {
         const msgRows = (await ipcClient.invoke('db:messages:list-page', {
           sessionId,
           limit: nextCount,
           offset
         })) as MessageRow[]
-        const olderMessages = msgRows.map(rowToMessage)
+        let olderMessages = msgRows.map(rowToMessage)
+
+        while (
+          offset > 0 &&
+          olderMessages.length > 0 &&
+          olderMessages.every((message) => isToolResultOnlyUserMessage(message))
+        ) {
+          const prependCount = Math.min(limit, offset)
+          const prependOffset = Math.max(0, offset - prependCount)
+          const prependRows = (await ipcClient.invoke('db:messages:list-page', {
+            sessionId,
+            limit: prependCount,
+            offset: prependOffset
+          })) as MessageRow[]
+          const prependMessages = prependRows.map(rowToMessage)
+          if (prependMessages.length === 0) break
+          olderMessages = [...prependMessages, ...olderMessages]
+          offset = prependOffset
+        }
+
         if (olderMessages.length === 0) return 0
         set((state) => {
           const target = state.sessions.find((s) => s.id === sessionId)
@@ -1380,13 +1429,17 @@ export const useChatStore = create<ChatStore>()(
 
       let messages = await loadRequestContextMessages(session)
 
-      if (!includeTrailingAssistantPlaceholder) {
-        messages = messages.filter((message, index) => {
-          if (index !== messages.length - 1 || message.role !== 'assistant') return true
-          if (typeof message.content === 'string') return message.content.trim().length > 0
-          return Array.isArray(message.content) ? message.content.length > 0 : true
-        })
-      }
+      // Always strip empty assistant messages — they cause API errors ("must not be empty").
+      // When includeTrailingAssistantPlaceholder is true we still keep a trailing assistant
+      // message that has real content (used for the "continue" bubble path).
+      messages = messages.filter((message, index) => {
+        if (message.role !== 'assistant') return true
+        if (hasMeaningfulAssistantContent(message)) return true
+        // Keep a trailing assistant placeholder only when the caller explicitly opts in
+        // (i.e. continuing on an existing bubble that already has content).
+        if (includeTrailingAssistantPlaceholder && index === messages.length - 1) return true
+        return false
+      })
 
       return messages
     },
@@ -1645,6 +1698,7 @@ export const useChatStore = create<ChatStore>()(
 
     setActiveSession: (id) => {
       const prevId = get().activeSessionId
+      invalidateVisibleSessionCache()
       set((state) => {
         state.activeSessionId = id
         const activeSession = state.sessions.find((session) => session.id === id)
@@ -2197,9 +2251,19 @@ export const useChatStore = create<ChatStore>()(
           session.updatedAt = now
         }
       })
-      // Clear old DB messages and write new ones
-      dbClearMessages(sessionId)
-      messages.forEach((msg, i) => dbAddMessage(sessionId, msg, i))
+      ipcClient
+        .invoke('db:messages:replace', {
+          sessionId,
+          messages: messages.map((msg, i) => ({
+            id: msg.id,
+            role: msg.role,
+            content: JSON.stringify(sanitizeMessageContentForPersistence(msg.content)),
+            createdAt: msg.createdAt,
+            usage: msg.usage ? JSON.stringify(msg.usage) : null,
+            sortOrder: i
+          }))
+        })
+        .catch(() => {})
       dbUpdateSession(sessionId, { updatedAt: now })
     },
 
@@ -2379,6 +2443,7 @@ export const useChatStore = create<ChatStore>()(
     },
 
     completeThinking: (sessionId, msgId) => {
+      flushPendingStreamDeltasForMessage(sessionId, msgId)
       set((state) => {
         const session = getSessionByIdFromState(state, sessionId)
         if (!session) return
@@ -2400,6 +2465,7 @@ export const useChatStore = create<ChatStore>()(
     },
 
     appendToolUse: (sessionId, msgId, toolUse) => {
+      flushPendingStreamDeltasForMessage(sessionId, msgId)
       set((state) => {
         const session = getSessionByIdFromState(state, sessionId)
         if (!session) return
@@ -2411,7 +2477,9 @@ export const useChatStore = create<ChatStore>()(
           input: summarizeToolInputForHistory(toolUse.name, toolUse.input)
         }
         if (typeof msg.content === 'string') {
-          msg.content = [{ type: 'text', text: msg.content }, normalizedToolUse]
+          msg.content = msg.content
+            ? [{ type: 'text', text: msg.content }, normalizedToolUse]
+            : [normalizedToolUse]
         } else {
           ;(msg.content as ContentBlock[]).push(normalizedToolUse)
         }
@@ -2444,6 +2512,7 @@ export const useChatStore = create<ChatStore>()(
     },
 
     appendContentBlock: (sessionId, msgId, block) => {
+      flushPendingStreamDeltasForMessage(sessionId, msgId)
       set((state) => {
         const session = getSessionByIdFromState(state, sessionId)
         if (!session) return
@@ -2451,7 +2520,7 @@ export const useChatStore = create<ChatStore>()(
         if (!msg) return
 
         if (typeof msg.content === 'string') {
-          msg.content = [{ type: 'text', text: msg.content }, block]
+          msg.content = msg.content ? [{ type: 'text', text: msg.content }, block] : [block]
         } else {
           ;(msg.content as ContentBlock[]).push(block)
         }
@@ -2630,13 +2699,7 @@ export const useChatStore = create<ChatStore>()(
 
 // --- RAF delta flush (wired after store creation to avoid TDZ) ---
 
-function flushStreamDeltas(): void {
-  _streamDeltaRafId = null
-  if (_pendingStreamDeltas.length === 0) return
-
-  // Drain the buffer and group by session so each session is only looked up once
-  // regardless of how many deltas it received this frame.
-  const deltas = _pendingStreamDeltas.splice(0)
+function groupStreamDeltasBySession(deltas: StreamDelta[]): Map<string, StreamDelta[]> {
   const bySession = new Map<string, StreamDelta[]>()
   for (const delta of deltas) {
     let arr = bySession.get(delta.sessionId)
@@ -2646,16 +2709,19 @@ function flushStreamDeltas(): void {
     }
     arr.push(delta)
   }
+  return bySession
+}
 
-  const affectedMessages: Array<{ sessionId: string; msgId: string }> = []
-
+function applyStreamDeltas(
+  bySession: Map<string, StreamDelta[]>,
+  affectedMessages: Array<{ sessionId: string; msgId: string }>
+): void {
   useChatStore.setState((state) => {
     const now = Date.now()
     for (const [sessionId, sessionDeltas] of bySession) {
       const session = getSessionByIdFromState(state, sessionId)
       if (!session) continue
 
-      // Build a single per-session message lookup (covers repeated msgIds in one batch)
       const msgMap = new Map<string, UnifiedMessage>()
       for (const msg of session.messages) msgMap.set(msg.id, msg)
 
@@ -2672,11 +2738,22 @@ function flushStreamDeltas(): void {
             if (lastBlock?.type === 'text') {
               ;(lastBlock as TextBlock).text += delta.text
             } else {
-              blocks.push({ type: 'text', text: delta.text })
+              let targetTextBlock: ContentBlock | null = null
+              for (let i = blocks.length - 1; i >= 0; i--) {
+                if (blocks[i].type === 'text') {
+                  targetTextBlock = blocks[i]
+                  break
+                }
+                if (blocks[i].type !== 'tool_use') break
+              }
+              if (targetTextBlock) {
+                ;(targetTextBlock as TextBlock).text += delta.text
+              } else {
+                blocks.push({ type: 'text', text: delta.text })
+              }
             }
           }
         } else {
-          // thinking delta
           if (typeof msg.content === 'string') {
             msg.content = [{ type: 'thinking', thinking: delta.thinking, startedAt: now }]
           } else {
@@ -2702,21 +2779,53 @@ function flushStreamDeltas(): void {
       }
     }
   })
+}
 
-  // Debounced DB persist. Resolve each (sessionId, msgId) pair in O(1) via the index.
-  if (affectedMessages.length > 0) {
-    const state = useChatStore.getState()
-    const seen = new Set<string>()
-    for (const { sessionId, msgId } of affectedMessages) {
-      const key = `${sessionId}\u0000${msgId}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      const session = getSessionByIdFromState(state, sessionId)
-      if (!session) continue
-      const msg = session.messages.find((m) => m.id === msgId)
-      if (msg) dbFlushMessage(msg)
-    }
+function persistAffectedMessages(
+  affectedMessages: Array<{ sessionId: string; msgId: string }>
+): void {
+  if (affectedMessages.length === 0) return
+
+  const state = useChatStore.getState()
+  const seen = new Set<string>()
+  for (const { sessionId, msgId } of affectedMessages) {
+    const key = `${sessionId}\u0000${msgId}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const session = getSessionByIdFromState(state, sessionId)
+    if (!session) continue
+    const msg = session.messages.find((m) => m.id === msgId)
+    if (msg) dbFlushMessage(msg)
   }
+}
+
+function flushPendingStreamDeltasForMessage(sessionId: string, msgId: string): void {
+  if (_pendingStreamDeltas.length === 0) return
+
+  const matching: StreamDelta[] = []
+  for (let index = _pendingStreamDeltas.length - 1; index >= 0; index -= 1) {
+    const delta = _pendingStreamDeltas[index]
+    if (delta.sessionId !== sessionId || delta.msgId !== msgId) continue
+    matching.push(delta)
+    _pendingStreamDeltas.splice(index, 1)
+  }
+
+  if (matching.length === 0) return
+
+  matching.reverse()
+  const affectedMessages: Array<{ sessionId: string; msgId: string }> = []
+  applyStreamDeltas(groupStreamDeltasBySession(matching), affectedMessages)
+  persistAffectedMessages(affectedMessages)
+}
+
+function flushStreamDeltas(): void {
+  _streamDeltaRafId = null
+  if (_pendingStreamDeltas.length === 0) return
+
+  const deltas = _pendingStreamDeltas.splice(0)
+  const affectedMessages: Array<{ sessionId: string; msgId: string }> = []
+  applyStreamDeltas(groupStreamDeltasBySession(deltas), affectedMessages)
+  persistAffectedMessages(affectedMessages)
 }
 
 _scheduleStreamDeltaFlush = () => {

@@ -18,12 +18,25 @@ export interface OAuthDeviceCodeInfo {
   verificationUriComplete?: string
   expiresAt?: number
   intervalSeconds?: number
+  deviceId?: string
 }
 
 export interface StartOAuthFlowOptions {
   signal?: AbortSignal
   onDeviceCode?: (info: OAuthDeviceCodeInfo) => void
 }
+
+const KIMI_CLIENT_ID = '17e5f671-d194-4dfb-9706-5516cb48c098'
+const KIMI_CLIENT_VERSION = '1.30.0'
+
+interface AppSystemInfoPayload {
+  machineName?: string
+  platform?: string
+  arch?: string
+  release?: string
+}
+
+let appSystemInfoPromise: Promise<AppSystemInfoPayload> | null = null
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let str = ''
@@ -39,10 +52,108 @@ function randomString(length = 64): string {
   return base64UrlEncode(bytes)
 }
 
+function randomHex(bytes = 16): string {
+  const buffer = new Uint8Array(bytes)
+  window.crypto.getRandomValues(buffer)
+  return Array.from(buffer, (value) => value.toString(16).padStart(2, '0')).join('')
+}
+
 async function sha256(input: string): Promise<string> {
   const data = new TextEncoder().encode(input)
   const hash = await window.crypto.subtle.digest('SHA-256', data)
   return base64UrlEncode(new Uint8Array(hash))
+}
+
+function toAsciiHeaderValue(value: string | undefined | null, fallback = 'unknown'): string {
+  if (!value) return fallback
+  const ascii = Array.from(value)
+    .filter((char) => char.charCodeAt(0) <= 0x7f)
+    .join('')
+    .trim()
+  return ascii || fallback
+}
+
+function normalizeMoonshotArch(value: string | undefined): string {
+  const normalized = value?.trim().toLowerCase()
+  if (!normalized) return 'Unknown'
+  if (normalized === 'x64') return 'X64'
+  if (normalized === 'arm64') return 'Arm64'
+  if (normalized === 'x86' || normalized === 'ia32') return 'X86'
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function buildMoonshotDeviceModel(info: AppSystemInfoPayload): string {
+  const platform = info.platform?.trim().toLowerCase()
+  const arch = normalizeMoonshotArch(info.arch)
+  const release = info.release?.trim()
+
+  if (platform === 'win32') {
+    const build = Number(release?.split('.').pop() ?? '')
+    const version = Number.isFinite(build) && build >= 22000 ? '11' : '10'
+    return `Windows ${version} ${arch}`
+  }
+
+  if (platform === 'darwin') {
+    return `macOS ${release || 'unknown'} ${arch}`
+  }
+
+  const description = [platform, release].filter(Boolean).join(' ').trim() || 'Unknown'
+  return `${description} ${arch}`.trim()
+}
+
+async function getAppSystemInfo(): Promise<AppSystemInfoPayload> {
+  if (!appSystemInfoPromise) {
+    appSystemInfoPromise = (async () => {
+      try {
+        const result = (await ipcClient.invoke('app:system-info')) as AppSystemInfoPayload | null
+        if (result && typeof result === 'object') {
+          return result
+        }
+      } catch {
+        // Ignore IPC failures and fall back to renderer-visible values.
+      }
+
+      const platform = /mac/i.test(navigator.platform)
+        ? 'darwin'
+        : /win/i.test(navigator.platform)
+          ? 'win32'
+          : navigator.platform.toLowerCase() || undefined
+
+      return { platform }
+    })()
+  }
+
+  return appSystemInfoPromise
+}
+
+export function isMoonshotOAuthConfig(
+  config: Pick<OAuthConfig, 'clientId' | 'tokenUrl' | 'deviceCodeUrl'>
+): boolean {
+  const endpoints = `${config.tokenUrl || ''} ${config.deviceCodeUrl || ''}`
+  return config.clientId === KIMI_CLIENT_ID || /auth\.kimi\.com/i.test(endpoints)
+}
+
+export function isMoonshotProviderConfig(config: {
+  providerBuiltinId?: string
+  baseUrl?: string
+}): boolean {
+  if (config.providerBuiltinId === 'moonshot-coding') return true
+  return /https?:\/\/api\.kimi\.com\/coding/i.test((config.baseUrl ?? '').trim())
+}
+
+export async function buildMoonshotCommonHeaders(
+  deviceId?: string
+): Promise<Record<string, string>> {
+  const systemInfo = await getAppSystemInfo()
+
+  return {
+    'X-Msh-Platform': 'kimi_cli',
+    'X-Msh-Version': KIMI_CLIENT_VERSION,
+    'X-Msh-Device-Name': toAsciiHeaderValue(systemInfo.machineName),
+    'X-Msh-Device-Model': toAsciiHeaderValue(buildMoonshotDeviceModel(systemInfo)),
+    'X-Msh-Os-Version': toAsciiHeaderValue(systemInfo.release),
+    'X-Msh-Device-Id': deviceId?.trim() || randomHex(16)
+  }
 }
 
 function buildAuthorizeUrl(config: OAuthConfig, params: Record<string, string>): string {
@@ -77,7 +188,7 @@ function parseJwtAccountId(token: string | undefined): string | undefined {
   }
 }
 
-function normalizeTokenResponse(raw: Record<string, unknown>): OAuthToken {
+function normalizeTokenResponse(raw: Record<string, unknown>, deviceId?: string): OAuthToken {
   const accessToken = String(raw.access_token ?? '')
   const refreshToken = raw.refresh_token ? String(raw.refresh_token) : undefined
   const scope = raw.scope ? String(raw.scope) : undefined
@@ -100,7 +211,8 @@ function normalizeTokenResponse(raw: Record<string, unknown>): OAuthToken {
     scope,
     tokenType,
     accountId,
-    ...(idToken ? { idToken } : {})
+    ...(idToken ? { idToken } : {}),
+    ...(deviceId ? { deviceId } : {})
   }
 }
 
@@ -117,6 +229,20 @@ function buildTokenHeaders(
     headers.Accept = 'application/json'
   }
   return headers
+}
+
+async function buildOAuthRequestHeaders(
+  config: OAuthConfig,
+  mode: 'form' | 'json',
+  overrides?: Record<string, string>,
+  deviceId?: string
+): Promise<Record<string, string>> {
+  const headers = buildTokenHeaders(mode, overrides)
+  if (!isMoonshotOAuthConfig(config)) return headers
+  return {
+    ...(await buildMoonshotCommonHeaders(deviceId)),
+    ...headers
+  }
 }
 
 async function requestOAuthJson(args: {
@@ -156,7 +282,8 @@ async function requestOAuthJson(args: {
 async function sendTokenRequest(
   config: OAuthConfig,
   body: string,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  deviceId?: string
 ): Promise<OAuthToken> {
   const { statusCode, data, rawBody } = await requestOAuthJson({
     url: config.tokenUrl,
@@ -169,7 +296,7 @@ async function sendTokenRequest(
     throw new Error(`HTTP ${statusCode}: ${rawBody.slice(0, 200)}`)
   }
 
-  const token = normalizeTokenResponse(data)
+  const token = normalizeTokenResponse(data, deviceId)
   if (!token.accessToken) {
     throw new Error('Missing access_token in response')
   }
@@ -178,7 +305,7 @@ async function sendTokenRequest(
 
 async function exchangeToken(config: OAuthConfig, body: URLSearchParams): Promise<OAuthToken> {
   const mode = config.tokenRequestMode ?? 'form'
-  const headers = buildTokenHeaders(mode, config.tokenRequestHeaders)
+  const headers = await buildOAuthRequestHeaders(config, mode, config.tokenRequestHeaders)
   const bodyStr = mode === 'json' ? JSON.stringify(Object.fromEntries(body)) : body.toString()
   return sendTokenRequest(config, bodyStr, headers)
 }
@@ -189,7 +316,13 @@ async function requestDeviceCode(config: OAuthConfig): Promise<OAuthDeviceCodeIn
   }
 
   const mode = config.deviceCodeRequestMode ?? 'form'
-  const headers = buildTokenHeaders(mode, config.deviceCodeRequestHeaders)
+  const deviceId = isMoonshotOAuthConfig(config) ? randomHex(16) : undefined
+  const headers = await buildOAuthRequestHeaders(
+    config,
+    mode,
+    config.deviceCodeRequestHeaders,
+    deviceId
+  )
   const body = new URLSearchParams()
   body.set('client_id', config.clientId)
   if (config.scope) {
@@ -229,7 +362,8 @@ async function requestDeviceCode(config: OAuthConfig): Promise<OAuthDeviceCodeIn
     verificationUri,
     ...(verificationUriComplete ? { verificationUriComplete } : {}),
     ...(Number.isFinite(expiresIn) ? { expiresAt: Date.now() + expiresIn * 1000 } : {}),
-    ...(Number.isFinite(intervalSeconds) ? { intervalSeconds } : {})
+    ...(Number.isFinite(intervalSeconds) ? { intervalSeconds } : {}),
+    ...(deviceId ? { deviceId } : {})
   }
 }
 
@@ -254,7 +388,12 @@ async function pollDeviceToken(
     body.set('client_id', config.clientId)
     body.set('device_code', device.deviceCode)
 
-    const headers = buildTokenHeaders(mode, config.tokenRequestHeaders)
+    const headers = await buildOAuthRequestHeaders(
+      config,
+      mode,
+      config.tokenRequestHeaders,
+      device.deviceId
+    )
     const requestBody = mode === 'json' ? JSON.stringify(Object.fromEntries(body)) : body.toString()
 
     const { statusCode, data, rawBody } = await requestOAuthJson({
@@ -264,7 +403,7 @@ async function pollDeviceToken(
       useSystemProxy: config.useSystemProxy
     })
 
-    const token = normalizeTokenResponse(data)
+    const token = normalizeTokenResponse(data, device.deviceId)
     if (token.accessToken) {
       return token
     }
@@ -460,7 +599,8 @@ export async function startOAuthFlow(
 
 export async function refreshOAuthFlow(
   config: OAuthConfig,
-  refreshToken: string
+  refreshToken: string,
+  deviceId?: string
 ): Promise<OAuthToken> {
   if (!config.tokenUrl || !config.clientId) {
     throw new Error('OAuth config missing tokenUrl/clientId')
@@ -468,7 +608,12 @@ export async function refreshOAuthFlow(
 
   const mode = config.refreshRequestMode ?? 'form'
   const scope = config.refreshScope ?? config.scope
-  const headers = buildTokenHeaders(mode, config.refreshRequestHeaders)
+  const headers = await buildOAuthRequestHeaders(
+    config,
+    mode,
+    config.refreshRequestHeaders,
+    deviceId
+  )
 
   if (mode === 'json') {
     const payload: Record<string, string> = {
@@ -477,7 +622,7 @@ export async function refreshOAuthFlow(
       refresh_token: refreshToken
     }
     if (scope) payload.scope = scope
-    return sendTokenRequest(config, JSON.stringify(payload), headers)
+    return sendTokenRequest(config, JSON.stringify(payload), headers, deviceId)
   }
 
   const body = new URLSearchParams()
@@ -486,5 +631,5 @@ export async function refreshOAuthFlow(
   body.set('refresh_token', refreshToken)
   if (scope) body.set('scope', scope)
 
-  return sendTokenRequest(config, body.toString(), headers)
+  return sendTokenRequest(config, body.toString(), headers, deviceId)
 }

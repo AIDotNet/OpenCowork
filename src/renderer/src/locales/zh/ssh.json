@@ -189,6 +189,23 @@
     "addGroup": "分组",
     "addServer": "服务器",
     "allConnections": "全部连接",
-    "backToList": "返回"
+    "backToList": "返回",
+    "viewTable": "表格视图",
+    "viewCard": "卡片视图",
+    "search": "搜索连接..."
+  },
+  "dashboard": {
+    "totalServers": "服务器",
+    "onlineServers": "在线",
+    "totalGroups": "分组",
+    "activeUploads": "上传",
+    "activeSessions": "会话",
+    "serverDetails": "服务器详情",
+    "quickConnect": "快速连接",
+    "noSelection": "选择服务器查看详情",
+    "noSelectionDesc": "点击连接卡片或表格行以在此处查看详细信息",
+    "lastConnected": "最近连接",
+    "never": "从未连接",
+    "createdAt": "创建时间"
   }
 }

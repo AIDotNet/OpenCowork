@@ -728,6 +728,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
 
       case 'tool_use_streaming_start':
         liveToolNames.set(event.toolCallId, event.toolName)
+        flushStreamingState()
         // Show tool card immediately while args are still streaming
         useChatStore.getState().appendToolUse(sessionId, assistantMsgId, {
           type: 'tool_use',

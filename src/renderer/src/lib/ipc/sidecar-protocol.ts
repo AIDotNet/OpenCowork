@@ -12,6 +12,8 @@ import type {
 import type { AgentEvent, ToolCallState } from '../agent/types'
 import type { SubAgentEvent } from '../agent/sub-agents/types'
 import type { CompressionConfig } from '../agent/context-compression'
+import { isMoonshotProviderConfig } from '../auth/oauth'
+import { summarizeToolInputForHistory } from '../tools/tool-input-sanitizer'
 
 export interface SidecarTextBlock {
   type: 'text'
@@ -186,6 +188,11 @@ export function normalizeSidecarRecord(value: unknown): Record<string, unknown> 
   return isRecord(value) ? value : {}
 }
 
+function sanitizeSidecarToolInput(name: string, rawInput: unknown): Record<string, unknown> {
+  const input = normalizeSidecarRecord(rawInput)
+  return summarizeToolInputForHistory(name, input)
+}
+
 function readSidecarString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
@@ -229,6 +236,7 @@ const SIDECAR_NATIVE_PROVIDER_TYPES = new Set<string>([
 
 function shouldBridgeProvider(provider: ProviderConfig): boolean {
   if (!SIDECAR_NATIVE_PROVIDER_TYPES.has(provider.type)) return true
+  if (isMoonshotProviderConfig(provider)) return true
   if (provider.type === 'gemini') {
     if (provider.category === 'image') return true
     if (/image/i.test(provider.model)) return true
@@ -348,7 +356,9 @@ function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig {
     ...(provider.temperature !== undefined ? { temperature: provider.temperature } : {}),
     ...(provider.systemPrompt ? { systemPrompt: provider.systemPrompt } : {}),
     ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
-    ...(provider.thinkingEnabled !== undefined ? { thinkingEnabled: provider.thinkingEnabled } : {}),
+    ...(provider.thinkingEnabled !== undefined
+      ? { thinkingEnabled: provider.thinkingEnabled }
+      : {}),
     ...(provider.thinkingConfig ? { thinkingConfig: provider.thinkingConfig } : {}),
     ...(provider.reasoningEffort ? { reasoningEffort: provider.reasoningEffort } : {}),
     ...(provider.providerId ? { providerId: provider.providerId } : {}),
@@ -356,7 +366,9 @@ function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig {
     ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
     ...(provider.sessionId ? { sessionId: provider.sessionId } : {}),
     ...(provider.serviceTier ? { serviceTier: provider.serviceTier } : {}),
-    ...(provider.enablePromptCache !== undefined ? { enablePromptCache: provider.enablePromptCache } : {}),
+    ...(provider.enablePromptCache !== undefined
+      ? { enablePromptCache: provider.enablePromptCache }
+      : {}),
     ...(provider.enableSystemPromptCache !== undefined
       ? { enableSystemPromptCache: provider.enableSystemPromptCache }
       : {}),
@@ -507,10 +519,7 @@ export function normalizeSidecarMessage(rawMessage: unknown): UnifiedMessage | n
   const message = normalizeSidecarRecord(rawMessage)
   const id = typeof message.id === 'string' ? message.id : ''
   const role = message.role
-  if (
-    !id ||
-    (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool')
-  ) {
+  if (!id || (role !== 'system' && role !== 'user' && role !== 'assistant' && role !== 'tool')) {
     return null
   }
 
@@ -593,7 +602,9 @@ function normalizeToolResultOutput(value: unknown): ToolResultContent | undefine
 }
 
 function normalizeToolCallStatusValue(status: unknown): ToolCallState['status'] {
-  const value = String(status ?? '').trim().toLowerCase()
+  const value = String(status ?? '')
+    .trim()
+    .toLowerCase()
   switch (value) {
     case 'streaming':
       return 'streaming'
@@ -642,7 +653,12 @@ export function normalizeSidecarSubAgentEvent(rawEvent: unknown): SubAgentEvent 
       }
     }
     case 'sub_agent_text_delta':
-      return { type: 'sub_agent_text_delta', subAgentName, toolUseId, text: String(event.text ?? '') }
+      return {
+        type: 'sub_agent_text_delta',
+        subAgentName,
+        toolUseId,
+        text: String(event.text ?? '')
+      }
     case 'sub_agent_thinking_delta':
       return {
         type: 'sub_agent_thinking_delta',
@@ -652,11 +668,7 @@ export function normalizeSidecarSubAgentEvent(rawEvent: unknown): SubAgentEvent 
       }
     case 'sub_agent_thinking_encrypted': {
       const provider = event.thinkingEncryptedProvider
-      if (
-        provider !== 'anthropic' &&
-        provider !== 'openai-responses' &&
-        provider !== 'google'
-      ) {
+      if (provider !== 'anthropic' && provider !== 'openai-responses' && provider !== 'google') {
         return null
       }
       return {
@@ -737,7 +749,7 @@ export function normalizeSidecarSubAgentEvent(rawEvent: unknown): SubAgentEvent 
         toolCall: {
           id: String(toolCall.id ?? ''),
           name: String(toolCall.name ?? ''),
-          input: normalizeSidecarRecord(toolCall.input),
+          input: sanitizeSidecarToolInput(String(toolCall.name ?? ''), toolCall.input),
           status: normalizeToolCallStatusValue(toolCall.status),
           ...(toolCall.output !== undefined
             ? { output: normalizeToolResultOutput(toolCall.output) }
@@ -794,11 +806,7 @@ export function normalizeSidecarAgentEvent(rawEvent: unknown): AgentEvent | null
       return { type: 'thinking_delta', thinking: String(event.thinking ?? '') }
     case 'thinking_encrypted': {
       const provider = event.thinkingEncryptedProvider
-      if (
-        provider === 'anthropic' ||
-        provider === 'openai-responses' ||
-        provider === 'google'
-      ) {
+      if (provider === 'anthropic' || provider === 'openai-responses' || provider === 'google') {
         return {
           type: 'thinking_encrypted',
           thinkingEncryptedContent: String(event.thinkingEncryptedContent ?? ''),
@@ -856,7 +864,10 @@ export function normalizeSidecarAgentEvent(rawEvent: unknown): AgentEvent | null
           toolCall: {
             id: String(toolCall.id ?? event.toolCallId ?? ''),
             name: String(toolCall.name ?? event.toolName ?? ''),
-            input: normalizeSidecarRecord(toolCall.input),
+            input: sanitizeSidecarToolInput(
+              String(toolCall.name ?? event.toolCallId ?? ''),
+              toolCall.input
+            ),
             status: 'running',
             requiresApproval: Boolean(toolCall.requiresApproval),
             ...(toolCall.extraContent ? { extraContent: toolCall.extraContent } : {}),
@@ -887,7 +898,7 @@ export function normalizeSidecarAgentEvent(rawEvent: unknown): AgentEvent | null
         toolCall: {
           id: String(toolCall.id ?? ''),
           name: String(toolCall.name ?? ''),
-          input: normalizeSidecarRecord(toolCall.input),
+          input: sanitizeSidecarToolInput(String(toolCall.name ?? ''), toolCall.input),
           status: 'running',
           requiresApproval: Boolean(toolCall.requiresApproval),
           ...(toolCall.extraContent ? { extraContent: toolCall.extraContent } : {}),
@@ -919,7 +930,7 @@ export function normalizeSidecarAgentEvent(rawEvent: unknown): AgentEvent | null
         toolCall: {
           id: String(toolCall.id ?? ''),
           name: String(toolCall.name ?? ''),
-          input: normalizeSidecarRecord(toolCall.input),
+          input: sanitizeSidecarToolInput(String(toolCall.name ?? ''), toolCall.input),
           status: 'pending_approval',
           requiresApproval: true,
           ...(toolCall.extraContent ? { extraContent: toolCall.extraContent } : {}),
@@ -948,7 +959,7 @@ export function normalizeSidecarAgentEvent(rawEvent: unknown): AgentEvent | null
         toolCall: {
           id: String(toolCall.id ?? ''),
           name: String(toolCall.name ?? ''),
-          input: normalizeSidecarRecord(toolCall.input),
+          input: sanitizeSidecarToolInput(String(toolCall.name ?? ''), toolCall.input),
           status,
           output: status === 'error' ? undefined : normalizeToolResultOutput(toolCall.output),
           error:
@@ -1072,7 +1083,7 @@ export function normalizeSidecarApprovalRequest(rawValue: unknown): SidecarAppro
     toolCall: {
       id,
       name,
-      input: normalizeSidecarRecord(toolCall.input),
+      input: sanitizeSidecarToolInput(name, normalizeSidecarRecord(toolCall.input)),
       status: 'pending_approval',
       requiresApproval: true,
       startedAt: Number(toolCall.startedAt ?? Date.now())

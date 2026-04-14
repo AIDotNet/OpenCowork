@@ -44,11 +44,17 @@ internal static class ProviderMessageFormatter
 
             if (replayableToolUseIds.Count > 0)
             {
-                var nextMessage = index + 1 < messages.Count ? messages[index + 1] : null;
-                var nextMessageBlocks = nextMessage?.GetBlockContent() ?? [];
-                if (nextMessage?.Role == "user")
+                for (var j = index + 1; j < messages.Count; j++)
                 {
-                    foreach (var toolResult in nextMessageBlocks.OfType<ToolResultBlock>())
+                    var candidateMessage = messages[j];
+                    if (candidateMessage.Role != "user")
+                        break;
+
+                    var candidateBlocks = candidateMessage.GetBlockContent();
+                    if (!candidateBlocks.OfType<ToolResultBlock>().Any())
+                        break;
+
+                    foreach (var toolResult in candidateBlocks.OfType<ToolResultBlock>())
                     {
                         if (!replayableToolUseIds.Contains(toolResult.ToolUseId))
                             continue;
@@ -108,10 +114,14 @@ internal static class ProviderMessageFormatter
             var blocks = message.GetBlockContent();
             if (blocks.Count == 0)
             {
+                var text = message.GetTextContent();
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
                 formatted.Add(new JsonObject
                 {
                     ["role"] = message.Role,
-                    ["content"] = message.GetTextContent()
+                    ["content"] = text
                 });
                 continue;
             }
@@ -162,10 +172,14 @@ internal static class ProviderMessageFormatter
             var blocks = message.GetBlockContent();
             if (blocks.Count == 0)
             {
+                var text = message.GetTextContent();
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
                 formatted.Add(new JsonObject
                 {
                     ["role"] = message.Role,
-                    ["content"] = message.GetTextContent()
+                    ["content"] = text
                 });
                 continue;
             }
@@ -239,12 +253,18 @@ internal static class ProviderMessageFormatter
                         && (block.EncryptedContentProvider is null || block.EncryptedContentProvider == "google"))
                     ?.EncryptedContent
                 : null;
+            var hasAssistantText = !string.IsNullOrWhiteSpace(textContent);
+
+            if (!hasAssistantText && toolUses.Count == 0)
+                continue;
 
             var assistantMessage = new JsonObject
             {
-                ["role"] = "assistant",
-                ["content"] = string.IsNullOrEmpty(textContent) ? null : textContent
+                ["role"] = "assistant"
             };
+
+            if (hasAssistantText)
+                assistantMessage["content"] = textContent;
 
             if (!string.IsNullOrEmpty(reasoningContent))
                 assistantMessage["reasoning_content"] = reasoningContent;

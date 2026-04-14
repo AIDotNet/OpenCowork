@@ -580,6 +580,45 @@ const MarkdownCode: NonNullable<Components['code']> = ({ children, className, ..
 }
 
 const MARKDOWN_COMPONENTS: Components = {
+  h1: ({ children, ...props }) => (
+    <h1 className="mt-4 mb-2 first:mt-0 text-lg font-bold text-foreground border-b border-border/40 pb-1" {...props}>
+      {children}
+    </h1>
+  ),
+  h2: ({ children, ...props }) => (
+    <h2 className="mt-3 mb-1.5 first:mt-0 text-base font-semibold text-foreground" {...props}>
+      {children}
+    </h2>
+  ),
+  h3: ({ children, ...props }) => (
+    <h3 className="mt-2 mb-1 first:mt-0 text-sm font-semibold text-foreground" {...props}>
+      {children}
+    </h3>
+  ),
+  h4: ({ children, ...props }) => (
+    <h4 className="mt-2 mb-1 first:mt-0 text-sm font-medium text-foreground/90" {...props}>
+      {children}
+    </h4>
+  ),
+  h5: ({ children, ...props }) => (
+    <h5 className="mt-1.5 mb-0.5 first:mt-0 text-xs font-medium text-foreground/80 uppercase tracking-wide" {...props}>
+      {children}
+    </h5>
+  ),
+  h6: ({ children, ...props }) => (
+    <h6 className="mt-1.5 mb-0.5 first:mt-0 text-xs font-medium text-muted-foreground uppercase tracking-wide" {...props}>
+      {children}
+    </h6>
+  ),
+  blockquote: ({ children, ...props }) => (
+    <blockquote
+      className="my-2 border-l-2 border-primary/40 pl-3 text-muted-foreground italic"
+      {...props}
+    >
+      {children}
+    </blockquote>
+  ),
+  hr: ({ ...props }) => <hr className="my-3 border-border/50" {...props} />,
   a: ({ href, children }) => (
     <a
       href={href}
@@ -627,19 +666,40 @@ const MARKDOWN_COMPONENTS: Components = {
     </li>
   ),
   table: ({ children, ...props }) => (
-    <div className="my-2 overflow-x-auto max-w-full">
-      <table className="min-w-0 border-collapse text-sm" {...props}>
+    <div className="my-3 overflow-x-auto max-w-full rounded-lg border border-border/60">
+      <table className="min-w-0 w-full border-collapse text-sm" {...props}>
         {children}
       </table>
     </div>
   ),
+  thead: ({ children, ...props }) => (
+    <thead className="bg-muted/60" {...props}>
+      {children}
+    </thead>
+  ),
+  tbody: ({ children, ...props }) => (
+    <tbody className="divide-y divide-border/40" {...props}>
+      {children}
+    </tbody>
+  ),
+  tr: ({ children, ...props }) => (
+    <tr className="hover:bg-muted/30 transition-colors" {...props}>
+      {children}
+    </tr>
+  ),
   th: ({ children, ...props }) => (
-    <th className="whitespace-pre-wrap break-words" {...props}>
+    <th
+      className="whitespace-pre-wrap break-words px-3 py-2 text-left font-semibold text-foreground/90 border-b border-border/60"
+      {...props}
+    >
       {children}
     </th>
   ),
   td: ({ children, ...props }) => (
-    <td className="whitespace-pre-wrap break-words" {...props}>
+    <td
+      className="whitespace-pre-wrap break-words px-3 py-2 text-foreground/80 border-r border-border/30 last:border-r-0"
+      {...props}
+    >
       {children}
     </td>
   ),

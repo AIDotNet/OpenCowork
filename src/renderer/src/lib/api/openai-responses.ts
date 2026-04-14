@@ -576,9 +576,12 @@ class OpenAIResponsesProvider implements APIProvider {
 
       const pairedToolUseIds = new Set<string>()
       if (replayableToolUseIds.size > 0) {
-        const nextMessage = messages[index + 1]
-        if (nextMessage?.role === 'user' && Array.isArray(nextMessage.content)) {
-          for (const block of nextMessage.content as ContentBlock[]) {
+        for (let j = index + 1; j < messages.length; j++) {
+          const candidateMsg = messages[j]
+          if (candidateMsg.role !== 'user' || !Array.isArray(candidateMsg.content)) break
+          const candidateBlocks = candidateMsg.content as ContentBlock[]
+          if (!candidateBlocks.some((b) => b.type === 'tool_result')) break
+          for (const block of candidateBlocks) {
             if (block.type !== 'tool_result' || !replayableToolUseIds.has(block.toolUseId)) continue
             pairedToolUseIds.add(block.toolUseId)
             validToolUseIds.add(block.toolUseId)

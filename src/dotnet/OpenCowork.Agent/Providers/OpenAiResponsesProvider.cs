@@ -418,11 +418,15 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
             var blocks = message.GetBlockContent();
             if (blocks.Count == 0)
             {
+                var text = message.GetTextContent();
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
                 input.Add(new JsonObject
                 {
                     ["type"] = "message",
                     ["role"] = message.Role,
-                    ["content"] = message.GetTextContent()
+                    ["content"] = text
                 });
                 continue;
             }
@@ -471,6 +475,8 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                 switch (block)
                 {
                     case TextBlock textBlock:
+                        if (string.IsNullOrWhiteSpace(textBlock.Text))
+                            break;
                         input.Add(new JsonObject
                         {
                             ["type"] = "message",

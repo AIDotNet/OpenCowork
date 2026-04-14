@@ -146,13 +146,20 @@ export function SshTerminal({
       ipcClient.send(IPC.SSH_RESIZE, { sessionId, cols, rows })
     })
 
-    const pendingChunks: { seq: number; data: number[] }[] = []
+    const pendingChunks: { seq: number; data: string }[] = []
     let bufferLoaded = false
+
+    const decodeBase64 = (b64: string): Uint8Array => {
+      const raw = atob(b64)
+      const bytes = new Uint8Array(raw.length)
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+      return bytes
+    }
 
     // Receive output from SSH
     const outputCleanup = window.electron.ipcRenderer.on(
       IPC.SSH_OUTPUT,
-      (_event: unknown, payload: { sessionId: string; data: number[]; seq?: number }) => {
+      (_event: unknown, payload: { sessionId: string; data: string; seq?: number }) => {
         if (payload.sessionId !== sessionId) return
         const seq = typeof payload.seq === 'number' ? payload.seq : 0
 
@@ -164,8 +171,7 @@ export function SshTerminal({
         if (seq && seq <= lastSeqRef.current) return
         if (seq) lastSeqRef.current = seq
 
-        // Write binary data directly to preserve TUI rendering
-        term.write(new Uint8Array(payload.data))
+        term.write(decodeBase64(payload.data))
       }
     )
 
@@ -173,10 +179,10 @@ export function SshTerminal({
       try {
         const result = await ipcClient.invoke(IPC.SSH_OUTPUT_BUFFER, { sessionId, sinceSeq: 0 })
         if (result && typeof result === 'object') {
-          const { chunks, lastSeq } = result as { chunks?: number[][]; lastSeq?: number }
+          const { chunks, lastSeq } = result as { chunks?: string[]; lastSeq?: number }
           if (Array.isArray(chunks)) {
             for (const chunk of chunks) {
-              term.write(new Uint8Array(chunk))
+              term.write(decodeBase64(chunk))
             }
           }
           if (typeof lastSeq === 'number') {
@@ -193,7 +199,7 @@ export function SshTerminal({
         for (const chunk of pendingChunks) {
           if (chunk.seq && chunk.seq <= lastSeqRef.current) continue
           if (chunk.seq) lastSeqRef.current = chunk.seq
-          term.write(new Uint8Array(chunk.data))
+          term.write(decodeBase64(chunk.data))
         }
         pendingChunks.length = 0
       }

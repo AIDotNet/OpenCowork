@@ -1253,7 +1253,7 @@ function recordOutput(session: SshSession, data: Buffer): void {
 
   broadcastToRenderer('ssh:output', {
     sessionId: session.id,
-    data: Array.from(chunk),
+    data: chunk.toString('base64'),
     seq
   })
 }
@@ -1981,7 +1981,7 @@ export function registerSshHandlers(): void {
       const sinceSeq = args.sinceSeq ?? 0
       const chunks = session.outputBuffer
         .filter((entry) => entry.seq > sinceSeq)
-        .map((entry) => Array.from(entry.data))
+        .map((entry) => entry.data.toString('base64'))
 
       return {
         lastSeq: session.outputSeq,
@@ -2045,6 +2045,7 @@ export function registerSshHandlers(): void {
         connectionId: string
         path: string
         content: string
+        beforeContent?: string
         changeMeta?: { runId?: string; sessionId?: string; toolUseId?: string; toolName?: string }
       }
     ) => {
@@ -2053,7 +2054,10 @@ export function registerSshHandlers(): void {
         await withFileSession(args.connectionId, async (session) => {
           const sftp = await getSftp(session)
           const resolvedPath = await resolveSftpPath(session, args.path)
-          const before = await readSshTextSnapshot(args.connectionId, resolvedPath)
+          const before =
+            typeof args.beforeContent === 'string'
+              ? buildFileSnapshot(true, args.beforeContent)
+              : await readSshTextSnapshot(args.connectionId, resolvedPath)
           op = before.exists ? 'modify' : 'create'
 
           // Ensure parent directory exists

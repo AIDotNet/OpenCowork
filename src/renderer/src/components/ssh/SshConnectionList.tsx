@@ -14,7 +14,8 @@ import {
   CheckCircle2,
   RefreshCw,
   Download,
-  Upload
+  Upload,
+  Search
 } from 'lucide-react'
 import { useSshStore, type SshConnection, type SshGroup } from '@renderer/stores/ssh-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -23,12 +24,22 @@ import { Button } from '@renderer/components/ui/button'
 import { Badge } from '@renderer/components/ui/badge'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { Dialog, DialogContent } from '@renderer/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@renderer/components/ui/dropdown-menu'
 import { cn } from '@renderer/lib/utils'
 import { toast } from 'sonner'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { SshConnectionForm } from './SshConnectionForm'
 import { SshGroupDialog } from './SshGroupDialog'
 import { SshImportDialog } from './SshImportDialog'
+import { SshDashboardStats } from './SshDashboardStats'
+import { SshConnectionCard } from './SshConnectionCard'
+import { SshViewToggle } from './SshViewToggle'
+import { SshConnectionDetail } from './SshConnectionDetail'
 
 interface SshConnectionListProps {
   onConnect: (connectionId: string) => void
@@ -43,6 +54,11 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
   const connections = useSshStore((s) => s.connections)
   const sessions = useSshStore((s) => s.sessions)
   const loadAll = useSshStore((s) => s.loadAll)
+  const uploadTasks = useSshStore((s) => s.uploadTasks)
+  const viewMode = useSshStore((s) => s.connectionListViewMode)
+  const setViewMode = useSshStore((s) => s.setConnectionListViewMode)
+  const detailConnectionId = useSshStore((s) => s.detailConnectionId)
+  const setDetailConnectionId = useSshStore((s) => s.setDetailConnectionId)
 
   const [showForm, setShowForm] = useState(false)
   const [editingConnection, setEditingConnection] = useState<SshConnection | null>(null)
@@ -54,6 +70,7 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [importOpen, setImportOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const toggleGroup = (groupId: string): void => {
     setCollapsedGroups((prev) => {
@@ -189,10 +206,46 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
     grouped.get(key)!.push(conn)
   }
 
-  const visibleConnections =
-    selectedGroupId === null
-      ? connections
-      : connections.filter((c) => c.groupId === selectedGroupId)
+  const visibleConnections = useMemo(() => {
+    const byGroup =
+      selectedGroupId === null
+        ? connections
+        : connections.filter((c) => c.groupId === selectedGroupId)
+    if (!searchQuery.trim()) return byGroup
+    const q = searchQuery.toLowerCase()
+    return byGroup.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.host.toLowerCase().includes(q) ||
+        c.username.toLowerCase().includes(q)
+    )
+  }, [connections, selectedGroupId, searchQuery])
+
+  const onlineCount = useMemo(
+    () =>
+      connections.filter((c) =>
+        Object.values(sessions).some((s) => s.connectionId === c.id && s.status === 'connected')
+      ).length,
+    [connections, sessions]
+  )
+  const offlineCount = connections.length - onlineCount
+
+  const sessionCount = useMemo(
+    () => Object.values(sessions).filter((s) => s.status === 'connected').length,
+    [sessions]
+  )
+
+  const activeUploadCount = useMemo(
+    () =>
+      Object.values(uploadTasks).filter(
+        (task) => task.stage !== 'done' && task.stage !== 'error' && task.stage !== 'canceled'
+      ).length,
+    [uploadTasks]
+  )
+
+  const detailConnection = detailConnectionId
+    ? (connections.find((c) => c.id === detailConnectionId) ?? null)
+    : null
 
   const visibleIds = useMemo(
     () => visibleConnections.map((connection) => connection.id),
@@ -210,6 +263,18 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
             {t('groups')}
           </span>
+        </div>
+        <div className="border-b px-3 py-2">
+          <div className="flex items-center gap-3 text-[10px]">
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <div className="size-1.5 rounded-full bg-emerald-500" />
+              {onlineCount} {t('list.online')}
+            </span>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <div className="size-1.5 rounded-full bg-muted-foreground/30" />
+              {offlineCount} {t('list.offline')}
+            </span>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-1">
           {/* All connections */}
@@ -304,10 +369,30 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
             )
           })}
         </div>
+        <div className="border-t px-3 py-2 space-y-1 shrink-0">
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-muted-foreground/50">{t('dashboard.activeSessions')}</span>
+            <span className="text-muted-foreground">{sessionCount}</span>
+          </div>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-muted-foreground/50">{t('dashboard.activeUploads')}</span>
+            <span className={cn('text-muted-foreground', activeUploadCount > 0 && 'text-primary')}>
+              {activeUploadCount}
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* Main area: Connection table */}
+      {/* Main area */}
       <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Stats bar */}
+        <SshDashboardStats
+          connections={connections}
+          sessions={sessions}
+          groups={groups}
+          uploadTasks={uploadTasks}
+        />
+
         {/* Toolbar */}
         <div className="flex items-center gap-1.5 border-b px-3 py-2 shrink-0">
           <Button
@@ -328,30 +413,31 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
             <Upload className="size-3.5" />
             {t('migration.importButton')}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1 text-xs"
-            onClick={() => void handleExport('all')}
-          >
-            <Download className="size-3.5" />
-            {t('migration.exportAll')}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1 text-xs"
-            onClick={() => void handleExport('selected')}
-            disabled={selectedIds.size === 0}
-          >
-            <Download className="size-3.5" />
-            {t('migration.exportSelected')}
-            {selectedIds.size > 0 && (
-              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
-                {selectedIds.size}
-              </span>
-            )}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs">
+                <Download className="size-3.5" />
+                {t('migration.exportAll')}
+                <ChevronDown className="size-3 ml-0.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={() => void handleExport('all')}>
+                {t('migration.exportAll')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => void handleExport('selected')}
+                disabled={selectedIds.size === 0}
+              >
+                {t('migration.exportSelected')}
+                {selectedIds.size > 0 && (
+                  <Badge variant="secondary" className="ml-2 text-[10px]">
+                    {selectedIds.size}
+                  </Badge>
+                )}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div className="mx-1 h-4 w-px bg-border" />
           <Button
             variant="outline"
@@ -377,32 +463,95 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
             <Plus className="size-3.5" />
             {t('list.addServer')}
           </Button>
-          <div className="ml-auto text-[11px] text-muted-foreground">
-            {selectedIds.size > 0
-              ? t('migration.selectedSummary', { count: selectedIds.size })
-              : t('migration.selectionHint')}
+          <div className="ml-auto flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground/40" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t('list.search')}
+                className="h-8 w-44 rounded-md border border-border bg-transparent pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30"
+              />
+            </div>
+            <SshViewToggle mode={viewMode} onChange={setViewMode} />
           </div>
         </div>
 
         {/* Connection list */}
         <div className="min-h-0 flex-1 overflow-auto">
           {visibleConnections.length === 0 ? (
-            <div className="flex flex-col items-center justify-center px-8 py-16 text-center">
-              <Server className="mb-3 size-10 text-muted-foreground/25" />
-              <p className="text-sm text-muted-foreground/60">{t('noConnections')}</p>
-              <p className="mt-1 text-xs text-muted-foreground/40">{t('noConnectionsDesc')}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-4 gap-1 text-xs"
-                onClick={() => {
-                  setEditingConnection(null)
-                  setShowForm(true)
-                }}
-              >
-                <Plus className="size-3" />
-                {t('newConnection')}
-              </Button>
+            <div className="flex flex-1 flex-col items-center justify-center px-8 py-12 text-center h-full">
+              <div className="mb-4 flex size-16 items-center justify-center rounded-2xl bg-muted/30">
+                <Server className="size-8 text-muted-foreground/30" />
+              </div>
+              <p className="text-sm font-medium text-foreground/80">{t('noConnections')}</p>
+              <p className="mt-1.5 max-w-xs text-xs text-muted-foreground/50">
+                {t('noConnectionsDesc')}
+              </p>
+              <div className="mt-6 flex items-center gap-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-8 gap-1 text-xs"
+                  onClick={() => {
+                    setEditingConnection(null)
+                    setShowForm(true)
+                  }}
+                >
+                  <Plus className="size-3.5" />
+                  {t('newConnection')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1 text-xs"
+                  onClick={() => setImportOpen(true)}
+                >
+                  <Upload className="size-3.5" />
+                  {t('migration.importButton')}
+                </Button>
+              </div>
+            </div>
+          ) : viewMode === 'card' ? (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2 p-3">
+              {visibleConnections.map((conn) => {
+                const sess = getSessionForConnection(conn.id)
+                const group = groups.find((g) => g.id === conn.groupId)
+                const testInfo = testStatus[conn.id]
+                const testFresh = testInfo ? now - testInfo.at < TEST_STATUS_TTL_MS : false
+                return (
+                  <SshConnectionCard
+                    key={conn.id}
+                    connection={conn}
+                    session={sess}
+                    group={group}
+                    isChecked={selectedIds.has(conn.id)}
+                    isDetailSelected={detailConnectionId === conn.id}
+                    isTesting={testingId === conn.id}
+                    testFresh={testFresh}
+                    testOk={testFresh ? testInfo?.ok : undefined}
+                    onConnect={(id) => void handleConnect(id)}
+                    onOpenTerminal={handleOpenTerminal}
+                    onDisconnect={(sid) => void handleDisconnect(sid)}
+                    onTest={(id) => void handleTest(id)}
+                    onEdit={(c) => {
+                      setEditingConnection(c)
+                      setShowForm(true)
+                    }}
+                    onDelete={(c) => void handleDeleteConnection(c)}
+                    onCheck={(id, checked) => {
+                      setSelectedIds((prev) => {
+                        const next = new Set(prev)
+                        if (checked) next.add(id)
+                        else next.delete(id)
+                        return next
+                      })
+                    }}
+                    onDetailClick={setDetailConnectionId}
+                  />
+                )
+              })}
             </div>
           ) : (
             <div className="min-w-[980px]">
@@ -450,9 +599,11 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
                   <div
                     key={conn.id}
                     className={cn(
-                      'grid grid-cols-[36px_minmax(0,1.3fr)_160px_190px_150px_190px] items-center gap-3 border-b px-4 py-3 text-xs transition-colors hover:bg-muted/20',
-                      isSelected && 'bg-primary/5'
+                      'grid grid-cols-[36px_minmax(0,1.3fr)_160px_190px_150px_190px] items-center gap-3 border-b px-4 py-3 text-xs transition-colors hover:bg-muted/20 cursor-pointer',
+                      isSelected && 'bg-primary/5',
+                      detailConnectionId === conn.id && 'bg-primary/5 border-l-2 border-l-primary'
                     )}
+                    onClick={() => setDetailConnectionId(conn.id)}
                   >
                     <div className="flex items-center justify-center">
                       <Checkbox
@@ -623,6 +774,33 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
             </div>
           )}
         </div>
+
+        {/* Detail panel */}
+        {detailConnection ? (
+          <SshConnectionDetail
+            connection={detailConnection}
+            session={getSessionForConnection(detailConnection.id)}
+            group={groups.find((g) => g.id === detailConnection.groupId)}
+            onConnect={(id) => void handleConnect(id)}
+            onOpenTerminal={handleOpenTerminal}
+            onTest={(id) => void handleTest(id)}
+            onEdit={(c) => {
+              setEditingConnection(c)
+              setShowForm(true)
+            }}
+            onDelete={(c) => void handleDeleteConnection(c)}
+            onClose={() => setDetailConnectionId(null)}
+          />
+        ) : visibleConnections.length > 0 ? (
+          <div className="flex items-center justify-center border-t bg-muted/5 px-4 py-4 shrink-0">
+            <div className="text-center">
+              <Server className="mx-auto mb-1 size-5 text-muted-foreground/20" />
+              <span className="text-[10px] text-muted-foreground/40">
+                {t('dashboard.noSelection')}
+              </span>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Connection Dialog */}

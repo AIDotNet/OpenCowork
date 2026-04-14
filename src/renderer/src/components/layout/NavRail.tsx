@@ -11,9 +11,11 @@ import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { useUIStore, type NavItem } from '@renderer/stores/ui-store'
 import { cn } from '@renderer/lib/utils'
+import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 import packageJson from '../../../../../package.json'
 
-const navItems: { value: NavItem; icon: React.ReactNode; labelKey: string }[] = [
+const navItems: { value: NavItem | 'ssh'; icon: React.ReactNode; labelKey: string }[] = [
   { value: 'chat', icon: <MessageSquare className="size-5" />, labelKey: 'navRail.conversations' },
   { value: 'tasks', icon: <CalendarDays className="size-5" />, labelKey: 'navRail.tasks' },
   { value: 'resources', icon: <FolderOpen className="size-5" />, labelKey: 'navRail.resources' },
@@ -31,10 +33,9 @@ export function NavRail(): React.JSX.Element {
   const resourcesPageOpen = useUIStore((s) => s.resourcesPageOpen)
   const drawPageOpen = useUIStore((s) => s.drawPageOpen)
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
-  const sshPageOpen = useUIStore((s) => s.sshPageOpen)
   const tasksPageOpen = useUIStore((s) => s.tasksPageOpen)
 
-  const handleNavClick = (item: NavItem): void => {
+  const handleNavClick = (item: NavItem | 'ssh'): void => {
     if (item === 'tasks') {
       useUIStore.getState().openTasksPage()
       return
@@ -56,7 +57,7 @@ export function NavRail(): React.JSX.Element {
       return
     }
     if (item === 'ssh') {
-      useUIStore.getState().openSshPage()
+      void ipcClient.invoke(IPC.SSH_WINDOW_OPEN)
       return
     }
     // Close skills/settings pages when navigating to chat
@@ -66,7 +67,6 @@ export function NavRail(): React.JSX.Element {
     if (ui.resourcesPageOpen) ui.closeResourcesPage()
     if (ui.drawPageOpen) ui.closeDrawPage()
     if (ui.translatePageOpen) ui.closeTranslatePage()
-    if (ui.sshPageOpen) ui.closeSshPage()
     if (ui.tasksPageOpen) ui.closeTasksPage()
     if (activeNavItem === item && leftSidebarOpen) {
       useUIStore.getState().setLeftSidebarOpen(false)
@@ -95,7 +95,6 @@ export function NavRail(): React.JSX.Element {
                     (item.value === 'skills' && skillsPageOpen) ||
                     (item.value === 'draw' && drawPageOpen) ||
                     (item.value === 'translate' && translatePageOpen) ||
-                    (item.value === 'ssh' && sshPageOpen) ||
                     (!['tasks', 'resources', 'skills', 'draw', 'translate', 'ssh'].includes(
                       item.value
                     ) &&

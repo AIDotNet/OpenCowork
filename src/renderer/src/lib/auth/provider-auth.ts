@@ -88,6 +88,7 @@ function parseManualOAuthPayload(raw: string): AIProvider['oauth'] {
   const tokenType = asString(payload.token_type ?? payload.tokenType)
   const accountId = asString(payload.account_id ?? payload.accountId)
   const idToken = asString(payload.id_token ?? payload.idToken)
+  const deviceId = asString(payload.device_id ?? payload.deviceId)
   const copilotAccessToken = asString(
     payload.copilot_access_token ?? payload.copilotAccessToken ?? payload.oauth_token
   )
@@ -143,6 +144,7 @@ function parseManualOAuthPayload(raw: string): AIProvider['oauth'] {
     ...(tokenType ? { tokenType } : {}),
     ...(accountId ? { accountId } : {}),
     ...(idToken ? { idToken } : {}),
+    ...(deviceId ? { deviceId } : {}),
     ...(copilotAccessToken ? { copilotAccessToken } : {}),
     ...(copilotTokenType ? { copilotTokenType } : {}),
     ...(copilotExpiresAt ? { copilotExpiresAt } : {}),
@@ -680,6 +682,7 @@ export function exportProviderAccounts(providerId: string): string {
       ...(t.tokenType ? { token_type: t.tokenType } : {}),
       ...(t.accountId ? { account_id: t.accountId } : {}),
       ...(t.idToken ? { id_token: t.idToken } : {}),
+      ...(t.deviceId ? { device_id: t.deviceId } : {}),
       ...(t.copilotAccessToken ? { copilot_access_token: t.copilotAccessToken } : {}),
       ...(t.copilotExpiresAt ? { copilot_expires_at: t.copilotExpiresAt } : {}),
       ...(t.copilotApiUrl ? { copilot_api_url: t.copilotApiUrl } : {})
@@ -708,7 +711,7 @@ export async function refreshProviderOAuth(
     if (!current?.refreshToken) return false
     const expiresAt = current.expiresAt ?? 0
     if (!force && expiresAt && expiresAt - Date.now() > REFRESH_SKEW_MS) return true
-    const next = await refreshOAuthFlow(config, current.refreshToken)
+    const next = await refreshOAuthFlow(config, current.refreshToken, current.deviceId)
     const mergedToken: OAuthToken = {
       ...current,
       ...next,
@@ -733,7 +736,7 @@ export async function refreshProviderOAuth(
   if (!current?.refreshToken) return false
   const expiresAt = current.expiresAt ?? 0
   if (!force && expiresAt && expiresAt - Date.now() > REFRESH_SKEW_MS) return true
-  const next = await refreshOAuthFlow(config, current.refreshToken)
+  const next = await refreshOAuthFlow(config, current.refreshToken, current.deviceId)
   const mergedToken: OAuthToken = {
     ...current,
     ...next,

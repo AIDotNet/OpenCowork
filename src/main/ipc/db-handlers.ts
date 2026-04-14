@@ -226,6 +226,27 @@ export function registerDbHandlers(): void {
   })
 
   ipcMain.handle(
+    'db:messages:replace',
+    (
+      _event,
+      args: {
+        sessionId: string
+        messages: Array<{
+          id: string
+          role: string
+          content: string
+          createdAt: number
+          usage?: string | null
+          sortOrder: number
+        }>
+      }
+    ) => {
+      messagesDao.replaceMessages(args.sessionId, args.messages)
+      return { success: true }
+    }
+  )
+
+  ipcMain.handle(
     'db:messages:truncate-from',
     (_event, args: { sessionId: string; fromSortOrder: number }) => {
       messagesDao.truncateMessagesFrom(args.sessionId, args.fromSortOrder)
@@ -537,8 +558,11 @@ export function registerDbHandlers(): void {
     return wikiDao.createWikiGenerationRun(args)
   })
 
-  ipcMain.handle('db:wiki:update-run', (_event, args: { id: string; patch: Record<string, unknown> }) => {
-    wikiDao.updateWikiGenerationRun(args.id, args.patch)
-    return { success: true }
-  })
+  ipcMain.handle(
+    'db:wiki:update-run',
+    (_event, args: { id: string; patch: Record<string, unknown> }) => {
+      wikiDao.updateWikiGenerationRun(args.id, args.patch)
+      return { success: true }
+    }
+  )
 }

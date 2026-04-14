@@ -166,6 +166,9 @@ interface AIProviderConfigRecord {
   instructionsPrompt?: string
   defaultModel?: string
   authMode?: string
+  oauth?: {
+    accountId?: string
+  }
 }
 
 interface RequestOverrides {
@@ -196,6 +199,7 @@ interface ProviderConfig {
   serviceTier?: string
   sessionId?: string
   computerUseEnabled?: boolean
+  accountId?: string
 }
 
 interface StreamEvent {
@@ -452,6 +456,7 @@ function buildProviderConfigById(
     ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
     ...(requestOverrides ? { requestOverrides } : {}),
     ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
+    ...(provider.oauth?.accountId ? { accountId: provider.oauth.accountId } : {}),
     ...(model?.responseSummary ? { responseSummary: model.responseSummary } : {}),
     ...(model?.enablePromptCache !== undefined
       ? { enablePromptCache: model.enablePromptCache }

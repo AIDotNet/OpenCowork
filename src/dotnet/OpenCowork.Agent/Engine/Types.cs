@@ -227,6 +227,9 @@ internal static class ContentBlockJson
 
 public sealed class UnifiedMessage
 {
+    private List<ContentBlock>? _content;
+    private JsonElement? _rawContent;
+
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public required string Role { get; set; }
 
@@ -235,13 +238,40 @@ public sealed class UnifiedMessage
     /// On the wire this may be a string or JsonElement.
     /// </summary>
     [JsonIgnore]
-    public List<ContentBlock>? Content { get; set; }
+    public List<ContentBlock>? Content
+    {
+        get => _content;
+        set
+        {
+            _content = value;
+            if (value is null)
+                return;
+
+            _rawContent = JsonSerializer.SerializeToElement(value, AppJsonContext.Default.ListContentBlock);
+        }
+    }
 
     /// <summary>
     /// Raw JSON content for wire serialization.
     /// </summary>
     [JsonPropertyName("content")]
-    public JsonElement? RawContent { get; set; }
+    public JsonElement? RawContent
+    {
+        get
+        {
+            if (_rawContent is null && _content is not null)
+                _rawContent = JsonSerializer.SerializeToElement(_content, AppJsonContext.Default.ListContentBlock);
+
+            return _rawContent;
+        }
+        set
+        {
+            _rawContent = value?.Clone();
+            _content = value is { ValueKind: JsonValueKind.Array }
+                ? ContentBlockJson.DeserializeList(value.Value)
+                : null;
+        }
+    }
 
     public long CreatedAt { get; set; }
     public TokenUsage? Usage { get; set; }

@@ -289,7 +289,8 @@ function shouldSuppressTransientRuntimeError(message: string | null | undefined)
 
   return (
     /CancellationTokenSource has been disposed/i.test(normalized) ||
-    (/Cannot access a disposed object\./i.test(normalized) && /CancellationTokenSource/i.test(normalized))
+    (/Cannot access a disposed object\./i.test(normalized) &&
+      /CancellationTokenSource/i.test(normalized))
   )
 }
 
@@ -1162,6 +1163,7 @@ export function abortSession(sessionId: string): void {
 // 60fps flush causes expensive markdown + layout work during panel resizing.
 // 33ms keeps streaming smooth while lowering render/reflow pressure.
 const STREAM_DELTA_FLUSH_MS = 33
+const BACKGROUND_STREAM_DELTA_FLUSH_MS = 200
 // SubAgent text can arrive from multiple inner loops at high frequency.
 // Buffering it separately avoids waking large parts of the UI on every tiny delta.
 const SUB_AGENT_TEXT_FLUSH_MS = 66
@@ -1174,7 +1176,11 @@ interface StreamDeltaBuffer {
   dispose: () => void
 }
 
-function createStreamDeltaBuffer(sessionId: string, assistantMsgId: string): StreamDeltaBuffer {
+function createStreamDeltaBuffer(
+  sessionId: string,
+  assistantMsgId: string,
+  flushIntervalMs = STREAM_DELTA_FLUSH_MS
+): StreamDeltaBuffer {
   let thinkingBuffer = ''
   let textBuffer = ''
   const toolInputBuffer = new Map<string, Record<string, unknown>>()
@@ -1211,7 +1217,7 @@ function createStreamDeltaBuffer(sessionId: string, assistantMsgId: string): Str
     timer = setTimeout(() => {
       timer = null
       flushNow()
-    }, STREAM_DELTA_FLUSH_MS)
+    }, flushIntervalMs)
   }
 
   return {
@@ -1241,7 +1247,6 @@ function createStreamDeltaBuffer(sessionId: string, assistantMsgId: string): Str
     }
   }
 }
-
 
 function shouldHandleAgentEventAfterAbort(event: AgentEvent): boolean {
   switch (event.type) {
@@ -1366,6 +1371,7 @@ async function canUseSidecarForAgentRun(args: {
   tools: ToolDefinition[]
   sessionId?: string
   workingFolder?: string
+  sshConnectionId?: string
   maxIterations: number
   forceApproval: boolean
   compression?: CompressionConfig | null
@@ -1375,12 +1381,17 @@ async function canUseSidecarForAgentRun(args: {
   hasChannels: boolean
   hasMcps: boolean
 }): Promise<boolean> {
+  if (args.sshConnectionId) {
+    return false
+  }
+
   const sidecarRequest = buildSidecarAgentRunRequest({
     messages: args.messages,
     provider: args.provider,
     tools: args.tools,
     sessionId: args.sessionId,
     workingFolder: args.workingFolder,
+    sshConnectionId: args.sshConnectionId,
     maxIterations: args.maxIterations,
     forceApproval: args.forceApproval,
     compression: args.compression,
@@ -1810,9 +1821,7 @@ export function useChatActions(): {
 
       // After a manual abort, stale errored/orphaned tool blocks can remain at tail
       // and break the next request. Clean them before appending new user input.
-      if (source !== 'continue') {
-        chatStore.sanitizeToolErrorsForResend(sessionId)
-      }
+      chatStore.sanitizeToolErrorsForResend(sessionId)
 
       baseProviderConfig.sessionId = sessionId
 
@@ -2184,7 +2193,9 @@ export function useChatActions(): {
         let agentSystemPrompt = cachedPromptSnapshot?.systemPrompt ?? ''
 
         if (canReusePromptSnapshot && cachedPromptSnapshot) {
-          effectiveToolDefs = autoSelectedFastWithoutTools ? [] : cachedPromptSnapshot.toolDefs.slice()
+          effectiveToolDefs = autoSelectedFastWithoutTools
+            ? []
+            : cachedPromptSnapshot.toolDefs.slice()
         } else {
           const sshConnection = session?.sshConnectionId
             ? useSshStore
@@ -2397,20 +2408,21 @@ export function useChatActions(): {
           })
 
           const useSidecar = await canUseSidecarForAgentRun({
-              messages: messagesToSend,
-              provider: agentProviderConfig,
-              tools: effectiveToolDefs,
-              sessionId,
-              workingFolder: session?.workingFolder,
-              maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
-              forceApproval: false,
-              compression: compressionConfig,
-              isPlanMode,
-              sessionMode: mode,
-              desktopControlMode,
-              hasChannels: scopedActiveChannels.length > 0,
-              hasMcps: activeMcps.length > 0
-            })
+            messages: messagesToSend,
+            provider: agentProviderConfig,
+            tools: effectiveToolDefs,
+            sessionId,
+            workingFolder: session?.workingFolder,
+            sshConnectionId: session?.sshConnectionId,
+            maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
+            forceApproval: false,
+            compression: compressionConfig,
+            isPlanMode,
+            sessionMode: mode,
+            desktopControlMode,
+            hasChannels: scopedActiveChannels.length > 0,
+            hasMcps: activeMcps.length > 0
+          })
 
           console.log('[ChatActions] Agent execution path', {
             sessionId,
@@ -2553,7 +2565,13 @@ export function useChatActions(): {
           let thinkingDone = false
           let hasThinkingDelta = false
           const liveToolNames = new Map<string, string>()
-          streamDeltaBuffer = createStreamDeltaBuffer(sessionId!, assistantMsgId)
+          streamDeltaBuffer = createStreamDeltaBuffer(
+            sessionId!,
+            assistantMsgId,
+            isSessionForeground(sessionId!)
+              ? STREAM_DELTA_FLUSH_MS
+              : BACKGROUND_STREAM_DELTA_FLUSH_MS
+          )
 
           const flushChatToolInput = (toolCallId: string): void => {
             const entry = chatToolInputThrottle.get(toolCallId)
@@ -2571,6 +2589,7 @@ export function useChatActions(): {
           }
 
           const flushToolInput = (toolCallId: string): void => {
+            if (!isSessionForeground(sessionId!)) return
             const entry = toolInputThrottle.get(toolCallId)
             if (!entry?.pending) return
             const snapshot = JSON.stringify(entry.pending)
@@ -2703,7 +2722,9 @@ export function useChatActions(): {
                   appendRuntimeContentBlock(sessionId!, assistantMsgId, event.imageBlock)
                 }
                 // Clear generating state after first image
-                useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+                if (isSessionForeground(sessionId!)) {
+                  useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+                }
                 break
 
               case 'image_error':
@@ -2719,7 +2740,9 @@ export function useChatActions(): {
                     message: event.imageError.message
                   })
                 }
-                useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+                if (isSessionForeground(sessionId!)) {
+                  useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+                }
                 break
 
               case 'tool_use_streaming_start':
@@ -2740,19 +2763,21 @@ export function useChatActions(): {
                     ? { extraContent: event.toolCallExtraContent }
                     : {})
                 })
-                useAgentStore.getState().addToolCall(
-                  {
-                    id: event.toolCallId,
-                    name: event.toolName,
-                    input: {},
-                    status: 'streaming',
-                    requiresApproval: false,
-                    ...(event.toolCallExtraContent
-                      ? { extraContent: event.toolCallExtraContent }
-                      : {})
-                  },
-                  sessionId!
-                )
+                if (isSessionForeground(sessionId!)) {
+                  useAgentStore.getState().addToolCall(
+                    {
+                      id: event.toolCallId,
+                      name: event.toolName,
+                      input: {},
+                      status: 'streaming',
+                      requiresApproval: false,
+                      ...(event.toolCallExtraContent
+                        ? { extraContent: event.toolCallExtraContent }
+                        : {})
+                    },
+                    sessionId!
+                  )
+                }
                 break
 
               case 'tool_use_args_delta': {
@@ -2764,7 +2789,7 @@ export function useChatActions(): {
                 break
               }
 
-              case 'tool_use_generated':
+              case 'tool_use_generated': {
                 runUsedTools = true
                 liveToolNames.set(event.toolUseBlock.id, event.toolUseBlock.name)
                 if (event.toolUseBlock.name === 'Write') {
@@ -2779,14 +2804,16 @@ export function useChatActions(): {
                 }
                 // Some providers emit only tool_use_generated without a prior tool_use_streaming_start.
                 // Ensure the assistant message has a visible tool block so later results can attach to it.
-                if (
-                  ![
+                const isFg = isSessionForeground(sessionId!)
+                const alreadyTracked =
+                  isFg &&
+                  [
                     ...useAgentStore.getState().executedToolCalls,
                     ...useAgentStore.getState().pendingToolCalls,
                     ...(useAgentStore.getState().sessionToolCallsCache[sessionId!]?.executed ?? []),
                     ...(useAgentStore.getState().sessionToolCallsCache[sessionId!]?.pending ?? [])
                   ].some((tc) => tc.id === event.toolUseBlock.id)
-                ) {
+                if (!alreadyTracked) {
                   streamDeltaBuffer.flushNow()
                   if (!thinkingDone) {
                     thinkingDone = true
@@ -2804,23 +2831,25 @@ export function useChatActions(): {
                       ? { extraContent: event.toolUseBlock.extraContent }
                       : {})
                   })
-                  useAgentStore.getState().addToolCall(
-                    {
-                      id: event.toolUseBlock.id,
-                      name: event.toolUseBlock.name,
-                      input: summarizeToolInputForLiveCard(
-                        event.toolUseBlock.name,
-                        event.toolUseBlock.input
-                      ),
-                      status: 'running',
-                      requiresApproval: false,
-                      ...(event.toolUseBlock.extraContent
-                        ? { extraContent: event.toolUseBlock.extraContent }
-                        : {}),
-                      startedAt: Date.now()
-                    },
-                    sessionId!
-                  )
+                  if (isFg) {
+                    useAgentStore.getState().addToolCall(
+                      {
+                        id: event.toolUseBlock.id,
+                        name: event.toolUseBlock.name,
+                        input: summarizeToolInputForLiveCard(
+                          event.toolUseBlock.name,
+                          event.toolUseBlock.input
+                        ),
+                        status: 'running',
+                        requiresApproval: false,
+                        ...(event.toolUseBlock.extraContent
+                          ? { extraContent: event.toolUseBlock.extraContent }
+                          : {}),
+                        startedAt: Date.now()
+                      },
+                      sessionId!
+                    )
+                  }
                 }
                 // Args fully streamed — keep live cards compact until execution finishes.
                 const liveCardInput = summarizeToolInputForLiveCard(
@@ -2831,27 +2860,35 @@ export function useChatActions(): {
                 streamDeltaBuffer.flushNow()
                 flushChatToolInput(event.toolUseBlock.id)
                 flushToolInput(event.toolUseBlock.id)
-                useAgentStore.getState().updateToolCall(
-                  event.toolUseBlock.id,
-                  {
-                    input: liveCardInput,
-                    ...(event.toolUseBlock.extraContent
-                      ? { extraContent: event.toolUseBlock.extraContent }
-                      : {})
-                  },
-                  sessionId!
-                )
+                if (isSessionForeground(sessionId!)) {
+                  useAgentStore.getState().updateToolCall(
+                    event.toolUseBlock.id,
+                    {
+                      input: liveCardInput,
+                      ...(event.toolUseBlock.extraContent
+                        ? { extraContent: event.toolUseBlock.extraContent }
+                        : {})
+                    },
+                    sessionId!
+                  )
+                }
                 break
+              }
 
               case 'tool_call_start':
                 runUsedTools = true
-                useAgentStore.getState().addToolCall(
-                  {
-                    ...event.toolCall,
-                    input: summarizeToolInputForLiveCard(event.toolCall.name, event.toolCall.input)
-                  },
-                  sessionId!
-                )
+                if (isSessionForeground(sessionId!)) {
+                  useAgentStore.getState().addToolCall(
+                    {
+                      ...event.toolCall,
+                      input: summarizeToolInputForLiveCard(
+                        event.toolCall.name,
+                        event.toolCall.input
+                      )
+                    },
+                    sessionId!
+                  )
+                }
                 break
 
               case 'tool_call_approval_needed': {
@@ -2864,7 +2901,10 @@ export function useChatActions(): {
                   useAgentStore.getState().addToolCall(
                     {
                       ...event.toolCall,
-                      input: summarizeToolInputForLiveCard(event.toolCall.name, event.toolCall.input)
+                      input: summarizeToolInputForLiveCard(
+                        event.toolCall.name,
+                        event.toolCall.input
+                      )
                     },
                     sessionId!
                   )
@@ -2872,7 +2912,7 @@ export function useChatActions(): {
                 break
               }
 
-              case 'tool_call_result':
+              case 'tool_call_result': {
                 if (event.toolCall.name === 'Write') {
                   console.log('[WriteTrace] tool_call_result', {
                     sessionId,
@@ -2889,32 +2929,40 @@ export function useChatActions(): {
                     ? summarizeToolInputForHistory(event.toolCall.name, event.toolCall.input)
                     : undefined
                 if (settledInput) {
-                  updateRuntimeToolUseInput(sessionId!, assistantMsgId, event.toolCall.id, settledInput)
+                  updateRuntimeToolUseInput(
+                    sessionId!,
+                    assistantMsgId,
+                    event.toolCall.id,
+                    settledInput
+                  )
                 }
-                useAgentStore.getState().updateToolCall(
-                  event.toolCall.id,
-                  {
-                    ...(settledInput ? { input: settledInput } : {}),
-                    status: event.toolCall.status,
-                    output: event.toolCall.output,
-                    error: event.toolCall.error,
-                    completedAt: event.toolCall.completedAt
-                  },
-                  sessionId!
-                )
-                if (event.toolCall.status === 'completed' || event.toolCall.status === 'error') {
-                  reconcileSubAgentCompletionFromTaskToolCall(sessionId!, event.toolCall)
-                }
-                if (
-                  event.toolCall.status === 'completed' &&
-                  (event.toolCall.name === 'Write' || event.toolCall.name === 'Edit')
-                ) {
-                  void useAgentStore.getState().refreshRunChanges(assistantMsgId)
+                if (isSessionForeground(sessionId!)) {
+                  useAgentStore.getState().updateToolCall(
+                    event.toolCall.id,
+                    {
+                      ...(settledInput ? { input: settledInput } : {}),
+                      status: event.toolCall.status,
+                      output: event.toolCall.output,
+                      error: event.toolCall.error,
+                      completedAt: event.toolCall.completedAt
+                    },
+                    sessionId!
+                  )
+                  if (event.toolCall.status === 'completed' || event.toolCall.status === 'error') {
+                    reconcileSubAgentCompletionFromTaskToolCall(sessionId!, event.toolCall)
+                  }
+                  if (
+                    event.toolCall.status === 'completed' &&
+                    (event.toolCall.name === 'Write' || event.toolCall.name === 'Edit')
+                  ) {
+                    void useAgentStore.getState().refreshRunChanges(assistantMsgId)
+                  }
                 }
                 if (event.toolCall.status === 'completed' || event.toolCall.status === 'error') {
                   liveToolNames.delete(event.toolCall.id)
                 }
                 break
+              }
 
               case 'iteration_end':
                 if (
@@ -3076,8 +3124,9 @@ export function useChatActions(): {
                 if (shouldSuppressTransientRuntimeError(errorMessage)) {
                   break
                 }
-                toast.error('Agent Error', { description: errorMessage })
-                if (!isSessionForeground(sessionId!)) {
+                if (isSessionForeground(sessionId!)) {
+                  toast.error('Agent Error', { description: errorMessage })
+                } else {
                   const sessionTitle =
                     useChatStore.getState().sessions.find((item) => item.id === sessionId)?.title ??
                     '后台会话'
@@ -3109,8 +3158,9 @@ export function useChatActions(): {
             )
             console.error('[Agent Loop Exception]', err)
             if (!shouldSuppressTransientRuntimeError(errMsg)) {
-              toast.error('Agent failed', { description: errMsg })
-              if (!isSessionForeground(sessionId!)) {
+              if (isSessionForeground(sessionId!)) {
+                toast.error('Agent failed', { description: errMsg })
+              } else {
                 const sessionTitle =
                   useChatStore.getState().sessions.find((item) => item.id === sessionId)?.title ??
                   '后台会话'
@@ -3131,29 +3181,31 @@ export function useChatActions(): {
           streamDeltaBuffer?.flushNow()
           streamDeltaBuffer?.dispose()
           disposeToolInputQueues()
-          // Clear image generating state
-          useChatStore.getState().setGeneratingImage(assistantMsgId, false)
-          // Defensive cleanup: if provider stream ended without completing a tool call,
-          // avoid leaving tool cards stuck at "receiving args".
-          const { executedToolCalls, pendingToolCalls, sessionToolCallsCache, updateToolCall } =
-            useAgentStore.getState()
-          const sessionToolCalls = sessionToolCallsCache[sessionId]
-          for (const tc of [
-            ...executedToolCalls,
-            ...pendingToolCalls,
-            ...(sessionToolCalls?.executed ?? []),
-            ...(sessionToolCalls?.pending ?? [])
-          ]) {
-            if (tc.status === 'streaming') {
-              updateToolCall(
-                tc.id,
-                {
-                  status: 'error',
-                  error: 'Tool call stream ended before execution',
-                  completedAt: Date.now()
-                },
-                sessionId
-              )
+          if (isSessionForeground(sessionId!)) {
+            // Clear image generating state
+            useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+            // Defensive cleanup: if provider stream ended without completing a tool call,
+            // avoid leaving tool cards stuck at "receiving args".
+            const { executedToolCalls, pendingToolCalls, sessionToolCallsCache, updateToolCall } =
+              useAgentStore.getState()
+            const sessionToolCalls = sessionToolCallsCache[sessionId]
+            for (const tc of [
+              ...executedToolCalls,
+              ...pendingToolCalls,
+              ...(sessionToolCalls?.executed ?? []),
+              ...(sessionToolCalls?.pending ?? [])
+            ]) {
+              if (tc.status === 'streaming') {
+                updateToolCall(
+                  tc.id,
+                  {
+                    status: 'error',
+                    error: 'Tool call stream ended before execution',
+                    completedAt: Date.now()
+                  },
+                  sessionId
+                )
+              }
             }
           }
           unsubSubAgent()
@@ -3563,6 +3615,16 @@ export function useChatActions(): {
       if (!target) return
 
       chatStore.truncateMessagesFrom(sessionId, target.userIndex)
+      // The store method fires the DB truncation asynchronously.  Await the
+      // same IPC call so sendMessage's loadRecentSessionMessages reads the
+      // updated DB state instead of reloading the old (possibly empty)
+      // assistant message that was just removed from the in-memory store.
+      await ipcClient
+        .invoke('db:messages:truncate-from', {
+          sessionId,
+          fromSortOrder: target.userIndex
+        })
+        .catch(() => {})
       await sendMessage(
         target.draft.text,
         target.draft.images.length > 0 ? cloneImageAttachments(target.draft.images) : undefined,
@@ -3595,6 +3657,12 @@ export function useChatActions(): {
       if (!hasEditableDraftContent(nextDraft)) return
 
       chatStore.truncateMessagesFrom(sessionId, target.index)
+      await ipcClient
+        .invoke('db:messages:truncate-from', {
+          sessionId,
+          fromSortOrder: target.index
+        })
+        .catch(() => {})
       await sendMessage(
         nextDraft.text,
         nextDraft.images.length > 0 ? nextDraft.images : undefined,

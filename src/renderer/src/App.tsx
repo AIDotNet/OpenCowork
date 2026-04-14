@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { Layout } from './components/layout/Layout';
+import { SshPage } from './components/ssh/SshPage';
 import { Toaster } from './components/ui/sonner';
 import { Button } from './components/ui/button';
 import { ConfirmDialogProvider } from './components/ui/confirm-dialog';
@@ -106,6 +107,11 @@ interface TeamWorkerParams {
    workingFolder?: string
 }
 
+function isSshWindowView(): boolean {
+   const search = new URLSearchParams(window.location.search)
+   return search.get('appView') === 'ssh'
+}
+
 function consumeRendererOomRecoveryFlag(): boolean {
    const url = new URL(window.location.href)
    const shouldRecover = url.searchParams.get(RENDERER_OOM_RECOVERY_PARAM) === '1'
@@ -192,6 +198,7 @@ function App(): React.JSX.Element {
    const workerBootStartedRef = useRef(false)
    const [workerBootError, setWorkerBootError] = useState<string | null>(null)
    const workerMemberName = teamWorkerParams?.memberName ?? ''
+   const sshWindowView = useMemo(() => isSshWindowView(), [])
    const rendererOomRecoveryRef = useRef(consumeRendererOomRecoveryFlag())
    const cronLogBufferRef = useRef<CronAgentLogEntry[]>([])
    const cronLogFlushTimerRef = useRef<number | null>(null)
@@ -686,6 +693,19 @@ function App(): React.JSX.Element {
                )}
             </div>
          </div>
+      )
+   }
+
+   if (sshWindowView) {
+      return (
+         <ErrorBoundary>
+            <ThemeProvider defaultTheme={theme}>
+               <SshPage />
+               <Toaster position="bottom-left" theme="system" richColors />
+               <ConfirmDialogProvider />
+               <NotifyToastContainer />
+            </ThemeProvider>
+         </ErrorBoundary>
       )
    }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ChevronDown,
   Ellipsis,
@@ -20,8 +20,9 @@ import { Badge } from '@renderer/components/ui/badge'
 import { cn } from '@renderer/lib/utils'
 import { useTerminalStore } from '@renderer/stores/terminal-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
+import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 import { useChatStore } from '@renderer/stores/chat-store'
-import { useUIStore } from '@renderer/stores/ui-store'
 import { LocalTerminal } from './LocalTerminal'
 import { SshConnectionPicker } from './SshConnectionPicker'
 import { SshTerminal } from '../ssh/SshTerminal'
@@ -105,7 +106,9 @@ export function TerminalPanel(): React.JSX.Element {
   const closeSshTab = useSshStore((s) => s.closeTab)
   const setSshActiveTab = useSshStore((s) => s.setActiveTab)
 
-  const openSshPage = useUIStore((s) => s.openSshPage)
+  const openSshWindow = useCallback(() => {
+    void ipcClient.invoke(IPC.SSH_WINDOW_OPEN)
+  }, [])
   const activeSession = useChatStore((s) =>
     s.sessions.find((session) => session.id === s.activeSessionId)
   )
@@ -319,7 +322,7 @@ export function TerminalPanel(): React.JSX.Element {
               <MonitorSmartphone className="size-4" />
               新建 SSH 终端
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={openSshPage}>
+            <DropdownMenuItem onClick={openSshWindow}>
               <FolderOpen className="size-4" />
               打开 SSH 管理页
             </DropdownMenuItem>
@@ -399,7 +402,7 @@ export function TerminalPanel(): React.JSX.Element {
         connections={sshConnections}
         onOpenChange={setSshPickerOpen}
         onSelect={(connectionId) => void handleSelectSsh(connectionId)}
-        onOpenManagePage={openSshPage}
+        onOpenManagePage={openSshWindow}
       />
     </div>
   )

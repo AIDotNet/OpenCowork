@@ -75,6 +75,8 @@ import {
 import { useChatStore, type Project, type Session, type SessionMode } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
+import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { abortSession, clearPendingSessionMessages } from '@renderer/hooks/use-chat-actions'
@@ -239,7 +241,6 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const resourcesPageOpen = useUIStore((state) => state.resourcesPageOpen)
   const drawPageOpen = useUIStore((state) => state.drawPageOpen)
   const translatePageOpen = useUIStore((state) => state.translatePageOpen)
-  const sshPageOpen = useUIStore((state) => state.sshPageOpen)
   const tasksPageOpen = useUIStore((state) => state.tasksPageOpen)
   const leftSidebarWidth = useUIStore((state) => state.leftSidebarWidth)
   const setLeftSidebarWidth = useUIStore((state) => state.setLeftSidebarWidth)
@@ -399,7 +400,6 @@ export function WorkspaceSidebar(): React.JSX.Element {
     !resourcesPageOpen &&
     !drawPageOpen &&
     !translatePageOpen &&
-    !sshPageOpen &&
     !tasksPageOpen
   const isProjectScoped =
     chatSurfaceActive &&
@@ -796,8 +796,8 @@ export function WorkspaceSidebar(): React.JSX.Element {
       key: 'ssh',
       label: t('sidebar.sshLabel'),
       icon: <Monitor className="size-4" />,
-      active: useUIStore.getState().sshPageOpen,
-      onClick: () => useUIStore.getState().openSshPage()
+      active: false,
+      onClick: () => void ipcClient.invoke(IPC.SSH_WINDOW_OPEN)
     }
   ]
 

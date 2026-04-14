@@ -87,6 +87,40 @@ export function clearMessages(sessionId: string): void {
   db.prepare('UPDATE sessions SET message_count = 0 WHERE id = ?').run(sessionId)
 }
 
+export function replaceMessages(
+  sessionId: string,
+  messages: Array<{
+    id: string
+    role: string
+    content: string
+    createdAt: number
+    usage?: string | null
+    sortOrder: number
+  }>
+): void {
+  const db = getDb()
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId)
+    const insert = db.prepare(
+      `INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, usage, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    for (const msg of messages) {
+      insert.run(
+        msg.id,
+        sessionId,
+        msg.role,
+        msg.content,
+        msg.createdAt,
+        msg.usage ?? null,
+        msg.sortOrder
+      )
+    }
+    db.prepare('UPDATE sessions SET message_count = ? WHERE id = ?').run(messages.length, sessionId)
+  })
+  tx()
+}
+
 export function truncateMessagesFrom(sessionId: string, fromSortOrder: number): void {
   const db = getDb()
   const removed = db

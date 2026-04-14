@@ -368,7 +368,12 @@ const editHandler: ToolHandler = {
 
     const writeCh = isSsh(ctx) ? IPC.SSH_FS_WRITE_FILE : IPC.FS_WRITE_FILE
     const writeArgs = isSsh(ctx)
-      ? sshWriteArgs(ctx, resolvedPath, updated, 'Edit')
+      ? sshArgs(ctx, {
+          path: resolvedPath,
+          content: updated,
+          beforeContent: content,
+          ...(buildChangeMeta(ctx, 'Edit') ? { changeMeta: buildChangeMeta(ctx, 'Edit') } : {})
+        })
       : localWriteArgs(ctx, resolvedPath, updated, 'Edit')
     const writeResult = await ctx.ipc.invoke(writeCh, writeArgs)
     if (isErrorResult(writeResult)) {

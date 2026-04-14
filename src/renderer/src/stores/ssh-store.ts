@@ -375,6 +375,12 @@ interface SshStore {
   // Upload tasks
   uploadTasks: Record<string, SshUploadTask>
 
+  // Connection list UI
+  connectionListViewMode: 'table' | 'card'
+  setConnectionListViewMode: (mode: 'table' | 'card') => void
+  detailConnectionId: string | null
+  setDetailConnectionId: (id: string | null) => void
+
   // Data loading
   loadAll: () => Promise<void>
 
@@ -474,6 +480,11 @@ export const useSshStore = create<SshStore>()((set, get) => ({
   fileExplorerErrors: {},
 
   uploadTasks: {},
+
+  connectionListViewMode: 'card',
+  setConnectionListViewMode: (mode) => set({ connectionListViewMode: mode }),
+  detailConnectionId: null,
+  setDetailConnectionId: (id) => set({ detailConnectionId: id }),
 
   loadAll: async () => {
     try {
@@ -667,13 +678,19 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       connectionId,
       status: 'connecting'
     }
-    set((s) => ({
-      sessions: { ...s.sessions, [result.sessionId!]: session },
-      activeTerminalId: result.sessionId!,
-      connections: s.connections.map((c) =>
-        c.id === connectionId ? { ...c, lastConnectedAt: Date.now() } : c
-      )
-    }))
+    set((s) => {
+      const existing = s.sessions[result.sessionId!]
+      return {
+        sessions: {
+          ...s.sessions,
+          [result.sessionId!]: existing && existing.status !== 'connecting' ? existing : session
+        },
+        activeTerminalId: result.sessionId!,
+        connections: s.connections.map((c) =>
+          c.id === connectionId ? { ...c, lastConnectedAt: Date.now() } : c
+        )
+      }
+    })
     return result.sessionId
   },
 

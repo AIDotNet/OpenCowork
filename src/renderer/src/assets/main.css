@@ -149,6 +149,7 @@
   }
   html {
     font-size: var(--app-font-size);
+    height: 100%;
   }
   body {
     @apply text-foreground;
@@ -156,6 +157,10 @@
     font-family: var(--app-font-family);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    height: 100%;
+  }
+  #root {
+    height: 100%;
   }
 }
 

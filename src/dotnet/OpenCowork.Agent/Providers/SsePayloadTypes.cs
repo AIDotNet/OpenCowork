@@ -36,7 +36,7 @@ public sealed class StreamEventError
 public sealed class AnthropicSsePayload
 {
     [JsonPropertyName("type")]
-    public required string Type { get; init; }
+    public string Type { get; init; } = "";
 
     [JsonPropertyName("message")]
     public AnthropicMessage? Message { get; init; }

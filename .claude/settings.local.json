@@ -19,7 +19,9 @@
       "Bash(grep -n \"PageTransition\\\\|PanelTransition\" src/renderer/src/components/animate-ui/*.tsx)",
       "Bash(grep -n \"renderer/tool-request\" /f/code/OpenCowork/src/main/ipc/*.ts)",
       "Bash(grep -E \"\\\\.ts$\")",
-      "Bash(find /f/code/OpenCowork/src/renderer/src/lib/tools -name \"*.ts\" -exec basename {} \\\\;)"
+      "Bash(find /f/code/OpenCowork/src/renderer/src/lib/tools -name \"*.ts\" -exec basename {} \\\\;)",
+      "Bash(npx tsc:*)",
+      "Bash(npx prettier:*)"
     ]
   }
 }

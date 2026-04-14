@@ -17,6 +17,50 @@ function stripThinkTagMarkers(text: string): string {
   return text.replace(/<\s*\/?\s*think\s*>/gi, '')
 }
 
+// --- Visible session cache (50 ms TTL) ---
+// getVisibleSessionIds() is called per-event during streaming — caching avoids
+// re-creating a Set and reading two stores on every invocation.
+let _cachedVisibleIds: Set<string> | null = null
+let _cachedVisibleIdsTs = 0
+const VISIBLE_IDS_CACHE_TTL_MS = 50
+
+/**
+ * Invalidate the visible-session cache. Call this whenever `activeSessionId` or
+ * the mini-session-window state changes so the next `isSessionForeground` call
+ * picks up the new value immediately.
+ */
+export function invalidateVisibleSessionCache(): void {
+  _cachedVisibleIds = null
+}
+
+// --- Debounced markSessionUpdate ---
+// During streaming, mutateBufferedMessage fires every ~33 ms.  Updating
+// unreadCountsBySession that often forces SessionListPanel to re-render at
+// ~30 fps for a purely informational badge.  Debouncing at 500 ms reduces
+// background-store set() calls to ~2/s while keeping the badge responsive
+// enough for the user to notice activity.
+const _pendingSessionUpdates = new Map<string, ReturnType<typeof setTimeout>>()
+const MARK_SESSION_UPDATE_DEBOUNCE_MS = 500
+
+function debouncedMarkSessionUpdate(sessionId: string): void {
+  if (_pendingSessionUpdates.has(sessionId)) return
+  _pendingSessionUpdates.set(
+    sessionId,
+    setTimeout(() => {
+      _pendingSessionUpdates.delete(sessionId)
+      useBackgroundSessionStore.getState().markSessionUpdate(sessionId)
+    }, MARK_SESSION_UPDATE_DEBOUNCE_MS)
+  )
+}
+
+function cancelDebouncedMarkSessionUpdate(sessionId: string): void {
+  const timer = _pendingSessionUpdates.get(sessionId)
+  if (timer) {
+    clearTimeout(timer)
+    _pendingSessionUpdates.delete(sessionId)
+  }
+}
+
 /**
  * Seed resolver used by background mutations. Looks up the current chat-store snapshot so
  * the background buffer can clone an authoritative source message the first time a delta
@@ -42,16 +86,21 @@ function mutateBufferedMessage(
   mutator: (message: UnifiedMessage) => void
 ): void {
   const bg = useBackgroundSessionStore.getState()
-  bg.mutateBufferedMessageInPlace(
+  bg.queueBufferedMutation(
     sessionId,
     messageId,
     () => resolveChatStoreSeed(sessionId, messageId),
     mutator
   )
-  useBackgroundSessionStore.getState().markSessionUpdate(sessionId)
+  debouncedMarkSessionUpdate(sessionId)
 }
 
 export function getVisibleSessionIds(): Set<string> {
+  const now = Date.now()
+  if (_cachedVisibleIds && now - _cachedVisibleIdsTs < VISIBLE_IDS_CACHE_TTL_MS) {
+    return _cachedVisibleIds
+  }
+
   const visibleSessionIds = new Set<string>()
   const { activeSessionId } = useChatStore.getState()
   const uiState = useUIStore.getState()
@@ -61,6 +110,8 @@ export function getVisibleSessionIds(): Set<string> {
     visibleSessionIds.add(uiState.miniSessionWindowSessionId)
   }
 
+  _cachedVisibleIds = visibleSessionIds
+  _cachedVisibleIdsTs = now
   return visibleSessionIds
 }
 
@@ -101,7 +152,19 @@ export function appendRuntimeTextDelta(sessionId: string, messageId: string, tex
     if (lastBlock?.type === 'text') {
       lastBlock.text += text
     } else {
-      blocks.push({ type: 'text', text })
+      let targetTextBlock: ContentBlock | null = null
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        if (blocks[i].type === 'text') {
+          targetTextBlock = blocks[i]
+          break
+        }
+        if (blocks[i].type !== 'tool_use') break
+      }
+      if (targetTextBlock && targetTextBlock.type === 'text') {
+        targetTextBlock.text += text
+      } else {
+        blocks.push({ type: 'text', text })
+      }
     }
   })
 }
@@ -299,7 +362,7 @@ export function addRuntimeMessage(sessionId: string, message: UnifiedMessage): v
 
   const bg = useBackgroundSessionStore.getState()
   bg.seedBufferedMessage(sessionId, message, 'added')
-  bg.markSessionUpdate(sessionId)
+  debouncedMarkSessionUpdate(sessionId)
 }
 
 /**
@@ -319,6 +382,8 @@ export function addRuntimeMessage(sessionId: string, message: UnifiedMessage): v
  */
 export async function flushBackgroundSessionToForeground(sessionId: string): Promise<void> {
   if (!sessionId) return
+  cancelDebouncedMarkSessionUpdate(sessionId)
+  useBackgroundSessionStore.getState().flushPendingMutationsNow()
   const snapshot = useBackgroundSessionStore.getState().takeSessionSnapshot(sessionId)
   if (!snapshot) return
 

@@ -68,7 +68,11 @@ import {
   refreshProviderChannelUserInfo,
   clearProviderChannelAuth
 } from '@renderer/lib/auth/provider-auth'
-import type { OAuthDeviceCodeInfo } from '@renderer/lib/auth/oauth'
+import {
+  buildMoonshotCommonHeaders,
+  isMoonshotProviderConfig,
+  type OAuthDeviceCodeInfo
+} from '@renderer/lib/auth/oauth'
 import { clearCopilotQuota, exchangeCopilotToken } from '@renderer/lib/auth/copilot'
 import { AccountListEditor } from './AccountListEditor'
 import type {
@@ -141,7 +145,8 @@ async function fetchModelsFromProvider(
   apiKey: string,
   builtinId?: string,
   useSystemProxy?: boolean,
-  userAgent?: string
+  userAgent?: string,
+  oauth?: AIProvider['oauth']
 ): Promise<AIModelConfig[]> {
   if (builtinId === 'openrouter') {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -172,6 +177,9 @@ async function fetchModelsFromProvider(
     }
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
     if (userAgent) headers['User-Agent'] = userAgent
+    if (isMoonshotProviderConfig({ providerBuiltinId: builtinId, baseUrl })) {
+      Object.assign(headers, await buildMoonshotCommonHeaders(oauth?.deviceId))
+    }
     if (builtinId === 'copilot-oauth') {
       headers['Copilot-Integration-Id'] = 'vscode-chat'
       headers['editor-version'] = 'vscode/1.105.0'
@@ -1108,14 +1116,10 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
     setOauthDeviceInfo(null)
     setOauthConnecting(true)
     try {
-      if (isCopilotProvider) {
-        await startProviderOAuth(provider.id, {
-          signal: controller.signal,
-          onDeviceCode: (info) => setOauthDeviceInfo(info)
-        })
-      } else {
-        await startProviderOAuth(provider.id, controller.signal)
-      }
+      await startProviderOAuth(provider.id, {
+        signal: controller.signal,
+        onDeviceCode: (info) => setOauthDeviceInfo(info)
+      })
       setOauthDeviceInfo(null)
       toast.success(t('provider.oauthConnected'))
     } catch (err) {
@@ -1405,6 +1409,11 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         requestType
       )
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (activeProvider.userAgent) headers['User-Agent'] = activeProvider.userAgent
+      if (isMoonshotProviderConfig(activeProvider)) {
+        Object.assign(headers, await buildMoonshotCommonHeaders(activeProvider.oauth?.deviceId))
+      }
+      const authToken = activeProvider.apiKey || activeProvider.oauth?.accessToken || ''
       const applyHeaderOverrides = (modelId: string): void => {
         const overrides = activeProvider.requestOverrides?.headers
         if (!overrides) return
@@ -1427,7 +1436,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         body = JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] })
       } else if (isResponses) {
         url = `${baseUrl}/responses`
-        if (activeProvider.apiKey) headers['Authorization'] = `Bearer ${activeProvider.apiKey}`
+        if (authToken) headers['Authorization'] = `Bearer ${authToken}`
         if (activeProvider.oauth?.accountId) {
           headers['Chatgpt-Account-Id'] = activeProvider.oauth.accountId
         }
@@ -1444,7 +1453,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         body = JSON.stringify(bodyObj)
       } else {
         url = `${baseUrl}/chat/completions`
-        if (activeProvider.apiKey) headers['Authorization'] = `Bearer ${activeProvider.apiKey}`
+        if (authToken) headers['Authorization'] = `Bearer ${authToken}`
         applyHeaderOverrides(model)
         body = JSON.stringify({
           model,
@@ -1648,7 +1657,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
                 {t('provider.oauthAccount', { account: provider.oauth.accountId })}
               </p>
             )}
-            {isCopilotProvider && oauthConnecting && oauthDeviceInfo && (
+            {oauthConnecting && oauthDeviceInfo && (
               <div className="rounded-md border bg-muted/30 px-3 py-2 space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-[11px] text-muted-foreground">

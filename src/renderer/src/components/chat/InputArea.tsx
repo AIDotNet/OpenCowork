@@ -24,7 +24,7 @@ import { Textarea } from '@renderer/components/ui/textarea'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { useProviderStore, modelSupportsVision } from '@renderer/stores/provider-store'
-import type { AIModelConfig, UnifiedMessage } from '@renderer/lib/api/types'
+import type { AIModelConfig } from '@renderer/lib/api/types'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { updateWebSearchToolRegistration } from '@renderer/lib/tools'
 import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
@@ -116,7 +116,11 @@ function ContextRing(): React.JSX.Element | null {
   const ctxLimit = activeModelCfg?.contextLength ?? null
 
   const lastUsage = useChatStore((s) => {
-    const activeSession = s.sessions.find((sess) => sess.id === s.activeSessionId)
+    // Only re-compute when streaming stops (streamingMessageId goes null) or session changes.
+    // During streaming, usage hasn't been set yet, so there's no point scanning messages every frame.
+    if (s.streamingMessageId) return null
+    const idx = s.activeSessionId ? s.sessionsById[s.activeSessionId] : undefined
+    const activeSession = idx !== undefined ? s.sessions[idx] : undefined
     if (!activeSession) return null
     const messages = activeSession.messages
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -235,7 +239,6 @@ interface FileSearchItem {
 }
 
 const EMPTY_QUEUED_MESSAGES: PendingSessionMessageItem[] = []
-const EMPTY_SESSION_MESSAGES: UnifiedMessage[] = []
 const INTERNAL_FILE_DRAG_MIME = 'application/x-opencowork-file-paths'
 const MIN_INPUT_HEIGHT = 120
 const HOME_INPUT_MIN_HEIGHT = 220
@@ -547,14 +550,16 @@ export function InputArea({
   const mode = useUIStore((s) => s.mode)
   const activeProjectId = useChatStore((s) => {
     const targetSessionId = sessionId ?? s.activeSessionId
-    const targetSession = s.sessions.find((session) => session.id === targetSessionId)
+    const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
+    const targetSession = idx !== undefined ? s.sessions[idx] : undefined
     return targetSession?.projectId ?? s.activeProjectId
   })
   const activeSshConnectionId = useChatStore((s) => {
     const targetSessionId = sessionId ?? s.activeSessionId
-    const targetSession = s.sessions.find((session) => session.id === targetSessionId)
+    const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
+    const targetSession = idx !== undefined ? s.sessions[idx] : undefined
     const projectId = targetSession?.projectId ?? s.activeProjectId
-    const activeProject = s.projects.find((project) => project.id === projectId)
+    const activeProject = projectId ? s.projects.find((project) => project.id === projectId) : undefined
     return targetSession?.sshConnectionId ?? activeProject?.sshConnectionId ?? null
   })
   const [homeLongRunningMode, setHomeLongRunningMode] = useLocalState(false)
@@ -562,22 +567,26 @@ export function InputArea({
     activeSessionId,
     hasMessages,
     clearSessionMessages,
-    sessionMessages,
     longRunningMode,
     setSessionLongRunningMode
   } = useChatStore(
     useShallow((s) => {
       const targetSessionId = sessionId ?? s.activeSessionId
-      const targetSession = s.sessions.find((sess) => sess.id === targetSessionId)
+      const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
+      const targetSession = idx !== undefined ? s.sessions[idx] : undefined
       return {
         activeSessionId: targetSessionId,
         hasMessages: (targetSession?.messageCount ?? 0) > 0,
         clearSessionMessages: s.clearSessionMessages,
-        sessionMessages: targetSession?.messages ?? EMPTY_SESSION_MESSAGES,
         longRunningMode: targetSession?.longRunningMode ?? false,
         setSessionLongRunningMode: s.setSessionLongRunningMode
       }
     })
+  )
+  // Stable getter — reads messages lazily so streaming deltas don't re-render InputArea
+  const getSessionMessages = React.useCallback(
+    () => useChatStore.getState().getSessionMessages(activeSessionId ?? ''),
+    [activeSessionId]
   )
   const draftSessionId = sessionId ?? (chatView === 'session' ? activeSessionId : null)
   const activeDraftKey = React.useMemo(
@@ -929,7 +938,7 @@ export function InputArea({
     mode,
     sessionId: activeSessionId,
     text,
-    recentMessages: sessionMessages,
+    getRecentMessages: getSessionMessages,
     selectedSkill,
     images: attachedImages,
     disabled: disabled || isOptimizing,

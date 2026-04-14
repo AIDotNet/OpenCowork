@@ -233,10 +233,24 @@ public static class AgentLoop
                                 lastParsedArgLen[evt.ToolCallId] = argBuf.Length;
                                 if (PartialJsonParser.TryParsePartial(argBuf.ToString(), out var partialInput) && partialInput is not null)
                                 {
+                                    var normalizedDelta = ProviderMessageFormatter.NormalizeToolInputObject(partialInput);
+
+                                    // For Write/Edit, strip large content from streaming
+                                    // deltas to avoid sending growing file content over
+                                    // JSON-RPC on every tick. The full input is sent once
+                                    // at tool_call_end.
+                                    var tcForDelta = toolCalls.FirstOrDefault(t => t.Id == evt.ToolCallId);
+                                    if (tcForDelta is not null &&
+                                        (string.Equals(tcForDelta.Name, "Write", StringComparison.Ordinal) ||
+                                         string.Equals(tcForDelta.Name, "Edit", StringComparison.Ordinal)))
+                                    {
+                                        normalizedDelta = SummarizeToolInputForStreaming(normalizedDelta);
+                                    }
+
                                     yield return new ToolUseArgsDeltaEvent
                                     {
                                         ToolCallId = evt.ToolCallId,
-                                        PartialInput = ProviderMessageFormatter.NormalizeToolInputObject(partialInput)
+                                        PartialInput = normalizedDelta
                                     };
                                 }
                             }
@@ -335,12 +349,15 @@ public static class AgentLoop
                 });
             }
 
-            conversationMessages.Add(new UnifiedMessage
+            if (assistantContent.Count > 0)
             {
-                Role = "assistant",
-                Content = assistantContent,
-                ProviderResponseId = providerResponseId
-            });
+                conversationMessages.Add(new UnifiedMessage
+                {
+                    Role = "assistant",
+                    Content = assistantContent,
+                    ProviderResponseId = providerResponseId
+                });
+            }
 
             yield return new MessageEndEvent
             {
@@ -645,6 +662,34 @@ public static class AgentLoop
             StartedAt = source.StartedAt,
             CompletedAt = source.CompletedAt
         };
+    }
+
+    /// <summary>
+    /// Strip large content/old_string/new_string fields from Write/Edit tool inputs
+    /// for streaming delta events. The full input is sent once at tool_call_end.
+    /// This prevents sending growing file content over JSON-RPC on every delta tick.
+    /// </summary>
+    private static Dictionary<string, JsonElement> SummarizeToolInputForStreaming(
+        Dictionary<string, JsonElement> input)
+    {
+        var result = new Dictionary<string, JsonElement>();
+        foreach (var (key, value) in input)
+        {
+            if (key is "content" or "old_string" or "new_string")
+            {
+                // Replace large string fields with char count metadata
+                if (value.ValueKind == JsonValueKind.String)
+                {
+                    var len = value.GetString()?.Length ?? 0;
+                    var metaKey = $"{key}_chars";
+                    result[metaKey] = JsonSerializer.SerializeToElement(len);
+                    result[$"{key}_hidden_until_complete"] = JsonSerializer.SerializeToElement(true);
+                }
+                continue;
+            }
+            result[key] = value;
+        }
+        return result;
     }
 
     private static JsonElement? ToNullableJsonElement(object? value)

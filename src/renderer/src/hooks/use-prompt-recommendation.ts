@@ -17,7 +17,7 @@ interface UsePromptRecommendationParams {
   mode: AppMode
   sessionId?: string | null
   text: string
-  recentMessages: UnifiedMessage[]
+  getRecentMessages: () => UnifiedMessage[]
   selectedSkill: string | null
   images: ImageAttachment[]
   disabled: boolean
@@ -61,7 +61,7 @@ export function usePromptRecommendation({
   mode,
   sessionId,
   text,
-  recentMessages,
+  getRecentMessages,
   selectedSkill,
   images,
   disabled,
@@ -99,10 +99,12 @@ export function usePromptRecommendation({
           ? `${activeFastProviderId ?? activeProviderId}::${activeFastModelId || '__auto__'}`
           : '__fast__'
 
-  const rawContextKey = React.useMemo(
-    () => buildContextKey(mode, text, recentMessages, selectedSkill, images, providerBindingKey),
-    [mode, text, recentMessages, selectedSkill, images, providerBindingKey]
-  )
+  // Stable ref so callbacks can read the latest messages without being in their dep arrays.
+  // This avoids re-rendering InputArea at 60fps during streaming just to pass a new array ref.
+  const getRecentMessagesRef = React.useRef(getRecentMessages)
+  React.useLayoutEffect(() => {
+    getRecentMessagesRef.current = getRecentMessages
+  })
 
   const clearSuggestion = React.useCallback(() => {
     setFullSuggestion('')
@@ -131,7 +133,7 @@ export function usePromptRecommendation({
             buildContextKey(
               mode,
               requestText,
-              recentMessages,
+              getRecentMessagesRef.current(),
               selectedSkill,
               images,
               providerBindingKey
@@ -144,7 +146,7 @@ export function usePromptRecommendation({
 
       setFullSuggestion(resolvedText)
     },
-    [images, mode, providerBindingKey, recentMessages, selectedSkill]
+    [images, mode, providerBindingKey, selectedSkill]
   )
 
   const runRequest = React.useCallback(
@@ -159,7 +161,7 @@ export function usePromptRecommendation({
           mode,
           sessionId,
           draftText: requestText,
-          recentMessages,
+          recentMessages: getRecentMessagesRef.current(),
           selectedSkill,
           images,
           fallbackLanguage: language
@@ -198,7 +200,6 @@ export function usePromptRecommendation({
       images,
       language,
       mode,
-      recentMessages,
       selectedSkill,
       sessionId
     ]
@@ -271,7 +272,16 @@ export function usePromptRecommendation({
       return
     }
 
-    const contextKey = rawContextKey
+    // Compute context key lazily here so that message updates during streaming
+    // do not cause this effect (and the InputArea component) to re-run.
+    const contextKey = buildContextKey(
+      mode,
+      text,
+      getRecentMessagesRef.current(),
+      selectedSkill,
+      images,
+      providerBindingKey
+    )
     const cached = cacheRef.current.get(contextKey)
     if (cached !== undefined) {
       applyResolvedSuggestion(cached, text)
@@ -286,13 +296,16 @@ export function usePromptRecommendation({
   }, [
     applyResolvedSuggestion,
     disabled,
+    images,
     isComposing,
     isDocumentVisible,
     isFocused,
     isStreaming,
     isWindowFocused,
-    rawContextKey,
+    mode,
+    providerBindingKey,
     runRequest,
+    selectedSkill,
     text
   ])
 
@@ -310,11 +323,19 @@ export function usePromptRecommendation({
   }, [text])
 
   React.useEffect(() => {
-    if (previousContextKeyRef.current && previousContextKeyRef.current !== rawContextKey && !text) {
+    const contextKey = buildContextKey(
+      mode,
+      text,
+      getRecentMessagesRef.current(),
+      selectedSkill,
+      images,
+      providerBindingKey
+    )
+    if (previousContextKeyRef.current && previousContextKeyRef.current !== contextKey && !text) {
       setFullSuggestion('')
     }
-    previousContextKeyRef.current = rawContextKey
-  }, [rawContextKey, text])
+    previousContextKeyRef.current = contextKey
+  }, [images, mode, providerBindingKey, selectedSkill, text])
 
   const handleFocus = React.useCallback(() => {
     setIsFocused(true)

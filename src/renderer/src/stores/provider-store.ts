@@ -1555,21 +1555,26 @@ function ensureBuiltinPresets(): void {
       } else if (preset.builtinId === 'codex-oauth' && existing.instructionsPrompt !== undefined) {
         patch.instructionsPrompt = undefined
       }
-      if (!existing.authMode) {
+      if (existing.authMode !== (preset.authMode ?? 'apiKey')) {
         patch.authMode = preset.authMode ?? 'apiKey'
       }
-      if (preset.builtinId === 'codex-oauth' || preset.builtinId === 'copilot-oauth') {
+      if (
+        preset.builtinId === 'codex-oauth' ||
+        preset.builtinId === 'copilot-oauth' ||
+        preset.builtinId === 'moonshot-coding'
+      ) {
         const trimmedBaseUrl = existing.baseUrl.trim().replace(/\/+$/, '')
         if (
           !trimmedBaseUrl ||
           trimmedBaseUrl === 'https://api.openai.com/v1' ||
-          trimmedBaseUrl === 'https://api.openai.com'
+          trimmedBaseUrl === 'https://api.openai.com' ||
+          trimmedBaseUrl === 'https://api.kimi.com/coding'
         ) {
           patch.baseUrl = preset.defaultBaseUrl
         }
       }
       if (preset.oauthConfig) {
-        if (preset.builtinId === 'codex-oauth') {
+        if (preset.builtinId === 'codex-oauth' || preset.builtinId === 'moonshot-coding') {
           patch.oauthConfig = { ...preset.oauthConfig }
         } else if (!existing.oauthConfig) {
           patch.oauthConfig = { ...preset.oauthConfig }
@@ -1757,7 +1762,7 @@ function ensureBuiltinPresets(): void {
         patch.channelConfig = { ...preset.channelConfig }
       }
       if (preset.requestOverrides) {
-        if (preset.builtinId === 'codex-oauth') {
+        if (preset.builtinId === 'codex-oauth' || preset.builtinId === 'moonshot-coding') {
           patch.requestOverrides = { ...preset.requestOverrides }
         } else if (!existing.requestOverrides) {
           patch.requestOverrides = { ...preset.requestOverrides }
@@ -1806,6 +1811,9 @@ function ensureBuiltinPresets(): void {
         : undefined
       if (existing.defaultModel !== resolvedDefaultModel) {
         patch.defaultModel = resolvedDefaultModel
+      }
+      if (existing.type !== preset.type) {
+        patch.type = preset.type
       }
       if (Object.keys(patch).length > 0) {
         useProviderStore.getState().updateProvider(existing.id, patch)

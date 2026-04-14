@@ -73,6 +73,7 @@ let sshChangeAdapter: SshChangeAdapter | null = null
 const INLINE_TEXT_SNAPSHOT_LIMIT_BYTES = 64 * 1024
 const SNAPSHOT_PREVIEW_HEAD_CHARS = 1200
 const SNAPSHOT_PREVIEW_TAIL_CHARS = 400
+const RUN_CHANGES_MAX_AGE_MS = 30 * 60 * 1000
 
 function hashText(text: string): string {
   return createHash('sha256').update(text).digest('hex')
@@ -89,7 +90,8 @@ export function buildFileSnapshot(exists: boolean, text?: string): FileSnapshot 
 
   const normalizedText = text ?? ''
   const size = Buffer.byteLength(normalizedText, 'utf-8')
-  const lineCount = normalizedText.length === 0 ? 0 : normalizedText.replace(/\r\n/g, '\n').split('\n').length
+  const lineCount =
+    normalizedText.length === 0 ? 0 : normalizedText.replace(/\r\n/g, '\n').split('\n').length
   if (size <= INLINE_TEXT_SNAPSHOT_LIMIT_BYTES) {
     return {
       exists: true,
@@ -110,6 +112,22 @@ export function buildFileSnapshot(exists: boolean, text?: string): FileSnapshot 
       : {}),
     textOmitted: true,
     hash: hashText(normalizedText),
+    size,
+    lineCount
+  }
+}
+
+function buildLightSnapshot(text: string): FileSnapshot {
+  const size = Buffer.byteLength(text, 'utf-8')
+  const lineCount = text.length === 0 ? 0 : text.replace(/\r\n/g, '\n').split('\n').length
+  return {
+    exists: true,
+    previewText: text.slice(0, SNAPSHOT_PREVIEW_HEAD_CHARS),
+    ...(text.length > SNAPSHOT_PREVIEW_TAIL_CHARS
+      ? { tailPreviewText: text.slice(-SNAPSHOT_PREVIEW_TAIL_CHARS) }
+      : {}),
+    textOmitted: true,
+    hash: hashText(text),
     size,
     lineCount
   }
@@ -189,9 +207,21 @@ function touchRunChangeSet(changeSet: RunChangeSet): void {
   }
 }
 
+function pruneStaleRunChanges(): void {
+  const now = Date.now()
+  for (const [runId, changeSet] of runChanges) {
+    if (now - changeSet.updatedAt < RUN_CHANGES_MAX_AGE_MS) continue
+    const status = changeSet.status
+    if (status === 'accepted' || status === 'reverted') {
+      runChanges.delete(runId)
+    }
+  }
+}
+
 function getOrCreateRunChangeSet(
   meta: Required<Pick<ChangeMeta, 'runId'>> & ChangeMeta
 ): RunChangeSet {
+  pruneStaleRunChanges()
   const existing = runChanges.get(meta.runId)
   if (existing) {
     if (!existing.sessionId && meta.sessionId) {
@@ -226,7 +256,7 @@ function recordTextWriteChange(args: {
   const runId = args.meta?.runId?.trim()
   if (!runId) return
 
-  const after = buildFileSnapshot(true, args.afterText)
+  const after = buildLightSnapshot(args.afterText)
   if (args.before.exists === after.exists && args.before.hash === after.hash) {
     return
   }
@@ -310,15 +340,41 @@ function resolveSnapshotFullText(snapshot: FileSnapshot): string | null {
   return snapshot.fullText ?? snapshot.text ?? null
 }
 
-function getChangeDiffContent(
+async function getChangeDiffContent(
   runId: string,
   changeId: string
-): { beforeText: string; afterText: string } | { error: string } | null {
+): Promise<{ beforeText: string; afterText: string } | { error: string } | null> {
   const found = findChange(runId, changeId)
   if (!found) return null
 
   const beforeText = resolveSnapshotFullText(found.change.before)
-  const afterText = resolveSnapshotFullText(found.change.after)
+  let afterText = resolveSnapshotFullText(found.change.after)
+
+  if (afterText === null && found.change.status === 'open') {
+    if (found.change.transport === 'local') {
+      try {
+        const currentText = fs.readFileSync(found.change.filePath, 'utf-8')
+        if (hashText(currentText) === found.change.after.hash) {
+          afterText = currentText
+        }
+      } catch {
+        // file may have been deleted or changed
+      }
+    } else if (found.change.connectionId && sshChangeAdapter) {
+      try {
+        const snap = await sshChangeAdapter.readSnapshot(
+          found.change.connectionId,
+          found.change.filePath
+        )
+        const snapText = resolveSnapshotFullText(snap)
+        if (snapText !== null && hashText(snapText) === found.change.after.hash) {
+          afterText = snapText
+        }
+      } catch {
+        // SSH connection may be unavailable
+      }
+    }
+  }
 
   if (beforeText === null || afterText === null) {
     return { error: 'Full diff is unavailable for this change' }
@@ -519,14 +575,17 @@ export function registerAgentChangeHandlers(): void {
     }
   })
 
-  ipcMain.handle('agent:changes:diff-content', async (_event, args: { runId: string; changeId: string }) => {
-    try {
-      if (!args?.runId || !args?.changeId) return { error: 'runId and changeId are required' }
-      return getChangeDiffContent(args.runId, args.changeId)
-    } catch (err) {
-      return { error: String(err) }
+  ipcMain.handle(
+    'agent:changes:diff-content',
+    async (_event, args: { runId: string; changeId: string }) => {
+      try {
+        if (!args?.runId || !args?.changeId) return { error: 'runId and changeId are required' }
+        return await getChangeDiffContent(args.runId, args.changeId)
+      } catch (err) {
+        return { error: String(err) }
+      }
     }
-  })
+  )
 
   ipcMain.handle('agent:changes:accept', async (_event, args: { runId: string }) => {
     try {

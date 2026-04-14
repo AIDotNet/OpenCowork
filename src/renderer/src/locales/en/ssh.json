@@ -189,6 +189,23 @@
     "addGroup": "Add Group",
     "addServer": "Add Server",
     "allConnections": "All Connections",
-    "backToList": "Back"
+    "backToList": "Back",
+    "viewTable": "Table view",
+    "viewCard": "Card view",
+    "search": "Search connections..."
+  },
+  "dashboard": {
+    "totalServers": "Servers",
+    "onlineServers": "Online",
+    "totalGroups": "Groups",
+    "activeUploads": "Uploads",
+    "activeSessions": "Sessions",
+    "serverDetails": "Server Details",
+    "quickConnect": "Quick Connect",
+    "noSelection": "Select a server to view details",
+    "noSelectionDesc": "Click on a connection card or table row to see its details here",
+    "lastConnected": "Last connected",
+    "never": "Never",
+    "createdAt": "Created"
   }
 }

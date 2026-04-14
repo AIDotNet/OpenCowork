@@ -12,8 +12,9 @@ import {
 } from 'electron'
 
 import { join, extname } from 'path'
+import { pathToFileURL } from 'url'
 import { mkdirSync, writeFileSync } from 'fs'
-import { homedir, totalmem } from 'os'
+import { homedir, hostname, release, totalmem } from 'os'
 import { randomUUID } from 'crypto'
 import { spawn } from 'child_process'
 
@@ -103,6 +104,7 @@ channelManager.registerFactory('weixin-official', createWeixinService)
 const mcpManager = new McpManager()
 
 let mainWindow: BrowserWindow | null = null
+let sshWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuiting = false
 
@@ -432,6 +434,44 @@ function showMainWindow(): void {
   mainWindow.focus()
 }
 
+function buildRendererUrl(searchParams?: URLSearchParams): string {
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    const baseUrl = new URL(process.env['ELECTRON_RENDERER_URL'])
+    if (searchParams) {
+      for (const [key, value] of searchParams.entries()) {
+        baseUrl.searchParams.set(key, value)
+      }
+    }
+    return baseUrl.toString()
+  }
+
+  const fileUrl = pathToFileURL(join(__dirname, '../renderer/index.html'))
+  if (searchParams) {
+    for (const [key, value] of searchParams.entries()) {
+      fileUrl.searchParams.set(key, value)
+    }
+  }
+  return fileUrl.toString()
+}
+
+async function loadRendererWindow(window: BrowserWindow, searchParams?: URLSearchParams): Promise<void> {
+  await window.loadURL(buildRendererUrl(searchParams))
+}
+
+function showSshWindow(): void {
+  if (!sshWindow || sshWindow.isDestroyed()) {
+    void createSshWindow()
+    return
+  }
+
+  if (sshWindow.isMinimized()) {
+    sshWindow.restore()
+  }
+
+  sshWindow.show()
+  sshWindow.focus()
+}
+
 function getTrayIcon() {
   if (process.platform === 'darwin') {
     const image = nativeImage.createFromPath(icon_mac)
@@ -457,6 +497,11 @@ function createTray(): void {
 
       click: () => showMainWindow()
     },
+    {
+      label: 'Open SSH',
+
+      click: () => showSshWindow()
+    },
 
     { type: 'separator' },
 
@@ -476,9 +521,69 @@ function createTray(): void {
   tray.on('click', showMainWindow)
 }
 
-function createWindow(): void {
-  // Create the browser window.
+function registerWindowControlHandlers(): void {
+  ipcMain.handle('window:minimize', (event) => {
+    const targetWindow = BrowserWindow.fromWebContents(event.sender)
+    targetWindow?.minimize()
+  })
 
+  ipcMain.handle('window:maximize', (event) => {
+    const targetWindow = BrowserWindow.fromWebContents(event.sender)
+    if (!targetWindow) return
+    if (targetWindow.isMaximized()) targetWindow.unmaximize()
+    else targetWindow.maximize()
+  })
+
+  ipcMain.handle('window:close', (event) => {
+    const targetWindow = BrowserWindow.fromWebContents(event.sender)
+    targetWindow?.close()
+  })
+
+  ipcMain.handle('window:isMaximized', (event) => {
+    const targetWindow = BrowserWindow.fromWebContents(event.sender)
+    return targetWindow?.isMaximized() ?? false
+  })
+
+  ipcMain.handle('ssh-window:open', () => {
+    showSshWindow()
+    return { success: true }
+  })
+}
+
+function configureAppWindow(window: BrowserWindow, options?: { hideOnClose?: boolean; onClosed?: () => void }): void {
+  window.on('maximize', () => safeSendToWindow(window, 'window:maximized', true))
+
+  window.on('unmaximize', () => safeSendToWindow(window, 'window:maximized', false))
+
+  window.on('ready-to-show', () => {
+    window.show()
+  })
+
+  window.on('close', (event) => {
+    if (options?.hideOnClose && !isQuiting) {
+      event.preventDefault()
+
+      window.hide()
+    }
+  })
+
+  window.on('closed', () => {
+    options?.onClosed?.()
+  })
+
+  window.webContents.setWindowOpenHandler((details) => {
+    const url = details.url || ''
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url).catch((error) => {
+        console.error('[Main] Failed to open external URL:', url, error)
+      })
+    }
+
+    return { action: 'deny' }
+  })
+}
+
+function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
 
@@ -511,61 +616,59 @@ function createWindow(): void {
     return
   }
 
-  // Window control IPC handlers
-
-  ipcMain.handle('window:minimize', () => window.minimize())
-
-  ipcMain.handle('window:maximize', () => {
-    if (window.isMaximized()) window.unmaximize()
-    else window.maximize()
-  })
-
-  ipcMain.handle('window:close', () => window.close())
-
-  ipcMain.handle('window:isMaximized', () => window.isMaximized())
-
-  // Forward maximize state changes to renderer
-
-  window.on('maximize', () => safeSendToWindow(window, 'window:maximized', true))
-
-  window.on('unmaximize', () => safeSendToWindow(window, 'window:maximized', false))
-
-  window.on('ready-to-show', () => {
-    window.show()
-  })
-
-  window.on('close', (event) => {
-    if (!isQuiting) {
-      event.preventDefault()
-
-      window.hide()
+  configureAppWindow(window, {
+    hideOnClose: true,
+    onClosed: () => {
+      mainWindow = null
     }
   })
 
-  window.on('closed', () => {
-    mainWindow = null
-  })
+  void loadRendererWindow(window)
+}
 
-  window.webContents.setWindowOpenHandler((details) => {
-    const url = details.url || ''
-    if (/^https?:\/\//i.test(url)) {
-      void shell.openExternal(url).catch((error) => {
-        console.error('[Main] Failed to open external URL:', url, error)
-      })
-    }
-
-    return { action: 'deny' }
-  })
-
-  // HMR for renderer base on electron-vite cli.
-
-  // Load the remote URL for development or the local html file for production.
-
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    window.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    window.loadFile(join(__dirname, '../renderer/index.html'))
+async function createSshWindow(): Promise<void> {
+  if (sshWindow && !sshWindow.isDestroyed()) {
+    showSshWindow()
+    return
   }
+
+  sshWindow = new BrowserWindow({
+    width: 1400,
+
+    height: 900,
+
+    minWidth: 1000,
+
+    minHeight: 700,
+
+    show: false,
+
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 12, y: 12 } }
+      : { frame: false }),
+
+    autoHideMenuBar: true,
+
+    icon: icon,
+
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+
+      sandbox: false
+    }
+  })
+
+  const window = sshWindow
+  if (!window) return
+
+  configureAppWindow(window, {
+    onClosed: () => {
+      sshWindow = null
+    }
+  })
+
+  const params = new URLSearchParams({ appView: 'ssh' })
+  await loadRendererWindow(window, params)
 }
 
 // This method will be called when Electron has finished
@@ -611,7 +714,12 @@ if (!gotSingleInstanceLock) {
 }
 
 if (gotSingleInstanceLock) {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, commandLine) => {
+    const shouldOpenSsh = commandLine.some((arg) => arg.includes('appView=ssh'))
+    if (shouldOpenSsh) {
+      showSshWindow()
+      return
+    }
     showMainWindow()
   })
 
@@ -651,6 +759,13 @@ if (gotSingleInstanceLock) {
     ipcMain.on('ping', () => console.log('pong'))
 
     ipcMain.handle('app:homedir', () => homedir())
+    ipcMain.handle('app:system-info', () => ({
+      machineName: hostname(),
+      platform: process.platform,
+      arch: process.arch,
+      release: release()
+    }))
+    registerWindowControlHandlers()
 
     // Register IPC handlers
 

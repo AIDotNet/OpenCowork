@@ -9,6 +9,7 @@ import type {
 import { ipcStreamRequest, maskHeaders } from '../ipc/api-stream'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
+import { buildMoonshotCommonHeaders, isMoonshotProviderConfig } from '@renderer/lib/auth/oauth'
 import { getGlobalPromptCacheKey, registerProvider } from './provider'
 import { sanitizeMessagesForToolReplay } from '../tools/tool-input-sanitizer'
 
@@ -89,7 +90,8 @@ class OpenAIChatProvider implements APIProvider {
           ...config,
           apiKey: latest.apiKey || config.apiKey,
           baseUrl: latest.baseUrl || config.baseUrl,
-          userAgent: latest.userAgent ?? config.userAgent
+          userAgent: latest.userAgent ?? config.userAgent,
+          ...(latest.oauth?.accountId ? { accountId: latest.oauth.accountId } : {})
         }
         activeAccountId = latest.activeAccountId
       }
@@ -154,6 +156,13 @@ class OpenAIChatProvider implements APIProvider {
     }
     if (runtimeConfig.userAgent) headers['User-Agent'] = runtimeConfig.userAgent
     if (runtimeConfig.serviceTier) headers.service_tier = runtimeConfig.serviceTier
+    if (isMoonshotProviderConfig(runtimeConfig)) {
+      const moonshotDeviceId = useProviderStore
+        .getState()
+        .providers.find((item) => item.id === config.providerId)?.oauth?.deviceId
+      Object.assign(headers, await buildMoonshotCommonHeaders(moonshotDeviceId))
+    }
+    if (runtimeConfig.accountId) headers['Chatgpt-Account-Id'] = runtimeConfig.accountId
     applyHeaderOverrides(headers, runtimeConfig)
 
     const bodyStr = JSON.stringify(body)
@@ -485,6 +494,7 @@ class OpenAIChatProvider implements APIProvider {
       if (m.role === 'system') continue
 
       if (typeof m.content === 'string') {
+        if (m.role === 'assistant' && !m.content.trim()) continue
         formatted.push({ role: m.role, content: m.content })
         continue
       }
@@ -494,9 +504,40 @@ class OpenAIChatProvider implements APIProvider {
       // Handle user messages with images or text-only ContentBlock[]
       if (m.role === 'user') {
         const hasImages = blocks.some((b) => b.type === 'image')
-        if (hasImages) {
+        const userToolResults = blocks.filter((b) => b.type === 'tool_result')
+
+        // Always emit tool results first (as role: "tool" messages) so they
+        // appear directly after the preceding assistant's tool_calls.
+        if (userToolResults.length > 0) {
+          for (const tr of userToolResults) {
+            if (tr.type !== 'tool_result') continue
+
+            if (Array.isArray(tr.content)) {
+              const parts: unknown[] = []
+              for (const cb of tr.content) {
+                if (cb.type === 'text') {
+                  parts.push({ type: 'text', text: cb.text })
+                } else if (cb.type === 'image') {
+                  const dataUrl = `data:${cb.source.mediaType || 'image/png'};base64,${cb.source.data}`
+                  parts.push({ type: 'image_url', image_url: { url: dataUrl } })
+                }
+              }
+              formatted.push({ role: 'tool', tool_call_id: tr.toolUseId, content: parts })
+            } else {
+              formatted.push({
+                role: 'tool',
+                tool_call_id: tr.toolUseId,
+                content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content)
+              })
+            }
+          }
+        }
+
+        // Then emit any text/image content as a user message.
+        const nonToolBlocks = blocks.filter((b) => b.type !== 'tool_result')
+        if (hasImages && nonToolBlocks.length > 0) {
           const parts: unknown[] = []
-          for (const b of blocks) {
+          for (const b of nonToolBlocks) {
             if (b.type === 'image') {
               const url =
                 b.source.type === 'base64'
@@ -507,22 +548,23 @@ class OpenAIChatProvider implements APIProvider {
               parts.push({ type: 'text', text: b.text })
             }
           }
-          formatted.push({ role: 'user', content: parts })
-          continue
+          if (parts.length > 0) {
+            formatted.push({ role: 'user', content: parts })
+          }
+        } else {
+          const userTextBlocks = nonToolBlocks.filter((b) => b.type === 'text')
+          if (userTextBlocks.length > 0) {
+            const parts = userTextBlocks.map((b) => ({
+              type: 'text',
+              text: (b as Extract<ContentBlock, { type: 'text' }>).text
+            }))
+            formatted.push({ role: 'user', content: parts })
+          }
         }
-        // Text-only ContentBlock[] (e.g., system-remind dynamic context injection)
-        const userTextBlocks = blocks.filter((b) => b.type === 'text')
-        if (userTextBlocks.length > 0) {
-          const parts = userTextBlocks.map((b) => ({
-            type: 'text',
-            text: (b as Extract<ContentBlock, { type: 'text' }>).text
-          }))
-          formatted.push({ role: 'user', content: parts })
-          continue
-        }
+        continue
       }
 
-      // Handle tool results → role: "tool"
+      // Handle tool results → role: "tool" (for non-user messages, e.g. legacy format)
       const toolResults = blocks.filter((b) => b.type === 'tool_result')
       if (toolResults.length > 0) {
         for (const tr of toolResults) {
@@ -570,8 +612,18 @@ class OpenAIChatProvider implements APIProvider {
             )?.encryptedContent
         : undefined
 
+      const hasAssistantPayload =
+        textContent.length > 0 ||
+        reasoningContent.length > 0 ||
+        !!googleThinkingSignature ||
+        toolUses.length > 0
+      if (!hasAssistantPayload) continue
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const msg: any = { role: 'assistant', content: textContent || null }
+      const msg: any = {
+        role: 'assistant',
+        content: textContent.length > 0 ? textContent : null
+      }
       if (reasoningContent) msg.reasoning_content = reasoningContent
       if (googleThinkingSignature) {
         msg.reasoning_encrypted_content = googleThinkingSignature
@@ -617,16 +669,20 @@ class OpenAIChatProvider implements APIProvider {
       const replayableToolUseIds = new Set(
         blocks
           .filter(
-            (block): block is Extract<ContentBlock, { type: 'tool_use' }> => block.type === 'tool_use'
+            (block): block is Extract<ContentBlock, { type: 'tool_use' }> =>
+              block.type === 'tool_use'
           )
           .map((block) => block.id)
       )
 
       const pairedToolUseIds = new Set<string>()
       if (replayableToolUseIds.size > 0) {
-        const nextMessage = messages[index + 1]
-        if (nextMessage?.role === 'user' && Array.isArray(nextMessage.content)) {
-          for (const block of nextMessage.content as ContentBlock[]) {
+        for (let j = index + 1; j < messages.length; j++) {
+          const candidateMsg = messages[j]
+          if (candidateMsg.role !== 'user' || !Array.isArray(candidateMsg.content)) break
+          const candidateBlocks = candidateMsg.content as ContentBlock[]
+          if (!candidateBlocks.some((b) => b.type === 'tool_result')) break
+          for (const block of candidateBlocks) {
             if (block.type !== 'tool_result' || !replayableToolUseIds.has(block.toolUseId)) continue
             pairedToolUseIds.add(block.toolUseId)
             validToolUseIds.add(block.toolUseId)

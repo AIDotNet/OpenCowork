@@ -116,11 +116,6 @@ const DrawPage = lazy(async () => {
   return { default: mod.DrawPage }
 })
 
-const SshPage = lazy(async () => {
-  const mod = await import('@renderer/components/ssh/SshPage')
-  return { default: mod.SshPage }
-})
-
 const TasksPage = lazy(async () => {
   const mod = await import('../tasks/TasksPage')
   return { default: mod.TasksPage }
@@ -307,10 +302,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const resourcesPageOpen = useUIStore((s) => s.resourcesPageOpen)
   const drawPageOpen = useUIStore((s) => s.drawPageOpen)
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
-  const sshPageOpen = useUIStore((s) => s.sshPageOpen)
   const tasksPageOpen = useUIStore((s) => s.tasksPageOpen)
-  const sshPageEverOpened = useRef(false)
-  if (sshPageOpen) sshPageEverOpened.current = true
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar)
   const _loaded = useChatStore((s) => s._loaded)
   const appliedDefaultToolbarStateRef = useRef(false)
@@ -728,8 +720,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     !skillsPageOpen &&
     !settingsPageOpen &&
     !drawPageOpen &&
-    !translatePageOpen &&
-    !sshPageOpen
+    !translatePageOpen
   const showEmbeddedSidebar = leftSidebarOpen
   const showGlobalExpandButton = !leftSidebarOpen && !chatSurfaceActive && !settingsPageOpen
 
@@ -778,22 +769,9 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
               </div>
             )}
 
-            {/* SSH page – always mounted after first visit, hidden via CSS to preserve xterm buffers */}
-            {sshPageEverOpened.current && (
-              <div
-                className="flex-1 min-w-0 bg-background overflow-hidden"
-                style={{ display: sshPageOpen ? undefined : 'none' }}
-              >
-                <Suspense fallback={<LazyPageFallback />}>
-                  <SshPage />
-                </Suspense>
-              </div>
-            )}
-
-            {/* Main content area (hidden when SSH page is active) */}
-            {!sshPageOpen && (
-              <AnimatePresence mode="wait">
-                {tasksPageOpen ? (
+            {/* Main content area */}
+            <AnimatePresence mode="wait">
+              {tasksPageOpen ? (
                   <PageTransition
                     key="tasks-page"
                     className="flex-1 min-w-0 bg-background overflow-hidden"
@@ -1173,7 +1151,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                   </PageTransition>
                 )}
               </AnimatePresence>
-            )}
           </div>
         </div>
       </div>

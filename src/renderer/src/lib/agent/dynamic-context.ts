@@ -31,11 +31,13 @@ export async function buildRuntimeReminder(options: {
   const selectedFiles = useUIStore.getState().selectedFiles ?? []
   const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
   const workingFolder = session?.workingFolder
+  const sshConnectionId = session?.sshConnectionId
 
   if (selectedFiles.length > 0) {
     const selectedFileContext = await buildSelectedFileContext(
       selectedFiles,
       workingFolder,
+      sshConnectionId,
       modelConfig
     )
     if (selectedFileContext) {
@@ -100,6 +102,7 @@ function buildSessionStateContext(sessionId: string): string | null {
 async function buildSelectedFileContext(
   selectedFiles: string[],
   workingFolder?: string,
+  sshConnectionId?: string,
   modelConfig?: AIModelConfig | null
 ): Promise<string> {
   const budget = resolveFileContextBudget(modelConfig)
@@ -114,7 +117,10 @@ async function buildSelectedFileContext(
         : filePath
 
     try {
-      const content = await ipcClient.invoke('fs:read-file', { path: filePath })
+      const content = await ipcClient.invoke(
+        sshConnectionId ? 'ssh:fs:read-file' : 'fs:read-file',
+        sshConnectionId ? { connectionId: sshConnectionId, path: filePath } : { path: filePath }
+      )
       if (typeof content !== 'string') {
         skipped.push(`${displayPath} [unreadable]`)
         continue

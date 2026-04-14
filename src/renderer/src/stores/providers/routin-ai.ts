@@ -11,7 +11,7 @@ export const routinAiPreset: BuiltinProviderPreset = {
   defaultModel: 'glm-5',
   defaultModels: [
     {
-      id: 'kimi-k2.5:free',
+      id: 'kimi-k2.5',
       name: 'Kimi K2.5',
       icon: 'kimi',
       enabled: true,
@@ -30,7 +30,26 @@ export const routinAiPreset: BuiltinProviderPreset = {
       }
     },
     {
-      id: 'MiniMax-M2.1:free',
+      id: 'K2.6-code-preview',
+      name: 'Kimi K2.6 Code Preview',
+      icon: 'kimi',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 32_768,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.6,
+      outputPrice: 3,
+      cacheHitPrice: 0.1,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        forceTemperature: 1
+      }
+    },
+    {
+      id: 'MiniMax-M2.1',
       name: 'MiniMax M2.1',
       icon: 'minimax',
       enabled: true,
@@ -45,7 +64,7 @@ export const routinAiPreset: BuiltinProviderPreset = {
       type: 'anthropic'
     },
     {
-      id: 'MiniMax-M2.5:free',
+      id: 'MiniMax-M2.5',
       name: 'MiniMax M2.5',
       icon: 'minimax',
       enabled: true,

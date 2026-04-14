@@ -319,6 +319,7 @@ export interface OAuthToken {
   tokenType?: string
   accountId?: string
   idToken?: string
+  deviceId?: string
   copilotAccessToken?: string
   copilotTokenType?: string
   copilotExpiresAt?: number

@@ -1,14 +1,42 @@
 import type { BuiltinProviderPreset } from './types'
 
+const KIMI_CLI_USER_AGENT = 'KimiCLI/1.30.0'
+const KIMI_OAUTH_HOST = 'https://auth.kimi.com'
+const KIMI_CLIENT_ID = '17e5f671-d194-4dfb-9706-5516cb48c098'
+
 export const moonshotCodingPreset: BuiltinProviderPreset = {
   builtinId: 'moonshot-coding',
   name: 'Moonshot（套餐）',
-  type: 'anthropic',
-  defaultBaseUrl: 'https://api.kimi.com/coding/',
+  type: 'openai-chat',
+  defaultBaseUrl: 'https://api.kimi.com/coding/v1',
   homepage: 'https://www.kimi.com',
   apiKeyUrl: 'https://www.kimi.com/code/console?from=membership',
   defaultEnabled: false,
-  userAgent: 'RooCode/3.48.0',
+  requiresApiKey: false,
+  authMode: 'oauth',
+  userAgent: KIMI_CLI_USER_AGENT,
+  oauthConfig: {
+    authorizeUrl: '',
+    tokenUrl: `${KIMI_OAUTH_HOST}/api/oauth/token`,
+    deviceCodeUrl: `${KIMI_OAUTH_HOST}/api/oauth/device_authorization`,
+    clientId: KIMI_CLIENT_ID,
+    clientIdLocked: true,
+    flowType: 'device_code',
+    tokenRequestHeaders: {
+      Accept: 'application/json',
+      'User-Agent': KIMI_CLI_USER_AGENT
+    },
+    refreshRequestHeaders: {
+      Accept: 'application/json',
+      'User-Agent': KIMI_CLI_USER_AGENT
+    },
+    deviceCodeRequestHeaders: {
+      Accept: 'application/json',
+      'User-Agent': KIMI_CLI_USER_AGENT
+    },
+    usePkce: false
+  },
+  ui: { hideOAuthSettings: true },
   defaultModels: [
     {
       id: 'kimi-for-coding',

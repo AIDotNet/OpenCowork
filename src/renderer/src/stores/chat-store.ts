@@ -2707,19 +2707,7 @@ function applyStreamDeltas(
             if (lastBlock?.type === 'text') {
               ;(lastBlock as TextBlock).text += delta.text
             } else {
-              let targetTextBlock: ContentBlock | null = null
-              for (let i = blocks.length - 1; i >= 0; i--) {
-                if (blocks[i].type === 'text') {
-                  targetTextBlock = blocks[i]
-                  break
-                }
-                if (blocks[i].type !== 'tool_use') break
-              }
-              if (targetTextBlock) {
-                ;(targetTextBlock as TextBlock).text += delta.text
-              } else {
-                blocks.push({ type: 'text', text: delta.text })
-              }
+              blocks.push({ type: 'text', text: delta.text })
             }
           }
         } else {

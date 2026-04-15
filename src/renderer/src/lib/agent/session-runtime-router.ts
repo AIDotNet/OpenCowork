@@ -152,19 +152,7 @@ export function appendRuntimeTextDelta(sessionId: string, messageId: string, tex
     if (lastBlock?.type === 'text') {
       lastBlock.text += text
     } else {
-      let targetTextBlock: ContentBlock | null = null
-      for (let i = blocks.length - 1; i >= 0; i--) {
-        if (blocks[i].type === 'text') {
-          targetTextBlock = blocks[i]
-          break
-        }
-        if (blocks[i].type !== 'tool_use') break
-      }
-      if (targetTextBlock && targetTextBlock.type === 'text') {
-        targetTextBlock.text += text
-      } else {
-        blocks.push({ type: 'text', text })
-      }
+      blocks.push({ type: 'text', text })
     }
   })
 }

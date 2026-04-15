@@ -111,6 +111,7 @@ export interface SidecarProviderConfig {
   temperature?: number
   systemPrompt?: string
   useSystemProxy?: boolean
+  allowInsecureTls?: boolean
   thinkingEnabled?: boolean
   thinkingConfig?: ProviderConfig['thinkingConfig']
   reasoningEffort?: string
@@ -356,6 +357,9 @@ function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig {
     ...(provider.temperature !== undefined ? { temperature: provider.temperature } : {}),
     ...(provider.systemPrompt ? { systemPrompt: provider.systemPrompt } : {}),
     ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
+    ...(provider.allowInsecureTls !== undefined
+      ? { allowInsecureTls: provider.allowInsecureTls }
+      : {}),
     ...(provider.thinkingEnabled !== undefined
       ? { thinkingEnabled: provider.thinkingEnabled }
       : {}),

@@ -120,6 +120,7 @@ interface VisibleProjectGroup {
   isMissing: boolean
 }
 
+const SESSION_LIST_PAGE_SIZE = 20
 const HISTORY_AUTO_COLLAPSE_AFTER_MS = 7 * 24 * 60 * 60 * 1000
 const RECENT_MINUTES_MS = 10 * 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -256,6 +257,8 @@ export function SessionListPanel(): React.JSX.Element {
   const [expandedHistoryProjectIds, setExpandedHistoryProjectIds] = useState<Set<string>>(
     () => new Set()
   )
+  const [visibleSessionCount, setVisibleSessionCount] = useState(SESSION_LIST_PAGE_SIZE)
+  const sessionListScrollRef = useRef<HTMLDivElement>(null)
   const projectIdSet = useMemo(() => new Set(projects.map((project) => project.id)), [projects])
   const initialProjectCollapseAppliedRef = useRef(false)
   const draggingRef = useRef(false)
@@ -771,13 +774,51 @@ export function SessionListPanel(): React.JSX.Element {
     [persistedLeftSidebarWidth, runtimeLeftSidebarWidth]
   )
 
-  const sortedSessions = sessions.slice().sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1
-    if (!a.pinned && b.pinned) return 1
-    return b.updatedAt - a.updatedAt
-  })
+  const sortedSessions = useMemo(() => {
+    return sessions.slice().sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1
+      if (!a.pinned && b.pinned) return 1
+      return b.updatedAt - a.updatedAt
+    })
+  }, [sessions])
 
   const searchQuery = search.trim().toLowerCase()
+
+  useEffect(() => {
+    setVisibleSessionCount(SESSION_LIST_PAGE_SIZE)
+    const container = sessionListScrollRef.current
+    if (container) {
+      container.scrollTop = 0
+    }
+  }, [searchQuery, activeProjectId])
+
+  const visibleSessions = useMemo(() => {
+    if (searchQuery) return sortedSessions
+    return sortedSessions.slice(0, visibleSessionCount)
+  }, [searchQuery, sortedSessions, visibleSessionCount])
+
+  const hasMoreSessions = !searchQuery && visibleSessionCount < sortedSessions.length
+
+  const loadMoreSessions = useCallback((): void => {
+    if (searchQuery) return
+    setVisibleSessionCount((current) => {
+      if (current >= sortedSessions.length) return current
+      return Math.min(current + SESSION_LIST_PAGE_SIZE, sortedSessions.length)
+    })
+  }, [searchQuery, sortedSessions.length])
+
+  const handleSessionListScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>): void => {
+      if (searchQuery || !hasMoreSessions) return
+      const container = event.currentTarget
+      const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+      if (distanceToBottom <= 96) {
+        loadMoreSessions()
+      }
+    },
+    [hasMoreSessions, loadMoreSessions, searchQuery]
+  )
+
   const contentSearchMeta = useMemo(() => {
     const matchedIds = new Set<string>()
     const snippetBySessionId = new Map<string, string>()
@@ -826,7 +867,7 @@ export function SessionListPanel(): React.JSX.Element {
         if (session.mode.toLowerCase().includes(searchQuery)) return true
         return contentSearchMeta.matchedIds.has(session.id)
       })
-    : sortedSessions
+    : visibleSessions
 
   const sessionsByProject = useMemo(() => {
     const map = new Map<string, SessionListItem[]>()
@@ -887,6 +928,16 @@ export function SessionListPanel(): React.JSX.Element {
     () => filteredProjectGroups.filter((group) => !group.project.pinned || group.isMissing),
     [filteredProjectGroups]
   )
+
+  useEffect(() => {
+    if (searchQuery || !hasMoreSessions) return
+    const container = sessionListScrollRef.current
+    if (!container) return
+    if (container.scrollHeight <= container.clientHeight + 96) {
+      loadMoreSessions()
+    }
+  }, [filteredProjectGroups.length, hasMoreSessions, loadMoreSessions, searchQuery])
+
   const historyCollapseThreshold = Date.now() - HISTORY_AUTO_COLLAPSE_AFTER_MS
 
   const renderSessionItem = (session: SessionListItem): React.JSX.Element => (
@@ -1429,7 +1480,11 @@ export function SessionListPanel(): React.JSX.Element {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-1.5">
+        <div
+          ref={sessionListScrollRef}
+          className="flex-1 overflow-y-auto px-1.5"
+          onScroll={handleSessionListScroll}
+        >
           {filteredProjectGroups.length === 0 ? (
             <div className="px-2 py-4 text-center text-xs text-muted-foreground">
               {sessions.length === 0 ? t('sidebar.noConversations') : t('sidebar.noMatches')}
@@ -1449,6 +1504,11 @@ export function SessionListPanel(): React.JSX.Element {
                 </div>
               )}
               {regularProjectGroups.map(renderProjectGroup)}
+              {hasMoreSessions && (
+                <div className="px-2 py-3 text-center text-[10px] text-muted-foreground/60">
+                  {t('common.loading', { ns: 'common', defaultValue: '加载中...' })}
+                </div>
+              )}
             </>
           )}
         </div>

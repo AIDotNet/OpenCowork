@@ -46,7 +46,7 @@ public sealed class GeminiProvider : ILlmProvider
             DebugInfo = CreateRequestDebugInfo(url, "POST", headers, bodyBytes, config)
         };
 
-        var client = _httpFactory.GetClient();
+        var client = _httpFactory.GetClient(allowInsecureTls: config.AllowInsecureTls ?? true);
 
         yield return new StreamEvent { Type = "message_start" };
 

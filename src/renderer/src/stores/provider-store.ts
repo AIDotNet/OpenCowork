@@ -1184,6 +1184,9 @@ export const useProviderStore = create<ProviderStore>()(
           ...(provider.useSystemProxy !== undefined
             ? { useSystemProxy: provider.useSystemProxy }
             : {}),
+          ...(provider.allowInsecureTls !== undefined
+            ? { allowInsecureTls: provider.allowInsecureTls }
+            : {}),
           responseSummary: activeModel?.responseSummary,
           enablePromptCache: activeModel?.enablePromptCache,
           enableSystemPromptCache: activeModel?.enableSystemPromptCache,
@@ -1291,6 +1294,9 @@ export const useProviderStore = create<ProviderStore>()(
           ...(provider.useSystemProxy !== undefined
             ? { useSystemProxy: provider.useSystemProxy }
             : {}),
+          ...(provider.allowInsecureTls !== undefined
+            ? { allowInsecureTls: provider.allowInsecureTls }
+            : {}),
           responseSummary: model?.responseSummary,
           enablePromptCache: model?.enablePromptCache,
           enableSystemPromptCache: model?.enableSystemPromptCache,
@@ -1378,6 +1384,9 @@ export const useProviderStore = create<ProviderStore>()(
           requiresApiKey: provider.requiresApiKey,
           ...(provider.useSystemProxy !== undefined
             ? { useSystemProxy: provider.useSystemProxy }
+            : {}),
+          ...(provider.allowInsecureTls !== undefined
+            ? { allowInsecureTls: provider.allowInsecureTls }
             : {}),
           responseSummary: fastModel?.responseSummary,
           enablePromptCache: fastModel?.enablePromptCache,

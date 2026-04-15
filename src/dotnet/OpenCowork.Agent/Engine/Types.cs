@@ -388,6 +388,7 @@ public sealed class ProviderConfig
     public double? Temperature { get; set; }
     public string? SystemPrompt { get; set; }
     public bool? UseSystemProxy { get; set; }
+    public bool? AllowInsecureTls { get; set; }
     public bool? ThinkingEnabled { get; set; }
     public ThinkingConfig? ThinkingConfig { get; set; }
     public string? ReasoningEffort { get; set; }

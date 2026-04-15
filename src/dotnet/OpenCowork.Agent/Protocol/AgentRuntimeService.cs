@@ -13,6 +13,18 @@ namespace OpenCowork.Agent.Protocol;
 
 public sealed class AgentRuntimeService
 {
+    private const string DefaultFallbackReportPrompt =
+        "Your previous turn ended without producing any visible text. Your caller has no way to see what you did. " +
+        "Now, based on everything you executed in this conversation (tool calls, findings, analysis, attempts, and " +
+        "failures), write a detailed work report. The report MUST include:\n" +
+        "1. What you were asked to do and your interpretation of the task.\n" +
+        "2. The concrete steps you took, in order, with the key evidence you gathered from each tool call.\n" +
+        "3. Your findings, conclusions, or the artifacts you produced (paste or quote the important parts directly).\n" +
+        "4. Anything you could NOT finish, and the reason (blocker, missing info, unclear scope, etc.).\n" +
+        "5. Concrete next steps or recommendations for the caller.\n\n" +
+        "Respond in the same language the task was given in. Output the report body only — do NOT call any tools, " +
+        "do NOT ask clarifying questions, do NOT add preamble like \"Here is the report\". Just the report.";
+
     private readonly StdioJsonRpcTransport _transport;
     private readonly Func<string, object?, CancellationToken, TimeSpan?, Task<JsonElement?>> _sendRequestAsync;
     private readonly LlmHttpClientFactory _httpClientFactory = new();
@@ -120,6 +132,7 @@ public sealed class AgentRuntimeService
                 };
 
                 var isChatMode = string.Equals(input.SessionMode, "chat", StringComparison.OrdinalIgnoreCase);
+                List<UnifiedMessage>? capturedFinalMessages = null;
                 var loopConfig = new AgentLoopRunConfig
                 {
                     Provider = provider,
@@ -137,16 +150,61 @@ public sealed class AgentRuntimeService
                     PlanMode = input.PlanMode,
                     PlanModeAllowedTools = input.PlanModeAllowedTools is { Count: > 0 }
                         ? new HashSet<string>(input.PlanModeAllowedTools, StringComparer.Ordinal)
-                        : null
+                        : null,
+                    CaptureFinalMessages = messages => capturedFinalMessages = messages
                 };
 
                 var approvalHandler = CreateApprovalHandler(runId, toolContext.SessionId, runCts.Token);
+                var visibleText = new StringBuilder();
+                MessageEndEvent? pendingMessageEnd = null;
+                LoopEndEvent? pendingLoopEnd = null;
                 Console.Error.WriteLine($"[{DateTimeOffset.Now:HH:mm:ss.fff}] [AgentRuntime] entering agent loop runId={runId}");
 
                 await foreach (var evt in AgentLoop.RunAsync(input.Messages, loopConfig, approvalHandler, runCts.Token))
                 {
                     Console.Error.WriteLine($"[{DateTimeOffset.Now:HH:mm:ss.fff}] [AgentRuntime] event produced runId={runId} type={evt.Type}");
+
+                    if (evt is TextDeltaEvent textEvt)
+                    {
+                        visibleText.Append(textEvt.Text);
+                    }
+
+                    if (evt is MessageEndEvent messageEndEvt)
+                    {
+                        pendingMessageEnd = messageEndEvt;
+                        continue;
+                    }
+
+                    if (evt is LoopEndEvent loopEndEvt)
+                    {
+                        pendingLoopEnd = loopEndEvt;
+                        continue;
+                    }
+
                     await SendAgentEventAsync(runId, evt, runCts.Token);
+                }
+
+                if (isChatMode
+                    && visibleText.Length == 0
+                    && capturedFinalMessages is { Count: > 0 }
+                    && !runCts.Token.IsCancellationRequested)
+                {
+                    var fallback = await RunFallbackReportAsync(capturedFinalMessages, provider, input.Provider, toolContext, runCts.Token);
+                    if (!string.IsNullOrWhiteSpace(fallback))
+                    {
+                        visibleText.Append(fallback);
+                        await SendAgentEventAsync(runId, new TextDeltaEvent { Text = fallback }, runCts.Token);
+                    }
+                }
+
+                if (pendingMessageEnd is not null)
+                {
+                    await SendAgentEventAsync(runId, pendingMessageEnd, runCts.Token);
+                }
+
+                if (pendingLoopEnd is not null)
+                {
+                    await SendAgentEventAsync(runId, pendingLoopEnd, runCts.Token);
                 }
 
                 Console.Error.WriteLine($"[{DateTimeOffset.Now:HH:mm:ss.fff}] [AgentRuntime] agent loop completed runId={runId}");
@@ -1015,10 +1073,10 @@ Usage notes:
             : OperatingSystem.IsMacOS() ? "macOS"
             : OperatingSystem.IsLinux() ? "Linux"
             : "Unknown";
-        var shell = OperatingSystem.IsWindows() ? "PowerShell" : "bash";
+        var shell = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh";
         var folderLine = string.IsNullOrWhiteSpace(workingFolder)
             ? string.Empty
-            : $"- Working Folder: `{workingFolder}`\n  All relative paths resolve against this folder. Use it as the default cwd for Bash commands.\n";
+            : $"- Working Folder: `{workingFolder}`\n  All relative paths resolve against this folder. Use it as the default cwd for terminal commands run via the Bash tool.\n";
 
         return $"""
 You are a specialized **OpenCoWork sub-agent**, dispatched by a parent agent to autonomously complete a single focused task.
@@ -1060,7 +1118,8 @@ Use tools decisively. You have access to every tool the main agent has.
 
 <running_commands>
 You can run terminal commands on the user's machine.
-- Use the Bash tool; never include `cd` in the command. Set `cwd` instead.
+- Use the Bash tool to run terminal commands; never include `cd` in the command. Set `cwd` instead.
+- The Bash tool name does not guarantee bash syntax; follow the shell shown in the Environment section.
 - Check for existing dev servers before starting new ones.
 - Never delete unrelated files, install system packages, or expose secrets in output.
 </running_commands>
@@ -1207,6 +1266,52 @@ When the task is complete you MUST call the `SubmitReport` tool exactly once to 
             Console.Error.WriteLine($"[{DateTimeOffset.Now:HH:mm:ss.fff}] [AgentRuntime] event send failed runId={runId} type={evt.Type}: {ex}");
             throw;
         }
+    }
+
+    private async Task<string?> RunFallbackReportAsync(
+        List<UnifiedMessage> capturedMessages,
+        ILlmProvider provider,
+        ProviderConfig config,
+        ToolContext toolContext,
+        CancellationToken ct)
+    {
+        var reportRequestMessage = new UnifiedMessage
+        {
+            Role = "user",
+            CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Content = new List<ContentBlock> { new TextBlock { Text = DefaultFallbackReportPrompt } },
+            RawContent = JsonSerializer.SerializeToElement(DefaultFallbackReportPrompt, AppJsonContext.Default.String)
+        };
+
+        var replayMessages = new List<UnifiedMessage>(capturedMessages.Count + 1);
+        replayMessages.AddRange(capturedMessages);
+        replayMessages.Add(reportRequestMessage);
+
+        var followUpConfig = new AgentLoopRunConfig
+        {
+            Provider = provider,
+            ProviderConfig = config,
+            Tools = new List<ToolDefinition>(),
+            ToolRegistry = _toolRegistry,
+            ToolContext = toolContext,
+            MaxIterations = 1,
+            EnableParallelToolExecution = false,
+            CaptureFinalMessages = null,
+            Compression = null,
+            SessionMode = "chat"
+        };
+
+        var reportText = new StringBuilder();
+        await foreach (var evt in AgentLoop.RunAsync(replayMessages, followUpConfig, onApproval: null, ct))
+        {
+            if (evt is TextDeltaEvent textEvt)
+            {
+                reportText.Append(textEvt.Text);
+            }
+        }
+
+        var text = reportText.ToString().Trim();
+        return text.Length > 0 ? text : null;
     }
 
     private static JsonElement SerializeAgentEvent(AgentEvent evt)
@@ -1613,18 +1718,15 @@ When the task is complete you MUST call the `SubmitReport` tool exactly once to 
             ct,
             TimeSpan.FromMinutes(10));
 
-        // When the renderer's response comes back (or errors), signal channel completion
-        // in case the renderer missed sending a Done event.
+        // Start acknowledgement only confirms that the renderer accepted the stream setup.
+        // Normal completion must come from an explicit provider/stream-event with Done=true;
+        // otherwise long-running bridged streams can be cut off as soon as the start request returns.
         _ = startTask.ContinueWith(t =>
         {
             if (t.IsFaulted)
             {
                 var inner = t.Exception?.GetBaseException();
                 channel.Writer.TryComplete(inner);
-            }
-            else
-            {
-                channel.Writer.TryComplete();
             }
         }, TaskScheduler.Default);
 

@@ -57,6 +57,38 @@ const FILE_OPERATION_RETRY_DELAYS_MS = [40, 120, 250, 500, 1_000]
 
 type GrepResultItem = { file: string; line: number; text: string }
 type GrepLimitReason = 'max_results' | 'max_output_bytes' | 'timeout' | null
+type SearchBackend = 'local' | 'ssh' | 'cron'
+type SearchPathStyle = 'absolute' | 'relative_to_search_root'
+
+type SearchMeta = {
+  backend: SearchBackend
+  searchRoot: string
+  pathStyle: SearchPathStyle
+  truncated: boolean
+  timedOut: boolean
+  limitReason: GrepLimitReason
+  pattern: string
+  include?: string | null
+  hiddenIncluded: boolean
+  ignoredDefaultsApplied: boolean
+  searchTime?: number
+  warnings?: string[]
+  maxDepth?: number | null
+}
+
+type GlobToolResult = {
+  kind: 'glob'
+  matches: Array<{ path: string; type?: 'file' | 'directory' }>
+  meta: SearchMeta
+  error?: string
+}
+
+type GrepToolResult = {
+  kind: 'grep'
+  matches: Array<{ path: string; line: number; text: string }>
+  meta: SearchMeta
+  error?: string
+}
 
 type FileOperationError = NodeJS.ErrnoException & { message: string }
 
@@ -238,6 +270,85 @@ function normalizeRipgrepGlob(pattern: string): string {
     return `*${normalized}`
   }
   return normalized
+}
+
+function createSearchMeta(args: {
+  searchRoot: string
+  pattern: string
+  include?: string | null
+  truncated?: boolean
+  timedOut?: boolean
+  limitReason?: GrepLimitReason
+  searchTime?: number
+  warnings?: string[]
+  maxDepth?: number | null
+  pathStyle?: SearchPathStyle
+}): SearchMeta {
+  return {
+    backend: 'local',
+    searchRoot: args.searchRoot,
+    pathStyle: args.pathStyle ?? 'absolute',
+    truncated: args.truncated === true,
+    timedOut: args.timedOut === true,
+    limitReason: args.limitReason ?? null,
+    pattern: args.pattern,
+    include: args.include ?? null,
+    hiddenIncluded: true,
+    ignoredDefaultsApplied: true,
+    searchTime: args.searchTime,
+    warnings: args.warnings ?? [],
+    maxDepth: args.maxDepth ?? null
+  }
+}
+
+function createGlobToolResult(args: {
+  searchRoot: string
+  pattern: string
+  matches: Array<{ path: string; type?: 'file' | 'directory' }>
+  warnings?: string[]
+  error?: string
+}): GlobToolResult {
+  return {
+    kind: 'glob',
+    matches: args.matches,
+    meta: createSearchMeta({
+      searchRoot: args.searchRoot,
+      pattern: args.pattern,
+      warnings: args.warnings,
+      pathStyle: 'absolute'
+    }),
+    error: args.error
+  }
+}
+
+function createGrepToolResult(args: {
+  searchRoot: string
+  pattern: string
+  include?: string | null
+  matches: Array<{ path: string; line: number; text: string }>
+  truncated?: boolean
+  timedOut?: boolean
+  limitReason?: GrepLimitReason
+  searchTime?: number
+  warnings?: string[]
+  error?: string
+}): GrepToolResult {
+  return {
+    kind: 'grep',
+    matches: args.matches,
+    meta: createSearchMeta({
+      searchRoot: args.searchRoot,
+      pattern: args.pattern,
+      include: args.include,
+      truncated: args.truncated,
+      timedOut: args.timedOut,
+      limitReason: args.limitReason,
+      searchTime: args.searchTime,
+      warnings: args.warnings,
+      pathStyle: 'absolute'
+    }),
+    error: args.error
+  }
 }
 
 function scoreFileSearchMatch(filePath: string, query: string): number {
@@ -847,15 +958,16 @@ export function registerFsHandlers(): void {
   })
 
   ipcMain.handle('fs:glob', async (_event, args: { pattern: string; path?: string }) => {
+    const cwd = path.resolve(args.path || process.cwd())
     try {
-      const cwd = path.resolve(args.path || process.cwd())
       const matcher = await createLocalGitIgnoreContext(cwd)
       const matches = await glob(args.pattern, {
         cwd,
         mark: true,
+        dot: true,
         ignore: buildGlobIgnorePatterns(args.pattern)
       })
-      const filteredMatches: string[] = []
+      const filteredMatches: Array<{ path: string; type?: 'file' | 'directory' }> = []
 
       for (const match of matches) {
         const isDir = /[\\/]$/.test(match)
@@ -863,12 +975,21 @@ export function registerFsHandlers(): void {
         if (!normalizedMatch) continue
         const absolutePath = path.resolve(cwd, normalizedMatch)
         if (await matcher.ignores(absolutePath, isDir)) continue
-        filteredMatches.push(normalizedMatch)
+        filteredMatches.push({ path: absolutePath, type: isDir ? 'directory' : 'file' })
       }
 
-      return filteredMatches
+      return createGlobToolResult({
+        searchRoot: cwd,
+        pattern: args.pattern,
+        matches: filteredMatches
+      })
     } catch (err) {
-      return { error: String(err) }
+      return createGlobToolResult({
+        searchRoot: cwd,
+        pattern: args.pattern,
+        matches: [],
+        error: String(err)
+      })
     }
   })
 
@@ -932,17 +1053,30 @@ export function registerFsHandlers(): void {
         try {
           targetStats = await fs.promises.stat(searchTarget)
         } catch {
-          return { error: `Search path does not exist: ${searchTarget}` }
+          return createGrepToolResult({
+            searchRoot: searchTarget,
+            pattern: args.pattern,
+            include: args.include,
+            matches: [],
+            error: `Search path does not exist: ${searchTarget}`
+          })
         }
+
+        const searchRoot = targetStats.isDirectory() ? searchTarget : path.dirname(searchTarget)
 
         let regex: RegExp
         try {
           regex = new RegExp(args.pattern, 'i')
         } catch (err) {
-          return { error: `Invalid regex pattern: ${err}` }
+          return createGrepToolResult({
+            searchRoot,
+            pattern: args.pattern,
+            include: args.include,
+            matches: [],
+            error: `Invalid regex pattern: ${err}`
+          })
         }
 
-        const searchRoot = targetStats.isDirectory() ? searchTarget : path.dirname(searchTarget)
         const includePatterns = parseIncludePatterns(args.include)
 
         const sidecarResult = await runSidecarGrepSearch({
@@ -970,13 +1104,20 @@ export function registerFsHandlers(): void {
         })
 
         if (ripgrepResult) {
-          return {
-            results: ripgrepResult.results,
+          return createGrepToolResult({
+            searchRoot,
+            pattern: args.pattern,
+            include: args.include,
+            matches: ripgrepResult.results.map((item) => ({
+              path: item.file,
+              line: item.line,
+              text: item.text
+            })),
             truncated: ripgrepResult.truncated,
             timedOut: ripgrepResult.timedOut,
             limitReason: ripgrepResult.limitReason,
             searchTime: Date.now() - startTime
-          }
+          })
         }
 
         const collector = createGrepCollector(searchRoot)
@@ -1018,7 +1159,7 @@ export function registerFsHandlers(): void {
 
               const fullPath = path.join(dir, entry.name)
               if (entry.isDirectory()) {
-                if (GREP_IGNORE_DIRS.has(entry.name) || entry.name.startsWith('.')) continue
+                if (GREP_IGNORE_DIRS.has(entry.name)) continue
                 if (gitIgnoreMatcher && (await gitIgnoreMatcher.ignores(fullPath, true))) continue
                 if (await walkDir(fullPath)) return true
                 continue
@@ -1039,15 +1180,29 @@ export function registerFsHandlers(): void {
           await searchFile(searchTarget)
         }
 
-        return {
-          results: collector.results,
+        return createGrepToolResult({
+          searchRoot,
+          pattern: args.pattern,
+          include: args.include,
+          matches: collector.results.map((item) => ({
+            path: item.file,
+            line: item.line,
+            text: item.text
+          })),
           truncated: collector.truncated || timedOut,
           timedOut,
           limitReason: timedOut ? 'timeout' : collector.limitReason,
           searchTime: Date.now() - startTime
-        }
+        })
       } catch (err) {
-        return { error: String(err) }
+        const searchRoot = path.resolve(args.path || process.cwd())
+        return createGrepToolResult({
+          searchRoot,
+          pattern: args.pattern,
+          include: args.include,
+          matches: [],
+          error: String(err)
+        })
       }
     }
   )

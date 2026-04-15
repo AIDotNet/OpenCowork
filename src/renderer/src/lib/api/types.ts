@@ -458,6 +458,8 @@ export interface AIProvider {
   requiresApiKey?: boolean
   /** Whether to route API requests via the system proxy */
   useSystemProxy?: boolean
+  /** Whether to skip TLS certificate validation for this provider's agent requests */
+  allowInsecureTls?: boolean
   /** Custom User-Agent header (e.g. Moonshot套餐 requires 'RooCode/3.48.0') */
   userAgent?: string
   /** Default model ID to use when this provider is first selected */
@@ -509,6 +511,8 @@ export interface ProviderConfig {
   requiresApiKey?: boolean
   /** Whether to route API requests via the system proxy */
   useSystemProxy?: boolean
+  /** Whether to skip TLS certificate validation for this provider request */
+  allowInsecureTls?: boolean
   /** Whether thinking mode is enabled for this request */
   thinkingEnabled?: boolean
   /** Thinking configuration from the active model */

@@ -46,7 +46,8 @@ public static class SseStreamReader
     }
 
     /// <summary>
-    /// Max number of retry attempts for transient HTTP failures (500, 429).
+    /// Max number of retry attempts for transient streaming request failures
+    /// (HTTP 500/429 and retryable SSL/EOF transport errors).
     /// Total requests sent = 1 initial + up to MaxRetryAttempts retries.
     /// </summary>
     private const int MaxRetryAttempts = 10;
@@ -56,8 +57,9 @@ public static class SseStreamReader
     /// <summary>
     /// Create an HttpRequestMessage configured for SSE streaming.
     /// Uses ResponseHeadersRead to avoid buffering the response body.
-    /// Transparently retries on HTTP 429 and 500 with exponential backoff + jitter,
-    /// up to <see cref="MaxRetryAttempts"/> times. Honors the Retry-After header when present.
+    /// Transparently retries on HTTP 429/500 and retryable SSL/EOF transport failures
+    /// with exponential backoff + jitter, up to <see cref="MaxRetryAttempts"/> times.
+    /// Honors the Retry-After header when present.
     /// </summary>
     public static async Task<HttpResponseMessage> SendStreamingRequestAsync(
         HttpClient client,
@@ -87,6 +89,14 @@ public static class SseStreamReader
             try
             {
                 response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            }
+            catch (HttpRequestException ex) when (attempt < MaxRetryAttempts && IsRetryableTransportException(ex))
+            {
+                request.Dispose();
+                var delay = ComputeRetryDelay(attempt);
+                attempt++;
+                await Task.Delay(delay, ct);
+                continue;
             }
             catch (HttpRequestException ex)
             {
@@ -134,6 +144,11 @@ public static class SseStreamReader
             }
         }
 
+        return ComputeRetryDelay(attempt);
+    }
+
+    private static TimeSpan ComputeRetryDelay(int attempt)
+    {
         // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at 30s, with +/-25% jitter.
         var baseMs = Math.Min(30_000d, 1000d * Math.Pow(2, attempt));
         double jitter;
@@ -143,6 +158,31 @@ public static class SseStreamReader
         }
         var jittered = baseMs * (1.0 + jitter);
         return TimeSpan.FromMilliseconds(Math.Max(100, jittered));
+    }
+
+    private static bool IsRetryableTransportException(HttpRequestException ex)
+    {
+        if (ex.StatusCode is not null)
+            return false;
+
+        return EnumerateExceptionChain(ex).Any(static candidate =>
+            candidate is IOException ioEx && HasTransientSslTransportMessage(ioEx.Message)
+            || candidate is HttpRequestException httpEx && HasTransientSslTransportMessage(httpEx.Message));
+    }
+
+    private static bool HasTransientSslTransportMessage(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        return message.Contains("The SSL connection could not be established", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("Received an unexpected EOF or 0 bytes from the transport stream", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<Exception> EnumerateExceptionChain(Exception ex)
+    {
+        for (Exception? current = ex; current is not null; current = current.InnerException)
+            yield return current;
     }
 
     private static TimeSpan CapDelay(TimeSpan delay)

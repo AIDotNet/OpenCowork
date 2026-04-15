@@ -21,7 +21,17 @@
       "Bash(grep -E \"\\\\.ts$\")",
       "Bash(find /f/code/OpenCowork/src/renderer/src/lib/tools -name \"*.ts\" -exec basename {} \\\\;)",
       "Bash(npx tsc:*)",
-      "Bash(npx prettier:*)"
+      "Bash(npx prettier:*)",
+      "mcp__MCP_DOCKER__mcp-find",
+      "mcp__MCP_DOCKER__mcp-add",
+      "mcp__MCP_DOCKER__browser_navigate",
+      "Bash(npx electron-vite *)",
+      "Bash(npx vite *)",
+      "Bash(__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=host.docker.internal npx vite *)",
+      "mcp__MCP_DOCKER__browser_snapshot",
+      "mcp__MCP_DOCKER__browser_console_messages",
+      "mcp__MCP_DOCKER__browser_network_requests",
+      "Bash(python *)"
     ]
   }
 }

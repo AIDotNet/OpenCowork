@@ -114,16 +114,16 @@ export class DingTalkApi {
     return { messageId: '' }
   }
 
-  /** Reply to a specific message (uses the same send mechanism with quote) */
+  /** Reply to a specific message by sending to the resolved conversation. */
   async replyMessage(
     messageId: string,
     content: string,
     openConversationId: string
   ): Promise<{ messageId: string }> {
-    // DingTalk doesn't have a direct reply API for robot messages in the same way.
-    // We send a message to the same conversation as a workaround.
-    // The messageId parameter is kept for interface conformance.
-    console.log(`[DingTalkApi] Replying to messageId=${messageId} in conversation`)
+    if (!openConversationId) {
+      throw new Error(`DingTalk replyMessage missing conversation id for message ${messageId}`)
+    }
+    console.log(`[DingTalkApi] Replying to messageId=${messageId} in conversation ${openConversationId}`)
     return this.sendMessage(openConversationId, content)
   }
 

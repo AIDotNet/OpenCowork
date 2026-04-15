@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import packageJson from '../../../../../package.json'
 import { useTranslation } from 'react-i18next'
 import appIconUrl from '../../../../../resources/icon.png'
@@ -85,6 +86,7 @@ import { cn } from '@renderer/lib/utils'
 import { clampLeftSidebarWidth, LEFT_SIDEBAR_DEFAULT_WIDTH } from './right-panel-defs'
 import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
 import { toast } from 'sonner'
+import { confirm } from '@renderer/components/ui/confirm-dialog'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -138,6 +140,59 @@ function mapProject(project: ReturnType<typeof useChatStore.getState>['projects'
     pluginId: project.pluginId,
     pinned: project.pinned
   }
+}
+
+function areProjectListsEqual(
+  left: ReturnType<typeof useChatStore.getState>['projects'],
+  right: ReturnType<typeof useChatStore.getState>['projects']
+): boolean {
+  if (left === right) return true
+  if (left.length !== right.length) return false
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index]
+    const b = right[index]
+    if (a === b) continue
+    if (
+      a.id !== b.id ||
+      a.name !== b.name ||
+      a.createdAt !== b.createdAt ||
+      a.updatedAt !== b.updatedAt ||
+      a.workingFolder !== b.workingFolder ||
+      a.sshConnectionId !== b.sshConnectionId ||
+      a.pluginId !== b.pluginId ||
+      !!a.pinned !== !!b.pinned
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function areSessionListsEqual(
+  left: ReturnType<typeof useChatStore.getState>['sessions'],
+  right: ReturnType<typeof useChatStore.getState>['sessions']
+): boolean {
+  if (left === right) return true
+  if (left.length !== right.length) return false
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index]
+    const b = right[index]
+    if (a === b) continue
+    if (
+      a.id !== b.id ||
+      a.title !== b.title ||
+      a.icon !== b.icon ||
+      a.mode !== b.mode ||
+      a.updatedAt !== b.updatedAt ||
+      a.createdAt !== b.createdAt ||
+      !!a.pinned !== !!b.pinned ||
+      a.messageCount !== b.messageCount ||
+      a.projectId !== b.projectId
+    ) {
+      return false
+    }
+  }
+  return true
 }
 
 function deriveProjectIcon(projectId: string, sessions: SessionListItem[]): string | undefined {
@@ -214,6 +269,59 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+function areProjectListsEqual(
+  left: ReturnType<typeof useChatStore.getState>['projects'],
+  right: ReturnType<typeof useChatStore.getState>['projects']
+): boolean {
+  if (left === right) return true
+  if (left.length !== right.length) return false
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index]
+    const b = right[index]
+    if (a === b) continue
+    if (
+      a.id !== b.id ||
+      a.name !== b.name ||
+      a.createdAt !== b.createdAt ||
+      a.updatedAt !== b.updatedAt ||
+      a.workingFolder !== b.workingFolder ||
+      a.sshConnectionId !== b.sshConnectionId ||
+      a.pluginId !== b.pluginId ||
+      !!a.pinned !== !!b.pinned
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function areSessionListsEqual(
+  left: ReturnType<typeof useChatStore.getState>['sessions'],
+  right: ReturnType<typeof useChatStore.getState>['sessions']
+): boolean {
+  if (left === right) return true
+  if (left.length !== right.length) return false
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index]
+    const b = right[index]
+    if (a === b) continue
+    if (
+      a.id !== b.id ||
+      a.title !== b.title ||
+      a.icon !== b.icon ||
+      a.mode !== b.mode ||
+      a.updatedAt !== b.updatedAt ||
+      a.createdAt !== b.createdAt ||
+      !!a.pinned !== !!b.pinned ||
+      a.messageCount !== b.messageCount ||
+      a.projectId !== b.projectId
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
 export function WorkspaceSidebar(): React.JSX.Element {
   const { t, i18n } = useTranslation('layout')
   const { t: tCommon } = useTranslation('common')
@@ -229,46 +337,18 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const setLeftSidebarWidth = useUIStore((state) => state.setLeftSidebarWidth)
   const persistedLeftSidebarWidth = useSettingsStore((state) => state.leftSidebarWidth)
   const updateSettings = useSettingsStore((state) => state.updateSettings)
-  const projectDigest = useChatStore((state) =>
-    state.projects
-      .map((project) =>
-        [
-          project.id,
-          project.name,
-          project.updatedAt,
-          project.workingFolder ?? '',
-          project.sshConnectionId ?? '',
-          project.pluginId ?? '',
-          project.pinned ? 1 : 0
-        ].join('|')
-      )
-      .join('¦')
+  const projectsRaw = useStoreWithEqualityFn(
+    useChatStore,
+    (state) => state.projects,
+    areProjectListsEqual
   )
-  const sessionDigest = useChatStore((state) =>
-    state.sessions
-      .map((session) =>
-        [
-          session.id,
-          session.title,
-          session.icon ?? '',
-          session.mode,
-          session.updatedAt,
-          session.createdAt,
-          session.pinned ? 1 : 0,
-          session.messageCount,
-          session.projectId ?? ''
-        ].join('|')
-      )
-      .join('¦')
+  const sessionsRaw = useStoreWithEqualityFn(
+    useChatStore,
+    (state) => state.sessions,
+    areSessionListsEqual
   )
-  const projects = useMemo(() => {
-    void projectDigest
-    return useChatStore.getState().projects.map(mapProject)
-  }, [projectDigest])
-  const sessions = useMemo(() => {
-    void sessionDigest
-    return useChatStore.getState().sessions.map(mapSession)
-  }, [sessionDigest])
+  const projects = useMemo(() => projectsRaw.map(mapProject), [projectsRaw])
+  const sessions = useMemo(() => sessionsRaw.map(mapSession), [sessionsRaw])
   const activeProjectId = useChatStore((state) => state.activeProjectId)
   const activeSessionId = useChatStore((state) => state.activeSessionId)
   const streamingSessionIdsSig = useChatStore((state) =>
@@ -284,6 +364,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const updateSessionTitle = useChatStore((state) => state.updateSessionTitle)
   const duplicateSession = useChatStore((state) => state.duplicateSession)
   const clearSessionMessages = useChatStore((state) => state.clearSessionMessages)
+  const clearAllSessions = useChatStore((state) => state.clearAllSessions)
   const togglePinSession = useChatStore((state) => state.togglePinSession)
   const importSession = useChatStore((state) => state.importSession)
   const importProjectArchive = useChatStore((state) => state.importProjectArchive)
@@ -309,6 +390,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const projectScrollRef = useRef<HTMLDivElement>(null)
   const sessionScrollRef = useRef<HTMLDivElement>(null)
   const [search, setSearch] = useState('')
+  const [visibleSessionCount, setVisibleSessionCount] = useState(SESSION_LIST_PAGE_SIZE)
   const [renameDialog, setRenameDialog] = useState<
     | { type: 'project'; id: string; currentName: string }
     | { type: 'session'; id: string; currentName: string }
@@ -415,10 +497,45 @@ export function WorkspaceSidebar(): React.JSX.Element {
       )
     })
   }, [searchQuery, sessions, visibleProjects])
+  useEffect(() => {
+    setVisibleSessionCount(SESSION_LIST_PAGE_SIZE)
+    const container = sessionScrollRef.current
+    if (container) {
+      container.scrollTop = 0
+    }
+  }, [searchQuery, scopedProjectId])
+
+  const visibleProjectSessions = useMemo(() => {
+    if (searchQuery) return projectSessions
+    return projectSessions.slice(0, visibleSessionCount)
+  }, [projectSessions, searchQuery, visibleSessionCount])
+
+  const hasMoreProjectSessions = !searchQuery && visibleSessionCount < projectSessions.length
+
+  const loadMoreProjectSessions = useCallback(() => {
+    if (searchQuery) return
+    setVisibleSessionCount((current) => {
+      if (current >= projectSessions.length) return current
+      return Math.min(current + SESSION_LIST_PAGE_SIZE, projectSessions.length)
+    })
+  }, [projectSessions.length, searchQuery])
+
+  const handleSessionScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      if (searchQuery || !hasMoreProjectSessions) return
+      const container = event.currentTarget
+      const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+      if (distanceToBottom <= 96) {
+        loadMoreProjectSessions()
+      }
+    },
+    [hasMoreProjectSessions, loadMoreProjectSessions, searchQuery]
+  )
+
   const filteredProjectSessions = useMemo(() => {
-    if (!searchQuery) return projectSessions
+    if (!searchQuery) return visibleProjectSessions
     return projectSessions.filter((session) => session.title.toLowerCase().includes(searchQuery))
-  }, [projectSessions, searchQuery])
+  }, [projectSessions, searchQuery, visibleProjectSessions])
   const groupedSessions = useMemo(() => {
     const grouped: Record<BucketKey, SessionListItem[]> = {
       today: [],
@@ -447,6 +564,15 @@ export function WorkspaceSidebar(): React.JSX.Element {
       ].filter((section) => section.items.length > 0),
     [groupedSessions, t]
   )
+
+  useEffect(() => {
+    if (searchQuery || !hasMoreProjectSessions) return
+    const container = sessionScrollRef.current
+    if (!container) return
+    if (container.scrollHeight <= container.clientHeight + 96) {
+      loadMoreProjectSessions()
+    }
+  }, [hasMoreProjectSessions, loadMoreProjectSessions, searchQuery, sessionSections])
 
   const currentSidebarWidth = clampLeftSidebarWidth(
     leftSidebarWidth || persistedLeftSidebarWidth || LEFT_SIDEBAR_DEFAULT_WIDTH
@@ -612,6 +738,22 @@ export function WorkspaceSidebar(): React.JSX.Element {
     updateSettings({ language: next })
     void i18n.changeLanguage(next)
   }, [i18n, language, updateSettings])
+
+  const handleClearAllSessions = useCallback(async () => {
+    const total = useChatStore.getState().sessions.length
+    if (total === 0) {
+      toast.info(t('sidebar.noConversations'))
+      return
+    }
+    const ok = await confirm({
+      title: t('sidebar.deleteAllConfirm', { count: total }),
+      variant: 'destructive'
+    })
+    if (!ok) return
+    clearAllSessions()
+    useUIStore.getState().navigateToHome()
+    toast.success(t('sidebar_toast.allDeleted'))
+  }, [clearAllSessions, t])
 
   const confirmRename = useCallback(() => {
     if (!renameDialog) return
@@ -780,6 +922,16 @@ export function WorkspaceSidebar(): React.JSX.Element {
                 >
                   <Upload className="size-4" />
                 </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() => void handleClearAllSessions()}
+                  title={t('sidebar.deleteAllSessions')}
+                  disabled={sessions.length === 0}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
               </div>
               <Button
                 variant={chatView === 'archive' ? 'secondary' : 'ghost'}
@@ -827,7 +979,11 @@ export function WorkspaceSidebar(): React.JSX.Element {
               </div>
             </div>
 
-            <div ref={sessionScrollRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+            <div
+              ref={sessionScrollRef}
+              className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+              onScroll={handleSessionScroll}
+            >
               {filteredProjectSessions.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">
                   {searchQuery ? t('sidebar.noMatches') : t('sidebar.noProjectSessions')}
@@ -1062,6 +1218,16 @@ export function WorkspaceSidebar(): React.JSX.Element {
             <div className="flex items-center justify-between px-2 pb-1 pt-1">
               <div className="text-[10px] font-medium text-muted-foreground">{t('sidebar.projects')}</div>
               <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6"
+                  onClick={() => void handleClearAllSessions()}
+                  title={t('sidebar.deleteAllSessions')}
+                  disabled={sessions.length === 0}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"

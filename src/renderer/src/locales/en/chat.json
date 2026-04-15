@@ -266,6 +266,16 @@
     "grepResults": "Grep Results",
     "matchesInFiles": "{{matches}} matches in {{files}} files",
     "globMatches": "Matches",
+    "pathCount": "{{count}} paths",
+    "moreResultsHidden": "Showing first {{shown}} results, {{hidden}} more hidden",
+    "searchState": {
+      "found": "found",
+      "noMatches": "no matches",
+      "warning": "partial",
+      "error": "error",
+      "timedOut": "timed out",
+      "truncated": "truncated{{reason}}"
+    },
     "directoryListing": "Directory Listing",
     "foldersAndFiles": "{{folders}} folders · {{files}} files",
     "taskList": "Task List",
@@ -547,6 +557,8 @@
     "readFiles": "Read {{count}} files",
     "searchedPatterns": "Searched {{count}} patterns",
     "globbedPatterns": "Globbed {{count}} patterns",
+    "grepResults": "{{matches}} matches in {{files}} files{{suffix}}",
+    "globResults": "Found {{count}} paths{{suffix}}",
     "listedDirs": "Listed {{count}} directories",
     "ranCommands": "Ran {{count}} commands"
   },

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Security;
 
 namespace OpenCowork.Agent.Providers;
 
@@ -11,10 +12,10 @@ public sealed class LlmHttpClientFactory : IDisposable
     private readonly Dictionary<string, HttpClient> _clients = new();
     private readonly object _lock = new();
 
-    public HttpClient GetClient(string? proxyUrl = null)
+    public HttpClient GetClient(string? proxyUrl = null, bool allowInsecureTls = true)
     {
         var normalizedProxyUrl = string.IsNullOrWhiteSpace(proxyUrl) ? null : proxyUrl.Trim();
-        var key = normalizedProxyUrl ?? "__system__";
+        var key = $"{normalizedProxyUrl ?? "__system__"}::{(allowInsecureTls ? "insecure" : "secure")}";
 
         lock (_lock)
         {
@@ -30,6 +31,12 @@ public sealed class LlmHttpClientFactory : IDisposable
                 UseProxy = true,
                 Proxy = normalizedProxyUrl is null ? HttpClient.DefaultProxy : new WebProxy(normalizedProxyUrl),
                 DefaultProxyCredentials = normalizedProxyUrl is null ? CredentialCache.DefaultCredentials : null,
+                SslOptions = new SslClientAuthenticationOptions
+                {
+                    RemoteCertificateValidationCallback = allowInsecureTls
+                        ? static (_, _, _, _) => true
+                        : null
+                }
             };
 
             var client = new HttpClient(handler)

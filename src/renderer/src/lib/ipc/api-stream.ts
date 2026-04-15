@@ -123,6 +123,7 @@ export async function* ipcStreamRequest(params: {
   body?: string
   signal?: AbortSignal
   useSystemProxy?: boolean
+  allowInsecureTls?: boolean
   providerId?: string
   providerBuiltinId?: string
   accountId?: string
@@ -135,6 +136,7 @@ export async function* ipcStreamRequest(params: {
     body,
     signal,
     useSystemProxy,
+    allowInsecureTls,
     providerId,
     providerBuiltinId,
     accountId
@@ -178,6 +180,7 @@ export async function* ipcStreamRequest(params: {
     headers,
     body,
     useSystemProxy,
+    allowInsecureTls,
     providerId,
     providerBuiltinId,
     accountId

@@ -219,6 +219,7 @@ class AnthropicProvider implements APIProvider {
       headers,
       body: bodyStr,
       signal,
+      allowInsecureTls: config.allowInsecureTls ?? true,
       providerId: config.providerId,
       providerBuiltinId: config.providerBuiltinId,
       accountId: config.accountId

@@ -15,6 +15,12 @@ export type PromptEnvironmentContext = {
   pathStyle?: 'windows' | 'posix' | 'unknown'
 }
 
+function resolveLocalShellLabel(rawPlatform: string): string {
+  if (rawPlatform.startsWith('Win')) return 'cmd.exe'
+  if (rawPlatform.startsWith('Mac') || rawPlatform.startsWith('Linux')) return '/bin/sh'
+  return 'system shell'
+}
+
 export function resolvePromptEnvironmentContext(options: {
   sshConnectionId?: string | null
   workingFolder?: string
@@ -34,8 +40,7 @@ export function resolvePromptEnvironmentContext(options: {
       : rawPlatform.startsWith('Linux')
         ? 'Linux'
         : rawPlatform
-  const localShell = rawPlatform.startsWith('Win') ? 'PowerShell' : 'bash'
-
+  const localShell = resolveLocalShellLabel(rawPlatform)
   if (!sshConnectionId) {
     return {
       target: 'local',
@@ -146,7 +151,7 @@ function buildModePromptBody(
       `Repeat the loop until the task is complete. Always read files before editing them.`,
       `\n**Collaboration style:**`,
       `- Communicate what you're doing at each step so the user can steer.`,
-      `- When running Bash commands, explain what you're doing and why.`,
+      `- When running terminal commands via the Bash tool, explain what you're doing and why.`,
       `- Proactively surface risks, trade-offs, or alternative approaches.`,
       `- If a task has multiple parts, decompose it and track progress.`,
       `- Use the Edit tool for precise changes — never rewrite entire files unless creating new ones.`
@@ -410,8 +415,9 @@ export function buildSystemPrompt(options: {
         ? `You can run terminal commands on the selected SSH remote host.`
         : `You can run terminal commands on the user's machine.`,
       environmentContext.target === 'ssh'
-        ? `- Use the Bash tool; never include \`cd\` in the command. Set \`cwd\` instead so it resolves on the remote host.`
-        : `- Use the Bash tool; never include \`cd\` in the command. Set \`cwd\` instead.`,
+        ? `- Use the Bash tool to run terminal commands; never include \`cd\` in the command. Set \`cwd\` instead so it resolves on the remote host.`
+        : `- Use the Bash tool to run terminal commands; never include \`cd\` in the command. Set \`cwd\` instead.`,
+      `- The Bash tool name does not guarantee bash syntax; follow the shell shown in the Environment section.`,
       `- Check for existing dev servers before starting new ones.`,
       `- Unsafe commands require explicit user approval.`,
       `- Never delete files, install system packages, or expose secrets in output.`,
@@ -424,8 +430,8 @@ export function buildSystemPrompt(options: {
     parts.push(`\n## Working Folder\n\`${workingFolder}\``)
     parts.push(
       environmentContext.target === 'ssh'
-        ? `All relative paths should be resolved against this remote folder. Use this as the default cwd for Bash commands on the remote host.`
-        : `All relative paths should be resolved against this folder. Use this as the default cwd for Bash commands.`
+        ? `All relative paths should be resolved against this remote folder. Use this as the default cwd for terminal commands run via the Bash tool on the remote host.`
+        : `All relative paths should be resolved against this folder. Use this as the default cwd for terminal commands run via the Bash tool.`
     )
   } else {
     parts.push(

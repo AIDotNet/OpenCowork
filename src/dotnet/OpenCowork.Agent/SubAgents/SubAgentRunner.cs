@@ -160,6 +160,7 @@ public sealed class SubAgentRunner
             Temperature = definition.Temperature ?? baseConfig.Temperature,
             SystemPrompt = definition.SystemPrompt ?? baseConfig.SystemPrompt,
             UseSystemProxy = baseConfig.UseSystemProxy,
+            AllowInsecureTls = baseConfig.AllowInsecureTls,
             ThinkingEnabled = baseConfig.ThinkingEnabled,
             ThinkingConfig = baseConfig.ThinkingConfig,
             ReasoningEffort = baseConfig.ReasoningEffort,

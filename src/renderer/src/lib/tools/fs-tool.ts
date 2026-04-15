@@ -416,6 +416,13 @@ const lsHandler: ToolHandler = {
     }
   },
   execute: async (input, ctx) => {
+    const rawPath = typeof input.path === 'string' ? input.path.trim() : ''
+    if ((!rawPath || rawPath === '.') && !ctx.workingFolder?.trim()) {
+      return encodeToolError(
+        'LS requires an active working folder when path is omitted or set to `.`'
+      )
+    }
+
     const resolvedPath = resolveToolPath(input.path, ctx.workingFolder)
     if (isSsh(ctx)) {
       const result = await ctx.ipc.invoke(

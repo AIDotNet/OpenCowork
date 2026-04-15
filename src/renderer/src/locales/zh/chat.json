@@ -266,6 +266,16 @@
     "grepResults": "搜索结果",
     "matchesInFiles": "{{files}} 个文件中 {{matches}} 个匹配",
     "globMatches": "匹配结果",
+    "pathCount": "{{count}} 个路径",
+    "moreResultsHidden": "已显示前 {{shown}} 条，另有 {{hidden}} 条被折叠",
+    "searchState": {
+      "found": "已找到",
+      "noMatches": "无结果",
+      "warning": "部分结果",
+      "error": "错误",
+      "timedOut": "搜索超时",
+      "truncated": "结果已截断{{reason}}"
+    },
     "directoryListing": "目录列表",
     "foldersAndFiles": "{{folders}} 个文件夹 · {{files}} 个文件",
     "taskList": "任务列表",
@@ -547,6 +557,8 @@
     "readFiles": "读取了 {{count}} 个文件",
     "searchedPatterns": "搜索了 {{count}} 个模式",
     "globbedPatterns": "匹配了 {{count}} 个模式",
+    "grepResults": "命中 {{matches}} 条，涉及 {{files}} 个文件{{suffix}}",
+    "globResults": "找到 {{count}} 个路径{{suffix}}",
     "listedDirs": "列出了 {{count}} 个目录",
     "ranCommands": "执行了 {{count}} 个命令"
   },

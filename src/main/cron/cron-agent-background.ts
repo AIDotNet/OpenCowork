@@ -6,6 +6,10 @@ import { spawn } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import * as http from 'http'
+import * as https from 'https'
+import { Readable } from 'stream'
+import { HttpsProxyAgent } from 'https-proxy-agent'
 import { readConfig } from '../ipc/secure-key-store'
 import { readSettings } from '../ipc/settings-handlers'
 import { showSystemNotification } from '../ipc/notify-handlers'
@@ -20,6 +24,18 @@ const MAX_PROVIDER_RETRIES = 3
 const BASE_RETRY_DELAY_MS = 1_500
 const PROMPTS_DIR = path.join(os.homedir(), '.open-cowork', 'prompts')
 const AGENTS_DIR = path.join(os.homedir(), '.open-cowork', 'agents')
+const SYSTEM_PROXY_ENV_KEYS = [
+  'HTTPS_PROXY',
+  'https_proxy',
+  'HTTP_PROXY',
+  'http_proxy',
+  'ALL_PROXY',
+  'all_proxy'
+]
+const insecureHttpsAgent = new https.Agent({ rejectUnauthorized: false })
+const secureHttpsAgent = new https.Agent()
+const insecureProxyAgents = new Map<string, HttpsProxyAgent<string>>()
+const secureProxyAgents = new Map<string, HttpsProxyAgent<string>>()
 
 const FALLBACK_CRON_AGENT = {
   name: DEFAULT_AGENT,
@@ -161,6 +177,7 @@ interface AIProviderConfigRecord {
   models: AIModelConfig[]
   requiresApiKey?: boolean
   useSystemProxy?: boolean
+  allowInsecureTls?: boolean
   userAgent?: string
   requestOverrides?: RequestOverrides
   instructionsPrompt?: string
@@ -190,6 +207,7 @@ interface ProviderConfig {
   providerBuiltinId?: string
   requiresApiKey?: boolean
   useSystemProxy?: boolean
+  allowInsecureTls?: boolean
   responseSummary?: 'auto' | 'concise' | 'detailed'
   enablePromptCache?: boolean
   enableSystemPromptCache?: boolean
@@ -328,6 +346,129 @@ function encodeToolError(message: string): string {
   return encodeStructuredToolResult({ success: false, error: message })
 }
 
+type SearchLimitReason = 'max_results' | 'max_output_bytes' | 'timeout' | 'max_depth' | null
+
+type SearchMeta = {
+  truncated: boolean
+  timedOut: boolean
+  limitReason: SearchLimitReason
+  warnings?: string[]
+}
+
+function shouldUseCompactSearchPayload(meta: SearchMeta, error?: string): boolean {
+  return !error && !meta.truncated && !meta.timedOut && (meta.warnings?.length ?? 0) === 0
+}
+
+function formatGlobToolResult(args: {
+  matches: string[]
+  truncated?: boolean
+  limitReason?: SearchLimitReason
+  warnings?: string[]
+  error?: string
+}): string {
+  const meta: SearchMeta = {
+    truncated: args.truncated === true,
+    timedOut: false,
+    limitReason: args.limitReason ?? null,
+    warnings: args.warnings ?? []
+  }
+
+  if (shouldUseCompactSearchPayload(meta, args.error)) {
+    return encodeStructuredToolResult(args.matches)
+  }
+
+  return encodeStructuredToolResult({
+    matches: args.matches,
+    truncated: meta.truncated,
+    timedOut: false,
+    limitReason: meta.limitReason,
+    warnings: meta.warnings,
+    error: args.error
+  })
+}
+
+function formatGrepToolResult(args: {
+  matches: Array<{ file: string; line: number; text: string }>
+  truncated?: boolean
+  timedOut?: boolean
+  limitReason?: SearchLimitReason
+  warnings?: string[]
+  error?: string
+}): string {
+  const meta: SearchMeta = {
+    truncated: args.truncated === true,
+    timedOut: args.timedOut === true,
+    limitReason: args.limitReason ?? null,
+    warnings: args.warnings ?? []
+  }
+
+  if (shouldUseCompactSearchPayload(meta, args.error)) {
+    return encodeStructuredToolResult(args.matches)
+  }
+
+  return encodeStructuredToolResult({
+    matches: args.matches,
+    truncated: meta.truncated,
+    timedOut: meta.timedOut,
+    limitReason: meta.limitReason,
+    warnings: meta.warnings,
+    error: args.error
+  })
+}
+
+function normalizeCronSearchError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
+function escapeRegexForLiteral(pattern: string): string {
+  return pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function includesIgnoredDir(pattern: string, dirName: string): boolean {
+  return new RegExp(`(^|/)${escapeRegexForLiteral(dirName)}(/|$)`).test(pattern.replace(/\\/g, '/'))
+}
+
+function buildCronSearchIgnore(pattern: string): string[] {
+  const defaultIgnoredDirs = ['.git', 'node_modules', 'out', 'dist']
+  return defaultIgnoredDirs.flatMap((dir) =>
+    includesIgnoredDir(pattern, dir) ? [] : [`**/${dir}/**`, `${dir}/**`]
+  )
+}
+
+function buildCronSearchWarnings(messages: Array<string | false | null | undefined>): string[] {
+  return messages.filter((item): item is string => typeof item === 'string' && item.length > 0)
+}
+
+function extractSidecarGrepResult(value: unknown): {
+  matches: Array<{ file: string; line: number; text: string }>
+  truncated: boolean
+  timedOut: boolean
+  limitReason: SearchLimitReason
+} | null {
+  if (!value || typeof value !== 'object') return null
+  const result = value as {
+    results?: Array<{ file: string; line: number; text: string }>
+    truncated?: boolean
+    timedOut?: boolean
+    limitReason?: SearchLimitReason
+  }
+  if (!Array.isArray(result.results)) return null
+  return {
+    matches: result.results,
+    truncated: result.truncated === true,
+    timedOut: result.timedOut === true,
+    limitReason: result.limitReason ?? null
+  }
+}
+
+function isNonEmptyTextFile(filePath: string): Promise<boolean> {
+  return fs.promises
+    .stat(filePath)
+    .then((stat) => stat.isFile() && stat.size > 0)
+    .catch(() => false)
+}
+
 function decodePersistedStoreState<T>(raw: unknown): T | null {
   if (raw == null) return null
   let parsed = raw
@@ -453,6 +594,9 @@ function buildProviderConfigById(
     providerBuiltinId: provider.builtinId,
     requiresApiKey: provider.requiresApiKey,
     ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
+    ...(provider.allowInsecureTls !== undefined
+      ? { allowInsecureTls: provider.allowInsecureTls }
+      : {}),
     ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
     ...(requestOverrides ? { requestOverrides } : {}),
     ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
@@ -1001,11 +1145,92 @@ function normalizeToolSchema(schema: ToolInputSchema): Record<string, unknown> {
   }
 }
 
+function getSystemProxyUrl(): string | null {
+  const saved = readSettings().systemProxyUrl
+  if (typeof saved === 'string' && saved.trim()) return saved.trim()
+  for (const key of SYSTEM_PROXY_ENV_KEYS) {
+    const value = process.env[key]?.trim()
+    if (value) return value
+  }
+  return null
+}
+
+function getProxyAgent(proxyUrl: string, allowInsecureTls: boolean): HttpsProxyAgent<string> {
+  const cache = allowInsecureTls ? insecureProxyAgents : secureProxyAgents
+  const existing = cache.get(proxyUrl)
+  if (existing) return existing
+  const agent = new HttpsProxyAgent(proxyUrl, {
+    rejectUnauthorized: !allowInsecureTls
+  })
+  cache.set(proxyUrl, agent)
+  return agent
+}
+
+function resolveRequestAgent(targetUrl: URL, useSystemProxy: boolean, allowInsecureTls: boolean) {
+  if (useSystemProxy) {
+    const proxyUrl = getSystemProxyUrl()
+    if (proxyUrl) return getProxyAgent(proxyUrl, allowInsecureTls)
+  }
+  if (targetUrl.protocol === 'https:') {
+    return allowInsecureTls ? insecureHttpsAgent : secureHttpsAgent
+  }
+  return undefined
+}
+
 async function sendFetchRequest(
   url: string,
-  init: Record<string, unknown>
+  init: Record<string, unknown>,
+  allowInsecureTls = true,
+  useSystemProxy = false
 ): Promise<FetchResponseLike> {
-  const response = (await fetch(url, init as RequestInit)) as FetchResponseLike
+  const targetUrl = new URL(url)
+  const isHttps = targetUrl.protocol === 'https:'
+  const httpModule = isHttps ? https : http
+  const body = typeof init.body === 'string' ? init.body : undefined
+  const bodyBuffer = body ? Buffer.from(body, 'utf-8') : null
+  const headers = { ...((init.headers as Record<string, string> | undefined) ?? {}) }
+  if (bodyBuffer) headers['Content-Length'] = String(bodyBuffer.byteLength)
+  const agent = resolveRequestAgent(targetUrl, useSystemProxy, allowInsecureTls)
+
+  const response = await new Promise<FetchResponseLike>((resolve, reject) => {
+    const req = httpModule.request(
+      {
+        hostname: targetUrl.hostname,
+        port: targetUrl.port || (isHttps ? 443 : 80),
+        path: targetUrl.pathname + targetUrl.search,
+        method: String(init.method ?? 'GET'),
+        headers,
+        ...(agent ? { agent } : {}),
+        ...(isHttps && !agent && allowInsecureTls ? { rejectUnauthorized: false } : {})
+      },
+      (res) => {
+        const webStream = Readable.toWeb(res) as ReadableStream<Uint8Array>
+        resolve(
+          new Response(webStream, {
+            status: res.statusCode || 0,
+            statusText: res.statusMessage || '',
+            headers: res.headers as HeadersInit
+          }) as FetchResponseLike
+        )
+      }
+    )
+
+    req.on('error', reject)
+
+    const signal = init.signal as AbortSignal | undefined
+    const abortRequest = (): void => {
+      req.destroy(new Error('Request aborted'))
+    }
+    signal?.addEventListener('abort', abortRequest, { once: true })
+
+    req.on('close', () => {
+      signal?.removeEventListener('abort', abortRequest)
+    })
+
+    if (bodyBuffer) req.write(bodyBuffer)
+    req.end()
+  })
+
   if (!response.ok) {
     const errorBody = await response.text().catch(() => '')
     throw new Error(`HTTP ${response.status}: ${errorBody || response.statusText}`)
@@ -1057,12 +1282,17 @@ async function* sendOpenAIChat(
     model: config.model,
     headers: maskHeaders(headers)
   })
-  const response = await sendFetchRequest(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal
-  })
+  const response = await sendFetchRequest(
+    url,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal
+    },
+    config.allowInsecureTls ?? true,
+    config.useSystemProxy ?? false
+  )
   const toolBuffers = new Map<
     number,
     { id: string; name: string; args: string; extraContent?: Record<string, unknown> }
@@ -1270,12 +1500,17 @@ async function* sendAnthropic(
   }
   if (config.userAgent) headers['User-Agent'] = config.userAgent
   applyHeaderOverrides(headers, config)
-  const response = await sendFetchRequest(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal
-  })
+  const response = await sendFetchRequest(
+    url,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal
+    },
+    config.allowInsecureTls ?? true,
+    config.useSystemProxy ?? false
+  )
   let activeToolCall: { id: string; name: string; input: string } | null = null
   for await (const sse of parseSSEStream(response)) {
     if (!sse.data || sse.data === '[DONE]') continue
@@ -1445,12 +1680,17 @@ async function* sendOpenAIResponses(
   if (config.userAgent) headers['User-Agent'] = config.userAgent
   if (config.serviceTier) headers.service_tier = config.serviceTier
   applyHeaderOverrides(headers, config)
-  const response = await sendFetchRequest(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal
-  })
+  const response = await sendFetchRequest(
+    url,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal
+    },
+    config.allowInsecureTls ?? true,
+    config.useSystemProxy ?? false
+  )
   let emittedThinkingDelta = false
   const emittedThinkingEncrypted = new Set<string>()
   const tryBuildThinkingDeltaEvent = (thinking: unknown): StreamEvent | null => {
@@ -2336,14 +2576,22 @@ function buildToolHandlers(): Record<string, ToolHandler> {
     },
     execute: async (input, ctx) => {
       const cwd = resolveToolPath(input.path ?? '.', ctx.workingFolder)
-      const matches = await glob(String(input.pattern ?? ''), {
-        cwd,
-        nodir: true,
-        absolute: true,
-        dot: true,
-        ignore: ['**/.git/**', '**/node_modules/**', '**/out/**', '**/dist/**']
-      })
-      return encodeStructuredToolResult(matches)
+      const pattern = String(input.pattern ?? '')
+      try {
+        const matches = await glob(pattern, {
+          cwd,
+          nodir: true,
+          absolute: true,
+          dot: true,
+          ignore: buildCronSearchIgnore(pattern)
+        })
+        return formatGlobToolResult({ matches })
+      } catch (error) {
+        return formatGlobToolResult({
+          matches: [],
+          error: normalizeCronSearchError(error)
+        })
+      }
     }
   }
 
@@ -2363,6 +2611,7 @@ function buildToolHandlers(): Record<string, ToolHandler> {
     },
     execute: async (input, ctx) => {
       const searchRoot = resolveToolPath(input.path ?? '.', ctx.workingFolder)
+      const pattern = String(input.pattern ?? '')
       const include =
         typeof input.include === 'string' && input.include.trim() ? input.include.trim() : '**/*'
 
@@ -2370,10 +2619,10 @@ function buildToolHandlers(): Record<string, ToolHandler> {
         const sidecar = getSidecarManager()
         const ready = await sidecar.ensureStarted()
         if (ready) {
-          const result = (await sidecar.request(
+          const result = await sidecar.request(
             'fs/grep',
             {
-              pattern: String(input.pattern ?? ''),
+              pattern,
               path: searchRoot,
               include,
               maxResults: 200,
@@ -2381,43 +2630,74 @@ function buildToolHandlers(): Record<string, ToolHandler> {
               timeoutMs: 30_000
             },
             35_000
-          )) as { results?: Array<{ file: string; line: number; text: string }> }
+          )
 
-          if (Array.isArray(result?.results)) {
-            return encodeStructuredToolResult(result.results)
+          const normalized = extractSidecarGrepResult(result)
+          if (normalized) {
+            return formatGrepToolResult({
+              matches: normalized.matches,
+              truncated: normalized.truncated,
+              timedOut: normalized.timedOut,
+              limitReason: normalized.limitReason
+            })
           }
         }
       } catch {
         // fall through to local grep
       }
 
-      const regex = new RegExp(String(input.pattern ?? ''), 'i')
-      const files = await glob(include, {
-        cwd: searchRoot,
-        nodir: true,
-        absolute: true,
-        dot: true,
-        ignore: ['**/.git/**', '**/node_modules/**', '**/out/**', '**/dist/**']
-      })
-      const results: Array<{ file: string; line: number; text: string }> = []
-      for (const file of files) {
-        let content = ''
-        try {
-          content = await fs.promises.readFile(file, 'utf8')
-        } catch {
-          continue
-        }
-        const lines = content.split(/\r?\n/)
-        for (let index = 0; index < lines.length; index += 1) {
-          const line = lines[index]
-          if (!regex.test(line)) continue
-          results.push({ file, line: index + 1, text: line })
-          if (results.length >= 200) {
-            return encodeStructuredToolResult(results)
+      let regex: RegExp
+      try {
+        regex = new RegExp(pattern, 'i')
+      } catch (error) {
+        return formatGrepToolResult({
+          matches: [],
+          error: `Invalid regex pattern: ${normalizeCronSearchError(error)}`
+        })
+      }
+
+      try {
+        const files = await glob(include, {
+          cwd: searchRoot,
+          nodir: true,
+          absolute: true,
+          dot: true,
+          ignore: buildCronSearchIgnore(include)
+        })
+        const results: Array<{ file: string; line: number; text: string }> = []
+        for (const file of files) {
+          if (!(await isNonEmptyTextFile(file))) continue
+
+          let content = ''
+          try {
+            content = await fs.promises.readFile(file, 'utf8')
+          } catch {
+            continue
+          }
+          const lines = content.split(/\r?\n/)
+          for (let index = 0; index < lines.length; index += 1) {
+            const line = lines[index]
+            if (!regex.test(line)) continue
+            results.push({ file, line: index + 1, text: line })
+            if (results.length >= 200) {
+              return formatGrepToolResult({
+                matches: results,
+                truncated: true,
+                limitReason: 'max_results',
+                warnings: buildCronSearchWarnings([
+                  'Cron grep reached the 200 match limit'
+                ])
+              })
+            }
           }
         }
+        return formatGrepToolResult({ matches: results })
+      } catch (error) {
+        return formatGrepToolResult({
+          matches: [],
+          error: normalizeCronSearchError(error)
+        })
       }
-      return encodeStructuredToolResult(results)
     }
   }
 

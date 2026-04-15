@@ -354,16 +354,27 @@ export function WidgetOutputBlock({
 
   return (
     <div className="my-2 space-y-2">
-      <div className="relative overflow-hidden rounded-xl bg-transparent shadow-sm" style={{ width: '100%', border: 'none', backgroundColor: 'transparent' }}>
+      <div
+        className="relative overflow-hidden rounded-xl bg-transparent shadow-sm"
+        style={{ width: '100%', border: 'none', backgroundColor: 'transparent' }}
+      >
         {payload.widgetCode ? (
-          <div className="w-full overflow-hidden bg-transparent leading-none" style={{ lineHeight: 0, fontSize: 0 }}>
+          <div
+            className="w-full overflow-hidden bg-transparent leading-none"
+            style={{ lineHeight: 0, fontSize: 0 }}
+          >
             <iframe
               ref={iframeRef}
               title={payload.title}
               sandbox="allow-scripts allow-forms"
               srcDoc={buildWidgetDocument(payload)}
               className="block border-0 bg-transparent transition-[height] duration-200"
-              style={{ width: 'calc(100% + 1px)', height: `${frameHeight}px`, marginRight: '-1px', verticalAlign: 'top' }}
+              style={{
+                width: 'calc(100% + 1px)',
+                height: `${frameHeight}px`,
+                marginRight: '-1px',
+                verticalAlign: 'top'
+              }}
             />
           </div>
         ) : (
@@ -817,6 +828,188 @@ function HighlightText({ text, pattern }: { text: string; pattern?: string }): R
   )
 }
 
+type SearchOutputMeta = {
+  truncated: boolean
+  timedOut: boolean
+  limitReason?: string | null
+  warnings: string[]
+  error?: string
+}
+
+type SearchVisualState = 'found' | 'empty' | 'warning' | 'error'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeSearchMeta(decoded: unknown): SearchOutputMeta {
+  if (!isRecord(decoded)) {
+    return { truncated: false, timedOut: false, warnings: [] }
+  }
+  return {
+    truncated: decoded.truncated === true,
+    timedOut: decoded.timedOut === true,
+    limitReason: typeof decoded.limitReason === 'string' ? decoded.limitReason : null,
+    warnings: Array.isArray(decoded.warnings)
+      ? decoded.warnings.filter(
+          (item): item is string => typeof item === 'string' && item.length > 0
+        )
+      : [],
+    error: typeof decoded.error === 'string' ? decoded.error : undefined
+  }
+}
+
+function getSearchVisualState(meta: SearchOutputMeta, matchCount: number): SearchVisualState {
+  if (meta.error) return 'error'
+  if (meta.truncated || meta.timedOut || meta.warnings.length > 0) return 'warning'
+  if (matchCount > 0) return 'found'
+  return 'empty'
+}
+
+function SearchStateBadge({ state }: { state: SearchVisualState }): React.JSX.Element {
+  const { t } = useTranslation('chat')
+  const config =
+    state === 'error'
+      ? {
+          label: t('toolCall.searchState.error'),
+          className: 'border-destructive/30 bg-destructive/10 text-destructive'
+        }
+      : state === 'warning'
+        ? {
+            label: t('toolCall.searchState.warning'),
+            className: 'border-amber-400/30 bg-amber-400/10 text-amber-500'
+          }
+        : state === 'found'
+          ? {
+              label: t('toolCall.searchState.found'),
+              className: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-500'
+            }
+          : {
+              label: t('toolCall.searchState.noMatches'),
+              className: 'border-muted-foreground/20 bg-muted/40 text-muted-foreground'
+            }
+
+  return (
+    <span
+      className={cn('rounded-full border px-1.5 py-0.5 text-[9px] font-medium', config.className)}
+    >
+      {config.label}
+    </span>
+  )
+}
+
+function SearchEmptyState(): React.JSX.Element {
+  const { t } = useTranslation('chat')
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+      {t('toolCall.searchState.noMatches')}
+    </div>
+  )
+}
+
+function parseGrepOutput(output: string): {
+  matches: Array<{ file: string; line: number; text: string }>
+  meta: SearchOutputMeta
+} | null {
+  const decoded = decodeStructuredToolResult(output)
+  if (!decoded) return null
+
+  if (Array.isArray(decoded)) {
+    return {
+      matches: decoded
+        .map((item) => {
+          if (!isRecord(item)) return null
+          const file =
+            typeof item.file === 'string'
+              ? item.file
+              : typeof item.path === 'string'
+                ? item.path
+                : null
+          const line = typeof item.line === 'number' ? item.line : null
+          const text = typeof item.text === 'string' ? item.text : ''
+          if (!file || line == null) return null
+          return { file, line, text }
+        })
+        .filter((item): item is { file: string; line: number; text: string } => !!item),
+      meta: { truncated: false, timedOut: false, warnings: [] }
+    }
+  }
+
+  if (!isRecord(decoded)) return null
+  const matchesSource = Array.isArray(decoded.matches)
+    ? decoded.matches
+    : Array.isArray(decoded.results)
+      ? decoded.results
+      : []
+
+  return {
+    matches: matchesSource
+      .map((item) => {
+        if (!isRecord(item)) return null
+        const file =
+          typeof item.file === 'string'
+            ? item.file
+            : typeof item.path === 'string'
+              ? item.path
+              : null
+        const line = typeof item.line === 'number' ? item.line : null
+        const text = typeof item.text === 'string' ? item.text : ''
+        if (!file || line == null) return null
+        return { file, line, text }
+      })
+      .filter((item): item is { file: string; line: number; text: string } => !!item),
+    meta: normalizeSearchMeta(decoded)
+  }
+}
+
+function parseGlobOutput(output: string): { matches: string[]; meta: SearchOutputMeta } | null {
+  const decoded = decodeStructuredToolResult(output)
+  if (!decoded) return null
+
+  if (Array.isArray(decoded)) {
+    return {
+      matches: decoded.filter((item): item is string => typeof item === 'string'),
+      meta: { truncated: false, timedOut: false, warnings: [] }
+    }
+  }
+
+  if (!isRecord(decoded)) return null
+  const matchesSource = Array.isArray(decoded.matches)
+    ? decoded.matches
+    : Array.isArray(decoded.results)
+      ? decoded.results
+      : []
+
+  return {
+    matches: matchesSource
+      .map((item) => {
+        if (typeof item === 'string') return item
+        if (isRecord(item) && typeof item.path === 'string') return item.path
+        return null
+      })
+      .filter((item): item is string => !!item),
+    meta: normalizeSearchMeta(decoded)
+  }
+}
+
+function SearchMetaHint({ meta }: { meta: SearchOutputMeta }): React.JSX.Element | null {
+  const { t } = useTranslation('chat')
+  const notes = [
+    meta.error,
+    meta.truncated
+      ? t('toolCall.searchState.truncated', {
+          reason: meta.limitReason ? `: ${meta.limitReason}` : ''
+        })
+      : null,
+    meta.timedOut ? t('toolCall.searchState.timedOut') : null,
+    ...meta.warnings
+  ].filter((item): item is string => typeof item === 'string' && item.length > 0)
+
+  if (notes.length === 0) return null
+
+  return <div className="mt-1 text-[10px] text-amber-400/80">{notes.join(' · ')}</div>
+}
+
 function GrepOutputBlock({
   output,
   pattern
@@ -825,18 +1018,13 @@ function GrepOutputBlock({
   pattern?: string
 }): React.JSX.Element {
   const { t } = useTranslation('chat')
-  const parsed = React.useMemo(() => {
-    const decoded = decodeStructuredToolResult(output)
-    return Array.isArray(decoded)
-      ? (decoded as Array<{ file: string; line: number; text: string }>)
-      : null
-  }, [output])
+  const parsed = React.useMemo(() => parseGrepOutput(output), [output])
 
   // Group by file - must be called before early return to maintain hook order
   const groups = React.useMemo(() => {
-    if (!parsed || !Array.isArray(parsed)) return []
+    if (!parsed) return []
     const map = new Map<string, Array<{ line: number; text: string }>>()
-    for (const r of parsed) {
+    for (const r of parsed.matches) {
       const list = map.get(r.file) ?? []
       list.push({ line: r.line, text: r.text })
       map.set(r.file, list)
@@ -844,50 +1032,61 @@ function GrepOutputBlock({
     return Array.from(map.entries())
   }, [parsed])
 
-  if (!parsed || !Array.isArray(parsed)) return <OutputBlock output={output} />
+  if (!parsed) return <OutputBlock output={output} />
+  if (parsed.matches.length === 0 && parsed.meta.error) return <OutputBlock output={output} />
+
+  const matchCount = parsed.matches.length
+  const visualState = getSearchVisualState(parsed.meta, matchCount)
+  const copyText = output
 
   return (
     <div>
       <div className="mb-1 flex items-center gap-1.5">
         <Search className="size-3 text-amber-400" />
         <p className="text-xs font-medium text-muted-foreground">{t('toolCall.grepResults')}</p>
+        <SearchStateBadge state={visualState} />
         {pattern && <span className="text-[9px] font-mono text-amber-400/50">/{pattern}/</span>}
         <span className="text-[9px] text-muted-foreground/40">
-          {t('toolCall.matchesInFiles', { matches: parsed.length, files: groups.length })}
+          {t('toolCall.matchesInFiles', { matches: matchCount, files: groups.length })}
         </span>
-        <CopyBtn text={output} />
+        <CopyBtn text={copyText} />
       </div>
-      <div
-        className="max-h-72 overflow-auto rounded-md border bg-muted/30 text-[11px] font-mono divide-y divide-border dark:bg-zinc-950 dark:divide-zinc-800"
-        style={{ fontFamily: MONO_FONT }}
-      >
-        {groups.map(([file, matches]) => (
-          <div key={file} className="px-2 py-1.5">
-            <div
-              className="text-blue-400/70 truncate mb-0.5 cursor-pointer hover:text-blue-300 transition-colors"
-              title={`Click to insert: ${file}`}
-              onClick={() => {
-                const short = file.split(/[\\/]/).slice(-2).join('/')
-                import('@renderer/stores/ui-store').then(({ useUIStore }) =>
-                  useUIStore.getState().setPendingInsertText(short)
-                )
-              }}
-            >
-              {file.split(/[\\/]/).slice(-3).join('/')}
-            </div>
-            {matches.map((m, i) => (
-              <div key={i} className="flex gap-2 text-foreground/70 dark:text-zinc-400">
-                <span className="w-5 shrink-0 select-none text-right text-muted-foreground/70 dark:text-zinc-600">
-                  {m.line}
-                </span>
-                <span className="truncate">
-                  <HighlightText text={m.text} pattern={pattern} />
-                </span>
+      <SearchMetaHint meta={parsed.meta} />
+      {groups.length === 0 ? (
+        <SearchEmptyState />
+      ) : (
+        <div
+          className="max-h-72 overflow-auto rounded-md border bg-muted/30 text-[11px] font-mono divide-y divide-border dark:bg-zinc-950 dark:divide-zinc-800"
+          style={{ fontFamily: MONO_FONT }}
+        >
+          {groups.map(([file, matches]) => (
+            <div key={file} className="px-2 py-1.5">
+              <div
+                className="text-blue-400/70 truncate mb-0.5 cursor-pointer hover:text-blue-300 transition-colors"
+                title={`Click to insert: ${file}`}
+                onClick={() => {
+                  const short = file.split(/[\\/]/).slice(-2).join('/')
+                  import('@renderer/stores/ui-store').then(({ useUIStore }) =>
+                    useUIStore.getState().setPendingInsertText(short)
+                  )
+                }}
+              >
+                {file.split(/[\\/]/).slice(-3).join('/')}
               </div>
-            ))}
-          </div>
-        ))}
-      </div>
+              {matches.map((m, i) => (
+                <div key={i} className="flex gap-2 text-foreground/70 dark:text-zinc-400">
+                  <span className="w-5 shrink-0 select-none text-right text-muted-foreground/70 dark:text-zinc-600">
+                    {m.line}
+                  </span>
+                  <span className="truncate">
+                    <HighlightText text={m.text} pattern={pattern} />
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -895,47 +1094,54 @@ function GrepOutputBlock({
 function GlobOutputBlock({ output }: { output: string }): React.JSX.Element {
   const { t } = useTranslation('chat')
   const maxVisibleItems = 200
-  const parsed = React.useMemo(() => {
-    const decoded = decodeStructuredToolResult(output)
-    return Array.isArray(decoded) ? (decoded as string[]) : null
-  }, [output])
-  if (!parsed || !Array.isArray(parsed)) return <OutputBlock output={output} />
-  const visibleItems = parsed.slice(0, maxVisibleItems)
-  const hiddenCount = Math.max(0, parsed.length - visibleItems.length)
+  const parsed = React.useMemo(() => parseGlobOutput(output), [output])
+  if (!parsed) return <OutputBlock output={output} />
+  if (parsed.matches.length === 0 && parsed.meta.error) return <OutputBlock output={output} />
+  const visibleItems = parsed.matches.slice(0, maxVisibleItems)
+  const hiddenCount = Math.max(0, parsed.matches.length - visibleItems.length)
+  const visualState = getSearchVisualState(parsed.meta, parsed.matches.length)
 
   return (
     <div>
       <div className="mb-1 flex items-center gap-1.5">
         <FolderTree className="size-3 text-amber-400" />
         <p className="text-xs font-medium text-muted-foreground">{t('toolCall.globMatches')}</p>
-        <span className="text-[9px] text-muted-foreground/40">{parsed.length} files</span>
-        <CopyBtn text={parsed.join('\n')} />
+        <SearchStateBadge state={visualState} />
+        <span className="text-[9px] text-muted-foreground/40">
+          {t('toolCall.pathCount', { count: parsed.matches.length })}
+        </span>
+        <CopyBtn text={parsed.matches.join('\n')} />
       </div>
-      <div
-        className="max-h-48 overflow-auto rounded-md border bg-muted/30 px-3 py-2 text-[11px] font-mono text-foreground/70 space-y-0.5 dark:bg-zinc-950 dark:text-zinc-400"
-        style={{ fontFamily: MONO_FONT }}
-      >
-        {visibleItems.map((p, i) => (
-          <div
-            key={i}
-            className="truncate cursor-pointer hover:text-blue-400 transition-colors"
-            title={`Click to insert: ${p}`}
-            onClick={() => {
-              const short = p.split(/[\\/]/).slice(-2).join('/')
-              import('@renderer/stores/ui-store').then(({ useUIStore }) =>
-                useUIStore.getState().setPendingInsertText(short)
-              )
-            }}
-          >
-            {p}
-          </div>
-        ))}
-        {hiddenCount > 0 && (
-          <div className="pt-1 text-[10px] text-muted-foreground/60">
-            Showing first {visibleItems.length} results, {hiddenCount} more hidden.
-          </div>
-        )}
-      </div>
+      <SearchMetaHint meta={parsed.meta} />
+      {visibleItems.length === 0 ? (
+        <SearchEmptyState />
+      ) : (
+        <div
+          className="max-h-48 overflow-auto rounded-md border bg-muted/30 px-3 py-2 text-[11px] font-mono text-foreground/70 space-y-0.5 dark:bg-zinc-950 dark:text-zinc-400"
+          style={{ fontFamily: MONO_FONT }}
+        >
+          {visibleItems.map((p, i) => (
+            <div
+              key={i}
+              className="truncate cursor-pointer hover:text-blue-400 transition-colors"
+              title={`Click to insert: ${p}`}
+              onClick={() => {
+                const short = p.split(/[\\/]/).slice(-2).join('/')
+                import('@renderer/stores/ui-store').then(({ useUIStore }) =>
+                  useUIStore.getState().setPendingInsertText(short)
+                )
+              }}
+            >
+              {p}
+            </div>
+          ))}
+          {hiddenCount > 0 && (
+            <div className="pt-1 text-[10px] text-muted-foreground/60">
+              {t('toolCall.moreResultsHidden', { shown: visibleItems.length, hidden: hiddenCount })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1743,12 +1949,14 @@ export function ToolCallCard({
   }, [shouldAutoExpand])
 
   const isProcessing = status === 'streaming' || status === 'running'
-  const summary = inputSummary(name, input)
   const outputText = outputAsString(output)
+  const summary = inputSummary(name, input, outputText)
   const outputIsErrorOnly = isErrorOnlyOutput(outputText)
   const outputError = deriveOutputError(outputText)
   const suppressErrorPanel = name === 'Bash' && isStructuredBashResult(outputText)
-  const displayError = suppressErrorPanel ? null : error || (status === 'error' ? outputError : null)
+  const displayError = suppressErrorPanel
+    ? null
+    : error || (status === 'error' ? outputError : null)
   const shouldRenderOutputPanels = !displayError || !outputIsErrorOnly
   const hideLivePayload =
     isProcessing &&

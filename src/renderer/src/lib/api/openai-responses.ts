@@ -254,6 +254,7 @@ class OpenAIResponsesProvider implements APIProvider {
         body: requestBody,
         signal,
         useSystemProxy: runtimeConfig.useSystemProxy,
+        allowInsecureTls: runtimeConfig.allowInsecureTls ?? true,
         providerId: runtimeConfig.providerId,
         providerBuiltinId: runtimeConfig.providerBuiltinId,
         accountId: activeAccountId

@@ -32,10 +32,49 @@ export class DingTalkService extends BasePluginService {
   private client: DWClient | null = null
   /** Cache sessionWebhook URLs keyed by chatId for direct replies */
   private webhookCache = new Map<string, WebhookEntry>()
+  /** Cache original message -> chat mapping so replyMessage can resolve a conversation */
+  private messageChatCache = new Map<string, string>()
   /** Cache chat metadata for constructing card openSpaceId */
   private chatMetaCache = new Map<string, ChatMeta>()
   /** Sequence counter for streaming card GUIDs */
   private _guidCounter = 0
+  private static readonly MAX_MESSAGE_CHAT_CACHE = 1000
+
+  private rememberMessageChat(messageId: string, chatId: string): void {
+    if (!messageId || !chatId) return
+    this.messageChatCache.set(messageId, chatId)
+    if (this.messageChatCache.size > DingTalkService.MAX_MESSAGE_CHAT_CACHE) {
+      const oldestKey = this.messageChatCache.keys().next().value
+      if (oldestKey) {
+        this.messageChatCache.delete(oldestKey)
+      }
+    }
+  }
+
+  private resolveChatIdForMessage(messageId: string): string | null {
+    return this.messageChatCache.get(messageId) ?? null
+  }
+
+  private async sendMessageToResolvedChat(chatId: string, content: string): Promise<{ messageId: string }> {
+    if (!chatId) {
+      throw new Error('DingTalk reply missing conversation id')
+    }
+    return this.sendMessage(chatId, content)
+  }
+
+  private async replyViaAnyWebhook(content: string): Promise<{ messageId: string } | null> {
+    for (const [chatId, webhook] of this.webhookCache) {
+      if (Date.now() >= webhook.expiredTime) continue
+      try {
+        await this.postWebhook(webhook.url, content)
+        console.log(`[DingTalk] Reply delivered via cached webhook for chat ${chatId}`)
+        return { messageId: '' }
+      } catch (err) {
+        console.warn(`[DingTalk] Cached webhook reply failed for chat ${chatId}:`, err)
+      }
+    }
+    return null
+  }
 
   /** Return null to prevent BasePluginService from creating a generic WS transport */
   protected async resolveWsUrl(): Promise<string | null> {
@@ -166,6 +205,8 @@ export class DingTalkService extends BasePluginService {
       chatName: String(payload.conversationTitle ?? '')
     }
 
+    this.rememberMessageChat(parsed.messageId, chatId)
+
     this.emit({
       type: 'incoming_message',
       pluginId: this.pluginId,
@@ -238,10 +279,17 @@ export class DingTalkService extends BasePluginService {
   }
 
   async replyMessage(messageId: string, content: string): Promise<{ messageId: string }> {
-    // replyMessage also uses the webhook-first approach via sendMessage
-    // The messageId's chatId isn't directly available, so try all cached webhooks
-    // For now, fall back to REST API
-    return this.api.replyMessage(messageId, content, '')
+    const chatId = this.resolveChatIdForMessage(messageId)
+    if (chatId) {
+      return this.sendMessageToResolvedChat(chatId, content)
+    }
+
+    const webhookResult = await this.replyViaAnyWebhook(content)
+    if (webhookResult) {
+      return webhookResult
+    }
+
+    throw new Error(`DingTalk reply failed: no conversation mapping for message ${messageId}`)
   }
 
   async getGroupMessages(chatId: string, count?: number): Promise<ChannelMessage[]> {

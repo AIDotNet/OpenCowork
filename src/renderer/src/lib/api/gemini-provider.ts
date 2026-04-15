@@ -454,6 +454,7 @@ class GeminiNativeProvider implements APIProvider {
         body: bodyStr,
         signal,
         useSystemProxy: config.useSystemProxy,
+        allowInsecureTls: config.allowInsecureTls ?? true,
         providerId: config.providerId,
         providerBuiltinId: config.providerBuiltinId
       })) {

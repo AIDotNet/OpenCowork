@@ -624,7 +624,7 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
 
   // ── Streaming output IPC ──
 
-  // Active streaming handles keyed by `${pluginId}:${chatId}`
+  // Active streaming handles keyed by per-reply streamId.
   const streamHandles = new Map<
     string,
     import('../channels/channel-types').ChannelStreamingHandle
@@ -640,7 +640,13 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
     'plugin:stream:start',
     async (
       _event,
-      args: { pluginId: string; chatId: string; initialContent: string; messageId?: string }
+      args: {
+        pluginId: string
+        chatId: string
+        streamId?: string
+        initialContent: string
+        messageId?: string
+      }
     ) => {
       const service = channelManager.getService(args.pluginId)
       if (!service || !service.supportsStreaming || !service.sendStreamingMessage) {
@@ -653,10 +659,10 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
           args.initialContent,
           args.messageId
         )
-        const key = `${args.pluginId}:${args.chatId}`
+        const key = args.streamId || `${args.pluginId}:${args.chatId}`
         streamHandles.set(key, handle)
         streamContents.set(key, args.initialContent ?? '')
-        console.log(`[PluginStream] Started streaming for ${key}`)
+        console.log(`[PluginStream] Started streaming for ${args.pluginId}:${args.chatId}:${key}`)
         return { ok: true, supportsStreaming: true }
       } catch (err) {
         console.error('[PluginStream] Failed to start streaming:', err)
@@ -1222,8 +1228,8 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
   /** Send a streaming content update (accumulated text, not delta) */
   ipcMain.handle(
     'plugin:stream:update',
-    async (_event, args: { pluginId: string; chatId: string; content: string }) => {
-      const key = `${args.pluginId}:${args.chatId}`
+    async (_event, args: { pluginId: string; chatId: string; streamId?: string; content: string }) => {
+      const key = args.streamId || `${args.pluginId}:${args.chatId}`
       const handle = streamHandles.get(key)
       if (!handle) return { ok: false }
 
@@ -1241,8 +1247,8 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
   /** Append a streaming delta and forward the accumulated content to providers */
   ipcMain.handle(
     'plugin:stream:append',
-    async (_event, args: { pluginId: string; chatId: string; delta: string }) => {
-      const key = `${args.pluginId}:${args.chatId}`
+    async (_event, args: { pluginId: string; chatId: string; streamId?: string; delta: string }) => {
+      const key = args.streamId || `${args.pluginId}:${args.chatId}`
       const handle = streamHandles.get(key)
       if (!handle) return { ok: false }
 
@@ -1261,8 +1267,8 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
   /** Finish the streaming message with final content */
   ipcMain.handle(
     'plugin:stream:finish',
-    async (_event, args: { pluginId: string; chatId: string; content: string }) => {
-      const key = `${args.pluginId}:${args.chatId}`
+    async (_event, args: { pluginId: string; chatId: string; streamId?: string; content: string }) => {
+      const key = args.streamId || `${args.pluginId}:${args.chatId}`
       const handle = streamHandles.get(key)
       if (!handle) return { ok: false }
 
@@ -1271,10 +1277,10 @@ export function registerChannelHandlers(channelManager: ChannelManager): void {
         await handle.finish(args.content)
         streamHandles.delete(key)
         streamContents.delete(key)
-        console.log(`[PluginStream] Finished streaming for ${key}`)
+        console.log(`[PluginStream] Finished streaming for ${args.pluginId}:${args.chatId}:${key}`)
         return { ok: true }
       } catch (err) {
-        console.error(`[PluginStream] Finish failed for ${key}:`, err)
+        console.error(`[PluginStream] Finish failed for ${args.pluginId}:${args.chatId}:${key}:`, err)
         streamHandles.delete(key)
         streamContents.delete(key)
         return { ok: false }

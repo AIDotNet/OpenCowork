@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ToolResultContent } from '@renderer/lib/api/types'
 import { ToolStatusDot } from './ToolCallCard'
-import { inputSummary } from './tool-call-summary'
+import { inputSummary, summarizeSearchToolOutput } from './tool-call-summary'
 
 interface ToolCallGroupItem {
   id: string
@@ -49,11 +49,23 @@ function groupSummaryLabel(
     const fileCount = uniqueSummaries.length
     return t('toolGroup.readFiles', { count: fileCount })
   }
-  if (toolName === 'Grep') {
-    return t('toolGroup.searchedPatterns', { count })
-  }
-  if (toolName === 'Glob') {
-    return t('toolGroup.globbedPatterns', { count })
+  if (toolName === 'Grep' || toolName === 'Glob') {
+    const summaries = items
+      .map((item) => summarizeSearchToolOutput(item.name, item.output))
+      .filter((item): item is NonNullable<typeof item> => !!item)
+
+    if (summaries.length > 0) {
+      const matchCount = summaries.reduce((sum, item) => sum + item.matchCount, 0)
+      const fileCount = summaries.reduce((sum, item) => sum + item.fileCount, 0)
+      const hasWarnings = summaries.some((item) => item.truncated || item.timedOut || !!item.error)
+      return toolName === 'Grep'
+        ? t('toolGroup.grepResults', { matches: matchCount, files: fileCount, suffix: hasWarnings ? '+' : '' })
+        : t('toolGroup.globResults', { count: matchCount, suffix: hasWarnings ? '+' : '' })
+    }
+
+    return toolName === 'Grep'
+      ? t('toolGroup.searchedPatterns', { count })
+      : t('toolGroup.globbedPatterns', { count })
   }
   if (toolName === 'LS') {
     return t('toolGroup.listedDirs', { count })

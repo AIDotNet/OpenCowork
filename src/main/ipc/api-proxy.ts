@@ -1,7 +1,8 @@
-import { ipcMain, BrowserWindow, net } from 'electron'
+import { ipcMain, BrowserWindow, net, session } from 'electron'
 import * as https from 'https'
 import * as http from 'http'
 import { URL } from 'url'
+import { readSettings } from './settings-handlers'
 
 const MAX_RESPONSE_BODY_CHARS = 10_000_000
 
@@ -52,6 +53,7 @@ interface APIStreamRequest {
   headers: Record<string, string>
   body?: string
   useSystemProxy?: boolean
+  allowInsecureTls?: boolean
   providerId?: string
   providerBuiltinId?: string
   /** Active OAuth account id when the request is account-scoped. Used to surface rate-limit markers. */
@@ -97,6 +99,60 @@ function sanitizeHeaders(headers: Record<string, string>): Record<string, string
     sanitized[key] = str
   }
   return sanitized
+}
+
+const SYSTEM_PROXY_ENV_KEYS = [
+  'HTTPS_PROXY',
+  'https_proxy',
+  'HTTP_PROXY',
+  'http_proxy',
+  'ALL_PROXY',
+  'all_proxy'
+]
+const INSECURE_PROXY_SESSION_PARTITION = 'persist:open-cowork-provider-insecure-tls-proxy'
+let insecureProxySessionState:
+  | {
+      promise: Promise<Electron.Session>
+      proxyRules: string | null
+    }
+  | null = null
+
+function getEnvProxyUrl(): string | null {
+  for (const key of SYSTEM_PROXY_ENV_KEYS) {
+    const value = process.env[key]?.trim()
+    if (value) return value
+  }
+  return null
+}
+
+function getConfiguredSystemProxyUrl(): string | null {
+  const saved = readSettings().systemProxyUrl
+  if (typeof saved === 'string' && saved.trim()) return saved.trim()
+  return getEnvProxyUrl()
+}
+
+async function getInsecureProxySession(): Promise<Electron.Session> {
+  const proxyRules = getConfiguredSystemProxyUrl()
+  if (
+    insecureProxySessionState &&
+    insecureProxySessionState.proxyRules === proxyRules
+  ) {
+    return await insecureProxySessionState.promise
+  }
+
+  const promise = (async () => {
+    const proxySession = session.fromPartition(INSECURE_PROXY_SESSION_PARTITION, { cache: false })
+    proxySession.setCertificateVerifyProc((_, callback) => callback(0))
+    if (proxyRules) {
+      await proxySession.setProxy({ mode: 'fixed_servers', proxyRules })
+    } else {
+      await proxySession.setProxy({ mode: 'system' })
+    }
+    return proxySession
+  })()
+
+  insecureProxySessionState = { promise, proxyRules }
+  return await promise
 }
 
 interface CodexQuotaWindow {
@@ -273,19 +329,21 @@ function sendAccountRateLimited(
   sender.send('api:account-rate-limited', payload)
 }
 
-function requestViaSystemProxy(args: {
+async function requestViaSystemProxy(args: {
   url: string
   method: string
   headers: Record<string, string>
   body?: string
+  allowInsecureTls?: boolean
 }): Promise<{
   statusCode?: number
   error?: string
   body?: string
   headers?: Record<string, string | string[] | undefined>
 }> {
-  const { url, method, headers, body } = args
+  const { url, method, headers, body, allowInsecureTls } = args
   const requestUrl = url.trim()
+  const requestSession = allowInsecureTls ? await getInsecureProxySession() : undefined
   const bodyBuffer = body ? Buffer.from(body, 'utf-8') : null
   const reqHeaders = sanitizeHeaders({ ...headers })
 
@@ -307,7 +365,11 @@ function requestViaSystemProxy(args: {
       resolve(payload)
     }
 
-    const httpReq = net.request({ method, url: requestUrl })
+    const httpReq = net.request({
+      method,
+      url: requestUrl,
+      ...(requestSession ? { session: requestSession } : {})
+    })
     for (const [key, value] of Object.entries(reqHeaders)) {
       httpReq.setHeader(key, value)
     }
@@ -454,6 +516,7 @@ export function registerApiProxyHandlers(): void {
       headers,
       body,
       useSystemProxy,
+      allowInsecureTls,
       providerId,
       providerBuiltinId,
       accountId
@@ -497,8 +560,11 @@ export function registerApiProxyHandlers(): void {
         }
       })
 
-    const runOneAttempt = (): Promise<AttemptResult> =>
-      new Promise<AttemptResult>((resolve) => {
+    const runOneAttempt = async (): Promise<AttemptResult> => {
+      const requestSession =
+        useSystemProxy && allowInsecureTls ? await getInsecureProxySession() : undefined
+
+      return await new Promise<AttemptResult>((resolve) => {
         const STREAM_CHUNK_FLUSH_MS = 32
         const STREAM_CHUNK_MAX_BUFFER_CHARS = 8_192
         let bufferedChunk = ''
@@ -570,7 +636,11 @@ export function registerApiProxyHandlers(): void {
               }
             }
 
-            const httpReq = net.request({ method, url: requestUrl })
+            const httpReq = net.request({
+              method,
+              url: requestUrl,
+              ...(requestSession ? { session: requestSession } : {})
+            })
             for (const [key, value] of Object.entries(reqHeaders)) {
               httpReq.setHeader(key, value)
             }
@@ -727,7 +797,8 @@ export function registerApiProxyHandlers(): void {
             port: parsedUrl.port || (isHttps ? 443 : 80),
             path: parsedUrl.pathname + parsedUrl.search,
             method,
-            headers: reqHeaders
+            headers: reqHeaders,
+            ...(isHttps && (allowInsecureTls ?? true) ? { rejectUnauthorized: false } : {})
           }
 
           let idleTimer: ReturnType<typeof setTimeout> | null = null
@@ -853,6 +924,7 @@ export function registerApiProxyHandlers(): void {
           finish({ kind: 'fatal', status: 0, body: errMsg })
         }
       })
+    }
 
     ;(async () => {
       for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {

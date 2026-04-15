@@ -62,9 +62,25 @@ interface PluginAutoReplyTask {
 
 const PLUGIN_STREAM_DELTA_FLUSH_MS = 66
 const PLUGIN_PROCESSING_ACK_MESSAGE = '已收到消息，正在处理，请稍候。'
+const pluginTaskChains = new Map<string, Promise<void>>()
+const queuedPluginTasksByScope = new Map<string, number>()
+const queuedPluginTasksBySession = new Map<string, number>()
 
 function buildPluginMessageSessionKey(pluginId: string, chatId: string): string {
   return `plugin:${pluginId}:chat:${encodeURIComponent(chatId)}`
+}
+
+function buildPluginTaskScopeKey(pluginId: string, chatId: string): string {
+  return `${pluginId}:${encodeURIComponent(chatId)}`
+}
+
+function adjustQueuedPluginTaskCount(map: Map<string, number>, key: string, delta: number): void {
+  const next = (map.get(key) ?? 0) + delta
+  if (next <= 0) {
+    map.delete(key)
+    return
+  }
+  map.set(key, next)
 }
 
 function shouldReplaceSessionTitle(
@@ -109,8 +125,9 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   const shouldReplyToIncomingMessage =
     pluginType === 'qq-bot' && task.chatType === 'group' && Boolean(task.messageId)
   const shouldUseStreamingReply = supportsStreaming && features.streamingReply
+  const streamId = nanoid()
 
-  const sendChannelNotice = async (message: string): Promise<void> => {
+  const sendPluginMessage = async (message: string): Promise<boolean> => {
     try {
       await ipcClient.invoke(IPC.PLUGIN_EXEC, {
         pluginId,
@@ -119,9 +136,15 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
           ? { messageId: task.messageId, content: message }
           : { chatId, content: message }
       })
+      return true
     } catch (err) {
-      console.error('[PluginAutoReply] Failed to send notice:', err)
+      console.error('[PluginAutoReply] Failed to send plugin message:', err)
+      return false
     }
+  }
+
+  const sendChannelNotice = async (message: string): Promise<void> => {
+    await sendPluginMessage(message)
   }
 
   let immediateAckSent = false
@@ -235,6 +258,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       const res = (await ipcClient.invoke('plugin:stream:start', {
         pluginId,
         chatId,
+        streamId,
         initialContent: PLUGIN_PROCESSING_ACK_MESSAGE,
         messageId: task.messageId
       })) as { ok: boolean }
@@ -623,7 +647,14 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       .invoke(IPC.PLUGIN_STREAM_APPEND, {
         pluginId,
         chatId,
+        streamId,
         delta
+      })
+      .then((res) => {
+        const result = res as { ok?: boolean }
+        if (!result?.ok) {
+          throw new Error(`Plugin stream append rejected for ${pluginId}:${chatId}:${streamId}`)
+        }
       })
       .catch(() => {
         pendingPluginDelta = `${delta}${pendingPluginDelta}`
@@ -850,13 +881,10 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
           }
           useChatStore.getState().addMessage(sessionId, toolResultMsg)
         }
-        // If new messages are waiting for this session, stop before issuing the
-        // next API request so queued messages can be handled first.
         if (hasQueuedPluginTasks(sessionId) || hasPendingSessionMessagesForSession(sessionId)) {
           console.log(
-            `[PluginAutoReply] Queued message detected at iteration_end, aborting run for session ${sessionId}`
+            `[PluginAutoReply] Queued message detected at iteration_end, allowing current run to finish before processing queued input for session ${sessionId}`
           )
-          ac.abort()
         }
         break
 
@@ -886,6 +914,9 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     ? `模型运行失败：${lastError}`
     : '模型未返回文本回复，请检查当前模型配置'
 
+  const finalText = fullText.trim() ? fullText : fallbackMessage
+  let streamFinished = false
+
   // Finish CardKit card
   if (streamingActive) {
     try {
@@ -893,14 +924,23 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       if (pendingPluginUpdate) {
         await pendingPluginUpdate
       }
-      await ipcClient.invoke('plugin:stream:finish', {
+      const finishRes = (await ipcClient.invoke('plugin:stream:finish', {
         pluginId,
         chatId,
-        content: fullText.trim() ? fullText : fallbackMessage
-      })
-      console.log(`[PluginAutoReply] CardKit finished for ${pluginId}:${chatId}`)
+        streamId,
+        content: finalText
+      })) as { ok?: boolean }
+      streamFinished = finishRes?.ok === true
+      if (!streamFinished) {
+        throw new Error(`Plugin stream finish rejected for ${pluginId}:${chatId}:${streamId}`)
+      }
+      console.log(`[PluginAutoReply] CardKit finished for ${pluginId}:${chatId}:${streamId}`)
     } catch (err) {
       console.warn('[PluginAutoReply] Failed to finish streaming card:', err)
+      const fallbackSent = await sendPluginMessage(finalText)
+      console.log(
+        `[PluginAutoReply] Streaming fallback send ${fallbackSent ? 'succeeded' : 'failed'} for ${pluginId}:${chatId}:${streamId}`
+      )
     }
   }
 
@@ -908,21 +948,12 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     await sendChannelNotice(fallbackMessage)
   }
 
-  // Non-streaming fallback: send the final text via plugin reply/send
   if (!streamingActive && fullText.trim()) {
-    try {
-      await ipcClient.invoke('plugin:exec', {
-        pluginId,
-        action: shouldReplyToIncomingMessage ? 'replyMessage' : 'sendMessage',
-        params: shouldReplyToIncomingMessage
-          ? { messageId: task.messageId, content: fullText }
-          : { chatId, content: fullText }
-      })
+    const sent = await sendPluginMessage(fullText)
+    if (sent) {
       console.log(
         `[PluginAutoReply] Sent non-streaming ${shouldReplyToIncomingMessage ? 'reply' : 'message'} for ${pluginId}:${chatId}`
       )
-    } catch (err) {
-      console.error('[PluginAutoReply] Failed to send non-streaming reply:', err)
     }
   }
 
@@ -1064,16 +1095,34 @@ async function transcribeFeishuAudio(params: {
 }
 
 function hasQueuedPluginTasks(sessionId: string): boolean {
-  void sessionId
-  // Check if there are any queued plugin auto-reply tasks for this session
-  // This is a simplified check - in a real implementation, you'd track queued tasks
-  return false
+  return (queuedPluginTasksBySession.get(sessionId) ?? 0) > 0
 }
 
 async function handlePluginAutoReply(task: PluginAutoReplyTask): Promise<void> {
+  const scopeKey = buildPluginTaskScopeKey(task.pluginId, task.chatId)
+  const previous = pluginTaskChains.get(scopeKey) ?? Promise.resolve()
+
+  adjustQueuedPluginTaskCount(queuedPluginTasksByScope, scopeKey, 1)
+  adjustQueuedPluginTaskCount(queuedPluginTasksBySession, task.sessionId, 1)
+
+  const run = previous
+    .catch(() => {})
+    .then(async () => {
+      adjustQueuedPluginTaskCount(queuedPluginTasksByScope, scopeKey, -1)
+      adjustQueuedPluginTaskCount(queuedPluginTasksBySession, task.sessionId, -1)
+      await _runPluginAgent(task)
+    })
+    .catch((err) => {
+      console.error('[PluginAutoReply] Error handling plugin auto-reply:', err)
+    })
+
+  pluginTaskChains.set(scopeKey, run)
+
   try {
-    await _runPluginAgent(task)
-  } catch (err) {
-    console.error('[PluginAutoReply] Error handling plugin auto-reply:', err)
+    await run
+  } finally {
+    if (pluginTaskChains.get(scopeKey) === run) {
+      pluginTaskChains.delete(scopeKey)
+    }
   }
 }

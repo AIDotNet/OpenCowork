@@ -216,6 +216,7 @@ class OpenAIChatProvider implements APIProvider {
         body: bodyStr,
         signal: streamAbortController.signal,
         useSystemProxy: runtimeConfig.useSystemProxy,
+        allowInsecureTls: runtimeConfig.allowInsecureTls ?? true,
         providerId: runtimeConfig.providerId,
         providerBuiltinId: runtimeConfig.providerBuiltinId,
         accountId: activeAccountId

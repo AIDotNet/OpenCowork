@@ -176,6 +176,117 @@ type UploadTaskState = {
   remoteTempZipPath?: string
 }
 
+type SearchLimitReason = 'max_results' | 'max_output_bytes' | 'timeout' | 'max_depth' | null
+
+type SearchMeta = {
+  backend: 'ssh'
+  searchRoot: string
+  pathStyle: 'absolute'
+  truncated: boolean
+  timedOut: boolean
+  limitReason: SearchLimitReason
+  pattern: string
+  include?: string | null
+  hiddenIncluded: boolean
+  ignoredDefaultsApplied: boolean
+  warnings?: string[]
+  maxDepth?: number | null
+}
+
+type SshGlobResult = {
+  kind: 'glob'
+  matches: Array<{ path: string; type?: 'file' | 'directory' }>
+  meta: SearchMeta
+  error?: string
+}
+
+type SshGrepResult = {
+  kind: 'grep'
+  matches: Array<{ path: string; line: number; text: string }>
+  meta: SearchMeta
+  error?: string
+}
+
+function createSshSearchMeta(args: {
+  searchRoot: string
+  pattern: string
+  include?: string | null
+  truncated?: boolean
+  timedOut?: boolean
+  limitReason?: SearchLimitReason
+  warnings?: string[]
+  maxDepth?: number | null
+}): SearchMeta {
+  return {
+    backend: 'ssh',
+    searchRoot: args.searchRoot,
+    pathStyle: 'absolute',
+    truncated: args.truncated === true,
+    timedOut: args.timedOut === true,
+    limitReason: args.limitReason ?? null,
+    pattern: args.pattern,
+    include: args.include ?? null,
+    hiddenIncluded: true,
+    ignoredDefaultsApplied: true,
+    warnings: args.warnings ?? [],
+    maxDepth: args.maxDepth ?? null
+  }
+}
+
+function createSshGlobResult(args: {
+  searchRoot: string
+  pattern: string
+  matches: Array<{ path: string; type?: 'file' | 'directory' }>
+  truncated?: boolean
+  limitReason?: SearchLimitReason
+  warnings?: string[]
+  maxDepth?: number | null
+  error?: string
+}): SshGlobResult {
+  return {
+    kind: 'glob',
+    matches: args.matches,
+    meta: createSshSearchMeta({
+      searchRoot: args.searchRoot,
+      pattern: args.pattern,
+      truncated: args.truncated,
+      limitReason: args.limitReason,
+      warnings: args.warnings,
+      maxDepth: args.maxDepth
+    }),
+    error: args.error
+  }
+}
+
+function createSshGrepResult(args: {
+  searchRoot: string
+  pattern: string
+  include?: string | null
+  matches: Array<{ path: string; line: number; text: string }>
+  truncated?: boolean
+  timedOut?: boolean
+  limitReason?: SearchLimitReason
+  warnings?: string[]
+  maxDepth?: number | null
+  error?: string
+}): SshGrepResult {
+  return {
+    kind: 'grep',
+    matches: args.matches,
+    meta: createSshSearchMeta({
+      searchRoot: args.searchRoot,
+      pattern: args.pattern,
+      include: args.include,
+      truncated: args.truncated,
+      timedOut: args.timedOut,
+      limitReason: args.limitReason,
+      warnings: args.warnings,
+      maxDepth: args.maxDepth
+    }),
+    error: args.error
+  }
+}
+
 const uploadTasks = new Map<string, UploadTaskState>()
 
 function broadcastUploadEvent(evt: UploadEvent): void {
@@ -2443,14 +2554,25 @@ export function registerSshHandlers(): void {
           const cwdInput = args.path || '.'
           const cwd = await resolveSftpPath(session, cwdInput)
           const gitIgnoreMatcher = await createRemoteGitIgnoreContext(session, cwd)
+          const maxDepth = 5
           const result = await sshExec(
             session,
-            `find ${shellEscape(cwd)} -name ${shellEscape(args.pattern)} -maxdepth 5 2>/dev/null | head -100`
+            `find ${shellEscape(cwd)} -name ${shellEscape(args.pattern)} -maxdepth ${maxDepth} 2>/dev/null | head -100`
           )
-          if (result.exitCode !== 0) return []
+          if (result.exitCode !== 0) {
+            return createSshGlobResult({
+              searchRoot: cwd,
+              pattern: args.pattern,
+              matches: [],
+              error: result.stderr || 'glob failed',
+              warnings: ['SSH glob uses remote find and may be truncated'],
+              maxDepth,
+              truncated: false
+            })
+          }
 
           const sftp = await getSftp(session)
-          const matches: string[] = []
+          const matches: Array<{ path: string; type?: 'file' | 'directory' }> = []
           for (const rawPath of result.stdout
             .split('\n')
             .map((line) => line.trim())
@@ -2458,12 +2580,32 @@ export function registerSshHandlers(): void {
             const stats = await sftpStat(sftp, rawPath)
             const isDir = stats?.isDirectory?.() ?? false
             if (await gitIgnoreMatcher.ignores(rawPath, isDir)) continue
-            matches.push(rawPath)
+            matches.push({ path: rawPath, type: isDir ? 'directory' : 'file' })
           }
-          return matches
+          const rawLines = result.stdout
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+          return createSshGlobResult({
+            searchRoot: cwd,
+            pattern: args.pattern,
+            matches,
+            truncated: rawLines.length >= 100,
+            limitReason: rawLines.length >= 100 ? 'max_results' : null,
+            warnings: ['SSH glob uses remote find and may be truncated'],
+            maxDepth
+          })
         })
       } catch (err) {
-        return { error: String(err) }
+        const cwd = args.path || '.'
+        return createSshGlobResult({
+          searchRoot: cwd,
+          pattern: args.pattern,
+          matches: [],
+          error: String(err),
+          warnings: ['SSH glob uses remote find and may be truncated'],
+          maxDepth: 5
+        })
       }
     }
   )
@@ -2490,11 +2632,21 @@ export function registerSshHandlers(): void {
 
             const result = await sshExec(session, cmd)
             if (result.exitCode !== 0 && result.exitCode !== 1) {
-              return { error: result.stderr || 'grep failed' }
+              return createSshGrepResult({
+                searchRoot: cwd,
+                pattern: args.pattern,
+                include: args.include,
+                matches: [],
+                error: result.stderr || 'grep failed',
+                warnings: ['SSH grep uses remote rg and may be truncated by result limits']
+              })
             }
 
-            const matches: { file: string; line: number; text: string }[] = []
-            for (const rawLine of result.stdout.split('\n')) {
+            const matches: Array<{ path: string; line: number; text: string }> = []
+            let rawMatchCount = 0
+            let parseFailed = false
+            const rawLines = result.stdout.split('\n')
+            for (const rawLine of rawLines) {
               if (!rawLine.trim()) continue
               try {
                 const parsed = JSON.parse(rawLine) as {
@@ -2506,6 +2658,7 @@ export function registerSshHandlers(): void {
                   }
                 }
                 if (parsed.type !== 'match') continue
+                rawMatchCount += 1
                 const rawPath = parsed.data?.path?.text
                 const lineNumber = parsed.data?.line_number
                 const text = parsed.data?.lines?.text ?? ''
@@ -2514,12 +2667,23 @@ export function registerSshHandlers(): void {
                   ? rawPath
                   : path.posix.join(cwd, rawPath)
                 if (await gitIgnoreMatcher.ignores(fullPath, false)) continue
-                matches.push({ file: fullPath, line: lineNumber, text: text.trim() })
+                matches.push({ path: fullPath, line: lineNumber, text: text.trim() })
               } catch {
-                continue
+                parseFailed = true
               }
             }
-            return matches
+            return createSshGrepResult({
+              searchRoot: cwd,
+              pattern: args.pattern,
+              include: args.include,
+              matches,
+              truncated: rawMatchCount >= 200,
+              limitReason: rawMatchCount >= 200 ? 'max_results' : null,
+              warnings: [
+                'SSH grep uses remote rg and may be truncated by result limits',
+                ...(parseFailed ? ['Some SSH grep result lines could not be parsed'] : [])
+              ]
+            })
           }
 
           let cmd = `grep -rn ${shellEscape(args.pattern)} ${shellEscape(cwd)}`
@@ -2528,20 +2692,44 @@ export function registerSshHandlers(): void {
 
           const result = await sshExec(session, cmd)
           if (result.exitCode !== 0 && result.exitCode !== 1) {
-            return { error: result.stderr || 'grep failed' }
+            return createSshGrepResult({
+              searchRoot: cwd,
+              pattern: args.pattern,
+              include: args.include,
+              matches: [],
+              error: result.stderr || 'grep failed',
+              warnings: ['SSH grep uses remote grep and may be truncated by result limits']
+            })
           }
 
-          const matches: { file: string; line: number; text: string }[] = []
-          for (const rawLine of result.stdout.split('\n')) {
+          const rawLines = result.stdout.split('\n').filter(Boolean)
+          const matches: Array<{ path: string; line: number; text: string }> = []
+          for (const rawLine of rawLines) {
             const match = rawLine.match(/^(.+?):(\d+):(.*)$/)
             if (!match) continue
             if (await gitIgnoreMatcher.ignores(match[1], false)) continue
-            matches.push({ file: match[1], line: parseInt(match[2], 10), text: match[3] })
+            matches.push({ path: match[1], line: parseInt(match[2], 10), text: match[3] })
           }
-          return matches
+          return createSshGrepResult({
+            searchRoot: cwd,
+            pattern: args.pattern,
+            include: args.include,
+            matches,
+            truncated: rawLines.length >= 100,
+            limitReason: rawLines.length >= 100 ? 'max_results' : null,
+            warnings: ['SSH grep uses remote grep and may be truncated by result limits']
+          })
         })
       } catch (err) {
-        return { error: String(err) }
+        const cwd = args.path || '.'
+        return createSshGrepResult({
+          searchRoot: cwd,
+          pattern: args.pattern,
+          include: args.include,
+          matches: [],
+          error: String(err),
+          warnings: ['SSH grep uses remote grep and may be truncated by result limits']
+        })
       }
     }
   )

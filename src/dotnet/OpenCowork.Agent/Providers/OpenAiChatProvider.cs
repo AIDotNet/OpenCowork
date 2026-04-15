@@ -55,7 +55,7 @@ public sealed class OpenAiChatProvider : ILlmProvider
             DebugInfo = CreateRequestDebugInfo(url, "POST", headers, bodyBytes, config)
         };
 
-        var client = _httpFactory.GetClient();
+        var client = _httpFactory.GetClient(allowInsecureTls: config.AllowInsecureTls ?? true);
 
         using var response = await SseStreamReader.SendStreamingRequestAsync(
             client, url, "POST", headers, bodyBytes, ct);

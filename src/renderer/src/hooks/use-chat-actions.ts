@@ -159,6 +159,18 @@ function extractPluginChatId(externalChatId?: string): string | undefined {
   }
 }
 
+function resolveSessionWorkingFolder(
+  session?: { projectId?: string; workingFolder?: string | null } | null,
+  fallbackWorkingFolder?: string | null
+): string | undefined {
+  const direct = session?.workingFolder?.trim() || fallbackWorkingFolder?.trim()
+  if (direct) return direct
+  const projectId = session?.projectId
+  if (!projectId) return undefined
+  const project = useChatStore.getState().projects.find((item) => item.id === projectId)
+  return project?.workingFolder?.trim() || undefined
+}
+
 type MessageSource = 'team' | 'queued' | 'continue'
 
 interface QueuedSessionMessage {
@@ -1315,7 +1327,7 @@ function createNodeAgentLoop(args: {
 
   const toolCtx: ToolContext = {
     sessionId: args.sessionId,
-    workingFolder: args.workingFolder,
+    workingFolder: args.workingFolder?.trim() || undefined,
     sshConnectionId: args.session?.sshConnectionId,
     signal: args.signal,
     ipc: ipcClient,
@@ -2163,8 +2175,9 @@ export function useChatActions(): {
         }
 
         const sessionScope: SessionMemoryScope = session?.pluginId ? 'shared' : 'main'
+        const sessionWorkingFolder = resolveSessionWorkingFolder(session)
         const memorySnapshot = await loadLayeredMemorySnapshot(ipcClient, {
-          workingFolder: session?.workingFolder,
+          workingFolder: sessionWorkingFolder,
           scope: sessionScope
         })
         const cachedPromptSnapshot = session?.promptSnapshot
@@ -2204,14 +2217,14 @@ export function useChatActions(): {
             : undefined
           const environmentContext = resolvePromptEnvironmentContext({
             sshConnectionId: session?.sshConnectionId,
-            workingFolder: session?.workingFolder,
+            workingFolder: sessionWorkingFolder,
             sshConnection
           })
 
           const activeTeam = useTeamStore.getState().activeTeam
           agentSystemPrompt = buildSystemPrompt({
             mode: mode as 'clarify' | 'cowork' | 'code' | 'acp',
-            workingFolder: session?.workingFolder,
+            workingFolder: sessionWorkingFolder,
             sessionId,
             userRules: userPrompt || undefined,
             toolDefs: finalEffectiveToolDefs,
@@ -2230,7 +2243,7 @@ export function useChatActions(): {
             systemPrompt: agentSystemPrompt,
             toolDefs: finalEffectiveToolDefs,
             projectId: session?.projectId,
-            workingFolder: session?.workingFolder,
+            workingFolder: sessionWorkingFolder,
             sshConnectionId: session?.sshConnectionId ?? null
           })
         }
@@ -2390,7 +2403,7 @@ export function useChatActions(): {
             tools: effectiveToolDefs,
             runId: assistantMsgId,
             sessionId,
-            workingFolder: session?.workingFolder,
+            workingFolder: sessionWorkingFolder,
             maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
             forceApproval: false,
             compression: compressionConfig,
@@ -2412,7 +2425,7 @@ export function useChatActions(): {
             provider: agentProviderConfig,
             tools: effectiveToolDefs,
             sessionId,
-            workingFolder: session?.workingFolder,
+            workingFolder: sessionWorkingFolder,
             sshConnectionId: session?.sshConnectionId,
             maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
             forceApproval: false,
@@ -2551,7 +2564,7 @@ export function useChatActions(): {
               provider: agentProviderConfig,
               tools: effectiveToolDefs,
               systemPrompt: agentSystemPrompt,
-              workingFolder: session?.workingFolder,
+              workingFolder: sessionWorkingFolder,
               signal: abortController.signal,
               sessionId,
               assistantMessageId: assistantMsgId,
@@ -3007,15 +3020,10 @@ export function useChatActions(): {
                   }
                   addRuntimeMessage(sessionId!, toolResultMsg)
                 }
-                // If there are queued user messages, abort the loop now.
-                // At this point tools have finished and tool_results are appended,
-                // so aborting here prevents the next API request from starting
-                // and lets the finally block dispatch the queued message immediately.
                 if (hasPendingSessionMessages(sessionId!)) {
                   console.log(
-                    `[ChatActions] Queued message detected at iteration_end, aborting loop for session ${sessionId}`
+                    `[ChatActions] Queued message detected at iteration_end, allowing current run to finish before processing queued input for session ${sessionId}`
                   )
-                  abortController.abort()
                 }
                 break
 
@@ -3424,7 +3432,7 @@ export function useChatActions(): {
             const pluginChatId = extractPluginChatId(session.externalChatId)
             const toolCtx: ToolContext = {
               sessionId,
-              workingFolder: session.workingFolder,
+              workingFolder: resolveSessionWorkingFolder(session),
               sshConnectionId: session.sshConnectionId,
               signal: abortController.signal,
               ipc: ipcClient,
@@ -4079,14 +4087,13 @@ async function runSimpleChat(
         const unsub = agentBridge.on('agent/event', (payload) => {
           const record = normalizeSidecarRecord(payload)
           const eventRunId = String(record.runId ?? '')
-          if (!eventRunId) return
 
           if (!runId) {
             pendingEvents.push({ runId: eventRunId, rawEvent: record.event })
             return
           }
 
-          if (eventRunId !== runId) return
+          if (eventRunId && eventRunId !== runId) return
           dispatchSidecarEvent(record.event)
         })
         try {
@@ -4095,10 +4102,10 @@ async function runSimpleChat(
           sessionSidecarRunIds.set(sessionId, result.runId)
           console.log('[ChatActions] sidecar chat stream started', { sessionId, runId })
 
-          for (const pending of pendingEvents.splice(0, pendingEvents.length)) {
-            if (pending.runId !== runId) continue
+          const pendingSnapshot = pendingEvents.splice(0, pendingEvents.length)
+          for (const pending of pendingSnapshot) {
+            if (pending.runId && pending.runId !== runId) continue
             dispatchSidecarEvent(pending.rawEvent)
-            if (finished) break
           }
 
           while (!finished || queue.length > 0) {

@@ -1,50 +1,51 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project will be documented in this file.
 
 ## [0.9.0] - 2026-04-16
 
+### Added
+
+- Added WebSocket session transport support to improve stability and responsiveness for real-time streaming messages.
+
 ### Changed
 
-- 优化消息流场景下工具卡片与思考块的展开/收起逻辑，避免运行态切换时状态错位。
+- Updated tool card and thinking block expand/collapse behavior during streaming sessions to keep UI state consistent.
+- Improved WebSocket channel status handling with reconnect fallback guidance when connection failures occur.
 
 ### Fixed
 
-- 修复工具调用与文件变更卡片在流式阶段与完成阶段之间切换时未及时重置折叠态的问题。
-- 修复消息列表在持续输出时的自动滚动策略，减少滚动抖动与误触发。
+- Fixed tool call and file-change cards not properly resetting collapsed state when transitioning from streaming to completed status.
+- Fixed message list auto-scroll behavior during long streaming output to reduce jitter and false scroll triggers.
 
 ## [0.8.7] - 2026-04-16
 
 ### Added
 
-- 为 `Glob` 与 `Grep` 工具结果补充截断、超时、警告等元信息，并在工具调用卡片中展示状态徽标、空结果态与结果隐藏提示，便于判断本地、SSH 与 Cron 搜索结果是否完整。
-- 在会话列表与工作区侧边栏加入按需分页加载和“一键清空全部会话”入口，提升大量项目与会话下的浏览、检索和清理效率。
+- Enhanced `Glob` / `Grep` tool outputs with truncation, timeout, and warning metadata.
+- Added workspace and session list improvements, including optional pagination and fast session cleanup actions.
 
 ### Changed
 
-- 将 Plan Mode 调整为按会话持久化，切换会话时会同步当前作用域状态，输入区与工具选择也跟随当前草稿会话，减少不同会话之间的模式串扰。
-- 优化流式消息文本块拼接逻辑：当 `tool_use` 之后继续接收文本增量时，渲染层与聊天状态层都会追加新的文本块，不再回写到前一个文本块，提升工具调用与文本混排场景下的消息顺序一致性。
-- 调整插件自动回复任务调度，按会话与聊天串行处理排队消息；流式卡片回复失败时会回退到普通消息发送，降低插件渠道回复串扰与丢失风险。
-- 完善 API 代理、CronAgent 与 provider 配置链路，补齐 `useSystemProxy` 与 `allowInsecureTls` 透传，提升受代理或自签名证书环境下的可用性。
-- 更新 `Routin AI` 预设模型列表，移除已下线模型并同步当前套餐配置。
-- 统一整理仓库 `AGENTS.md` 协作规范，补充项目结构、构建命令、测试要求、提交约定与安全注意事项，降低开源协作门槛。
+- Reworked streaming text block and tool-call rendering behavior to avoid mixed message ordering issues.
+- Updated plugin response scheduling and proxy-related API provider settings for improved reliability.
 
 ### Fixed
 
-- 修复消息重放前工具块清洗逻辑，保留仅含 reasoning、`tool_use` 或 `tool_result` 的助手消息，并避免 Bash 结构化输出被误判为错误面板。
-- 修复 .NET sidecar 在流式工具输入摘要中序列化整型与布尔型元数据时未使用 source-generated JSON metadata 的问题，提升序列化兼容性并避免运行时元数据风险。
-- 修复钉钉渠道 `replyMessage` 无法稳定回溯会话上下文的问题，优先复用消息到会话映射与已缓存 webhook，提高群消息自动回复成功率。
+- Fixed stream message cleanup so reasoning/tool-use/tool-result assistant messages are retained correctly.
+- Fixed .NET sidecar serialization in streaming metadata to improve compatibility and reduce runtime JSON issues.
+- Fixed DingTalk `replyMessage` context replay behavior and webhook reuse for stable group-reply delivery.
 
-## 0.8.5
+## [0.8.5]
 
-- 升级项目版本至 `0.8.5`。
-- 记录本次小版本发布内容。
+- Maintained project version `0.8.5`.
+- Documented this patch release.
 
-## 0.8.4
+## [0.8.4]
 
-- 升级项目版本至 `0.8.4`。
-- 预留本次小版本发布记录。
+- Maintained project version `0.8.4`.
+- Reserved changelog entry for this minor release.
 
-## 0.8.3
+## [0.8.3]
 
-- 初始版本记录。
+- Initial project release notes.

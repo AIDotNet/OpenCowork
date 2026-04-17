@@ -12,9 +12,9 @@ import {
 } from 'lucide-react'
 import type { RightPanelSection, RightPanelTab } from '@renderer/stores/ui-store'
 
-export const LEFT_SIDEBAR_DEFAULT_WIDTH = 320
-export const LEFT_SIDEBAR_MIN_WIDTH = 240
-export const LEFT_SIDEBAR_MAX_WIDTH = 520
+export const LEFT_SIDEBAR_DEFAULT_WIDTH = 292
+export const LEFT_SIDEBAR_MIN_WIDTH = 272
+export const LEFT_SIDEBAR_MAX_WIDTH = 420
 
 export const RIGHT_PANEL_DEFAULT_WIDTH = 384
 export const RIGHT_PANEL_MIN_WIDTH = 320

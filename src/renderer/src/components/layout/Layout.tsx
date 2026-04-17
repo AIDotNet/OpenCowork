@@ -1114,7 +1114,17 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                               exportAll={exportRendering}
                             />
                             <InputArea
-                              onSend={(text, images) => void sendMessage(text, images)}
+                              onSend={(text, images, options) =>
+                                void sendMessage(
+                                  text,
+                                  images,
+                                  undefined,
+                                  undefined,
+                                  undefined,
+                                  undefined,
+                                  options
+                                )
+                              }
                               onStop={stopStreaming}
                               onSelectFolder={mode !== 'chat' ? handleOpenFolderDialog : undefined}
                               workingFolder={activeWorkingFolder}
@@ -1235,8 +1245,16 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
               />
               <InputArea
                 sessionId={miniSessionWindowSessionId}
-                onSend={(text, images) =>
-                  void sendMessage(text, images, undefined, miniSessionWindowSessionId)
+                onSend={(text, images, options) =>
+                  void sendMessage(
+                    text,
+                    images,
+                    undefined,
+                    miniSessionWindowSessionId,
+                    undefined,
+                    undefined,
+                    options
+                  )
                 }
                 onStop={stopStreaming}
                 workingFolder={miniWindowSession?.workingFolder}

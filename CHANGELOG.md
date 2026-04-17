@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.2] - 2026-04-17
+
+### Changed
+
+- Removed the sidebar virtual list dependency and unified session cleanup parameters for simpler workspace interactions.
+- Updated the chat home, layout, and workspace sidebar components to align with the latest session management flow.
+- Refreshed lockfiles to capture the latest dependency graph after the UI and workspace cleanup changes.
+
 ## [0.9.1] - 2026-04-16
 
 ### Added

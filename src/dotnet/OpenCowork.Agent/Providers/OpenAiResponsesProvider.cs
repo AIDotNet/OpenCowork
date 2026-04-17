@@ -20,6 +20,7 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
     private const string DesktopScrollToolName = "DesktopScroll";
     private const string DesktopWaitToolName = "DesktopWait";
     private static readonly TimeSpan WebsocketCircuitBreakDuration = TimeSpan.FromMinutes(1);
+    private const string WebsocketForceFreshReconnectReason = "websocket_force_fresh_reconnect";
     private static readonly ConcurrentDictionary<string, ResponsesWebSocketCircuitState> WebsocketCircuitBreakers = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, ReusableResponsesWebSocketConnection> WebsocketConnections = new(StringComparer.Ordinal);
 
@@ -314,6 +315,7 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                         await using var warmupStream = ReadOpenAiResponsesWebSocketItemsAsync(
                             connection,
                             warmupRequest,
+                            reusedConnection,
                             ct).GetAsyncEnumerator(ct);
 
                         while (true)
@@ -370,15 +372,20 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                             incrementalReason: preparedRequest?.IncrementalReason,
                             previousResponseId: preparedRequest?.PreviousResponseId,
                             reusedConnection: reusedConnection);
-                        if (!forceFreshWebSocket && websocketFallback.Reason == "websocket_connection_limit_reached")
+                        if (!forceFreshWebSocket
+                            && (websocketFallback.Reason == "websocket_connection_limit_reached"
+                                || websocketFallback.Reason == WebsocketForceFreshReconnectReason))
                         {
                             forceFreshWebSocket = true;
                             fallbackReason = websocketFallback.Reason;
                             continue;
                         }
 
-                        SetResponsesWebSocketCircuitReason(config, websocketResolution.WebsocketUrl, websocketFallback.Reason);
-                        fallbackReason = websocketFallback.Reason;
+                        var normalizedFallbackReason = websocketFallback.Reason == WebsocketForceFreshReconnectReason
+                            ? "websocket_connection_failed"
+                            : websocketFallback.Reason;
+                        SetResponsesWebSocketCircuitReason(config, websocketResolution.WebsocketUrl, normalizedFallbackReason);
+                        fallbackReason = normalizedFallbackReason;
                         shouldUseWebSocket = false;
                         continue;
                     }
@@ -424,6 +431,7 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                         ReadOpenAiResponsesWebSocketItemsAsync(
                             connection,
                             preparedRequest,
+                            reusedConnection,
                             ct),
                         ct).GetAsyncEnumerator(ct);
 
@@ -464,15 +472,20 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                             incrementalReason: preparedRequest?.IncrementalReason,
                             previousResponseId: preparedRequest?.PreviousResponseId,
                             reusedConnection: reusedConnection);
-                        if (!forceFreshWebSocket && websocketFallback.Reason == "websocket_connection_limit_reached")
+                        if (!forceFreshWebSocket
+                            && (websocketFallback.Reason == "websocket_connection_limit_reached"
+                                || websocketFallback.Reason == WebsocketForceFreshReconnectReason))
                         {
                             forceFreshWebSocket = true;
                             fallbackReason = websocketFallback.Reason;
                             continue;
                         }
 
-                        SetResponsesWebSocketCircuitReason(config, websocketResolution.WebsocketUrl, websocketFallback.Reason);
-                        fallbackReason = websocketFallback.Reason;
+                        var normalizedFallbackReason = websocketFallback.Reason == WebsocketForceFreshReconnectReason
+                            ? "websocket_connection_failed"
+                            : websocketFallback.Reason;
+                        SetResponsesWebSocketCircuitReason(config, websocketResolution.WebsocketUrl, normalizedFallbackReason);
+                        fallbackReason = normalizedFallbackReason;
                         shouldUseWebSocket = false;
                         continue;
                     }
@@ -886,6 +899,7 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
     private async IAsyncEnumerable<OpenAiResponsesSseItem> ReadOpenAiResponsesWebSocketItemsAsync(
         ReusableResponsesWebSocketConnection connection,
         OpenAiResponsesWebSocketProtocol.PreparedRequest preparedRequest,
+        bool reusedConnection,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var closeConnection = !connection.Reusable;
@@ -899,6 +913,8 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 closeConnection = true;
+                if (reusedConnection)
+                    throw new ResponsesWebSocketFallbackException(WebsocketForceFreshReconnectReason);
                 throw new ResponsesWebSocketFallbackException(ex.Message);
             }
             var sawFirstModelEvent = false;
@@ -907,13 +923,31 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
 
             while (connection.Socket.State == WebSocketState.Open)
             {
-                var result = await connection.Socket.ReceiveAsync(buffer, ct);
+                WebSocketReceiveResult result;
+                try
+                {
+                    result = await connection.Socket.ReceiveAsync(buffer, ct);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    closeConnection = true;
+                    if (!sawFirstModelEvent)
+                    {
+                        if (reusedConnection)
+                            throw new ResponsesWebSocketFallbackException(WebsocketForceFreshReconnectReason);
+                        throw new ResponsesWebSocketFallbackException(ex.Message);
+                    }
+
+                    throw new ResponsesWebSocketFatalException(ex.Message);
+                }
 
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
                     closeConnection = true;
                     if (!sawFirstModelEvent)
                     {
+                        if (reusedConnection)
+                            throw new ResponsesWebSocketFallbackException(WebsocketForceFreshReconnectReason);
                         throw new ResponsesWebSocketFallbackException(
                             connection.Socket.CloseStatusDescription ?? "websocket_connection_closed");
                     }
@@ -1035,6 +1069,8 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
             closeConnection = true;
             if (!ct.IsCancellationRequested)
             {
+                if (reusedConnection && !sawFirstModelEvent)
+                    throw new ResponsesWebSocketFallbackException(WebsocketForceFreshReconnectReason);
                 throw new ResponsesWebSocketFallbackException("websocket_connection_closed");
             }
         }
@@ -1116,6 +1152,8 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         }
 
         ProviderMessageFormatter.ApplyRequestOverrides(body, config);
+        body.Remove("previous_response_id");
+        body.Remove("previousResponseId");
         using var ms = new System.IO.MemoryStream();
         using (var w = new System.Text.Json.Utf8JsonWriter(ms))
         { body.WriteTo(w); }

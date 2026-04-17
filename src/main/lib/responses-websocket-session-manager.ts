@@ -14,6 +14,8 @@ import {
 } from '../../shared/openai-responses-websocket'
 
 const RESPONSES_WS_CIRCUIT_BREAK_MS = 60_000
+const RESPONSES_WS_FIRST_EVENT_TIMEOUT_MS = 120_000
+const RESPONSES_WS_FORCE_FRESH_REASON = 'websocket_force_fresh_reconnect'
 const SYSTEM_PROXY_ENV_KEYS = [
   'HTTPS_PROXY',
   'https_proxy',
@@ -145,10 +147,26 @@ export class ResponsesWebSocketSessionManager {
         continue
       }
 
-      if (result.kind === 'fallback' && !args.signal?.aborted) {
-        this.setCircuitReason(args.providerKey, args.websocketUrl, result.reason)
+      if (
+        result.kind === 'fallback' &&
+        result.reason === RESPONSES_WS_FORCE_FRESH_REASON &&
+        !forceFresh &&
+        !args.signal?.aborted
+      ) {
+        forceFresh = true
+        fallbackReason = result.reason
+        continue
       }
-      return result
+
+      const finalResult =
+        result.kind === 'fallback' && result.reason === RESPONSES_WS_FORCE_FRESH_REASON
+          ? ({ kind: 'fallback', reason: 'websocket_connection_failed' } as const)
+          : result
+
+      if (finalResult.kind === 'fallback' && !args.signal?.aborted) {
+        this.setCircuitReason(args.providerKey, args.websocketUrl, finalResult.reason)
+      }
+      return finalResult
     }
   }
 
@@ -453,6 +471,7 @@ export class ResponsesWebSocketSessionManager {
       let settled = false
       let sawFirstModelEvent = false
       let closeConnection = !reusable
+      let firstEventTimer: ReturnType<typeof setTimeout> | null = null
 
       const finish = (result: ExecuteResponsesWsRequestResult): void => {
         if (settled) return
@@ -462,6 +481,10 @@ export class ResponsesWebSocketSessionManager {
       }
 
       const cleanup = (): void => {
+        if (firstEventTimer) {
+          clearTimeout(firstEventTimer)
+          firstEventTimer = null
+        }
         connection.ws.off('message', onMessage)
         connection.ws.off('error', onError)
         connection.ws.off('close', onClose)
@@ -486,6 +509,9 @@ export class ResponsesWebSocketSessionManager {
         closeConnection = true
         finish({ kind: 'fatal', error: 'Request aborted' })
       }
+
+      const shouldRetryFreshConnection = (): boolean =>
+        reusable && reusedConnection && !sawFirstModelEvent
 
       const onMessage = (raw: WebSocket.RawData): void => {
         const text = rawDataToString(raw)
@@ -660,6 +686,20 @@ export class ResponsesWebSocketSessionManager {
         }
         if (!sawFirstModelEvent) {
           const reason = error.message || 'websocket_connection_failed'
+          if (shouldRetryFreshConnection()) {
+            this.emitLifecycle(args.args, {
+              phase: 'fallback',
+              key: session.key,
+              websocketUrl: args.args.websocketUrl,
+              reason,
+              requestKind: preparedRequest.kind,
+              incrementalReason: preparedRequest.incrementalReason,
+              previousResponseId: preparedRequest.previousResponseId,
+              reusedConnection
+            })
+            finish({ kind: 'fallback', reason: RESPONSES_WS_FORCE_FRESH_REASON })
+            return
+          }
           this.emitLifecycle(args.args, {
             phase: 'fallback',
             key: reusable ? session.key : null,
@@ -686,6 +726,20 @@ export class ResponsesWebSocketSessionManager {
         }
         if (!sawFirstModelEvent) {
           const fallbackReason = closeReason || `websocket_connection_closed_${code || 0}`
+          if (shouldRetryFreshConnection()) {
+            this.emitLifecycle(args.args, {
+              phase: 'fallback',
+              key: session.key,
+              websocketUrl: args.args.websocketUrl,
+              reason: fallbackReason,
+              requestKind: preparedRequest.kind,
+              incrementalReason: preparedRequest.incrementalReason,
+              previousResponseId: preparedRequest.previousResponseId,
+              reusedConnection
+            })
+            finish({ kind: 'fallback', reason: RESPONSES_WS_FORCE_FRESH_REASON })
+            return
+          }
           this.emitLifecycle(args.args, {
             phase: 'fallback',
             key: reusable ? session.key : null,
@@ -710,12 +764,33 @@ export class ResponsesWebSocketSessionManager {
       connection.ws.on('error', onError)
       connection.ws.on('close', onClose)
 
+      firstEventTimer = setTimeout(() => {
+        if (!sawFirstModelEvent) {
+          closeConnection = true
+          finish({ kind: 'fallback', reason: 'websocket_first_event_timeout' })
+        }
+      }, RESPONSES_WS_FIRST_EVENT_TIMEOUT_MS)
+
       try {
         connection.ws.send(preparedRequest.payload, (error) => {
           if (!error) return
           closeConnection = true
           if (!sawFirstModelEvent) {
             const reason = error.message || 'websocket_send_failed'
+            if (shouldRetryFreshConnection()) {
+              this.emitLifecycle(args.args, {
+                phase: 'fallback',
+                key: session.key,
+                websocketUrl: args.args.websocketUrl,
+                reason,
+                requestKind: preparedRequest.kind,
+                incrementalReason: preparedRequest.incrementalReason,
+                previousResponseId: preparedRequest.previousResponseId,
+                reusedConnection
+              })
+              finish({ kind: 'fallback', reason: RESPONSES_WS_FORCE_FRESH_REASON })
+              return
+            }
             this.emitLifecycle(args.args, {
               phase: 'fallback',
               key: reusable ? session.key : null,
@@ -735,6 +810,20 @@ export class ResponsesWebSocketSessionManager {
         closeConnection = true
         const message = error instanceof Error ? error.message : 'WebSocket send failed'
         if (!sawFirstModelEvent) {
+          if (shouldRetryFreshConnection()) {
+            this.emitLifecycle(args.args, {
+              phase: 'fallback',
+              key: session.key,
+              websocketUrl: args.args.websocketUrl,
+              reason: message,
+              requestKind: preparedRequest.kind,
+              incrementalReason: preparedRequest.incrementalReason,
+              previousResponseId: preparedRequest.previousResponseId,
+              reusedConnection
+            })
+            finish({ kind: 'fallback', reason: RESPONSES_WS_FORCE_FRESH_REASON })
+            return
+          }
           this.emitLifecycle(args.args, {
             phase: 'fallback',
             key: reusable ? session.key : null,

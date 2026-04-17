@@ -1693,6 +1693,8 @@ async function* sendOpenAIResponses(
     }
   }
   applyBodyOverrides(body, config)
+  delete body.previous_response_id
+  delete body.previousResponseId
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${config.apiKey}`

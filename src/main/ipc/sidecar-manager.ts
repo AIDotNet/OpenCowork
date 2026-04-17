@@ -347,6 +347,7 @@ export class SidecarManager {
         this.process = null
         this.initialized = false
         this.initializePromise = null
+        this.stopPingTimer()
         this.rejectAllPending('Sidecar process exited')
 
         if (!this.isShuttingDown && this.restartCount < SIDECAR_MAX_RESTARTS) {
@@ -363,6 +364,7 @@ export class SidecarManager {
         this.process = null
         this.initialized = false
         this.initializePromise = null
+        this.stopPingTimer()
       })
 
       this.startPingTimer()

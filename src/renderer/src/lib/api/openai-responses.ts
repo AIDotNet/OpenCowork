@@ -182,6 +182,8 @@ class OpenAIResponsesProvider implements APIProvider {
     }
 
     applyBodyOverrides(body, runtimeConfig)
+    delete body.previous_response_id
+    delete body.previousResponseId
 
     const url = `${baseUrl}/responses`
 

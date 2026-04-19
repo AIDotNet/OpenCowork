@@ -498,7 +498,16 @@ async function requestViaSystemProxy(args: {
 export function registerApiProxyHandlers(): void {
   // Handle non-streaming API requests (e.g., test connection)
   ipcMain.handle('api:request', async (event, req: Omit<APIStreamRequest, 'requestId'>) => {
-    const { url, method, headers, body, useSystemProxy, providerId, providerBuiltinId } = req
+    const {
+      url,
+      method,
+      headers,
+      body,
+      useSystemProxy,
+      allowInsecureTls,
+      providerId,
+      providerBuiltinId
+    } = req
 
     type AttemptOutcome = {
       statusCode?: number
@@ -524,7 +533,8 @@ export function registerApiProxyHandlers(): void {
           port: parsedUrl.port || (isHttps ? 443 : 80),
           path: parsedUrl.pathname + parsedUrl.search,
           method,
-          headers: reqHeaders
+          headers: reqHeaders,
+          ...(isHttps && (allowInsecureTls ?? true) ? { rejectUnauthorized: false } : {})
         }
 
         const httpReq = httpModule.request(options, (res) => {
@@ -563,7 +573,7 @@ export function registerApiProxyHandlers(): void {
       let result: AttemptOutcome = {}
       for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
         result = useSystemProxy
-          ? await requestViaSystemProxy({ url, method, headers, body })
+          ? await requestViaSystemProxy({ url, method, headers, body, allowInsecureTls })
           : await runDirectAttempt()
         const status = result.statusCode ?? 0
         if (status > 0 && isRetryableStatus(status) && attempt < MAX_RETRY_ATTEMPTS) {

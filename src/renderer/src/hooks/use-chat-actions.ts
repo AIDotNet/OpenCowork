@@ -110,6 +110,7 @@ import {
   completeRuntimeThinking,
   flushBackgroundSessionToForeground,
   isSessionForeground,
+  mergeRuntimeMessageUsage,
   setRuntimeThinkingEncryptedContent,
   updateRuntimeMessage,
   updateRuntimeToolUseInput
@@ -590,6 +591,131 @@ function resolveDebugContextWindowPayload(debugInfo?: RequestDebugInfo | null): 
     return debugInfo.body
   }
   return null
+}
+
+interface ApiRequestResult {
+  statusCode?: number
+  body?: string
+  error?: string
+}
+
+function tryParseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+function buildResponsesInputTokensUrl(baseUrl?: string): string | null {
+  const trimmed = baseUrl?.trim().replace(/\/+$/, '')
+  return trimmed ? `${trimmed}/responses/input_tokens` : null
+}
+
+function buildResponsesInputTokensRequestBody(debugInfo?: RequestDebugInfo | null): string | null {
+  const payload = resolveDebugContextWindowPayload(debugInfo)
+  if (!payload) return null
+
+  const parsed = tryParseJsonRecord(payload)
+  if (!parsed) return null
+
+  if (parsed.type === 'response.create') {
+    delete parsed.type
+  }
+  delete parsed.stream
+  delete parsed.background
+
+  return JSON.stringify(parsed)
+}
+
+function buildResponsesInputTokensHeaders(
+  debugInfo: RequestDebugInfo,
+  providerConfig: ProviderConfig
+): Record<string, string> | null {
+  const apiKey = providerConfig.apiKey?.trim()
+  if (!apiKey) return null
+
+  const headers: Record<string, string> = { ...debugInfo.headers }
+  const hasHeader = (name: string): boolean =>
+    Object.keys(headers).some((key) => key.toLowerCase() === name.toLowerCase())
+
+  headers.Authorization = `Bearer ${apiKey}`
+  if (!hasHeader('Content-Type')) {
+    headers['Content-Type'] = 'application/json'
+  }
+  if (providerConfig.userAgent && !hasHeader('User-Agent')) {
+    headers['User-Agent'] = providerConfig.userAgent
+  }
+  if (providerConfig.accountId && !hasHeader('Chatgpt-Account-Id')) {
+    headers['Chatgpt-Account-Id'] = providerConfig.accountId
+  }
+  if (providerConfig.organization && !hasHeader('OpenAI-Organization')) {
+    headers['OpenAI-Organization'] = providerConfig.organization
+  }
+  if (providerConfig.project && !hasHeader('OpenAI-Project')) {
+    headers['OpenAI-Project'] = providerConfig.project
+  }
+  if (providerConfig.serviceTier && !hasHeader('service_tier')) {
+    headers.service_tier = providerConfig.serviceTier
+  }
+
+  return headers
+}
+
+function shouldRequestPreciseResponsesContextTokens(args: {
+  debugInfo?: RequestDebugInfo | null
+  providerConfig: ProviderConfig
+}): boolean {
+  return (
+    args.providerConfig.type === 'openai-responses' &&
+    args.debugInfo?.transport === 'websocket' &&
+    args.debugInfo.websocketRequestKind !== 'warmup' &&
+    !!buildResponsesInputTokensUrl(args.providerConfig.baseUrl) &&
+    !!buildResponsesInputTokensRequestBody(args.debugInfo)
+  )
+}
+
+async function requestPreciseResponsesContextTokens(args: {
+  debugInfo: RequestDebugInfo
+  providerConfig: ProviderConfig
+}): Promise<number> {
+  const url = buildResponsesInputTokensUrl(args.providerConfig.baseUrl)
+  const body = buildResponsesInputTokensRequestBody(args.debugInfo)
+  const headers = buildResponsesInputTokensHeaders(args.debugInfo, args.providerConfig)
+  if (!url || !body || !headers) return 0
+
+  const result = (await ipcClient.invoke('api:request', {
+    url,
+    method: 'POST',
+    headers,
+    body,
+    useSystemProxy: args.providerConfig.useSystemProxy,
+    allowInsecureTls: args.providerConfig.allowInsecureTls,
+    providerId: args.providerConfig.providerId,
+    providerBuiltinId: args.providerConfig.providerBuiltinId
+  })) as ApiRequestResult
+
+  if (result.error) {
+    throw new Error(result.error)
+  }
+  if (!result.body) {
+    return 0
+  }
+  if ((result.statusCode ?? 0) >= 400) {
+    throw new Error(`HTTP ${result.statusCode}: ${result.body.slice(0, 500)}`)
+  }
+
+  const data = tryParseJsonRecord(result.body)
+  if (!data) {
+    return 0
+  }
+
+  const inputTokens = Number(data.input_tokens)
+  return Number.isFinite(inputTokens) && inputTokens > 0 ? inputTokens : 0
 }
 
 function shouldUseEstimatedContextTokens(debugInfo?: RequestDebugInfo | null): boolean {
@@ -2793,6 +2919,8 @@ export function useChatActions(): {
         let currentUsageProviderId = agentProviderConfig.providerId ?? null
         let currentUsageModelId = agentProviderConfig.model ?? null
         let lastRequestDebugInfo: RequestDebugInfo | undefined
+        let preciseContextTokens: number | null = null
+        let preciseContextTokenRequestSeq = 0
 
         // Subscribe to SubAgent events during agent loop
         const subAgentEventBuffer = createSubAgentEventBuffer(sessionId!)
@@ -3475,7 +3603,7 @@ export function useChatActions(): {
                 break
               }
 
-              case 'iteration_end':
+              case 'iteration_end': {
                 if (
                   event.toolResults?.some((tr) => {
                     const toolCall = useAgentStore
@@ -3537,6 +3665,7 @@ export function useChatActions(): {
                   }
                 }
                 break
+              }
 
               case 'message_end': {
                 streamDeltaBuffer.flushNow()
@@ -3544,15 +3673,18 @@ export function useChatActions(): {
                   thinkingDone = true
                   completeRuntimeThinking(sessionId!, assistantMsgId)
                 }
-                const estimatedContextTokens = shouldUseEstimatedContextTokens(lastRequestDebugInfo)
-                  ? estimateContextTokensFromDebugInfo(lastRequestDebugInfo) ||
-                    estimateCurrentIterationContextTokens({
-                      sessionId: sessionId!,
-                      assistantMessageId: assistantMsgId,
-                      tools: effectiveToolDefs,
-                      providerConfig: agentProviderConfig
-                    })
-                  : 0
+                const estimatedContextTokens =
+                  preciseContextTokens && preciseContextTokens > 0
+                    ? preciseContextTokens
+                    : shouldUseEstimatedContextTokens(lastRequestDebugInfo)
+                      ? estimateContextTokensFromDebugInfo(lastRequestDebugInfo) ||
+                        estimateCurrentIterationContextTokens({
+                          sessionId: sessionId!,
+                          assistantMessageId: assistantMsgId,
+                          tools: effectiveToolDefs,
+                          providerConfig: agentProviderConfig
+                        })
+                      : 0
                 const normalizedUsage = event.usage
                   ? normalizeUsageWithEstimatedContext({
                       usage: event.usage,
@@ -3637,7 +3769,7 @@ export function useChatActions(): {
                 break
               }
 
-              case 'request_debug':
+              case 'request_debug': {
                 streamDeltaBuffer.flushNow()
                 if (event.debugInfo) {
                   lastRequestDebugInfo = event.debugInfo
@@ -3659,8 +3791,43 @@ export function useChatActions(): {
                       updateRuntimeMessage(sessionId!, assistantMsgId, { usage: provisionalUsage })
                     }
                   }
+
+                  if (
+                    shouldRequestPreciseResponsesContextTokens({
+                      debugInfo: lastRequestDebugInfo,
+                      providerConfig: agentProviderConfig
+                    })
+                  ) {
+                    const requestSeq = ++preciseContextTokenRequestSeq
+                    void requestPreciseResponsesContextTokens({
+                      debugInfo: lastRequestDebugInfo,
+                      providerConfig: agentProviderConfig
+                    })
+                      .then((exactContextTokens) => {
+                        if (
+                          requestSeq !== preciseContextTokenRequestSeq ||
+                          exactContextTokens <= 0
+                        ) {
+                          return
+                        }
+                        preciseContextTokens = exactContextTokens
+                        mergeRuntimeMessageUsage(sessionId!, assistantMsgId, {
+                          contextTokens: exactContextTokens,
+                          ...(compressionContextLength > 0
+                            ? { contextLength: compressionContextLength }
+                            : {})
+                        })
+                      })
+                      .catch((error) => {
+                        console.warn(
+                          '[ChatActions] Failed to fetch precise Responses context tokens',
+                          error
+                        )
+                      })
+                  }
                 }
                 break
+              }
 
               case 'context_compression_start':
                 break
@@ -4671,6 +4838,8 @@ async function runSimpleChat(
     let thinkingDone = false
     let hasThinkingDelta = false
     let lastRequestDebugInfo: RequestDebugInfo | undefined
+    let preciseContextTokens: number | null = null
+    let preciseContextTokenRequestSeq = 0
     for await (const event of stream) {
       if (signal.aborted) break
 
@@ -4744,27 +4913,31 @@ async function runSimpleChat(
           }
           useChatStore.getState().setGeneratingImage(assistantMsgId, false)
           break
-        case 'message_end':
+        case 'message_end': {
           streamDeltaBuffer.flushNow()
           if (!thinkingDone) {
             thinkingDone = true
             completeRuntimeThinking(sessionId, assistantMsgId)
           }
           if (event.usage) {
+            const contextTokensOverride =
+              preciseContextTokens && preciseContextTokens > 0
+                ? preciseContextTokens
+                : shouldUseEstimatedContextTokens(lastRequestDebugInfo)
+                  ? estimateContextTokensFromDebugInfo(lastRequestDebugInfo) ||
+                    estimateContextTokensForRequest({
+                      messages: requestMessages,
+                      tools: [],
+                      providerConfig: config
+                    })
+                  : 0
             const normalizedUsage = normalizeUsageWithEstimatedContext({
               usage: event.usage,
               contextLength: chatModelConfig?.contextLength
                 ? resolveCompressionContextLength(chatModelConfig)
                 : undefined,
               debugInfo: lastRequestDebugInfo,
-              estimatedContextTokens: shouldUseEstimatedContextTokens(lastRequestDebugInfo)
-                ? estimateContextTokensFromDebugInfo(lastRequestDebugInfo) ||
-                  estimateContextTokensForRequest({
-                    messages: requestMessages,
-                    tools: [],
-                    providerConfig: config
-                  })
-                : 0
+              estimatedContextTokens: contextTokensOverride
             })
             updateRuntimeMessage(sessionId, assistantMsgId, {
               usage: normalizedUsage,
@@ -4783,7 +4956,8 @@ async function runSimpleChat(
             })
           }
           break
-        case 'request_debug':
+        }
+        case 'request_debug': {
           streamDeltaBuffer.flushNow()
           if (event.debugInfo) {
             lastRequestDebugInfo = {
@@ -4811,8 +4985,40 @@ async function runSimpleChat(
                 updateRuntimeMessage(sessionId, assistantMsgId, { usage: provisionalUsage })
               }
             }
+
+            if (
+              shouldRequestPreciseResponsesContextTokens({
+                debugInfo: lastRequestDebugInfo,
+                providerConfig: config
+              })
+            ) {
+              const requestSeq = ++preciseContextTokenRequestSeq
+              void requestPreciseResponsesContextTokens({
+                debugInfo: lastRequestDebugInfo,
+                providerConfig: config
+              })
+                .then((exactContextTokens) => {
+                  if (requestSeq !== preciseContextTokenRequestSeq || exactContextTokens <= 0) {
+                    return
+                  }
+                  preciseContextTokens = exactContextTokens
+                  mergeRuntimeMessageUsage(sessionId, assistantMsgId, {
+                    contextTokens: exactContextTokens,
+                    ...(chatModelConfig?.contextLength
+                      ? { contextLength: resolveCompressionContextLength(chatModelConfig) }
+                      : {})
+                  })
+                })
+                .catch((error) => {
+                  console.warn(
+                    '[ChatActions] Failed to fetch precise Responses context tokens',
+                    error
+                  )
+                })
+            }
           }
           break
+        }
         case 'error': {
           streamDeltaBuffer.flushNow()
           const errorMessage = event.error?.message ?? 'Unknown error'

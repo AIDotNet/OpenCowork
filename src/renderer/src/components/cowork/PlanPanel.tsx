@@ -289,7 +289,7 @@ export function PlanPanel(): React.JSX.Element {
       }
       unsubscribe?.()
     }
-  }, [activeSessionId, planSummary?.id, planSummary?.filePath])
+  }, [activeSessionId, planSummary, planSummary?.id, planSummary?.filePath])
 
   if (!plan) {
     return (

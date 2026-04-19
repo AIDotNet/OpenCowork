@@ -14,8 +14,6 @@ import {
   FolderTree,
   Folder,
   File,
-  ListChecks,
-  Circle,
   Clock,
   Bot
 } from 'lucide-react'
@@ -31,6 +29,7 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
+import { TaskCard } from './TodoCard'
 import { inputSummary } from './tool-call-summary'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
 
@@ -1191,132 +1190,6 @@ function LSOutputBlock({ output }: { output: string }): React.JSX.Element {
   )
 }
 
-function TaskCreateInputBlock({
-  input
-}: {
-  input: Record<string, unknown>
-}): React.JSX.Element | null {
-  const { t } = useTranslation('chat')
-  const title =
-    typeof input.title === 'string'
-      ? input.title
-      : typeof input.subject === 'string'
-        ? input.subject
-        : null
-  if (!title) return null
-
-  return (
-    <div>
-      <div className="mb-1 flex items-center gap-1.5">
-        <ListChecks className="size-3 text-blue-400" />
-        <p className="text-xs font-medium text-muted-foreground">{t('toolCall.taskList')}</p>
-      </div>
-      <div className="rounded-md border bg-muted/10 px-2.5 py-1.5 text-[12px] space-y-0.5">
-        <div className="flex items-center gap-2">
-          <Circle className="size-3 text-muted-foreground/40" />
-          <span className="flex-1 font-medium">{title}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function TaskListOutputBlock({ output }: { output: string }): React.JSX.Element {
-  const { t } = useTranslation('chat')
-  const parsed = React.useMemo(() => {
-    const data = decodeStructuredToolResult(output)
-    if (data && !Array.isArray(data) && Array.isArray(data.tasks)) {
-      return data.tasks as Array<{
-        id: string
-        title?: string
-        subject?: string
-        status: string
-        owner?: string | null
-      }>
-    }
-    return null
-  }, [output])
-
-  if (!parsed) return <OutputBlock output={output} />
-
-  const completed = parsed.filter((t) => t.status === 'completed').length
-  const shouldScroll = parsed.length > 6
-  const getStatus = (status: string): 'pending' | 'in_progress' | 'completed' => {
-    if (status === 'completed' || status === 'in_progress') return status
-    return 'pending'
-  }
-  const statusIcon = (status: 'pending' | 'in_progress' | 'completed'): React.ReactNode => {
-    if (status === 'completed') {
-      return <CheckCircle2 className="size-3.5 text-emerald-500" />
-    }
-
-    if (status === 'in_progress') {
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="absolute size-3 rounded-full bg-blue-500/20 animate-ping" />
-          <span className="relative size-2 rounded-full bg-blue-500" />
-        </span>
-      )
-    }
-
-    return <Circle className="size-3.5 text-muted-foreground/35" />
-  }
-
-  return (
-    <div className="space-y-2">
-      <div className="text-xs text-muted-foreground">
-        {t('todo.tasksDone', { completed, total: parsed.length })}
-      </div>
-      {parsed.length > 0 && (
-        <div className="overflow-hidden rounded-lg border border-border/60 bg-muted/[0.08]">
-          <div
-            className={cn(
-              'divide-y divide-border/60',
-              shouldScroll && 'max-h-80 overflow-y-auto overscroll-contain'
-            )}
-          >
-            {parsed.map((task, index) => {
-              const status = getStatus(task.status)
-              const taskTitle = task.title || task.subject || `#${task.id}`
-              return (
-                <div
-                  key={task.id}
-                  className={cn(
-                    'grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-2 px-3 py-2.5',
-                    status === 'in_progress' && 'bg-background/50'
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'min-w-6 pt-0.5 text-right text-[11px] font-medium tabular-nums',
-                      status === 'completed' && 'text-muted-foreground/35',
-                      status === 'pending' && 'text-muted-foreground/45',
-                      status === 'in_progress' && 'text-foreground/70'
-                    )}
-                  >
-                    {index + 1}.
-                  </span>
-                  <span className="pt-0.5">{statusIcon(status)}</span>
-                  <span
-                    className={cn(
-                      'line-clamp-2 min-w-0 text-[13px] leading-5',
-                      status === 'completed' && 'text-muted-foreground/55 line-through',
-                      status === 'pending' && 'text-muted-foreground/80',
-                      status === 'in_progress' && 'font-medium text-foreground'
-                    )}
-                  >
-                    {taskTitle}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function lineCount(text: string): number {
   return text.length === 0 ? 0 : text.split('\n').length
 }
@@ -2019,9 +1892,27 @@ export function ToolCallCard({
   const { t } = useTranslation('chat')
   const isProcessing = status === 'streaming' || status === 'running'
   const isActive = isProcessing || status === 'pending_approval'
+  const isTaskTool = ['TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList'].includes(name)
   const [open, setOpen] = React.useState(isActive)
   const outputText = outputAsString(output)
   const summary = inputSummary(name, input, outputText)
+  const displayName = React.useMemo(
+    () => t(`permission.toolLabels.${name}`, { defaultValue: name }),
+    [name, t]
+  )
+  const headerSummary = React.useMemo(() => {
+    if (name !== 'TaskList') return summary
+    if (!outputText) return null
+
+    const data = decodeStructuredToolResult(outputText)
+    if (!data || Array.isArray(data) || !Array.isArray(data.tasks)) return null
+
+    const completed = data.tasks.filter(
+      (task) =>
+        task && typeof task === 'object' && (task as { status?: unknown }).status === 'completed'
+    ).length
+    return t('todo.tasksDone', { completed, total: data.tasks.length })
+  }, [name, outputText, summary, t])
   const outputIsErrorOnly = isErrorOnlyOutput(outputText)
   const outputError = deriveOutputError(outputText)
   const suppressErrorPanel = name === 'Bash' && isStructuredBashResult(outputText)
@@ -2076,7 +1967,7 @@ export function ToolCallCard({
                 {t(compactPrefixKey)}
               </span>
             ) : (
-              <span className="shrink-0 text-[10px] font-medium text-zinc-400">{t(name)}</span>
+              <span className="shrink-0 text-[10px] font-medium text-zinc-400">{displayName}</span>
             )}
             <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-zinc-200 transition-colors group-hover:text-zinc-100">
               {compactPrimary || t('toolCall.receivingArgs')}
@@ -2099,7 +1990,7 @@ export function ToolCallCard({
         ) : (
           <>
             <ToolStatusDot status={status} />
-            <span className="font-medium">{name}</span>
+            <span className="font-medium">{displayName}</span>
             {isProcessing && !error && (
               <>
                 {name === 'Write' && (input.file_path || input.path) ? (
@@ -2131,8 +2022,10 @@ export function ToolCallCard({
             {error && status === 'streaming' && (
               <span className="text-red-400/70 text-[10px] animate-pulse">{t('error.label')}</span>
             )}
-            {status !== 'streaming' && summary && !open && (
-              <span className="truncate text-muted-foreground/50 max-w-[300px]">{summary}</span>
+            {status !== 'streaming' && headerSummary && !open && (
+              <span className="truncate text-muted-foreground/50 max-w-[300px]">
+                {headerSummary}
+              </span>
             )}
             {elapsed && (
               <span className="text-muted-foreground/30 tabular-nums text-[10px]">{elapsed}</span>
@@ -2204,15 +2097,13 @@ export function ToolCallCard({
                       </LazySyntaxHighlighter>
                     </div>
                   )}
-                  {/* TaskCreate: checklist-style input */}
-                  {name === 'TaskCreate' && !!(input.title ?? input.subject) && (
-                    <TaskCreateInputBlock input={input} />
-                  )}
                   {/* Structured Input — tool-specific rendering */}
-                  {!(
-                    showSettledWriteContent ||
-                    (name === 'TaskCreate' && !!(input.title ?? input.subject))
-                  ) && <StructuredInput name={name} input={input} />}
+                  {!(showSettledWriteContent || isTaskTool) && (
+                    <StructuredInput name={name} input={input} />
+                  )}
+                  {shouldRenderOutputPanels && isTaskTool && (
+                    <TaskCard name={name} input={input} output={output} embedded />
+                  )}
                   {/* Output — tool-specific rendering */}
                   {output && name === 'Read' && hasImageBlocks(output) && (
                     <ImageOutputBlock output={output} />
@@ -2244,9 +2135,6 @@ export function ToolCallCard({
                   )}
                   {shouldRenderOutputPanels && output && name === 'LS' && outputText && (
                     <LSOutputBlock output={outputText} />
-                  )}
-                  {shouldRenderOutputPanels && output && name === 'TaskList' && outputText && (
-                    <TaskListOutputBlock output={outputText} />
                   )}
                   {shouldRenderOutputPanels &&
                     output &&

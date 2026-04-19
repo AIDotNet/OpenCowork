@@ -16,6 +16,7 @@ import {
 
 const RESPONSES_WS_CIRCUIT_BREAK_MS = 60_000
 const RESPONSES_WS_FIRST_EVENT_TIMEOUT_MS = 120_000
+const RESPONSES_WS_IDLE_TIMEOUT_MS = 300_000
 const RESPONSES_WS_FORCE_FRESH_REASON = 'websocket_force_fresh_reconnect'
 const SYSTEM_PROXY_ENV_KEYS = [
   'HTTPS_PROXY',
@@ -456,6 +457,14 @@ export class ResponsesWebSocketSessionManager {
   }): Promise<ExecuteResponsesWsRequestResult> {
     const { session, connection, preparedRequest, reusable, reusedConnection } = args
     const isWarmup = preparedRequest.kind === 'warmup'
+    const firstEventTimeoutMs = readTimeoutFromEnv(
+      'OPENCOWORK_RESPONSES_WS_FIRST_EVENT_TIMEOUT_MS',
+      RESPONSES_WS_FIRST_EVENT_TIMEOUT_MS
+    )
+    const idleTimeoutMs = readTimeoutFromEnv(
+      'OPENCOWORK_RESPONSES_WS_IDLE_TIMEOUT_MS',
+      RESPONSES_WS_IDLE_TIMEOUT_MS
+    )
 
     args.args.onDebug?.({
       url: args.args.websocketUrl,
@@ -482,7 +491,7 @@ export class ResponsesWebSocketSessionManager {
       let settled = false
       let sawFirstModelEvent = false
       let closeConnection = !reusable
-      let firstEventTimer: ReturnType<typeof setTimeout> | null = null
+      let inactivityTimer: ReturnType<typeof setTimeout> | null = null
 
       const finish = (result: ExecuteResponsesWsRequestResult): void => {
         if (settled) return
@@ -492,10 +501,7 @@ export class ResponsesWebSocketSessionManager {
       }
 
       const cleanup = (): void => {
-        if (firstEventTimer) {
-          clearTimeout(firstEventTimer)
-          firstEventTimer = null
-        }
+        clearInactivityTimer()
         connection.ws.off('message', onMessage)
         connection.ws.off('error', onError)
         connection.ws.off('close', onClose)
@@ -523,6 +529,62 @@ export class ResponsesWebSocketSessionManager {
 
       const shouldRetryFreshConnection = (): boolean =>
         reusable && reusedConnection && !sawFirstModelEvent
+
+      const clearInactivityTimer = (): void => {
+        if (inactivityTimer) {
+          clearTimeout(inactivityTimer)
+          inactivityTimer = null
+        }
+      }
+
+      const startInactivityTimer = (): void => {
+        const timeoutMs = sawFirstModelEvent ? idleTimeoutMs : firstEventTimeoutMs
+        if (timeoutMs <= 0) return
+
+        clearInactivityTimer()
+        inactivityTimer = setTimeout(() => {
+          closeConnection = true
+
+          if (!sawFirstModelEvent) {
+            const reason = 'websocket_first_event_timeout'
+            if (shouldRetryFreshConnection()) {
+              this.emitLifecycle(args.args, {
+                phase: 'fallback',
+                key: session.key,
+                websocketUrl: args.args.websocketUrl,
+                reason,
+                requestKind: preparedRequest.kind,
+                incrementalReason: preparedRequest.incrementalReason,
+                previousResponseId: preparedRequest.previousResponseId,
+                reusedConnection
+              })
+              finish({ kind: 'fallback', reason: RESPONSES_WS_FORCE_FRESH_REASON })
+              return
+            }
+
+            this.emitLifecycle(args.args, {
+              phase: 'fallback',
+              key: reusable ? session.key : null,
+              websocketUrl: args.args.websocketUrl,
+              reason,
+              requestKind: preparedRequest.kind,
+              incrementalReason: preparedRequest.incrementalReason,
+              previousResponseId: preparedRequest.previousResponseId,
+              reusedConnection
+            })
+            finish({ kind: 'fallback', reason })
+            return
+          }
+
+          console.warn(
+            `[ResponsesWS/${this.namespace}] label=${args.args.label ?? 'n/a'} action=fatal reason=websocket_stream_idle_timeout timeoutMs=${timeoutMs}`
+          )
+          finish({
+            kind: 'fatal',
+            error: `WebSocket stream idle timeout (${Math.ceil(timeoutMs / 1000)}s with no events)`
+          })
+        }, timeoutMs)
+      }
 
       const onMessage = (raw: WebSocket.RawData): void => {
         const text = rawDataToString(raw)
@@ -659,8 +721,12 @@ export class ResponsesWebSocketSessionManager {
           return
         }
 
-        if (isResponsesWsFirstModelEvent(payload)) {
+        const isFirstModelEvent = isResponsesWsFirstModelEvent(payload)
+        if (isFirstModelEvent) {
           sawFirstModelEvent = true
+        }
+        if (sawFirstModelEvent) {
+          startInactivityTimer()
         }
 
         const completionState = extractResponsesWebsocketCompletionState(payload)
@@ -775,12 +841,7 @@ export class ResponsesWebSocketSessionManager {
       connection.ws.on('error', onError)
       connection.ws.on('close', onClose)
 
-      firstEventTimer = setTimeout(() => {
-        if (!sawFirstModelEvent) {
-          closeConnection = true
-          finish({ kind: 'fallback', reason: 'websocket_first_event_timeout' })
-        }
-      }, RESPONSES_WS_FIRST_EVENT_TIMEOUT_MS)
+      startInactivityTimer()
 
       try {
         connection.ws.send(preparedRequest.payload, (error) => {
@@ -1031,4 +1092,12 @@ async function waitForAbortable(waitFor: Promise<void>, signal?: AbortSignal): P
       signal.addEventListener('abort', () => reject(new Error('Request aborted')), { once: true })
     })
   ])
+}
+
+function readTimeoutFromEnv(name: string, fallbackMs: number): number {
+  const raw = process.env[name]
+  if (raw == null || raw === '') return fallbackMs
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) return fallbackMs
+  return Math.floor(parsed)
 }

@@ -25,6 +25,7 @@ export function ContextCompressionMessage({
   message: UnifiedMessage
 }): React.JSX.Element | null {
   const { t } = useTranslation('agent')
+  const tokenFormatter = new Intl.NumberFormat()
 
   if (!isCompactBoundaryMessage(message) && !isCompactSummaryLikeMessage(message)) {
     return null
@@ -65,6 +66,14 @@ export function ContextCompressionMessage({
               {t('contextCompression.boundarySummarized', {
                 defaultValue: '\u5df2\u538b\u7f29 {{count}} \u6761\u6d88\u606f',
                 count: meta.messagesSummarized
+              })}
+            </DetailChip>
+          ) : null}
+          {typeof meta?.preTokens === 'number' && meta.preTokens > 0 ? (
+            <DetailChip>
+              {t('contextCompression.boundaryPreTokens', {
+                defaultValue: '\u89e6\u53d1\u65f6 {{tokens}} tokens',
+                tokens: tokenFormatter.format(meta.preTokens)
               })}
             </DetailChip>
           ) : null}

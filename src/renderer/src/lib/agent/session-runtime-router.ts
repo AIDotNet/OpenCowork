@@ -1,6 +1,7 @@
 import type {
   ContentBlock,
   ThinkingBlock,
+  TokenUsage,
   ToolUseBlock,
   UnifiedMessage
 } from '@renderer/lib/api/types'
@@ -131,6 +132,39 @@ export function updateRuntimeMessage(
 
   mutateBufferedMessage(sessionId, messageId, (message) => {
     Object.assign(message, patch)
+  })
+}
+
+function buildMergedRuntimeUsage(
+  currentUsage: UnifiedMessage['usage'],
+  patch: Partial<TokenUsage>
+): TokenUsage {
+  return {
+    inputTokens: currentUsage?.inputTokens ?? 0,
+    outputTokens: currentUsage?.outputTokens ?? 0,
+    ...(currentUsage ?? {}),
+    ...patch
+  }
+}
+
+export function mergeRuntimeMessageUsage(
+  sessionId: string,
+  messageId: string,
+  patch: Partial<TokenUsage>
+): void {
+  if (isSessionForeground(sessionId)) {
+    const chatStore = useChatStore.getState()
+    const currentMessage = chatStore
+      .getSessionMessages(sessionId)
+      .find((message) => message.id === messageId)
+    chatStore.updateMessage(sessionId, messageId, {
+      usage: buildMergedRuntimeUsage(currentMessage?.usage, patch)
+    })
+    return
+  }
+
+  mutateBufferedMessage(sessionId, messageId, (message) => {
+    message.usage = buildMergedRuntimeUsage(message.usage, patch)
   })
 }
 

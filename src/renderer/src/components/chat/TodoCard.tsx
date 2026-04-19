@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, ListChecks } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@renderer/lib/utils'
 import type { ToolResultContent } from '@renderer/lib/api/types'
@@ -54,6 +54,7 @@ interface TaskCardProps {
   name: string
   input: Record<string, unknown>
   output?: ToolResultContent
+  embedded?: boolean
 }
 
 const COLLAPSED_VISIBLE_RECENT_TASK_COUNT = 3
@@ -77,6 +78,37 @@ function getInputTaskTitle(input: Record<string, unknown>): string | null {
   return getTaskTitle(input)
 }
 
+type TaskSnapshotLike = Record<string, unknown> & {
+  id?: unknown
+  status?: unknown
+  title?: unknown
+  subject?: unknown
+}
+
+function toTaskItem(task: TaskSnapshotLike | null | undefined): TaskItem | null {
+  if (!task || typeof task.id !== 'string' || typeof task.status !== 'string') return null
+
+  const subject = getTaskTitle(task)
+  if (!subject) return null
+
+  return {
+    id: task.id,
+    subject,
+    description: typeof task.description === 'string' ? task.description : '',
+    activeForm: typeof task.activeForm === 'string' ? task.activeForm : undefined,
+    status: task.status as TaskItem['status'],
+    owner: typeof task.owner === 'string' || task.owner === null ? task.owner : undefined,
+    blocks: Array.isArray(task.blocks) ? task.blocks.map(String) : [],
+    blockedBy: Array.isArray(task.blockedBy) ? task.blockedBy.map(String) : [],
+    metadata:
+      task.metadata && typeof task.metadata === 'object'
+        ? (task.metadata as Record<string, unknown>)
+        : undefined,
+    createdAt: typeof task.createdAt === 'number' ? task.createdAt : 0,
+    updatedAt: typeof task.updatedAt === 'number' ? task.updatedAt : 0
+  }
+}
+
 function parseTaskSnapshot(output: ToolResultContent | undefined): {
   taskId?: string
   tasks: TaskItem[]
@@ -86,40 +118,39 @@ function parseTaskSnapshot(output: ToolResultContent | undefined): {
 
   const parsed = decodeStructuredToolResult(text) as {
     task_id?: unknown
-    tasks?: Array<(Partial<TaskItem> & { title?: unknown }) | null | undefined>
+    id?: unknown
+    task?: TaskSnapshotLike | null
+    tasks?: Array<TaskSnapshotLike | null | undefined>
   } | null
-  if (!parsed || Array.isArray(parsed) || !Array.isArray(parsed.tasks)) return null
+  if (!parsed || Array.isArray(parsed)) return null
 
-  const tasks = parsed.tasks.flatMap((task) => {
-    if (!task || typeof task.id !== 'string' || typeof task.status !== 'string') return []
-
-    const subject = getTaskTitle(task)
-    if (!subject) return []
-
-    return [
-      {
-        id: task.id,
-        subject,
-        description: typeof task.description === 'string' ? task.description : '',
-        activeForm: typeof task.activeForm === 'string' ? task.activeForm : undefined,
-        status: task.status as TaskItem['status'],
-        owner: typeof task.owner === 'string' || task.owner === null ? task.owner : undefined,
-        blocks: Array.isArray(task.blocks) ? task.blocks.map(String) : [],
-        blockedBy: Array.isArray(task.blockedBy) ? task.blockedBy.map(String) : [],
-        metadata: task.metadata,
-        createdAt: typeof task.createdAt === 'number' ? task.createdAt : 0,
-        updatedAt: typeof task.updatedAt === 'number' ? task.updatedAt : 0
-      }
-    ]
-  })
+  const taskFromList = Array.isArray(parsed.tasks)
+    ? parsed.tasks.flatMap((task) => {
+        const item = toTaskItem(task)
+        return item ? [item] : []
+      })
+    : []
+  const focusedTask = toTaskItem(parsed.task) ?? toTaskItem(parsed)
+  const tasks = taskFromList.length > 0 ? taskFromList : focusedTask ? [focusedTask] : []
+  if (tasks.length === 0) return null
 
   return {
-    taskId: typeof parsed.task_id === 'string' ? parsed.task_id : undefined,
+    taskId:
+      typeof parsed.task_id === 'string'
+        ? parsed.task_id
+        : typeof parsed.id === 'string'
+          ? parsed.id
+          : undefined,
     tasks
   }
 }
 
-export function TaskCard({ name, input, output }: TaskCardProps): React.JSX.Element {
+export function TaskCard({
+  name,
+  input,
+  output,
+  embedded = false
+}: TaskCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const liveStandaloneTasks = useTaskStore((s) => s.tasks)
   const activeTeam = useTeamStore((s) => s.activeTeam)
@@ -133,11 +164,20 @@ export function TaskCard({ name, input, output }: TaskCardProps): React.JSX.Elem
   const snapshot = React.useMemo(() => parseTaskSnapshot(output), [output])
   const tasks: TaskItem[] = snapshot?.tasks ?? liveTasks
   const focusedTaskId =
-    snapshot?.taskId ?? (typeof input.taskId === 'string' ? input.taskId : undefined)
+    snapshot?.taskId ??
+    (typeof input.taskId === 'string'
+      ? input.taskId
+      : typeof input.task_id === 'string'
+        ? input.task_id
+        : undefined)
+  const matchedFocusedTask = React.useMemo<TaskItem | null>(() => {
+    if (!focusedTaskId || !['TaskGet', 'TaskUpdate'].includes(name)) return null
+    return tasks.find((task) => task.id === focusedTaskId) ?? null
+  }, [focusedTaskId, name, tasks])
 
   // For TaskUpdate with no snapshot and no hit in live stores, synthesize a single
   // focus item from the tool input so the card still conveys what happened.
-  const focusedTask = React.useMemo<TaskItem | null>(() => {
+  const fallbackFocusedTask = React.useMemo<TaskItem | null>(() => {
     if (name !== 'TaskUpdate') return null
     if (!focusedTaskId) return null
     if (tasks.some((task) => task.id === focusedTaskId)) return null
@@ -163,7 +203,11 @@ export function TaskCard({ name, input, output }: TaskCardProps): React.JSX.Elem
     }
   }, [name, focusedTaskId, tasks, input])
 
-  const displayedTasks: TaskItem[] = focusedTask ? [focusedTask] : tasks
+  const displayedTasks: TaskItem[] = matchedFocusedTask
+    ? [matchedFocusedTask]
+    : fallbackFocusedTask
+      ? [fallbackFocusedTask]
+      : tasks
   const pendingTaskTitle = name === 'TaskCreate' ? getInputTaskTitle(input) : null
   const total = displayedTasks.length || (pendingTaskTitle ? 1 : 0)
   const completed = displayedTasks.filter((t) => t.status === 'completed').length
@@ -203,8 +247,9 @@ export function TaskCard({ name, input, output }: TaskCardProps): React.JSX.Elem
   }
 
   return (
-    <div className="my-5">
+    <div className={cn(embedded ? 'min-w-0 space-y-0.5' : 'my-5 min-w-0')}>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <ListChecks className="size-3.5 shrink-0" />
         <span>{t('todo.tasksDone', { completed, total })}</span>
       </div>
 

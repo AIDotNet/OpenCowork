@@ -22,6 +22,8 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
     private const string DefaultResponsesSessionScope = "main";
     private const string AgentMainResponsesSessionScope = "agent-main";
     private const string SubAgentResponsesSessionScopePrefix = "sub-agent";
+    private static readonly TimeSpan DefaultResponsesWebSocketFirstEventTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan DefaultResponsesWebSocketIdleTimeout = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan WebsocketCircuitBreakDuration = TimeSpan.FromMinutes(1);
     private const string WebsocketForceFreshReconnectReason = "websocket_force_fresh_reconnect";
     private static readonly ConcurrentDictionary<string, ResponsesWebSocketCircuitState> WebsocketCircuitBreakers = new(StringComparer.Ordinal);
@@ -877,6 +879,22 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         return new ReusableResponsesWebSocketConnection(connectionKey, websocketUrl, socket, !string.IsNullOrWhiteSpace(connectionKey));
     }
 
+    private static TimeSpan GetResponsesWebSocketFirstEventTimeout()
+        => ReadTimeoutFromEnv("OPENCOWORK_RESPONSES_WS_FIRST_EVENT_TIMEOUT_MS", DefaultResponsesWebSocketFirstEventTimeout);
+
+    private static TimeSpan GetResponsesWebSocketIdleTimeout()
+        => ReadTimeoutFromEnv("OPENCOWORK_RESPONSES_WS_IDLE_TIMEOUT_MS", DefaultResponsesWebSocketIdleTimeout);
+
+    private static TimeSpan ReadTimeoutFromEnv(string name, TimeSpan fallback)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        if (string.IsNullOrWhiteSpace(raw))
+            return fallback;
+        if (!double.TryParse(raw, out var milliseconds) || milliseconds < 0)
+            return fallback;
+        return TimeSpan.FromMilliseconds(Math.Floor(milliseconds));
+    }
+
     private static void ReleaseResponsesWebSocketConnection(ReusableResponsesWebSocketConnection connection, bool closeConnection)
     {
         var shouldReleaseGate = connection.Gate.CurrentCount == 0;
@@ -970,9 +988,33 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
             while (connection.Socket.State == WebSocketState.Open)
             {
                 WebSocketReceiveResult result;
+                var receiveTimeout = sawFirstModelEvent
+                    ? GetResponsesWebSocketIdleTimeout()
+                    : GetResponsesWebSocketFirstEventTimeout();
+                CancellationTokenSource? receiveTimeoutCts = null;
+                var receiveToken = ct;
+                if (receiveTimeout > TimeSpan.Zero)
+                {
+                    receiveTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    receiveTimeoutCts.CancelAfter(receiveTimeout);
+                    receiveToken = receiveTimeoutCts.Token;
+                }
                 try
                 {
-                    result = await connection.Socket.ReceiveAsync(buffer, ct);
+                    result = await connection.Socket.ReceiveAsync(buffer, receiveToken);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested && receiveTimeoutCts?.IsCancellationRequested == true)
+                {
+                    closeConnection = true;
+                    if (!sawFirstModelEvent)
+                    {
+                        if (reusedConnection)
+                            throw new ResponsesWebSocketFallbackException(WebsocketForceFreshReconnectReason);
+                        throw new ResponsesWebSocketFallbackException("websocket_first_event_timeout");
+                    }
+
+                    throw new ResponsesWebSocketFatalException(
+                        $"WebSocket stream idle timeout ({Math.Ceiling(receiveTimeout.TotalSeconds)}s with no events)");
                 }
                 catch (Exception ex) when (!ct.IsCancellationRequested)
                 {
@@ -985,6 +1027,10 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                     }
 
                     throw new ResponsesWebSocketFatalException(ex.Message);
+                }
+                finally
+                {
+                    receiveTimeoutCts?.Dispose();
                 }
 
                 if (result.MessageType == WebSocketMessageType.Close)

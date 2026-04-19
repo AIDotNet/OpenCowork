@@ -338,6 +338,7 @@ public static class AgentLoop
                                     Method = evt.DebugInfo.Method,
                                     Headers = evt.DebugInfo.Headers,
                                     Body = evt.DebugInfo.Body,
+                                    ContextWindowBody = evt.DebugInfo.ContextWindowBody,
                                     Timestamp = evt.DebugInfo.Timestamp,
                                     ProviderId = evt.DebugInfo.ProviderId,
                                     ProviderBuiltinId = evt.DebugInfo.ProviderBuiltinId,
@@ -345,7 +346,10 @@ public static class AgentLoop
                                     ExecutionPath = "sidecar",
                                     Transport = evt.DebugInfo.Transport,
                                     FallbackReason = evt.DebugInfo.FallbackReason,
-                                    ReusedConnection = evt.DebugInfo.ReusedConnection
+                                    ReusedConnection = evt.DebugInfo.ReusedConnection,
+                                    WebsocketRequestKind = evt.DebugInfo.WebsocketRequestKind,
+                                    WebsocketIncrementalReason = evt.DebugInfo.WebsocketIncrementalReason,
+                                    PreviousResponseId = evt.DebugInfo.PreviousResponseId
                                 }
                             };
                         }

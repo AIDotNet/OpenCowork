@@ -116,6 +116,16 @@ graph TB
 
 我们欢迎任何形式的贡献！请参阅我们的 [开发指南](docs/development.md) 了解更多细节。
 
+#### 特别感谢
+
+<div>
+<div align="left">
+<h1>RoutinAI</h1>
+<img width="154" height="151" src="./resources/images/readme/RoutinAI.png"/>
+</div>
+</div></div>
+[RoutinAI](https://routin.ai/) 是一款企业级统一的大型语言模型（LLM）API 网关，它提供了一个单一、类型安全的接口，可访问来自 GPT、Claude 和 Gemini 系列的 100 多种领先的大语言模型，包括 gpt-5.4、claude-opus-4-6 和 gemini-3.1-pro-preview 等模型。它通过提供零延迟边缘路由、无需代码修改即可无缝切换模型、统一计费以及具有支出上限和访问策略的集中式治理，消除了管理多个 AI 供应商的复杂性。</div>
+
 ## 💝 赞助商
 
 - [lchlfe@hotmail.com](mailto:lchlfe@hotmail.com)

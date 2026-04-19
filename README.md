@@ -117,6 +117,16 @@ graph TB
 
 We welcome contributions! Please see our [Development Guide](docs/development.md) for more details.
 
+#### Special thanks
+
+<div>
+    <div align="left">
+      <h1>RoutinAI</h1>
+       <img width="154" height="151" src="./resources/images/readme/RoutinAI.png"/>
+    </div>
+[RoutinAI](https://routin.ai/) is an enterprise-grade unified LLM API gateway that provides a single, type-safe interface to access over 100 leading large language models from the GPT, Claude, and Gemini families, including models such as gpt-5.4, claude-opus-4-6, and gemini-3.1-pro-preview. It eliminates the complexity of managing multiple AI vendors by providing zero-latency edge routing, seamless model switching without code modifications, unified billing, and centralized governance with spending caps and access policies.
+</div>
+
 ## 💝 Sponsors
 
 - [lchlfe@hotmail.com](mailto:lchlfe@hotmail.com)

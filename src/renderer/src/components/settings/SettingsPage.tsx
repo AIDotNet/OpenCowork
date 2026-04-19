@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Suspense, lazy, useEffect, useState, useCallback, useMemo } from 'react'
 import {
   Settings,
   BrainCircuit,
@@ -64,7 +64,6 @@ import { AppPluginPanel } from './AppPluginPanel'
 import { McpPanel } from './McpPanel'
 import { WebSearchPanel } from './WebSearchPanel'
 import { SkillsMarketPanel } from './SkillsMarketPanel'
-import { AnalyticsOverview } from './AnalyticsOverview'
 import { MigrationPanel } from './MigrationPanel'
 import { ModelIcon, ProviderIcon } from './provider-icons'
 import { IPC } from '@renderer/lib/ipc/channels'
@@ -90,6 +89,11 @@ import {
   getLiveOutputDotClass,
   getLiveOutputSurfaceClass
 } from '@renderer/lib/live-output-animation'
+
+const LazyAnalyticsOverview = lazy(async () => {
+  const mod = await import('./AnalyticsOverview')
+  return { default: mod.AnalyticsOverview }
+})
 
 const DEFAULT_GLOBAL_MEMORY_TEMPLATES = {
   soul: `# SOUL.md
@@ -1915,16 +1919,25 @@ function AnalyticsPanel(): React.JSX.Element {
         </div>
       ) : (
         <>
-          <AnalyticsOverview
-            overview={overview}
-            timeline={timeline}
-            rangeDays={rangeDays}
-            bucket={timelineBucket}
-            from={query.from}
-            to={query.to}
-            tokenLocale={tokenLocale}
-            inputTokenLabel={inputTokenLabel}
-          />
+          <Suspense
+            fallback={
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                {t('analytics.loading')}
+              </div>
+            }
+          >
+            <LazyAnalyticsOverview
+              overview={overview}
+              timeline={timeline}
+              rangeDays={rangeDays}
+              bucket={timelineBucket}
+              from={query.from}
+              to={query.to}
+              tokenLocale={tokenLocale}
+              inputTokenLabel={inputTokenLabel}
+            />
+          </Suspense>
 
           {renderSimpleTable(t('analytics.daily'), daily, [
             { key: 'day', label: t('analytics.time') },

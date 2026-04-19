@@ -329,10 +329,17 @@ export function summarizeTrackedChange(change: TrackedChangeLike): {
 
   const beforeLines = snapshotLineTotal(change.before)
   const afterLines = snapshotLineTotal(change.after)
-  return {
+  const summary = {
     added: Math.max(afterLines - beforeLines, 0),
     deleted: Math.max(beforeLines - afterLines, 0)
   }
+
+  const hashesMatch = change.before.hash !== null && change.before.hash === change.after.hash
+  if (!hashesMatch && summary.added === 0 && summary.deleted === 0) {
+    return { added: 1, deleted: 1 }
+  }
+
+  return summary
 }
 
 export function foldContext(lines: DiffLine[], ctx: number = 2): DiffChunk[] {

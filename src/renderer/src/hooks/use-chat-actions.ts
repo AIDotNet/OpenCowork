@@ -49,6 +49,10 @@ import {
 import { usePlanStore } from '@renderer/stores/plan-store'
 import { useTaskStore } from '@renderer/stores/task-store'
 import { generateSessionTitle } from '@renderer/lib/api/generate-title'
+import {
+  RESPONSES_SESSION_SCOPE_AGENT_MAIN,
+  withResponsesSessionScope
+} from '@renderer/lib/api/responses-session-policy'
 import type {
   UnifiedMessage,
   ProviderConfig,
@@ -83,6 +87,7 @@ import { ApiStreamError } from '@renderer/lib/ipc/api-stream'
 import { recordUsageEvent } from '@renderer/lib/usage-analytics'
 import {
   compressMessages,
+  resolveCompressionContextLength,
   resolveCompressionThreshold
 } from '@renderer/lib/agent/context-compression'
 import { runAgentLoop } from '@renderer/lib/agent/agent-loop'
@@ -131,6 +136,10 @@ import {
   selectAutoModel,
   shouldAllowToolsForRequest
 } from '@renderer/lib/api/auto-model-selector'
+import {
+  buildChatModeSystemPrompt,
+  filterChatModeToolDefinitions
+} from '@renderer/lib/chat-mode-tools'
 import { getTailToolExecutionState } from '@renderer/components/chat/transcript-utils'
 import type { AutoModelSelectionStatus } from '@renderer/stores/ui-store'
 import { agentBridge, canSidecarHandle } from '@renderer/lib/ipc/agent-bridge'
@@ -172,6 +181,32 @@ function resolveSessionWorkingFolder(
   if (!projectId) return undefined
   const project = useChatStore.getState().projects.find((item) => item.id === projectId)
   return project?.workingFolder?.trim() || undefined
+}
+
+function resolveActiveMcpContext(projectId?: string | null): {
+  activeMcps: ReturnType<ReturnType<typeof useMcpStore.getState>['getActiveMcps']>
+  activeMcpTools: ReturnType<ReturnType<typeof useMcpStore.getState>['getActiveMcpTools']>
+} {
+  const mcpStore = useMcpStore.getState()
+  const activeMcps = mcpStore.getActiveMcps(projectId)
+  const activeMcpTools = mcpStore.getActiveMcpTools(projectId)
+
+  if (activeMcps.length > 0 && Object.keys(activeMcpTools).length > 0) {
+    registerMcpTools(activeMcps, activeMcpTools)
+  } else if (isMcpToolsRegistered()) {
+    unregisterMcpTools()
+  }
+
+  return { activeMcps, activeMcpTools }
+}
+
+function haveSameToolDefinitionNames(
+  left: readonly Pick<ToolDefinition, 'name'>[],
+  right: readonly Pick<ToolDefinition, 'name'>[]
+): boolean {
+  if (left.length !== right.length) return false
+  const rightNames = new Set(right.map((tool) => tool.name))
+  return left.every((tool) => rightNames.has(tool.name))
 }
 
 type MessageSource = 'team' | 'queued' | 'continue'
@@ -508,6 +543,33 @@ function findProviderModel(
   }
 }
 
+function readPersistedContextLength(usage?: TokenUsage): number {
+  return typeof usage?.contextLength === 'number' && usage.contextLength > 0
+    ? usage.contextLength
+    : 0
+}
+
+function findPersistedContextLength(messages: UnifiedMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const contextLength = readPersistedContextLength(messages[i]?.usage)
+    if (contextLength > 0) return contextLength
+  }
+  return 0
+}
+
+function normalizeUsageForPersistence(usage: TokenUsage, contextLength?: number): TokenUsage {
+  const normalizedContextLength =
+    typeof contextLength === 'number' && contextLength > 0
+      ? contextLength
+      : readPersistedContextLength(usage)
+
+  return {
+    ...usage,
+    contextTokens: usage.contextTokens ?? usage.inputTokens,
+    ...(normalizedContextLength > 0 ? { contextLength: normalizedContextLength } : {})
+  }
+}
+
 function getConfiguredMaxParallelTools(): number {
   return clampMaxParallelToolCalls(useSettingsStore.getState().maxParallelToolCalls)
 }
@@ -622,6 +684,7 @@ async function resolveMainRequestProvider(options: {
       mode: options.mode,
       allowTools: options.allowTools,
       isContinue: options.isContinue,
+      projectId: session?.projectId ?? null,
       signal: options.signal
     })
     const providerConfig =
@@ -1861,7 +1924,10 @@ export function useChatActions(): {
       // Ensure we have an active session
       let sessionId = targetSessionId ?? chatStore.activeSessionId
       if (!sessionId) {
-        sessionId = chatStore.createSession(uiStore.mode, undefined, options)
+        sessionId = chatStore.createSession(uiStore.mode, undefined, {
+          ...options,
+          preserveProjectless: true
+        })
       }
       if (source !== 'continue') {
         longRunningVerificationPasses.delete(sessionId)
@@ -2014,7 +2080,8 @@ export function useChatActions(): {
       const requestedToolsAllowed = shouldAllowToolsForRequest({
         latestUserInput,
         mode: resolvedSessionMode,
-        isContinue: source === 'continue'
+        isContinue: source === 'continue',
+        projectId: resolvedSession?.projectId ?? null
       })
       if (shouldShowAutoRouting) {
         useUIStore.getState().setAutoModelRoutingState(sessionId, 'routing')
@@ -2202,9 +2269,27 @@ export function useChatActions(): {
       sessionAbortControllers.set(sessionId, abortController)
 
       const mode = sessionMode
+      const activeChannels = useChannelStore.getState().getActiveChannels()
+      const needsPluginTools = activeChannels.length > 0 || !!session?.pluginId
+      if (needsPluginTools && !isPluginToolsRegistered()) {
+        registerPluginTools()
+      } else if (!needsPluginTools && isPluginToolsRegistered()) {
+        unregisterPluginTools()
+      }
 
-      if (mode === 'chat') {
-        // Simple chat mode: single API call, no tools
+      const scopedActiveChannels = session?.projectId
+        ? activeChannels.filter((channel) => channel.projectId === session.projectId)
+        : []
+      const chatMcpContext =
+        mode === 'chat' ? resolveActiveMcpContext(session?.projectId ?? null) : null
+      const chatModeToolDefs =
+        mode === 'chat' &&
+        !(providerResolution.modelConfig?.category === 'image' && source !== 'continue')
+          ? filterChatModeToolDefinitions(toolRegistry.getDefinitions())
+          : []
+
+      if (mode === 'chat' && chatModeToolDefs.length === 0) {
+        // Chat mode without enabled chat-mode tools: single API call, no tools
         const cachedPromptSnapshot = session?.promptSnapshot
         const canReusePromptSnapshot =
           !!cachedPromptSnapshot &&
@@ -2232,7 +2317,10 @@ export function useChatActions(): {
         }
 
         // NOTE: thinkingEnabled is handled below when building the final config
-        const chatConfig: ProviderConfig = { ...baseProviderConfig, systemPrompt: chatSystemPrompt }
+        const chatConfig = withResponsesSessionScope(
+          { ...baseProviderConfig, systemPrompt: chatSystemPrompt },
+          RESPONSES_SESSION_SCOPE_AGENT_MAIN
+        )
         setRequestTraceInfo(assistantMsgId, {
           providerId: chatConfig.providerId,
           providerBuiltinId: chatConfig.providerBuiltinId,
@@ -2254,41 +2342,24 @@ export function useChatActions(): {
           dispatchNextQueuedMessage(sessionId)
         }
       } else {
-        // Clarify / Cowork / Code mode: agent loop with tools
-        const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-
-        // Dynamic plugin tool registration.
+        // Tool-capable modes: full agent loop
+        // Plugin tool registration is resolved before chat-mode tool filtering.
         // Plugin-bound sessions (auto-reply from DingTalk/Feishu/WeChat etc.) must
         // always have plugin tools available, regardless of the per-project "active
         // channels" toggle — otherwise the agent sees `Available channel tools: …`
         // in its user_rules but cannot actually call them. See issue #73.
-        const activeChannels = useChannelStore.getState().getActiveChannels()
-        const needsPluginTools = activeChannels.length > 0 || !!session?.pluginId
-        if (needsPluginTools && !isPluginToolsRegistered()) {
-          registerPluginTools()
-        } else if (!needsPluginTools && isPluginToolsRegistered()) {
-          unregisterPluginTools()
-        }
-
-        const scopedActiveChannels = session?.projectId
-          ? activeChannels.filter((channel) => channel.projectId === session.projectId)
-          : []
-
-        // Dynamic MCP tool registration based on active MCPs
-        const activeMcps = useMcpStore.getState().getActiveMcps()
-        const activeMcpTools = useMcpStore.getState().getActiveMcpTools()
-        if (activeMcps.length > 0 && Object.keys(activeMcpTools).length > 0) {
-          registerMcpTools(activeMcps, activeMcpTools)
-        } else if (activeMcps.length === 0 && isMcpToolsRegistered()) {
-          unregisterMcpTools()
-        }
+        const { activeMcps, activeMcpTools } =
+          chatMcpContext ?? resolveActiveMcpContext(session?.projectId ?? null)
 
         // Filter out team tools when the feature is disabled. Capture after registration changes.
         const allToolDefs = toolRegistry.getDefinitions()
         const finalToolDefs = allToolDefs
-        let finalEffectiveToolDefs = settings.teamToolsEnabled
-          ? finalToolDefs
-          : finalToolDefs.filter((t) => !TEAM_TOOL_NAMES.has(t.name))
+        let finalEffectiveToolDefs =
+          mode === 'chat'
+            ? chatModeToolDefs
+            : settings.teamToolsEnabled
+              ? finalToolDefs
+              : finalToolDefs.filter((t) => !TEAM_TOOL_NAMES.has(t.name))
 
         // Plan mode: restrict to read-only + planning tools
         const isPlanMode = useUIStore.getState().isPlanModeEnabled(sessionId)
@@ -2439,6 +2510,7 @@ export function useChatActions(): {
           (cachedPromptSnapshot.projectId ?? null) === (session?.projectId ?? null) &&
           (cachedPromptSnapshot.workingFolder ?? null) === (session?.workingFolder ?? null) &&
           (cachedPromptSnapshot.sshConnectionId ?? null) === (session?.sshConnectionId ?? null) &&
+          haveSameToolDefinitionNames(cachedPromptSnapshot.toolDefs, finalEffectiveToolDefs) &&
           // Plugin-bound sessions require plugin tools in the cached snapshot.
           // A stale snapshot (built when plugin tools were unregistered) must be
           // discarded so the system prompt + tool list are rebuilt. Issue #73.
@@ -2472,21 +2544,33 @@ export function useChatActions(): {
             sshConnection
           })
 
+          const language = useSettingsStore.getState().language
           const activeTeam = useTeamStore.getState().activeTeam
-          agentSystemPrompt = buildSystemPrompt({
-            mode: mode as 'clarify' | 'cowork' | 'code' | 'acp',
-            workingFolder: sessionWorkingFolder,
-            sessionId,
-            userRules: userPrompt || undefined,
-            toolDefs: finalEffectiveToolDefs,
-            language: useSettingsStore.getState().language,
-            planMode: isPlanMode,
-            hasActiveTeam: !!activeTeam,
-            activeTeam,
-            memorySnapshot,
-            sessionScope,
-            environmentContext
-          })
+          agentSystemPrompt =
+            mode === 'chat'
+              ? buildChatModeSystemPrompt({
+                  language,
+                  userRules: userPrompt || undefined,
+                  hasWebSearch: finalEffectiveToolDefs.some(
+                    (tool) => tool.name === 'WebSearch' || tool.name === 'WebFetch'
+                  ),
+                  activeMcps,
+                  activeMcpTools
+                })
+              : buildSystemPrompt({
+                  mode: mode as 'clarify' | 'cowork' | 'code' | 'acp',
+                  workingFolder: sessionWorkingFolder,
+                  sessionId,
+                  userRules: userPrompt || undefined,
+                  toolDefs: finalEffectiveToolDefs,
+                  language,
+                  planMode: isPlanMode,
+                  hasActiveTeam: !!activeTeam,
+                  activeTeam,
+                  memorySnapshot,
+                  sessionScope,
+                  environmentContext
+                })
 
           useChatStore.getState().setSessionPromptSnapshot(sessionId, {
             mode,
@@ -2499,11 +2583,14 @@ export function useChatActions(): {
           })
         }
 
-        const agentProviderConfig: ProviderConfig = {
-          ...baseProviderConfig,
-          computerUseEnabled: desktopControlMode === 'computer-use',
-          systemPrompt: agentSystemPrompt
-        }
+        const agentProviderConfig = withResponsesSessionScope(
+          {
+            ...baseProviderConfig,
+            computerUseEnabled: desktopControlMode === 'computer-use',
+            systemPrompt: agentSystemPrompt
+          },
+          RESPONSES_SESSION_SCOPE_AGENT_MAIN
+        )
         const planModeInlineToolHandlers = isPlanMode
           ? createPlanModeInlineToolHandlers()
           : undefined
@@ -2512,16 +2599,10 @@ export function useChatActions(): {
           providerBuiltinId: agentProviderConfig.providerBuiltinId,
           model: agentProviderConfig.model
         })
-        // Context compression setup
-        const compressionConfig: CompressionConfig | null =
-          settings.contextCompressionEnabled && resolvedModelConfig?.contextLength
-            ? {
-                enabled: true,
-                contextLength: resolvedModelConfig.contextLength,
-                threshold: resolveCompressionThreshold(resolvedModelConfig),
-                preCompressThreshold: 0.65
-              }
-            : null
+        let compressionContextLength = resolvedModelConfig?.contextLength
+          ? resolveCompressionContextLength(resolvedModelConfig)
+          : 0
+        let compressionConfig: CompressionConfig | null = null
 
         agentStore.setRunning(true)
         agentStore.setSessionStatus(sessionId, 'running')
@@ -2602,6 +2683,19 @@ export function useChatActions(): {
             .getSessionMessagesForRequest(sessionId, {
               includeTrailingAssistantPlaceholder: !!existingAssistantMessage
             })
+
+          if (compressionContextLength <= 0) {
+            compressionContextLength = findPersistedContextLength(messagesToSend)
+          }
+          compressionConfig =
+            settings.contextCompressionEnabled && compressionContextLength > 0
+              ? {
+                  enabled: true,
+                  contextLength: compressionContextLength,
+                  threshold: resolveCompressionThreshold(resolvedModelConfig),
+                  preCompressThreshold: 0.65
+                }
+              : null
 
           // Build and inject a runtime reminder into the last user message
           const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
@@ -3261,10 +3355,17 @@ export function useChatActions(): {
                   completeRuntimeThinking(sessionId!, assistantMsgId)
                 }
                 if (event.usage) {
-                  mergeUsage(accumulatedUsage, event.usage)
+                  const normalizedUsage = normalizeUsageForPersistence(
+                    event.usage,
+                    compressionContextLength
+                  )
+                  mergeUsage(accumulatedUsage, normalizedUsage)
                   // contextTokens = last API call's input tokens (overwrite, not accumulate)
                   accumulatedUsage.contextTokens =
-                    event.usage.contextTokens ?? event.usage.inputTokens
+                    normalizedUsage.contextTokens ?? normalizedUsage.inputTokens
+                  if (normalizedUsage.contextLength) {
+                    accumulatedUsage.contextLength = normalizedUsage.contextLength
+                  }
                 }
                 if (event.timing) {
                   requestTimings.push(event.timing)
@@ -3279,16 +3380,17 @@ export function useChatActions(): {
                   })
                 }
                 if (event.usage) {
+                  const normalizedUsage = normalizeUsageForPersistence(
+                    event.usage,
+                    compressionContextLength
+                  )
                   void recordUsageEvent({
                     sessionId,
                     messageId: assistantMsgId,
                     sourceKind: 'agent',
                     providerId: currentUsageProviderId,
                     modelId: currentUsageModelId,
-                    usage: {
-                      ...event.usage,
-                      contextTokens: event.usage.contextTokens ?? event.usage.inputTokens
-                    },
+                    usage: normalizedUsage,
                     timing: event.timing,
                     debugInfo: lastRequestDebugInfo,
                     providerResponseId: event.providerResponseId,
@@ -4206,7 +4308,7 @@ export function sendPlanRevision(planId: string, feedback: string): void {
 }
 
 /**
- * Simple chat mode: single API call with streaming text, no tools.
+ * Chat fallback path: single API call with streaming text and no tool loop.
  */
 async function runSimpleChat(
   sessionId: string,
@@ -4215,6 +4317,7 @@ async function runSimpleChat(
   signal: AbortSignal
 ): Promise<void> {
   const chatStore = useChatStore.getState()
+  const chatModelConfig = findProviderModel(config.providerId, config.model).modelConfig
   const messages = chatStore.getSessionMessages(sessionId)
   const streamDeltaBuffer = createStreamDeltaBuffer(sessionId, assistantMsgId)
   const requestMessages = messages.slice(0, -1)
@@ -4365,10 +4468,12 @@ async function runSimpleChat(
             completeRuntimeThinking(sessionId, assistantMsgId)
           }
           if (event.usage) {
-            const normalizedUsage = {
-              ...event.usage,
-              contextTokens: event.usage.contextTokens ?? event.usage.inputTokens
-            }
+            const normalizedUsage = normalizeUsageForPersistence(
+              event.usage,
+              chatModelConfig?.contextLength
+                ? resolveCompressionContextLength(chatModelConfig)
+                : undefined
+            )
             updateRuntimeMessage(sessionId, assistantMsgId, {
               usage: normalizedUsage,
               ...(event.providerResponseId ? { providerResponseId: event.providerResponseId } : {})
@@ -4494,5 +4599,8 @@ function mergeUsage(target: TokenUsage, incoming: TokenUsage): void {
   }
   if (incoming.reasoningTokens) {
     target.reasoningTokens = (target.reasoningTokens ?? 0) + incoming.reasoningTokens
+  }
+  if (incoming.contextLength) {
+    target.contextLength = incoming.contextLength
   }
 }

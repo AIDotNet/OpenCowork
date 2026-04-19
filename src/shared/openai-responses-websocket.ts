@@ -11,6 +11,9 @@ export type ResponsesWebsocketIncrementalReason =
 export const OPENAI_RESPONSES_WEBSOCKET_BETA_HEADER = 'OpenAI-Beta'
 export const OPENAI_RESPONSES_WEBSOCKET_BETA_VALUE = 'responses_websockets=2026-02-06'
 export const RESPONSES_WEBSOCKET_CONNECTION_MAX_AGE_MS = 55 * 60 * 1000
+export const DEFAULT_RESPONSES_WEBSOCKET_SESSION_SCOPE = 'main'
+export const RESPONSES_WEBSOCKET_AGENT_MAIN_SCOPE = 'agent-main'
+export const RESPONSES_WEBSOCKET_SUB_AGENT_SCOPE_PREFIX = 'sub-agent'
 
 export interface ResponsesWebsocketPreparedRequest {
   kind: ResponsesWebsocketRequestKind
@@ -37,6 +40,42 @@ export interface ResolvedResponsesWebsocketConfig {
   websocketUrl: string | null
   source: 'explicit' | 'derived' | 'disabled' | 'invalid' | 'unsupported'
   reason?: 'disabled' | 'invalid_explicit_url' | 'derived_url_invalid' | 'unsupported_provider'
+}
+
+export function normalizeResponsesWebsocketSessionScope(
+  value: string | null | undefined
+): string {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  return trimmed || DEFAULT_RESPONSES_WEBSOCKET_SESSION_SCOPE
+}
+
+export function shouldEnableResponsesWebsocketForScope(
+  value: string | null | undefined
+): boolean {
+  const scope = normalizeResponsesWebsocketSessionScope(value)
+  return (
+    scope === RESPONSES_WEBSOCKET_AGENT_MAIN_SCOPE ||
+    scope === RESPONSES_WEBSOCKET_SUB_AGENT_SCOPE_PREFIX ||
+    scope.startsWith(`${RESPONSES_WEBSOCKET_SUB_AGENT_SCOPE_PREFIX}:`)
+  )
+}
+
+export function buildResponsesWebsocketSessionKey(args: {
+  providerKey: string
+  model?: string | null
+  sessionId?: string | null
+  websocketUrl: string
+  sessionScope?: string | null
+}): string | null {
+  const model = args.model?.trim()
+  const sessionId = args.sessionId?.trim()
+  if (!model || !sessionId) {
+    return null
+  }
+
+  return `${args.providerKey}::${model}::${sessionId}::${normalizeResponsesWebsocketSessionScope(
+    args.sessionScope
+  )}::${args.websocketUrl}`
 }
 
 export function normalizeResponsesWebsocketMode(
@@ -85,6 +124,7 @@ export function resolveResponsesWebsocketConfig(args: {
   websocketMode?: string | null
   websocketUrl?: string | null
   baseUrl?: string | null
+  sessionScope?: string | null
 }): ResolvedResponsesWebsocketConfig {
   if (args.providerType !== 'openai-responses') {
     return {
@@ -98,6 +138,9 @@ export function resolveResponsesWebsocketConfig(args: {
   const mode = normalizeResponsesWebsocketMode(args.websocketMode)
   if (mode === 'disabled') {
     return { mode, websocketUrl: null, source: 'disabled', reason: 'disabled' }
+  }
+  if (!shouldEnableResponsesWebsocketForScope(args.sessionScope)) {
+    return { mode: 'disabled', websocketUrl: null, source: 'disabled', reason: 'disabled' }
   }
 
   const explicitUrl = args.websocketUrl?.trim()

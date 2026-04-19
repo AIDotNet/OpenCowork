@@ -130,6 +130,24 @@ async function syncRuntimeTaskPatch(
   })
 }
 
+function getTeamTaskDetails(
+  description: string | null | undefined,
+  subject: string
+): string | null {
+  const trimmed = typeof description === 'string' ? description.trim() : ''
+  if (!trimmed || trimmed === subject.trim()) return null
+  return trimmed
+}
+
+function buildTeamTaskPrompt(task: { subject: string; description?: string | null }): string {
+  const lines = ['Work on the following task:', `**Title:** ${task.subject}`]
+  const details = getTeamTaskDetails(task.description, task.subject)
+  if (details) {
+    lines.push(`**Details:** ${details}`)
+  }
+  return lines.join('\n')
+}
+
 function scheduleNextTask(teamName: string): void {
   const team = useTeamStore.getState().activeTeam
   if (!team || team.name !== teamName) return
@@ -172,7 +190,7 @@ function scheduleNextTask(teamName: string): void {
       return runTeammate({
         memberId: member.id,
         memberName,
-        prompt: `Work on the following task:\n**Subject:** ${nextTask.subject}\n**Description:** ${nextTask.description}`,
+        prompt: buildTeamTaskPrompt(nextTask),
         taskId: nextTask.id,
         model: null,
         agentName: null,

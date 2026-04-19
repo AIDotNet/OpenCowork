@@ -33,6 +33,21 @@ const DEFAULT_TEAMMATE_MAX_ITERATIONS = DEFAULT_SUB_AGENT_MAX_TURNS
 const MAX_REPORT_LENGTH = 4000
 const READ_ONLY_TOOLS = new Set(['Read', 'LS', 'Glob', 'Grep', 'TaskList', 'TaskGet', 'TeamStatus'])
 
+function getTaskDetails(description: string | null | undefined, subject: string): string | null {
+  const trimmed = typeof description === 'string' ? description.trim() : ''
+  if (!trimmed || trimmed === subject.trim()) return null
+  return trimmed
+}
+
+function buildTeamTaskPrompt(task: Pick<TeamTask, 'subject' | 'description'>): string {
+  const lines = ['Work on the following task:', `**Title:** ${task.subject}`]
+  const details = getTaskDetails(task.description, task.subject)
+  if (details) {
+    lines.push(`**Details:** ${details}`)
+  }
+  return lines.join('\n')
+}
+
 async function syncRuntimeMemberState(
   memberId: string,
   patch: Parameters<typeof updateTeamRuntimeMember>[0]['patch']
@@ -181,7 +196,7 @@ export async function runTeammate(options: RunTeammateOptions): Promise<void> {
       const initialTask = findNextClaimableTask()
       if (initialTask) {
         taskId = initialTask.id
-        prompt = `Work on the following task:\n**Subject:** ${initialTask.subject}\n**Description:** ${initialTask.description}`
+        prompt = buildTeamTaskPrompt(initialTask)
         teamEvents.emit({
           type: 'team_task_update',
           sessionId,
@@ -695,17 +710,19 @@ function emitCompletionMessage(
 }
 
 function buildPlanRequestText(task: TeamTask | null, prompt: string): string {
-  const subject = task?.subject ?? 'Assigned Task'
-  const description = task?.description ?? prompt
+  const title = task?.subject ?? 'Assigned Task'
+  const details = task ? getTaskDetails(task.description, title) : null
   return [
     'Create a short execution plan for the task below.',
-    `Task Subject: ${subject}`,
-    `Task Description: ${description}`,
+    `Task Title: ${title}`,
+    details || prompt ? `Task Details: ${details ?? prompt}` : null,
     '',
     'Requirements:',
     '- Keep it concise and implementation-focused.',
     '- Mention key files or subsystems you expect to touch.',
     '- Mention verification approach.',
     '- End with a single sentence stating you are waiting for lead approval.'
-  ].join('\n')
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
 }

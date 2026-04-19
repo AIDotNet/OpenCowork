@@ -26,6 +26,7 @@ import { useAgentStore } from '@renderer/stores/agent-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { isProjectSession } from '@renderer/lib/session-scope'
 import {
   formatTokens,
   calculateCost,
@@ -49,7 +50,7 @@ export function ContextPanel(): React.JSX.Element {
     resolvedProjectId,
     activeSession,
     activeProject,
-    ensureDefaultProject,
+    activeProjectId,
     updateProjectDirectory
   } = useChatStore(
     useShallow((s) => {
@@ -63,12 +64,13 @@ export function ContextPanel(): React.JSX.Element {
         resolvedProjectId,
         activeSession,
         activeProject,
-        ensureDefaultProject: s.ensureDefaultProject,
+        activeProjectId: s.activeProjectId,
         updateProjectDirectory: s.updateProjectDirectory
       }
     })
   )
   const workingFolder = activeProject?.workingFolder
+  const chatView = useUIStore((s) => s.chatView)
   const runningCommandIdsSig = useAgentStore((s) =>
     Object.values(s.backgroundProcesses)
       .filter(
@@ -91,9 +93,8 @@ export function ContextPanel(): React.JSX.Element {
     }))
   )
   const activeProvider =
-    providerState.providers.find(
-      (provider) => provider.id === providerState.activeProviderId
-    ) ?? null
+    providerState.providers.find((provider) => provider.id === providerState.activeProviderId) ??
+    null
   const activeModelCfg =
     activeProvider?.models.find((model) => model.id === providerState.activeModelId) ?? null
   const fallbackProvider = useSettingsStore((s) => s.provider)
@@ -110,22 +111,22 @@ export function ContextPanel(): React.JSX.Element {
         [] as Array<ReturnType<typeof useAgentStore.getState>['backgroundProcesses'][string]>
       )
     : []
+  const projectScopedSession = isProjectSession({
+    chatView,
+    session: activeSession,
+    activeProjectId,
+    workingFolder
+  })
 
   const handleSelectFolder = async (): Promise<void> => {
+    if (!resolvedProjectId) return
     const result = (await ipcClient.invoke('fs:select-folder')) as {
       canceled?: boolean
       path?: string
     }
     if (result.canceled || !result.path) return
 
-    let projectId = resolvedProjectId
-    if (!projectId) {
-      const ensured = await ensureDefaultProject()
-      projectId = ensured?.id ?? null
-    }
-    if (!projectId) return
-
-    updateProjectDirectory(projectId, {
+    updateProjectDirectory(resolvedProjectId, {
       workingFolder: result.path,
       sshConnectionId: null
     })
@@ -133,63 +134,66 @@ export function ContextPanel(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      {/* Working Folder */}
-      <div className="space-y-2">
-        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          {t('context.workingFolder')}
-        </h4>
-        {workingFolder ? (
-          <div className="space-y-1.5">
-            <button
-              className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm text-left hover:bg-muted/50 transition-colors group"
-              onClick={() => {
-                navigator.clipboard.writeText(workingFolder!)
-                setCopiedPath(true)
-                setTimeout(() => setCopiedPath(false), 1500)
-              }}
-              title={t('context.clickToCopy')}
-            >
-              <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate flex-1">{workingFolder}</span>
-              {copiedPath ? (
-                <Check className="size-3 shrink-0 text-green-500" />
-              ) : (
-                <Copy className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground transition-colors" />
-              )}
-            </button>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1.5 px-2 text-[10px] text-muted-foreground"
-                onClick={handleSelectFolder}
+      {projectScopedSession && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            {t('context.workingFolder')}
+          </h4>
+          {workingFolder ? (
+            <div className="space-y-1.5">
+              <button
+                className="group flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50"
+                onClick={() => {
+                  navigator.clipboard.writeText(workingFolder)
+                  setCopiedPath(true)
+                  setTimeout(() => setCopiedPath(false), 1500)
+                }}
+                title={t('context.clickToCopy')}
               >
-                <RefreshCw className="size-3" />
-                {t('context.changeFolder')}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1.5 px-2 text-[10px] text-muted-foreground"
-                onClick={() => window.electron.ipcRenderer.invoke('shell:openPath', workingFolder)}
-              >
-                <ExternalLink className="size-3" />
-                {t('context.open')}
-              </Button>
+                <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{workingFolder}</span>
+                {copiedPath ? (
+                  <Check className="size-3 shrink-0 text-green-500" />
+                ) : (
+                  <Copy className="size-3 shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground" />
+                )}
+              </button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1.5 px-2 text-[10px] text-muted-foreground"
+                  onClick={handleSelectFolder}
+                >
+                  <RefreshCw className="size-3" />
+                  {t('context.changeFolder')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1.5 px-2 text-[10px] text-muted-foreground"
+                  onClick={() =>
+                    window.electron.ipcRenderer.invoke('shell:openPath', workingFolder)
+                  }
+                >
+                  <ExternalLink className="size-3" />
+                  {t('context.open')}
+                </Button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full gap-2 text-xs"
-            onClick={handleSelectFolder}
-          >
-            <FolderPlus className="size-3.5" />
-            {t('context.selectFolder')}
-          </Button>
-        )}
-      </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-2 text-xs"
+              onClick={handleSelectFolder}
+            >
+              <FolderPlus className="size-3.5" />
+              {t('context.selectFolder')}
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Session Info */}
       {activeSession && (
@@ -510,7 +514,7 @@ export function ContextPanel(): React.JSX.Element {
         </>
       )}
 
-      {!workingFolder && !activeSession && (
+      {!projectScopedSession && !activeSession && (
         <div className="flex flex-col items-center justify-center py-8 text-center">
           <Database className="mb-3 size-8 text-muted-foreground/40" />
           <p className="text-sm text-muted-foreground">{t('context.noContext')}</p>

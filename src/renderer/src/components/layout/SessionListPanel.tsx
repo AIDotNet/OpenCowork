@@ -187,7 +187,9 @@ export function SessionListPanel(): React.JSX.Element {
   }, [sessionDigest])
   const activeProjectId = useChatStore((s) => s.activeProjectId)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const streamingSessionIdsSig = useChatStore((s) => Object.keys(s.streamingMessages).sort().join('\u0000'))
+  const streamingSessionIdsSig = useChatStore((s) =>
+    Object.keys(s.streamingMessages).sort().join('\u0000')
+  )
   const activeSessionProjectId = useMemo(
     () => sessions.find((session) => session.id === activeSessionId)?.projectId ?? null,
     [activeSessionId, sessions]
@@ -283,7 +285,8 @@ export function SessionListPanel(): React.JSX.Element {
     [runningSubAgentSessionIdsSig]
   )
   const runningBackgroundSessionIds = useMemo(
-    () => new Set(runningBackgroundSessionIdsSig ? runningBackgroundSessionIdsSig.split('\u0000') : []),
+    () =>
+      new Set(runningBackgroundSessionIdsSig ? runningBackgroundSessionIdsSig.split('\u0000') : []),
     [runningBackgroundSessionIdsSig]
   )
   const streamingSessionIds = useMemo(
@@ -414,7 +417,11 @@ export function SessionListPanel(): React.JSX.Element {
     const hasStreaming = streamingSessionIds.has(id)
     const hasActiveTeam = activeTeamSessionId === id
     const hasRunning =
-      isAgentRunning || hasActiveSubAgents || hasActiveBackgroundProcess || hasStreaming || hasActiveTeam
+      isAgentRunning ||
+      hasActiveSubAgents ||
+      hasActiveBackgroundProcess ||
+      hasStreaming ||
+      hasActiveTeam
     return {
       isAgentRunning,
       hasActiveSubAgents,
@@ -478,7 +485,10 @@ export function SessionListPanel(): React.JSX.Element {
   ])
 
   const handleNewSession = (): void => {
-    useUIStore.getState().navigateToHome()
+    setActiveSession(null)
+    const uiStore = useUIStore.getState()
+    uiStore.setMode('chat')
+    uiStore.navigateToHome()
   }
 
   const handleCreateProject = useCallback((): void => {
@@ -520,9 +530,12 @@ export function SessionListPanel(): React.JSX.Element {
     []
   )
 
-  const handleRenameProject = useCallback((projectId: string, currentName: string): void => {
-    openRenameDialog('project', projectId, currentName)
-  }, [openRenameDialog])
+  const handleRenameProject = useCallback(
+    (projectId: string, currentName: string): void => {
+      openRenameDialog('project', projectId, currentName)
+    },
+    [openRenameDialog]
+  )
 
   const handleDeleteProject = useCallback(
     (projectId: string, name: string, sessionCount: number): void => {
@@ -680,7 +693,9 @@ export function SessionListPanel(): React.JSX.Element {
                 ? message.content
                 : message.content
                     .filter(
-                      (block): block is Extract<UnifiedMessage['content'][number], { type: 'text' }> =>
+                      (
+                        block
+                      ): block is Extract<UnifiedMessage['content'][number], { type: 'text' }> =>
                         block.type === 'text'
                     )
                     .map((block) => block.text)
@@ -1056,12 +1071,16 @@ export function SessionListPanel(): React.JSX.Element {
               )}
               {(blockedCountsBySession[session.id] ?? 0) > 0 && (
                 <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-400">
-                  {(blockedCountsBySession[session.id] ?? 0) > 99 ? '99+' : blockedCountsBySession[session.id]}
+                  {(blockedCountsBySession[session.id] ?? 0) > 99
+                    ? '99+'
+                    : blockedCountsBySession[session.id]}
                 </span>
               )}
               {(unreadCountsBySession[session.id] ?? 0) > 0 && (
                 <span className="rounded-full border border-sky-500/20 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-medium text-sky-600 dark:text-sky-400">
-                  {(unreadCountsBySession[session.id] ?? 0) > 99 ? '99+' : unreadCountsBySession[session.id]}
+                  {(unreadCountsBySession[session.id] ?? 0) > 99
+                    ? '99+'
+                    : unreadCountsBySession[session.id]}
                 </span>
               )}
               {getPendingSessionMessageCountForSession(session.id) > 0 && (

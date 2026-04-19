@@ -16,7 +16,12 @@ import {
   summarizeToolInputForHistory,
   sanitizeMessagesForToolReplay
 } from '../tools/tool-input-sanitizer'
-import { shouldCompress, shouldPreCompress, preCompressMessages } from './context-compression'
+import {
+  resetCompressionFailures,
+  shouldCompress,
+  shouldPreCompress,
+  preCompressMessages
+} from './context-compression'
 import { trySwitchProviderAccount } from '../auth/provider-auth'
 import { ConcurrencyLimiter } from './concurrency-limiter'
 
@@ -47,6 +52,18 @@ class ProviderRequestError extends Error {
   }
 }
 
+function readContextUsage(usage?: UnifiedMessage['usage']): number {
+  return usage?.contextTokens ?? usage?.inputTokens ?? 0
+}
+
+function findRecentContextUsage(messages: UnifiedMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const tokens = readContextUsage(messages[i]?.usage)
+    if (tokens > 0) return tokens
+  }
+  return 0
+}
+
 /**
  * Core Agentic Loop - an AsyncGenerator that yields AgentEvents.
  *
@@ -68,7 +85,10 @@ export async function* runAgentLoop(
   })
   let conversationMessages = [...messages]
   let iteration = 0
-  let lastInputTokens = 0
+  if (config.contextCompression) {
+    resetCompressionFailures()
+  }
+  let lastInputTokens = config.contextCompression ? findRecentContextUsage(messages) : 0
   const hasIterationLimit = Number.isFinite(config.maxIterations) && config.maxIterations > 0
 
   // Always hand the final transcript back to the caller so it can replay the
@@ -325,7 +345,7 @@ export async function* runAgentLoop(
 
               case 'message_end':
                 if (event.usage) {
-                  lastInputTokens = event.usage.inputTokens
+                  lastInputTokens = readContextUsage(event.usage)
                 }
                 if (event.providerResponseId) {
                   providerResponseId = event.providerResponseId
@@ -684,9 +704,7 @@ export async function* runAgentLoop(
         stopReason: 'tool_use',
         toolResults: toolResults
           .filter(
-            (
-              block
-            ): block is Extract<ContentBlock, { type: 'tool_result' }> =>
+            (block): block is Extract<ContentBlock, { type: 'tool_result' }> =>
               block !== undefined && block.type === 'tool_result'
           )
           .map((block) => ({

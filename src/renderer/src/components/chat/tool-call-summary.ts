@@ -1,4 +1,5 @@
 import type { ToolResultContent } from '@renderer/lib/api/types'
+import { coerceAskUserQuestions } from '@renderer/lib/tools/ask-user-tool'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 
 export type SearchToolSummary = {
@@ -51,6 +52,15 @@ function normalizeGlobSummary(decoded: unknown): SearchToolSummary | null {
 
 function normalizeGrepSummary(decoded: unknown): SearchToolSummary | null {
   if (Array.isArray(decoded)) {
+    const legacyFiles = new Set(
+      decoded
+        .map((item) => {
+          if (typeof item !== 'string') return null
+          const match = item.match(/^(.+?):(\d+):(.*)$/)
+          return match?.[1] ?? null
+        })
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    )
     const fileCount = new Set(
       decoded
         .map((item) => (isRecord(item) ? (item.file ?? item.path) : null))
@@ -59,7 +69,7 @@ function normalizeGrepSummary(decoded: unknown): SearchToolSummary | null {
     return {
       kind: 'grep',
       matchCount: decoded.length,
-      fileCount,
+      fileCount: Math.max(fileCount, legacyFiles.size),
       truncated: false,
       timedOut: false
     }
@@ -193,7 +203,8 @@ export function inputSummary(
   }
   if (name === 'Glob' && input.pattern) return `pattern: ${input.pattern}`
   if (name === 'Grep' && input.pattern) return `grep: ${input.pattern}`
-  if (name === 'TaskCreate' && input.subject) return String(input.subject).slice(0, 60)
+  if (name === 'TaskCreate' && (input.title ?? input.subject))
+    return String(input.title ?? input.subject).slice(0, 60)
   if (name === 'TaskUpdate' && input.taskId)
     return `#${input.taskId}${input.status ? ` -> ${input.status}` : ''}`
   if (name === 'TaskGet' && input.taskId) return `#${input.taskId}`
@@ -209,7 +220,7 @@ export function inputSummary(
   if (name === 'CronRemove' && input.jobId) return `remove: ${String(input.jobId)}`
   if (name === 'CronList') return 'list cron jobs'
   if (name === 'AskUserQuestion') {
-    const qs = input.questions as Array<{ question?: string }> | undefined
+    const qs = coerceAskUserQuestions(input.questions)
     if (qs && qs.length > 0) return String(qs[0].question ?? '').slice(0, 60)
     return 'asking user...'
   }

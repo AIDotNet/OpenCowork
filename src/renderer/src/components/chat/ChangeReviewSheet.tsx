@@ -14,12 +14,17 @@ import {
 import { Button } from '@renderer/components/ui/button'
 import { Sheet, SheetContent } from '@renderer/components/ui/sheet'
 import { MONO_FONT } from '@renderer/lib/constants'
-import { IPC } from '@renderer/lib/ipc/channels'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { cn } from '@renderer/lib/utils'
 import type { AgentRunChangeSet } from '@renderer/stores/agent-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { CodeDiffViewer } from './CodeDiffViewer'
+import {
+  type LoadedChangeContent,
+  type DiffSummaryStats,
+  isLoadedChangeContent,
+  loadAggregatedChangeContent,
+  useAggregatedChangeSummaries
+} from './change-summary-utils'
 import {
   actionableSourceChanges,
   aggregateDisplayableRunFileChanges,
@@ -32,7 +37,6 @@ import {
   lineCount,
   matchesAggregatedChangeId,
   snapshotText,
-  summarizeTrackedChange,
   type AggregatedFileChange
 } from './file-change-utils'
 
@@ -43,71 +47,8 @@ interface ChangeReviewSheetProps {
   initialChangeId?: string | null
 }
 
-interface LoadedChangeContent {
-  beforeText: string
-  afterText: string
-}
-
-function isLoadedChangeContent(value: unknown): value is LoadedChangeContent {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    'beforeText' in value &&
-    'afterText' in value &&
-    typeof value.beforeText === 'string' &&
-    typeof value.afterText === 'string'
-  )
-}
-
 function isErrorResult(value: unknown): value is { error: string } {
   return !!value && typeof value === 'object' && 'error' in value && typeof value.error === 'string'
-}
-
-async function loadSnapshotSide(
-  change: AggregatedFileChange,
-  side: 'before' | 'after'
-): Promise<string | { error: string } | null> {
-  const sourceChange =
-    side === 'before'
-      ? change.sourceChanges[0]
-      : change.sourceChanges[change.sourceChanges.length - 1]
-  if (!sourceChange) return null
-
-  const snapshot = side === 'before' ? sourceChange.before : sourceChange.after
-  if (side === 'before' && !snapshot.exists) return ''
-  if (canRenderInlineSnapshot(snapshot)) {
-    return snapshotText(snapshot)
-  }
-
-  const result = await ipcClient.invoke(IPC.AGENT_CHANGES_SNAPSHOT_CONTENT, {
-    runId: sourceChange.runId,
-    changeId: sourceChange.id,
-    side
-  })
-
-  if (isErrorResult(result)) return result
-  if (result && typeof result === 'object' && 'text' in result && typeof result.text === 'string') {
-    return result.text
-  }
-  return null
-}
-
-async function loadAggregatedChangeContent(
-  change: AggregatedFileChange
-): Promise<LoadedChangeContent | { error: string } | null> {
-  const [beforeText, afterText] = await Promise.all([
-    loadSnapshotSide(change, 'before'),
-    loadSnapshotSide(change, 'after')
-  ])
-
-  if (isErrorResult(beforeText)) return beforeText
-  if (isErrorResult(afterText)) return afterText
-  if (typeof beforeText !== 'string' || typeof afterText !== 'string') return null
-
-  return {
-    beforeText,
-    afterText
-  }
 }
 
 function actionLabelKey(change: AggregatedFileChange): 'fileChange.new' | 'fileChange.edited' {
@@ -350,10 +291,12 @@ function ChangeDetail({ change }: { change: AggregatedFileChange }): React.JSX.E
 
 function ChangeRow({
   change,
+  summary,
   expanded,
   onToggle
 }: {
   change: AggregatedFileChange
+  summary: DiffSummaryStats
   expanded: boolean
   onToggle: () => void
 }): React.JSX.Element {
@@ -362,7 +305,6 @@ function ChangeRow({
   const rollbackFileChange = useAgentStore((state) => state.rollbackFileChange)
   const [isAccepting, setIsAccepting] = React.useState(false)
   const [isRollingBack, setIsRollingBack] = React.useState(false)
-  const summary = React.useMemo(() => summarizeTrackedChange(change), [change])
   const actionableChanges = React.useMemo(() => actionableSourceChanges(change), [change])
   const actionable = isActionableChange(change)
 
@@ -526,6 +468,7 @@ export function ChangeReviewPanelContent({
     () => aggregateDisplayableRunFileChanges(changeSet?.changes ?? []),
     [changeSet?.changes]
   )
+  const summariesByChangeId = useAggregatedChangeSummaries(aggregatedChanges)
 
   React.useEffect(() => {
     if (changeSetOverride || changeSet || requestedRunIdRef.current === runId) return
@@ -565,14 +508,15 @@ export function ChangeReviewPanelContent({
     () =>
       aggregatedChanges.reduce(
         (acc, change) => {
-          const next = summarizeTrackedChange(change)
+          const next = summariesByChangeId[change.id]
+          if (!next) return acc
           acc.added += next.added
           acc.deleted += next.deleted
           return acc
         },
         { added: 0, deleted: 0 }
       ),
-    [aggregatedChanges]
+    [aggregatedChanges, summariesByChangeId]
   )
 
   const pendingCount = React.useMemo(
@@ -682,6 +626,7 @@ export function ChangeReviewPanelContent({
               <ChangeRow
                 key={change.id}
                 change={change}
+                summary={summariesByChangeId[change.id] ?? { added: 0, deleted: 0 }}
                 expanded={change.id === selectedChangeId}
                 onToggle={() =>
                   setSelectedChangeId((current) => (current === change.id ? null : change.id))

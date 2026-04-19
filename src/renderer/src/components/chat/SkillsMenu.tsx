@@ -38,6 +38,7 @@ interface SkillsMenuProps {
   onAttachMedia?: () => void
   disabled?: boolean
   projectId?: string | null
+  showChannels?: boolean
 }
 
 export function SkillsMenu({
@@ -45,7 +46,8 @@ export function SkillsMenu({
   onSelectCommand,
   onAttachMedia,
   disabled = false,
-  projectId
+  projectId,
+  showChannels = true
 }: SkillsMenuProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const [open, setOpen] = React.useState(false)
@@ -55,7 +57,6 @@ export function SkillsMenu({
   const loading = useSkillsStore((s) => s.loading)
   const loadSkills = useSkillsStore((s) => s.loadSkills)
 
-  // Channel state
   const channels = useChannelStore((s) => s.channels)
   const activeChannelIdsByProject = useChannelStore((s) => s.activeChannelIdsByProject)
   const activeChannelIds = activeChannelIdsByProject[projectId ?? '__global__'] ?? []
@@ -63,12 +64,11 @@ export function SkillsMenu({
   const loadChannels = useChannelStore((s) => s.loadChannels)
   const loadProviders = useChannelStore((s) => s.loadProviders)
   const configuredChannels = React.useMemo(
-    () => channels.filter((p) => p.enabled && (!projectId ? true : p.projectId === projectId)),
+    () =>
+      channels.filter((item) => item.enabled && (!projectId ? true : item.projectId === projectId)),
     [channels, projectId]
   )
-  const openSettingsPage = useUIStore((s) => s.openSettingsPage)
 
-  // MCP state
   const mcpServers = useMcpStore((s) => s.servers)
   const activeMcpIdsByProject = useMcpStore((s) => s.activeMcpIdsByProject)
   const activeMcpIds = activeMcpIdsByProject[projectId ?? '__global__'] ?? []
@@ -80,15 +80,16 @@ export function SkillsMenu({
   const connectedMcpServers = React.useMemo(
     () =>
       mcpServers.filter(
-        (s) =>
-          s.enabled &&
-          mcpStatuses[s.id] === 'connected' &&
-          (!projectId ? true : !s.projectId || s.projectId === projectId)
+        (item) =>
+          item.enabled &&
+          mcpStatuses[item.id] === 'connected' &&
+          (!projectId ? true : !item.projectId || item.projectId === projectId)
       ),
     [mcpServers, mcpStatuses, projectId]
   )
 
-  // Load skills, channels, MCP servers, and commands when menu opens
+  const openSettingsPage = useUIStore((s) => s.openSettingsPage)
+
   React.useEffect(() => {
     if (!open) return
 
@@ -102,18 +103,20 @@ export function SkillsMenu({
     setCommandsLoading(true)
     void listCommands()
       .then((items) => {
-        if (cancelled) return
-        setCommands(items)
+        if (!cancelled) {
+          setCommands(items)
+        }
       })
       .finally(() => {
-        if (cancelled) return
-        setCommandsLoading(false)
+        if (!cancelled) {
+          setCommandsLoading(false)
+        }
       })
 
     return () => {
       cancelled = true
     }
-  }, [open, loadSkills, loadChannels, loadProviders, loadMcpServers, refreshAllMcpServers])
+  }, [open, loadSkills, loadProviders, loadChannels, loadMcpServers, refreshAllMcpServers])
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -151,7 +154,7 @@ export function SkillsMenu({
               }}
             >
               <Paperclip className="mr-2 size-4" />
-              <span>{t('skills.attachMedia', { defaultValue: '添加照片和文件' })}</span>
+              <span>{t('skills.attachMedia', { defaultValue: 'Add photos and files' })}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>
@@ -166,17 +169,17 @@ export function SkillsMenu({
             <DropdownMenuPortal>
               <DropdownMenuSubContent className="w-64 max-h-80 overflow-y-auto">
                 <DropdownMenuLabel>
-                  {t('skills.availableCommands', { defaultValue: '可用命令' })}
+                  {t('skills.availableCommands', { defaultValue: 'Available commands' })}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {commandsLoading ? (
                   <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
-                    <Loader2 className="size-3.5 animate-spin mr-1.5" />
-                    {t('skills.loadingCommands', { defaultValue: '加载命令中...' })}
+                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                    {t('skills.loadingCommands', { defaultValue: 'Loading commands...' })}
                   </div>
                 ) : commands.length === 0 ? (
                   <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                    <p>{t('skills.noCommands', { defaultValue: '未发现命令' })}</p>
+                    <p>{t('skills.noCommands', { defaultValue: 'No commands found' })}</p>
                     <p className="mt-1 text-[10px] opacity-70">~/.open-cowork/commands/</p>
                   </div>
                 ) : (
@@ -191,7 +194,7 @@ export function SkillsMenu({
                     >
                       <span className="font-medium">/{command.name}</span>
                       {command.summary && (
-                        <span className="text-xs text-muted-foreground line-clamp-2">
+                        <span className="line-clamp-2 text-xs text-muted-foreground">
                           {command.summary}
                         </span>
                       )}
@@ -217,7 +220,7 @@ export function SkillsMenu({
                 <DropdownMenuSeparator />
                 {loading ? (
                   <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
-                    <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
                     {t('skills.loadingSkills')}
                   </div>
                 ) : skills.length === 0 ? (
@@ -229,11 +232,14 @@ export function SkillsMenu({
                   skills.map((skill) => (
                     <DropdownMenuItem
                       key={skill.name}
-                      onClick={() => onSelectSkill(skill.name)}
+                      onClick={() => {
+                        onSelectSkill(skill.name)
+                        setOpen(false)
+                      }}
                       className="flex flex-col items-start gap-1 py-2"
                     >
                       <span className="font-medium">{skill.name}</span>
-                      <span className="text-xs text-muted-foreground line-clamp-2">
+                      <span className="line-clamp-2 text-xs text-muted-foreground">
                         {skill.description}
                       </span>
                     </DropdownMenuItem>
@@ -246,73 +252,79 @@ export function SkillsMenu({
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuGroup>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <MessageSquare className="mr-2 size-4" />
-              <span>{t('skills.channelsLabel', 'Channels')}</span>
-              {activeChannelIds.length > 0 && (
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  {activeChannelIds.length}
-                </span>
-              )}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent className="w-56 max-h-80 overflow-y-auto">
-                <DropdownMenuLabel>
-                  {t('skills.availableChannels', 'Available Channels')}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {configuredChannels.length === 0 ? (
-                  <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                    <p>{t('skills.noChannels', 'No channels configured')}</p>
-                    <p className="mt-1 text-[10px] opacity-70">
-                      {t('skills.configureInSettings', 'Add channels in Settings → channles')}
-                    </p>
-                  </div>
-                ) : (
-                  configuredChannels.map((channel) => {
-                    const isActive = activeChannelIds.includes(channel.id)
-                    return (
-                      <DropdownMenuItem
-                        key={channel.id}
-                        onSelect={(e) => {
-                          e.preventDefault()
-                          toggleActiveChannel(channel.id, projectId)
-                        }}
-                        className="flex items-center gap-2 py-1.5 cursor-pointer"
-                      >
-                        <span
-                          className={`flex items-center justify-center size-4 rounded border ${
-                            isActive
-                              ? 'bg-primary border-primary text-primary-foreground'
-                              : 'border-muted-foreground/30'
-                          }`}
-                        >
-                          {isActive && <Check className="size-3" />}
-                        </span>
-                        <span className="flex-1 truncate text-xs">{channel.name}</span>
-                        <span className="text-[10px] text-muted-foreground">{channel.type}</span>
-                      </DropdownMenuItem>
-                    )
-                  })
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
-                    setOpen(false)
-                    openSettingsPage('channel')
-                  }}
-                  className="text-xs"
-                >
-                  <Settings2 className="mr-2 size-3.5" />
-                  {t('skills.configureChannels', 'Configure...')}
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
+        {showChannels && (
+          <>
+            <DropdownMenuGroup>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <MessageSquare className="mr-2 size-4" />
+                  <span>{t('skills.channelsLabel', 'Channels')}</span>
+                  {activeChannelIds.length > 0 && (
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {activeChannelIds.length}
+                    </span>
+                  )}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuPortal>
+                  <DropdownMenuSubContent className="w-56 max-h-80 overflow-y-auto">
+                    <DropdownMenuLabel>
+                      {t('skills.availableChannels', 'Available Channels')}
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {configuredChannels.length === 0 ? (
+                      <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                        <p>{t('skills.noChannels', 'No channels configured')}</p>
+                        <p className="mt-1 text-[10px] opacity-70">
+                          {t('skills.configureInSettings', 'Add channels in Settings -> Channels')}
+                        </p>
+                      </div>
+                    ) : (
+                      configuredChannels.map((channel) => {
+                        const isActive = activeChannelIds.includes(channel.id)
+                        return (
+                          <DropdownMenuItem
+                            key={channel.id}
+                            onSelect={(event) => {
+                              event.preventDefault()
+                              toggleActiveChannel(channel.id, projectId)
+                            }}
+                            className="flex cursor-pointer items-center gap-2 py-1.5"
+                          >
+                            <span
+                              className={`flex size-4 items-center justify-center rounded border ${
+                                isActive
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : 'border-muted-foreground/30'
+                              }`}
+                            >
+                              {isActive && <Check className="size-3" />}
+                            </span>
+                            <span className="flex-1 truncate text-xs">{channel.name}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {channel.type}
+                            </span>
+                          </DropdownMenuItem>
+                        )
+                      })
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setOpen(false)
+                        openSettingsPage('channel')
+                      }}
+                      className="text-xs"
+                    >
+                      <Settings2 className="mr-2 size-3.5" />
+                      {t('skills.configureChannels', 'Configure...')}
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuPortal>
+              </DropdownMenuSub>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
 
         <DropdownMenuGroup>
           <DropdownMenuSub>
@@ -335,32 +347,32 @@ export function SkillsMenu({
                   <div className="px-2 py-4 text-center text-xs text-muted-foreground">
                     <p>{t('skills.noMcps', 'No MCP servers connected')}</p>
                     <p className="mt-1 text-[10px] opacity-70">
-                      {t('skills.configureMcps', 'Add servers in Settings → MCP')}
+                      {t('skills.configureMcps', 'Add servers in Settings -> MCP')}
                     </p>
                   </div>
                 ) : (
-                  connectedMcpServers.map((srv) => {
-                    const isActive = activeMcpIds.includes(srv.id)
-                    const toolCount = mcpTools[srv.id]?.length ?? 0
+                  connectedMcpServers.map((server) => {
+                    const isActive = activeMcpIds.includes(server.id)
+                    const toolCount = mcpTools[server.id]?.length ?? 0
                     return (
                       <DropdownMenuItem
-                        key={srv.id}
-                        onSelect={(e) => {
-                          e.preventDefault()
-                          toggleActiveMcp(srv.id, projectId)
+                        key={server.id}
+                        onSelect={(event) => {
+                          event.preventDefault()
+                          toggleActiveMcp(server.id, projectId)
                         }}
-                        className="flex items-center gap-2 py-1.5 cursor-pointer"
+                        className="flex cursor-pointer items-center gap-2 py-1.5"
                       >
                         <span
-                          className={`flex items-center justify-center size-4 rounded border ${
+                          className={`flex size-4 items-center justify-center rounded border ${
                             isActive
-                              ? 'bg-primary border-primary text-primary-foreground'
+                              ? 'border-primary bg-primary text-primary-foreground'
                               : 'border-muted-foreground/30'
                           }`}
                         >
                           {isActive && <Check className="size-3" />}
                         </span>
-                        <span className="flex-1 truncate text-xs">{srv.name}</span>
+                        <span className="flex-1 truncate text-xs">{server.name}</span>
                         <span className="text-[10px] text-muted-foreground">
                           {toolCount} tool{toolCount !== 1 ? 's' : ''}
                         </span>

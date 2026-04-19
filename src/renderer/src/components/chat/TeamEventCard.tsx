@@ -68,7 +68,7 @@ export function TeamEventCard({ name, input, output }: TeamEventCardProps): Reac
       if (input.description) summary += ` — ${input.description}`
       break
     case 'TaskCreate':
-      summary = `${input.subject ?? ''}`
+      summary = `${input.title ?? input.subject ?? ''}`
       if (parsed?.task_id) summary = `#${parsed.task_id}: ${summary}`
       break
     case 'TaskUpdate':

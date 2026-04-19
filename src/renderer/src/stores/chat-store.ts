@@ -85,6 +85,11 @@ export interface Session {
   longRunningMode?: boolean
 }
 
+export interface CreateSessionOptions {
+  longRunningMode?: boolean
+  preserveProjectless?: boolean
+}
+
 // --- DB persistence helpers (fire-and-forget) ---
 
 function dbCreateSession(s: Session): void {
@@ -315,7 +320,7 @@ interface ChatStore {
   createSession: (
     mode: SessionMode,
     projectId?: string | null,
-    options?: { longRunningMode?: boolean }
+    options?: CreateSessionOptions
   ) => string
   deleteSession: (id: string) => void
   setActiveSession: (id: string | null) => void
@@ -1504,13 +1509,15 @@ export const useChatStore = create<ChatStore>()(
       const now = Date.now()
       const { activeProviderId, activeModelId } = useProviderStore.getState()
       const { newSessionDefaultModel } = useSettingsStore.getState()
+      const preserveProjectless = options?.preserveProjectless === true
 
-      let targetProjectId =
-        projectId ??
-        get().activeProjectId ??
-        get().projects.find((project) => !project.pluginId)?.id ??
-        get().projects[0]?.id ??
-        null
+      let targetProjectId = preserveProjectless
+        ? (projectId ?? null)
+        : (projectId ??
+          get().activeProjectId ??
+          get().projects.find((project) => !project.pluginId)?.id ??
+          get().projects[0]?.id ??
+          null)
 
       const targetProject = get().projects.find((project) => project.id === targetProjectId)
 
@@ -1559,7 +1566,7 @@ export const useChatStore = create<ChatStore>()(
         }
       })
       dbCreateSession(newSession)
-      if (!targetProjectId) {
+      if (!targetProjectId && !preserveProjectless) {
         void get()
           .ensureDefaultProject()
           .then((project) => {
@@ -1589,13 +1596,12 @@ export const useChatStore = create<ChatStore>()(
     deleteSession: (id) => {
       const deletedSession = get().sessions.find((session) => session.id === id)
       const wasActiveSession = get().activeSessionId === id
-      const fallbackProjectId = deletedSession?.projectId ?? get().activeProjectId ?? null
+      const deletedProjectId = deletedSession?.projectId ?? null
+      const currentChatView = useUIStore.getState().chatView
       let nextActiveId: string | null = null
 
       set((state) => {
         const idx = state.sessions.findIndex((s) => s.id === id)
-        const deletedSessionInState = idx >= 0 ? state.sessions[idx] : undefined
-        const deletedProjectId = deletedSessionInState?.projectId ?? fallbackProjectId
         if (idx !== -1) {
           state.sessions.splice(idx, 1)
           syncSessionsById(state)
@@ -1603,9 +1609,7 @@ export const useChatStore = create<ChatStore>()(
 
         if (wasActiveSession) {
           state.activeSessionId = null
-          if (deletedProjectId) {
-            state.activeProjectId = deletedProjectId
-          }
+          state.activeProjectId = deletedProjectId
         }
 
         nextActiveId = state.activeSessionId
@@ -1647,6 +1651,13 @@ export const useChatStore = create<ChatStore>()(
         usePlanStore.getState().setActivePlan(null)
       }
       useUIStore.getState().syncSessionScopedState(nextActiveId)
+      if (wasActiveSession && !nextActiveId) {
+        if (deletedProjectId && currentChatView !== 'home') {
+          useUIStore.getState().navigateToProject(deletedProjectId)
+        } else {
+          useUIStore.getState().navigateToHome()
+        }
+      }
       get().releaseDormantSessions()
     },
 
@@ -1658,6 +1669,8 @@ export const useChatStore = create<ChatStore>()(
         const activeSession = state.sessions.find((session) => session.id === id)
         if (activeSession?.projectId) {
           state.activeProjectId = activeSession.projectId
+        } else if (id) {
+          state.activeProjectId = null
         }
         state.streamingMessageId = id ? (state.streamingMessages[id] ?? null) : null
       })

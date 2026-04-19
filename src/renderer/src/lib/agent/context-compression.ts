@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import type { UnifiedMessage, ProviderConfig, ContentBlock, AIModelConfig } from '../api/types'
 import { runSidecarTextRequest } from '@renderer/lib/ipc/agent-bridge'
+import { RESPONSES_SESSION_SCOPE_CONTEXT_COMPRESSION } from '@renderer/lib/api/responses-session-policy'
 import i18n from '@renderer/locales'
 
 // --- Types ---
@@ -516,7 +517,8 @@ async function callSummarizer(
       provider: config,
       messages,
       signal: abortController.signal,
-      maxIterations: 1
+      maxIterations: 1,
+      responsesSessionScope: RESPONSES_SESSION_SCOPE_CONTEXT_COMPRESSION
     })
   } finally {
     clearTimeout(timeout)

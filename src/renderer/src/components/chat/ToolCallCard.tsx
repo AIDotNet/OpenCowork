@@ -893,6 +893,19 @@ function normalizeSearchMeta(decoded: unknown): SearchOutputMeta {
   }
 }
 
+function parseLegacyGrepMatch(
+  value: unknown
+): { file: string; line: number; text: string } | null {
+  if (typeof value !== 'string') return null
+  const match = value.match(/^(.+?):(\d+):(.*)$/)
+  if (!match) return null
+  return {
+    file: match[1],
+    line: Number(match[2]),
+    text: match[3] ?? ''
+  }
+}
+
 function getSearchVisualState(meta: SearchOutputMeta, matchCount: number): SearchVisualState {
   if (meta.error) return 'error'
   if (meta.truncated || meta.timedOut || meta.warnings.length > 0) return 'warning'
@@ -952,6 +965,8 @@ function parseGrepOutput(output: string): {
     return {
       matches: decoded
         .map((item) => {
+          const legacyMatch = parseLegacyGrepMatch(item)
+          if (legacyMatch) return legacyMatch
           if (!isRecord(item)) return null
           const file =
             typeof item.file === 'string'
@@ -979,6 +994,8 @@ function parseGrepOutput(output: string): {
   return {
     matches: matchesSource
       .map((item) => {
+        const legacyMatch = parseLegacyGrepMatch(item)
+        if (legacyMatch) return legacyMatch
         if (!isRecord(item)) return null
         const file =
           typeof item.file === 'string'
@@ -1241,9 +1258,13 @@ function TaskCreateInputBlock({
   input: Record<string, unknown>
 }): React.JSX.Element | null {
   const { t } = useTranslation('chat')
-  const subject = input.subject ? String(input.subject) : null
-  const description = input.description ? String(input.description) : null
-  if (!subject) return null
+  const title =
+    typeof input.title === 'string'
+      ? input.title
+      : typeof input.subject === 'string'
+        ? input.subject
+        : null
+  if (!title) return null
 
   return (
     <div>
@@ -1254,11 +1275,8 @@ function TaskCreateInputBlock({
       <div className="rounded-md border bg-muted/10 px-2.5 py-1.5 text-[12px] space-y-0.5">
         <div className="flex items-center gap-2">
           <Circle className="size-3 text-muted-foreground/40" />
-          <span className="flex-1 font-medium">{subject}</span>
+          <span className="flex-1 font-medium">{title}</span>
         </div>
-        {description && (
-          <p className="pl-5 text-[11px] text-muted-foreground/60 line-clamp-2">{description}</p>
-        )}
       </div>
     </div>
   )
@@ -1271,9 +1289,9 @@ function TaskListOutputBlock({ output }: { output: string }): React.JSX.Element 
     if (data && !Array.isArray(data) && Array.isArray(data.tasks)) {
       return data.tasks as Array<{
         id: string
-        subject: string
+        title?: string
+        subject?: string
         status: string
-        description?: string | null
         owner?: string | null
       }>
     }
@@ -1320,6 +1338,7 @@ function TaskListOutputBlock({ output }: { output: string }): React.JSX.Element 
           >
             {parsed.map((task, index) => {
               const status = getStatus(task.status)
+              const taskTitle = task.title || task.subject || `#${task.id}`
               return (
                 <div
                   key={task.id}
@@ -1347,7 +1366,7 @@ function TaskListOutputBlock({ output }: { output: string }): React.JSX.Element 
                       status === 'in_progress' && 'font-medium text-foreground'
                     )}
                   >
-                    {task.subject}
+                    {taskTitle}
                   </span>
                 </div>
               )
@@ -2217,13 +2236,14 @@ export function ToolCallCard({
                     </div>
                   )}
                   {/* TaskCreate: checklist-style input */}
-                  {name === 'TaskCreate' && !!input.subject && (
+                  {name === 'TaskCreate' && !!(input.title ?? input.subject) && (
                     <TaskCreateInputBlock input={input} />
                   )}
                   {/* Structured Input — tool-specific rendering */}
-                  {!(showSettledWriteContent || (name === 'TaskCreate' && !!input.subject)) && (
-                    <StructuredInput name={name} input={input} />
-                  )}
+                  {!(
+                    showSettledWriteContent ||
+                    (name === 'TaskCreate' && !!(input.title ?? input.subject))
+                  ) && <StructuredInput name={name} input={input} />}
                   {/* Output — tool-specific rendering */}
                   {output && name === 'Read' && hasImageBlocks(output) && (
                     <ImageOutputBlock output={output} />

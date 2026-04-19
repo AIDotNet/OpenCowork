@@ -32,6 +32,7 @@ interface UsePromptRecommendationResult {
   effectivePlaceholder?: string
   canAcceptSuggestion: boolean
   acceptSuggestion: () => string | null
+  cancelPendingRequest: () => void
   handleFocus: () => void
   handleBlur: () => void
   handleSelectionChange: () => void
@@ -110,6 +111,18 @@ export function usePromptRecommendation({
     setFullSuggestion('')
   }, [])
 
+  const abortPendingRequest = React.useCallback((clearResolvedSuggestion = true) => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    if (clearResolvedSuggestion) {
+      setFullSuggestion('')
+    }
+  }, [])
+
+  const cancelPendingRequest = React.useCallback(() => {
+    abortPendingRequest(true)
+  }, [abortPendingRequest])
+
   const updateCaretState = React.useCallback(() => {
     if (!getCaretAtEnd) {
       setCaretAtEnd(true)
@@ -152,6 +165,7 @@ export function usePromptRecommendation({
   const runRequest = React.useCallback(
     async (requestText: string, allowFallback: boolean, contextKey: string): Promise<void> => {
       abortRef.current?.abort()
+      abortRef.current = null
       const controller = new AbortController()
       abortRef.current = controller
       const requestSeq = ++requestSeqRef.current
@@ -211,17 +225,16 @@ export function usePromptRecommendation({
 
   React.useEffect(() => {
     return () => {
-      abortRef.current?.abort()
+      abortPendingRequest(false)
     }
-  }, [])
+  }, [abortPendingRequest])
 
   React.useEffect(() => {
     const handleVisibilityChange = (): void => {
       const visible = document.visibilityState === 'visible'
       setIsDocumentVisible(visible)
       if (!visible) {
-        abortRef.current?.abort()
-        setFullSuggestion('')
+        abortPendingRequest(true)
       }
     }
 
@@ -231,8 +244,7 @@ export function usePromptRecommendation({
 
     const handleWindowBlur = (): void => {
       setIsWindowFocused(false)
-      abortRef.current?.abort()
-      setFullSuggestion('')
+      abortPendingRequest(true)
     }
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -244,12 +256,11 @@ export function usePromptRecommendation({
       window.removeEventListener('focus', handleWindowFocus)
       window.removeEventListener('blur', handleWindowBlur)
     }
-  }, [])
+  }, [abortPendingRequest])
 
   React.useEffect(() => {
-    abortRef.current?.abort()
-    setFullSuggestion('')
-  }, [sessionId])
+    abortPendingRequest(true)
+  }, [abortPendingRequest, sessionId])
 
   React.useEffect(() => {
     if (
@@ -344,9 +355,8 @@ export function usePromptRecommendation({
 
   const handleBlur = React.useCallback(() => {
     setIsFocused(false)
-    abortRef.current?.abort()
-    setFullSuggestion('')
-  }, [])
+    abortPendingRequest(true)
+  }, [abortPendingRequest])
 
   const handleSelectionChange = React.useCallback(() => {
     updateCaretState()
@@ -420,6 +430,7 @@ export function usePromptRecommendation({
     effectivePlaceholder,
     canAcceptSuggestion,
     acceptSuggestion,
+    cancelPendingRequest,
     handleFocus,
     handleBlur,
     handleSelectionChange,

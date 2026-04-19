@@ -5,6 +5,10 @@ import {
   Send,
   FolderOpen,
   AlertTriangle,
+  CircleHelp,
+  Briefcase,
+  Code2,
+  ShieldCheck,
   FileUp,
   FileCode2,
   Sparkles,
@@ -100,9 +104,16 @@ import {
   DialogHeader,
   DialogTitle
 } from '@renderer/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@renderer/components/ui/dropdown-menu'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { cn } from '@renderer/lib/utils'
 import { resolveProjectMemoryTextFile } from '@renderer/lib/agent/memory-files'
+import { isProjectSession, workspaceContextAvailable } from '@renderer/lib/session-scope'
 import { InlineStepsPanel } from '@renderer/components/cowork/StepsPanel'
 
 function ContextRing(): React.JSX.Element | null {
@@ -235,6 +246,18 @@ const defaultRecommendationKeys: Record<AppMode, string> = {
   acp: 'input.recommendationDefaultAcp'
 }
 
+const composerModeOptions: Array<{
+  value: AppMode
+  label: string
+  icon: React.JSX.Element
+}> = [
+  { value: 'chat', label: '聊天', icon: <Send className="size-3.5" /> },
+  { value: 'clarify', label: '澄清', icon: <CircleHelp className="size-3.5" /> },
+  { value: 'cowork', label: '协作', icon: <Briefcase className="size-3.5" /> },
+  { value: 'code', label: '代码', icon: <Code2 className="size-3.5" /> },
+  { value: 'acp', label: 'ACP', icon: <ShieldCheck className="size-3.5" /> }
+]
+
 interface FileSearchItem {
   name: string
   path: string
@@ -243,7 +266,7 @@ interface FileSearchItem {
 const EMPTY_QUEUED_MESSAGES: PendingSessionMessageItem[] = []
 const INTERNAL_FILE_DRAG_MIME = 'application/x-opencowork-file-paths'
 const MIN_INPUT_HEIGHT = 120
-const HOME_INPUT_MIN_HEIGHT = 220
+const HOME_INPUT_MIN_HEIGHT = 176
 const DEFAULT_SESSION_INPUT_HEIGHT = 160
 const MAX_INPUT_HEIGHT = 500
 const MIN_MESSAGE_LIST_HEIGHT = 120
@@ -308,6 +331,12 @@ function summarizeQueuedMessage(text: string): string {
   return normalized.length > 72 ? `${normalized.slice(0, 72)}…` : normalized
 }
 
+function isReferenceOnlyDocument(document: EditorDocumentNode[]): boolean {
+  if (document.length === 0) return false
+
+  return document.every((node) => node.type === 'file' || node.text.trim().length === 0)
+}
+
 interface InputAreaProps {
   sessionId?: string | null
   onSend: (text: string, images?: ImageAttachment[], options?: SendMessageOptions) => void
@@ -316,6 +345,7 @@ interface InputAreaProps {
   isStreaming?: boolean
   workingFolder?: string
   hideWorkingFolderIndicator?: boolean
+  hideWorkingFolderPicker?: boolean
   disabled?: boolean
 }
 
@@ -327,12 +357,28 @@ export function InputArea({
   isStreaming = false,
   workingFolder,
   hideWorkingFolderIndicator = false,
+  hideWorkingFolderPicker = false,
   disabled = false
 }: InputAreaProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const chatView = useUIStore((s) => s.chatView)
-  const isHomeComposer = chatView === 'home'
-  const usesExpandedComposerHeight = chatView === 'home' || chatView === 'project'
+  const setMode = useUIStore((s) => s.setMode)
+  const sessionHasMessages = useChatStore((s) => {
+    const targetSessionId = sessionId ?? s.activeSessionId
+    const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
+    const targetSession = idx !== undefined ? s.sessions[idx] : undefined
+    return (targetSession?.messageCount ?? 0) > 0
+  })
+  const isProjectSessionComposer = useChatStore((s) => {
+    const targetSessionId = sessionId ?? s.activeSessionId
+    const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
+    const targetSession = idx !== undefined ? s.sessions[idx] : undefined
+    return chatView === 'session' && Boolean(targetSession?.projectId)
+  })
+  const isEmptySessionComposer = chatView === 'session' && !sessionHasMessages
+  const isHomeComposer = chatView === 'home' || chatView === 'project' || isEmptySessionComposer
+  const usesProjectComposerChrome = isHomeComposer || isProjectSessionComposer
+  const usesExpandedComposerHeight = usesProjectComposerChrome
   const minComposerHeight = usesExpandedComposerHeight ? HOME_INPUT_MIN_HEIGHT : MIN_INPUT_HEIGHT
   const [documentNodes, setDocumentNodes] = React.useState<EditorDocumentNode[]>([])
   const [selectedFiles, setSelectedFiles] = React.useState<SelectedFileItem[]>([])
@@ -372,7 +418,7 @@ export function InputArea({
   const queueFileInputRef = React.useRef<HTMLInputElement>(null)
   const rootRef = React.useRef<HTMLDivElement>(null)
   const [inputHeight, setInputHeight] = React.useState<number | null>(() =>
-    chatView === 'session' ? DEFAULT_SESSION_INPUT_HEIGHT : null
+    usesProjectComposerChrome ? null : chatView === 'session' ? DEFAULT_SESSION_INPUT_HEIGHT : null
   )
   const [autoInputHeight, setAutoInputHeight] = React.useState<number>(() => minComposerHeight)
   const dragRef = React.useRef<{
@@ -417,6 +463,20 @@ export function InputArea({
       Math.min(MAX_INPUT_HEIGHT, Math.floor(window.innerHeight * FALLBACK_MAX_VIEWPORT_RATIO))
     )
   )
+
+  React.useEffect(() => {
+    setInputHeight((current) => {
+      if (usesProjectComposerChrome) {
+        return current === null ? current : null
+      }
+
+      if (chatView === 'session') {
+        return current ?? DEFAULT_SESSION_INPUT_HEIGHT
+      }
+
+      return current
+    })
+  }, [chatView, usesProjectComposerChrome])
 
   const getMinInputHeight = React.useCallback(() => {
     const container = containerRef.current
@@ -536,7 +596,17 @@ export function InputArea({
     return modelSupportsVision(model, activeProvider.type)
   }, [activeProvider, activeModelId])
   const webSearchEnabled = useSettingsStore((s) => s.webSearchEnabled)
+  const webSearchProvider = useSettingsStore((s) => s.webSearchProvider)
   const webSearchApiKey = useSettingsStore((s) => s.webSearchApiKey)
+  const webSearchRequiresApiKey = [
+    'tavily',
+    'searxng',
+    'exa',
+    'exa-mcp',
+    'bocha',
+    'zhipu'
+  ].includes(webSearchProvider)
+  const canToggleWebSearch = !webSearchRequiresApiKey || Boolean(webSearchApiKey)
   const toggleWebSearch = React.useCallback(() => {
     const store = useSettingsStore.getState()
     const newEnabled = !store.webSearchEnabled
@@ -546,6 +616,11 @@ export function InputArea({
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const openFilePreview = useUIStore((s) => s.openFilePreview)
   const mode = useUIStore((s) => s.mode)
+  const targetSession = useChatStore((s) => {
+    const targetSessionId = sessionId ?? s.activeSessionId
+    const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
+    return idx !== undefined ? s.sessions[idx] : undefined
+  })
   const activeProjectId = useChatStore((s) => {
     const targetSessionId = sessionId ?? s.activeSessionId
     const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
@@ -569,7 +644,8 @@ export function InputArea({
     hasMessages,
     clearSessionMessages,
     longRunningMode,
-    setSessionLongRunningMode
+    setSessionLongRunningMode,
+    updateSessionMode
   } = useChatStore(
     useShallow((s) => {
       const targetSessionId = sessionId ?? s.activeSessionId
@@ -580,7 +656,8 @@ export function InputArea({
         hasMessages: (targetSession?.messageCount ?? 0) > 0,
         clearSessionMessages: s.clearSessionMessages,
         longRunningMode: targetSession?.longRunningMode ?? false,
-        setSessionLongRunningMode: s.setSessionLongRunningMode
+        setSessionLongRunningMode: s.setSessionLongRunningMode,
+        updateSessionMode: s.updateSessionMode
       }
     })
   )
@@ -590,6 +667,18 @@ export function InputArea({
     [activeSessionId]
   )
   const draftSessionId = sessionId ?? (chatView === 'session' ? activeSessionId : null)
+  const projectScoped = isProjectSession({
+    chatView,
+    session: targetSession,
+    activeProjectId,
+    workingFolder
+  })
+  const workspaceReady = workspaceContextAvailable({
+    chatView,
+    session: targetSession,
+    activeProjectId,
+    workingFolder
+  })
   const activeDraftKey = React.useMemo(
     () => (draftSessionId ? getSessionInputDraftKey(draftSessionId) : null),
     [draftSessionId]
@@ -913,11 +1002,7 @@ export function InputArea({
     [editorSelection, workingFolder]
   )
 
-  const shouldRecommendInit =
-    mode !== 'chat' &&
-    Boolean(workingFolder?.trim()) &&
-    !activeSshConnectionId &&
-    isWorkspaceAgentsMissing
+  const shouldRecommendInit = workspaceReady && !activeSshConnectionId && isWorkspaceAgentsMissing
   const recommendationFallback = shouldRecommendInit
     ? t('input.recommendationInitWorkspace')
     : t(defaultRecommendationKeys[mode])
@@ -930,6 +1015,7 @@ export function InputArea({
     suggestionText,
     effectivePlaceholder,
     acceptSuggestion,
+    cancelPendingRequest: cancelPromptRecommendation,
     handleFocus: handleRecommendationFocus,
     handleBlur: handleRecommendationBlur,
     handleSelectionChange: handleRecommendationSelectionChange,
@@ -956,7 +1042,7 @@ export function InputArea({
     return getSelectFileMentionQuery(text, text.length)
   }, [editorSelection.end, editorSelection.start, text])
   const fileQuery = activeFileMention?.query.trim() ?? ''
-  const fileMenuOpen = Boolean(activeFileMention)
+  const fileMenuOpen = projectScoped && Boolean(activeFileMention)
   const slashQuery = React.useMemo(() => getSlashCommandQuery(text), [text])
   const filteredSlashCommands = React.useMemo(() => {
     const query = slashQuery ?? ''
@@ -1100,7 +1186,7 @@ export function InputArea({
     [applyEditorStateFromSerializedText, focusInputAtEnd, selectedFiles]
   )
   const hasApiKey = !!activeProvider?.apiKey || activeProvider?.requiresApiKey === false
-  const needsWorkingFolder = mode !== 'chat' && !workingFolder
+  const needsWorkingFolder = projectScoped && !workingFolder
   const planMode = useUIStore((s) =>
     draftSessionId ? Boolean(s.planModesBySession[draftSessionId]) : false
   )
@@ -1111,14 +1197,14 @@ export function InputArea({
   React.useEffect(() => {
     let cancelled = false
 
-    if (mode === 'chat' || !workingFolder?.trim() || activeSshConnectionId) {
+    if (!workspaceReady || activeSshConnectionId) {
       setIsWorkspaceAgentsMissing(false)
       return
     }
 
     setIsWorkspaceAgentsMissing(false)
 
-    void resolveProjectMemoryTextFile(ipcClient, workingFolder, 'AGENTS.md').then(
+    void resolveProjectMemoryTextFile(ipcClient, workingFolder ?? '', 'AGENTS.md').then(
       ({ missingFile }) => {
         if (cancelled) return
         setIsWorkspaceAgentsMissing(missingFile)
@@ -1128,7 +1214,7 @@ export function InputArea({
     return () => {
       cancelled = true
     }
-  }, [activeSshConnectionId, mode, workingFolder])
+  }, [activeSshConnectionId, workspaceReady, workingFolder])
 
   React.useEffect(() => {
     if (!isStreaming && !disabled) {
@@ -1223,10 +1309,20 @@ export function InputArea({
   React.useEffect(() => {
     if (!inputDraftHydrated) return
 
+    const persistedText = persistedDraft?.text ?? ''
+    const persistedSelectedFiles = persistedDraft?.selectedFiles ?? []
+    const shouldResetHomeReferenceDraft =
+      isHomeComposer &&
+      !persistedDraft?.skill &&
+      (persistedDraft?.images?.length ?? 0) === 0 &&
+      isReferenceOnlyDocument(
+        deserializeEditorState(persistedText, workingFolder, persistedSelectedFiles).document
+      )
+
     draftReadyKeyRef.current = null
     applyEditorStateFromSerializedText(
-      persistedDraft?.text ?? '',
-      persistedDraft?.selectedFiles ?? []
+      shouldResetHomeReferenceDraft ? '' : persistedText,
+      shouldResetHomeReferenceDraft ? [] : persistedSelectedFiles
     )
     setAttachedImages(persistedDraft?.images ? cloneImageAttachments(persistedDraft.images) : [])
     setSelectedSkill(persistedDraft?.skill ?? null)
@@ -1240,7 +1336,14 @@ export function InputArea({
     return () => {
       window.cancelAnimationFrame(rafId)
     }
-  }, [activeDraftKey, applyEditorStateFromSerializedText, inputDraftHydrated, persistedDraft])
+  }, [
+    activeDraftKey,
+    applyEditorStateFromSerializedText,
+    inputDraftHydrated,
+    isHomeComposer,
+    persistedDraft,
+    workingFolder
+  ])
 
   React.useEffect(() => {
     if (!activeDraftKey || !inputDraftHydrated) return
@@ -1393,6 +1496,27 @@ export function InputArea({
   }, [])
 
   const effectiveLongRunningMode = activeSessionId ? longRunningMode : homeLongRunningMode
+  const availableComposerModes = React.useMemo(
+    () =>
+      projectScoped
+        ? composerModeOptions.filter((option) => option.value !== 'chat')
+        : composerModeOptions.filter((option) => option.value === 'chat'),
+    [projectScoped]
+  )
+  const showModeSwitchControl = projectScoped && availableComposerModes.length > 1
+  const activeComposerMode =
+    availableComposerModes.find((option) => option.value === mode) ??
+    availableComposerModes[0] ??
+    composerModeOptions[0]!
+  const handleModeSwitch = React.useCallback(
+    (nextMode: AppMode) => {
+      setMode(nextMode)
+      if (draftSessionId) {
+        updateSessionMode(draftSessionId, nextMode)
+      }
+    },
+    [draftSessionId, setMode, updateSessionMode]
+  )
 
   const handleToggleLongRunningMode = React.useCallback(() => {
     if (activeSessionId) {
@@ -1406,6 +1530,8 @@ export function InputArea({
     const serialized = finalSerializedText.trim()
     if (!serialized && attachedImages.length === 0) return
     if (disabled || needsWorkingFolder) return
+
+    cancelPromptRecommendation()
 
     const hasLeadingSlashCommand = text.trimStart().startsWith('/')
     const message =
@@ -1744,11 +1870,219 @@ export function InputArea({
     setShowOptimizationDialog(false)
   }, [])
 
+  const modeSwitchControl = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          data-tour="mode-switch"
+          className={cn(
+            'h-8 shrink-0 gap-1.5 rounded-md border-0 bg-transparent px-1.5 text-[11px] shadow-none transition-colors hover:bg-transparent',
+            usesProjectComposerChrome
+              ? 'text-foreground/85 hover:text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+          disabled={disabled || isStreaming}
+        >
+          {activeComposerMode.icon}
+          <span>{activeComposerMode.label}</span>
+          <ChevronDown className="size-3.5 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-40">
+        {availableComposerModes.map((option) => {
+          const active = mode === option.value
+          return (
+            <DropdownMenuItem
+              key={option.value}
+              className={cn(
+                'gap-2',
+                active &&
+                  'bg-accent text-accent-foreground focus:bg-accent focus:text-accent-foreground'
+              )}
+              onSelect={() => handleModeSwitch(option.value)}
+            >
+              {option.icon}
+              <span>{option.label}</span>
+            </DropdownMenuItem>
+          )
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
+  const webSearchToggleControl = canToggleWebSearch && (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            'size-8 transition-colors hover:bg-muted/50',
+            usesProjectComposerChrome ? 'rounded-full' : 'rounded-lg',
+            webSearchEnabled
+              ? 'text-blue-600 dark:text-blue-400'
+              : 'text-muted-foreground hover:text-foreground',
+            usesProjectComposerChrome && !webSearchEnabled && 'hover:bg-white/5'
+          )}
+          onClick={toggleWebSearch}
+          disabled={disabled || isStreaming}
+        >
+          <Globe className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {webSearchEnabled
+          ? t('input.disableWebSearch', { defaultValue: 'Disable web search' })
+          : t('input.enableWebSearch', { defaultValue: 'Enable web search' })}
+      </TooltipContent>
+    </Tooltip>
+  )
+
+  const skillsMenuControl = (
+    <SkillsMenu
+      onSelectSkill={(name) => {
+        setSelectedSkill(name)
+        editorRef.current?.focus()
+      }}
+      onSelectCommand={(name) => {
+        insertSlashCommand(name)
+      }}
+      onAttachMedia={() => {
+        fileInputRef.current?.click()
+      }}
+      disabled={disabled || isStreaming}
+      projectId={activeProjectId}
+      showChannels={mode !== 'chat'}
+    />
+  )
+
+  const activeMcpBadge = <ActiveMcpsBadge projectId={activeProjectId} />
+
+  const longRunningControl = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            'size-8 transition-colors hover:bg-muted/50',
+            usesProjectComposerChrome ? 'rounded-full' : 'rounded-lg',
+            effectiveLongRunningMode
+              ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+          onClick={handleToggleLongRunningMode}
+          disabled={disabled || isStreaming}
+        >
+          <Sparkles className="size-4" fill={effectiveLongRunningMode ? 'currentColor' : 'none'} />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {effectiveLongRunningMode
+          ? t('input.longRunningModeOn', { defaultValue: '长时间运行模式：开启' })
+          : t('input.longRunningModeOff', { defaultValue: '长时间运行模式：关闭' })}
+      </TooltipContent>
+    </Tooltip>
+  )
+
+  const folderControl = onSelectFolder && !hideWorkingFolderPicker && (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            'size-8 rounded-lg text-muted-foreground hover:text-foreground',
+            usesProjectComposerChrome && 'rounded-full hover:bg-white/5'
+          )}
+          onClick={onSelectFolder}
+        >
+          <FolderOpen className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{t('input.selectFolder')}</TooltipContent>
+    </Tooltip>
+  )
+
+  const stopControl = isStreaming && (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8 rounded-lg border-amber-200 bg-amber-50 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:hover:bg-amber-900/40"
+          onClick={onStop}
+        >
+          <Spinner className="size-4 text-amber-600 dark:text-amber-400" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{t('input.stopTooltip')}</TooltipContent>
+    </Tooltip>
+  )
+
+  const optimizeControl = !isStreaming && (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 rounded-lg text-muted-foreground hover:text-foreground disabled:opacity-50"
+          onClick={handleOptimizePrompt}
+          disabled={!text.trim() || disabled || isOptimizing}
+        >
+          {isOptimizing ? <Spinner className="size-4" /> : <Wand2 className="size-4" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {isOptimizing ? t('input.optimizing') : t('input.optimizePrompt')}
+      </TooltipContent>
+    </Tooltip>
+  )
+
+  const sendControl = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          size="sm"
+          className={cn(
+            'transition-all shadow-sm',
+            usesProjectComposerChrome
+              ? 'size-9 rounded-full bg-white p-0 text-black hover:bg-white/90 shadow-[0_10px_24px_-14px_rgba(255,255,255,0.65)]'
+              : 'h-8 rounded-lg bg-primary px-3 text-primary-foreground hover:bg-primary/90'
+          )}
+          onClick={handleSend}
+          disabled={
+            (!finalSerializedText.trim() && attachedImages.length === 0) ||
+            disabled ||
+            needsWorkingFolder ||
+            isOptimizing
+          }
+        >
+          {usesProjectComposerChrome ? (
+            <Send className="size-4" />
+          ) : (
+            <>
+              <span>{t('action.start', { ns: 'common' })}</span>
+              <Send className="ml-1.5 size-3.5" />
+            </>
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {isStreaming
+          ? t('input.sendTooltipWhileRunning', { defaultValue: 'Send after current run' })
+          : t('input.sendTooltip')}
+      </TooltipContent>
+    </Tooltip>
+  )
+
   return (
     <div
       ref={rootRef}
       data-tour="composer"
-      className={isHomeComposer ? 'px-0 py-0' : 'px-4 py-3 pb-4'}
+      className={usesProjectComposerChrome ? 'px-0 py-0' : 'px-4 py-3 pb-4'}
     >
       {/* API key warning */}
       {!hasApiKey && (
@@ -1775,7 +2109,7 @@ export function InputArea({
       )}
 
       {/* Plan mode banner */}
-      {planMode && mode !== 'chat' && (
+      {planMode && projectScoped && (
         <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-violet-500/30 bg-violet-500/5 px-3 py-1.5">
           <div className="flex items-center gap-1.5 text-xs text-violet-600 dark:text-violet-400">
             <ClipboardList className="size-3.5 shrink-0" />
@@ -1804,12 +2138,21 @@ export function InputArea({
         </div>
       )}
 
-      <div className={isHomeComposer ? 'mx-auto max-w-4xl' : 'mx-auto max-w-3xl'}>
-        {mode !== 'chat' && draftSessionId && <InlineStepsPanel sessionId={draftSessionId} />}
+      <div
+        className={
+          usesProjectComposerChrome
+            ? 'mx-auto w-full max-w-[840px]'
+            : 'mx-auto w-full max-w-[820px]'
+        }
+      >
+        {projectScoped && draftSessionId && <InlineStepsPanel sessionId={draftSessionId} />}
         <div
           ref={containerRef}
           className={cn(
-            'relative rounded-lg border bg-background shadow-lg transition-shadow focus-within:shadow-xl focus-within:ring-1 focus-within:ring-ring/20 flex flex-col',
+            'relative flex flex-col rounded-lg border transition-shadow focus-within:ring-1 focus-within:ring-ring/20',
+            usesProjectComposerChrome
+              ? 'border-white/8 bg-muted/30 shadow-[0_18px_40px_-28px_rgba(0,0,0,0.68)] backdrop-blur-sm dark:bg-[#2e2e31]/94 focus-within:shadow-[0_22px_48px_-30px_rgba(0,0,0,0.76)]'
+              : 'bg-background shadow-[0_12px_28px_-24px_rgba(0,0,0,0.6)] focus-within:shadow-[0_16px_32px_-24px_rgba(0,0,0,0.65)]',
             fileMenuOpen || slashMenuOpen ? 'overflow-visible' : 'overflow-hidden',
             dragging && 'ring-2 ring-primary/50'
           )}
@@ -1820,7 +2163,7 @@ export function InputArea({
           }
         >
           {/* Top drag handle */}
-          {!isHomeComposer && (
+          {!usesProjectComposerChrome && (
             <div className="h-1.5 cursor-row-resize rounded-t-lg" onMouseDown={handleDragStart} />
           )}
           {/* Queued message list */}
@@ -2208,10 +2551,10 @@ export function InputArea({
           <div
             className={cn(
               'relative flex min-h-0 flex-1 flex-col px-3',
-              isHomeComposer
+              usesProjectComposerChrome
                 ? selectedSkill || attachedImages.length > 0
                   ? 'pt-1.5'
-                  : 'pt-5'
+                  : 'pt-4'
                 : selectedSkill || attachedImages.length > 0
                   ? 'pt-1.5'
                   : 'pt-3'
@@ -2276,7 +2619,7 @@ export function InputArea({
                 onReferenceDelete={handleRemoveFileReference}
                 className={cn(
                   'w-full',
-                  isHomeComposer && (selectedSkill || attachedImages.length > 0)
+                  usesProjectComposerChrome && (selectedSkill || attachedImages.length > 0)
                     ? 'h-auto'
                     : 'h-full'
                 )}
@@ -2435,251 +2778,113 @@ export function InputArea({
             ref={bottomToolbarRef}
             className={cn(
               'relative z-20 mt-1 shrink-0 flex items-center justify-between gap-2 px-2 pb-2',
-              isHomeComposer && 'border-t border-border/50 px-4 pb-3.5 pt-2.5'
+              usesProjectComposerChrome && 'border-t border-border/50 px-4 pb-3.5 pt-2.5'
             )}
           >
-            {/* Left tools */}
-            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pr-1">
-              <div className={cn(isHomeComposer && 'mr-1')}>
-                <ModelSwitcher />
+            {usesProjectComposerChrome ? (
+              <div className="flex w-full items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pr-1 [scrollbar-width:none]">
+                  {skillsMenuControl}
+                  {showModeSwitchControl ? modeSwitchControl : null}
+                </div>
+
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <ContextRing />
+                  <div className="shrink-0">
+                    <ModelSwitcher />
+                  </div>
+                  {webSearchToggleControl}
+                  {activeMcpBadge}
+                  {mode !== 'chat' && longRunningControl}
+                  {folderControl}
+                  {optimizeControl}
+                  {stopControl}
+                  {sendControl}
+                </div>
               </div>
+            ) : (
+              <div className="flex w-full items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pr-1 [scrollbar-width:none]">
+                  {showModeSwitchControl ? modeSwitchControl : null}
+                  {showModeSwitchControl ? (
+                    <div className="h-4 w-px shrink-0 bg-border/50" />
+                  ) : null}
+                  <div className="shrink-0">
+                    <ModelSwitcher />
+                  </div>
+                  {webSearchToggleControl}
+                  {skillsMenuControl}
+                  {activeMcpBadge}
+                  {mode !== 'chat' && longRunningControl}
+                  {folderControl}
+                </div>
 
-              {/* Web search toggle */}
-              {mode !== 'chat' && !!webSearchApiKey && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className={cn(
-                        'size-8 transition-colors hover:bg-muted/50',
-                        isHomeComposer ? 'rounded-full' : 'rounded-lg',
-                        webSearchEnabled
-                          ? 'text-blue-600 dark:text-blue-400'
-                          : 'text-muted-foreground hover:text-foreground',
-                        isHomeComposer && !webSearchEnabled && 'hover:bg-white/5'
-                      )}
-                      onClick={toggleWebSearch}
-                      disabled={disabled || isStreaming}
-                    >
-                      <Globe className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {webSearchEnabled
-                      ? t('input.disableWebSearch', { defaultValue: 'Disable web search' })
-                      : t('input.enableWebSearch', { defaultValue: 'Enable web search' })}
-                  </TooltipContent>
-                </Tooltip>
-              )}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <ContextRing />
 
-              {/* Skills menu (+ button) */}
-              {mode !== 'chat' && (
-                <>
-                  <SkillsMenu
-                    onSelectSkill={(name) => {
-                      setSelectedSkill(name)
-                      editorRef.current?.focus()
-                    }}
-                    onSelectCommand={(name) => {
-                      insertSlashCommand(name)
-                    }}
-                    onAttachMedia={() => {
-                      fileInputRef.current?.click()
-                    }}
-                    disabled={disabled || isStreaming}
-                    projectId={activeProjectId}
-                  />
-                  <ActiveMcpsBadge projectId={activeProjectId} />
-                </>
-              )}
+                  {debouncedTokens > 0 && (
+                    <span className="select-none tabular-nums text-[10px] text-muted-foreground/60">
+                      {formatTokens(debouncedTokens)} tokens
+                    </span>
+                  )}
 
-              {mode !== 'chat' && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className={cn(
-                        'size-8 transition-colors hover:bg-muted/50',
-                        isHomeComposer ? 'rounded-full' : 'rounded-lg',
-                        effectiveLongRunningMode
-                          ? 'text-violet-600 dark:text-violet-400'
-                          : 'text-muted-foreground hover:text-foreground',
-                        isHomeComposer && !effectiveLongRunningMode && 'hover:bg-white/5'
-                      )}
-                      onClick={handleToggleLongRunningMode}
-                      disabled={disabled || isStreaming}
-                    >
-                      <Sparkles
-                        className="size-4"
-                        fill={effectiveLongRunningMode ? 'currentColor' : 'none'}
-                      />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {effectiveLongRunningMode
-                      ? t('input.longRunningModeOn', { defaultValue: '长时间运行模式：开启' })
-                      : t('input.longRunningModeOff', { defaultValue: '长时间运行模式：关闭' })}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-
-              {/* Attachment / Folder button */}
-              {onSelectFolder && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className={cn(
-                        'size-8 rounded-lg text-muted-foreground hover:text-foreground',
-                        isHomeComposer && 'rounded-full hover:bg-white/5'
-                      )}
-                      onClick={onSelectFolder}
-                    >
-                      <FolderOpen className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('input.selectFolder')}</TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-
-            {/* Right actions */}
-            <div className="flex shrink-0 items-center gap-2">
-              <ContextRing />
-
-              {debouncedTokens > 0 && (
-                <span className="text-[10px] text-muted-foreground/60 select-none tabular-nums">
-                  {formatTokens(debouncedTokens)} tokens
-                </span>
-              )}
-
-              {/* Clear messages */}
-              {showInlineClearConversation && hasMessages && !isStreaming && (
-                <AlertDialog>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex">
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 rounded-lg text-muted-foreground/40 hover:text-destructive"
+                  {showInlineClearConversation && hasMessages && !isStreaming && (
+                    <AlertDialog>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex">
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-8 rounded-lg text-muted-foreground/40 hover:text-destructive"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </AlertDialogTrigger>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('input.clearConversation')}</TooltipContent>
+                      </Tooltip>
+                      <AlertDialogContent size="sm">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>{t('input.clearConfirmTitle')}</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {queuedMessages.length > 0
+                              ? t('input.clearConfirmDescWithQueue', {
+                                  defaultValue:
+                                    '这将删除此对话中的所有消息，并清空当前会话的 {{count}} 条待发送消息。此操作不可撤销。',
+                                  count: queuedMessages.length
+                                })
+                              : t('input.clearConfirmDesc')}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel size="sm">
+                            {t('action.cancel', { ns: 'common' })}
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => {
+                              if (!activeSessionId) return
+                              clearSessionMessages(activeSessionId)
+                              clearPendingSessionMessages(activeSessionId)
+                            }}
                           >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </AlertDialogTrigger>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('input.clearConversation')}</TooltipContent>
-                  </Tooltip>
-                  <AlertDialogContent size="sm">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{t('input.clearConfirmTitle')}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {queuedMessages.length > 0
-                          ? t('input.clearConfirmDescWithQueue', {
-                              defaultValue:
-                                '这将删除此对话中的所有消息，并清空当前会话的 {{count}} 条待发送消息。此操作不可撤销。',
-                              count: queuedMessages.length
-                            })
-                          : t('input.clearConfirmDesc')}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel size="sm">
-                        {t('action.cancel', { ns: 'common' })}
-                      </AlertDialogCancel>
-                      <AlertDialogAction
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => {
-                          if (!activeSessionId) return
-                          clearSessionMessages(activeSessionId)
-                          clearPendingSessionMessages(activeSessionId)
-                        }}
-                      >
-                        {t('action.clear', { ns: 'common' })}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
+                            {t('action.clear', { ns: 'common' })}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
 
-              {/* Send / Stop button */}
-              {isStreaming && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="size-8 rounded-lg bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/40"
-                      onClick={onStop}
-                    >
-                      <Spinner className="size-4 text-amber-600 dark:text-amber-400" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('input.stopTooltip')}</TooltipContent>
-                </Tooltip>
-              )}
-
-              {/* Optimize prompt button */}
-              {!isStreaming && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 rounded-lg text-muted-foreground hover:text-foreground disabled:opacity-50"
-                      onClick={handleOptimizePrompt}
-                      disabled={!text.trim() || disabled || isOptimizing}
-                    >
-                      {isOptimizing ? <Spinner className="size-4" /> : <Wand2 className="size-4" />}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {isOptimizing ? t('input.optimizing') : t('input.optimizePrompt')}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    className={cn(
-                      'transition-all shadow-sm',
-                      isHomeComposer
-                        ? 'size-9 rounded-full bg-white p-0 text-black hover:bg-white/90 shadow-[0_10px_24px_-14px_rgba(255,255,255,0.65)]'
-                        : 'h-8 rounded-lg bg-primary px-3 text-primary-foreground hover:bg-primary/90'
-                    )}
-                    onClick={handleSend}
-                    disabled={
-                      (!finalSerializedText.trim() && attachedImages.length === 0) ||
-                      disabled ||
-                      needsWorkingFolder ||
-                      isOptimizing
-                    }
-                  >
-                    {isHomeComposer ? (
-                      <Send className="size-4" />
-                    ) : (
-                      <>
-                        <span>{t('action.start', { ns: 'common' })}</span>
-                        <Send className="ml-1.5 size-3.5" />
-                      </>
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isStreaming
-                    ? t('input.sendTooltipWhileRunning', { defaultValue: 'Send after current run' })
-                    : t('input.sendTooltip')}
-                </TooltipContent>
-              </Tooltip>
-            </div>
+                  {stopControl}
+                  {optimizeControl}
+                  {sendControl}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

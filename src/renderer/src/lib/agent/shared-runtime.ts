@@ -111,11 +111,16 @@ export async function runSharedAgentRuntime(
   }
 
   try {
-    const loop = runAgentLoop(initialMessages, effectiveLoopConfig, toolContext, async (toolCall) => {
-      if (isReadOnlyTool?.(toolCall.name)) return true
-      if (onApprovalNeeded) return onApprovalNeeded(toolCall)
-      return false
-    })
+    const loop = runAgentLoop(
+      initialMessages,
+      effectiveLoopConfig,
+      toolContext,
+      async (toolCall) => {
+        if (isReadOnlyTool?.(toolCall.name)) return true
+        if (onApprovalNeeded) return onApprovalNeeded(toolCall)
+        return false
+      }
+    )
 
     for await (const event of loop) {
       if (toolContext.signal.aborted) {
@@ -214,7 +219,7 @@ export async function runSharedAgentRuntime(
 export const DEFAULT_FALLBACK_REPORT_PROMPT =
   'Your previous turn ended without producing any visible text. Your caller has no way to see what you did. ' +
   'Now, based on everything you executed in this conversation (tool calls, findings, analysis, attempts, and ' +
-  "failures), write a detailed work report. The report MUST include:\n" +
+  'failures), write a detailed work report. The report MUST include:\n' +
   '1. What you were asked to do and your interpretation of the task.\n' +
   '2. The concrete steps you took, in order, with the key evidence you gathered from each tool call.\n' +
   '3. Your findings, conclusions, or the artifacts you produced (paste or quote the important parts directly).\n' +
@@ -289,18 +294,19 @@ export function mergeTokenUsage(target: TokenUsage, usage: TokenUsage): void {
     target.cacheCreationTokens = (target.cacheCreationTokens ?? 0) + usage.cacheCreationTokens
   }
   if (usage.cacheCreation5mTokens) {
-    target.cacheCreation5mTokens =
-      (target.cacheCreation5mTokens ?? 0) + usage.cacheCreation5mTokens
+    target.cacheCreation5mTokens = (target.cacheCreation5mTokens ?? 0) + usage.cacheCreation5mTokens
   }
   if (usage.cacheCreation1hTokens) {
-    target.cacheCreation1hTokens =
-      (target.cacheCreation1hTokens ?? 0) + usage.cacheCreation1hTokens
+    target.cacheCreation1hTokens = (target.cacheCreation1hTokens ?? 0) + usage.cacheCreation1hTokens
   }
   if (usage.cacheReadTokens) {
     target.cacheReadTokens = (target.cacheReadTokens ?? 0) + usage.cacheReadTokens
   }
   if (usage.reasoningTokens) {
     target.reasoningTokens = (target.reasoningTokens ?? 0) + usage.reasoningTokens
+  }
+  if (usage.contextLength) {
+    target.contextLength = usage.contextLength
   }
 }
 

@@ -12,7 +12,6 @@ import {
   GitBranch,
   Loader2,
   Minus,
-  PanelLeftOpen,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -69,7 +68,6 @@ import {
 import { useGitPanelSplit } from '@renderer/hooks/use-git-panel-split'
 import { generateCommitMessageFromStagedDiff } from '@renderer/lib/git/generate-commit-message'
 import { useChatStore } from '@renderer/stores/chat-store'
-import { useUIStore } from '@renderer/stores/ui-store'
 
 type ScmFileSection = 'staged' | 'unstaged' | 'untracked' | 'conflicted'
 
@@ -322,8 +320,6 @@ function ScmFileRowView({
 
 export function GitPage(): React.JSX.Element {
   const { t, i18n } = useTranslation('chat', { keyPrefix: 'git' })
-  const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen)
-  const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar)
   const activeProjectId = useChatStore((s) => s.activeProjectId)
   const projects = useChatStore((s) => s.projects)
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null
@@ -518,6 +514,12 @@ export function GitPage(): React.JSX.Element {
   const upstreamHint = status?.upstream
     ? t('upstreamHint', { upstream: status.upstream, ahead: status.ahead, behind: status.behind })
     : null
+  const selectedRepoLabel = selectedRepo
+    ? selectedRepo.relativePath === '.'
+      ? selectedRepo.name
+      : selectedRepo.relativePath
+    : null
+  const totalChangeCount = conflictRows.length + stagedRows.length + unstagedRows.length
 
   const handlePullRebase = async (): Promise<void> => {
     if (!selectedRepoPath) return
@@ -717,30 +719,51 @@ export function GitPage(): React.JSX.Element {
 
   if (!activeProject) {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        {t('noProject')}
+      <div className="flex flex-1 items-center justify-center bg-background px-6">
+        <div className="max-w-md text-center">
+          <div className="text-[28px] font-semibold tracking-tight text-foreground">
+            {t('noProject')}
+          </div>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            {t('pickRepo', {
+              defaultValue: 'Select a project to inspect repositories and changes.'
+            })}
+          </p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      {!leftSidebarOpen ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute left-2 top-2 z-10 size-8"
-          onClick={toggleLeftSidebar}
-        >
-          <PanelLeftOpen className="size-4" />
-        </Button>
-      ) : null}
-
-      <div ref={containerRef} className="flex min-h-0 min-w-0 flex-1">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background px-6 pb-6 pt-4">
+      <div className="mx-auto w-full max-w-[1480px] pb-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+              {t('title')}
+            </p>
+            <h1 className="mt-1 truncate text-sm font-medium text-foreground/92">
+              {activeProject.name}
+            </h1>
+            <p className="mt-1 max-w-[880px] truncate text-xs text-muted-foreground/72">
+              {selectedRepoLabel ?? activeProject.workingFolder ?? t('pickRepo')}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground/72">
+            <span>{repositories.length} repos</span>
+            <span>{totalChangeCount} changes</span>
+            {conflictRows.length > 0 ? <span>{conflictRows.length} conflicts</span> : null}
+          </div>
+        </div>
+      </div>
+      <div
+        ref={containerRef}
+        className="mx-auto flex min-h-0 min-w-0 w-full max-w-[1480px] flex-1 overflow-hidden rounded-md border border-border/60 bg-background"
+      >
         {/* SCM 侧栏 — 对齐 VS Code「源代码管理」结构 */}
         <aside
           style={{ width: scmWidth }}
-          className="flex min-w-0 shrink-0 flex-col border-r border-border bg-muted/20"
+          className="flex min-w-0 shrink-0 flex-col border-r border-border/60 bg-muted/10"
         >
           <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

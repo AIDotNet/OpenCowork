@@ -147,8 +147,9 @@ export function AppSidebar(): React.JSX.Element {
     [sessionsRaw]
   )
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const streamingSessionIdsSig = useChatStore((s) => Object.keys(s.streamingMessages).sort().join('\u0000'))
-  const createSession = useChatStore((s) => s.createSession)
+  const streamingSessionIdsSig = useChatStore((s) =>
+    Object.keys(s.streamingMessages).sort().join('\u0000')
+  )
   const deleteSession = useChatStore((s) => s.deleteSession)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
   const clearSessionMessages = useChatStore((s) => s.clearSessionMessages)
@@ -187,7 +188,8 @@ export function AppSidebar(): React.JSX.Element {
     [runningSubAgentSessionIdsSig]
   )
   const runningBackgroundSessionIds = useMemo(
-    () => new Set(runningBackgroundSessionIdsSig ? runningBackgroundSessionIdsSig.split('\u0000') : []),
+    () =>
+      new Set(runningBackgroundSessionIdsSig ? runningBackgroundSessionIdsSig.split('\u0000') : []),
     [runningBackgroundSessionIdsSig]
   )
   const streamingSessionIds = useMemo(
@@ -205,7 +207,11 @@ export function AppSidebar(): React.JSX.Element {
     const hasStreaming = streamingSessionIds.has(id)
     const hasActiveTeam = activeTeamSessionId === id
     const hasRunning =
-      isAgentRunning || hasActiveSubAgents || hasActiveBackgroundProcess || hasStreaming || hasActiveTeam
+      isAgentRunning ||
+      hasActiveSubAgents ||
+      hasActiveBackgroundProcess ||
+      hasStreaming ||
+      hasActiveTeam
     return {
       isAgentRunning,
       hasActiveSubAgents,
@@ -263,7 +269,10 @@ export function AppSidebar(): React.JSX.Element {
   ])
 
   const handleNewSession = (): void => {
-    createSession(mode)
+    const uiStore = useUIStore.getState()
+    setActiveSession(null)
+    uiStore.setMode('chat')
+    uiStore.navigateToHome()
   }
 
   const handleExport = async (sessionId: string): Promise<void> => {
@@ -714,19 +723,21 @@ export function AppSidebar(): React.JSX.Element {
                                 {t('sidebar.switchMode')}
                               </ContextMenuSubTrigger>
                               <ContextMenuSubContent>
-                                {(['chat', 'clarify', 'cowork', 'code', 'acp'] as const).map((m) => (
-                                  <ContextMenuItem
-                                    key={m}
-                                    disabled={session.mode === m}
-                                    onClick={() => {
-                                      updateSessionMode(session.id, m)
-                                      toast.success(t('sidebar_toast.switchedMode', { mode: m }))
-                                    }}
-                                  >
-                                    {modeIcons[m]}
-                                    <span className="capitalize">{t(`sidebar.mode.${m}`)}</span>
-                                  </ContextMenuItem>
-                                ))}
+                                {(['chat', 'clarify', 'cowork', 'code', 'acp'] as const).map(
+                                  (m) => (
+                                    <ContextMenuItem
+                                      key={m}
+                                      disabled={session.mode === m}
+                                      onClick={() => {
+                                        updateSessionMode(session.id, m)
+                                        toast.success(t('sidebar_toast.switchedMode', { mode: m }))
+                                      }}
+                                    >
+                                      {modeIcons[m]}
+                                      <span className="capitalize">{t(`sidebar.mode.${m}`)}</span>
+                                    </ContextMenuItem>
+                                  )
+                                )}
                               </ContextMenuSubContent>
                             </ContextMenuSub>
                             <ContextMenuSeparator />

@@ -8,6 +8,12 @@ export interface TeamPromptSnapshot {
   activeMembers?: string[]
 }
 
+function getTaskDetails(description: string | null | undefined, subject: string): string | null {
+  const trimmed = typeof description === 'string' ? description.trim() : ''
+  if (!trimmed || trimmed === subject.trim()) return null
+  return trimmed
+}
+
 export function buildLeadCoordinatorPrompt(team: ActiveTeam): string {
   const members = team.members.map((member) => member.name)
   const parts: string[] = [
@@ -59,18 +65,21 @@ export function buildTeammateAddendum(options: {
   ]
 
   if (task) {
-    parts.push(
-      '\n## Assigned Task',
-      `**ID:** ${task.id}`,
-      `**Subject:** ${task.subject}`,
-      `**Description:** ${task.description}`
-    )
+    parts.push('\n## Assigned Task', `**ID:** ${task.id}`, `**Title:** ${task.subject}`)
+    const details = getTaskDetails(task.description, task.subject)
+    if (details) {
+      parts.push(`**Details:** ${details}`)
+    }
   }
 
   parts.push('\n## Direct Instructions', prompt)
 
   if (workingFolder) {
-    parts.push('\n## Working Folder', `\`${workingFolder}\``, 'Resolve relative paths against this folder.')
+    parts.push(
+      '\n## Working Folder',
+      `\`${workingFolder}\``,
+      'Resolve relative paths against this folder.'
+    )
   }
 
   parts.push(

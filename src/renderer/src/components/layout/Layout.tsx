@@ -1,14 +1,10 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import {
-  CircleHelp,
-  Briefcase,
-  Code2,
-  ShieldCheck,
   ClipboardCopy,
   Check,
   ImageDown,
   Loader2,
-  PanelLeftOpen,
+  MoreHorizontal,
   ExternalLink,
   Minimize2,
   X
@@ -19,12 +15,17 @@ import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { Button } from '@renderer/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@renderer/components/ui/dropdown-menu'
+import {
   Tooltip,
   TooltipContent,
-  TooltipTrigger,
-  TooltipProvider
+  TooltipProvider,
+  TooltipTrigger
 } from '@renderer/components/ui/tooltip'
-import { cn } from '@renderer/lib/utils'
 import { TitleBar } from './TitleBar'
 import { WorkspaceSidebar } from './WorkspaceSidebar'
 import { RightPanel } from './RightPanel'
@@ -53,43 +54,11 @@ import { toast } from 'sonner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
+import { cn } from '@renderer/lib/utils'
 import { dataUrlToBlob, writeImageBlobToClipboard } from '@renderer/lib/utils/image-clipboard'
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence } from 'motion/react'
 import { PageTransition, PanelTransition } from '@renderer/components/animate-ui'
 import { useShallow } from 'zustand/react/shallow'
-import {
-  renderModeTooltipContent,
-  type ModeOption,
-  type SelectableMode
-} from '@renderer/lib/mode-tooltips'
-
-const modes: ModeOption[] = [
-  { value: 'clarify', labelKey: 'mode.clarify', icon: <CircleHelp className="size-3.5" /> },
-  { value: 'cowork', labelKey: 'mode.cowork', icon: <Briefcase className="size-3.5" /> },
-  { value: 'code', labelKey: 'mode.code', icon: <Code2 className="size-3.5" /> },
-  { value: 'acp', labelKey: 'mode.acp', icon: <ShieldCheck className="size-3.5" /> }
-]
-
-const MODE_SWITCH_TRANSITION = {
-  type: 'spring',
-  stiffness: 320,
-  damping: 26,
-  mass: 0.7
-} as const
-
-const MODE_SWITCH_HIGHLIGHT_CLASS: Record<SelectableMode, string> = {
-  clarify: 'border-amber-500/15 bg-amber-500/5 shadow-sm',
-  cowork: 'border-emerald-500/15 bg-emerald-500/5 shadow-sm',
-  code: 'border-violet-500/15 bg-violet-500/5 shadow-sm',
-  acp: 'border-cyan-500/15 bg-cyan-500/5 shadow-sm'
-}
-
-const MODE_SWITCH_ACTIVE_TEXT_CLASS: Record<SelectableMode, string> = {
-  clarify: 'text-foreground',
-  cowork: 'text-foreground',
-  code: 'text-foreground',
-  acp: 'text-foreground'
-}
 
 const SettingsPage = lazy(async () => {
   const mod = await import('@renderer/components/settings/SettingsPage')
@@ -142,7 +111,6 @@ interface LayoutProps {
 
 export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.JSX.Element {
   const { t } = useTranslation('layout')
-  const { t: tCommon } = useTranslation('common')
   const mode = useUIStore((s) => s.mode)
   const setMode = useUIStore((s) => s.setMode)
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen)
@@ -167,15 +135,27 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
         : undefined
       return {
         activeProjectId: activeProjectId ?? null,
-        activeSessionTitle: activeSession?.title,
+        activeProjectName: activeProject?.name ?? null,
+        activeSessionProjectId: activeSession?.projectId ?? null,
+        activeSessionTitle: activeSession?.title ?? null,
         activeSessionMode: activeSession?.mode as SessionMode | undefined,
-        activeWorkingFolder: activeProject?.workingFolder,
-        activeSessionSshConnectionId: activeProject?.sshConnectionId
+        activeSessionMessageCount: activeSession?.messageCount ?? 0,
+        activeWorkingFolder: activeSession?.workingFolder ?? activeProject?.workingFolder,
+        activeSessionSshConnectionId:
+          activeSession?.sshConnectionId ?? activeProject?.sshConnectionId ?? null
       }
     })
   )
-  const { activeProjectId, activeSessionTitle, activeSessionMode, activeWorkingFolder } =
-    activeSessionView
+  const {
+    activeProjectId,
+    activeProjectName,
+    activeSessionProjectId,
+    activeSessionTitle,
+    activeSessionMode,
+    activeSessionMessageCount,
+    activeWorkingFolder
+  } = activeSessionView
+  const compactSessionHeader = activeSessionMessageCount === 0
   const miniWindowSession = useChatStore((s) =>
     miniSessionWindowSessionId
       ? s.sessions.find((session) => session.id === miniSessionWindowSessionId)
@@ -225,6 +205,14 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     [activeSessionId, chatView, setMode, updateSessionMode]
   )
 
+  const handleCreateChatSession = useCallback((): void => {
+    const store = useChatStore.getState()
+    const uiStore = useUIStore.getState()
+    store.setActiveSession(null)
+    uiStore.setMode('chat')
+    uiStore.navigateToHome()
+  }, [])
+
   useEffect(() => {
     void initBackgroundProcessTracking()
   }, [initBackgroundProcessTracking])
@@ -242,14 +230,14 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
       return
     }
 
-    const base = activeSessionTitle ? `${activeSessionTitle} — OpenCoWork` : 'OpenCoWork'
+    const base = activeSessionTitle ? `${activeSessionTitle} 闂?OpenCoWork` : 'OpenCoWork'
     const prefix =
       pendingToolCallCount > 0
         ? `(${pendingToolCallCount} pending) `
         : runningSubAgentCount > 0
-          ? `🧠 ${runningSubAgentLabel} | `
+          ? `濡絽鍠氬?${runningSubAgentLabel} | `
           : streamingMessageId
-            ? '⏳ '
+            ? '闂?'
             : ''
     document.title = `${prefix}${base}`
   }, [
@@ -264,15 +252,43 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   // Sync UI mode only when session info changes, so manual top-bar toggles are respected
   useEffect(() => {
     if (!activeSessionMode) return
+    const normalizedSessionMode: AppMode = activeSessionProjectId
+      ? activeSessionMode === 'chat'
+        ? 'cowork'
+        : activeSessionMode
+      : 'chat'
     const currentMode = useUIStore.getState().mode
-    if (currentMode !== activeSessionMode) {
+    if (currentMode !== normalizedSessionMode) {
       queueMicrotask(() => {
-        if (useUIStore.getState().mode !== activeSessionMode) {
-          useUIStore.getState().setMode(activeSessionMode)
+        if (useUIStore.getState().mode !== normalizedSessionMode) {
+          useUIStore.getState().setMode(normalizedSessionMode)
         }
       })
     }
-  }, [activeSessionId, activeSessionMode])
+  }, [activeSessionId, activeSessionMode, activeSessionProjectId])
+
+  useEffect(() => {
+    if (chatView !== 'session' || !activeSessionId || !activeSessionMode) return
+
+    if (activeSessionProjectId && activeSessionMode === 'chat') {
+      updateSessionMode(activeSessionId, 'cowork')
+      return
+    }
+
+    if (!activeSessionProjectId && activeSessionMode !== 'chat') {
+      updateSessionMode(activeSessionId, 'chat')
+    }
+  }, [activeSessionId, activeSessionMode, activeSessionProjectId, chatView, updateSessionMode])
+
+  useEffect(() => {
+    if (chatView === 'session') return
+
+    const nextMode = chatView === 'home' ? 'chat' : mode === 'chat' ? 'cowork' : null
+
+    if (nextMode && mode !== nextMode) {
+      setMode(nextMode)
+    }
+  }, [chatView, mode, setMode])
 
   useEffect(() => {
     if (chatView !== 'session' || activeSessionId) return
@@ -332,10 +348,10 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent): Promise<void> => {
-      // Ctrl+Shift+N: New session — navigate to home
+      // Ctrl+Shift+N: New independent chat session
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'N' || e.key === 'n')) {
         e.preventDefault()
-        useUIStore.getState().navigateToHome()
+        handleCreateChatSession()
         return
       }
       // Ctrl+1/2/3/4: Switch mode
@@ -344,10 +360,10 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
         const modeMap = { '1': 'clarify', '2': 'cowork', '3': 'code', '4': 'acp' } as const
         handleModeChange(modeMap[e.key as '1' | '2' | '3' | '4'])
       }
-      // Ctrl+N: New chat — navigate to home
+      // Ctrl+N: New independent chat session
       if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
         e.preventDefault()
-        useUIStore.getState().navigateToHome()
+        handleCreateChatSession()
       }
       // Ctrl+,: Open settings
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
@@ -585,6 +601,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
+    handleCreateChatSession,
     mode,
     setSettingsOpen,
     toggleLeftSidebar,
@@ -714,15 +731,10 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     }
   }
 
-  const chatSurfaceActive =
-    !tasksPageOpen &&
-    !resourcesPageOpen &&
-    !skillsPageOpen &&
-    !settingsPageOpen &&
-    !drawPageOpen &&
-    !translatePageOpen
+  const hasProjectFolderAction = Boolean(activeSessionProjectId && activeWorkingFolder)
+  const hasTranscriptActions = activeSessionMessageCount > 0
+  const showSessionActionBar = hasProjectFolderAction || hasTranscriptActions
   const showEmbeddedSidebar = leftSidebarOpen
-  const showGlobalExpandButton = !leftSidebarOpen && !chatSurfaceActive && !settingsPageOpen
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -741,357 +753,330 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
               )}
             </AnimatePresence>
 
-            {showGlobalExpandButton && (
-              <div className="titlebar-no-drag absolute left-3 top-3 z-20">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="titlebar-no-drag size-8 rounded-lg border border-border/60 bg-background/80 backdrop-blur-sm"
-                      onMouseDown={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        toggleLeftSidebar()
-                      }}
-                    >
-                      <PanelLeftOpen className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t('layout.expandSidebar', { defaultValue: 'Expand sidebar' })}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            )}
-
             {/* Main content area */}
             <AnimatePresence mode="wait">
               {tasksPageOpen ? (
-                  <PageTransition
-                    key="tasks-page"
-                    className="flex-1 min-w-0 bg-background overflow-hidden"
-                  >
-                    <Suspense fallback={<LazyPageFallback />}>
-                      <TasksPage />
-                    </Suspense>
-                  </PageTransition>
-                ) : resourcesPageOpen ? (
-                  <PageTransition
-                    key="resources-page"
-                    className="flex-1 min-w-0 bg-background overflow-hidden"
-                  >
-                    <Suspense fallback={<LazyPageFallback />}>
-                      <ResourcesPage />
-                    </Suspense>
-                  </PageTransition>
-                ) : skillsPageOpen ? (
-                  <PageTransition
-                    key="skills-page"
-                    className="flex-1 min-w-0 bg-background overflow-hidden"
-                  >
-                    <Suspense fallback={<LazyPageFallback />}>
-                      <SkillsPage />
-                    </Suspense>
-                  </PageTransition>
-                ) : settingsPageOpen ? (
-                  <PageTransition
-                    key="settings-page"
-                    className="flex-1 min-w-0 bg-background overflow-hidden"
-                  >
-                    <Suspense fallback={<LazyPageFallback />}>
-                      <SettingsPage />
-                    </Suspense>
-                  </PageTransition>
-                ) : drawPageOpen ? (
-                  <PageTransition
-                    key="draw-page"
-                    className="flex-1 min-w-0 bg-background overflow-hidden"
-                  >
-                    <Suspense fallback={<LazyPageFallback />}>
-                      <DrawPage />
-                    </Suspense>
-                  </PageTransition>
-                ) : translatePageOpen ? (
-                  <PageTransition
-                    key="translate-page"
-                    className="flex-1 min-w-0 bg-background overflow-hidden"
-                  >
-                    <Suspense fallback={<LazyPageFallback />}>
-                      <TranslatePage />
-                    </Suspense>
-                  </PageTransition>
-                ) : chatView === 'home' ? (
-                  <PageTransition
-                    key="chat-home"
-                    className="flex flex-1 min-w-0 flex-col overflow-hidden"
-                  >
-                    <ChatHomePage />
-                  </PageTransition>
-                ) : chatView === 'project' ? (
-                  <PageTransition
-                    key="project-home"
-                    className="flex flex-1 min-w-0 flex-col overflow-hidden"
-                  >
-                    <ProjectHomePage />
-                  </PageTransition>
-                ) : chatView === 'archive' || chatView === 'channels' ? (
-                  <PageTransition
-                    key={chatView === 'channels' ? 'project-channels' : 'project-archive'}
-                    className="flex flex-1 min-w-0 flex-col overflow-hidden"
-                  >
-                    <ProjectArchivePage />
-                  </PageTransition>
-                ) : chatView === 'git' ? (
-                  <PageTransition
-                    key="project-git"
-                    className="flex flex-1 min-w-0 flex-col overflow-hidden"
-                  >
-                    <GitPage />
-                  </PageTransition>
-                ) : (
-                  <PageTransition
-                    key="main-layout"
-                    className="flex flex-1 min-w-0 flex-col overflow-hidden"
-                  >
-                    <ErrorBoundary
-                      renderFallback={(error, reset) => (
-                        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center overflow-hidden">
-                          <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
-                            <svg
-                              className="size-6 text-destructive"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
-                              />
-                            </svg>
-                          </div>
-                          <div className="space-y-1">
-                            <h3 className="text-sm font-semibold text-foreground">
-                              {t('layout.somethingWentWrong')}
-                            </h3>
-                            <p className="max-w-md text-xs text-muted-foreground">
-                              {error?.message || t('layout.unexpectedError')}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-                              onClick={reset}
-                            >
-                              {t('layout.tryAgain')}
-                            </button>
-                            <button
-                              className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                              onClick={() => window.location.reload()}
-                            >
-                              {t('layout.reloadApp')}
-                            </button>
-                            <button
-                              className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                              onClick={() => {
-                                const text = `Error: ${error?.message}\nStack: ${error?.stack}`
-                                navigator.clipboard.writeText(text)
-                              }}
-                            >
-                              {t('layout.copyError')}
-                            </button>
-                          </div>
-                          {error?.stack && (
-                            <details className="w-full max-w-lg text-left">
-                              <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground transition-colors">
-                                {t('layout.errorDetails')}
-                              </summary>
-                              <pre className="mt-1 max-h-32 overflow-auto rounded-md bg-muted p-2 text-[10px] leading-relaxed text-muted-foreground">
-                                {error.stack}
-                              </pre>
-                            </details>
-                          )}
+                <PageTransition
+                  key="tasks-page"
+                  className="flex-1 min-w-0 bg-background overflow-hidden"
+                >
+                  <Suspense fallback={<LazyPageFallback />}>
+                    <TasksPage />
+                  </Suspense>
+                </PageTransition>
+              ) : resourcesPageOpen ? (
+                <PageTransition
+                  key="resources-page"
+                  className="flex-1 min-w-0 bg-background overflow-hidden"
+                >
+                  <Suspense fallback={<LazyPageFallback />}>
+                    <ResourcesPage />
+                  </Suspense>
+                </PageTransition>
+              ) : skillsPageOpen ? (
+                <PageTransition
+                  key="skills-page"
+                  className="flex-1 min-w-0 bg-background overflow-hidden"
+                >
+                  <Suspense fallback={<LazyPageFallback />}>
+                    <SkillsPage />
+                  </Suspense>
+                </PageTransition>
+              ) : settingsPageOpen ? (
+                <PageTransition
+                  key="settings-page"
+                  className="flex-1 min-w-0 bg-background overflow-hidden"
+                >
+                  <Suspense fallback={<LazyPageFallback />}>
+                    <SettingsPage />
+                  </Suspense>
+                </PageTransition>
+              ) : drawPageOpen ? (
+                <PageTransition
+                  key="draw-page"
+                  className="flex-1 min-w-0 bg-background overflow-hidden"
+                >
+                  <Suspense fallback={<LazyPageFallback />}>
+                    <DrawPage />
+                  </Suspense>
+                </PageTransition>
+              ) : translatePageOpen ? (
+                <PageTransition
+                  key="translate-page"
+                  className="flex-1 min-w-0 bg-background overflow-hidden"
+                >
+                  <Suspense fallback={<LazyPageFallback />}>
+                    <TranslatePage />
+                  </Suspense>
+                </PageTransition>
+              ) : chatView === 'home' ? (
+                <PageTransition
+                  key="chat-home"
+                  className="flex flex-1 min-w-0 flex-col overflow-hidden"
+                >
+                  <ChatHomePage />
+                </PageTransition>
+              ) : chatView === 'project' ? (
+                <PageTransition
+                  key="project-home"
+                  className="flex flex-1 min-w-0 flex-col overflow-hidden"
+                >
+                  <ProjectHomePage />
+                </PageTransition>
+              ) : chatView === 'archive' || chatView === 'channels' ? (
+                <PageTransition
+                  key={chatView === 'channels' ? 'project-channels' : 'project-archive'}
+                  className="flex flex-1 min-w-0 flex-col overflow-hidden"
+                >
+                  <ProjectArchivePage />
+                </PageTransition>
+              ) : chatView === 'git' ? (
+                <PageTransition
+                  key="project-git"
+                  className="flex flex-1 min-w-0 flex-col overflow-hidden"
+                >
+                  <GitPage />
+                </PageTransition>
+              ) : (
+                <PageTransition
+                  key="main-layout"
+                  className="flex flex-1 min-w-0 flex-col overflow-hidden"
+                >
+                  <ErrorBoundary
+                    renderFallback={(error, reset) => (
+                      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center overflow-hidden">
+                        <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
+                          <svg
+                            className="size-6 text-destructive"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+                            />
+                          </svg>
                         </div>
-                      )}
-                    >
-                      <div className="flex flex-1 overflow-hidden">
-                        {/* Center: Chat Area */}
-                        <div className="flex min-w-0 flex-1 flex-col bg-gradient-to-b from-background to-muted/20 relative">
-                          {/* Mode selector toolbar */}
-                          <div className="flex shrink-0 items-center gap-2 px-3 py-2">
-                            {!leftSidebarOpen && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="size-7 shrink-0"
-                                    onClick={toggleLeftSidebar}
-                                  >
-                                    <PanelLeftOpen className="size-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {t('layout.expandSidebar', { defaultValue: 'Expand sidebar' })}
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                            <div
-                              data-tour="mode-switch"
-                              className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-background/95 p-0.5 shadow-md backdrop-blur-sm"
-                            >
-                              {modes.map((m, i) => (
-                                <Tooltip key={m.value}>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      data-tour={`mode-${m.value}`}
-                                      variant="ghost"
-                                      size="sm"
-                                      className={cn(
-                                        'relative h-6 gap-1.5 overflow-hidden rounded-md px-2.5 text-xs font-medium transition-colors duration-200',
-                                        mode === m.value
-                                          ? cn(
-                                              MODE_SWITCH_ACTIVE_TEXT_CLASS[m.value],
-                                              'font-semibold'
-                                            )
-                                          : 'text-muted-foreground hover:text-foreground'
-                                      )}
-                                      onClick={() => handleModeChange(m.value)}
-                                    >
-                                      <AnimatePresence initial={false}>
-                                        {mode === m.value && (
-                                          <motion.span
-                                            layoutId="layout-mode-switch-highlight"
-                                            className={cn(
-                                              'pointer-events-none absolute inset-0 rounded-md border',
-                                              MODE_SWITCH_HIGHLIGHT_CLASS[m.value]
-                                            )}
-                                            transition={MODE_SWITCH_TRANSITION}
-                                          />
-                                        )}
-                                      </AnimatePresence>
-                                      <span className="relative z-10 flex items-center gap-1.5">
-                                        {m.icon}
-                                        {tCommon(m.labelKey)}
-                                      </span>
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent
-                                    side="bottom"
-                                    align="start"
-                                    sideOffset={8}
-                                    className="max-w-[340px] rounded-xl px-3 py-3"
-                                  >
-                                    {renderModeTooltipContent({
-                                      mode: m.value,
-                                      labelKey: m.labelKey,
-                                      icon: m.icon,
-                                      shortcutIndex: i,
-                                      isActive: mode === m.value,
-                                      t,
-                                      tCommon
-                                    })}
-                                  </TooltipContent>
-                                </Tooltip>
-                              ))}
-                            </div>
-                            <div className="flex-1" />
-                            <div className="flex items-center gap-0.5 rounded-lg border bg-background/80 px-0.5 py-0.5 shadow-sm backdrop-blur-sm">
-                              {mode !== 'chat' && activeWorkingFolder && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground transition-all duration-200 hover:bg-muted/60 hover:text-foreground"
-                                      onClick={() => void handleOpenWorkingFolder()}
-                                    >
-                                      <ExternalLink className="size-3.5 shrink-0" />
-                                      <span
-                                        className="max-w-0 overflow-hidden pl-0 text-[10px] whitespace-nowrap opacity-0 group-hover/btn:max-w-[140px] group-hover/btn:pl-1 group-hover/btn:opacity-100"
-                                        style={{
-                                          transition:
-                                            'max-width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease, padding 180ms ease'
-                                        }}
-                                      >
-                                        {t('layout.openFolder', { defaultValue: 'Open folder' })}
-                                      </span>
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    {t('layout.openFolder', { defaultValue: 'Open folder' })}
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200 disabled:opacity-50"
-                                    onClick={() => void handleExportImage()}
-                                    disabled={exporting || isStreaming}
-                                  >
-                                    {exporting ? (
-                                      <Loader2 className="size-3.5 shrink-0 animate-spin" />
-                                    ) : (
-                                      <ImageDown className="size-3.5 shrink-0" />
-                                    )}
-                                    <span
-                                      className="max-w-0 overflow-hidden pl-0 text-[10px] opacity-0 whitespace-nowrap group-hover/btn:max-w-[140px] group-hover/btn:pl-1 group-hover/btn:opacity-100"
-                                      style={{
-                                        transition:
-                                          'max-width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease, padding 180ms ease'
-                                      }}
-                                    >
-                                      {exporting
-                                        ? t('layout.exporting', { defaultValue: 'Exporting...' })
-                                        : t('layout.exportImage', {
-                                            defaultValue: 'Copy as image'
-                                          })}
+                        <div className="space-y-1">
+                          <h3 className="text-sm font-semibold text-foreground">
+                            {t('layout.somethingWentWrong')}
+                          </h3>
+                          <p className="max-w-md text-xs text-muted-foreground">
+                            {error?.message || t('layout.unexpectedError')}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                            onClick={reset}
+                          >
+                            {t('layout.tryAgain')}
+                          </button>
+                          <button
+                            className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            onClick={() => window.location.reload()}
+                          >
+                            {t('layout.reloadApp')}
+                          </button>
+                          <button
+                            className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            onClick={() => {
+                              const text = `Error: ${error?.message}\nStack: ${error?.stack}`
+                              navigator.clipboard.writeText(text)
+                            }}
+                          >
+                            {t('layout.copyError')}
+                          </button>
+                        </div>
+                        {error?.stack && (
+                          <details className="w-full max-w-lg text-left">
+                            <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                              {t('layout.errorDetails')}
+                            </summary>
+                            <pre className="mt-1 max-h-32 overflow-auto rounded-md bg-muted p-2 text-[10px] leading-relaxed text-muted-foreground">
+                              {error.stack}
+                            </pre>
+                          </details>
+                        )}
+                      </div>
+                    )}
+                  >
+                    <div className="flex flex-1 overflow-hidden">
+                      <div className="relative flex min-w-0 flex-1 flex-col bg-background">
+                        <div
+                          className={cn(
+                            'flex shrink-0 items-center gap-3 px-4 pt-3',
+                            compactSessionHeader ? 'pb-1' : 'pb-2'
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <div
+                                className={cn(
+                                  'min-w-0 flex-1 truncate text-foreground',
+                                  compactSessionHeader
+                                    ? 'text-[13px] font-medium'
+                                    : 'text-[14px] font-medium'
+                                )}
+                              >
+                                {activeSessionTitle ??
+                                  t('sidebar.newChat', { defaultValue: 'New chat' })}
+                              </div>
+                              {activeSessionProjectId ? (
+                                <div className="flex min-w-0 max-w-[38%] shrink items-center gap-1.5 text-[11px] text-muted-foreground/65">
+                                  <span className="shrink-0 text-muted-foreground/35">/</span>
+                                  {activeWorkingFolder ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="truncate cursor-default">
+                                          {activeProjectName ??
+                                            t('sidebar.projects', { defaultValue: 'Project' })}
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent>{activeWorkingFolder}</TooltipContent>
+                                    </Tooltip>
+                                  ) : (
+                                    <span className="truncate">
+                                      {activeProjectName ??
+                                        t('sidebar.projects', { defaultValue: 'Project' })}
                                     </span>
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {t('layout.exportImage', { defaultValue: 'Copy as image' })}
-                                </TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    className="group/btn flex h-6 items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200 disabled:opacity-50"
-                                    onClick={handleCopyAll}
-                                    disabled={isStreaming}
-                                  >
-                                    {copiedAll ? (
-                                      <Check className="size-3.5 shrink-0" />
-                                    ) : (
-                                      <ClipboardCopy className="size-3.5 shrink-0" />
-                                    )}
-                                    <span
-                                      className="max-w-0 overflow-hidden pl-0 text-[10px] opacity-0 whitespace-nowrap group-hover/btn:max-w-[140px] group-hover/btn:pl-1 group-hover/btn:opacity-100"
-                                      style={{
-                                        transition:
-                                          'max-width 220ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease, padding 180ms ease'
-                                      }}
-                                    >
-                                      {copiedAll
-                                        ? t('layout.copied', { defaultValue: 'Copied' })
-                                        : t('layout.copyAll', {
-                                            defaultValue: 'Copy conversation'
-                                          })}
-                                    </span>
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {t('layout.copyAll', { defaultValue: 'Copy conversation' })}
-                                </TooltipContent>
-                              </Tooltip>
+                                  )}
+                                </div>
+                              ) : null}
                             </div>
                           </div>
-                          {/*
+
+                          <div className="flex shrink-0 items-center gap-1">
+                            {showSessionActionBar ? (
+                              <div className="flex items-center rounded-lg border border-border/60 bg-background/70 p-0.5 shadow-sm backdrop-blur-sm">
+                                {hasProjectFolderAction ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
+                                        onClick={() => void handleOpenWorkingFolder()}
+                                      >
+                                        <ExternalLink className="size-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {t('layout.openFolder', { defaultValue: 'Open folder' })}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : null}
+
+                                {hasProjectFolderAction && hasTranscriptActions ? (
+                                  <div className="mx-0.5 h-4 w-px bg-border/60" />
+                                ) : null}
+
+                                {hasTranscriptActions ? (
+                                  <>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
+                                          onClick={handleCopyAll}
+                                          disabled={isStreaming}
+                                        >
+                                          {copiedAll ? (
+                                            <Check className="size-4 text-foreground" />
+                                          ) : (
+                                            <ClipboardCopy className="size-4" />
+                                          )}
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        {t('layout.copyAll', {
+                                          defaultValue: 'Copy conversation'
+                                        })}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
+                                          onClick={() => void handleExportImage()}
+                                          disabled={exporting || isStreaming}
+                                        >
+                                          {exporting ? (
+                                            <Loader2 className="size-4 animate-spin" />
+                                          ) : (
+                                            <ImageDown className="size-4" />
+                                          )}
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        {t('layout.exportImage', {
+                                          defaultValue: 'Copy as image'
+                                        })}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </>
+                                ) : null}
+
+                                <div className="mx-0.5 h-4 w-px bg-border/60" />
+
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
+                                    >
+                                      <MoreHorizontal className="size-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-48">
+                                    {hasProjectFolderAction ? (
+                                      <DropdownMenuItem
+                                        onClick={() => void handleOpenWorkingFolder()}
+                                      >
+                                        <ExternalLink className="size-4" />
+                                        {t('layout.openFolder', {
+                                          defaultValue: 'Open folder'
+                                        })}
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    <DropdownMenuItem
+                                      onClick={handleCopyAll}
+                                      disabled={isStreaming || !hasTranscriptActions}
+                                    >
+                                      {copiedAll ? (
+                                        <Check className="size-4" />
+                                      ) : (
+                                        <ClipboardCopy className="size-4" />
+                                      )}
+                                      {t('layout.copyAll', { defaultValue: 'Copy conversation' })}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => void handleExportImage()}
+                                      disabled={exporting || isStreaming || !hasTranscriptActions}
+                                    >
+                                      {exporting ? (
+                                        <Loader2 className="size-4 animate-spin" />
+                                      ) : (
+                                        <ImageDown className="size-4" />
+                                      )}
+                                      {t('layout.exportImage', {
+                                        defaultValue: 'Copy as image'
+                                      })}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                        {/*
                             Session boundary wrapper: a keyed div ensures that switching
                             the active session unmounts the ENTIRE subtree (MessageList +
                             InputArea) and remounts a fresh one. Keys directly on sibling
@@ -1102,68 +1087,69 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                             changes, which prevents stale refs, zombie VList instances,
                             and any stacked DOM carried over from the previous session.
                           */}
-                          <div
-                            key={activeSessionId ?? 'empty'}
-                            className="flex min-h-0 flex-1 flex-col"
-                          >
-                            <MessageList
-                              onRetry={retryLastMessage}
-                              onContinue={continueLastToolExecution}
-                              onEditUserMessage={editAndResend}
-                              onDeleteMessage={deleteMessage}
-                              exportAll={exportRendering}
-                            />
-                            <InputArea
-                              onSend={(text, images, options) =>
-                                void sendMessage(
-                                  text,
-                                  images,
-                                  undefined,
-                                  undefined,
-                                  undefined,
-                                  undefined,
-                                  {
-                                    ...options,
-                                    clearCompletedTasksOnTurnStart: true
-                                  }
-                                )
-                              }
-                              onStop={stopStreaming}
-                              onSelectFolder={mode !== 'chat' ? handleOpenFolderDialog : undefined}
-                              workingFolder={activeWorkingFolder}
-                              hideWorkingFolderIndicator
-                              isStreaming={isStreaming}
-                            />
-                          </div>
-                          {mode !== 'chat' && (
-                            <WorkingFolderSelectorDialog
-                              open={folderDialogOpen}
-                              onOpenChange={setFolderDialogOpen}
-                              workingFolder={activeWorkingFolder}
-                              sshConnectionId={activeSessionView.activeSessionSshConnectionId}
-                              onSelectLocalFolder={(folderPath) =>
-                                updateActiveProjectDirectory({
-                                  workingFolder: folderPath,
-                                  sshConnectionId: null
-                                })
-                              }
-                              onSelectSshFolder={(folderPath, connectionId) =>
-                                updateActiveProjectDirectory({
-                                  workingFolder: folderPath,
-                                  sshConnectionId: connectionId
-                                })
-                              }
-                            />
-                          )}
+                        <div
+                          key={activeSessionId ?? 'empty'}
+                          className="flex min-h-0 flex-1 flex-col"
+                        >
+                          <MessageList
+                            onRetry={retryLastMessage}
+                            onContinue={continueLastToolExecution}
+                            onEditUserMessage={editAndResend}
+                            onDeleteMessage={deleteMessage}
+                            exportAll={exportRendering}
+                          />
+                          <InputArea
+                            onSend={(text, images, options) =>
+                              void sendMessage(
+                                text,
+                                images,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                {
+                                  ...options,
+                                  clearCompletedTasksOnTurnStart: true
+                                }
+                              )
+                            }
+                            onStop={stopStreaming}
+                            onSelectFolder={
+                              activeSessionProjectId ? handleOpenFolderDialog : undefined
+                            }
+                            workingFolder={activeWorkingFolder}
+                            hideWorkingFolderIndicator
+                            isStreaming={isStreaming}
+                          />
                         </div>
-
-                        {/* Right: Cowork/Code Panel */}
-                        {mode !== 'chat' && <RightPanel />}
+                        {activeSessionProjectId && (
+                          <WorkingFolderSelectorDialog
+                            open={folderDialogOpen}
+                            onOpenChange={setFolderDialogOpen}
+                            workingFolder={activeWorkingFolder}
+                            sshConnectionId={activeSessionView.activeSessionSshConnectionId}
+                            onSelectLocalFolder={(folderPath) =>
+                              updateActiveProjectDirectory({
+                                workingFolder: folderPath,
+                                sshConnectionId: null
+                              })
+                            }
+                            onSelectSshFolder={(folderPath, connectionId) =>
+                              updateActiveProjectDirectory({
+                                workingFolder: folderPath,
+                                sshConnectionId: connectionId
+                              })
+                            }
+                          />
+                        )}
                       </div>
-                    </ErrorBoundary>
-                  </PageTransition>
-                )}
-              </AnimatePresence>
+
+                      <RightPanel />
+                    </div>
+                  </ErrorBoundary>
+                </PageTransition>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>
@@ -1284,7 +1270,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
         >
           <DialogHeader className="sr-only">
             <DialogTitle>
-              {t('subAgentsPanel.executionDetailTitle', { defaultValue: '执行详情' })}
+              {t('subAgentsPanel.executionDetailTitle', { defaultValue: 'Execution details' })}
             </DialogTitle>
           </DialogHeader>
           <SubAgentExecutionDetail

@@ -46,6 +46,79 @@ export interface AskUserStructuredResult {
 const RECOMMENDED_OPTION_RE = /(?:\(|（)\s*(recommended|推荐)\s*(?:\)|）)/i
 const MAX_CHIP_WIDTH = 12
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return undefined
+  }
+}
+
+function coerceArrayInput(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+
+  if (typeof value === 'string') {
+    const parsed = tryParseJson(value)
+    return parsed === undefined ? [] : coerceArrayInput(parsed)
+  }
+
+  if (!isRecord(value)) return []
+
+  if ('items' in value) {
+    const nested = coerceArrayInput(value.items)
+    if (nested.length > 0) return nested
+  }
+
+  return Object.entries(value)
+    .filter(([key]) => /^\d+$/.test(key))
+    .sort(([left], [right]) => Number(left) - Number(right))
+    .map(([, item]) => item)
+}
+
+function coerceQuestionOption(value: unknown): AskUserOption | null {
+  if (typeof value === 'string') {
+    return { label: value }
+  }
+
+  if (!isRecord(value)) return null
+
+  return {
+    label: typeof value.label === 'string' ? value.label : '',
+    ...(typeof value.description === 'string' ? { description: value.description } : {}),
+    ...(typeof value.preview === 'string' ? { preview: value.preview } : {})
+  }
+}
+
+function coerceQuestionOptions(value: unknown): AskUserOption[] | undefined {
+  if (value === undefined) return undefined
+
+  return coerceArrayInput(value)
+    .map((option) => coerceQuestionOption(option))
+    .filter((option): option is AskUserOption => option !== null)
+}
+
+export function coerceAskUserQuestions(value: unknown): AskUserQuestionItem[] {
+  return coerceArrayInput(value)
+    .map((item) => {
+      const normalized = typeof item === 'string' ? tryParseJson(item) : item
+      if (!isRecord(normalized)) return null
+
+      return {
+        question: typeof normalized.question === 'string' ? normalized.question : '',
+        ...(typeof normalized.header === 'string' ? { header: normalized.header } : {}),
+        ...(normalized.options !== undefined
+          ? { options: coerceQuestionOptions(normalized.options) }
+          : {}),
+        ...(normalized.multiSelect === true ? { multiSelect: true } : {})
+      }
+    })
+    .filter((question): question is AskUserQuestionItem => question !== null)
+}
+
 function isRecommendedOptionLabel(label: string): boolean {
   return RECOMMENDED_OPTION_RE.test(label)
 }
@@ -345,8 +418,8 @@ const askUserToolExecute: ToolHandler['execute'] = async (input, ctx) => {
     )
   }
 
-  const rawQuestions = input.questions as AskUserQuestionItem[] | undefined
-  if (!rawQuestions || !Array.isArray(rawQuestions)) {
+  const rawQuestions = coerceAskUserQuestions(input.questions)
+  if (rawQuestions.length === 0) {
     return encodeToolError('At least one question is required')
   }
 

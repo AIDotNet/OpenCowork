@@ -28,6 +28,8 @@ export interface TokenUsage {
   reasoningTokens?: number
   /** Last API call's input tokens — represents current context window usage (not accumulated) */
   contextTokens?: number
+  /** Effective context limit used for compression/runtime budgeting on this request */
+  contextLength?: number
   /** Total wall time for the full agent run (including tools), in ms. */
   totalDurationMs?: number
   /** Per-request timing metrics for each API call in the loop. */
@@ -535,6 +537,8 @@ export interface ProviderConfig {
   reasoningEffort?: ReasoningEffortLevel
   /** Current session ID — used for request correlation and Responses transport continuity */
   sessionId?: string
+  /** OpenAI Responses reusable WebSocket session scope. Use distinct values for auxiliary flows. */
+  responsesSessionScope?: string
   /** OpenAI Responses: summary of reasoning (auto/concise/detailed) */
   responseSummary?: ResponseSummary
   /** OpenAI Responses: enable prompt caching with session-based key */

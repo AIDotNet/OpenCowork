@@ -284,15 +284,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   mode: 'cowork',
   miniSessionWindowSessionId: null,
   miniSessionWindowOpen: false,
-  setMode: (mode) =>
-    set((state) => ({
-      mode,
-      rightPanelOpen: mode === 'cowork' || mode === 'acp',
-      rightPanelTab:
-        mode === 'acp' ? 'acp' : state.rightPanelTab === 'acp' ? 'files' : state.rightPanelTab,
-      rightPanelSection: mode === 'acp' ? 'monitoring' : state.rightPanelSection,
-      leftSidebarOpen: mode === 'cowork' || mode === 'acp' ? false : state.leftSidebarOpen
-    })),
+  setMode: (mode) => set({ mode }),
   openMiniSessionWindow: (sessionId) => {
     invalidateVisibleSessionCache()
     return set({ miniSessionWindowSessionId: sessionId, miniSessionWindowOpen: true })
@@ -306,28 +298,12 @@ export const useUIStore = create<UIStore>((set, get) => ({
     set({ activeNavItem: item, leftSidebarOpen: true, rightPanelOpen: false }),
   leftSidebarOpen: true,
   leftSidebarWidth: LEFT_SIDEBAR_DEFAULT_WIDTH,
-  toggleLeftSidebar: () =>
-    set((state) => ({
-      leftSidebarOpen: !state.leftSidebarOpen,
-      rightPanelOpen: state.leftSidebarOpen ? state.rightPanelOpen : false
-    })),
-  setLeftSidebarOpen: (open) =>
-    set((state) => ({
-      leftSidebarOpen: open,
-      rightPanelOpen: open ? false : state.rightPanelOpen
-    })),
+  toggleLeftSidebar: () => set((state) => ({ leftSidebarOpen: !state.leftSidebarOpen })),
+  setLeftSidebarOpen: (open) => set({ leftSidebarOpen: open }),
   setLeftSidebarWidth: (width) => set({ leftSidebarWidth: clampLeftSidebarWidth(width) }),
   rightPanelOpen: false,
-  toggleRightPanel: () =>
-    set((state) => ({
-      rightPanelOpen: !state.rightPanelOpen,
-      leftSidebarOpen: state.rightPanelOpen ? state.leftSidebarOpen : false
-    })),
-  setRightPanelOpen: (open) =>
-    set((state) => ({
-      rightPanelOpen: open,
-      leftSidebarOpen: open ? false : state.leftSidebarOpen
-    })),
+  toggleRightPanel: () => set((state) => ({ rightPanelOpen: !state.rightPanelOpen })),
+  setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
   rightPanelTab: 'files',
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
   rightPanelSection: 'execution',
@@ -429,8 +405,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       previewPanelOpen: false,
       previewPanelState: null,
       rightPanelTab: 'preview',
-      rightPanelOpen: true,
-      leftSidebarOpen: false
+      rightPanelOpen: true
     }),
   closeDetailPanel: () => set({ detailPanelOpen: false, detailPanelContent: null }),
   previewPanelOpen: false,
@@ -452,8 +427,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
         projectDir
       },
       rightPanelTab: 'preview',
-      rightPanelOpen: true,
-      leftSidebarOpen: false
+      rightPanelOpen: true
     }),
   openMarkdownPreview: (title, content) =>
     set({
@@ -467,8 +441,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
         markdownTitle: title
       },
       rightPanelTab: 'preview',
-      rightPanelOpen: true,
-      leftSidebarOpen: false
+      rightPanelOpen: true
     }),
   closePreviewPanel: () => set({ previewPanelOpen: false, previewPanelState: null }),
   setPreviewViewMode: (mode) =>
@@ -545,8 +518,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       orchestrationConsoleView: memberId ? 'member' : 'overview',
       rightPanelTab: 'orchestration',
       rightPanelSection: 'collaboration',
-      rightPanelOpen: true,
-      leftSidebarOpen: false
+      rightPanelOpen: true
     }),
   openOrchestrationMember: (runId, memberId) =>
     set({
@@ -556,8 +528,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       orchestrationConsoleView: memberId ? 'member' : 'overview',
       rightPanelTab: 'orchestration',
       rightPanelSection: 'collaboration',
-      rightPanelOpen: true,
-      leftSidebarOpen: false
+      rightPanelOpen: true
     }),
   closeOrchestrationPanel: () =>
     set({
@@ -571,8 +542,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       rightPanelTab: 'subagents',
       rightPanelSection: 'collaboration',
       orchestrationConsoleOpen: false,
-      rightPanelOpen: true,
-      leftSidebarOpen: false
+      rightPanelOpen: true
     }),
   subAgentExecutionDetailOpen: false,
   subAgentExecutionDetailToolUseId: null,
@@ -586,8 +556,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       rightPanelTab: 'subagents',
       rightPanelSection: 'collaboration',
       orchestrationConsoleOpen: false,
-      rightPanelOpen: true,
-      leftSidebarOpen: false
+      rightPanelOpen: true
     }),
   closeSubAgentExecutionDetail: () =>
     set({

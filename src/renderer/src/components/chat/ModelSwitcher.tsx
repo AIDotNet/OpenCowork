@@ -203,10 +203,7 @@ function ModelSettingsPopover({
   )
 
   const hasAnySetting =
-    supportsThinking ||
-    supportsFastMode ||
-    supportsResponsesWebsocket ||
-    supportsContextCompression
+    supportsThinking || supportsFastMode || supportsResponsesWebsocket || supportsContextCompression
 
   const contextCompressionPercent = Math.round(
     clampCompressionThreshold(
@@ -294,24 +291,25 @@ function ModelSettingsPopover({
                       )}
                     />
                   </button>
-                  {thinkingEnabled && levels.map((level) => (
-                    <button
-                      key={level}
-                      type="button"
-                      className={cn(
-                        'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors text-left',
-                        thinkingEnabled && effectiveReasoningEffort === level
-                          ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
-                          : 'hover:bg-muted/60 text-foreground/80'
-                      )}
-                      onClick={() => setEffort(level)}
-                    >
-                      <span className="font-medium uppercase">{level}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {tChat(`input.effortDesc.${level}`)}
-                      </span>
-                    </button>
-                  ))}
+                  {thinkingEnabled &&
+                    levels.map((level) => (
+                      <button
+                        key={level}
+                        type="button"
+                        className={cn(
+                          'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors text-left',
+                          thinkingEnabled && effectiveReasoningEffort === level
+                            ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
+                            : 'hover:bg-muted/60 text-foreground/80'
+                        )}
+                        onClick={() => setEffort(level)}
+                      >
+                        <span className="font-medium uppercase">{level}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {tChat(`input.effortDesc.${level}`)}
+                        </span>
+                      </button>
+                    ))}
                 </>
               ) : (
                 <button
@@ -488,6 +486,11 @@ export function ModelSwitcher(): React.JSX.Element {
   )
   const settingsProviderId = isAutoModeActive ? autoResolvedProvider?.id : displayProvider?.id
   const settingsModel = isAutoModeActive ? (autoResolvedModel ?? undefined) : displayModel
+  const triggerLabel = isAutoModeActive
+    ? autoRoutingState === 'routing'
+      ? t('topbar.autoModel')
+      : (autoSelection?.modelName ?? t('topbar.autoModel'))
+    : (displayModel?.name ?? displayModelId ?? t('topbar.noModel'))
 
   const codexQuota = useMemo(() => {
     if (!displayProvider || displayProvider.builtinId !== 'codex-oauth') return null
@@ -611,7 +614,7 @@ export function ModelSwitcher(): React.JSX.Element {
   }, [open, search, groups, isAutoModeActive])
 
   return (
-    <div className="inline-flex items-center h-8 rounded-lg border border-transparent hover:border-border/50 hover:bg-muted/30 transition-colors">
+    <div className="inline-flex h-8 items-center rounded-lg border border-transparent hover:border-border/50 hover:bg-muted/30 transition-colors">
       {/* Model icon trigger — opens model list */}
       <Popover open={open} onOpenChange={setOpen}>
         <Tooltip>
@@ -619,7 +622,7 @@ export function ModelSwitcher(): React.JSX.Element {
             <span className="inline-flex">
               <PopoverTrigger asChild>
                 <button
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-l-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  className="inline-flex h-8 min-w-0 items-center gap-2 rounded-l-lg px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                   aria-label={
                     isAutoModeActive
                       ? autoRoutingState === 'routing'
@@ -642,6 +645,9 @@ export function ModelSwitcher(): React.JSX.Element {
                       size={20}
                     />
                   )}
+                  <span className="max-w-[128px] truncate text-xs text-foreground/80">
+                    {triggerLabel}
+                  </span>
                 </button>
               </PopoverTrigger>
             </span>

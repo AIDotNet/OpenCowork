@@ -99,6 +99,8 @@ const INITIAL_MESSAGE_ESTIMATED_HEIGHT = 120
 const PROGRAMMATIC_SCROLL_GUARD_MS = 160
 const STREAMING_AUTO_SCROLL_POLL_MS = 500
 const EMPTY_ORCHESTRATION_STATE = { runs: [], byId: new Map(), byMessageId: new Map() }
+const MESSAGE_COLUMN_CLASS = 'mx-auto w-full max-w-[820px] px-5'
+const MESSAGE_COLUMN_COMPACT_CLASS = 'mx-auto w-full max-w-[720px] px-5'
 
 function getDistanceToBottom(ref: HTMLDivElement): number {
   return Math.max(0, ref.scrollHeight - ref.scrollTop - ref.clientHeight)
@@ -154,7 +156,7 @@ const MessageRow = React.memo(function MessageRow({
       data-index={rowIndex}
       data-message-id={message.id}
       data-anchor={anchorMessageId === message.id ? 'true' : undefined}
-      className="mx-auto max-w-3xl px-4 pb-6"
+      className={`${MESSAGE_COLUMN_CLASS} pb-7`}
     >
       <MessageItem
         message={message}
@@ -197,6 +199,13 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
   const activeSessionLoaded = targetSession?.messagesLoaded ?? true
   const activeSessionMessageCount = targetSession?.messageCount ?? 0
   const activeWorkingFolder = targetSession?.workingFolder
+  const activeProjectName = useChatStore((s) => {
+    const targetProjectId = targetSessionId
+      ? (s.sessions[s.sessionsById[targetSessionId] ?? -1]?.projectId ?? null)
+      : null
+    if (!targetProjectId) return null
+    return s.projects.find((project) => project.id === targetProjectId)?.name ?? null
+  })
   const loadedRangeStart = targetSession?.loadedRangeStart ?? 0
   const streamingMessageId = useChatStore((s) =>
     targetSessionId ? (s.streamingMessages[targetSessionId] ?? null) : null
@@ -606,7 +615,7 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
         {[0, 1, 2].map((index) => (
           <div
             key={index}
-            className={`mx-auto w-full max-w-3xl space-y-2 ${
+            className={`${MESSAGE_COLUMN_CLASS} space-y-2 ${
               index % 2 === 0 ? 'self-start' : 'self-end'
             }`}
           >
@@ -621,18 +630,26 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
 
   if (messages.length === 0) {
     const hint = modeHints[mode]
+    const projectScoped = Boolean(targetSession?.projectId)
+    const emptyTitle = projectScoped
+      ? `What should we build in ${activeProjectName ?? 'this project'}?`
+      : mode === 'chat'
+        ? 'What should we talk through?'
+        : t(hint.titleKey)
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="rounded-2xl bg-muted/40 p-4">{hint.icon}</div>
+      <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+        <div className={`flex flex-col items-center gap-3 ${MESSAGE_COLUMN_COMPACT_CLASS}`}>
           <div>
-            <p className="text-base font-semibold text-foreground/80">{t(hint.titleKey)}</p>
-            <p className="mt-1.5 max-w-[320px] text-sm text-muted-foreground/60">
-              {t(hint.descKey)}
+            <p className="text-[18px] font-semibold tracking-tight text-foreground/92 sm:text-[19px]">
+              {emptyTitle}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground/70 sm:text-[14px]">
+              {projectScoped ? t('messageList.startCodingDesc') : t(hint.descKey)}
             </p>
           </div>
         </div>
-        <div className="flex max-w-[400px] flex-wrap justify-center gap-2">
+
+        <div className="mt-6 flex max-w-[520px] flex-wrap justify-center gap-2">
           {(mode === 'chat'
             ? [
                 t('messageList.explainAsync'),
@@ -653,7 +670,7 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
           ).map((prompt) => (
             <button
               key={prompt}
-              className="rounded-lg border bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground/60 transition-colors hover:bg-muted/60 hover:text-foreground"
+              className="rounded-md border border-border/60 bg-background/50 px-3 py-1.5 text-[11px] text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground"
               onClick={() => applySuggestedPrompt(prompt)}
             >
               {prompt}
@@ -714,7 +731,7 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
         {rows.map((row, rowIndex) => {
           if (row.type === 'load-more') {
             return (
-              <div key={row.key} data-index={rowIndex} className="mx-auto max-w-3xl px-4">
+              <div key={row.key} data-index={rowIndex} className={MESSAGE_COLUMN_CLASS}>
                 <div className="flex justify-center pb-6 pt-4">
                   <button
                     className="rounded-md border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"

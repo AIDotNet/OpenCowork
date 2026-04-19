@@ -133,6 +133,7 @@ export async function* ipcStreamRequest(params: {
   providerType?: string
   model?: string
   sessionId?: string
+  responsesSessionScope?: string
   websocketUrl?: string
   websocketMode?: 'auto' | 'disabled'
 }): AsyncIterable<SSEEvent> {
@@ -151,6 +152,7 @@ export async function* ipcStreamRequest(params: {
     providerType,
     model,
     sessionId,
+    responsesSessionScope,
     websocketUrl,
     websocketMode
   } = params
@@ -211,6 +213,7 @@ export async function* ipcStreamRequest(params: {
     providerType,
     model,
     sessionId,
+    responsesSessionScope,
     websocketUrl,
     websocketMode
   })

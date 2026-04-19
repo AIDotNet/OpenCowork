@@ -407,7 +407,7 @@
   },
   "messageList": {
     "startConversation": "开始对话",
-    "startConversationDesc": "随意提问 — 纯对话，无工具。",
+    "startConversationDesc": "随意提问，也可以使用搜索与已选择的 MCP 工具。",
     "startClarify": "开始澄清需求",
     "startClarifyDesc": "先把目标、约束、风险和遗漏问清楚，再进入规划。默认偏向追问和澄清，但权限与编程模式一致。",
     "startCowork": "开始协作会话",

@@ -635,7 +635,7 @@ public sealed class AgentRuntimeService
 
                 var path = ResolvePath(GetOptionalString(input, "path") ?? ".", ctx.WorkingFolder);
                 var ignore = GetOptionalStringArray(input, "ignore");
-                var entries = FsOperations.ListDirectory(path, ignore: ignore)
+                var entries = FsOperations.ListDirectory(path, showHidden: true, ignore: ignore)
                     .Select(entry => new
                     {
                         name = entry.Name,
@@ -717,15 +717,28 @@ public sealed class AgentRuntimeService
                 var directory = ResolvePath(GetOptionalString(input, "path") ?? ".", ctx.WorkingFolder);
                 var pattern = GetString(input, "pattern", required: true);
                 var include = GetOptionalString(input, "include");
+                var searchStopwatch = Stopwatch.StartNew();
                 var result = await GrepTool.SearchAsync(directory, pattern, new GrepOptions
                 {
                     GlobPattern = include,
                     MaxResults = 200
                 }, token);
-                var lines = result.Matches.Select(match => $"{match.File}:{match.Line}:{match.Content}").ToList();
+                searchStopwatch.Stop();
                 return new ToolResultContent
                 {
-                    Content = BuildJsonArray(lines.Select(static item => JsonValue.Create(item)))
+                    Content = BuildJsonObject(new Dictionary<string, JsonNode?>
+                    {
+                        ["matches"] = BuildJsonArray(result.Matches.Select(match => (JsonNode)BuildJsonObject(new Dictionary<string, JsonNode?>
+                        {
+                            ["file"] = JsonValue.Create(match.File),
+                            ["line"] = JsonValue.Create(match.Line),
+                            ["text"] = JsonValue.Create(match.Content)
+                        }))),
+                        ["truncated"] = JsonValue.Create(result.Truncated),
+                        ["timedOut"] = JsonValue.Create(string.Equals(result.LimitReason, "timeout", StringComparison.Ordinal)),
+                        ["limitReason"] = result.LimitReason is null ? null : JsonValue.Create(result.LimitReason),
+                        ["searchTime"] = JsonValue.Create(searchStopwatch.ElapsedMilliseconds)
+                    })
                 };
             },
             RequiresApproval = (_, _) => false

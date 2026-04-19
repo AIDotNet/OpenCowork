@@ -24,10 +24,8 @@ import { usePlanStore } from '@renderer/stores/plan-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { cn } from '@renderer/lib/utils'
 import type { TeamTask } from '@renderer/lib/agent/teams/types'
-import {
-  aggregateDisplayableRunFileChanges,
-  summarizeTrackedChange
-} from '@renderer/components/chat/file-change-utils'
+import { useAggregatedChangeSummaries } from '@renderer/components/chat/change-summary-utils'
+import { aggregateDisplayableRunFileChanges } from '@renderer/components/chat/file-change-utils'
 
 const EMPTY_TEAM_TASKS: TeamTask[] = []
 const EMPTY_TASKS: TaskItem[] = []
@@ -83,8 +81,11 @@ function buildProgress(
   }
 }
 
-function summarizeInlineChangeSet(changeSet: AgentRunChangeSet): InlineChangeSummary | null {
-  const visibleChanges = aggregateDisplayableRunFileChanges(changeSet.changes)
+function summarizeInlineChangeSet(
+  changeSet: AgentRunChangeSet,
+  visibleChanges: ReturnType<typeof aggregateDisplayableRunFileChanges>,
+  summariesByChangeId: Record<string, { added: number; deleted: number }>
+): InlineChangeSummary | null {
   if (visibleChanges.length === 0) return null
 
   const filePaths = new Set<string>()
@@ -94,7 +95,8 @@ function summarizeInlineChangeSet(changeSet: AgentRunChangeSet): InlineChangeSum
 
   for (const change of visibleChanges) {
     filePaths.add(change.filePath)
-    const diff = summarizeTrackedChange(change)
+    const diff = summariesByChangeId[change.id]
+    if (!diff) continue
     added += diff.added
     deleted += diff.deleted
     if (diff.added > 0 || diff.deleted > 0) {
@@ -417,8 +419,11 @@ function InlineStepsPanelCard({
                 {summaryItems.map((item, index) => (
                   <li
                     key={item.id}
-                    className="grid grid-cols-[24px_minmax(0,1fr)] gap-2 text-[13px] leading-5"
+                    className="grid grid-cols-[18px_24px_minmax(0,1fr)] gap-2 text-[13px] leading-5"
                   >
+                    <span className="flex justify-center pt-0.5">
+                      <TaskStatusIcon status={item.status} />
+                    </span>
                     <span
                       className={cn(
                         'select-none pt-0.5 text-right tabular-nums text-muted-foreground/70',
@@ -507,6 +512,11 @@ export function InlineStepsPanel({
 
     return nextMatch
   }, [resolvedSessionId, runChangesByRunId])
+  const aggregatedLatestChanges = useMemo(
+    () => (latestChangeSet ? aggregateDisplayableRunFileChanges(latestChangeSet.changes) : []),
+    [latestChangeSet]
+  )
+  const latestChangeSummaries = useAggregatedChangeSummaries(aggregatedLatestChanges)
 
   const summaryTotal = data.todos.length + data.teamTasks.length
   const summaryCompleted =
@@ -551,8 +561,11 @@ export function InlineStepsPanel({
   }, [data.plan, data.planTasks, data.standaloneTasks, data.teamName, data.teamTasks])
 
   const changeSummary = useMemo(
-    () => (latestChangeSet ? summarizeInlineChangeSet(latestChangeSet) : null),
-    [latestChangeSet]
+    () =>
+      latestChangeSet
+        ? summarizeInlineChangeSet(latestChangeSet, aggregatedLatestChanges, latestChangeSummaries)
+        : null,
+    [aggregatedLatestChanges, latestChangeSet, latestChangeSummaries]
   )
 
   if (!data.hasContent && !changeSummary) {

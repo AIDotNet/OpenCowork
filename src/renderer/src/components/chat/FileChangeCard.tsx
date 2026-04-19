@@ -450,6 +450,54 @@ function StatusIndicator({
   }
 }
 
+function CompactStatusDot({
+  status
+}: {
+  status: FileChangeCardProps['status']
+}): React.JSX.Element {
+  switch (status) {
+    case 'completed':
+      return (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <span className="size-2 rounded-full bg-emerald-400" />
+        </span>
+      )
+    case 'running':
+      return (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <span className="absolute size-2 rounded-full bg-blue-500/30 animate-ping" />
+          <span className="size-2 rounded-full bg-blue-500" />
+        </span>
+      )
+    case 'error':
+      return (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <span className="size-2 rounded-full bg-red-400" />
+        </span>
+      )
+    case 'pending_approval':
+      return (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <span className="absolute size-2 rounded-full bg-amber-500/30 animate-ping" />
+          <span className="size-2 rounded-full bg-amber-400" />
+        </span>
+      )
+    case 'streaming':
+      return (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <span className="absolute size-2 rounded-full bg-violet-500/30 animate-ping" />
+          <span className="size-2 rounded-full bg-violet-400" />
+        </span>
+      )
+    default:
+      return (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <span className="size-2 rounded-full border border-zinc-600" />
+        </span>
+      )
+  }
+}
+
 // ── File Icon ────────────────────────────────────────────────────
 
 function FileIcon({ name }: { name: string }): React.JSX.Element {
@@ -932,6 +980,32 @@ function resolveWritePayload(input: Record<string, unknown>): ResolvedWritePaylo
   return { text, preview, lineTotal }
 }
 
+function hasPendingEditPreviewContent(input: Record<string, unknown>): boolean {
+  const filePath = String(input.file_path ?? input.path ?? '').trim()
+  const explanation = typeof input.explanation === 'string' ? input.explanation.trim() : ''
+  const oldStr = typeof input.old_string === 'string' ? input.old_string : ''
+  const newStr = typeof input.new_string === 'string' ? input.new_string : ''
+  const oldPreview =
+    typeof input.old_string_preview === 'string' ? input.old_string_preview : oldStr
+  const newPreview =
+    typeof input.new_string_preview === 'string' ? input.new_string_preview : newStr
+  const oldChars =
+    typeof input.old_string_chars === 'number' ? input.old_string_chars : oldStr.length
+  const newChars =
+    typeof input.new_string_chars === 'number' ? input.new_string_chars : newStr.length
+
+  return Boolean(
+    filePath ||
+    explanation ||
+    oldPreview ||
+    newPreview ||
+    oldChars > 0 ||
+    newChars > 0 ||
+    input.old_string_truncated ||
+    input.new_string_truncated
+  )
+}
+
 function resolveEditSummaryDiff(
   payload: ResolvedEditPayload,
   trackedChange?: AgentRunFileChange
@@ -1048,7 +1122,69 @@ export function FileChangeCard({
     () => resolveEditSummaryDiff(resolvedEdit, trackedChange),
     [resolvedEdit, trackedChange]
   )
-  const useCompactChangeLayout = (name === 'Edit' || name === 'Write') && !isActive
+  const useCompactChangeLayout = name === 'Edit' || (name === 'Write' && !isActive)
+  const canRenderTrackedWriteDiff =
+    !!trackedChange &&
+    trackedChange.op === 'modify' &&
+    canRenderInlineSnapshot(trackedChange.before) &&
+    canRenderInlineSnapshot(trackedChange.after)
+  const showTrackedEditDiff = name === 'Edit' && !!trackedChange
+  const showPendingEditPreview =
+    name === 'Edit' &&
+    !trackedChange &&
+    status !== 'completed' &&
+    status !== 'error' &&
+    hasPendingEditPreviewContent(input)
+  const showSettledCompactEditDiff =
+    name === 'Edit' &&
+    !trackedChange &&
+    status !== 'streaming' &&
+    status !== 'running' &&
+    !!compactEditDiff
+  const showTrackedWriteInlineDiff = name === 'Write' && canRenderTrackedWriteDiff
+  const showTrackedWriteSnapshotSummary =
+    name === 'Write' &&
+    !!trackedChange &&
+    trackedChange.op === 'modify' &&
+    !canRenderTrackedWriteDiff
+  const showTrackedWriteNewFile =
+    name === 'Write' &&
+    !!trackedChange &&
+    trackedChange.op === 'create' &&
+    canRenderInlineSnapshot(trackedChange.after)
+  const showTrackedWriteNewFileSummary =
+    name === 'Write' &&
+    !!trackedChange &&
+    trackedChange.op === 'create' &&
+    !canRenderInlineSnapshot(trackedChange.after)
+  const showPendingWriteStreaming =
+    name === 'Write' && !trackedChange && (status === 'streaming' || status === 'running')
+  const showSettledWriteModifyPreview =
+    name === 'Write' &&
+    !trackedChange &&
+    status !== 'streaming' &&
+    status !== 'running' &&
+    writeOp === 'modify'
+  const showSettledWriteNewFile =
+    name === 'Write' &&
+    !trackedChange &&
+    status !== 'streaming' &&
+    status !== 'running' &&
+    writeOp !== 'modify' &&
+    !!resolvedWrite.preview
+  const showDeleteNotice = name === 'Delete'
+  const hasExpandedContent =
+    showTrackedEditDiff ||
+    showPendingEditPreview ||
+    showSettledCompactEditDiff ||
+    showTrackedWriteInlineDiff ||
+    showTrackedWriteSnapshotSummary ||
+    showTrackedWriteNewFile ||
+    showTrackedWriteNewFileSummary ||
+    showPendingWriteStreaming ||
+    showSettledWriteModifyPreview ||
+    showSettledWriteNewFile ||
+    showDeleteNotice
 
   const borderColor =
     status === 'streaming'
@@ -1149,7 +1285,9 @@ export function FileChangeCard({
                 )}
                 title={`${t(trackedTransportLabelKey(trackedChange))} / ${t(trackedStatusLabelKey(trackedChange))}`}
               />
-            ) : null}
+            ) : (
+              <CompactStatusDot status={status} />
+            )}
             {elapsed && (
               <span className="shrink-0 text-[9px] tabular-nums text-zinc-600">{elapsed}</span>
             )}
@@ -1201,7 +1339,7 @@ export function FileChangeCard({
       </button>
 
       <AnimatePresence initial={false}>
-        {!collapsed && (
+        {!collapsed && hasExpandedContent && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -1214,76 +1352,51 @@ export function FileChangeCard({
                 : 'border-t border-zinc-800/80 bg-[#0f1012]'
             )}
           >
-            {name === 'Edit' && trackedChange && (
+            {showTrackedEditDiff && trackedChange && (
               <TrackedEditDiff change={trackedChange} filePath={filePath} />
             )}
-            {name === 'Edit' && !trackedChange && status !== 'completed' && status !== 'error' && (
-              <PendingEditPreview input={input} />
+            {showPendingEditPreview && <PendingEditPreview input={input} />}
+            {showSettledCompactEditDiff && compactEditDiff && (
+              <CompactEditDiff
+                oldStr={compactEditDiff.oldStr}
+                newStr={compactEditDiff.newStr}
+                filePath={filePath}
+              />
             )}
-            {name === 'Edit' &&
-              !trackedChange &&
-              status !== 'streaming' &&
-              status !== 'running' &&
-              compactEditDiff && (
-                <CompactEditDiff
-                  oldStr={compactEditDiff.oldStr}
-                  newStr={compactEditDiff.newStr}
-                  filePath={filePath}
-                />
-              )}
-            {name === 'Write' &&
-              trackedChange?.op === 'modify' &&
-              canRenderInlineSnapshot(trackedChange.before) &&
-              canRenderInlineSnapshot(trackedChange.after) && (
-                <InlineDiff
-                  oldStr={snapshotText(trackedChange.before)}
-                  newStr={snapshotText(trackedChange.after)}
-                />
-              )}
-            {name === 'Write' &&
-              trackedChange?.op === 'modify' &&
-              (!canRenderInlineSnapshot(trackedChange.before) ||
-                !canRenderInlineSnapshot(trackedChange.after)) && (
-                <SnapshotSummaryNotice before={trackedChange.before} after={trackedChange.after} />
-              )}
-            {name === 'Write' &&
-              trackedChange?.op === 'create' &&
-              canRenderInlineSnapshot(trackedChange.after) && (
-                <NewFileContent
-                  content={snapshotText(trackedChange.after)}
-                  filePath={filePath}
-                  isStreaming={status === 'streaming'}
-                />
-              )}
-            {name === 'Write' &&
-              trackedChange?.op === 'create' &&
-              !canRenderInlineSnapshot(trackedChange.after) && (
-                <SnapshotSummaryNotice after={trackedChange.after} />
-              )}
-            {name === 'Write' &&
-              !trackedChange &&
-              (status === 'streaming' || status === 'running') && (
-                <PendingWritePreview input={input} isStreaming={status === 'streaming'} />
-              )}
-            {name === 'Write' &&
-              !trackedChange &&
-              status !== 'streaming' &&
-              status !== 'running' &&
-              writeOp === 'modify' && <PendingWritePreview input={input} isStreaming={false} />}
-            {name === 'Write' &&
-              !trackedChange &&
-              status !== 'streaming' &&
-              status !== 'running' &&
-              writeOp !== 'modify' &&
-              !!resolvedWrite.preview && (
-                <NewFileContent
-                  content={resolvedWrite.text || resolvedWrite.preview}
-                  filePath={filePath}
-                  isStreaming={false}
-                />
-              )}
+            {showTrackedWriteInlineDiff && trackedChange && (
+              <InlineDiff
+                oldStr={snapshotText(trackedChange.before)}
+                newStr={snapshotText(trackedChange.after)}
+              />
+            )}
+            {showTrackedWriteSnapshotSummary && trackedChange && (
+              <SnapshotSummaryNotice before={trackedChange.before} after={trackedChange.after} />
+            )}
+            {showTrackedWriteNewFile && trackedChange && (
+              <NewFileContent
+                content={snapshotText(trackedChange.after)}
+                filePath={filePath}
+                isStreaming={status === 'streaming'}
+              />
+            )}
+            {showTrackedWriteNewFileSummary && trackedChange && (
+              <SnapshotSummaryNotice after={trackedChange.after} />
+            )}
+            {showPendingWriteStreaming && (
+              <PendingWritePreview input={input} isStreaming={status === 'streaming'} />
+            )}
+            {showSettledWriteModifyPreview && (
+              <PendingWritePreview input={input} isStreaming={false} />
+            )}
+            {showSettledWriteNewFile && (
+              <NewFileContent
+                content={resolvedWrite.text || resolvedWrite.preview}
+                filePath={filePath}
+                isStreaming={false}
+              />
+            )}
 
-            {name === 'Delete' && (
+            {showDeleteNotice && (
               <div className="px-3 py-3 text-[11px] text-red-300/80 italic">
                 {t('fileChange.fileWillBeDeleted')}
               </div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ChevronRight, FileText, Loader2, PanelLeftOpen, RefreshCw, Save } from 'lucide-react'
+import { ChevronRight, FileText, Loader2, RefreshCw, Save } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
@@ -171,8 +171,6 @@ export function ProjectArchivePage(): React.JSX.Element {
   const { t: tCommon } = useTranslation('common')
   const activeProjectId = useChatStore((state) => state.activeProjectId)
   const projects = useChatStore((state) => state.projects)
-  const leftSidebarOpen = useUIStore((state) => state.leftSidebarOpen)
-  const toggleLeftSidebar = useUIStore((state) => state.toggleLeftSidebar)
   const chatView = useUIStore((state) => state.chatView)
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null
   const viewMode = chatView === 'channels' ? 'channels' : 'archive'
@@ -189,6 +187,15 @@ export function ProjectArchivePage(): React.JSX.Element {
   const activeFile = files[activeFileTab]
   const hasUnsavedChanges = activeFile.draftContent !== activeFile.savedContent
   const canSave = activeFile.missingFile || hasUnsavedChanges
+  const viewTitle =
+    viewMode === 'channels'
+      ? t('projectHome.openChannels', { defaultValue: '频道' })
+      : t('projectHome.openArchive', { defaultValue: '项目档案' })
+  const viewSummary =
+    viewMode === 'channels'
+      ? (activeProject?.workingFolder ??
+        t('projectArchive.noChannelSummary', { defaultValue: '查看项目的协作渠道与连接状态。' }))
+      : memoryRootPath || activeProject?.workingFolder || PROJECT_MEMORY_DIRNAME
 
   const readProjectTextFile = useCallback(
     async (filePath: string): Promise<{ content?: string; error?: string }> => {
@@ -384,17 +391,20 @@ export function ProjectArchivePage(): React.JSX.Element {
 
   if (!activeProject) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6">
+      <div className="flex flex-1 items-center justify-center bg-background px-6">
         <div className="max-w-md text-center">
-          <div className="text-xl font-semibold text-foreground">
+          <div className="text-[28px] font-semibold tracking-tight text-foreground">
             {t('projectArchive.noProjectTitle', { defaultValue: '未选择项目' })}
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t('projectArchive.noProjectDesc', {
               defaultValue: '先返回首页选择项目，再查看项目档案。'
             })}
           </p>
-          <Button className="mt-4" onClick={() => useUIStore.getState().navigateToHome()}>
+          <Button
+            className="mt-6 h-9 rounded-md px-4"
+            onClick={() => useUIStore.getState().navigateToHome()}
+          >
             <ChevronRight className="size-4" />
             {t('projectArchive.backHome', { defaultValue: '返回首页' })}
           </Button>
@@ -406,34 +416,60 @@ export function ProjectArchivePage(): React.JSX.Element {
   return (
     <div
       className={cn(
-        'relative flex flex-1 flex-col overflow-hidden bg-gradient-to-b from-background via-background to-muted/20',
-        viewMode === 'channels' ? 'px-4 py-4' : 'px-6 py-6'
+        'relative flex flex-1 flex-col overflow-hidden bg-background',
+        viewMode === 'channels' ? 'px-6 pb-6 pt-4' : 'px-6 pb-6 pt-4'
       )}
     >
-      {!leftSidebarOpen && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute left-4 top-4 z-10 size-8 rounded-lg border border-border/60 bg-background/80 backdrop-blur-sm"
-          onClick={toggleLeftSidebar}
-        >
-          <PanelLeftOpen className="size-4" />
-        </Button>
-      )}
+      <div className="mx-auto w-full max-w-[1480px] pb-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+              {viewTitle}
+            </p>
+            <h1 className="mt-1 truncate text-sm font-medium text-foreground/92">
+              {activeProject.name}
+            </h1>
+            <p className="mt-1 max-w-[880px] truncate text-xs text-muted-foreground/72">
+              {viewSummary}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-md px-3 text-xs"
+              onClick={() => useUIStore.getState().navigateToProject()}
+            >
+              {t('projectArchive.backProject', { defaultValue: '返回项目主页' })}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-md px-3 text-xs"
+              onClick={() => void loadProjectMemoryFiles()}
+              disabled={viewMode === 'archive' ? loading || saving : false}
+            >
+              <RefreshCw
+                className={cn(
+                  'mr-1.5 size-3.5',
+                  viewMode === 'archive' && loading && 'animate-spin'
+                )}
+              />
+              {tCommon('action.refresh', { defaultValue: '刷新' })}
+            </Button>
+          </div>
+        </div>
+      </div>
       <div
         className={cn(
           'mx-auto flex h-full w-full flex-col overflow-hidden',
-          viewMode === 'channels' ? 'max-w-[1500px]' : 'max-w-6xl'
+          viewMode === 'channels' ? 'max-w-[1480px]' : 'max-w-[1240px]'
         )}
       >
-        <div className="flex min-h-0 flex-1 overflow-hidden rounded-3xl border border-border/60 bg-background/70 shadow-[0_24px_60px_-30px_rgba(0,0,0,0.55)] backdrop-blur-sm">
+        <div className="flex min-h-0 flex-1 overflow-hidden rounded-md border border-border/60 bg-background">
           {viewMode === 'channels' ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="min-h-0 flex-1 overflow-hidden p-4">
-                <div className="h-full min-h-0 overflow-hidden rounded-[24px] border border-border/60 bg-background/80 shadow-inner">
-                  <ChannelPanel projectId={activeProjectId ?? undefined} />
-                </div>
-              </div>
+              <ChannelPanel projectId={activeProjectId ?? undefined} />
             </div>
           ) : loading ? (
             <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -442,7 +478,7 @@ export function ProjectArchivePage(): React.JSX.Element {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="flex items-center justify-between gap-3 border-b px-5 py-3 text-sm">
+              <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3 text-sm">
                 <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
                   <FileText className="size-4 shrink-0" />
                   <span className="truncate">
@@ -485,9 +521,9 @@ export function ProjectArchivePage(): React.JSX.Element {
                   </Button>
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-auto p-4">
-                <div className="space-y-6">
-                  <section className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-4">
+              <div className="min-h-0 flex-1 overflow-auto">
+                <div className="mx-auto flex w-full max-w-[980px] flex-col gap-4 px-4 py-4">
+                  <section className="space-y-3 border-b border-border/60 pb-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="space-y-1">
                         <p className="text-sm font-medium">项目记忆根目录</p>
@@ -499,7 +535,7 @@ export function ProjectArchivePage(): React.JSX.Element {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 text-xs"
+                        className="h-8 rounded-md px-3 text-xs"
                         onClick={() => void loadProjectMemoryFiles()}
                         disabled={loading || saving}
                       >
@@ -516,7 +552,7 @@ export function ProjectArchivePage(): React.JSX.Element {
                   </section>
 
                   <section className="space-y-4">
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 border-b border-border/60 pb-3">
                       {(Object.keys(files) as ProjectMemoryTabId[]).map((id) => {
                         const entry = files[id]
                         const isActive = activeFileTab === id
@@ -526,7 +562,7 @@ export function ProjectArchivePage(): React.JSX.Element {
                             type="button"
                             size="sm"
                             variant={isActive ? 'default' : 'outline'}
-                            className="h-8 text-xs"
+                            className="h-8 rounded-md px-3 text-xs"
                             onClick={() => setActiveFileTab(id)}
                           >
                             {entry.title}
@@ -535,7 +571,7 @@ export function ProjectArchivePage(): React.JSX.Element {
                       })}
                     </div>
 
-                    <div className="space-y-3 rounded-lg border border-border/60 bg-background/60 p-4">
+                    <div className="space-y-3 rounded-md border border-border/60 bg-background/50 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="space-y-1">
                           <label className="text-sm font-medium">{activeFile.title}</label>
@@ -583,12 +619,12 @@ export function ProjectArchivePage(): React.JSX.Element {
                           file: activeFile.filename || activeFile.title
                         })}
                         rows={20}
-                        className="min-h-[420px] font-mono text-xs leading-5"
+                        className="min-h-[420px] rounded-md border-border/60 bg-background font-mono text-xs leading-5"
                       />
                       <div className="flex items-center gap-2">
                         <Button
                           size="sm"
-                          className="h-8 text-xs"
+                          className="h-8 rounded-md px-3 text-xs"
                           onClick={() => void handleSave()}
                           disabled={saving || loading || !canSave}
                         >
@@ -604,7 +640,7 @@ export function ProjectArchivePage(): React.JSX.Element {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 text-xs"
+                          className="h-8 rounded-md px-3 text-xs"
                           onClick={handleReset}
                           disabled={saving || loading || !hasUnsavedChanges}
                         >

@@ -1,6 +1,8 @@
 import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { useProviderStore } from '@renderer/stores/provider-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { useMcpStore } from '@renderer/stores/mcp-store'
 import type {
   AppMode,
   AutoModelConfidence,
@@ -14,6 +16,10 @@ import {
   normalizeSidecarAgentEvent,
   normalizeSidecarRecord
 } from '@renderer/lib/ipc/sidecar-protocol'
+import {
+  RESPONSES_SESSION_SCOPE_AUTO_MODEL_ROUTING,
+  withAuxiliaryResponsesRequestPolicy
+} from './responses-session-policy'
 import type { ProviderConfig, UnifiedMessage } from './types'
 
 const AUTO_MODEL_LEGACY_SELECTOR_PROMPT = [
@@ -108,7 +114,16 @@ function buildSelectionStatus(options: {
   toolsAllowed?: boolean
   fallbackReason?: string
 }): AutoModelSelectionStatus {
-  const { target, config, mode, taskType, confidence, decisionSource, toolsAllowed, fallbackReason } = options
+  const {
+    target,
+    config,
+    mode,
+    taskType,
+    confidence,
+    decisionSource,
+    toolsAllowed,
+    fallbackReason
+  } = options
   return {
     source: 'auto',
     ...(mode ? { mode } : {}),
@@ -217,16 +232,25 @@ function getFastModelSupportsTools(): boolean {
   return model?.supportsFunctionCall !== false
 }
 
+function hasChatModeToolsAvailable(projectId?: string | null): boolean {
+  if (useSettingsStore.getState().webSearchEnabled) return true
+  return Object.keys(useMcpStore.getState().getActiveMcpTools(projectId)).length > 0
+}
+
 export function shouldAllowToolsForRequest(options: {
   latestUserInput: string
   mode?: AppMode
   isContinue?: boolean
+  projectId?: string | null
 }): boolean {
   if (options.isContinue) return true
-  if (options.mode === 'chat') return false
 
   const input = options.latestUserInput.trim()
   if (!input) return false
+
+  if (options.mode === 'chat') {
+    return hasChatModeToolsAvailable(options.projectId)
+  }
 
   const normalized = input.toLowerCase()
 
@@ -248,6 +272,7 @@ export async function selectAutoModel(options: {
   mode?: AppMode
   allowTools?: boolean
   isContinue?: boolean
+  projectId?: string | null
   signal?: AbortSignal
 }): Promise<AutoModelSelectionStatus> {
   const providerStore = useProviderStore.getState()
@@ -260,7 +285,8 @@ export async function selectAutoModel(options: {
     shouldAllowToolsForRequest({
       latestUserInput,
       mode,
-      isContinue: options.isContinue
+      isContinue: options.isContinue,
+      projectId: options.projectId
     })
 
   if (!mainConfig) {
@@ -350,13 +376,16 @@ export async function selectAutoModel(options: {
           isContinue: options.isContinue
         })
       : latestUserInput.slice(0, 4000)
-    const routingConfig: ProviderConfig = {
-      ...fastConfig,
-      maxTokens: useModeAwareRouting ? 64 : 8,
-      temperature: 0,
-      thinkingEnabled: false,
-      systemPrompt: routingPrompt
-    }
+    const routingConfig = withAuxiliaryResponsesRequestPolicy(
+      {
+        ...fastConfig,
+        maxTokens: useModeAwareRouting ? 64 : 8,
+        temperature: 0,
+        thinkingEnabled: false,
+        systemPrompt: routingPrompt
+      },
+      RESPONSES_SESSION_SCOPE_AUTO_MODEL_ROUTING
+    )
 
     const messages: UnifiedMessage[] = [
       {

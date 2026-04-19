@@ -82,7 +82,6 @@ export function CommandPalette(): React.JSX.Element {
 
   const sessions = useChatStore((s) => s.sessions)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const createSession = useChatStore((s) => s.createSession)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
   const deleteSession = useChatStore((s) => s.deleteSession)
   const togglePinSession = useChatStore((s) => s.togglePinSession)
@@ -161,8 +160,10 @@ export function CommandPalette(): React.JSX.Element {
           <CommandItem
             onSelect={() =>
               runAndClose(() => {
-                const id = createSession(mode)
-                setActiveSession(id)
+                const uiStore = useUIStore.getState()
+                setActiveSession(null)
+                uiStore.setMode('chat')
+                uiStore.navigateToHome()
               })
             }
           >

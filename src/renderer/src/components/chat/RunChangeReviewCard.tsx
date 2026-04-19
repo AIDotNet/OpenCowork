@@ -2,12 +2,16 @@ import * as React from 'react'
 import { ChevronDown, ChevronUp, ExternalLink, Loader2, RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { MONO_FONT } from '@renderer/lib/constants'
-import { IPC } from '@renderer/lib/ipc/channels'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import type { AgentRunChangeSet } from '@renderer/stores/agent-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { CodeDiffViewer } from './CodeDiffViewer'
+import {
+  type LoadedChangeContent,
+  isLoadedChangeContent,
+  loadAggregatedChangeContent,
+  useAggregatedChangeSummaries
+} from './change-summary-utils'
 import {
   aggregateDisplayableRunFileChanges,
   canRenderInlineSnapshot,
@@ -15,7 +19,6 @@ import {
   foldContext,
   lineCount,
   snapshotText,
-  summarizeTrackedChange,
   type AggregatedFileChange
 } from './file-change-utils'
 
@@ -24,71 +27,8 @@ interface RunChangeReviewCardProps {
   changeSet: AgentRunChangeSet
 }
 
-interface LoadedChangeContent {
-  beforeText: string
-  afterText: string
-}
-
-function isLoadedChangeContent(value: unknown): value is LoadedChangeContent {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    'beforeText' in value &&
-    'afterText' in value &&
-    typeof value.beforeText === 'string' &&
-    typeof value.afterText === 'string'
-  )
-}
-
 function isErrorResult(value: unknown): value is { error: string } {
   return !!value && typeof value === 'object' && 'error' in value && typeof value.error === 'string'
-}
-
-async function loadSnapshotSide(
-  change: AggregatedFileChange,
-  side: 'before' | 'after'
-): Promise<string | { error: string } | null> {
-  const sourceChange =
-    side === 'before'
-      ? change.sourceChanges[0]
-      : change.sourceChanges[change.sourceChanges.length - 1]
-  if (!sourceChange) return null
-
-  const snapshot = side === 'before' ? sourceChange.before : sourceChange.after
-  if (side === 'before' && !snapshot.exists) return ''
-  if (canRenderInlineSnapshot(snapshot)) {
-    return snapshotText(snapshot)
-  }
-
-  const result = await ipcClient.invoke(IPC.AGENT_CHANGES_SNAPSHOT_CONTENT, {
-    runId: sourceChange.runId,
-    changeId: sourceChange.id,
-    side
-  })
-
-  if (isErrorResult(result)) return result
-  if (result && typeof result === 'object' && 'text' in result && typeof result.text === 'string') {
-    return result.text
-  }
-  return null
-}
-
-async function loadAggregatedChangeContent(
-  change: AggregatedFileChange
-): Promise<LoadedChangeContent | { error: string } | null> {
-  const [beforeText, afterText] = await Promise.all([
-    loadSnapshotSide(change, 'before'),
-    loadSnapshotSide(change, 'after')
-  ])
-
-  if (isErrorResult(beforeText)) return beforeText
-  if (isErrorResult(afterText)) return afterText
-  if (typeof beforeText !== 'string' || typeof afterText !== 'string') return null
-
-  return {
-    beforeText,
-    afterText
-  }
 }
 
 function InlineChangePreview({ change }: { change: AggregatedFileChange }): React.JSX.Element {
@@ -203,6 +143,7 @@ export function RunChangeReviewCard({
     () => aggregateDisplayableRunFileChanges(changeSet.changes),
     [changeSet.changes]
   )
+  const summariesByChangeId = useAggregatedChangeSummaries(aggregatedChanges)
 
   React.useEffect(() => {
     setExpandedChangeId((current) =>
@@ -214,14 +155,15 @@ export function RunChangeReviewCard({
     () =>
       aggregatedChanges.reduce(
         (acc, change) => {
-          const stats = summarizeTrackedChange(change)
+          const stats = summariesByChangeId[change.id]
+          if (!stats) return acc
           acc.added += stats.added
           acc.deleted += stats.deleted
           return acc
         },
         { added: 0, deleted: 0 }
       ),
-    [aggregatedChanges]
+    [aggregatedChanges, summariesByChangeId]
   )
 
   const pendingCount = React.useMemo(
@@ -282,7 +224,7 @@ export function RunChangeReviewCard({
 
       <div className="border-t border-white/[0.06]">
         {aggregatedChanges.map((change) => {
-          const stats = summarizeTrackedChange(change)
+          const stats = summariesByChangeId[change.id] ?? { added: 0, deleted: 0 }
           const expanded = expandedChangeId === change.id
 
           return (

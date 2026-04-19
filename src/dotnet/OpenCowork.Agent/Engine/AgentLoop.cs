@@ -66,6 +66,21 @@ public delegate Task<bool> ApprovalHandler(ToolCallState toolCall);
 /// </summary>
 public static class AgentLoop
 {
+    private static int ReadContextUsage(TokenUsage? usage) =>
+        usage?.ContextTokens ?? usage?.InputTokens ?? 0;
+
+    private static int FindRecentContextUsage(List<UnifiedMessage> messages)
+    {
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            var tokens = ReadContextUsage(messages[i].Usage);
+            if (tokens > 0)
+                return tokens;
+        }
+
+        return 0;
+    }
+
     public static async IAsyncEnumerable<AgentEvent> RunAsync(
         List<UnifiedMessage> initialMessages,
         AgentLoopRunConfig config,
@@ -74,7 +89,11 @@ public static class AgentLoop
     {
         var conversationMessages = new List<UnifiedMessage>(initialMessages);
         var iteration = 0;
-        var lastInputTokens = 0;
+        if (config.Compression is not null)
+            ContextCompression.ResetFailures();
+        var lastInputTokens = config.Compression is not null
+            ? FindRecentContextUsage(initialMessages)
+            : 0;
         var hasLimit = config.MaxIterations > 0 && config.MaxIterations < int.MaxValue;
 
         yield return new LoopStartEvent
@@ -291,7 +310,7 @@ public static class AgentLoop
                         stopReason = evt.StopReason;
                         providerResponseId = evt.ProviderResponseId;
                         if (usage is not null)
-                            lastInputTokens = usage.InputTokens;
+                            lastInputTokens = ReadContextUsage(usage);
                         break;
 
                     case "request_debug":

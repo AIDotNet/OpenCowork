@@ -422,7 +422,7 @@
   },
   "messageList": {
     "startConversation": "Start a conversation",
-    "startConversationDesc": "Ask anything — no tools, just chat.",
+    "startConversationDesc": "Ask anything, or use web search and selected MCP tools.",
     "startClarify": "Start clarifying",
     "startClarifyDesc": "Interrogate the goal, constraints, risks, and gaps before planning. It defaults to clarification-first behavior, but permissions match Code mode.",
     "startCowork": "Start a Cowork session",

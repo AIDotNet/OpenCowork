@@ -4,6 +4,7 @@ import * as http from 'http'
 import { URL } from 'url'
 import { readSettings } from './settings-handlers'
 import {
+  buildResponsesWebsocketSessionKey,
   resolveResponsesWebsocketConfig,
   type ResponsesWebsocketMode,
   type ResponsesWebsocketRequestKind
@@ -68,6 +69,7 @@ interface APIStreamRequest {
   providerType?: string
   model?: string
   sessionId?: string
+  responsesSessionScope?: string
   websocketUrl?: string
   websocketMode?: ResponsesWebsocketMode
 }
@@ -1069,10 +1071,13 @@ export function registerApiProxyHandlers(): void {
 
       const result = await responsesWsManager.executeRequest({
         providerKey: providerId ?? providerBuiltinId ?? 'unknown',
-        sessionKey:
-          !req.sessionId || !req.model
-            ? null
-            : `${providerId ?? providerBuiltinId ?? 'unknown'}::${req.model}::${req.sessionId}::${args.websocketUrl}`,
+        sessionKey: buildResponsesWebsocketSessionKey({
+          providerKey: providerId ?? providerBuiltinId ?? 'unknown',
+          model: req.model,
+          sessionId: req.sessionId,
+          websocketUrl: args.websocketUrl,
+          sessionScope: req.responsesSessionScope
+        }),
         websocketUrl: args.websocketUrl,
         headers,
         httpBody: body ?? '',
@@ -1122,7 +1127,8 @@ export function registerApiProxyHandlers(): void {
         providerType: req.providerType,
         websocketMode: req.websocketMode,
         websocketUrl: req.websocketUrl,
-        baseUrl: url
+        baseUrl: url,
+        sessionScope: req.responsesSessionScope
       })
 
       const shouldTryResponsesWs =

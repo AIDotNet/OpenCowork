@@ -34,6 +34,7 @@ export const taskListTool: ToolHandler = {
       filtered: tasks.length,
       tasks: tasks.map((t) => ({
         id: t.id,
+        title: t.subject,
         subject: t.subject,
         status: t.status,
         owner: t.owner,

@@ -119,6 +119,7 @@ export interface SidecarProviderConfig {
   providerBuiltinId?: string
   userAgent?: string
   sessionId?: string
+  responsesSessionScope?: string
   serviceTier?: string
   enablePromptCache?: boolean
   enableSystemPromptCache?: boolean
@@ -377,6 +378,9 @@ function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig {
     ...(provider.providerBuiltinId ? { providerBuiltinId: provider.providerBuiltinId } : {}),
     ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
     ...(provider.sessionId ? { sessionId: provider.sessionId } : {}),
+    ...(provider.responsesSessionScope
+      ? { responsesSessionScope: provider.responsesSessionScope }
+      : {}),
     ...(provider.serviceTier ? { serviceTier: provider.serviceTier } : {}),
     ...(provider.enablePromptCache !== undefined
       ? { enablePromptCache: provider.enablePromptCache }
@@ -607,7 +611,19 @@ function normalizeToolResultOutput(value: unknown): ToolResultContent | undefine
         }
       )
       .filter((block): block is Exclude<typeof block, null> => block !== null)
-    return blocks.length > 0 ? blocks : undefined
+
+    // Tool results may also be structured arrays such as LS / Glob output.
+    // Only preserve an array as multimodal content when every item is a valid
+    // text/image block; otherwise serialize the full array for the UI/model.
+    if (value.length > 0 && blocks.length === value.length) {
+      return blocks
+    }
+
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
   }
   if (value !== null && value !== undefined) {
     try {

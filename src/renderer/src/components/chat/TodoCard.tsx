@@ -67,6 +67,16 @@ function outputAsString(output: ToolResultContent | undefined): string | undefin
   return texts.join('\n') || undefined
 }
 
+function getTaskTitle(value: { title?: unknown; subject?: unknown }): string | null {
+  if (typeof value.title === 'string' && value.title.trim()) return value.title
+  if (typeof value.subject === 'string' && value.subject.trim()) return value.subject
+  return null
+}
+
+function getInputTaskTitle(input: Record<string, unknown>): string | null {
+  return getTaskTitle(input)
+}
+
 function parseTaskSnapshot(output: ToolResultContent | undefined): {
   taskId?: string
   tasks: TaskItem[]
@@ -76,30 +86,32 @@ function parseTaskSnapshot(output: ToolResultContent | undefined): {
 
   const parsed = decodeStructuredToolResult(text) as {
     task_id?: unknown
-    tasks?: Array<Partial<TaskItem>>
+    tasks?: Array<(Partial<TaskItem> & { title?: unknown }) | null | undefined>
   } | null
   if (!parsed || Array.isArray(parsed) || !Array.isArray(parsed.tasks)) return null
 
-  const tasks = parsed.tasks
-    .filter(
-      (task): task is Partial<TaskItem> & Pick<TaskItem, 'id' | 'subject' | 'status'> =>
-        typeof task?.id === 'string' &&
-        typeof task?.subject === 'string' &&
-        typeof task?.status === 'string'
-    )
-    .map((task) => ({
-      id: task.id,
-      subject: task.subject,
-      description: typeof task.description === 'string' ? task.description : '',
-      activeForm: typeof task.activeForm === 'string' ? task.activeForm : undefined,
-      status: task.status as TaskItem['status'],
-      owner: typeof task.owner === 'string' || task.owner === null ? task.owner : undefined,
-      blocks: Array.isArray(task.blocks) ? task.blocks.map(String) : [],
-      blockedBy: Array.isArray(task.blockedBy) ? task.blockedBy.map(String) : [],
-      metadata: task.metadata,
-      createdAt: typeof task.createdAt === 'number' ? task.createdAt : 0,
-      updatedAt: typeof task.updatedAt === 'number' ? task.updatedAt : 0
-    }))
+  const tasks = parsed.tasks.flatMap((task) => {
+    if (!task || typeof task.id !== 'string' || typeof task.status !== 'string') return []
+
+    const subject = getTaskTitle(task)
+    if (!subject) return []
+
+    return [
+      {
+        id: task.id,
+        subject,
+        description: typeof task.description === 'string' ? task.description : '',
+        activeForm: typeof task.activeForm === 'string' ? task.activeForm : undefined,
+        status: task.status as TaskItem['status'],
+        owner: typeof task.owner === 'string' || task.owner === null ? task.owner : undefined,
+        blocks: Array.isArray(task.blocks) ? task.blocks.map(String) : [],
+        blockedBy: Array.isArray(task.blockedBy) ? task.blockedBy.map(String) : [],
+        metadata: task.metadata,
+        createdAt: typeof task.createdAt === 'number' ? task.createdAt : 0,
+        updatedAt: typeof task.updatedAt === 'number' ? task.updatedAt : 0
+      }
+    ]
+  })
 
   return {
     taskId: typeof parsed.task_id === 'string' ? parsed.task_id : undefined,
@@ -116,8 +128,7 @@ export function TaskCard({ name, input, output }: TaskCardProps): React.JSX.Elem
     [activeTeam]
   )
   // Prefer the tool-result snapshot; fall back to whichever live store has data.
-  const liveTasks: TaskItem[] =
-    liveStandaloneTasks.length > 0 ? liveStandaloneTasks : liveTeamTasks
+  const liveTasks: TaskItem[] = liveStandaloneTasks.length > 0 ? liveStandaloneTasks : liveTeamTasks
   const [expanded, setExpanded] = React.useState(false)
   const snapshot = React.useMemo(() => parseTaskSnapshot(output), [output])
   const tasks: TaskItem[] = snapshot?.tasks ?? liveTasks
@@ -130,7 +141,7 @@ export function TaskCard({ name, input, output }: TaskCardProps): React.JSX.Elem
     if (name !== 'TaskUpdate') return null
     if (!focusedTaskId) return null
     if (tasks.some((task) => task.id === focusedTaskId)) return null
-    const inputSubject = typeof input.subject === 'string' ? input.subject : undefined
+    const inputSubject = getInputTaskTitle(input) ?? undefined
     const inputStatus = typeof input.status === 'string' ? input.status : 'in_progress'
     const inputActiveForm = typeof input.activeForm === 'string' ? input.activeForm : undefined
     const status: TaskItem['status'] =
@@ -153,11 +164,11 @@ export function TaskCard({ name, input, output }: TaskCardProps): React.JSX.Elem
   }, [name, focusedTaskId, tasks, input])
 
   const displayedTasks: TaskItem[] = focusedTask ? [focusedTask] : tasks
-  const total =
-    displayedTasks.length || (name === 'TaskCreate' && input.subject ? 1 : 0)
+  const pendingTaskTitle = name === 'TaskCreate' ? getInputTaskTitle(input) : null
+  const total = displayedTasks.length || (pendingTaskTitle ? 1 : 0)
   const completed = displayedTasks.filter((t) => t.status === 'completed').length
 
-  const { hiddenCount, visibleTasks } = React.useMemo(() => {
+  const { hiddenCount, visibleTasks } = (() => {
     if (displayedTasks.length <= COLLAPSED_VISIBLE_RECENT_TASK_COUNT) {
       return { hiddenCount: 0, visibleTasks: displayedTasks }
     }
@@ -173,7 +184,7 @@ export function TaskCard({ name, input, output }: TaskCardProps): React.JSX.Elem
       hiddenCount: Math.max(0, displayedTasks.length - nextVisibleTasks.length),
       visibleTasks: nextVisibleTasks
     }
-  }, [displayedTasks])
+  })()
 
   React.useEffect(() => {
     if (hiddenCount === 0) {
@@ -182,7 +193,7 @@ export function TaskCard({ name, input, output }: TaskCardProps): React.JSX.Elem
   }, [hiddenCount])
 
   const displayTasks = hiddenCount > 0 && !expanded ? visibleTasks : displayedTasks
-  const pendingSubject = name === 'TaskCreate' && input.subject ? String(input.subject) : null
+  const pendingSubject = pendingTaskTitle
   // Show the pending placeholder whenever we have no rows to render for this TaskCreate —
   // not only when total === 0 (team mode can leave `total` at 1 with an empty task list).
   const showPendingPlaceholder = !!pendingSubject && displayTasks.length === 0

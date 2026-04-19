@@ -27,11 +27,39 @@ function getStandaloneTask(taskId: string, sessionId?: string): TaskItem | undef
   return getStandaloneTasks(sessionId).find((t) => t.id === taskId)
 }
 
+function normalizeTaskTitlePart(value: unknown): string {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
+}
+
+function mergeTaskTitle(title: string, description: string): string {
+  if (!title) return description
+  if (!description) return title
+  if (title === description) return title
+  if (title.includes(description)) return title
+  if (description.includes(title)) return description
+  return /[：:;；,.，。!?！？]$/.test(title)
+    ? `${title} ${description}`
+    : `${title}：${description}`
+}
+
+function resolveTaskTitle(input: Record<string, unknown>, fallbackTitle = ''): string {
+  const title = normalizeTaskTitlePart(input.title ?? input.subject)
+  const description = normalizeTaskTitlePart(input.description)
+
+  if (title) return mergeTaskTitle(title, description)
+  if (description) return description
+  return normalizeTaskTitlePart(fallbackTitle)
+}
+
+function hasTaskTitlePatch(input: Record<string, unknown>): boolean {
+  return input.title !== undefined || input.subject !== undefined || input.description !== undefined
+}
 
 function toTaskSnapshot(
   task: Pick<TaskItem, 'id' | 'subject' | 'activeForm' | 'status' | 'owner'>
 ): {
   id: string
+  title: string
   subject: string
   activeForm?: string
   status: TaskItem['status']
@@ -39,6 +67,7 @@ function toTaskSnapshot(
 } {
   return {
     id: task.id,
+    title: task.subject,
     subject: task.subject,
     activeForm: task.activeForm,
     status: task.status,
@@ -69,13 +98,10 @@ const taskCreateHandler: ToolHandler = {
     inputSchema: {
       type: 'object',
       properties: {
-        subject: {
+        title: {
           type: 'string',
-          description: 'A brief title for the task'
-        },
-        description: {
-          type: 'string',
-          description: 'A detailed description of what needs to be done'
+          description:
+            'A detailed task title with enough context that no separate description is needed'
         },
         activeForm: {
           type: 'string',
@@ -87,12 +113,14 @@ const taskCreateHandler: ToolHandler = {
           description: 'Arbitrary metadata to attach to the task'
         }
       },
-      required: ['subject', 'description']
+      required: ['title']
     }
   },
   execute: async (input, ctx) => {
-    const subject = String(input.subject)
-    const description = String(input.description)
+    const subject = resolveTaskTitle(input)
+    if (!subject) {
+      return encodeStructuredToolResult({ error: 'TaskCreate requires a non-empty title.' })
+    }
     const activeForm = input.activeForm ? String(input.activeForm) : undefined
     const metadata = input.metadata as Record<string, unknown> | undefined
     const id = nanoid(8)
@@ -104,21 +132,22 @@ const taskCreateHandler: ToolHandler = {
         return encodeStructuredToolResult({
           success: true,
           task_id: existing.id,
+          title: existing.subject,
           subject: existing.subject,
-          note: 'Task with this subject already exists, returning existing task.'
+          note: 'Task with this title already exists, returning existing task.'
         })
       }
       const task: TeamTask = {
         id,
         subject,
-        description,
+        description: '',
         status: 'pending',
         owner: null,
         dependsOn: [],
         activeForm
       }
       teamEvents.emit({ type: 'team_task_add', task })
-      return encodeStructuredToolResult({ success: true, task_id: id, subject })
+      return encodeStructuredToolResult({ success: true, task_id: id, title: subject, subject })
     }
 
     // Standalone mode: add to task-store
@@ -130,7 +159,7 @@ const taskCreateHandler: ToolHandler = {
       id,
       sessionId: ctx.sessionId,
       subject,
-      description,
+      description: '',
       activeForm,
       status: 'pending',
       owner: null,
@@ -144,6 +173,7 @@ const taskCreateHandler: ToolHandler = {
     return encodeStructuredToolResult({
       success: true,
       task_id: id,
+      title: subject,
       subject,
       task: toTaskSnapshot(task),
       ...buildStandaloneTaskSnapshot(ctx.sessionId)
@@ -158,7 +188,7 @@ const taskGetHandler: ToolHandler = {
   definition: {
     name: 'TaskGet',
     description:
-      'Retrieve a task by its ID to see full details including description and dependencies.',
+      'Retrieve a task by its ID to inspect its title, status, ownership, and dependencies.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -178,8 +208,8 @@ const taskGetHandler: ToolHandler = {
       if (!task) return encodeStructuredToolResult({ error: `Task "${taskId}" not found` })
       return encodeStructuredToolResult({
         id: task.id,
+        title: task.subject,
         subject: task.subject,
-        description: task.description,
         status: task.status,
         owner: task.owner,
         activeForm: task.activeForm,
@@ -192,8 +222,8 @@ const taskGetHandler: ToolHandler = {
 
     return encodeStructuredToolResult({
       id: task.id,
+      title: task.subject,
       subject: task.subject,
-      description: task.description,
       status: task.status,
       owner: task.owner,
       activeForm: task.activeForm,
@@ -211,13 +241,16 @@ const taskUpdateHandler: ToolHandler = {
   definition: {
     name: 'TaskUpdate',
     description:
-      'Update a task: change status, subject, description, owner, or manage dependencies. Set status to "deleted" to permanently remove a task.',
+      'Update a task: change status, title, owner, or manage dependencies. Set status to "deleted" to permanently remove a task.',
     inputSchema: {
       type: 'object',
       properties: {
         taskId: { type: 'string', description: 'The ID of the task to update' },
-        subject: { type: 'string', description: 'New subject for the task' },
-        description: { type: 'string', description: 'New description for the task' },
+        title: {
+          type: 'string',
+          description:
+            'New detailed title for the task. Include enough detail that no description is needed.'
+        },
         activeForm: {
           type: 'string',
           description:
@@ -276,8 +309,10 @@ const taskUpdateHandler: ToolHandler = {
         }
         patch.status = newStatus
       }
-      if (input.subject !== undefined) patch.subject = String(input.subject)
-      if (input.description !== undefined) patch.description = String(input.description)
+      if (hasTaskTitlePatch(input)) {
+        const nextTitle = resolveTaskTitle(input, task.subject)
+        if (nextTitle && nextTitle !== task.subject) patch.subject = nextTitle
+      }
       if (input.activeForm !== undefined) patch.activeForm = String(input.activeForm)
       if (input.owner !== undefined) patch.owner = String(input.owner)
       if (input.report !== undefined && patch.status === 'completed') {
@@ -302,8 +337,10 @@ const taskUpdateHandler: ToolHandler = {
     if (newStatus && ['pending', 'in_progress', 'completed'].includes(newStatus)) {
       patch.status = newStatus as TaskItem['status']
     }
-    if (input.subject !== undefined) patch.subject = String(input.subject)
-    if (input.description !== undefined) patch.description = String(input.description)
+    if (hasTaskTitlePatch(input)) {
+      const nextTitle = resolveTaskTitle(input, task.subject)
+      if (nextTitle && nextTitle !== task.subject) patch.subject = nextTitle
+    }
     if (input.activeForm !== undefined) patch.activeForm = String(input.activeForm)
     if (input.owner !== undefined) patch.owner = String(input.owner)
 
@@ -363,7 +400,7 @@ const taskListHandler: ToolHandler = {
   definition: {
     name: 'TaskList',
     description:
-      'List all tasks in the current session with their status, owner, and dependencies.',
+      'List all tasks in the current session with their detailed titles, status, owner, and dependencies.',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -379,6 +416,7 @@ const taskListHandler: ToolHandler = {
         total: tasks.length,
         tasks: tasks.map((t) => ({
           id: t.id,
+          title: t.subject,
           subject: t.subject,
           status: t.status,
           owner: t.owner,
@@ -394,6 +432,7 @@ const taskListHandler: ToolHandler = {
       total: tasks.length,
       tasks: tasks.map((t) => ({
         id: t.id,
+        title: t.subject,
         subject: t.subject,
         status: t.status,
         owner: t.owner,

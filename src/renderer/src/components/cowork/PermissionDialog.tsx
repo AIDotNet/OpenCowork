@@ -176,7 +176,7 @@ function formatToolSummary(name: string, input: Record<string, unknown>): string
   if (name === 'Grep') return `Search: "${input.pattern ?? ''}" in ${input.path ?? '.'}`
   if (name === 'LS') return `List: ${input.path ?? '.'}`
   if (name === 'Delete') return `Delete: ${input.file_path ?? input.path ?? ''}`
-  if (name === 'TaskCreate') return `Create task: ${input.subject ?? ''}`
+  if (name === 'TaskCreate') return `Create task: ${input.title ?? input.subject ?? ''}`
   if (name === 'TaskGet') return `Get task: #${input.taskId ?? ''}`
   if (name === 'TaskUpdate')
     return `Update task: #${input.taskId ?? ''}${input.status ? ` → ${input.status}` : ''}`

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.3] - 2026-04-18
+
+### Changed
+
+- Replaced the direct `electron-builder install-app-deps` postinstall step with `scripts/postinstall.mjs` to rebuild native Electron dependencies with version detection and platform-aware module skipping.
+
 ## [0.9.2] - 2026-04-17
 
 ### Changed

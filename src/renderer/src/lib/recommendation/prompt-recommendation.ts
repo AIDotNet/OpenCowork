@@ -9,6 +9,7 @@ import {
 } from '@renderer/lib/image-attachments'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { runSidecarTextRequest } from '@renderer/lib/ipc/agent-bridge'
+import { RESPONSES_SESSION_SCOPE_PROMPT_RECOMMENDATION } from '@renderer/lib/api/responses-session-policy'
 import type { ContentBlock, ProviderConfig, UnifiedMessage } from '@renderer/lib/api/types'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useChatStore } from '@renderer/stores/chat-store'
@@ -41,16 +42,25 @@ interface ResolvedRecommendationConfig {
   supportsVision: boolean
 }
 
+function stripRecommendationArtifacts(value: string): string {
+  return value
+    .replace(/<\s*think\b[^>]*>[\s\S]*?(?:<\s*\/\s*think\s*>|$)/gi, '')
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '')
+    .replace(/<system-command\b[^>]*>[\s\S]*?<\/system-command>/gi, '')
+    .trim()
+}
+
 function flattenContentText(content: UnifiedMessage['content']): string {
   if (typeof content === 'string') {
-    return content.trim()
+    return stripRecommendationArtifacts(content)
   }
 
-  return content
-    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n')
-    .trim()
+  return stripRecommendationArtifacts(
+    content
+      .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+  )
 }
 
 function clipText(value: string, maxLength = 1200): string {
@@ -76,12 +86,8 @@ function collectRecentConversation(
     .slice(-RECENT_CONVERSATION_LIMIT)
 }
 
-function stripThinkBlocks(value: string): string {
-  return value.replace(/<\s*think\b[^>]*>[\s\S]*?(?:<\s*\/\s*think\s*>|$)/gi, '')
-}
-
 function sanitizeRecommendationText(value: string): string {
-  const cleaned = stripThinkBlocks(value)
+  const cleaned = stripRecommendationArtifacts(value)
     .replace(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g, '$1')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^\s*[-*+]\s+/gm, '')
@@ -279,7 +285,8 @@ export async function requestPromptRecommendation(
       provider: requestConfig,
       messages: requestMessages,
       signal: controller.signal,
-      maxIterations: 1
+      maxIterations: 1,
+      responsesSessionScope: RESPONSES_SESSION_SCOPE_PROMPT_RECOMMENDATION
     })
 
     const text = sanitizeRecommendationText(accumulated)

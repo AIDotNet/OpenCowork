@@ -24,6 +24,15 @@ export function parseChatRoute(hash: string): ChatRouteState {
   if (normalized === '/' || normalized === '/home') return DEFAULT_ROUTE
 
   const segments = normalized.split('/').filter(Boolean)
+  if (segments[0] === 'chat') {
+    const sessionId = decodeURIComponent(segments[1] ?? '') || null
+    return {
+      chatView: sessionId ? 'session' : 'home',
+      projectId: null,
+      sessionId
+    }
+  }
+
   if (segments[0] !== 'project') return DEFAULT_ROUTE
 
   const projectId = decodeURIComponent(segments[1] ?? '') || null
@@ -54,6 +63,10 @@ export function parseChatRoute(hash: string): ChatRouteState {
 }
 
 export function buildChatRoute(state: ChatRouteState): string {
+  if (state.chatView === 'session' && state.sessionId && !state.projectId) {
+    return `#/chat/${encodeURIComponent(state.sessionId)}`
+  }
+
   if (state.chatView === 'home' || !state.projectId) return '#/'
 
   const encodedProjectId = encodeURIComponent(state.projectId)

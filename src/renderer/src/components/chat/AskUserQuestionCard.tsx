@@ -19,7 +19,7 @@ import { Badge } from '@renderer/components/ui/badge'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
-import { resolveAskUserAnswers } from '@renderer/lib/tools/ask-user-tool'
+import { coerceAskUserQuestions, resolveAskUserAnswers } from '@renderer/lib/tools/ask-user-tool'
 import type {
   AskUserQuestionItem,
   AskUserAnswers,
@@ -539,10 +539,7 @@ export function AskUserQuestionCard({
   isLive
 }: AskUserQuestionCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
-  const questions = React.useMemo(
-    () => (input.questions as AskUserQuestionItem[]) ?? [],
-    [input.questions]
-  )
+  const questions = React.useMemo(() => coerceAskUserQuestions(input.questions), [input.questions])
   const activeSessionMode = useChatStore(
     (s) => s.sessions.find((session) => session.id === s.activeSessionId)?.mode
   )

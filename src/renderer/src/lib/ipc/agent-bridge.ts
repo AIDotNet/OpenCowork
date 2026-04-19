@@ -1,5 +1,9 @@
 import type { ProviderConfig, UnifiedMessage } from '@renderer/lib/api/types'
 import {
+  RESPONSES_SESSION_SCOPE_SIDECAR_TEXT_REQUEST,
+  withAuxiliaryResponsesRequestPolicy
+} from '@renderer/lib/api/responses-session-policy'
+import {
   buildSidecarAgentRunRequest,
   normalizeSidecarAgentEvent,
   normalizeSidecarRecord
@@ -192,10 +196,15 @@ export async function runSidecarTextRequest(args: {
   messages: UnifiedMessage[]
   signal?: AbortSignal
   maxIterations?: number
+  responsesSessionScope?: string
 }): Promise<string> {
+  const provider = withAuxiliaryResponsesRequestPolicy(
+    args.provider,
+    args.responsesSessionScope ?? RESPONSES_SESSION_SCOPE_SIDECAR_TEXT_REQUEST
+  )
   const sidecarRequest = buildSidecarAgentRunRequest({
     messages: args.messages,
-    provider: args.provider,
+    provider,
     tools: [],
     maxIterations: args.maxIterations ?? 1,
     forceApproval: false
@@ -205,7 +214,7 @@ export async function runSidecarTextRequest(args: {
   }
 
   const supportsAgentRun = await canSidecarHandle('agent.run')
-  const supportsProvider = await canSidecarHandle(`provider.${args.provider.type}`)
+  const supportsProvider = await canSidecarHandle(`provider.${provider.type}`)
   if (!supportsAgentRun || !supportsProvider) {
     throw new Error('Sidecar capability unavailable')
   }
@@ -222,7 +231,7 @@ export async function runSidecarTextRequest(args: {
   const pendingEvents: Array<{ type: string; [key: string]: unknown }> = []
 
   try {
-    await new Promise<void>(async (resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const handleEvent = (event: { type: string; [key: string]: unknown }): void => {
         switch (event.type) {
           case 'text_delta':
@@ -280,17 +289,19 @@ export async function runSidecarTextRequest(args: {
         handleEvent(event)
       })
 
-      try {
-        const result = await agentBridge.runAgent(sidecarRequest)
-        runId = result.runId
-        for (const event of pendingEvents.splice(0, pendingEvents.length)) {
-          handleEvent(event)
-          if (settled) break
+      void (async () => {
+        try {
+          const result = await agentBridge.runAgent(sidecarRequest)
+          runId = result.runId
+          for (const event of pendingEvents.splice(0, pendingEvents.length)) {
+            handleEvent(event)
+            if (settled) break
+          }
+        } catch (error) {
+          args.signal?.removeEventListener('abort', abortHandler)
+          reject(error instanceof Error ? error : new Error(String(error)))
         }
-      } catch (error) {
-        args.signal?.removeEventListener('abort', abortHandler)
-        reject(error instanceof Error ? error : new Error(String(error)))
-      }
+      })()
     })
   } finally {
     runSidecarCleanup(unsubscribe)

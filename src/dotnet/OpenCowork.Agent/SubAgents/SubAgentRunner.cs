@@ -173,6 +173,7 @@ public sealed class SubAgentRunner
             ProviderBuiltinId = baseConfig.ProviderBuiltinId,
             UserAgent = baseConfig.UserAgent,
             SessionId = baseConfig.SessionId,
+            ResponsesSessionScope = $"sub-agent:{toolUseId}",
             ServiceTier = baseConfig.ServiceTier,
             EnablePromptCache = baseConfig.EnablePromptCache,
             EnableSystemPromptCache = baseConfig.EnableSystemPromptCache,
@@ -757,6 +758,8 @@ Structure the `report` argument with these sections:
             target.ReasoningTokens = (target.ReasoningTokens ?? 0) + usage.ReasoningTokens;
         if (usage.ContextTokens is not null)
             target.ContextTokens = usage.ContextTokens;
+        if (usage.ContextLength is not null)
+            target.ContextLength = usage.ContextLength;
         if (usage.TotalDurationMs is not null)
             target.TotalDurationMs = (target.TotalDurationMs ?? 0) + usage.TotalDurationMs;
         if (usage.RequestTimings is { Count: > 0 })

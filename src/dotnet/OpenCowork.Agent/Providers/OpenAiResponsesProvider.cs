@@ -19,6 +19,9 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
     private const string DesktopTypeToolName = "DesktopType";
     private const string DesktopScrollToolName = "DesktopScroll";
     private const string DesktopWaitToolName = "DesktopWait";
+    private const string DefaultResponsesSessionScope = "main";
+    private const string AgentMainResponsesSessionScope = "agent-main";
+    private const string SubAgentResponsesSessionScopePrefix = "sub-agent";
     private static readonly TimeSpan WebsocketCircuitBreakDuration = TimeSpan.FromMinutes(1);
     private const string WebsocketForceFreshReconnectReason = "websocket_force_fresh_reconnect";
     private static readonly ConcurrentDictionary<string, ResponsesWebSocketCircuitState> WebsocketCircuitBreakers = new(StringComparer.Ordinal);
@@ -609,6 +612,8 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
             : "auto";
         if (mode == "disabled")
             return new ResponsesWebSocketResolution(mode, null, "disabled");
+        if (!ShouldEnableResponsesWebSocketForScope(config))
+            return new ResponsesWebSocketResolution("disabled", null, "disabled");
 
         var explicitUrl = config.WebsocketUrl?.Trim();
         if (!string.IsNullOrWhiteSpace(explicitUrl))
@@ -718,11 +723,25 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         Console.Error.WriteLine(string.Join(" ", parts));
     }
 
+    private static string NormalizeResponsesSessionScope(ProviderConfig config)
+        => string.IsNullOrWhiteSpace(config.ResponsesSessionScope)
+            ? DefaultResponsesSessionScope
+            : config.ResponsesSessionScope.Trim();
+
+    private static bool ShouldEnableResponsesWebSocketForScope(ProviderConfig config)
+    {
+        var scope = NormalizeResponsesSessionScope(config);
+        return scope == AgentMainResponsesSessionScope
+            || scope == SubAgentResponsesSessionScopePrefix
+            || scope.StartsWith($"{SubAgentResponsesSessionScopePrefix}:", StringComparison.Ordinal);
+    }
+
     private static string? BuildResponsesWebSocketConnectionKey(ProviderConfig config, string websocketUrl)
     {
         if (string.IsNullOrWhiteSpace(config.SessionId) || string.IsNullOrWhiteSpace(config.Model))
             return null;
-        return $"{config.ProviderId ?? config.ProviderBuiltinId ?? "unknown"}::{config.Model}::{config.SessionId}::{websocketUrl}";
+        return
+            $"{config.ProviderId ?? config.ProviderBuiltinId ?? "unknown"}::{config.Model}::{config.SessionId}::{NormalizeResponsesSessionScope(config)}::{websocketUrl}";
     }
 
     private static async Task<(ReusableResponsesWebSocketConnection Connection, bool ReusedConnection)> AcquireResponsesWebSocketConnectionAsync(

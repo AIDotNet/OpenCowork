@@ -252,6 +252,7 @@ class OpenAIResponsesProvider implements APIProvider {
         providerType: runtimeConfig.type,
         model: runtimeConfig.model,
         sessionId: runtimeConfig.sessionId,
+        responsesSessionScope: runtimeConfig.responsesSessionScope,
         websocketUrl: runtimeConfig.websocketUrl,
         websocketMode: runtimeConfig.websocketMode
       })) {

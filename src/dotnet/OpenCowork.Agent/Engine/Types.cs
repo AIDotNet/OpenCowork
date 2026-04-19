@@ -21,6 +21,7 @@ public sealed class TokenUsage
     public int? CacheReadTokens { get; set; }
     public int? ReasoningTokens { get; set; }
     public int? ContextTokens { get; set; }
+    public int? ContextLength { get; set; }
     public long? TotalDurationMs { get; set; }
     public List<RequestTiming>? RequestTimings { get; set; }
 }
@@ -132,7 +133,10 @@ public sealed class ToolResultBlock : ContentBlock
                 return raw.GetString() ?? string.Empty;
 
             if (raw.ValueKind == JsonValueKind.Array)
-                return ContentBlockJson.DeserializeList(raw);
+            {
+                var structuredContent = GetStructuredContent();
+                return structuredContent is not null ? structuredContent : raw.GetRawText();
+            }
 
             if (raw.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
                 return string.Empty;
@@ -165,7 +169,11 @@ public sealed class ToolResultBlock : ContentBlock
     public List<ContentBlock>? GetStructuredContent()
     {
         if (RawContent is { } raw && raw.ValueKind == JsonValueKind.Array)
-            return ContentBlockJson.DeserializeList(raw);
+        {
+            var blocks = ContentBlockJson.DeserializeList(raw);
+            if (raw.GetArrayLength() > 0 && blocks.Count == raw.GetArrayLength())
+                return blocks;
+        }
 
         return null;
     }
@@ -396,6 +404,7 @@ public sealed class ProviderConfig
     public string? ProviderBuiltinId { get; set; }
     public string? UserAgent { get; set; }
     public string? SessionId { get; set; }
+    public string? ResponsesSessionScope { get; set; }
     public string? ServiceTier { get; set; }
     public bool? EnablePromptCache { get; set; }
     public bool? EnableSystemPromptCache { get; set; }

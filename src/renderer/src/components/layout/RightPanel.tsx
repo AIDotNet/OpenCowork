@@ -14,10 +14,11 @@ import { useChatStore } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
+import { useTeamStore } from '@renderer/stores/team-store'
 import { TASK_TOOL_NAME } from '@renderer/lib/agent/sub-agents/create-tool'
+import { isProjectSession } from '@renderer/lib/session-scope'
 import { cn } from '@renderer/lib/utils'
 import { RightPanelHeader } from './RightPanelHeader'
-import { RightPanelRail } from './RightPanelRail'
 import { PreviewPanel } from './PreviewPanel'
 import { DetailPanel } from './DetailPanel'
 import { SubAgentsPanel } from './SubAgentsPanel'
@@ -27,7 +28,6 @@ import {
   RIGHT_PANEL_DEFAULT_WIDTH,
   RIGHT_PANEL_SECTION_DEFS,
   RIGHT_PANEL_TAB_DEFS,
-  RIGHT_PANEL_RAIL_WIDTH,
   clampRightPanelWidth
 } from './right-panel-defs'
 
@@ -60,7 +60,7 @@ function SshFilesPanel({
 
   if (connectedSession) {
     return (
-      <div className="h-full overflow-hidden rounded-lg border border-border/50 bg-background/40">
+      <div className="h-full overflow-hidden rounded-md border border-border/50 bg-background/40">
         <SshFileExplorer
           sessionId={connectedSession.id}
           connectionId={connectionId}
@@ -72,7 +72,7 @@ function SshFilesPanel({
 
   if (connectingSession) {
     return (
-      <div className="flex h-full items-center justify-center rounded-lg border border-border/50 bg-background/40 text-xs text-muted-foreground">
+      <div className="flex h-full items-center justify-center rounded-md border border-border/50 bg-background/40 text-xs text-muted-foreground">
         <Loader2 className="mr-2 size-4 animate-spin text-amber-500" />
         {t('connecting')}
       </div>
@@ -81,7 +81,7 @@ function SshFilesPanel({
 
   if (error) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-border/50 bg-background/40 text-xs text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-md border border-border/50 bg-background/40 text-xs text-muted-foreground">
         <span>{error}</span>
         <Button
           variant="ghost"
@@ -96,7 +96,7 @@ function SshFilesPanel({
   }
 
   return (
-    <div className="flex h-full items-center justify-center rounded-lg border border-border/50 bg-background/40 text-xs text-muted-foreground">
+    <div className="flex h-full items-center justify-center rounded-md border border-border/50 bg-background/40 text-xs text-muted-foreground">
       {t('connecting')}
     </div>
   )
@@ -114,16 +114,31 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const subAgentExecutionDetailOpen = useUIStore((s) => s.subAgentExecutionDetailOpen)
   const subAgentExecutionDetailToolUseId = useUIStore((s) => s.subAgentExecutionDetailToolUseId)
   const subAgentExecutionDetailInlineText = useUIStore((s) => s.subAgentExecutionDetailInlineText)
+  const chatView = useUIStore((s) => s.chatView)
   const setTab = useUIStore((s) => s.setRightPanelTab)
   const setSection = useUIStore((s) => s.setRightPanelSection)
   const setRightPanelWidth = useUIStore((s) => s.setRightPanelWidth)
   const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen)
 
   const teamToolsEnabled = useSettingsStore((s) => s.teamToolsEnabled)
+  const activeProjectId = useChatStore((s) => s.activeProjectId)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const activeSession = useChatStore((s) =>
     s.sessions.find((session) => session.id === s.activeSessionId)
   )
+  const sessionHasWorkspace = isProjectSession({
+    chatView,
+    session: activeSession,
+    activeProjectId,
+    workingFolder: activeSession?.workingFolder
+  })
+  const hasSessionTeam = useTeamStore((s) => {
+    if (!activeSessionId) return false
+    return (
+      s.activeTeam?.sessionId === activeSessionId ||
+      s.teamHistory.some((team) => team.sessionId === activeSessionId)
+    )
+  })
   const hasSessionSubAgents = useAgentStore((s) => {
     if (!activeSessionId) return false
     const matchSession = (item: { sessionId?: string }): boolean =>
@@ -155,11 +170,29 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
 
   const visibleTabs = useMemo(
     () =>
-      RIGHT_PANEL_TAB_DEFS.filter((item) => teamToolsEnabled || item.value !== 'team').filter(
-        (item) =>
-          shouldShowSubAgentsTab || (item.value !== 'subagents' && item.value !== 'orchestration')
-      ),
-    [teamToolsEnabled, shouldShowSubAgentsTab]
+      RIGHT_PANEL_TAB_DEFS.filter(
+        (item) => (teamToolsEnabled && hasSessionTeam) || item.value !== 'team'
+      )
+        .filter(
+          (item) =>
+            shouldShowSubAgentsTab || (item.value !== 'subagents' && item.value !== 'orchestration')
+        )
+        .filter((item) => {
+          if (sessionHasWorkspace) return true
+          if (item.value === 'preview') {
+            return previewPanelOpen || detailPanelOpen || tab === 'preview'
+          }
+          return item.value !== 'files' && item.value !== 'terminal' && item.value !== 'artifacts'
+        }),
+    [
+      detailPanelOpen,
+      hasSessionTeam,
+      previewPanelOpen,
+      sessionHasWorkspace,
+      shouldShowSubAgentsTab,
+      tab,
+      teamToolsEnabled
+    ]
   )
 
   const availableSections = useMemo(
@@ -171,10 +204,10 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   )
   const resolvedTab = visibleTabs.some((tabDef) => tabDef.value === tab)
     ? tab
-    : (visibleTabs[0]?.value ?? 'files')
+    : (visibleTabs[0]?.value ?? 'context')
   const resolvedSection = availableSections.some((sectionDef) => sectionDef.value === section)
     ? section
-    : (availableSections[0]?.value ?? 'execution')
+    : (availableSections[0]?.value ?? 'monitoring')
 
   useEffect(() => {
     if (resolvedTab !== tab) setTab(resolvedTab)
@@ -190,9 +223,9 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const startWidthRef = useRef(rightPanelWidth)
   const [isDragging, setIsDragging] = useState(false)
 
-  const targetPanelWidth = compact
-    ? Math.min(rightPanelWidth, RIGHT_PANEL_DEFAULT_WIDTH)
-    : rightPanelWidth
+  const targetPanelWidth = clampRightPanelWidth(
+    compact ? Math.min(rightPanelWidth, RIGHT_PANEL_DEFAULT_WIDTH) : rightPanelWidth
+  )
 
   useEffect(() => {
     if (rightPanelWidth === 0) setRightPanelWidth(RIGHT_PANEL_DEFAULT_WIDTH)
@@ -236,119 +269,100 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   return (
     <div
       data-tour="right-panel"
-      className="relative flex h-full shrink-0 z-40 transition-[width] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
-      style={{
-        width: rightPanelOpen ? targetPanelWidth + RIGHT_PANEL_RAIL_WIDTH : RIGHT_PANEL_RAIL_WIDTH
-      }}
+      className="relative z-40 h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-out"
+      style={{ width: rightPanelOpen ? targetPanelWidth : 0 }}
     >
-      <aside className="relative flex h-full w-full transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] bg-background/40 backdrop-blur-sm before:absolute before:left-0 before:top-2 before:bottom-2 before:w-px before:rounded-full before:bg-border/40">
-        <div className="flex h-full w-full overflow-hidden">
-          <RightPanelRail
-            visibleTabs={visibleTabs}
-            activeTab={resolvedTab}
-            onSelectTab={handleSelectTab}
-            showTabs
-            isExpanded={rightPanelOpen}
-            onToggle={() => setRightPanelOpen(!rightPanelOpen)}
-          />
+      <aside
+        className={cn(
+          'relative flex h-full w-full border-l border-border/50 bg-background/55 backdrop-blur-sm transition-opacity duration-200',
+          rightPanelOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+        )}
+      >
+        {activeTabDef ? (
+          <div className="flex h-full min-h-0 w-full flex-col">
+            <RightPanelHeader
+              activeTabDef={activeTabDef}
+              visibleTabs={visibleTabs}
+              onSelectTab={handleSelectTab}
+              onClose={() => setRightPanelOpen(false)}
+              t={t}
+            />
+            <div className="min-h-0 flex-1 overflow-auto bg-background/5 p-4">
+              <AnimatePresence mode="wait">
+                {(resolvedTab === 'orchestration' || resolvedTab === 'team') && (
+                  <FadeIn key="orchestration" className="h-full">
+                    <OrchestrationConsole />
+                  </FadeIn>
+                )}
 
-          <div
-            className={cn(
-              'flex min-h-0 flex-1 min-w-0 border-l border-border/40 transition-all duration-500',
-              rightPanelOpen ? 'opacity-100' : 'w-0 opacity-0 pointer-events-none'
-            )}
-          >
-            {activeTabDef && (
-              <div
-                className="flex h-full min-h-0 w-full flex-col"
-                style={{ width: targetPanelWidth }}
-              >
-                <RightPanelHeader
-                  activeTabDef={activeTabDef}
-                  onClose={() => setRightPanelOpen(false)}
-                  t={t}
-                />
-                <div className="min-h-0 flex-1 overflow-auto bg-background/5 p-4">
-                  <AnimatePresence mode="wait">
-                    {(resolvedTab === 'orchestration' || resolvedTab === 'team') && (
-                      <FadeIn key="orchestration" className="h-full">
-                        <OrchestrationConsole />
-                      </FadeIn>
+                {resolvedTab === 'subagents' && (
+                  <FadeIn key="subagents" className="h-full">
+                    {subAgentExecutionDetailOpen ? (
+                      <SubAgentExecutionDetail
+                        embedded
+                        toolUseId={subAgentExecutionDetailToolUseId ?? selectedSubAgentToolUseId}
+                        inlineText={subAgentExecutionDetailInlineText ?? undefined}
+                        onClose={() => useUIStore.getState().closeSubAgentExecutionDetail()}
+                      />
+                    ) : (
+                      <SubAgentsPanel />
                     )}
+                  </FadeIn>
+                )}
 
-                    {resolvedTab === 'subagents' && (
-                      <FadeIn key="subagents" className="h-full">
-                        {subAgentExecutionDetailOpen ? (
-                          <SubAgentExecutionDetail
-                            embedded
-                            toolUseId={
-                              subAgentExecutionDetailToolUseId ?? selectedSubAgentToolUseId
-                            }
-                            inlineText={subAgentExecutionDetailInlineText ?? undefined}
-                            onClose={() => useUIStore.getState().closeSubAgentExecutionDetail()}
-                          />
-                        ) : (
-                          <SubAgentsPanel />
-                        )}
-                      </FadeIn>
+                {resolvedTab === 'files' && (
+                  <FadeIn key="files" className="h-full">
+                    {activeSession?.sshConnectionId ? (
+                      <SshFilesPanel
+                        connectionId={activeSession.sshConnectionId}
+                        rootPath={activeSession.workingFolder}
+                      />
+                    ) : (
+                      <FileTreePanel />
                     )}
+                  </FadeIn>
+                )}
 
-                    {resolvedTab === 'files' && (
-                      <FadeIn key="files" className="h-full">
-                        {activeSession?.sshConnectionId ? (
-                          <SshFilesPanel
-                            connectionId={activeSession.sshConnectionId}
-                            rootPath={activeSession.workingFolder}
-                          />
-                        ) : (
-                          <FileTreePanel />
-                        )}
-                      </FadeIn>
-                    )}
+                {resolvedTab === 'artifacts' && (
+                  <FadeIn key="artifacts" className="h-full">
+                    <ArtifactsPanel />
+                  </FadeIn>
+                )}
 
-                    {resolvedTab === 'artifacts' && (
-                      <FadeIn key="artifacts" className="h-full">
-                        <ArtifactsPanel />
-                      </FadeIn>
+                {resolvedTab === 'preview' && (
+                  <FadeIn key="preview" className="h-full">
+                    {previewPanelOpen ? (
+                      <PreviewPanel embedded />
+                    ) : detailPanelOpen ? (
+                      <DetailPanel embedded />
+                    ) : (
+                      <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border/60 bg-background/40 text-xs text-muted-foreground">
+                        {t('rightPanel.previewEmpty', { defaultValue: '暂无预览内容' })}
+                      </div>
                     )}
+                  </FadeIn>
+                )}
 
-                    {resolvedTab === 'preview' && (
-                      <FadeIn key="preview" className="h-full">
-                        {previewPanelOpen ? (
-                          <PreviewPanel embedded />
-                        ) : detailPanelOpen ? (
-                          <DetailPanel embedded />
-                        ) : (
-                          <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border/60 bg-background/40 text-xs text-muted-foreground">
-                            {t('rightPanel.previewEmpty', { defaultValue: '暂无预览内容' })}
-                          </div>
-                        )}
-                      </FadeIn>
-                    )}
+                {resolvedTab === 'terminal' && (
+                  <FadeIn key="terminal" className="h-full">
+                    <TerminalPanel />
+                  </FadeIn>
+                )}
 
-                    {resolvedTab === 'terminal' && (
-                      <FadeIn key="terminal" className="h-full">
-                        <TerminalPanel />
-                      </FadeIn>
-                    )}
-
-                    {resolvedTab === 'context' && (
-                      <FadeIn key="context" className="h-full">
-                        <ContextPanel />
-                      </FadeIn>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </div>
-            )}
+                {resolvedTab === 'context' && (
+                  <FadeIn key="context" className="h-full">
+                    <ContextPanel />
+                  </FadeIn>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {rightPanelOpen && (
           <div
-            className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors z-[60]"
+            className="absolute left-0 top-0 bottom-0 z-[60] w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"
             onMouseDown={startResize}
-            style={{ left: RIGHT_PANEL_RAIL_WIDTH }}
           />
         )}
       </aside>

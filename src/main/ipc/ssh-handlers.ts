@@ -178,6 +178,35 @@ type UploadTaskState = {
 
 type SearchLimitReason = 'max_results' | 'max_output_bytes' | 'timeout' | 'max_depth' | null
 
+const SSH_SEARCH_IGNORE_DIRS = [
+  'node_modules',
+  '.git',
+  '.svn',
+  '.hg',
+  '.bzr',
+  'dist',
+  'build',
+  'out',
+  '.next',
+  '.nuxt',
+  '.output',
+  'coverage',
+  '.nyc_output',
+  '.cache',
+  '.parcel-cache',
+  'vendor',
+  'target',
+  'bin',
+  'obj',
+  '.gradle',
+  '__pycache__',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.venv',
+  'venv',
+  'env'
+] as const
+
 type SearchMeta = {
   backend: 'ssh'
   searchRoot: string
@@ -256,6 +285,41 @@ function createSshGlobResult(args: {
     }),
     error: args.error
   }
+}
+
+function escapeSshSearchRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function includesSshIgnoredDir(pattern: string, dirName: string): boolean {
+  return new RegExp(`(^|/)${escapeSshSearchRegex(dirName)}(/|$)`).test(pattern.replace(/\\/g, '/'))
+}
+
+function buildSshFindPruneExpression(pattern: string): string {
+  const ignoredDirs = SSH_SEARCH_IGNORE_DIRS.filter(
+    (dir) => !includesSshIgnoredDir(pattern, dir)
+  )
+  if (ignoredDirs.length === 0) return ''
+
+  const nameClauses = ignoredDirs.map((dir) => `-name ${shellEscape(dir)}`).join(' -o ')
+  return `-type d \\( ${nameClauses} \\) -prune -o `
+}
+
+function appendSshRipgrepDefaultGlobs(cmd: string): string {
+  let next = cmd
+  for (const dir of SSH_SEARCH_IGNORE_DIRS) {
+    next += ` --glob ${shellEscape(`!${dir}/**`)}`
+    next += ` --glob ${shellEscape(`!**/${dir}/**`)}`
+  }
+  return next
+}
+
+function appendSshGrepExcludeDirs(cmd: string): string {
+  let next = cmd
+  for (const dir of SSH_SEARCH_IGNORE_DIRS) {
+    next += ` --exclude-dir=${shellEscape(dir)}`
+  }
+  return next
 }
 
 function createSshGrepResult(args: {
@@ -2557,7 +2621,9 @@ export function registerSshHandlers(): void {
           const maxDepth = 5
           const result = await sshExec(
             session,
-            `find ${shellEscape(cwd)} -name ${shellEscape(args.pattern)} -maxdepth ${maxDepth} 2>/dev/null | head -100`
+            `cd ${shellEscape(cwd)} && find . -maxdepth ${maxDepth} ` +
+              `${buildSshFindPruneExpression(args.pattern)}-name ${shellEscape(args.pattern)} ` +
+              `-print 2>/dev/null | head -100`
           )
           if (result.exitCode !== 0) {
             return createSshGlobResult({
@@ -2576,10 +2642,12 @@ export function registerSshHandlers(): void {
             .split('\n')
             .map((line) => line.trim())
             .filter(Boolean)) {
-            const stats = await sftpStat(sftp, rawPath)
+            const relativePath = rawPath.replace(/^\.\//, '').replace(/\/+$/, '')
+            const fullPath = relativePath ? path.posix.join(cwd, relativePath) : cwd
+            const stats = await sftpStat(sftp, fullPath)
             const isDir = stats?.isDirectory?.() ?? false
-            if (await gitIgnoreMatcher.ignores(rawPath, isDir)) continue
-            matches.push({ path: rawPath, type: isDir ? 'directory' : 'file' })
+            if (await gitIgnoreMatcher.ignores(fullPath, isDir)) continue
+            matches.push({ path: fullPath, type: isDir ? 'directory' : 'file' })
           }
           const rawLines = result.stdout
             .split('\n')
@@ -2626,6 +2694,7 @@ export function registerSshHandlers(): void {
 
           if (hasRipgrep) {
             let cmd = `cd ${shellEscape(cwd)} && rg --json --line-number --color never --no-messages --ignore-case --hidden --max-filesize 10M`
+            cmd = appendSshRipgrepDefaultGlobs(cmd)
             if (args.include) cmd += ` --glob ${shellEscape(args.include)}`
             cmd += ` ${shellEscape(args.pattern)} . 2>/dev/null | head -200`
 
@@ -2686,8 +2755,10 @@ export function registerSshHandlers(): void {
             })
           }
 
-          let cmd = `grep -rn ${shellEscape(args.pattern)} ${shellEscape(cwd)}`
+          let cmd = `grep -rn`
+          cmd = appendSshGrepExcludeDirs(cmd)
           if (args.include) cmd += ` --include=${shellEscape(args.include)}`
+          cmd += ` ${shellEscape(args.pattern)} ${shellEscape(cwd)}`
           cmd += ' 2>/dev/null | head -100'
 
           const result = await sshExec(session, cmd)

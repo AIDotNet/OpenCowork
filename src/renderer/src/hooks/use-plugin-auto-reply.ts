@@ -35,6 +35,7 @@ import type { UnifiedMessage, ProviderConfig, ContentBlock } from '@renderer/lib
 import type { Session } from '@renderer/stores/chat-store'
 import { hasPendingSessionMessagesForSession } from '@renderer/hooks/use-chat-actions'
 import { recordUsageEvent } from '@renderer/lib/usage-analytics'
+import { buildSystemPromptContextCacheKey } from '@renderer/lib/chat-mode-tools'
 import {
   summarizeToolInputForHistory,
   summarizeToolInputForLiveCard
@@ -449,6 +450,49 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
 
   // ── Build tools (same as main agent's cowork branch) ──
   const allToolDefs = toolRegistry.getDefinitions()
+  const settings = useSettingsStore.getState()
+  let userPrompt = settings.systemPrompt || ''
+
+  const channelDescriptor = channelMeta
+    ? useChannelStore.getState().getDescriptor(channelMeta.type)
+    : undefined
+  const channelToolNames = channelDescriptor?.tools ?? []
+  const enabledTools = channelToolNames.filter((name) => channelMeta?.tools?.[name] !== false)
+
+  const channelCtx = [
+    `\n## Channel Auto-Reply Context`,
+    `Channel: ${channelMeta?.name ?? pluginType} (channel_id: \`${pluginId}\`)`,
+    `Chat ID: \`${chatId}\``,
+    `Chat Type: ${task.chatType ?? 'unknown'}`,
+    `Sender: ${task.senderName || task.senderId} (id: ${task.senderId})`,
+    enabledTools.length > 0 ? `Available channel tools: ${enabledTools.join(', ')}` : '',
+    `Reply directly to this incoming message in a natural way.`,
+    `If you need channel tools, use plugin_id="${pluginId}" and chat_id="${chatId}".`
+  ]
+    .filter(Boolean)
+    .join('\n')
+  userPrompt = userPrompt ? `${userPrompt}\n${channelCtx}` : channelCtx
+
+  const memorySnapshot = await loadLayeredMemorySnapshot(ipcClient, {
+    workingFolder: session.workingFolder,
+    scope: 'shared'
+  })
+  const sshConnection = session.sshConnectionId
+    ? useSshStore
+        .getState()
+        .connections.find((connection) => connection.id === session.sshConnectionId)
+    : undefined
+  const environmentContext = resolvePromptEnvironmentContext({
+    sshConnectionId: session.sshConnectionId,
+    workingFolder: session.workingFolder,
+    sshConnection
+  })
+  const promptContextCacheKey = buildSystemPromptContextCacheKey({
+    language: settings.language,
+    userRules: userPrompt,
+    environmentContext,
+    memorySnapshot
+  })
   const cachedPromptSnapshot = session.promptSnapshot
   const canReusePromptSnapshot =
     !!cachedPromptSnapshot &&
@@ -457,6 +501,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     cachedPromptSnapshot.workingFolder === session.workingFolder &&
     cachedPromptSnapshot.projectId === session.projectId &&
     cachedPromptSnapshot.sshConnectionId === session.sshConnectionId &&
+    cachedPromptSnapshot.contextCacheKey === promptContextCacheKey &&
     // Discard stale snapshots that lack plugin tools (issue #73).
     cachedPromptSnapshot.toolDefs.some((t) => t.name === 'PluginSendMessage')
 
@@ -464,45 +509,6 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   let systemPrompt = cachedPromptSnapshot?.systemPrompt ?? ''
 
   if (!canReusePromptSnapshot) {
-    // ── Build system prompt with channel context ──
-    const settings = useSettingsStore.getState()
-    let userPrompt = settings.systemPrompt || ''
-
-    const channelDescriptor = channelMeta
-      ? useChannelStore.getState().getDescriptor(channelMeta.type)
-      : undefined
-    const channelToolNames = channelDescriptor?.tools ?? []
-    const enabledTools = channelToolNames.filter((name) => channelMeta?.tools?.[name] !== false)
-
-    const channelCtx = [
-      `\n## Channel Auto-Reply Context`,
-      `Channel: ${channelMeta?.name ?? pluginType} (channel_id: \`${pluginId}\`)`,
-      `Chat ID: \`${chatId}\``,
-      `Chat Type: ${task.chatType ?? 'unknown'}`,
-      `Sender: ${task.senderName || task.senderId} (id: ${task.senderId})`,
-      enabledTools.length > 0 ? `Available channel tools: ${enabledTools.join(', ')}` : '',
-      `Reply directly to this incoming message in a natural way.`,
-      `If you need channel tools, use plugin_id="${pluginId}" and chat_id="${chatId}".`
-    ]
-      .filter(Boolean)
-      .join('\n')
-    userPrompt = userPrompt ? `${userPrompt}\n${channelCtx}` : channelCtx
-
-    const memorySnapshot = await loadLayeredMemorySnapshot(ipcClient, {
-      workingFolder: session.workingFolder,
-      scope: 'shared'
-    })
-    const sshConnection = session.sshConnectionId
-      ? useSshStore
-          .getState()
-          .connections.find((connection) => connection.id === session.sshConnectionId)
-      : undefined
-    const environmentContext = resolvePromptEnvironmentContext({
-      sshConnectionId: session.sshConnectionId,
-      workingFolder: session.workingFolder,
-      sshConnection
-    })
-
     systemPrompt = buildSystemPrompt({
       mode: 'cowork',
       workingFolder: session.workingFolder,
@@ -522,7 +528,8 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       toolDefs: allToolDefs,
       projectId: session.projectId,
       workingFolder: session.workingFolder,
-      sshConnectionId: session.sshConnectionId
+      sshConnectionId: session.sshConnectionId,
+      contextCacheKey: promptContextCacheKey
     })
   } else {
     effectiveToolDefs = cachedPromptSnapshot.toolDefs.slice()

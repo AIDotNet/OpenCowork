@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.4] - 2026-04-20
+
+### Added
+
+- Added websocket timeout handling improvements with better context-token-aware streaming behavior.
+- Added plan execution gating and persisted context compaction metadata to prevent state drift in planned workflows.
+
+### Changed
+
+- Improved sidecar runtime resiliency by adding circuit-break behavior for repeated streaming transport failures.
+- Refactored context compression and added message metadata support, including database schema and data-access updates.
+- Improved chat assistant message summarization to categorize file-change results more precisely.
+- Refactored chat and sidebar interactions to isolate tool sessions by conversation scope and redesigned home input handling.
+- Optimized SSH handler behavior with better search error handling.
+- Updated README and project documentation to include special thanks and better usage guidance.
+- Improved settings performance by lazily loading analytics overview data.
+- Improved chat tool activity and diff presentation in review tooling.
+
+### Fixed
+
+- Fixed SSH remote search behavior to skip ignored directories.
+- Fixed queued websocket runs to correctly honor turn boundaries.
+- Fixed tool behavior around skipped directories and search edge cases in remote SSH sessions.
+
 ## [0.9.3] - 2026-04-18
 
 ### Changed

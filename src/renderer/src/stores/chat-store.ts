@@ -35,6 +35,7 @@ export interface SessionPromptSnapshot {
   projectId?: string
   workingFolder?: string
   sshConnectionId?: string | null
+  contextCacheKey?: string
 }
 
 export interface Project {
@@ -1856,7 +1857,8 @@ export const useChatStore = create<ChatStore>()(
           toolDefs: snapshot.toolDefs.slice(),
           projectId: snapshot.projectId,
           workingFolder: snapshot.workingFolder,
-          sshConnectionId: snapshot.sshConnectionId
+          sshConnectionId: snapshot.sshConnectionId,
+          contextCacheKey: snapshot.contextCacheKey
         }
       })
     },
@@ -2797,4 +2799,6 @@ function flushStreamDeltas(): void {
 _scheduleStreamDeltaFlush = () => {
   if (_streamDeltaRafId !== null) return
   _streamDeltaRafId = requestAnimationFrame(flushStreamDeltas)
+}
+rame(flushStreamDeltas)
 }

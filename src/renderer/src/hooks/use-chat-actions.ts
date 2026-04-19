@@ -36,7 +36,7 @@ import type { SubAgentEvent } from '@renderer/lib/agent/sub-agents/types'
 import { abortAllTeammates } from '@renderer/lib/agent/teams/teammate-runner'
 import { TEAM_TOOL_NAMES } from '@renderer/lib/agent/teams/register'
 import { teamEvents } from '@renderer/lib/agent/teams/events'
-import { useTeamStore } from '@renderer/stores/team-store'
+import { useTeamStore, type ActiveTeam } from '@renderer/stores/team-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { clearPendingQuestions } from '@renderer/lib/tools/ask-user-tool'
@@ -145,8 +145,11 @@ import {
   shouldAllowToolsForRequest
 } from '@renderer/lib/api/auto-model-selector'
 import {
+  buildChatModePromptContextCacheKey,
   buildChatModeSystemPrompt,
-  filterChatModeToolDefinitions
+  buildSystemPromptContextCacheKey,
+  filterChatModeToolDefinitions,
+  hasChatModePluginTools
 } from '@renderer/lib/chat-mode-tools'
 import { getTailToolExecutionState } from '@renderer/components/chat/transcript-utils'
 import type { AutoModelSelectionStatus } from '@renderer/stores/ui-store'
@@ -215,6 +218,21 @@ function haveSameToolDefinitionNames(
   if (left.length !== right.length) return false
   const rightNames = new Set(right.map((tool) => tool.name))
   return left.every((tool) => rightNames.has(tool.name))
+}
+
+function summarizeActiveTeamForPromptCache(activeTeam: ActiveTeam | null | undefined): {
+  name: string
+  permissionMode?: string
+  defaultBackend?: string
+  members: string[]
+} | null {
+  if (!activeTeam) return null
+  return {
+    name: activeTeam.name,
+    permissionMode: activeTeam.permissionMode,
+    defaultBackend: activeTeam.defaultBackend,
+    members: activeTeam.members.map((member) => member.name)
+  }
 }
 
 type MessageSource = 'team' | 'queued' | 'continue'
@@ -2593,28 +2611,37 @@ export function useChatActions(): {
       if (mode === 'chat' && chatModeToolDefs.length === 0) {
         // Chat mode without enabled chat-mode tools: single API call, no tools
         const cachedPromptSnapshot = session?.promptSnapshot
+        const chatPromptContextCacheKey = buildChatModePromptContextCacheKey({
+          language: settings.language,
+          userRules: settings.systemPrompt || undefined,
+          hasWebSearch: false,
+          hasPluginTools: false,
+          activeMcps: [],
+          activeMcpTools: {}
+        })
         const canReusePromptSnapshot =
           !!cachedPromptSnapshot &&
           cachedPromptSnapshot.mode === 'chat' &&
-          cachedPromptSnapshot.planMode === false
+          cachedPromptSnapshot.planMode === false &&
+          cachedPromptSnapshot.contextCacheKey === chatPromptContextCacheKey
 
         let chatSystemPrompt = cachedPromptSnapshot?.systemPrompt ?? ''
         if (!canReusePromptSnapshot) {
-          chatSystemPrompt = [
-            'You are OpenCowork, a helpful AI assistant. Be concise, accurate, and friendly.',
-            "Before responding, follow this thinking process: (1) Understand — identify what the user truly needs, not just the literal words; consider context and implicit constraints. (2) Expand — think about the best way to solve the problem, consider edge cases, potential pitfalls, and better alternatives the user may not have thought of. (3) Validate — before finalizing, verify your answer is logically consistent: does it actually help the user achieve their stated goal? Check the full causal chain — if the user follows your advice, will they accomplish what they want? Watch for hidden contradictions (e.g. if someone needs to wash their car, they must bring the car — suggesting they walk defeats the purpose). (4) Respond — deliver a well-reasoned, logically sound answer that best fits the user's real needs. Think first, answer second — never rush to conclusions.",
-            'CRITICAL RULE: Before giving your final answer, always ask yourself: "If the user follows my advice step by step, will they actually achieve their stated goal?" If the answer is no, your response has a logical flaw — stop and reconsider. The user\'s goal defines the constraints; never give advice that makes the goal impossible.',
-            'Use markdown formatting in your responses. Use code blocks with language identifiers for code.',
-            settings.systemPrompt ? `\n## Additional Instructions\n${settings.systemPrompt}` : ''
-          ]
-            .filter(Boolean)
-            .join('\n')
+          chatSystemPrompt = buildChatModeSystemPrompt({
+            language: settings.language,
+            userRules: settings.systemPrompt || undefined,
+            hasWebSearch: false,
+            hasPluginTools: false,
+            activeMcps: [],
+            activeMcpTools: {}
+          })
 
           useChatStore.getState().setSessionPromptSnapshot(sessionId, {
             mode: 'chat',
             planMode: false,
             systemPrompt: chatSystemPrompt,
-            toolDefs: []
+            toolDefs: [],
+            contextCacheKey: chatPromptContextCacheKey
           })
         }
 
@@ -2804,14 +2831,45 @@ export function useChatActions(): {
           workingFolder: sessionWorkingFolder,
           scope: sessionScope
         })
+        const sshConnection = session?.sshConnectionId
+          ? useSshStore
+              .getState()
+              .connections.find((connection) => connection.id === session.sshConnectionId)
+          : undefined
+        const environmentContext = resolvePromptEnvironmentContext({
+          sshConnectionId: session?.sshConnectionId,
+          workingFolder: sessionWorkingFolder,
+          sshConnection
+        })
+        const activeTeam = useTeamStore.getState().activeTeam
+        const promptContextCacheKey =
+          mode === 'chat'
+            ? buildChatModePromptContextCacheKey({
+                language: settings.language,
+                userRules: userPrompt || undefined,
+                hasWebSearch: finalEffectiveToolDefs.some(
+                  (tool) => tool.name === 'WebSearch' || tool.name === 'WebFetch'
+                ),
+                hasPluginTools: hasChatModePluginTools(finalEffectiveToolDefs),
+                activeMcps,
+                activeMcpTools
+              })
+            : buildSystemPromptContextCacheKey({
+                language: settings.language,
+                userRules: userPrompt || undefined,
+                environmentContext,
+                activeTeam: summarizeActiveTeamForPromptCache(activeTeam),
+                memorySnapshot
+              })
         const cachedPromptSnapshot = session?.promptSnapshot
         const canReusePromptSnapshot =
           !!cachedPromptSnapshot &&
           cachedPromptSnapshot.mode === mode &&
           cachedPromptSnapshot.planMode === isPlanMode &&
           (cachedPromptSnapshot.projectId ?? null) === (session?.projectId ?? null) &&
-          (cachedPromptSnapshot.workingFolder ?? null) === (session?.workingFolder ?? null) &&
+          (cachedPromptSnapshot.workingFolder ?? null) === (sessionWorkingFolder ?? null) &&
           (cachedPromptSnapshot.sshConnectionId ?? null) === (session?.sshConnectionId ?? null) &&
+          cachedPromptSnapshot.contextCacheKey === promptContextCacheKey &&
           haveSameToolDefinitionNames(cachedPromptSnapshot.toolDefs, finalEffectiveToolDefs) &&
           // Plugin-bound sessions require plugin tools in the cached snapshot.
           // A stale snapshot (built when plugin tools were unregistered) must be
@@ -2835,27 +2893,15 @@ export function useChatActions(): {
             ? []
             : cachedPromptSnapshot.toolDefs.slice()
         } else {
-          const sshConnection = session?.sshConnectionId
-            ? useSshStore
-                .getState()
-                .connections.find((connection) => connection.id === session.sshConnectionId)
-            : undefined
-          const environmentContext = resolvePromptEnvironmentContext({
-            sshConnectionId: session?.sshConnectionId,
-            workingFolder: sessionWorkingFolder,
-            sshConnection
-          })
-
-          const language = useSettingsStore.getState().language
-          const activeTeam = useTeamStore.getState().activeTeam
           agentSystemPrompt =
             mode === 'chat'
               ? buildChatModeSystemPrompt({
-                  language,
+                  language: settings.language,
                   userRules: userPrompt || undefined,
                   hasWebSearch: finalEffectiveToolDefs.some(
                     (tool) => tool.name === 'WebSearch' || tool.name === 'WebFetch'
                   ),
+                  hasPluginTools: hasChatModePluginTools(finalEffectiveToolDefs),
                   activeMcps,
                   activeMcpTools
                 })
@@ -2865,7 +2911,7 @@ export function useChatActions(): {
                   sessionId,
                   userRules: userPrompt || undefined,
                   toolDefs: finalEffectiveToolDefs,
-                  language,
+                  language: settings.language,
                   planMode: isPlanMode,
                   hasActiveTeam: !!activeTeam,
                   activeTeam,
@@ -2881,7 +2927,8 @@ export function useChatActions(): {
             toolDefs: finalEffectiveToolDefs,
             projectId: session?.projectId,
             workingFolder: sessionWorkingFolder,
-            sshConnectionId: session?.sshConnectionId ?? null
+            sshConnectionId: session?.sshConnectionId ?? null,
+            contextCacheKey: promptContextCacheKey
           })
         }
 

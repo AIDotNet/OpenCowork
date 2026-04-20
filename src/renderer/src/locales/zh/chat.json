@@ -92,6 +92,23 @@
     "homeTitleAcp": "ACP 模式",
     "homeDescAcp": "ACP 模式下先把目标、背景、约束和验收标准问清楚，再进行架构设计与任务拆分，最后才进入编码。"
   },
+  "planReview": {
+    "awaitingReview": "待审阅",
+    "approved": "已批准",
+    "implementing": "执行中",
+    "completed": "已完成",
+    "rejected": "待修订",
+    "drafting": "草稿",
+    "processing": "正在整理计划审阅内容...",
+    "errorTitle": "计划审阅卡片渲染失败",
+    "planFile": "计划文件",
+    "implement": "实施此计划",
+    "executeInNewSession": "新会话执行",
+    "runningHint": "当前会话正在按该计划实施。",
+    "runningInSession": "该计划正在会话“{{title}}”中执行。",
+    "openExecutionSession": "打开执行会话",
+    "approvedHint": "该计划已批准。"
+  },
   "guide": {
     "title": "对话页新人引导",
     "badge": "对话功能",

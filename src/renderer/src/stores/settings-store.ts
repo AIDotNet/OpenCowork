@@ -156,6 +156,7 @@ interface SettingsStore {
   reasoningEffort: ReasoningEffortLevel
   reasoningEffortByModel: Record<string, ReasoningEffortLevel>
   teamToolsEnabled: boolean
+  builtinBrowserEnabled: boolean
   contextCompressionEnabled: boolean
   editorWorkspaceEnabled: boolean
   editorRemoteLanguageServiceEnabled: boolean
@@ -244,6 +245,7 @@ export const useSettingsStore = create<SettingsStore>()(
       reasoningEffort: 'medium',
       reasoningEffortByModel: {},
       teamToolsEnabled: false,
+      builtinBrowserEnabled: true,
       contextCompressionEnabled: true,
       editorWorkspaceEnabled: false,
       editorRemoteLanguageServiceEnabled: false,
@@ -491,7 +493,8 @@ export const useSettingsStore = create<SettingsStore>()(
         projectDefaultDirectoryMode: state.projectDefaultDirectoryMode,
         projectDefaultDirectory: state.projectDefaultDirectory,
         lastProjectDirectory: state.lastProjectDirectory,
-        recentWorkingTargets: state.recentWorkingTargets
+        recentWorkingTargets: state.recentWorkingTargets,
+        builtinBrowserEnabled: state.builtinBrowserEnabled
         // NOTE: apiKey is intentionally excluded from localStorage persistence.
         // In production, it should be stored securely in the main process.
       })

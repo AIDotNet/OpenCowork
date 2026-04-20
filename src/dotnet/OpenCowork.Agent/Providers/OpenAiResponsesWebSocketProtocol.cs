@@ -10,7 +10,6 @@ internal static class OpenAiResponsesWebSocketProtocol
 {
     public const string OpenAiBetaHeaderName = "OpenAI-Beta";
     public const string OpenAiResponsesWebSocketBetaValue = "responses_websockets=2026-02-06";
-    public static readonly TimeSpan ConnectionMaxAge = TimeSpan.FromMinutes(55);
 
     internal sealed record PreparedRequest(
         string RequestKind,

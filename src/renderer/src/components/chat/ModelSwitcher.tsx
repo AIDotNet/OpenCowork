@@ -239,18 +239,15 @@ function ModelSettingsPopover({
 
   return (
     <Popover>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex">
-            <PopoverTrigger asChild>
-              <button className="inline-flex items-center justify-center h-8 w-7 rounded-r-lg text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors border-l border-border/30">
-                <Settings2 className="size-3" />
-              </button>
-            </PopoverTrigger>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>{t('topbar.modelSettings')}</TooltipContent>
-      </Tooltip>
+      <PopoverTrigger asChild>
+        <button
+          className="inline-flex h-8 w-7 items-center justify-center rounded-r-lg border-l border-border/30 text-muted-foreground/50 transition-colors hover:bg-muted/50 hover:text-foreground"
+          aria-label={t('topbar.modelSettings')}
+          title={t('topbar.modelSettings')}
+        >
+          <Settings2 className="size-3" />
+        </button>
+      </PopoverTrigger>
       <PopoverContent className="w-56 p-2" align="start" side="top" sideOffset={8}>
         <div className="flex flex-col gap-1">
           {!hasAnySetting && (
@@ -617,66 +614,43 @@ export function ModelSwitcher(): React.JSX.Element {
     <div className="inline-flex h-8 items-center rounded-lg border border-transparent hover:border-border/50 hover:bg-muted/30 transition-colors">
       {/* Model icon trigger — opens model list */}
       <Popover open={open} onOpenChange={setOpen}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex">
-              <PopoverTrigger asChild>
-                <button
-                  className="inline-flex h-8 min-w-0 items-center gap-2 rounded-l-lg px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                  aria-label={
-                    isAutoModeActive
-                      ? autoRoutingState === 'routing'
-                        ? t('topbar.autoModelRoutingShort')
-                        : t('topbar.autoModel')
-                      : (displayModel?.name ?? displayModelId ?? t('topbar.noModel'))
-                  }
-                >
-                  {isAutoModeActive ? (
-                    autoRoutingState === 'routing' ? (
-                      <Loader2 size={16} className="animate-spin text-amber-500" />
-                    ) : (
-                      <AutoModelIcon size={16} />
-                    )
-                  ) : (
-                    <ModelIcon
-                      icon={displayModel?.icon}
-                      modelId={displayModelId}
-                      providerBuiltinId={displayProvider?.builtinId}
-                      size={20}
-                    />
-                  )}
-                  <span className="max-w-[128px] truncate text-xs text-foreground/80">
-                    {triggerLabel}
-                  </span>
-                </button>
-              </PopoverTrigger>
+        <PopoverTrigger asChild>
+          <button
+            className="inline-flex h-8 min-w-0 items-center gap-2 rounded-l-lg px-2.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            aria-label={
+              isAutoModeActive
+                ? autoRoutingState === 'routing'
+                  ? t('topbar.autoModelRoutingShort')
+                  : t('topbar.autoModel')
+                : (displayModel?.name ?? displayModelId ?? t('topbar.noModel'))
+            }
+            title={
+              isAutoModeActive
+                ? autoRoutingState === 'routing'
+                  ? t('topbar.autoModelRouting')
+                  : (autoSelection?.modelName ?? t('topbar.autoModel'))
+                : (displayModel?.name ?? displayModelId ?? t('topbar.noModel'))
+            }
+          >
+            {isAutoModeActive ? (
+              autoRoutingState === 'routing' ? (
+                <Loader2 size={16} className="animate-spin text-amber-500" />
+              ) : (
+                <AutoModelIcon size={16} />
+              )
+            ) : (
+              <ModelIcon
+                icon={displayModel?.icon}
+                modelId={displayModelId}
+                providerBuiltinId={displayProvider?.builtinId}
+                size={20}
+              />
+            )}
+            <span className="max-w-[128px] truncate text-xs text-foreground/80">
+              {triggerLabel}
             </span>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            {isAutoModeActive
-              ? autoRoutingState === 'routing'
-                ? t('topbar.autoModelRouting')
-                : autoSelection?.modelName
-                  ? t('topbar.autoModelTooltip', {
-                      route: t(
-                        autoSelection.target === 'main'
-                          ? 'topbar.autoModelMain'
-                          : 'topbar.autoModelFast'
-                      ),
-                      model: autoSelection.modelName,
-                      taskType: autoSelection.taskType ?? t('topbar.autoModelTaskTypeUnknown'),
-                      confidence:
-                        autoSelection.confidence ?? t('topbar.autoModelConfidenceUnknown'),
-                      reason: autoSelection.fallbackReason
-                        ? t(`topbar.autoModelFallback.${autoSelection.fallbackReason}`, {
-                            defaultValue: autoSelection.fallbackReason
-                          })
-                        : ''
-                    })
-                  : t('topbar.autoModelTooltipIdle')
-              : displayModel?.name || displayModelId || t('topbar.noModel')}
-          </TooltipContent>
-        </Tooltip>
+          </button>
+        </PopoverTrigger>
         <PopoverContent className="w-80 p-0 overflow-hidden" align="start" sideOffset={8}>
           <div className="flex items-center gap-2 border-b px-3 py-2">
             <Search className="size-3.5 text-muted-foreground/60 shrink-0" />

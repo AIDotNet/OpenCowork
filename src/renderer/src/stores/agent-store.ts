@@ -51,7 +51,10 @@ function trimSubAgentTranscript(sa: { transcript: UnifiedMessage[] }): void {
   sa.transcript.splice(0, excess)
 }
 
-function normalizeToolInput(input: Record<string, unknown>, toolName?: string): Record<string, unknown> {
+function normalizeToolInput(
+  input: Record<string, unknown>,
+  toolName?: string
+): Record<string, unknown> {
   const summarized = toolName ? summarizeToolInputForHistory(toolName, input) : input
   try {
     const serialized = JSON.stringify(summarized)
@@ -828,8 +831,6 @@ interface AgentStore {
   /** Tool names approved by user during this session — auto-approve on repeat */
   approvedToolNames: string[]
   addApprovedTool: (name: string) => void
-  getSessionSubAgentSummaries: (sessionId: string) => SubAgentState[]
-  getSessionBackgroundProcessSummaries: (sessionId: string) => BackgroundProcessState[]
 
   /** Background command sessions (spawned by Bash with run_in_background=true) */
   backgroundProcesses: Record<string, BackgroundProcessState>
@@ -1043,11 +1044,6 @@ export const useAgentStore = create<AgentStore>()(
           }
         })
       },
-
-      getSessionSubAgentSummaries: (sessionId) => get().sessionSubAgentSummaries[sessionId] ?? [],
-
-      getSessionBackgroundProcessSummaries: (sessionId) =>
-        get().sessionBackgroundProcessSummaries[sessionId] ?? [],
 
       registerForegroundShellExec: (toolUseId, execId) => {
         set((state) => {

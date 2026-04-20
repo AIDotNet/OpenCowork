@@ -48,6 +48,7 @@ import {
   useInputDraftStore
 } from '@renderer/stores/input-draft-store'
 import { useShallow } from 'zustand/react/shallow'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useTranslation } from 'react-i18next'
 import {
   ACCEPTED_IMAGE_TYPES,
@@ -151,30 +152,30 @@ function ContextRing(): React.JSX.Element | null {
       }
     : null
 
-  const lastUsage = useChatStore((s) => {
-    const idx = s.activeSessionId ? s.sessionsById[s.activeSessionId] : undefined
-    const activeSession = idx !== undefined ? s.sessions[idx] : undefined
-    if (!activeSession) return null
-    const messages = activeSession.messages
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index]
-      const usage = message?.usage
-      if (!usage) {
-        continue
-      }
-      if (s.streamingMessageId && message?.id === s.streamingMessageId) {
-        const streamingCtxUsed = usage.contextTokens ?? usage.inputTokens ?? 0
-        if (streamingCtxUsed <= 0) {
-          continue
+  const [ctxUsedRaw, ctxLimitRaw] = useStoreWithEqualityFn(
+    useChatStore,
+    React.useCallback((s): [number, number | null] => {
+      const idx = s.activeSessionId ? s.sessionsById[s.activeSessionId] : undefined
+      const activeSession = idx !== undefined ? s.sessions[idx] : undefined
+      if (!activeSession) return [0, null]
+      const messages = activeSession.messages
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index]
+        const usage = message?.usage
+        if (!usage) continue
+        if (s.streamingMessageId && message?.id === s.streamingMessageId) {
+          const streamingCtxUsed = usage.contextTokens ?? usage.inputTokens ?? 0
+          if (streamingCtxUsed <= 0) continue
         }
+        return [usage.contextTokens ?? usage.inputTokens ?? 0, usage.contextLength ?? null]
       }
-      return usage
-    }
-    return null
-  })
+      return [0, null]
+    }, []),
+    (a, b) => a[0] === b[0] && a[1] === b[1]
+  )
 
-  const ctxUsed = lastUsage?.contextTokens ?? lastUsage?.inputTokens ?? 0
-  const ctxLimit = lastUsage?.contextLength ?? compressionConfig?.contextLength ?? null
+  const ctxUsed = ctxUsedRaw
+  const ctxLimit = ctxLimitRaw ?? compressionConfig?.contextLength ?? null
   const ctxGaugeLimit = compressionConfig ? getEffectiveContextWindow(compressionConfig) : ctxLimit
 
   if (!ctxGaugeLimit) return null
@@ -409,11 +410,13 @@ export function InputArea({
     const targetSession = idx !== undefined ? s.sessions[idx] : undefined
     return chatView === 'session' && Boolean(targetSession?.projectId)
   })
+  const isSessionComposer = chatView === 'session' || Boolean(sessionId)
   const isEmptySessionComposer = chatView === 'session' && !sessionHasMessages
   const isHomeComposer = chatView === 'home' || chatView === 'project' || isEmptySessionComposer
   const usesProjectComposerChrome = isHomeComposer || isProjectSessionComposer
   const usesExpandedComposerHeight = usesProjectComposerChrome
   const minComposerHeight = usesExpandedComposerHeight ? HOME_INPUT_MIN_HEIGHT : MIN_INPUT_HEIGHT
+  const defaultSessionInputHeight = Math.max(DEFAULT_SESSION_INPUT_HEIGHT, minComposerHeight)
   const [documentNodes, setDocumentNodes] = React.useState<EditorDocumentNode[]>([])
   const [selectedFiles, setSelectedFiles] = React.useState<SelectedFileItem[]>([])
   const [highlightedFileId, setHighlightedFileId] = React.useState<string | null>(null)
@@ -451,8 +454,9 @@ export function InputArea({
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const queueFileInputRef = React.useRef<HTMLInputElement>(null)
   const rootRef = React.useRef<HTMLDivElement>(null)
+  const draftSaveTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
   const [inputHeight, setInputHeight] = React.useState<number | null>(() =>
-    usesProjectComposerChrome ? null : chatView === 'session' ? DEFAULT_SESSION_INPUT_HEIGHT : null
+    isSessionComposer ? defaultSessionInputHeight : null
   )
   const [autoInputHeight, setAutoInputHeight] = React.useState<number>(() => minComposerHeight)
   const dragRef = React.useRef<{
@@ -472,7 +476,7 @@ export function InputArea({
     const container = containerRef.current
     if (!container) {
       return Math.max(
-        MIN_INPUT_HEIGHT,
+        minComposerHeight,
         Math.min(MAX_INPUT_HEIGHT, Math.floor(window.innerHeight * FALLBACK_MAX_VIEWPORT_RATIO))
       )
     }
@@ -484,13 +488,13 @@ export function InputArea({
       const messageListHeight = messageListEl.getBoundingClientRect().height
       const available = Math.max(0, messageListHeight - MIN_MESSAGE_LIST_HEIGHT)
       const dynamicMax = container.offsetHeight + available
-      return Math.max(MIN_INPUT_HEIGHT, Math.min(MAX_INPUT_HEIGHT, Math.floor(dynamicMax)))
+      return Math.max(minComposerHeight, Math.min(MAX_INPUT_HEIGHT, Math.floor(dynamicMax)))
     }
     return Math.max(
-      MIN_INPUT_HEIGHT,
+      minComposerHeight,
       Math.min(MAX_INPUT_HEIGHT, Math.floor(window.innerHeight * FALLBACK_MAX_VIEWPORT_RATIO))
     )
-  }, [])
+  }, [minComposerHeight])
   const [autoMaxInputHeight, setAutoMaxInputHeight] = React.useState(() =>
     Math.max(
       MIN_INPUT_HEIGHT,
@@ -500,17 +504,13 @@ export function InputArea({
 
   React.useEffect(() => {
     setInputHeight((current) => {
-      if (usesProjectComposerChrome) {
+      if (!isSessionComposer) {
         return current === null ? current : null
       }
 
-      if (chatView === 'session') {
-        return current ?? DEFAULT_SESSION_INPUT_HEIGHT
-      }
-
-      return current
+      return current ?? defaultSessionInputHeight
     })
-  }, [chatView, usesProjectComposerChrome])
+  }, [defaultSessionInputHeight, isSessionComposer])
 
   const getMinInputHeight = React.useCallback(() => {
     const container = containerRef.current
@@ -592,7 +592,7 @@ export function InputArea({
     if (inputHeight === null) return
     const clampInputHeight = (): void => {
       const minH = getMinInputHeight()
-      const maxH = getMaxInputHeight()
+      const maxH = Math.max(minH, getMaxInputHeight())
       setInputHeight((prev) => {
         if (prev === null) return prev
         return Math.min(Math.max(prev, minH), maxH)
@@ -605,24 +605,30 @@ export function InputArea({
 
   const handleDragStart = React.useCallback(
     (e: React.MouseEvent) => {
+      e.preventDefault()
       const el = containerRef.current
       if (!el) return
+      const minH = getMinInputHeight()
       dragRef.current = {
         startY: e.clientY,
         startH: el.offsetHeight,
-        minH: getMinInputHeight(),
-        maxH: getMaxInputHeight()
+        minH,
+        maxH: Math.max(minH, getMaxInputHeight())
       }
       document.body.style.cursor = 'row-resize'
       document.body.style.userSelect = 'none'
     },
     [getMaxInputHeight, getMinInputHeight]
   )
-  const activeProvider = useProviderStore((s) => {
-    const { providers, activeProviderId } = s
-    if (!activeProviderId) return null
-    return providers.find((p) => p.id === activeProviderId) ?? null
-  })
+  const activeProvider = useProviderStore(
+    useShallow((s) => {
+      const { providers, activeProviderId } = s
+      if (!activeProviderId) return null
+      const p = providers.find((p) => p.id === activeProviderId)
+      if (!p) return null
+      return { apiKey: p.apiKey, requiresApiKey: p.requiresApiKey, type: p.type, models: p.models }
+    })
+  )
   const activeModelId = useProviderStore((s) => s.activeModelId)
   const supportsVision = React.useMemo(() => {
     if (!activeProvider) return false
@@ -650,11 +656,19 @@ export function InputArea({
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen)
   const openFilePreview = useUIStore((s) => s.openFilePreview)
   const mode = useUIStore((s) => s.mode)
-  const targetSession = useChatStore((s) => {
-    const targetSessionId = sessionId ?? s.activeSessionId
-    const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
-    return idx !== undefined ? s.sessions[idx] : undefined
-  })
+  // Only select fields actually used — avoids re-renders on every streaming message delta
+  const targetSession = useChatStore(
+    useShallow((s) => {
+      const targetSessionId = sessionId ?? s.activeSessionId
+      const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
+      const session = idx !== undefined ? s.sessions[idx] : undefined
+      if (!session) return undefined
+      return { projectId: session.projectId } as Pick<
+        import('@renderer/stores/chat-store').Session,
+        'projectId'
+      >
+    })
+  )
   const activeProjectId = useChatStore((s) => {
     const targetSessionId = sessionId ?? s.activeSessionId
     const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
@@ -762,7 +776,7 @@ export function InputArea({
   React.useLayoutEffect(() => {
     if (inputHeight === null) return
     const minH = getMinInputHeight()
-    const maxH = getMaxInputHeight()
+    const maxH = Math.max(minH, getMaxInputHeight())
     setInputHeight((prev) => {
       if (prev === null) return prev
       if (prev >= minH && prev <= maxH) return prev
@@ -819,7 +833,7 @@ export function InputArea({
       }
 
       const minH = getMinInputHeight()
-      const maxH = getMaxInputHeight()
+      const maxH = Math.max(minH, getMaxInputHeight())
       setInputHeight((prev) => {
         if (prev === null) return prev
         return Math.min(Math.max(prev, minH), maxH)
@@ -1383,19 +1397,24 @@ export function InputArea({
     if (!activeDraftKey || !inputDraftHydrated) return
     if (draftReadyKeyRef.current !== activeDraftKey) return
 
-    const nextDraft = {
-      text: finalSerializedText,
-      images: cloneImageAttachments(attachedImages),
-      skill: selectedSkill,
-      selectedFiles: selectedFiles.map((file) => ({ ...file }))
-    }
+    clearTimeout(draftSaveTimerRef.current)
+    draftSaveTimerRef.current = setTimeout(() => {
+      const nextDraft = {
+        text: finalSerializedText,
+        images: cloneImageAttachments(attachedImages),
+        skill: selectedSkill,
+        selectedFiles: selectedFiles.map((file) => ({ ...file }))
+      }
 
-    if (hasInputDraftContent(nextDraft)) {
-      setPersistedDraft(activeDraftKey, nextDraft)
-      return
-    }
+      if (hasInputDraftContent(nextDraft)) {
+        setPersistedDraft(activeDraftKey, nextDraft)
+        return
+      }
 
-    removePersistedDraft(activeDraftKey)
+      removePersistedDraft(activeDraftKey)
+    }, 400)
+
+    return () => clearTimeout(draftSaveTimerRef.current)
   }, [
     activeDraftKey,
     attachedImages,
@@ -1560,7 +1579,7 @@ export function InputArea({
     setHomeLongRunningMode((current) => !current)
   }, [activeSessionId, longRunningMode, setHomeLongRunningMode, setSessionLongRunningMode])
 
-  const handleSend = (): void => {
+  const handleSend = React.useCallback((): void => {
     const serialized = finalSerializedText.trim()
     if (!serialized && attachedImages.length === 0) return
     if (disabled || needsWorkingFolder) return
@@ -1591,92 +1610,124 @@ export function InputArea({
     requestAnimationFrame(() => {
       editorRef.current?.setSelectionOffsets(0, 0)
     })
-  }
+  }, [
+    finalSerializedText,
+    attachedImages,
+    disabled,
+    needsWorkingFolder,
+    cancelPromptRecommendation,
+    text,
+    selectedSkill,
+    onSend,
+    effectiveLongRunningMode,
+    activeDraftKey,
+    removePersistedDraft
+  ])
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (e.nativeEvent.isComposing || isOptimizing) return
+  const handleKeyDown = React.useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (e.nativeEvent.isComposing || isOptimizing) return
 
-    if (fileMenuOpen) {
-      if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowDown') {
-        e.preventDefault()
-        setSelectedFileSearchIndex((prev) =>
-          fileSearchResults.length === 0 ? 0 : (prev + 1) % fileSearchResults.length
-        )
-        return
-      }
-      if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowUp') {
-        e.preventDefault()
-        setSelectedFileSearchIndex((prev) =>
-          fileSearchResults.length === 0
-            ? 0
-            : (prev - 1 + fileSearchResults.length) % fileSearchResults.length
-        )
-        return
-      }
-      if (!e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'Tab' || e.key === 'Enter')) {
-        const selectedFile = fileSearchResults[selectedFileSearchIndex]
-        if (selectedFile) {
+      if (fileMenuOpen) {
+        if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowDown') {
           e.preventDefault()
-          insertSelectedFile(selectedFile.path)
+          setSelectedFileSearchIndex((prev) =>
+            fileSearchResults.length === 0 ? 0 : (prev + 1) % fileSearchResults.length
+          )
           return
         }
-      }
-      if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'Escape') {
-        e.preventDefault()
-        const nextCursor = activeFileMention?.start ?? 0
-        editorRef.current?.focus()
-        editorRef.current?.setSelectionOffsets(nextCursor, nextCursor)
-        setEditorSelection({ start: nextCursor, end: nextCursor })
-        handleRecommendationSelectionChange()
-        return
-      }
-    }
-
-    if (slashMenuOpen) {
-      if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowDown') {
-        e.preventDefault()
-        setSelectedSlashIndex((prev) =>
-          filteredSlashCommands.length === 0 ? 0 : (prev + 1) % filteredSlashCommands.length
-        )
-        return
-      }
-      if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowUp') {
-        e.preventDefault()
-        setSelectedSlashIndex((prev) =>
-          filteredSlashCommands.length === 0
-            ? 0
-            : (prev - 1 + filteredSlashCommands.length) % filteredSlashCommands.length
-        )
-        return
-      }
-      if (!e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'Tab' || e.key === 'Enter')) {
-        const selectedCommand = filteredSlashCommands[selectedSlashIndex]
-        if (selectedCommand) {
+        if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowUp') {
           e.preventDefault()
-          insertSlashCommand(selectedCommand.name)
+          setSelectedFileSearchIndex((prev) =>
+            fileSearchResults.length === 0
+              ? 0
+              : (prev - 1 + fileSearchResults.length) % fileSearchResults.length
+          )
           return
         }
-      }
-    }
-
-    if (!e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key === 'Tab') {
-      const acceptedSuggestion = acceptSuggestion()
-      if (acceptedSuggestion) {
-        e.preventDefault()
-        applyEditorStateFromSerializedText(acceptedSuggestion, selectedFiles)
-        requestAnimationFrame(() => {
-          focusInputAtEnd()
+        if (!e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'Tab' || e.key === 'Enter')) {
+          const selectedFile = fileSearchResults[selectedFileSearchIndex]
+          if (selectedFile) {
+            e.preventDefault()
+            insertSelectedFile(selectedFile.path)
+            return
+          }
+        }
+        if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'Escape') {
+          e.preventDefault()
+          const nextCursor = activeFileMention?.start ?? 0
+          editorRef.current?.focus()
+          editorRef.current?.setSelectionOffsets(nextCursor, nextCursor)
+          setEditorSelection({ start: nextCursor, end: nextCursor })
           handleRecommendationSelectionChange()
-        })
-        return
+          return
+        }
       }
-    }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
+      if (slashMenuOpen) {
+        if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSelectedSlashIndex((prev) =>
+            filteredSlashCommands.length === 0 ? 0 : (prev + 1) % filteredSlashCommands.length
+          )
+          return
+        }
+        if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSelectedSlashIndex((prev) =>
+            filteredSlashCommands.length === 0
+              ? 0
+              : (prev - 1 + filteredSlashCommands.length) % filteredSlashCommands.length
+          )
+          return
+        }
+        if (!e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'Tab' || e.key === 'Enter')) {
+          const selectedCommand = filteredSlashCommands[selectedSlashIndex]
+          if (selectedCommand) {
+            e.preventDefault()
+            insertSlashCommand(selectedCommand.name)
+            return
+          }
+        }
+      }
+
+      if (!e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key === 'Tab') {
+        const acceptedSuggestion = acceptSuggestion()
+        if (acceptedSuggestion) {
+          e.preventDefault()
+          applyEditorStateFromSerializedText(acceptedSuggestion, selectedFiles)
+          requestAnimationFrame(() => {
+            focusInputAtEnd()
+            handleRecommendationSelectionChange()
+          })
+          return
+        }
+      }
+
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        handleSend()
+      }
+    },
+    [
+      isOptimizing,
+      fileMenuOpen,
+      slashMenuOpen,
+      fileSearchResults,
+      selectedFileSearchIndex,
+      filteredSlashCommands,
+      selectedSlashIndex,
+      activeFileMention,
+      insertSelectedFile,
+      insertSlashCommand,
+      acceptSuggestion,
+      applyEditorStateFromSerializedText,
+      selectedFiles,
+      focusInputAtEnd,
+      handleRecommendationSelectionChange,
+      handleSend
+    ]
+  )
 
   const handlePaste = React.useCallback(
     (e: React.ClipboardEvent<HTMLDivElement>): void => {
@@ -2197,8 +2248,13 @@ export function InputArea({
           }
         >
           {/* Top drag handle */}
-          {!usesProjectComposerChrome && (
-            <div className="h-1.5 cursor-row-resize rounded-t-lg" onMouseDown={handleDragStart} />
+          {isSessionComposer && (
+            <div
+              className="flex h-2.5 cursor-row-resize items-center justify-center rounded-t-lg"
+              onMouseDown={handleDragStart}
+            >
+              <div className="h-1 w-10 rounded-full bg-border/70" />
+            </div>
           )}
           {/* Queued message list */}
           {queuedMessages.length > 0 && (
@@ -2864,22 +2920,17 @@ export function InputArea({
 
                   {showInlineClearConversation && hasMessages && !isStreaming && (
                     <AlertDialog>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex">
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-8 rounded-lg text-muted-foreground/40 hover:text-destructive"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            </AlertDialogTrigger>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('input.clearConversation')}</TooltipContent>
-                      </Tooltip>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 rounded-lg text-muted-foreground/40 hover:text-destructive"
+                          aria-label={t('input.clearConversation')}
+                          title={t('input.clearConversation')}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </AlertDialogTrigger>
                       <AlertDialogContent size="sm">
                         <AlertDialogHeader>
                           <AlertDialogTitle>{t('input.clearConfirmTitle')}</AlertDialogTitle>

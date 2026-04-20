@@ -1,4 +1,4 @@
-import { ClipboardList, FileText, Loader2, PenLine, CheckCircle } from 'lucide-react'
+import { ClipboardList, FileText, Loader2, PenLine, CheckCircle, ExternalLink } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Badge } from '@renderer/components/ui/badge'
@@ -64,10 +64,12 @@ function PlanContent({ plan, content }: { plan: Plan; content: string }): React.
   const { t } = useTranslation(['cowork', 'common'])
   const planMode = useUIStore((s) => s.planMode)
   const enterPlanMode = useUIStore((s) => s.enterPlanMode)
+  const navigateToSession = useUIStore((s) => s.navigateToSession)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const hasStreamingMessage = useChatStore((s) =>
     activeSessionId ? Boolean(s.streamingMessages[activeSessionId]) : false
   )
+  const executionSession = useChatStore((s) => s.getLatestSessionByPlanId(plan.id))
   const isRunning = useAgentStore((s) => s.isSessionActive(activeSessionId)) || hasStreamingMessage
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectFeedback, setRejectFeedback] = useState('')
@@ -176,6 +178,32 @@ function PlanContent({ plan, content }: { plan: Plan; content: string }): React.
           </Button>
         )}
       </div>
+
+      {plan.status === 'implementing' &&
+        executionSession &&
+        executionSession.id !== activeSessionId &&
+        executionSession.id !== plan.sessionId && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
+            <span>
+              {t('plan.runningInSession', {
+                defaultValue: 'This plan is running in session "{{title}}".',
+                title: executionSession.title || 'New Conversation'
+              })}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => {
+                useChatStore.getState().setActiveSession(executionSession.id)
+                navigateToSession(executionSession.id)
+              }}
+            >
+              <ExternalLink className="size-3" />
+              {t('plan.openExecutionSession', { defaultValue: 'Open Execution Session' })}
+            </Button>
+          </div>
+        )}
 
       {(plan.status === 'drafting' || plan.status === 'rejected') && planMode && (
         <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/5 rounded-md px-3 py-2">

@@ -232,6 +232,8 @@ export const IPC = {
   UPDATE_DOWNLOAD_PROGRESS: 'update:download-progress',
   UPDATE_DOWNLOADED: 'update:downloaded',
   UPDATE_ERROR: 'update:error',
+  CHAT_SESSION_UPDATED: 'chat:session-updated',
+  CHAT_SESSION_DELETED: 'chat:session-deleted',
 
   // Skills
   SKILLS_LIST: 'skills:list',
@@ -268,6 +270,8 @@ export const IPC = {
   CLIPBOARD_WRITE_IMAGE: 'clipboard:write-image',
   WINDOW_CAPTURE_REGION: 'window:capture-region',
   SSH_WINDOW_OPEN: 'ssh-window:open',
+  SESSION_WINDOW_OPEN: 'session-window:open',
+  SESSION_WINDOW_FOCUS_IF_OPEN: 'session-window:focus-if-open',
 
   // Images
   IMAGE_PERSIST_GENERATED: 'image:persist-generated',

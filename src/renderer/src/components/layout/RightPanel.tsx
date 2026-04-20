@@ -20,6 +20,7 @@ import { isProjectSession } from '@renderer/lib/session-scope'
 import { cn } from '@renderer/lib/utils'
 import { RightPanelHeader } from './RightPanelHeader'
 import { PreviewPanel } from './PreviewPanel'
+import { BrowserPanel } from './BrowserPanel'
 import { DetailPanel } from './DetailPanel'
 import { SubAgentsPanel } from './SubAgentsPanel'
 import { SubAgentExecutionDetail } from './SubAgentExecutionDetail'
@@ -121,6 +122,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen)
 
   const teamToolsEnabled = useSettingsStore((s) => s.teamToolsEnabled)
+  const builtinBrowserEnabled = useSettingsStore((s) => s.builtinBrowserEnabled)
   const activeProjectId = useChatStore((s) => s.activeProjectId)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const activeSession = useChatStore((s) =>
@@ -173,6 +175,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
       RIGHT_PANEL_TAB_DEFS.filter(
         (item) => (teamToolsEnabled && hasSessionTeam) || item.value !== 'team'
       )
+        .filter((item) => builtinBrowserEnabled || item.value !== 'browser')
         .filter(
           (item) =>
             shouldShowSubAgentsTab || (item.value !== 'subagents' && item.value !== 'orchestration')
@@ -185,6 +188,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
           return item.value !== 'files' && item.value !== 'terminal' && item.value !== 'artifacts'
         }),
     [
+      builtinBrowserEnabled,
       detailPanelOpen,
       hasSessionTeam,
       previewPanelOpen,
@@ -340,6 +344,12 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
                         {t('rightPanel.previewEmpty', { defaultValue: '暂无预览内容' })}
                       </div>
                     )}
+                  </FadeIn>
+                )}
+
+                {resolvedTab === 'browser' && (
+                  <FadeIn key="browser" className="h-full">
+                    <BrowserPanel />
                   </FadeIn>
                 )}
 

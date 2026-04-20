@@ -3,6 +3,7 @@ import {
   Database,
   FileOutput,
   FolderTree,
+  Globe,
   Monitor,
   Users,
   Bot,
@@ -38,6 +39,7 @@ export interface RightPanelSectionDef {
 export const RIGHT_PANEL_TAB_DEFS: RightPanelTabDef[] = [
   { value: 'files', labelKey: 'files', section: 'resources', icon: FolderTree },
   { value: 'preview', labelKey: 'preview', section: 'resources', icon: Monitor },
+  { value: 'browser', labelKey: 'browser', section: 'resources', icon: Globe },
   { value: 'terminal', labelKey: 'terminal', section: 'resources', icon: SquareTerminal },
   { value: 'artifacts', labelKey: 'artifacts', section: 'resources', icon: FileOutput },
   { value: 'orchestration', labelKey: 'orchestration', section: 'collaboration', icon: Users },

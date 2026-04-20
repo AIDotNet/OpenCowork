@@ -29,7 +29,8 @@ import {
   Settings,
   Trash2,
   Upload,
-  Wand2
+  Wand2,
+  ExternalLink
 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
@@ -82,6 +83,10 @@ import {
   subscribePendingSessionMessages
 } from '@renderer/hooks/use-chat-actions'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
+import {
+  openDetachedSessionWindow,
+  openSessionOrFocusDetached
+} from '@renderer/lib/session-window'
 import { cn } from '@renderer/lib/utils'
 import { clampLeftSidebarWidth, LEFT_SIDEBAR_DEFAULT_WIDTH } from './right-panel-defs'
 import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
@@ -407,6 +412,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
     !drawPageOpen &&
     !translatePageOpen &&
     !tasksPageOpen
+  const featureMenuActive = resourcesPageOpen || skillsPageOpen
   const sessionsByProject = useMemo(() => {
     const next = new Map<string, SessionListItem[]>()
     for (const session of sessions) {
@@ -532,15 +538,13 @@ export function WorkspaceSidebar(): React.JSX.Element {
         openProjectHome(projectId)
         return
       }
-      useChatStore.getState().setActiveSession(latestSession.id)
-      useUIStore.getState().navigateToSession(latestSession.id)
+      void openSessionOrFocusDetached(latestSession.id)
     },
     [openProjectHome, sessionsByProject]
   )
 
   const openSession = useCallback((sessionId: string) => {
-    useChatStore.getState().setActiveSession(sessionId)
-    useUIStore.getState().navigateToSession(sessionId)
+    void openSessionOrFocusDetached(sessionId)
   }, [])
 
   const handleImportSessionFile = useCallback(
@@ -744,18 +748,32 @@ export function WorkspaceSidebar(): React.JSX.Element {
       key: 'plugins',
       label: t('sidebar.pluginsLabel', { defaultValue: '插件' }),
       icon: <Wand2 className="size-4 shrink-0" />,
-      active:
-        useUIStore.getState().settingsPageOpen && useUIStore.getState().settingsTab === 'plugin',
+      active: settingsPageOpen && useUIStore.getState().settingsTab === 'plugin',
       onClick: () => useUIStore.getState().openSettingsPage('plugin')
     },
     {
       key: 'automation',
       label: t('sidebar.automationLabel', { defaultValue: '自动化' }),
       icon: <CalendarDays className="size-4 shrink-0" />,
-      active: useUIStore.getState().tasksPageOpen,
+      active: tasksPageOpen,
       onClick: () => useUIStore.getState().openTasksPage()
     }
   ]
+
+  const renderNavItem = (item: (typeof navItems)[number]): React.JSX.Element => (
+    <button
+      key={item.key}
+      type="button"
+      onClick={item.onClick}
+      className={cn(
+        'flex h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium transition-colors',
+        item.active ? 'bg-accent text-accent-foreground' : 'text-foreground/80 hover:bg-muted/40'
+      )}
+    >
+      {item.icon}
+      <span className="truncate">{item.label}</span>
+    </button>
+  )
 
   const renderSessionItem = (
     session: SessionListItem,
@@ -825,6 +843,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
           <ContextMenuItem onClick={() => openSession(session.id)}>
             <MessageSquare className="size-4" />
             {t('topbar.openSession')}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => void openDetachedSessionWindow(session.id)}>
+            <ExternalLink className="size-4" />
+            {t('sidebar.openInNewWindow', { defaultValue: 'Open in new window' })}
           </ContextMenuItem>
           <ContextMenuItem
             onSelect={() =>
@@ -962,22 +984,68 @@ export function WorkspaceSidebar(): React.JSX.Element {
       >
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="space-y-1 border-b border-border/60 px-2 py-1.5">
-            {navItems.map((item) => (
+            {navItems.slice(0, 3).map(renderNavItem)}
+
+            <div className="group/resources-menu space-y-1">
               <button
-                key={item.key}
                 type="button"
-                onClick={item.onClick}
                 className={cn(
                   'flex h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium transition-colors',
-                  item.active
+                  featureMenuActive
                     ? 'bg-accent text-accent-foreground'
                     : 'text-foreground/80 hover:bg-muted/40'
                 )}
               >
-                {item.icon}
-                <span className="truncate">{item.label}</span>
+                <FolderOpen className="size-4 shrink-0" />
+                <span className="truncate">{t('navRail.resources')}</span>
+                <ChevronRight
+                  className={cn(
+                    'ml-auto size-3.5 shrink-0 transition-transform',
+                    featureMenuActive ? 'rotate-90' : 'group-hover/resources-menu:rotate-90'
+                  )}
+                />
               </button>
-            ))}
+
+              <div
+                className={cn(
+                  'grid overflow-hidden pl-6 transition-all duration-150',
+                  featureMenuActive
+                    ? 'grid-rows-[1fr] opacity-100'
+                    : 'grid-rows-[0fr] opacity-0 group-hover/resources-menu:grid-rows-[1fr] group-hover/resources-menu:opacity-100'
+                )}
+              >
+                <div className="space-y-1 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => useUIStore.getState().openResourcesPage()}
+                    className={cn(
+                      'flex h-7 w-full items-center gap-2 rounded-lg px-2 text-[12px] font-medium transition-colors',
+                      resourcesPageOpen
+                        ? 'bg-accent/80 text-accent-foreground'
+                        : 'text-foreground/75 hover:bg-muted/40 hover:text-foreground'
+                    )}
+                  >
+                    <FolderOpen className="size-3.5 shrink-0" />
+                    <span className="truncate">{t('navRail.resources')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => useUIStore.getState().openSkillsPage()}
+                    className={cn(
+                      'flex h-7 w-full items-center gap-2 rounded-lg px-2 text-[12px] font-medium transition-colors',
+                      skillsPageOpen
+                        ? 'bg-accent/80 text-accent-foreground'
+                        : 'text-foreground/75 hover:bg-muted/40 hover:text-foreground'
+                    )}
+                  >
+                    <Wand2 className="size-3.5 shrink-0" />
+                    <span className="truncate">{t('navRail.skills')}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {navItems.slice(3).map(renderNavItem)}
           </div>
 
           <div className="mt-1 flex items-center justify-between gap-2 px-2 pb-1 pt-1">

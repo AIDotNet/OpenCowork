@@ -7,7 +7,6 @@ import type {
 } from '@renderer/lib/api/types'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { summarizeToolInputForHistory } from '@renderer/lib/tools/tool-input-sanitizer'
-import { useUIStore } from '@renderer/stores/ui-store'
 import { useBackgroundSessionStore } from '@renderer/stores/background-session-store'
 
 /**
@@ -26,9 +25,8 @@ let _cachedVisibleIdsTs = 0
 const VISIBLE_IDS_CACHE_TTL_MS = 50
 
 /**
- * Invalidate the visible-session cache. Call this whenever `activeSessionId` or
- * the mini-session-window state changes so the next `isSessionForeground` call
- * picks up the new value immediately.
+ * Invalidate the visible-session cache. Call this whenever `activeSessionId`
+ * changes so the next `isSessionForeground` call picks up the new value immediately.
  */
 export function invalidateVisibleSessionCache(): void {
   _cachedVisibleIds = null
@@ -104,12 +102,8 @@ export function getVisibleSessionIds(): Set<string> {
 
   const visibleSessionIds = new Set<string>()
   const { activeSessionId } = useChatStore.getState()
-  const uiState = useUIStore.getState()
 
   if (activeSessionId) visibleSessionIds.add(activeSessionId)
-  if (uiState.miniSessionWindowOpen && uiState.miniSessionWindowSessionId) {
-    visibleSessionIds.add(uiState.miniSessionWindowSessionId)
-  }
 
   _cachedVisibleIds = visibleSessionIds
   _cachedVisibleIdsTs = now

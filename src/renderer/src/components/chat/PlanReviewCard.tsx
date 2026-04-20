@@ -1,20 +1,28 @@
 import * as React from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { CheckCircle2, ClipboardList, Loader2, Play, TriangleAlert } from 'lucide-react'
+import {
+  CheckCircle2,
+  ClipboardList,
+  Loader2,
+  MessageSquarePlus,
+  Play,
+  TriangleAlert
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@renderer/components/ui/button'
 import { Badge } from '@renderer/components/ui/badge'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { usePlanStore, type PlanStatus } from '@renderer/stores/plan-store'
+import { useUIStore } from '@renderer/stores/ui-store'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ToolResultContent } from '@renderer/lib/api/types'
 import {
   decodeStructuredToolResult,
   isStructuredToolErrorText
 } from '@renderer/lib/tools/tool-result-format'
-import { sendImplementPlan } from '@renderer/hooks/use-chat-actions'
+import { sendImplementPlan, sendImplementPlanInNewSession } from '@renderer/hooks/use-chat-actions'
 import { cn } from '@renderer/lib/utils'
 
 interface PlanReviewCardProps {
@@ -117,6 +125,9 @@ export function PlanReviewCard({ output, status, isLive }: PlanReviewCardProps):
     activeSessionId ? Boolean(s.streamingMessages[activeSessionId]) : false
   )
   const plan = usePlanStore((s) => (payload?.planId ? s.plans[payload.planId] : undefined))
+  const executionSession = useChatStore((s) =>
+    payload?.planId ? s.getLatestSessionByPlanId(payload.planId) : undefined
+  )
   const isRunning = useAgentStore((s) => s.isSessionActive(activeSessionId)) || hasStreamingMessage
 
   const isProcessing = !payload && (status === 'running' || status === 'streaming' || isLive)
@@ -186,30 +197,62 @@ export function PlanReviewCard({ output, status, isLive }: PlanReviewCardProps):
         </div>
       ) : null}
 
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         {displayStatus === 'awaiting_review' && (
-          <Button
-            size="sm"
-            className="h-8 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
-            onClick={() => {
-              void sendImplementPlan(payload.planId)
-            }}
-            disabled={isRunning}
-          >
-            {isRunning ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Play className="size-3.5" />
-            )}
-            {t('planReview.implement', { defaultValue: '实施此计划' })}
-          </Button>
+          <>
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={() => {
+                void sendImplementPlan(payload.planId)
+              }}
+              disabled={isRunning}
+            >
+              {isRunning ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Play className="size-3.5" />
+              )}
+              {t('planReview.implement', { defaultValue: '实施此计划' })}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => {
+                void sendImplementPlanInNewSession(payload.planId)
+              }}
+              disabled={isRunning}
+            >
+              <MessageSquarePlus className="size-3.5" />
+              {t('planReview.executeInNewSession', { defaultValue: '新会话执行' })}
+            </Button>
+          </>
         )}
         {displayStatus === 'implementing' && (
           <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-300">
             <Loader2 className="size-3.5 animate-spin" />
             <span>
-              {t('planReview.runningHint', { defaultValue: '当前会话正在按该计划实施。' })}
+              {executionSession && executionSession.id !== activeSessionId
+                ? t('planReview.runningInSession', {
+                    defaultValue: '该计划正在会话“{{title}}”中执行。',
+                    title: executionSession.title || 'New Conversation'
+                  })
+                : t('planReview.runningHint', { defaultValue: '当前会话正在按该计划实施。' })}
             </span>
+            {executionSession && executionSession.id !== activeSessionId && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => {
+                  useChatStore.getState().setActiveSession(executionSession.id)
+                  useUIStore.getState().navigateToSession(executionSession.id)
+                }}
+              >
+                {t('planReview.openExecutionSession', { defaultValue: '打开执行会话' })}
+              </Button>
+            )}
           </div>
         )}
         {displayStatus === 'approved' && (

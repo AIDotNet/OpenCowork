@@ -641,9 +641,11 @@ function handleStats(ctx: CommandContext, args: string): CommandResult {
 
     if (totalDurationMs > 0) {
       const totalSec = totalDurationMs / 1000
+      const tps = totalSec > 0 ? totalTokens / totalSec : 0
       lines.push(
         `⏱️ 总耗时: ${totalSec < 60 ? `${totalSec.toFixed(1)}s` : `${(totalSec / 60).toFixed(1)}min`}`
       )
+      lines.push(`⚡ TPS: ${tps.toFixed(1)}`)
     }
 
     // Session time range

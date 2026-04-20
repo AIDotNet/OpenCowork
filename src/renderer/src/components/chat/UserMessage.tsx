@@ -400,20 +400,16 @@ export function UserMessage({
               />
             )}
             <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={t('action.showMore', { ns: 'common' })}
-                      className="flex size-7 items-center justify-center rounded-md border border-border/50 bg-background/80 text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
-                    >
-                      <Ellipsis className="size-3.5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="top">{t('action.showMore', { ns: 'common' })}</TooltipContent>
-              </Tooltip>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t('action.showMore', { ns: 'common' })}
+                  title={t('action.showMore', { ns: 'common' })}
+                  className="flex size-7 items-center justify-center rounded-md border border-border/50 bg-background/80 text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+                >
+                  <Ellipsis className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuItem onSelect={handleCopy}>
                   <Copy className="size-4" />

@@ -66,6 +66,7 @@ import { registerSshHandlers, closeAllSshSessions } from './ipc/ssh-handlers'
 import { writeCrashLog, getCrashLogDir } from './crash-logger'
 import { setupAutoUpdater } from './updater'
 import { safeSendToWindow } from './window-ipc'
+import * as sessionsDao from './db/sessions-dao'
 
 import { createFeishuService } from './channels/providers/feishu/feishu-service'
 import { FeishuApi } from './channels/providers/feishu/feishu-api'
@@ -107,6 +108,7 @@ let mainWindow: BrowserWindow | null = null
 let sshWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuiting = false
+const detachedSessionWindows = new Map<string, BrowserWindow>()
 
 const GENERATED_IMAGES_DIR = 'generated-images'
 const MACOS_SHELL_ENV_TIMEOUT_MS = 4000
@@ -472,6 +474,97 @@ function showSshWindow(): void {
   sshWindow.focus()
 }
 
+function getAttachedDetachedSessionWindow(sessionId: string): BrowserWindow | null {
+  const existing = detachedSessionWindows.get(sessionId)
+  if (!existing) return null
+  if (existing.isDestroyed()) {
+    detachedSessionWindows.delete(sessionId)
+    return null
+  }
+  return existing
+}
+
+function focusDetachedSessionWindow(sessionId: string): boolean {
+  const window = getAttachedDetachedSessionWindow(sessionId)
+  if (!window) return false
+
+  if (window.isMinimized()) {
+    window.restore()
+  }
+
+  window.show()
+  window.focus()
+  return true
+}
+
+function closeDetachedSessionWindow(sessionId: string): boolean {
+  const window = getAttachedDetachedSessionWindow(sessionId)
+  if (!window) return false
+
+  detachedSessionWindows.delete(sessionId)
+  window.close()
+  return true
+}
+
+async function openDetachedSessionWindow(
+  sessionId: string
+): Promise<{ handled: boolean; created?: boolean; error?: string }> {
+  if (!sessionId) {
+    return { handled: false, error: 'missing-session-id' }
+  }
+
+  if (focusDetachedSessionWindow(sessionId)) {
+    return { handled: true, created: false }
+  }
+
+  const session = sessionsDao.getSession(sessionId)
+  if (!session) {
+    return { handled: false, error: 'session-not-found' }
+  }
+
+  const window = new BrowserWindow({
+    width: 1100,
+    height: 820,
+    minWidth: 760,
+    minHeight: 560,
+    show: false,
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 12, y: 12 } }
+      : { frame: false }),
+    autoHideMenuBar: true,
+    icon: icon,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  detachedSessionWindows.set(sessionId, window)
+
+  configureAppWindow(window, {
+    onClosed: () => {
+      const current = detachedSessionWindows.get(sessionId)
+      if (current === window) {
+        detachedSessionWindows.delete(sessionId)
+      }
+    }
+  })
+
+  const params = new URLSearchParams({ appView: 'session', sessionId })
+
+  try {
+    await loadRendererWindow(window, params)
+    return { handled: true, created: true }
+  } catch (error) {
+    detachedSessionWindows.delete(sessionId)
+    if (!window.isDestroyed()) {
+      window.destroy()
+    }
+    console.error('[Main] Failed to open detached session window:', sessionId, error)
+    return { handled: false, error: 'window-load-failed' }
+  }
+}
+
 function getTrayIcon() {
   if (process.platform === 'darwin') {
     const image = nativeImage.createFromPath(icon_mac)
@@ -547,6 +640,14 @@ function registerWindowControlHandlers(): void {
   ipcMain.handle('ssh-window:open', () => {
     showSshWindow()
     return { success: true }
+  })
+
+  ipcMain.handle('session-window:open', async (_event, sessionId: string) => {
+    return openDetachedSessionWindow(sessionId)
+  })
+
+  ipcMain.handle('session-window:focus-if-open', (_event, sessionId: string) => {
+    return { handled: focusDetachedSessionWindow(sessionId) }
   })
 }
 
@@ -784,7 +885,11 @@ if (gotSingleInstanceLock) {
     registerCommandsHandlers()
     registerProcessManagerHandlers()
     registerTerminalHandlers()
-    registerDbHandlers()
+    registerDbHandlers({
+      onSessionDeleted: (sessionId) => {
+        closeDetachedSessionWindow(sessionId)
+      }
+    })
     registerConfigHandlers()
     registerSshHandlers()
     registerChannelHandlers(channelManager)

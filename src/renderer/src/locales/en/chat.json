@@ -104,7 +104,10 @@
     "errorTitle": "Failed to render the plan review card",
     "planFile": "Plan File",
     "implement": "Implement This Plan",
+    "executeInNewSession": "Execute In New Session",
     "runningHint": "This session is implementing the plan now.",
+    "runningInSession": "This plan is running in session \"{{title}}\".",
+    "openExecutionSession": "Open Execution Session",
     "approvedHint": "This plan has already been approved."
   },
   "guide": {

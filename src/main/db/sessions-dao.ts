@@ -10,6 +10,7 @@ export interface SessionRow {
   project_id: string | null
   working_folder: string | null
   ssh_connection_id: string | null
+  plan_id: string | null
   pinned: number
   plugin_id: string | null
   provider_id: string | null
@@ -38,6 +39,7 @@ export function createSession(session: {
   projectId?: string | null
   workingFolder?: string
   sshConnectionId?: string
+  planId?: string | null
   pinned?: boolean
   pluginId?: string
   providerId?: string
@@ -46,8 +48,8 @@ export function createSession(session: {
 }): void {
   const db = getDb()
   db.prepare(
-    `INSERT INTO sessions (id, title, icon, mode, created_at, updated_at, message_count, project_id, working_folder, ssh_connection_id, pinned, plugin_id, provider_id, model_id, long_running_mode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO sessions (id, title, icon, mode, created_at, updated_at, message_count, project_id, working_folder, ssh_connection_id, plan_id, pinned, plugin_id, provider_id, model_id, long_running_mode)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     session.id,
     session.title,
@@ -59,6 +61,7 @@ export function createSession(session: {
     session.projectId ?? null,
     session.workingFolder ?? null,
     session.sshConnectionId ?? null,
+    session.planId ?? null,
     session.pinned ? 1 : 0,
     session.pluginId ?? null,
     session.providerId ?? null,
@@ -77,6 +80,7 @@ export function updateSession(
     projectId: string | null
     workingFolder: string | null
     sshConnectionId: string | null
+    planId: string | null
     pinned: boolean
     pluginId: string | null
     providerId: string | null
@@ -115,6 +119,10 @@ export function updateSession(
   if (patch.sshConnectionId !== undefined) {
     sets.push('ssh_connection_id = ?')
     values.push(patch.sshConnectionId)
+  }
+  if (patch.planId !== undefined) {
+    sets.push('plan_id = ?')
+    values.push(patch.planId)
   }
   if (patch.pinned !== undefined) {
     sets.push('pinned = ?')

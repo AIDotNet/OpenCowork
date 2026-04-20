@@ -22,6 +22,9 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
     private const string DefaultResponsesSessionScope = "main";
     private const string AgentMainResponsesSessionScope = "agent-main";
     private const string SubAgentResponsesSessionScopePrefix = "sub-agent";
+    private static readonly TimeSpan DefaultResponsesWebSocketConnectionMaxAge = TimeSpan.FromMinutes(55);
+    private static readonly TimeSpan DefaultResponsesWebSocketConnectionMaxIdle = TimeSpan.FromMinutes(10);
+    private const int DefaultResponsesWebSocketConnectionMaxRequests = 12;
     private static readonly TimeSpan DefaultResponsesWebSocketFirstEventTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan DefaultResponsesWebSocketIdleTimeout = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan WebsocketCircuitBreakDuration = TimeSpan.FromMinutes(1);
@@ -711,6 +714,7 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         connection.LastFullRequest = null;
         connection.LastCompletedResponseId = null;
         connection.LastResponseOutputItems = null;
+        connection.CompletedRequests = 0;
         connection.LastUsedAt = DateTimeOffset.UtcNow;
     }
 
@@ -794,9 +798,23 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                             reusedConnection: true);
                     }
                     await existing.Gate.WaitAsync(ct);
+                    var connectionMaxAge = GetResponsesWebSocketConnectionMaxAge();
+                    var connectionMaxIdle = GetResponsesWebSocketConnectionMaxIdle();
+                    var connectionMaxRequests = GetResponsesWebSocketConnectionMaxRequests();
                     var expired = existing.Socket.State == WebSocketState.Open
-                        && DateTimeOffset.UtcNow - existing.CreatedAt >= OpenAiResponsesWebSocketProtocol.ConnectionMaxAge;
-                    if (!forceFresh && existing.Socket.State == WebSocketState.Open && !expired)
+                        && connectionMaxAge > TimeSpan.Zero
+                        && DateTimeOffset.UtcNow - existing.CreatedAt >= connectionMaxAge;
+                    var idleExpired = existing.Socket.State == WebSocketState.Open
+                        && connectionMaxIdle > TimeSpan.Zero
+                        && DateTimeOffset.UtcNow - existing.LastUsedAt >= connectionMaxIdle;
+                    var requestLimitReached = existing.Socket.State == WebSocketState.Open
+                        && connectionMaxRequests > 0
+                        && existing.CompletedRequests >= connectionMaxRequests;
+                    if (!forceFresh
+                        && existing.Socket.State == WebSocketState.Open
+                        && !expired
+                        && !idleExpired
+                        && !requestLimitReached)
                     {
                         existing.LastUsedAt = DateTimeOffset.UtcNow;
                         LogResponsesWebSocketLifecycle(
@@ -813,7 +831,15 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                         config,
                         websocketUrl,
                         key: connectionKey,
-                        reason: forceFresh ? "force_fresh" : expired ? "connection_expired" : "connection_reset");
+                        reason: forceFresh
+                            ? "force_fresh"
+                            : expired
+                                ? "connection_expired"
+                                : idleExpired
+                                    ? "connection_idle_expired"
+                                    : requestLimitReached
+                                        ? "connection_request_limit_reached"
+                                        : "connection_reset");
                     ReleaseResponsesWebSocketConnection(existing, closeConnection: true);
                     forceFresh = false;
                     continue;
@@ -885,6 +911,17 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
     private static TimeSpan GetResponsesWebSocketIdleTimeout()
         => ReadTimeoutFromEnv("OPENCOWORK_RESPONSES_WS_IDLE_TIMEOUT_MS", DefaultResponsesWebSocketIdleTimeout);
 
+    private static TimeSpan GetResponsesWebSocketConnectionMaxAge()
+        => ReadTimeoutFromEnv("OPENCOWORK_RESPONSES_WS_CONNECTION_MAX_AGE_MS", DefaultResponsesWebSocketConnectionMaxAge);
+
+    private static TimeSpan GetResponsesWebSocketConnectionMaxIdle()
+        => ReadTimeoutFromEnv("OPENCOWORK_RESPONSES_WS_CONNECTION_MAX_IDLE_MS", DefaultResponsesWebSocketConnectionMaxIdle);
+
+    private static int GetResponsesWebSocketConnectionMaxRequests()
+        => ReadPositiveIntFromEnv(
+            "OPENCOWORK_RESPONSES_WS_CONNECTION_MAX_REQUESTS",
+            DefaultResponsesWebSocketConnectionMaxRequests);
+
     private static TimeSpan ReadTimeoutFromEnv(string name, TimeSpan fallback)
     {
         var raw = Environment.GetEnvironmentVariable(name);
@@ -893,6 +930,16 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         if (!double.TryParse(raw, out var milliseconds) || milliseconds < 0)
             return fallback;
         return TimeSpan.FromMilliseconds(Math.Floor(milliseconds));
+    }
+
+    private static int ReadPositiveIntFromEnv(string name, int fallback)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        if (string.IsNullOrWhiteSpace(raw))
+            return fallback;
+        if (!int.TryParse(raw, out var value) || value < 0)
+            return fallback;
+        return value;
     }
 
     private static void ReleaseResponsesWebSocketConnection(ReusableResponsesWebSocketConnection connection, bool closeConnection)
@@ -1141,6 +1188,7 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                     connection.LastFullRequest = JsonNode.Parse(preparedRequest.FullRequest.ToJsonString()) as JsonObject;
                     connection.LastCompletedResponseId = completionState.ResponseId;
                     connection.LastResponseOutputItems = completionState.OutputItems;
+                    connection.CompletedRequests += 1;
                     connection.LastUsedAt = DateTimeOffset.UtcNow;
                 }
 
@@ -2055,6 +2103,7 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         public SemaphoreSlim Gate { get; } = new(1, 1);
         public DateTimeOffset CreatedAt { get; } = DateTimeOffset.UtcNow;
         public DateTimeOffset LastUsedAt { get; set; } = DateTimeOffset.UtcNow;
+        public int CompletedRequests { get; set; }
         public JsonObject? LastFullRequest { get; set; }
         public string? LastCompletedResponseId { get; set; }
         public JsonArray? LastResponseOutputItems { get; set; }

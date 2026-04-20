@@ -445,6 +445,7 @@ class AnthropicProvider implements APIProvider {
                   type: 'tool_result',
                   tool_use_id: b.toolUseId,
                   content: formattedContent,
+                  ...(b.isError ? { is_error: true } : {}),
                   ...(promptCacheEnabled ? { cache_control: buildAnthropicCacheControl() } : {})
                 }
               }

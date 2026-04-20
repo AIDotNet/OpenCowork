@@ -8,8 +8,38 @@ import * as tasksDao from '../db/tasks-dao'
 import * as drawRunsDao from '../db/draw-runs-dao'
 import * as usageEventsDao from '../db/usage-events-dao'
 import * as wikiDao from '../db/wiki-dao'
+import { safeSendToAllWindows } from '../window-ipc'
 
-export function registerDbHandlers(): void {
+const CHAT_SESSION_UPDATED = 'chat:session-updated'
+const CHAT_SESSION_DELETED = 'chat:session-deleted'
+
+interface RegisterDbHandlersOptions {
+  onSessionDeleted?: (sessionId: string) => void
+}
+
+function emitSessionUpdated(sessionId: string, reason: string): void {
+  const session = sessionsDao.getSession(sessionId)
+  if (!session) return
+
+  safeSendToAllWindows(CHAT_SESSION_UPDATED, {
+    reason,
+    session
+  })
+}
+
+function emitSessionDeleted(
+  sessionId: string,
+  reason: string,
+  options?: RegisterDbHandlersOptions
+): void {
+  options?.onSessionDeleted?.(sessionId)
+  safeSendToAllWindows(CHAT_SESSION_DELETED, {
+    reason,
+    sessionId
+  })
+}
+
+export function registerDbHandlers(options: RegisterDbHandlersOptions = {}): void {
   // Initialize DB on registration
   getDb()
 
@@ -68,7 +98,11 @@ export function registerDbHandlers(): void {
   )
 
   ipcMain.handle('db:projects:delete', (_event, id: string) => {
-    return projectsDao.deleteProject(id)
+    const result = projectsDao.deleteProject(id)
+    for (const sessionId of result?.sessionIds ?? []) {
+      emitSessionDeleted(sessionId, 'project-deleted', options)
+    }
+    return result
   })
 
   // --- Sessions ---
@@ -97,6 +131,7 @@ export function registerDbHandlers(): void {
         projectId?: string
         workingFolder?: string
         sshConnectionId?: string
+        planId?: string | null
         pinned?: boolean
         pluginId?: string
         providerId?: string
@@ -128,6 +163,7 @@ export function registerDbHandlers(): void {
         workingFolder,
         sshConnectionId
       })
+      emitSessionUpdated(session.id, 'session-created')
       return { success: true }
     }
   )
@@ -145,23 +181,33 @@ export function registerDbHandlers(): void {
           projectId: string | null
           workingFolder: string | null
           sshConnectionId: string | null
+          planId: string | null
           pinned: boolean
           longRunningMode: boolean
         }>
       }
     ) => {
       sessionsDao.updateSession(args.id, args.patch)
+      emitSessionUpdated(args.id, 'session-updated')
       return { success: true }
     }
   )
 
   ipcMain.handle('db:sessions:delete', (_event, id: string) => {
     sessionsDao.deleteSession(id)
+    emitSessionDeleted(id, 'session-deleted', options)
     return { success: true }
   })
 
   ipcMain.handle('db:sessions:clear-all', () => {
+    const sessionIds = sessionsDao
+      .listSessions()
+      .filter((session) => !session.plugin_id)
+      .map((session) => session.id)
     sessionsDao.clearAllSessions()
+    for (const sessionId of sessionIds) {
+      emitSessionDeleted(sessionId, 'session-cleared', options)
+    }
     return { success: true }
   })
 
@@ -209,6 +255,7 @@ export function registerDbHandlers(): void {
         })
       }
       messagesDao.addMessage(msg)
+      emitSessionUpdated(msg.sessionId, existing ? 'message-added' : 'session-created-with-message')
       return { success: true }
     }
   )
@@ -217,7 +264,10 @@ export function registerDbHandlers(): void {
     'db:messages:update',
     (
       _event,
-      args: { id: string; patch: Partial<{ content: string; meta: string | null; usage: string | null }> }
+      args: {
+        id: string
+        patch: Partial<{ content: string; meta: string | null; usage: string | null }>
+      }
     ) => {
       messagesDao.updateMessage(args.id, args.patch)
       return { success: true }
@@ -226,6 +276,7 @@ export function registerDbHandlers(): void {
 
   ipcMain.handle('db:messages:clear', (_event, sessionId: string) => {
     messagesDao.clearMessages(sessionId)
+    emitSessionUpdated(sessionId, 'messages-cleared')
     return { success: true }
   })
 
@@ -247,6 +298,7 @@ export function registerDbHandlers(): void {
       }
     ) => {
       messagesDao.replaceMessages(args.sessionId, args.messages)
+      emitSessionUpdated(args.sessionId, 'messages-replaced')
       return { success: true }
     }
   )
@@ -255,6 +307,7 @@ export function registerDbHandlers(): void {
     'db:messages:truncate-from',
     (_event, args: { sessionId: string; fromSortOrder: number }) => {
       messagesDao.truncateMessagesFrom(args.sessionId, args.fromSortOrder)
+      emitSessionUpdated(args.sessionId, 'messages-truncated')
       return { success: true }
     }
   )

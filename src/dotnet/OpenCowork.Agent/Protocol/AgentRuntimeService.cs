@@ -17,6 +17,7 @@ public sealed class AgentRuntimeService
     private const int DefaultMaxParallelTools = 8;
     private const int MinMaxParallelTools = 1;
     private const int MaxMaxParallelTools = 16;
+    private const int ShellStreamDrainGraceMs = 250;
     private const string DefaultFallbackReportPrompt =
         "Your previous turn ended without producing any visible text. Your caller has no way to see what you did. " +
         "Now, based on everything you executed in this conversation (tool calls, findings, analysis, attempts, and " +
@@ -331,7 +332,7 @@ public sealed class AgentRuntimeService
             },
             Execute = async (input, ctx, token) =>
             {
-                var path = ResolvePath(GetString(input, "file_path", required: true), ctx.WorkingFolder);
+                var path = ResolvePath(GetFilePath(input, required: true), ctx.WorkingFolder);
 
                 // SSH: fall back to renderer bridge (SFTP)
                 if (ctx.SshConnectionId is not null)
@@ -373,7 +374,7 @@ public sealed class AgentRuntimeService
             },
             Execute = async (input, ctx, token) =>
             {
-                var path = ResolvePath(GetString(input, "file_path", required: true), ctx.WorkingFolder);
+                var path = ResolvePath(GetFilePath(input, required: true), ctx.WorkingFolder);
                 var content = GetString(input, "content", required: true);
 
                 // SSH: fall back to renderer bridge (SFTP)
@@ -419,7 +420,7 @@ public sealed class AgentRuntimeService
             RequiresApproval = (input, ctx) =>
             {
                 if (ctx.SshConnectionId is not null) return false;
-                var filePath = ResolvePath(GetString(input, "file_path", required: true), ctx.WorkingFolder);
+                var filePath = ResolvePath(GetFilePath(input, required: true), ctx.WorkingFolder);
                 return !IsWithinWorkingFolder(filePath, ctx.WorkingFolder);
             }
         });
@@ -436,7 +437,7 @@ public sealed class AgentRuntimeService
             },
             Execute = async (input, ctx, token) =>
             {
-                var path = ResolvePath(GetString(input, "file_path", required: true), ctx.WorkingFolder);
+                var path = ResolvePath(GetFilePath(input, required: true), ctx.WorkingFolder);
                 var oldStr = GetString(input, "old_string", required: true);
                 var newStr = GetString(input, "new_string", required: true);
                 var replaceAll = GetOptionalBool(input, "replace_all") == true;
@@ -551,7 +552,7 @@ public sealed class AgentRuntimeService
             RequiresApproval = (input, ctx) =>
             {
                 if (ctx.SshConnectionId is not null) return false;
-                var filePath = ResolvePath(GetString(input, "file_path", required: true), ctx.WorkingFolder);
+                var filePath = ResolvePath(GetFilePath(input, required: true), ctx.WorkingFolder);
                 return !IsWithinWorkingFolder(filePath, ctx.WorkingFolder);
             }
         });
@@ -1093,6 +1094,9 @@ Usage notes:
     private static string GetFilePath(Dictionary<string, JsonElement> input, bool required = false)
     {
         var filePath = GetOptionalString(input, "file_path");
+        if (string.IsNullOrWhiteSpace(filePath))
+            filePath = GetOptionalString(input, "path");
+
         if (!string.IsNullOrWhiteSpace(filePath))
             return filePath;
 
@@ -1272,26 +1276,28 @@ When the task is complete you MUST call the `SubmitReport` tool exactly once to 
         process.Start();
         spawnStopwatch.Stop();
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
+        var stdoutBuilder = new StringBuilder();
+        var stderrBuilder = new StringBuilder();
+        var stdoutTask = DrainShellStreamAsync(process.StandardOutput, stdoutBuilder);
+        var stderrTask = DrainShellStreamAsync(process.StandardError, stderrBuilder);
         using var timeoutCts = new CancellationTokenSource(timeoutMs);
         using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
         try
         {
             await process.WaitForExitAsync(waitCts.Token);
+            await AwaitShellStreamDrainAsync(stdoutTask, stderrTask).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
         {
             TryKillProcessTree(process);
             await WaitForExitSafelyAsync(process).ConfigureAwait(false);
-            var timeoutStdout = await stdoutTask.ConfigureAwait(false);
-            var timeoutStderr = await stderrTask.ConfigureAwait(false);
+            await AwaitShellStreamDrainAsync(stdoutTask, stderrTask).ConfigureAwait(false);
             overallStopwatch.Stop();
             return new ShellCommandExecutionResult(
                 124,
-                timeoutStdout,
-                $"{timeoutStderr}\n[Timed out after {timeoutMs}ms]".Trim(),
+                stdoutBuilder.ToString(),
+                $"{stderrBuilder}\n[Timed out after {timeoutMs}ms]".Trim(),
                 shell,
                 overallStopwatch.ElapsedMilliseconds,
                 spawnStopwatch.ElapsedMilliseconds,
@@ -1302,13 +1308,12 @@ When the task is complete you MUST call the `SubmitReport` tool exactly once to 
         {
             TryKillProcessTree(process);
             await WaitForExitSafelyAsync(process).ConfigureAwait(false);
-            var abortedStdout = await stdoutTask.ConfigureAwait(false);
-            var abortedStderr = await stderrTask.ConfigureAwait(false);
+            await AwaitShellStreamDrainAsync(stdoutTask, stderrTask).ConfigureAwait(false);
             overallStopwatch.Stop();
             return new ShellCommandExecutionResult(
                 130,
-                abortedStdout,
-                $"{abortedStderr}\n[Aborted]".Trim(),
+                stdoutBuilder.ToString(),
+                $"{stderrBuilder}\n[Aborted]".Trim(),
                 shell,
                 overallStopwatch.ElapsedMilliseconds,
                 spawnStopwatch.ElapsedMilliseconds,
@@ -1316,13 +1321,11 @@ When the task is complete you MUST call the `SubmitReport` tool exactly once to 
                 Aborted: true);
         }
 
-        var stdout = await stdoutTask.ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
         overallStopwatch.Stop();
         return new ShellCommandExecutionResult(
             process.ExitCode,
-            stdout,
-            stderr,
+            stdoutBuilder.ToString(),
+            stderrBuilder.ToString(),
             shell,
             overallStopwatch.ElapsedMilliseconds,
             spawnStopwatch.ElapsedMilliseconds,
@@ -1347,6 +1350,55 @@ When the task is complete you MUST call the `SubmitReport` tool exactly once to 
         try
         {
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+    }
+
+    private static async Task DrainShellStreamAsync(StreamReader reader, StringBuilder builder)
+    {
+        var buffer = new char[4096];
+        try
+        {
+            while (true)
+            {
+                var read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+                if (read <= 0)
+                    break;
+                builder.Append(buffer, 0, read);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static async Task AwaitShellStreamDrainAsync(params Task[] tasks)
+    {
+        if (tasks.Length == 0)
+            return;
+
+        var combined = Task.WhenAll(tasks);
+        if (combined.IsCompleted)
+        {
+            try
+            {
+                await combined.ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+            return;
+        }
+
+        try
+        {
+            await combined.WaitAsync(TimeSpan.FromMilliseconds(ShellStreamDrainGraceMs))
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
         }
         catch
         {

@@ -544,6 +544,8 @@ internal static class ProviderMessageFormatter
                     ["tool_use_id"] = toolResult.ToolUseId,
                     ["content"] = FormatAnthropicToolResultContent(toolResult.GetContentValue())
                 };
+                if (toolResult.IsError == true)
+                    node["is_error"] = ParseJsonLiteral("true");
                 return true;
             case ImageBlock image:
                 node = new JsonObject

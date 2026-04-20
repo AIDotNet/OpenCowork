@@ -67,6 +67,7 @@ export interface Session {
   projectId?: string
   workingFolder?: string
   sshConnectionId?: string
+  planId?: string
   pinned?: boolean
   /** Plugin ID if this session was created by auto-reply pipeline */
   pluginId?: string
@@ -89,6 +90,7 @@ export interface Session {
 export interface CreateSessionOptions {
   longRunningMode?: boolean
   preserveProjectless?: boolean
+  planId?: string | null
 }
 
 // --- DB persistence helpers (fire-and-forget) ---
@@ -105,6 +107,7 @@ function dbCreateSession(s: Session): void {
       projectId: s.projectId,
       workingFolder: s.workingFolder,
       sshConnectionId: s.sshConnectionId,
+      planId: s.planId,
       pinned: s.pinned,
       providerId: s.providerId,
       modelId: s.modelId,
@@ -334,6 +337,7 @@ interface ChatStore {
   setSshConnectionId: (sessionId: string, connectionId: string | null) => void
   updateSessionModel: (sessionId: string, providerId: string, modelId: string) => void
   clearSessionModelBinding: (sessionId: string) => void
+  setSessionPlanId: (sessionId: string, planId: string | null) => void
   setSessionLongRunningMode: (sessionId: string, enabled: boolean) => void
   setSessionPromptSnapshot: (sessionId: string, snapshot: SessionPromptSnapshot) => void
   clearSessionPromptSnapshot: (sessionId: string) => void
@@ -344,6 +348,11 @@ interface ChatStore {
   importSession: (session: Session, projectId?: string | null) => string
   importProjectArchive: (payload: { project: Project; sessions: Session[] }) => string
   clearAllSessions: () => void
+  upsertSessionFromSync: (
+    row: SyncedSessionRow,
+    options?: { preserveLoadedMessages?: boolean }
+  ) => void
+  removeSessionFromSync: (sessionId: string) => void
   removeLastAssistantMessage: (sessionId: string) => boolean
   removeLastUserMessage: (sessionId: string) => void
   truncateMessagesFrom: (sessionId: string, fromIndex: number) => void
@@ -398,6 +407,7 @@ interface ChatStore {
 
   // Helpers
   getActiveSession: () => Session | undefined
+  getLatestSessionByPlanId: (planId: string) => Session | undefined
   getSessionMessages: (sessionId: string) => UnifiedMessage[]
   recoverFromRendererOom: (sessionId?: string | null) => Promise<void>
   releaseDormantSessions: () => void
@@ -424,6 +434,7 @@ interface SessionRow {
   project_id?: string | null
   working_folder: string | null
   ssh_connection_id?: string | null
+  plan_id?: string | null
   pinned: number
   message_count?: number
   plugin_id?: string | null
@@ -443,6 +454,8 @@ interface MessageRow {
   usage: string | null
   sort_order: number
 }
+
+type SyncedSessionRow = SessionRow
 
 // Initial tail shown the instant the user switches into a session. Small on
 // purpose so the switch renders in ~1 frame. Older history streams in via
@@ -489,12 +502,65 @@ function rowToSession(row: SessionRow, messages: UnifiedMessage[] = []): Session
     projectId: row.project_id ?? undefined,
     workingFolder: row.working_folder ?? undefined,
     sshConnectionId: row.ssh_connection_id ?? undefined,
+    planId: row.plan_id ?? undefined,
     pinned: row.pinned === 1,
     pluginId: row.plugin_id ?? undefined,
     externalChatId: row.external_chat_id ?? undefined,
     providerId: row.provider_id ?? undefined,
     modelId: row.model_id ?? undefined,
     longRunningMode: row.long_running_mode === 1
+  }
+}
+
+function mergeSessionSummary(
+  session: Session,
+  next: Session,
+  options?: { preserveLoadedMessages?: boolean }
+): void {
+  const preserveLoadedMessages = options?.preserveLoadedMessages === true
+  const messageCountChanged = session.messageCount !== next.messageCount
+
+  session.title = next.title
+  session.icon = next.icon
+  session.mode = next.mode
+  session.createdAt = next.createdAt
+  session.updatedAt = next.updatedAt
+  session.projectId = next.projectId
+  session.workingFolder = next.workingFolder
+  session.sshConnectionId = next.sshConnectionId
+  session.planId = next.planId
+  session.pinned = next.pinned
+  session.pluginId = next.pluginId
+  session.externalChatId = next.externalChatId
+  session.providerId = next.providerId
+  session.modelId = next.modelId
+  session.longRunningMode = next.longRunningMode
+  session.messageCount = next.messageCount
+
+  if (next.messageCount === 0) {
+    session.messages = []
+    session.messagesLoaded = true
+    session.loadedRangeStart = 0
+    session.loadedRangeEnd = 0
+    session.lastKnownMessageCount = 0
+    return
+  }
+
+  session.lastKnownMessageCount = next.messageCount
+
+  if (messageCountChanged && !preserveLoadedMessages) {
+    session.messages = []
+    session.messagesLoaded = false
+    session.loadedRangeStart = next.messageCount
+    session.loadedRangeEnd = next.messageCount
+    return
+  }
+
+  if (session.loadedRangeEnd > next.messageCount) {
+    session.loadedRangeEnd = next.messageCount
+  }
+  if (session.loadedRangeStart > session.loadedRangeEnd) {
+    session.loadedRangeStart = session.loadedRangeEnd
   }
 }
 
@@ -559,11 +625,6 @@ function getResidentSessionIds(
   const residentSessionIds = new Set<string>()
   if (state.activeSessionId) {
     residentSessionIds.add(state.activeSessionId)
-  }
-
-  const uiState = useUIStore.getState()
-  if (uiState.miniSessionWindowOpen && uiState.miniSessionWindowSessionId) {
-    residentSessionIds.add(uiState.miniSessionWindowSessionId)
   }
 
   for (const sessionId of Object.keys(state.streamingMessages)) {
@@ -1564,6 +1625,7 @@ export const useChatStore = create<ChatStore>()(
         projectId: targetProjectId ?? undefined,
         workingFolder: targetProject?.workingFolder,
         sshConnectionId: targetProject?.sshConnectionId,
+        planId: options?.planId ?? undefined,
         providerId: sessionProviderId,
         modelId: sessionModelId,
         longRunningMode: options?.longRunningMode ?? false
@@ -1833,6 +1895,18 @@ export const useChatStore = create<ChatStore>()(
       dbUpdateSession(sessionId, { providerId: null, modelId: null, updatedAt: now })
     },
 
+    setSessionPlanId: (sessionId, planId) => {
+      const now = Date.now()
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (session) {
+          session.planId = planId ?? undefined
+          session.updatedAt = now
+        }
+      })
+      dbUpdateSession(sessionId, { planId, updatedAt: now })
+    },
+
     setSessionLongRunningMode: (sessionId, enabled) => {
       const now = Date.now()
       set((state) => {
@@ -2068,6 +2142,94 @@ export const useChatStore = create<ChatStore>()(
       agentState.clearToolCalls()
       useUIStore.getState().syncSessionScopedState(null)
       dbClearAllSessions()
+    },
+
+    upsertSessionFromSync: (row, options) => {
+      const syncedSession = rowToSession(row, [])
+      const activeSessionId = get().activeSessionId
+
+      set((state) => {
+        const existing = getSessionByIdFromState(state, row.id)
+        if (existing) {
+          mergeSessionSummary(existing, syncedSession, options)
+        } else {
+          state.sessions.push(syncedSession)
+          syncSessionsById(state)
+        }
+
+        if (state.activeSessionId === row.id) {
+          state.activeProjectId = syncedSession.projectId ?? null
+          state.streamingMessageId = state.streamingMessages[row.id] ?? null
+        } else if (!state.activeProjectId && syncedSession.projectId) {
+          state.activeProjectId = syncedSession.projectId
+        }
+      })
+
+      if (activeSessionId === row.id && syncedSession.providerId && syncedSession.modelId) {
+        const providerStore = useProviderStore.getState()
+        if (providerStore.activeProviderId !== syncedSession.providerId) {
+          providerStore.setActiveProvider(syncedSession.providerId)
+        }
+        if (providerStore.activeModelId !== syncedSession.modelId) {
+          providerStore.setActiveModel(syncedSession.modelId)
+        }
+      }
+
+      get().releaseDormantSessions()
+    },
+
+    removeSessionFromSync: (sessionId) => {
+      const deletedSession = get().sessions.find((session) => session.id === sessionId)
+      if (!deletedSession) return
+
+      const wasActiveSession = get().activeSessionId === sessionId
+      const deletedProjectId = deletedSession.projectId ?? null
+      const currentChatView = useUIStore.getState().chatView
+
+      set((state) => {
+        state.sessions = state.sessions.filter((session) => session.id !== sessionId)
+        syncSessionsById(state)
+
+        if (wasActiveSession) {
+          state.activeSessionId = null
+          state.activeProjectId = deletedProjectId
+        }
+
+        delete state.streamingMessages[sessionId]
+        state.streamingMessageId = state.activeSessionId
+          ? (state.streamingMessages[state.activeSessionId] ?? null)
+          : null
+      })
+
+      const agentState = useAgentStore.getState()
+      const wasLiveSession = agentState.liveSessionId === sessionId
+      agentState.setSessionStatus(sessionId, null)
+      agentState.clearSessionData(sessionId)
+      useBackgroundSessionStore.getState().clearSession(sessionId)
+      if (wasLiveSession) {
+        agentState.resetLiveSessionExecution(sessionId)
+        agentState.switchToolCallSession(sessionId, null)
+      }
+      useTeamStore.getState().clearSessionTeam(sessionId)
+      const plan = usePlanStore.getState().getPlanBySession(sessionId)
+      if (plan) usePlanStore.getState().deletePlan(plan.id)
+      useTaskStore.getState().deleteSessionTasks(sessionId)
+      useInputDraftStore.getState().removeSessionDraft(sessionId)
+      clearPendingMessageFlushes(deletedSession.messages.map((message) => message.id))
+      useUIStore.getState().syncSessionScopedState(useChatStore.getState().activeSessionId)
+
+      if (wasActiveSession) {
+        useTaskStore.getState().clearTasks()
+        usePlanStore.getState().setActivePlan(null)
+
+        if (deletedProjectId && currentChatView !== 'home') {
+          useUIStore.getState().navigateToProject(deletedProjectId)
+        } else {
+          useUIStore.getState().navigateToHome()
+        }
+      }
+
+      get().releaseDormantSessions()
     },
 
     clearSessionMessages: (sessionId) => {
@@ -2600,6 +2762,13 @@ export const useChatStore = create<ChatStore>()(
       const state = get()
       if (!state.activeSessionId) return undefined
       return getSessionByIdFromState(state, state.activeSessionId)
+    },
+
+    getLatestSessionByPlanId: (planId) => {
+      if (!planId) return undefined
+      return [...get().sessions]
+        .filter((session) => session.planId === planId)
+        .sort((left, right) => right.updatedAt - left.updatedAt)[0]
     },
 
     getSessionMessages: (sessionId) => {

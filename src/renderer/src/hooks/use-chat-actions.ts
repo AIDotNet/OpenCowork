@@ -4627,6 +4627,26 @@ function buildPlanRevisionPrompt(
     .join('\n')
 }
 
+function buildPlanExecutionPrompt(
+  plan: Pick<Plan, 'filePath'>,
+  options?: { acp?: boolean }
+): string {
+  const basePrompt = plan.filePath
+    ? `Execute the approved plan from this file:\n${plan.filePath}`
+    : 'Execute the approved plan'
+
+  if (!options?.acp) {
+    return basePrompt
+  }
+
+  return [
+    basePrompt,
+    'Stay in ACP mode. Do not directly edit files or run implementation commands yourself.',
+    'Break the plan into concrete tasks, keep task tracking up to date, and delegate implementation through Task / sub-agents / teammates.',
+    'Review sub-agent outputs, continue delegation until the approved plan is completed, and report progress plus remaining risks after each wave.'
+  ].join('\n')
+}
+
 /**
  * Trigger plan implementation by sending a message to the agent.
  * Called from PlanPanel "Implement" button — bypasses the input box.
@@ -4664,20 +4684,9 @@ export async function sendImplementPlan(planId: string): Promise<void> {
 
   uiStore.exitPlanMode(latestPlan.sessionId)
 
-  const basePrompt = latestPlan.filePath
-    ? `Execute the approved plan from this file:\n${latestPlan.filePath}`
-    : 'Execute the approved plan'
-
   try {
     await _sendMessageFn(
-      isAcpSession
-        ? [
-            basePrompt,
-            'Stay in ACP mode. Do not directly edit files or run implementation commands yourself.',
-            'Break the plan into concrete tasks, keep task tracking up to date, and delegate implementation through Task / sub-agents / teammates.',
-            'Review sub-agent outputs, continue delegation until the approved plan is completed, and report progress plus remaining risks after each wave.'
-          ].join('\n')
-        : basePrompt,
+      buildPlanExecutionPrompt(latestPlan, { acp: isAcpSession }),
       undefined,
       undefined,
       latestPlan.sessionId,
@@ -4733,7 +4742,7 @@ export async function sendImplementPlanInNewSession(planId: string): Promise<voi
   const sourceSession = chatStore.sessions.find((item) => item.id === latestPlan.sessionId)
   if (!sourceSession) return
 
-  const newSessionId = chatStore.createSession('code', sourceSession.projectId)
+  const newSessionId = chatStore.createSession('code', sourceSession.projectId, { planId })
   chatStore.updateSessionTitle(newSessionId, latestPlan.title)
 
   if (sourceSession.workingFolder) {
@@ -4762,10 +4771,19 @@ export async function sendImplementPlanInNewSession(planId: string): Promise<voi
       )
     }
 
-    await _sendMessageFn(result, undefined, undefined, newSessionId)
+    await _sendMessageFn(
+      buildPlanExecutionPrompt(latestPlan),
+      undefined,
+      undefined,
+      newSessionId,
+      undefined,
+      undefined,
+      { skipPendingPlanRevision: true }
+    )
 
-    usePlanStore.getState().approvePlan(planId)
+    usePlanStore.getState().beginImplementation(planId)
     uiStore.exitPlanMode(latestPlan.sessionId)
+    uiStore.navigateToSession(newSessionId)
   } catch (error) {
     toast.error(
       i18n.t('plan.executeFailed', {
@@ -4986,8 +5004,15 @@ async function runSimpleChat(
               debugInfo: lastRequestDebugInfo,
               estimatedContextTokens: contextTokensOverride
             })
+            const messageUsage = event.timing
+              ? {
+                  ...normalizedUsage,
+                  totalDurationMs: event.timing.totalMs,
+                  requestTimings: [event.timing]
+                }
+              : normalizedUsage
             updateRuntimeMessage(sessionId, assistantMsgId, {
-              usage: normalizedUsage,
+              usage: messageUsage,
               ...(event.providerResponseId ? { providerResponseId: event.providerResponseId } : {})
             })
             void recordUsageEvent({

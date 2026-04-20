@@ -1,49 +1,26 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
-import {
-  ClipboardCopy,
-  Check,
-  ImageDown,
-  Loader2,
-  MoreHorizontal,
-  ExternalLink,
-  Minimize2,
-  X
-} from 'lucide-react'
+import { Suspense, lazy, useCallback, useEffect, useRef } from 'react'
+import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
-import { Button } from '@renderer/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@renderer/components/ui/dropdown-menu'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from '@renderer/components/ui/tooltip'
+import { TooltipProvider } from '@renderer/components/ui/tooltip'
 import { TitleBar } from './TitleBar'
 import { WorkspaceSidebar } from './WorkspaceSidebar'
 import { RightPanel } from './RightPanel'
 import { PreviewPanel } from './PreviewPanel'
 import { SubAgentExecutionDetail } from './SubAgentExecutionDetail'
 import { RIGHT_PANEL_TAB_ORDER } from './right-panel-defs'
-import { MessageList } from '@renderer/components/chat/MessageList'
-import { InputArea } from '@renderer/components/chat/InputArea'
 import { SettingsDialog } from '@renderer/components/settings/SettingsDialog'
 import { ChatHomePage } from '@renderer/components/chat/ChatHomePage'
 import { ProjectHomePage } from '@renderer/components/chat/ProjectHomePage'
 import { ProjectArchivePage } from '@renderer/components/chat/ProjectArchivePage'
 import { GitPage } from '@renderer/components/chat/GitPage'
-import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
 import { KeyboardShortcutsDialog } from '@renderer/components/settings/KeyboardShortcutsDialog'
 import { PermissionDialog } from '@renderer/components/cowork/PermissionDialog'
 import { ConversationGuideDialog } from '@renderer/components/chat/ConversationGuideDialog'
 import { CommandPalette } from './CommandPalette'
+import { SessionConversationPane } from './SessionConversationPane'
 import { ErrorBoundary } from '@renderer/components/error-boundary'
 import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
 import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
@@ -51,11 +28,7 @@ import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
 import { toast } from 'sonner'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
-import { IPC } from '@renderer/lib/ipc/channels'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
-import { cn } from '@renderer/lib/utils'
-import { dataUrlToBlob, writeImageBlobToClipboard } from '@renderer/lib/utils/image-clipboard'
 import { AnimatePresence } from 'motion/react'
 import { PageTransition, PanelTransition } from '@renderer/components/animate-ui'
 import { useShallow } from 'zustand/react/shallow'
@@ -121,69 +94,31 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const subAgentExecutionDetailToolUseId = useUIStore((s) => s.subAgentExecutionDetailToolUseId)
   const subAgentExecutionDetailInlineText = useUIStore((s) => s.subAgentExecutionDetailInlineText)
   const closeSubAgentExecutionDetail = useUIStore((s) => s.closeSubAgentExecutionDetail)
-  const miniSessionWindowOpen = useUIStore((s) => s.miniSessionWindowOpen)
-  const miniSessionWindowSessionId = useUIStore((s) => s.miniSessionWindowSessionId)
-  const closeMiniSessionWindow = useUIStore((s) => s.closeMiniSessionWindow)
   const toolbarCollapsedByDefault = useSettingsStore((s) => s.toolbarCollapsedByDefault)
   const chatView = useUIStore((s) => s.chatView)
   const activeSessionView = useChatStore(
     useShallow((s) => {
       const activeSession = s.sessions.find((session) => session.id === s.activeSessionId)
-      const activeProjectId = activeSession?.projectId ?? s.activeProjectId
-      const activeProject = activeProjectId
-        ? s.projects.find((project) => project.id === activeProjectId)
-        : undefined
       return {
-        activeProjectId: activeProjectId ?? null,
-        activeProjectName: activeProject?.name ?? null,
+        activeProjectId: activeSession?.projectId ?? s.activeProjectId ?? null,
         activeSessionProjectId: activeSession?.projectId ?? null,
         activeSessionTitle: activeSession?.title ?? null,
-        activeSessionMode: activeSession?.mode as SessionMode | undefined,
-        activeSessionMessageCount: activeSession?.messageCount ?? 0,
-        activeWorkingFolder: activeSession?.workingFolder ?? activeProject?.workingFolder,
-        activeSessionSshConnectionId:
-          activeSession?.sshConnectionId ?? activeProject?.sshConnectionId ?? null
+        activeSessionMode: activeSession?.mode as SessionMode | undefined
       }
     })
   )
-  const {
-    activeProjectId,
-    activeProjectName,
-    activeSessionProjectId,
-    activeSessionTitle,
-    activeSessionMode,
-    activeSessionMessageCount,
-    activeWorkingFolder
-  } = activeSessionView
-  const compactSessionHeader = activeSessionMessageCount === 0
-  const miniWindowSession = useChatStore((s) =>
-    miniSessionWindowSessionId
-      ? s.sessions.find((session) => session.id === miniSessionWindowSessionId)
-      : undefined
-  )
+  const { activeProjectId, activeSessionProjectId, activeSessionTitle, activeSessionMode } =
+    activeSessionView
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const updateSessionMode = useChatStore((s) => s.updateSessionMode)
   const streamingMessageId = useChatStore((s) => s.streamingMessageId)
-  const isStreaming = !!streamingMessageId
   const pendingToolCallCount = useAgentStore((s) => s.pendingToolCalls.length)
   const pendingApproval = useAgentStore((s) => s.pendingToolCalls[0] ?? null)
   const resolveApproval = useAgentStore((s) => s.resolveApproval)
   const initBackgroundProcessTracking = useAgentStore((s) => s.initBackgroundProcessTracking)
 
   const { resolvedTheme, setTheme: ntSetTheme } = useTheme()
-  const {
-    sendMessage,
-    stopStreaming,
-    continueLastToolExecution,
-    retryLastMessage,
-    editAndResend,
-    deleteMessage
-  } = useChatActions()
-
-  const [copiedAll, setCopiedAll] = useState(false)
-  const [exporting, setExporting] = useState(false)
-  const [exportRendering, setExportRendering] = useState(false)
-  const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+  const { stopStreaming } = useChatActions()
 
   const runningSubAgentNamesSig = useAgentStore((s) => s.runningSubAgentNamesSig)
   const runningSubAgentCount = runningSubAgentNamesSig
@@ -216,12 +151,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   useEffect(() => {
     void initBackgroundProcessTracking()
   }, [initBackgroundProcessTracking])
-
-  useEffect(() => {
-    if (mode === 'chat') {
-      setFolderDialogOpen(false)
-    }
-  }, [mode])
 
   // Update window title (show pending approvals + streaming state + SubAgent)
   useEffect(() => {
@@ -615,125 +544,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     handleModeChange
   ])
 
-  const resolveActiveProjectId = async (): Promise<string | null> => {
-    if (activeProjectId) return activeProjectId
-    const chatStore = useChatStore.getState()
-    if (chatStore.activeProjectId) return chatStore.activeProjectId
-    const ensured = await chatStore.ensureDefaultProject()
-    return ensured?.id ?? null
-  }
-
-  const updateActiveProjectDirectory = async (
-    patch: Partial<{ workingFolder: string | null; sshConnectionId: string | null }>
-  ): Promise<void> => {
-    const chatStore = useChatStore.getState()
-    const projectId = await resolveActiveProjectId()
-    if (!projectId) return
-    chatStore.updateProjectDirectory(projectId, patch)
-  }
-
-  const handleOpenFolderDialog = (): void => {
-    setFolderDialogOpen(true)
-  }
-
-  const handleOpenWorkingFolder = async (): Promise<void> => {
-    if (!activeWorkingFolder) return
-    await ipcClient.invoke(IPC.SHELL_OPEN_PATH, activeWorkingFolder)
-  }
-
-  const handleCopyAll = (): void => {
-    const session = useChatStore.getState().sessions.find((s) => s.id === activeSessionId)
-    if (!session) return
-    const md = sessionToMarkdown(session)
-    navigator.clipboard.writeText(md)
-    setCopiedAll(true)
-    setTimeout(() => setCopiedAll(false), 2000)
-  }
-
-  const handleExportImage = async (): Promise<void> => {
-    const session = useChatStore.getState().sessions.find((s) => s.id === activeSessionId)
-    if (!session || !activeSessionId) return
-    setExporting(true)
-
-    const styleEl = document.createElement('style')
-    styleEl.setAttribute('data-export-image', '')
-    styleEl.textContent = `
-      [data-message-content] * {
-        max-width: 100% !important;
-        overflow-wrap: break-word !important;
-        word-break: break-word !important;
-      }
-      [data-message-content] pre,
-      [data-message-content] code {
-        white-space: pre-wrap !important;
-        word-break: break-all !important;
-      }
-      [data-message-content] table {
-        table-layout: fixed !important;
-        width: 100% !important;
-      }
-      [data-message-content] img,
-      [data-message-content] svg {
-        max-width: 100% !important;
-        height: auto !important;
-      }
-    `
-    document.head.appendChild(styleEl)
-
-    try {
-      await useChatStore.getState().loadSessionMessages(activeSessionId, true)
-      setExportRendering(true)
-
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => resolve())
-        })
-      })
-
-      const node = document.querySelector('[data-message-content]') as HTMLElement | null
-      if (!node) {
-        throw new Error('Export target not found')
-      }
-
-      const bgRaw = getComputedStyle(document.documentElement)
-        .getPropertyValue('--background')
-        .trim()
-      const bgColor = bgRaw ? `hsl(${bgRaw})` : '#ffffff'
-      const { toPng } = await import('html-to-image')
-      const captureWidth = node.clientWidth
-      const captureHeight = Math.max(node.scrollHeight, node.offsetHeight)
-      const dataUrl = await toPng(node, {
-        backgroundColor: bgColor,
-        pixelRatio: 2,
-        width: captureWidth,
-        height: captureHeight,
-        canvasWidth: captureWidth * 2,
-        canvasHeight: captureHeight * 2,
-        style: {
-          overflow: 'visible',
-          maxWidth: `${captureWidth}px`,
-          width: `${captureWidth}px`,
-          height: `${captureHeight}px`
-        }
-      })
-
-      await writeImageBlobToClipboard(dataUrlToBlob(dataUrl))
-      toast.success(t('layout.imageCopied', { defaultValue: 'Image copied to clipboard' }))
-    } catch (err) {
-      console.error('Export image failed:', err)
-      toast.error(t('layout.exportImageFailed', { defaultValue: 'Export image failed' }), {
-        description: String(err)
-      })
-    } finally {
-      setExportRendering(false)
-      document.head.removeChild(styleEl)
-      setExporting(false)
-    }
-  }
-
-  const hasProjectFolderAction = Boolean(activeSessionProjectId && activeWorkingFolder)
-  const hasTranscriptActions = activeSessionMessageCount > 0
-  const showSessionActionBar = hasProjectFolderAction || hasTranscriptActions
   const showEmbeddedSidebar = leftSidebarOpen
 
   return (
@@ -905,245 +715,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                     )}
                   >
                     <div className="flex flex-1 overflow-hidden">
-                      <div className="relative flex min-w-0 flex-1 flex-col bg-background">
-                        <div
-                          className={cn(
-                            'flex shrink-0 items-center gap-3 px-4 pt-3',
-                            compactSessionHeader ? 'pb-1' : 'pb-2'
-                          )}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <div
-                                className={cn(
-                                  'min-w-0 flex-1 truncate text-foreground',
-                                  compactSessionHeader
-                                    ? 'text-[13px] font-medium'
-                                    : 'text-[14px] font-medium'
-                                )}
-                              >
-                                {activeSessionTitle ??
-                                  t('sidebar.newChat', { defaultValue: 'New chat' })}
-                              </div>
-                              {activeSessionProjectId ? (
-                                <div className="flex min-w-0 max-w-[38%] shrink items-center gap-1.5 text-[11px] text-muted-foreground/65">
-                                  <span className="shrink-0 text-muted-foreground/35">/</span>
-                                  {activeWorkingFolder ? (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <span className="truncate cursor-default">
-                                          {activeProjectName ??
-                                            t('sidebar.projects', { defaultValue: 'Project' })}
-                                        </span>
-                                      </TooltipTrigger>
-                                      <TooltipContent>{activeWorkingFolder}</TooltipContent>
-                                    </Tooltip>
-                                  ) : (
-                                    <span className="truncate">
-                                      {activeProjectName ??
-                                        t('sidebar.projects', { defaultValue: 'Project' })}
-                                    </span>
-                                  )}
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className="flex shrink-0 items-center gap-1">
-                            {showSessionActionBar ? (
-                              <div className="flex items-center rounded-lg border border-border/60 bg-background/70 p-0.5 shadow-sm backdrop-blur-sm">
-                                {hasProjectFolderAction ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                                        onClick={() => void handleOpenWorkingFolder()}
-                                      >
-                                        <ExternalLink className="size-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      {t('layout.openFolder', { defaultValue: 'Open folder' })}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                ) : null}
-
-                                {hasProjectFolderAction && hasTranscriptActions ? (
-                                  <div className="mx-0.5 h-4 w-px bg-border/60" />
-                                ) : null}
-
-                                {hasTranscriptActions ? (
-                                  <>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                                          onClick={handleCopyAll}
-                                          disabled={isStreaming}
-                                        >
-                                          {copiedAll ? (
-                                            <Check className="size-4 text-foreground" />
-                                          ) : (
-                                            <ClipboardCopy className="size-4" />
-                                          )}
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        {t('layout.copyAll', {
-                                          defaultValue: 'Copy conversation'
-                                        })}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                                          onClick={() => void handleExportImage()}
-                                          disabled={exporting || isStreaming}
-                                        >
-                                          {exporting ? (
-                                            <Loader2 className="size-4 animate-spin" />
-                                          ) : (
-                                            <ImageDown className="size-4" />
-                                          )}
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        {t('layout.exportImage', {
-                                          defaultValue: 'Copy as image'
-                                        })}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </>
-                                ) : null}
-
-                                <div className="mx-0.5 h-4 w-px bg-border/60" />
-
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                                    >
-                                      <MoreHorizontal className="size-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end" className="w-48">
-                                    {hasProjectFolderAction ? (
-                                      <DropdownMenuItem
-                                        onClick={() => void handleOpenWorkingFolder()}
-                                      >
-                                        <ExternalLink className="size-4" />
-                                        {t('layout.openFolder', {
-                                          defaultValue: 'Open folder'
-                                        })}
-                                      </DropdownMenuItem>
-                                    ) : null}
-                                    <DropdownMenuItem
-                                      onClick={handleCopyAll}
-                                      disabled={isStreaming || !hasTranscriptActions}
-                                    >
-                                      {copiedAll ? (
-                                        <Check className="size-4" />
-                                      ) : (
-                                        <ClipboardCopy className="size-4" />
-                                      )}
-                                      {t('layout.copyAll', { defaultValue: 'Copy conversation' })}
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() => void handleExportImage()}
-                                      disabled={exporting || isStreaming || !hasTranscriptActions}
-                                    >
-                                      {exporting ? (
-                                        <Loader2 className="size-4 animate-spin" />
-                                      ) : (
-                                        <ImageDown className="size-4" />
-                                      )}
-                                      {t('layout.exportImage', {
-                                        defaultValue: 'Copy as image'
-                                      })}
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                        {/*
-                            Session boundary wrapper: a keyed div ensures that switching
-                            the active session unmounts the ENTIRE subtree (MessageList +
-                            InputArea) and remounts a fresh one. Keys directly on sibling
-                            components weren't reliably triggering unmount inside this
-                            AnimatePresence + motion.div tree; wrapping them under a
-                            single keyed container forces React's reconciliation to
-                            treat the whole subtree as a new element when the session
-                            changes, which prevents stale refs, zombie VList instances,
-                            and any stacked DOM carried over from the previous session.
-                          */}
-                        <div
-                          key={activeSessionId ?? 'empty'}
-                          className="flex min-h-0 flex-1 flex-col"
-                        >
-                          <MessageList
-                            onRetry={retryLastMessage}
-                            onContinue={continueLastToolExecution}
-                            onEditUserMessage={editAndResend}
-                            onDeleteMessage={deleteMessage}
-                            exportAll={exportRendering}
-                          />
-                          <InputArea
-                            onSend={(text, images, options) =>
-                              void sendMessage(
-                                text,
-                                images,
-                                undefined,
-                                undefined,
-                                undefined,
-                                undefined,
-                                {
-                                  ...options,
-                                  clearCompletedTasksOnTurnStart: true
-                                }
-                              )
-                            }
-                            onStop={stopStreaming}
-                            onSelectFolder={
-                              activeSessionProjectId ? handleOpenFolderDialog : undefined
-                            }
-                            workingFolder={activeWorkingFolder}
-                            hideWorkingFolderIndicator
-                            isStreaming={isStreaming}
-                          />
-                        </div>
-                        {activeSessionProjectId && (
-                          <WorkingFolderSelectorDialog
-                            open={folderDialogOpen}
-                            onOpenChange={setFolderDialogOpen}
-                            workingFolder={activeWorkingFolder}
-                            sshConnectionId={activeSessionView.activeSessionSshConnectionId}
-                            onSelectLocalFolder={(folderPath) =>
-                              updateActiveProjectDirectory({
-                                workingFolder: folderPath,
-                                sshConnectionId: null
-                              })
-                            }
-                            onSelectSshFolder={(folderPath, connectionId) =>
-                              updateActiveProjectDirectory({
-                                workingFolder: folderPath,
-                                sshConnectionId: connectionId
-                              })
-                            }
-                          />
-                        )}
-                      </div>
-
+                      <SessionConversationPane />
                       <RightPanel />
                     </div>
                   </ErrorBoundary>
@@ -1172,89 +744,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
             </DialogTitle>
           </DialogHeader>
           <PreviewPanel embedded />
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={miniSessionWindowOpen}
-        onOpenChange={(open) => {
-          if (!open) closeMiniSessionWindow()
-        }}
-      >
-        <DialogContent
-          showCloseButton={false}
-          className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden p-0"
-          style={{ width: '70vw', maxWidth: '70vw' }}
-        >
-          <DialogHeader className="shrink-0 border-b px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <DialogTitle className="truncate pr-2 text-sm">
-                  {miniWindowSession?.title ?? t('topbar.openSession')}
-                </DialogTitle>
-                <div className="mt-1 max-w-full truncate text-xs text-muted-foreground">
-                  {miniWindowSession?.workingFolder || miniWindowSession?.mode || ''}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {miniSessionWindowSessionId && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-1.5"
-                    onClick={() => {
-                      useChatStore.getState().setActiveSession(miniSessionWindowSessionId)
-                      useUIStore.getState().navigateToSession()
-                      closeMiniSessionWindow()
-                    }}
-                  >
-                    <Minimize2 className="size-3.5" />
-                    {t('topbar.openSession')}
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => closeMiniSessionWindow()}
-                >
-                  <X className="size-4" />
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
-          {miniSessionWindowSessionId && (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-gradient-to-b from-background to-muted/20">
-              <MessageList
-                sessionId={miniSessionWindowSessionId}
-                onRetry={retryLastMessage}
-                onContinue={continueLastToolExecution}
-                onEditUserMessage={editAndResend}
-                onDeleteMessage={deleteMessage}
-              />
-              <InputArea
-                sessionId={miniSessionWindowSessionId}
-                onSend={(text, images, options) =>
-                  void sendMessage(
-                    text,
-                    images,
-                    undefined,
-                    miniSessionWindowSessionId,
-                    undefined,
-                    undefined,
-                    options
-                  )
-                }
-                onStop={stopStreaming}
-                workingFolder={miniWindowSession?.workingFolder}
-                hideWorkingFolderIndicator
-                isStreaming={Boolean(
-                  miniSessionWindowSessionId &&
-                  useChatStore.getState().streamingMessages[miniSessionWindowSessionId]
-                )}
-              />
-            </div>
-          )}
         </DialogContent>
       </Dialog>
 

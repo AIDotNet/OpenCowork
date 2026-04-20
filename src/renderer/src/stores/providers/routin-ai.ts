@@ -4,7 +4,7 @@ export const routinAiPreset: BuiltinProviderPreset = {
   builtinId: 'routin-ai',
   name: 'Routin AI',
   type: 'openai-chat',
-  defaultBaseUrl: 'https://cn.routin.ai/v1',
+  defaultBaseUrl: 'https://api.routin.ai/v1',
   homepage: 'https://routin.ai',
   apiKeyUrl: 'https://routin.ai/dashboard/api-keys',
   defaultEnabled: true,
@@ -656,7 +656,7 @@ export const routinAiPreset: BuiltinProviderPreset = {
       icon: 'openai',
       enabled: true,
       serviceTier: 'priority',
-      contextLength: 1_050_000,
+      contextLength: 268_000,
       maxOutputTokens: 128_000,
       supportsVision: true,
       supportsFunctionCall: false,
@@ -1041,6 +1041,26 @@ export const routinAiPreset: BuiltinProviderPreset = {
       }
     },
     {
+      id: 'claude-opus-4-7',
+      name: 'Claude Opus 4.7',
+      icon: 'claude',
+      type: 'anthropic',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 64_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 5,
+      outputPrice: 25,
+      cacheCreationPrice: 6.25,
+      cacheHitPrice: 0.5,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled', budget_tokens: 10000 } },
+        forceTemperature: 1
+      }
+    },
+    {
       id: 'claude-sonnet-4-6',
       name: 'Claude Sonnet 4.6',
       icon: 'claude',
@@ -1289,7 +1309,7 @@ export const routinAiPreset: BuiltinProviderPreset = {
   ]
 }
 
-/** Model IDs for Routin 套餐（https://cn.routin.ai/plan/v1）：Codex 全系、GPT-5.4 系、Claude 全系 */
+/** Model IDs for Routin 套餐（https://api.routin.ai/plan/v1）：Codex 全系、GPT-5.4 系、Claude 全系 */
 const ROUTIN_AI_PLAN_MODEL_ORDER = [
   'gpt-5-codex',
   'gpt-5.1-codex',
@@ -1316,7 +1336,7 @@ export const routinAiPlanPreset: BuiltinProviderPreset = {
   builtinId: 'routin-ai-plan',
   name: 'Routin AI（套餐）',
   type: 'openai-chat',
-  defaultBaseUrl: 'https://cn.routin.ai/plan/v1',
+  defaultBaseUrl: 'https://api.routin.ai/plan/v1',
   homepage: 'https://routin.ai',
   apiKeyUrl: 'https://routin.ai/dashboard/api-keys',
   defaultEnabled: true,

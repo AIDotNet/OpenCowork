@@ -217,11 +217,19 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
   const hasStreamingMessage = useChatStore((s) =>
     activeSessionId ? Boolean(s.streamingMessages[activeSessionId]) : false
   )
-  const { activeSubAgents, completedSubAgents, subAgentHistory } = useAgentStore(
+  const {
+    activeSubAgents,
+    completedSubAgents,
+    subAgentHistory,
+    pendingToolCalls,
+    executedToolCalls
+  } = useAgentStore(
     useShallow((s) => ({
       activeSubAgents: s.activeSubAgents,
       completedSubAgents: s.completedSubAgents,
-      subAgentHistory: s.subAgentHistory
+      subAgentHistory: s.subAgentHistory,
+      pendingToolCalls: s.pendingToolCalls,
+      executedToolCalls: s.executedToolCalls
     }))
   )
   const { activeTeam, teamHistory } = useTeamStore(
@@ -229,7 +237,18 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
   )
   const isSessionRunning =
     useAgentStore((s) => s.isSessionActive(activeSessionId)) || hasStreamingMessage
-  const canSessionTriggerStreamingAutoScroll = isMainChatSession && isSessionRunning
+  const hasActiveToolCallOutput = React.useMemo(
+    () =>
+      [...pendingToolCalls, ...executedToolCalls].some((toolCall) => {
+        if (toolCall.sessionId && activeSessionId && toolCall.sessionId !== activeSessionId) {
+          return false
+        }
+        return toolCall.status === 'running' || toolCall.status === 'streaming'
+      }),
+    [activeSessionId, executedToolCalls, pendingToolCalls]
+  )
+  const isSessionOutputting = hasStreamingMessage || hasActiveToolCallOutput
+  const canSessionTriggerStreamingAutoScroll = isMainChatSession && isSessionOutputting
 
   const orchestrationMessageBindingSignature = React.useMemo(
     () => buildOrchestrationMessageBindingSignature(messages),
@@ -260,7 +279,7 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
   const isAutoLoadingOlderRef = React.useRef(false)
   const lastScrollOffsetRef = React.useRef(0)
   const programmaticScrollUntilRef = React.useRef(0)
-  const wasSessionRunningRef = React.useRef(isSessionRunning)
+  const wasSessionOutputtingRef = React.useRef(isSessionOutputting)
   const [isAtBottom, setIsAtBottom] = React.useState(true)
 
   const messageLookup = React.useMemo(() => getMessageLookup(messages), [messages])
@@ -375,7 +394,7 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
     if (!ref) return
 
     const distanceToBottom = getDistanceToBottom(ref)
-    const threshold = isSessionRunning
+    const threshold = isSessionOutputting
       ? STREAMING_AUTO_SCROLL_BOTTOM_THRESHOLD
       : AUTO_SCROLL_BOTTOM_THRESHOLD
     const nextAtBottom = distanceToBottom <= threshold
@@ -392,12 +411,12 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
       !isProgrammaticScroll
     ) {
       autoScrollModeRef.current = 'off'
-    } else if (nextAtBottom && isSessionRunning && autoScrollModeRef.current === 'off') {
+    } else if (nextAtBottom && isSessionOutputting && autoScrollModeRef.current === 'off') {
       autoScrollModeRef.current = 'stream'
     }
 
     setIsAtBottom((prev) => (prev === nextAtBottom ? prev : nextAtBottom))
-  }, [isSessionRunning])
+  }, [isSessionOutputting])
 
   const requestScrollToBottom = React.useCallback(
     ({
@@ -491,7 +510,7 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
     void useChatStore.getState().loadRecentSessionMessages(activeSessionId, false, estimatedLimit)
   }, [activeSessionId])
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     pendingInitialScrollSessionIdRef.current = activeSessionId
     preserveScrollOnPrependRef.current = null
     lastScrollOffsetRef.current = 0
@@ -503,7 +522,7 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
     if (pendingInitialScrollSessionIdRef.current !== activeSessionId) return
     if (!(messages.length > 0 || streamingMessageId)) return
 
-    if (isSessionRunning) {
+    if (isSessionOutputting) {
       autoScrollModeRef.current = 'stream'
       requestScrollToBottom({ force: true, maxFrames: INITIAL_SCROLL_SETTLE_FRAMES })
     } else {
@@ -513,7 +532,7 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
     pendingInitialScrollSessionIdRef.current = null
   }, [
     activeSessionId,
-    isSessionRunning,
+    isSessionOutputting,
     messages.length,
     requestScrollToBottom,
     streamingMessageId
@@ -555,14 +574,18 @@ export function MessageList(props: MessageListProps): React.JSX.Element {
   }, [markProgrammaticScroll, rows.length, syncBottomState])
 
   React.useEffect(() => {
-    const wasRunning = wasSessionRunningRef.current
-    if (!wasRunning && isSessionRunning && isAtBottom) {
+    const wasOutputting = wasSessionOutputtingRef.current
+    if (!wasOutputting && isSessionOutputting && isAtBottom) {
       autoScrollModeRef.current = 'stream'
-    } else if (wasRunning && !isSessionRunning && autoScrollModeRef.current === 'stream') {
+    } else if (
+      wasOutputting &&
+      !isSessionOutputting &&
+      autoScrollModeRef.current === 'stream'
+    ) {
       autoScrollModeRef.current = 'off'
     }
-    wasSessionRunningRef.current = isSessionRunning
-  }, [isAtBottom, isSessionRunning])
+    wasSessionOutputtingRef.current = isSessionOutputting
+  }, [isAtBottom, isSessionOutputting])
 
   React.useEffect(() => {
     if (!canAutoScroll()) return

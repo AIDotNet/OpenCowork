@@ -3,7 +3,6 @@ import { immer } from 'zustand/middleware/immer'
 import { nanoid } from 'nanoid'
 import { ipcClient } from '../lib/ipc/ipc-client'
 import { useChatStore } from './chat-store'
-import { useUIStore } from './ui-store'
 
 // --- Types ---
 
@@ -100,11 +99,6 @@ function releaseDormantPlanMemory(
   }
   if (sessionId) {
     residentSessionIds.add(sessionId)
-  }
-
-  const uiState = useUIStore.getState()
-  if (uiState.miniSessionWindowOpen && uiState.miniSessionWindowSessionId) {
-    residentSessionIds.add(uiState.miniSessionWindowSessionId)
   }
 
   const activePlanSessionId = state.activePlanId

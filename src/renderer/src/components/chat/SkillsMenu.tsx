@@ -25,7 +25,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { useSkillsStore } from '@renderer/stores/skills-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { useMcpStore } from '@renderer/stores/mcp-store'
@@ -120,24 +119,19 @@ export function SkillsMenu({
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex">
-            <DropdownMenuTrigger asChild>
-              <Button
-                data-tour="composer-plus"
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0 rounded-lg"
-                disabled={disabled}
-              >
-                <Plus className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>{t('skills.addActions')}</TooltipContent>
-      </Tooltip>
+      <DropdownMenuTrigger asChild>
+        <Button
+          data-tour="composer-plus"
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 rounded-lg"
+          disabled={disabled}
+          aria-label={t('skills.addActions')}
+          title={t('skills.addActions')}
+        >
+          <Plus className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="w-56">
         <DropdownMenuLabel>{t('skills.addToChat')}</DropdownMenuLabel>

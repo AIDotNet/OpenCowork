@@ -484,23 +484,45 @@ public static class AgentLoop
             {
                 // Parallel execution with semaphore for concurrency limit
                 var semaphore = new SemaphoreSlim(config.MaxParallelTools);
+                var completionChannel = Channel.CreateUnbounded<int>();
 
                 var tasks = toolCalls.Select(async (tc, index) =>
                 {
                     await semaphore.WaitAsync(ct);
                     try
                     {
-                        var result = await ExecuteToolWithApproval(
-                            tc, config, onApproval, ct);
-                        toolResults[index] = result;
+                        try
+                        {
+                            var result = await ExecuteToolWithApproval(
+                                tc, config, onApproval, ct);
+                            toolResults[index] = result;
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            tc.Status = ToolCallStatus.Error;
+                            tc.Error = $"Tool execution error: {ex.Message}";
+                            tc.CompletedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                            toolResults[index] = new ToolResultBlock
+                            {
+                                ToolUseId = tc.Id,
+                                Content = tc.Error,
+                                IsError = true
+                            };
+                        }
                     }
                     finally
                     {
                         semaphore.Release();
+                        completionChannel.Writer.TryWrite(index);
                     }
                 }).ToArray();
 
-                // Yield individual tool events as they complete
+                // Yield start events immediately so the UI can reflect active work,
+                // then stream completion events as each tool settles.
                 foreach (var tc in toolCalls)
                 {
                     tc.Status = ToolCallStatus.Running;
@@ -509,6 +531,39 @@ public static class AgentLoop
                         ToolCallId = tc.Id,
                         ToolName = tc.Name,
                         ToolCall = CloneToolCallState(tc)
+                    };
+                }
+
+                var remainingResults = toolCalls.Count;
+                while (remainingResults > 0)
+                {
+                    var abortedWhileWaitingForResult = false;
+                    int completedIndex;
+                    try
+                    {
+                        completedIndex = await completionChannel.Reader.ReadAsync(ct);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        completedIndex = -1;
+                        abortedWhileWaitingForResult = true;
+                    }
+
+                    if (abortedWhileWaitingForResult)
+                    {
+                        yield return BuildLoopEndEvent("aborted");
+                        yield break;
+                    }
+
+                    remainingResults--;
+                    var resultBlock = toolResults[completedIndex] as ToolResultBlock;
+                    yield return new ToolCallResultEvent
+                    {
+                        ToolCallId = toolCalls[completedIndex].Id,
+                        ToolName = toolCalls[completedIndex].Name,
+                        Result = resultBlock?.GetTextContent(),
+                        IsError = resultBlock?.IsError == true,
+                        ToolCall = CloneToolCallState(toolCalls[completedIndex])
                     };
                 }
 
@@ -532,18 +587,21 @@ public static class AgentLoop
                 }
             }
 
-            // Yield tool results
-            for (var i = 0; i < toolCalls.Count; i++)
+            // Sequential mode has not emitted completion events yet.
+            if (!(config.EnableParallelToolExecution && toolCalls.Count > 1))
             {
-                var resultBlock = toolResults[i] as ToolResultBlock;
-                yield return new ToolCallResultEvent
+                for (var i = 0; i < toolCalls.Count; i++)
                 {
-                    ToolCallId = toolCalls[i].Id,
-                    ToolName = toolCalls[i].Name,
-                    Result = resultBlock?.GetTextContent(),
-                    IsError = resultBlock?.IsError == true,
-                    ToolCall = CloneToolCallState(toolCalls[i])
-                };
+                    var resultBlock = toolResults[i] as ToolResultBlock;
+                    yield return new ToolCallResultEvent
+                    {
+                        ToolCallId = toolCalls[i].Id,
+                        ToolName = toolCalls[i].Name,
+                        Result = resultBlock?.GetTextContent(),
+                        IsError = resultBlock?.IsError == true,
+                        ToolCall = CloneToolCallState(toolCalls[i])
+                    };
+                }
             }
 
             // --- Append tool results as user message ---
@@ -636,38 +694,38 @@ public static class AgentLoop
             ReadFileHistory = config.ToolContext.ReadFileHistory
         };
 
-        // Check if approval is needed
-        var rendererApproval = false;
-        if (toolContext.RendererToolRequiresApprovalAsync is not null)
-        {
-            rendererApproval = await toolContext.RendererToolRequiresApprovalAsync(tc.Name, tc.Input, toolContext, ct);
-        }
-
-        var requiresApproval = config.ForceApproval ||
-            rendererApproval ||
-            config.ToolRegistry.CheckRequiresApproval(tc.Name, tc.Input, toolContext);
-
-        if (requiresApproval && onApproval is not null)
-        {
-            tc.Status = ToolCallStatus.PendingApproval;
-            var approved = await onApproval(tc);
-            if (!approved)
-            {
-                tc.Status = ToolCallStatus.Error;
-                tc.Error = "User denied permission to execute this tool.";
-                tc.CompletedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                return new ToolResultBlock
-                {
-                    ToolUseId = tc.Id,
-                    Content = tc.Error,
-                    IsError = true
-                };
-            }
-        }
-
-        tc.Status = ToolCallStatus.Running;
         try
         {
+            // Check if approval is needed
+            var rendererApproval = false;
+            if (toolContext.RendererToolRequiresApprovalAsync is not null)
+            {
+                rendererApproval = await toolContext.RendererToolRequiresApprovalAsync(tc.Name, tc.Input, toolContext, ct);
+            }
+
+            var requiresApproval = config.ForceApproval ||
+                rendererApproval ||
+                config.ToolRegistry.CheckRequiresApproval(tc.Name, tc.Input, toolContext);
+
+            if (requiresApproval && onApproval is not null)
+            {
+                tc.Status = ToolCallStatus.PendingApproval;
+                var approved = await onApproval(tc);
+                if (!approved)
+                {
+                    tc.Status = ToolCallStatus.Error;
+                    tc.Error = "User denied permission to execute this tool.";
+                    tc.CompletedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    return new ToolResultBlock
+                    {
+                        ToolUseId = tc.Id,
+                        Content = tc.Error,
+                        IsError = true
+                    };
+                }
+            }
+
+            tc.Status = ToolCallStatus.Running;
             var result = await config.ToolRegistry.Execute(
                 tc.Name, tc.Input, toolContext, ct);
 

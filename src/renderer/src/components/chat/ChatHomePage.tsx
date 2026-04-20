@@ -134,7 +134,7 @@ export function ChatHomePage(): React.JSX.Element {
                 {description}
               </p>
 
-              {activeProject ? (
+              {mode !== 'chat' && activeProject ? (
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <span className="truncate text-foreground/88">{activeProject.name}</span>
                   {workingFolder ? (

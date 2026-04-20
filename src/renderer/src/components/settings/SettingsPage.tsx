@@ -1063,6 +1063,27 @@ function GeneralPanel(): React.JSX.Element {
 
       <Separator />
 
+      {/* Built-in Browser */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between max-w-lg">
+          <div>
+            <label className="text-sm font-medium">{t('general.builtinBrowser')}</label>
+            <p className="text-xs text-muted-foreground">{t('general.builtinBrowserDesc')}</p>
+          </div>
+          <Switch
+            checked={settings.builtinBrowserEnabled}
+            onCheckedChange={(checked) =>
+              settings.updateSettings({ builtinBrowserEnabled: checked })
+            }
+          />
+        </div>
+        {settings.builtinBrowserEnabled && (
+          <p className="text-xs text-muted-foreground/70">{t('general.builtinBrowserEnabled')}</p>
+        )}
+      </section>
+
+      <Separator />
+
       {/* Tool Parallelism */}
       <section className="space-y-3">
         <div className="flex items-center justify-between max-w-lg">

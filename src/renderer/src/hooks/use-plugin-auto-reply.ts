@@ -1006,10 +1006,11 @@ export function initPluginAutoReplyListener(): void {
  * Hook: mounts the plugin auto-reply listener once.
  * Call from App.tsx.
  */
-export function usePluginAutoReply(): void {
+export function usePluginAutoReply(enabled = true): void {
   useEffect(() => {
+    if (!enabled) return
     initPluginAutoReplyListener()
-  }, [])
+  }, [enabled])
 }
 
 // ── Helper Functions ──

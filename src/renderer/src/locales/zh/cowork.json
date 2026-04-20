@@ -126,6 +126,8 @@
     "rejectPlaceholder": "请输入修改建议...",
     "rejectConfirm": "驳回计划",
     "rejectedHint": "计划已被驳回，请提供反馈以便修订。",
+    "runningInSession": "该计划正在会话“{{title}}”中执行。",
+    "openExecutionSession": "打开执行会话",
     "edit": "编辑计划",
     "drafting": "计划正在生成中...",
     "noPlan": "该会话暂无计划",

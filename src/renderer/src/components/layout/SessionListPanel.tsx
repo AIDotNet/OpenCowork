@@ -23,7 +23,8 @@ import {
   FolderOpen,
   FolderPlus,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  ExternalLink
 } from 'lucide-react'
 import { DynamicIcon } from 'lucide-react/dynamic'
 import {
@@ -75,6 +76,10 @@ import {
   subscribePendingSessionMessages
 } from '@renderer/hooks/use-chat-actions'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
+import {
+  openDetachedSessionWindow,
+  openSessionOrFocusDetached
+} from '@renderer/lib/session-window'
 import { cn } from '@renderer/lib/utils'
 import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
 import { createProvider } from '@renderer/lib/api/provider'
@@ -968,8 +973,7 @@ export function SessionListPanel(): React.JSX.Element {
               : 'text-foreground/80 hover:bg-muted/60'
           )}
           onClick={() => {
-            setActiveSession(session.id)
-            useUIStore.getState().navigateToSession()
+            void openSessionOrFocusDetached(session.id)
           }}
           onDoubleClick={(e) => {
             e.preventDefault()
@@ -1101,6 +1105,11 @@ export function SessionListPanel(): React.JSX.Element {
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
+        <ContextMenuItem onClick={() => void openDetachedSessionWindow(session.id)}>
+          <ExternalLink className="size-4" />
+          {t('sidebar.openInNewWindow', { defaultValue: 'Open in new window' })}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem
           onClick={() => {
             togglePinSession(session.id)

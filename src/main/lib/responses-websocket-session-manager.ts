@@ -3,6 +3,8 @@ import { HttpsProxyAgent } from 'https-proxy-agent'
 import { readSettings } from '../ipc/settings-handlers'
 import {
   RESPONSES_WEBSOCKET_CONNECTION_MAX_AGE_MS,
+  RESPONSES_WEBSOCKET_CONNECTION_MAX_IDLE_MS,
+  RESPONSES_WEBSOCKET_CONNECTION_MAX_REQUESTS,
   buildResponsesWebsocketCreatePayload,
   buildResponsesWebsocketHeaders,
   extractResponsesWebsocketCompletionState,
@@ -33,6 +35,7 @@ interface ResponsesWsConnection {
   ready: Promise<void>
   closed: boolean
   createdAt: number
+  completedRequests: number
 }
 
 interface ResponsesWsSessionState {
@@ -378,27 +381,56 @@ export class ResponsesWebSocketSessionManager {
     }
 
     const existing = session.connection
+    const connectionMaxAgeMs = readTimeoutFromEnv(
+      'OPENCOWORK_RESPONSES_WS_CONNECTION_MAX_AGE_MS',
+      RESPONSES_WEBSOCKET_CONNECTION_MAX_AGE_MS
+    )
+    const connectionMaxIdleMs = readTimeoutFromEnv(
+      'OPENCOWORK_RESPONSES_WS_CONNECTION_MAX_IDLE_MS',
+      RESPONSES_WEBSOCKET_CONNECTION_MAX_IDLE_MS
+    )
+    const connectionMaxRequests = readPositiveIntFromEnv(
+      'OPENCOWORK_RESPONSES_WS_CONNECTION_MAX_REQUESTS',
+      RESPONSES_WEBSOCKET_CONNECTION_MAX_REQUESTS
+    )
     const connectionExpired =
       existing != null &&
-      Date.now() - existing.createdAt >= RESPONSES_WEBSOCKET_CONNECTION_MAX_AGE_MS
+      connectionMaxAgeMs > 0 &&
+      Date.now() - existing.createdAt >= connectionMaxAgeMs
+    const connectionIdleExpired =
+      existing != null &&
+      connectionMaxIdleMs > 0 &&
+      session.lastUsedAt != null &&
+      Date.now() - session.lastUsedAt >= connectionMaxIdleMs
+    const connectionRequestLimitReached =
+      existing != null &&
+      connectionMaxRequests > 0 &&
+      existing.completedRequests >= connectionMaxRequests
 
     if (
       options.forceFresh ||
       !existing ||
       existing.closed ||
       existing.ws.readyState !== WebSocket.OPEN ||
-      connectionExpired
+      connectionExpired ||
+      connectionIdleExpired ||
+      connectionRequestLimitReached
     ) {
       if (existing) {
+        const closeReason = connectionExpired
+          ? 'connection_expired'
+          : connectionIdleExpired
+            ? 'connection_idle_expired'
+            : connectionRequestLimitReached
+              ? 'connection_request_limit_reached'
+              : options.forceFresh
+                ? 'force_fresh'
+                : 'connection_reset'
         this.emitLifecycle(args, {
           phase: 'close',
           key: session.key,
           websocketUrl: args.websocketUrl,
-          reason: connectionExpired
-            ? 'connection_expired'
-            : options.forceFresh
-              ? 'force_fresh'
-              : 'connection_reset'
+          reason: closeReason
         })
         this.closeConnection(existing)
       }
@@ -735,6 +767,7 @@ export class ResponsesWebSocketSessionManager {
           session.lastCompletedResponseId = completionState.responseId ?? null
           session.lastResponseOutputItems = completionState.outputItems
           session.lastUsedAt = Date.now()
+          connection.completedRequests += 1
         }
 
         if (!isWarmup) {
@@ -939,7 +972,8 @@ export class ResponsesWebSocketSessionManager {
         rejectReady = reject
       }),
       closed: false,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      completedRequests: 0
     }
 
     ws.once('open', () => {
@@ -1099,5 +1133,13 @@ function readTimeoutFromEnv(name: string, fallbackMs: number): number {
   if (raw == null || raw === '') return fallbackMs
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed < 0) return fallbackMs
+  return Math.floor(parsed)
+}
+
+function readPositiveIntFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw == null || raw === '') return fallback
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback
   return Math.floor(parsed)
 }

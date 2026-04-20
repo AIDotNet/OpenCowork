@@ -137,6 +137,13 @@ export function resolveToolPath(inputPath: unknown, workingFolder?: string): str
   return raw
 }
 
+function getFileToolInputPath(input: Record<string, unknown>): string {
+  const filePath = typeof input.file_path === 'string' ? input.file_path.trim() : ''
+  if (filePath) return filePath
+  const path = typeof input.path === 'string' ? input.path.trim() : ''
+  return path
+}
+
 function estimatePromptBytes(value: unknown): number {
   return textEncoder.encode(JSON.stringify(value)).length
 }
@@ -253,7 +260,11 @@ const readHandler: ToolHandler = {
     }
   },
   execute: async (input, ctx) => {
-    const resolvedPath = resolveToolPath(input.file_path, ctx.workingFolder)
+    const inputPath = getFileToolInputPath(input)
+    if (!inputPath) {
+      throw new Error('Read requires a non-empty "file_path" string')
+    }
+    const resolvedPath = resolveToolPath(inputPath, ctx.workingFolder)
     if (isSsh(ctx)) {
       const result = await ctx.ipc.invoke(
         IPC.SSH_FS_READ_FILE,
@@ -292,8 +303,10 @@ const readHandler: ToolHandler = {
     return String(result)
   },
   requiresApproval: (input, ctx) => {
+    const inputPath = getFileToolInputPath(input)
+    if (!inputPath) return false
     if (ctx.channelPermissions) {
-      const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
+      const filePath = resolveToolPath(inputPath, ctx.workingFolder)
       return !isPluginPathAllowed(filePath, ctx, 'read')
     }
     return false
@@ -318,14 +331,15 @@ const writeHandler: ToolHandler = {
     }
   },
   execute: async (input, ctx) => {
-    if (typeof input.file_path !== 'string' || input.file_path.trim().length === 0) {
+    const inputPath = getFileToolInputPath(input)
+    if (!inputPath) {
       throw new Error('Write requires a non-empty "file_path" string')
     }
     if (typeof input.content !== 'string') {
       throw new Error('Write requires a "content" string')
     }
 
-    const resolvedPath = resolveToolPath(input.file_path, ctx.workingFolder)
+    const resolvedPath = resolveToolPath(inputPath, ctx.workingFolder)
 
     if (isSsh(ctx)) {
       const result = await ctx.ipc.invoke(
@@ -358,7 +372,9 @@ const writeHandler: ToolHandler = {
     })
   },
   requiresApproval: (input, ctx) => {
-    const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
+    const inputPath = getFileToolInputPath(input)
+    if (!inputPath) return false
+    const filePath = resolveToolPath(inputPath, ctx.workingFolder)
     if (ctx.channelPermissions) {
       return !isPluginPathAllowed(filePath, ctx, 'write')
     }
@@ -396,7 +412,11 @@ const editHandler: ToolHandler = {
     }
   },
   execute: async (input, ctx) => {
-    const resolvedPath = resolveToolPath(input.file_path, ctx.workingFolder)
+    const inputPath = getFileToolInputPath(input)
+    if (!inputPath) {
+      return encodeToolError('Edit requires a non-empty "file_path" string')
+    }
+    const resolvedPath = resolveToolPath(inputPath, ctx.workingFolder)
     const oldStr = String(input.old_string ?? '')
     const newStr = String(input.new_string ?? '')
     const replaceAll = Boolean(input.replace_all)
@@ -462,7 +482,9 @@ const editHandler: ToolHandler = {
   },
   requiresApproval: (input, ctx) => {
     if (isSsh(ctx)) return false
-    const filePath = resolveToolPath(input.file_path, ctx.workingFolder)
+    const inputPath = getFileToolInputPath(input)
+    if (!inputPath) return false
+    const filePath = resolveToolPath(inputPath, ctx.workingFolder)
     if (ctx.channelPermissions) {
       return !isPluginPathAllowed(filePath, ctx, 'write')
     }

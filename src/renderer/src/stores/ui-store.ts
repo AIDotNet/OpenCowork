@@ -5,7 +5,6 @@ import {
 } from '@renderer/components/layout/right-panel-defs'
 import { parseChatRoute, replaceChatRoute } from '@renderer/lib/chat-route'
 import { useChatStore } from '@renderer/stores/chat-store'
-import { invalidateVisibleSessionCache } from '@renderer/lib/agent/session-runtime-router'
 
 export type AppMode = 'chat' | 'clarify' | 'cowork' | 'code' | 'acp'
 
@@ -21,6 +20,7 @@ export type RightPanelTab =
   | 'files'
   | 'plan'
   | 'preview'
+  | 'browser'
   | 'terminal'
   | 'subagents'
   | 'team'
@@ -113,11 +113,7 @@ export type DetailPanelContent =
 
 interface UIStore {
   mode: AppMode
-  miniSessionWindowSessionId: string | null
-  miniSessionWindowOpen: boolean
   setMode: (mode: AppMode) => void
-  openMiniSessionWindow: (sessionId: string) => void
-  closeMiniSessionWindow: () => void
   activeNavItem: NavItem
   setActiveNavItem: (item: NavItem) => void
   leftSidebarOpen: boolean
@@ -214,6 +210,9 @@ interface UIStore {
   openOrchestrationMember: (runId: string, memberId?: string | null) => void
   closeOrchestrationPanel: () => void
   openSubAgentsPanel: (toolUseId?: string | null) => void
+  browserUrl: string
+  setBrowserUrl: (url: string) => void
+  openBrowserTab: (url?: string) => void
   subAgentExecutionDetailOpen: boolean
   subAgentExecutionDetailToolUseId: string | null
   subAgentExecutionDetailInlineText: string | null
@@ -282,17 +281,7 @@ function buildFilePreviewState(
 
 export const useUIStore = create<UIStore>((set, get) => ({
   mode: 'cowork',
-  miniSessionWindowSessionId: null,
-  miniSessionWindowOpen: false,
   setMode: (mode) => set({ mode }),
-  openMiniSessionWindow: (sessionId) => {
-    invalidateVisibleSessionCache()
-    return set({ miniSessionWindowSessionId: sessionId, miniSessionWindowOpen: true })
-  },
-  closeMiniSessionWindow: () => {
-    invalidateVisibleSessionCache()
-    return set({ miniSessionWindowSessionId: null, miniSessionWindowOpen: false })
-  },
   activeNavItem: 'chat',
   setActiveNavItem: (item) =>
     set({ activeNavItem: item, leftSidebarOpen: true, rightPanelOpen: false }),
@@ -543,6 +532,14 @@ export const useUIStore = create<UIStore>((set, get) => ({
       rightPanelSection: 'collaboration',
       orchestrationConsoleOpen: false,
       rightPanelOpen: true
+    }),
+  browserUrl: '',
+  setBrowserUrl: (url) => set({ browserUrl: url }),
+  openBrowserTab: (url) =>
+    set({
+      rightPanelTab: 'browser',
+      rightPanelOpen: true,
+      ...(url !== undefined ? { browserUrl: url } : {})
     }),
   subAgentExecutionDetailOpen: false,
   subAgentExecutionDetailToolUseId: null,

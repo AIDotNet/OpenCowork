@@ -137,6 +137,8 @@
     "awaitingReviewRequired": "This plan is no longer awaiting review.",
     "executeFailed": "Failed to start plan execution.",
     "missingPlanFile": "The approved plan file is missing.",
+    "runningInSession": "This plan is running in session \"{{title}}\".",
+    "openExecutionSession": "Open Execution Session",
     "edit": "Edit Plan",
     "drafting": "Plan is being drafted...",
     "noPlan": "No plan for this session",

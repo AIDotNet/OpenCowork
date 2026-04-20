@@ -27,32 +27,16 @@ export interface ActiveTeam {
 
 interface TeamStore {
   activeTeam: ActiveTeam | null
-  /** Historical teams — persisted after team_end */
+  /** Historical teams - persisted after team_end */
   teamHistory: ActiveTeam[]
 
-  // Actions
-  createTeam: (name: string, description: string) => void
-  deleteTeam: () => void
-
-  addMember: (member: TeamMember) => void
-  updateMember: (id: string, patch: Partial<TeamMember>) => void
-  removeMember: (id: string) => void
-
-  addTask: (task: TeamTask) => void
-  updateTask: (id: string, patch: Partial<TeamTask>) => void
-
-  addMessage: (msg: TeamMessage) => void
-
-  /** Unified event handler — called from use-chat-actions subscription */
+  /** Unified event handler - called from use-chat-actions subscription */
   handleTeamEvent: (event: TeamEvent, sessionId?: string) => void
   syncRuntimeSnapshot: (snapshot: TeamRuntimeSnapshot, sessionId?: string) => void
   updateTeamMeta: (patch: Partial<Pick<ActiveTeam, 'permissionMode' | 'teamAllowedPaths'>>) => void
 
   /** Remove all team data that belongs to the given session */
   clearSessionTeam: (sessionId: string) => void
-
-  /** Wipe all team data: active team + history */
-  clearAll: () => void
 }
 
 export const useTeamStore = create<TeamStore>()(
@@ -60,63 +44,6 @@ export const useTeamStore = create<TeamStore>()(
     immer((set) => ({
       activeTeam: null,
       teamHistory: [],
-
-      createTeam: (name, description) =>
-        set({
-          activeTeam: {
-            name,
-            description,
-            members: [],
-            tasks: [],
-            messages: [],
-            createdAt: Date.now(),
-            teamAllowedPaths: []
-          }
-        }),
-
-      deleteTeam: () => set({ activeTeam: null }),
-
-      addMember: (member) => {
-        set((state) => {
-          if (state.activeTeam) state.activeTeam.members.push(member)
-        })
-      },
-
-      updateMember: (id, patch) => {
-        set((state) => {
-          if (!state.activeTeam) return
-          const member = state.activeTeam.members.find((m) => m.id === id)
-          if (member) Object.assign(member, patch)
-        })
-      },
-
-      removeMember: (id) => {
-        set((state) => {
-          if (!state.activeTeam) return
-          const idx = state.activeTeam.members.findIndex((m) => m.id === id)
-          if (idx !== -1) state.activeTeam.members.splice(idx, 1)
-        })
-      },
-
-      addTask: (task) => {
-        set((state) => {
-          if (state.activeTeam) state.activeTeam.tasks.push(task)
-        })
-      },
-
-      updateTask: (id, patch) => {
-        set((state) => {
-          if (!state.activeTeam) return
-          const task = state.activeTeam.tasks.find((t) => t.id === id)
-          if (task) Object.assign(task, patch)
-        })
-      },
-
-      addMessage: (msg) => {
-        set((state) => {
-          if (state.activeTeam) state.activeTeam.messages.push(msg)
-        })
-      },
 
       handleTeamEvent: (event, sessionId) => {
         set((state) => {
@@ -241,7 +168,7 @@ export const useTeamStore = create<TeamStore>()(
                 owner: task.owner,
                 dependsOn: [...task.dependsOn],
                 ...(task.activeForm ? { activeForm: task.activeForm } : {}),
-                ...(task.report ?? previousTask?.report
+                ...((task.report ?? previousTask?.report)
                   ? { report: task.report ?? previousTask?.report }
                   : {})
               }
@@ -273,12 +200,6 @@ export const useTeamStore = create<TeamStore>()(
           }
           // Remove history entries belonging to the session
           state.teamHistory = state.teamHistory.filter((t) => t.sessionId !== sessionId)
-        })
-      },
-      clearAll: () => {
-        set((state) => {
-          state.activeTeam = null
-          state.teamHistory = []
         })
       }
     })),

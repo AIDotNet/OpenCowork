@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { Layout } from './components/layout/Layout';
+import { DetachedSessionPage } from './components/layout/DetachedSessionPage';
 import { SshPage } from './components/ssh/SshPage';
 import { Toaster } from './components/ui/sonner';
 import { Button } from './components/ui/button';
@@ -25,7 +26,7 @@ import { usePlanStore } from './stores/plan-store';
 import { useSshStore } from './stores/ssh-store';
 import { useTeamStore } from './stores/team-store';
 import { useUIStore } from './stores/ui-store';
-import { registerAllTools, updateWebSearchToolRegistration } from './lib/tools';
+import { registerAllTools, updateWebSearchToolRegistration, updateBrowserToolRegistration } from './lib/tools';
 import { updateAppPluginToolRegistration } from './lib/app-plugin';
 import { registerAllProviders } from './lib/api';
 import { registerAllViewers } from './lib/preview/register-viewers';
@@ -37,6 +38,7 @@ import i18n from './locales';
 import { cronEvents } from './lib/tools/cron-events';
 import { useCronStore, type CronAgentLogEntry } from './stores/cron-store';
 import { ipcClient } from './lib/ipc/ipc-client';
+import { IPC } from './lib/ipc/channels';
 import { getTeamRuntimeSnapshot } from './lib/agent/teams/runtime-client';
 import { stopTeamInboxPoller } from './lib/agent/teams/inbox-poller';
 import { runTeammate } from './lib/agent/teams/teammate-runner';
@@ -112,6 +114,16 @@ function isSshWindowView(): boolean {
    return search.get('appView') === 'ssh'
 }
 
+function getAppView(): string | null {
+   const search = new URLSearchParams(window.location.search)
+   return search.get('appView')
+}
+
+function getDetachedSessionId(): string | null {
+   const search = new URLSearchParams(window.location.search)
+   return search.get('sessionId')
+}
+
 function consumeRendererOomRecoveryFlag(): boolean {
    const url = new URL(window.location.href)
    const shouldRecover = url.searchParams.get(RENDERER_OOM_RECOVERY_PARAM) === '1'
@@ -176,6 +188,9 @@ function App(): React.JSX.Element {
    const changelogDialogOpen = useUIStore((s) => s.changelogDialogOpen)
    const [updateDownloadPending, setUpdateDownloadPending] = useState(false)
    const [updateDownloadProgress, setUpdateDownloadProgress] = useState<number | null>(null)
+   const appView = useMemo(() => getAppView(), [])
+   const detachedSessionId = useMemo(() => getDetachedSessionId(), [])
+   const sessionWindowView = appView === 'session' && !!detachedSessionId
    const teamWorkerParams = useMemo<TeamWorkerParams | null>(() => {
       const search = new URLSearchParams(window.location.search)
       if (search.get('ocWorker') !== 'team') return null
@@ -203,8 +218,8 @@ function App(): React.JSX.Element {
    const cronLogBufferRef = useRef<CronAgentLogEntry[]>([])
    const cronLogFlushTimerRef = useRef<number | null>(null)
 
-   // Initialize plugin auto-reply agent loop listener
-   usePluginAutoReply()
+   // Initialize plugin auto-reply agent loop listener only in the main app window.
+   usePluginAutoReply(!sessionWindowView && !sshWindowView && !teamWorkerParams)
 
    useEffect(() => {
       if (!teamWorkerParams || workerBootStartedRef.current) return
@@ -238,7 +253,7 @@ function App(): React.JSX.Element {
             setWorkerBootError(message)
          }
       })()
-   }, [teamWorkerParams])
+   }, [detachedSessionId, sessionWindowView, teamWorkerParams])
 
    useEffect(() => {
       const root = document.documentElement
@@ -271,12 +286,23 @@ function App(): React.JSX.Element {
          .loadFromDb()
          .then(async () => {
             await usePlanStore.getState().loadPlansFromDb()
+            if (sessionWindowView && detachedSessionId) {
+               const hasDetachedSession = useChatStore
+                  .getState()
+                  .sessions.some((session) => session.id === detachedSessionId)
+               if (hasDetachedSession) {
+                  useChatStore.getState().setActiveSession(detachedSessionId)
+                  useUIStore.getState().navigateToSession(detachedSessionId)
+               }
+            } else {
+               useUIStore.getState().applyChatRouteFromLocation()
+            }
+
             const activeSessionId = useChatStore.getState().activeSessionId
             const activePlan = activeSessionId
                ? await usePlanStore.getState().loadPlanForSession(activeSessionId)
                : undefined
             usePlanStore.getState().setActivePlan(activePlan?.id ?? null)
-            useUIStore.getState().applyChatRouteFromLocation()
 
             if (rendererOomRecoveryRef.current && !teamWorkerParams) {
                const recoverySessionId = useChatStore.getState().activeSessionId
@@ -293,8 +319,6 @@ function App(): React.JSX.Element {
                   subAgentExecutionDetailToolUseId: null,
                   subAgentExecutionDetailInlineText: null,
                   selectedSubAgentToolUseId: null,
-                  miniSessionWindowOpen: false,
-                  miniSessionWindowSessionId: null,
                   rightPanelOpen: false
                })
                await useChatStore.getState().recoverFromRendererOom(recoverySessionId)
@@ -314,12 +338,78 @@ function App(): React.JSX.Element {
    }, [teamWorkerParams])
 
    useEffect(() => {
+      if (sessionWindowView) return
+
       const syncFromLocation = (): void => {
          useUIStore.getState().applyChatRouteFromLocation()
       }
 
       window.addEventListener('hashchange', syncFromLocation)
       return () => window.removeEventListener('hashchange', syncFromLocation)
+   }, [sessionWindowView])
+
+   useEffect(() => {
+      const offSessionUpdated = ipcClient.on(IPC.CHAT_SESSION_UPDATED, (data: unknown) => {
+         const payload = data as {
+            reason?: string
+            session?: {
+               id: string
+               title: string
+               icon: string | null
+               mode: string
+               created_at: number
+               updated_at: number
+               project_id?: string | null
+               working_folder: string | null
+               ssh_connection_id?: string | null
+               pinned: number
+               message_count?: number
+               plugin_id?: string | null
+               external_chat_id?: string | null
+               provider_id?: string | null
+               model_id?: string | null
+               long_running_mode?: number | null
+            }
+         }
+
+         if (!payload?.session?.id) return
+
+         const structuralReasons = new Set([
+            'message-added',
+            'messages-cleared',
+            'messages-replaced',
+            'messages-truncated',
+            'session-created-with-message'
+         ])
+         const activeSessionId = useChatStore.getState().activeSessionId
+         const shouldReloadMessages =
+            activeSessionId === payload.session.id &&
+            structuralReasons.has(payload.reason ?? '')
+
+         useChatStore
+            .getState()
+            .upsertSessionFromSync(payload.session, {
+               preserveLoadedMessages: shouldReloadMessages
+            })
+
+         if (shouldReloadMessages) {
+            void useChatStore
+               .getState()
+               .loadRecentSessionMessages(payload.session.id, true)
+               .finally(() => useChatStore.getState().releaseDormantSessions())
+         }
+      })
+
+      const offSessionDeleted = ipcClient.on(IPC.CHAT_SESSION_DELETED, (data: unknown) => {
+         const payload = data as { sessionId?: string }
+         if (!payload?.sessionId) return
+         useChatStore.getState().removeSessionFromSync(payload.sessionId)
+      })
+
+      return () => {
+         offSessionUpdated()
+         offSessionDeleted()
+      }
    }, [])
 
    // Watch global memory file and refresh system context on changes
@@ -475,59 +565,63 @@ function App(): React.JSX.Element {
       })
 
       // notify:session-message — inject a message into a session from the Notify tool
-      const offNotify = ipcClient.on('notify:session-message', (data: unknown) => {
-         const d = data as { sessionId: string; title: string; body: string }
-         const sessions = useChatStore.getState().sessions
-         if (!sessions.some((s) => s.id === d.sessionId)) return
-         const msg: UnifiedMessage = {
-            id: nanoid(),
-            role: 'assistant',
-            content: `<system-reminder>\n**${d.title}**\n</system-reminder>\n\n${d.body}`,
-            createdAt: Date.now()
-         }
-         useChatStore.getState().addMessage(d.sessionId, msg)
-      })
+      const offNotify = sessionWindowView
+         ? () => {}
+         : ipcClient.on('notify:session-message', (data: unknown) => {
+              const d = data as { sessionId: string; title: string; body: string }
+              const sessions = useChatStore.getState().sessions
+              if (!sessions.some((s) => s.id === d.sessionId)) return
+              const msg: UnifiedMessage = {
+                 id: nanoid(),
+                 role: 'assistant',
+                 content: `<system-reminder>\n**${d.title}**\n</system-reminder>\n\n${d.body}`,
+                 createdAt: Date.now()
+              }
+              useChatStore.getState().addMessage(d.sessionId, msg)
+           })
 
       // Subscribe to cron run_finished events for session delivery
-      const offRunFinished = cronEvents.on((event) => {
-         if (event.type !== 'run_finished') return
-         if (event.deliveryMode !== 'session') return
+      const offRunFinished = sessionWindowView
+         ? () => {}
+         : cronEvents.on((event) => {
+              if (event.type !== 'run_finished') return
+              if (event.deliveryMode !== 'session') return
 
-         const targetSessionId =
-            event.deliveryTarget || event.sessionId || useChatStore.getState().activeSessionId
-         if (!targetSessionId) return
-         const sessions = useChatStore.getState().sessions
-         if (!sessions.some((s) => s.id === targetSessionId)) return
+              const targetSessionId =
+                 event.deliveryTarget || event.sessionId || useChatStore.getState().activeSessionId
+              if (!targetSessionId) return
+              const sessions = useChatStore.getState().sessions
+              if (!sessions.some((s) => s.id === targetSessionId)) return
 
-         const statusLabel =
-            event.status === 'success'
-               ? t('app.cron.status.success')
-               : event.status === 'error'
-                  ? t('app.cron.status.error')
-                  : t('app.cron.status.stopped')
-         const toolCallLabel = t('app.cron.toolCallCount', { count: event.toolCallCount ?? 0 })
-         const content = [
-            `<system-reminder>`,
-            t('app.cron.runFinished', {
-               jobName: event.jobName || event.jobId,
-               statusLabel,
-               toolCallLabel
-            }),
-            `</system-reminder>`,
-            '',
-            event.error
-               ? t('app.cron.errorDetail', { message: event.error })
-               : event.outputSummary || t('app.cron.noOutput')
-         ].join('\n')
+              const statusLabel =
+                 event.status === 'success'
+                    ? t('app.cron.status.success')
+                    : event.status === 'error'
+                       ? t('app.cron.status.error')
+                       : t('app.cron.status.stopped')
+              const toolCallLabel = t('app.cron.toolCallCount', { count: event.toolCallCount ?? 0 })
+              const content = [
+                 `<system-reminder>`,
+                 t('app.cron.runFinished', {
+                    jobName: event.jobName || event.jobId,
+                    statusLabel,
+                    toolCallLabel
+                 }),
+                 `</system-reminder>`,
+                 '',
+                 event.error
+                    ? t('app.cron.errorDetail', { message: event.error })
+                    : event.outputSummary || t('app.cron.noOutput')
+              ].join('\n')
 
-         const msg: UnifiedMessage = {
-            id: nanoid(),
-            role: 'user',
-            content,
-            createdAt: Date.now()
-         }
-         useChatStore.getState().addMessage(targetSessionId, msg)
-      })
+              const msg: UnifiedMessage = {
+                 id: nanoid(),
+                 role: 'user',
+                 content,
+                 createdAt: Date.now()
+              }
+              useChatStore.getState().addMessage(targetSessionId, msg)
+           })
 
       return () => {
          offFired()
@@ -540,7 +634,7 @@ function App(): React.JSX.Element {
          offRunFinished()
          flushCronLogBuffer()
       }
-   }, [t])
+   }, [sessionWindowView, t])
 
    // Reload SSH config when local JSON changes
    useEffect(() => {
@@ -647,6 +741,12 @@ function App(): React.JSX.Element {
       updateWebSearchToolRegistration(webSearchEnabled)
    }, [webSearchEnabled])
 
+   // Update built-in browser tool registration based on settings
+   const builtinBrowserEnabled = useSettingsStore((s) => s.builtinBrowserEnabled)
+   useEffect(() => {
+      updateBrowserToolRegistration(builtinBrowserEnabled)
+   }, [builtinBrowserEnabled])
+
    useEffect(() => {
       updateAppPluginToolRegistration()
 
@@ -701,6 +801,19 @@ function App(): React.JSX.Element {
          <ErrorBoundary>
             <ThemeProvider defaultTheme={theme}>
                <SshPage />
+               <Toaster position="bottom-left" theme="system" richColors />
+               <ConfirmDialogProvider />
+               <NotifyToastContainer />
+            </ThemeProvider>
+         </ErrorBoundary>
+      )
+   }
+
+   if (sessionWindowView && detachedSessionId) {
+      return (
+         <ErrorBoundary>
+            <ThemeProvider defaultTheme={theme}>
+               <DetachedSessionPage sessionId={detachedSessionId} />
                <Toaster position="bottom-left" theme="system" richColors />
                <ConfirmDialogProvider />
                <NotifyToastContainer />

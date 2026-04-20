@@ -1,51 +1,120 @@
 import * as React from 'react'
-import { Tooltip as TooltipPrimitive } from 'radix-ui'
 
-import { cn } from '@renderer/lib/utils'
+type TooltipProviderProps = {
+  children: React.ReactNode
+  delayDuration?: number
+}
 
-function TooltipProvider({
-  delayDuration = 0,
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
+type TooltipProps = {
+  children: React.ReactNode
+  delayDuration?: number
+}
+
+type TooltipTriggerProps = React.HTMLAttributes<HTMLElement> & {
+  asChild?: boolean
+  children: React.ReactNode
+  title?: string
+  tooltipLabel?: string
+}
+
+type TooltipContentProps = React.HTMLAttributes<HTMLDivElement> & {
+  children: React.ReactNode
+  side?: 'top' | 'right' | 'bottom' | 'left'
+  align?: 'start' | 'center' | 'end'
+  sideOffset?: number
+}
+
+function extractTooltipText(node: React.ReactNode): string {
+  const parts: string[] = []
+
+  const visit = (value: React.ReactNode): void => {
+    if (value == null || typeof value === 'boolean') return
+
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = String(value).trim()
+      if (text) parts.push(text)
+      return
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach(visit)
+      return
+    }
+
+    if (React.isValidElement<{ children?: React.ReactNode }>(value)) {
+      visit(value.props.children)
+    }
+  }
+
+  visit(node)
+  return parts.join(' ').replace(/\s+/g, ' ').trim()
+}
+
+function TooltipProvider({ children }: TooltipProviderProps): React.JSX.Element {
+  return <>{children}</>
+}
+
+function Tooltip({ children }: TooltipProps): React.JSX.Element {
+  let tooltipLabel = ''
+
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement(child) || child.type !== TooltipContent) return
+    tooltipLabel = extractTooltipText(
+      (child as React.ReactElement<TooltipContentProps>).props.children
+    )
+  })
+
   return (
-    <TooltipPrimitive.Provider
-      data-slot="tooltip-provider"
-      delayDuration={delayDuration}
-      {...props}
-    />
+    <>
+      {React.Children.map(children, (child) => {
+        if (!React.isValidElement(child)) return child
+        if (child.type === TooltipContent) return null
+        if (child.type !== TooltipTrigger) return child
+        return React.cloneElement(child as React.ReactElement<TooltipTriggerProps>, {
+          tooltipLabel
+        })
+      })}
+    </>
   )
 }
 
-function Tooltip({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
-}
-
-function TooltipTrigger({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
-}
-
-function TooltipContent({
-  className,
-  sideOffset = 0,
+function TooltipTrigger({
+  asChild = false,
   children,
+  tooltipLabel,
+  title,
   ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+}: TooltipTriggerProps): React.JSX.Element {
+  const resolvedTitle = title ?? tooltipLabel
+
+  if (asChild && React.isValidElement(children)) {
+    const childProps = children.props as Record<string, unknown>
+    const mergedTitle =
+      typeof childProps.title === 'string' && childProps.title.trim().length > 0
+        ? (childProps.title as string)
+        : resolvedTitle
+
+    return React.cloneElement(children, {
+      ...props,
+      ...(mergedTitle ? { title: mergedTitle } : {})
+    })
+  }
+
   return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
-        data-slot="tooltip-content"
-        sideOffset={sideOffset}
-        className={cn(
-          'bg-foreground text-background animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance',
-          className
-        )}
-        {...props}
-      >
-        {children}
-        <TooltipPrimitive.Arrow className="bg-foreground fill-foreground z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
-      </TooltipPrimitive.Content>
-    </TooltipPrimitive.Portal>
+    <span
+      {...props}
+      data-slot="tooltip-trigger"
+      title={resolvedTitle}
+      className={typeof props.className === 'string' ? props.className : undefined}
+    >
+      {children}
+    </span>
   )
+}
+
+function TooltipContent({ children }: TooltipContentProps): null {
+  void children
+  return null
 }
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }

@@ -11,6 +11,8 @@ export type ResponsesWebsocketIncrementalReason =
 export const OPENAI_RESPONSES_WEBSOCKET_BETA_HEADER = 'OpenAI-Beta'
 export const OPENAI_RESPONSES_WEBSOCKET_BETA_VALUE = 'responses_websockets=2026-02-06'
 export const RESPONSES_WEBSOCKET_CONNECTION_MAX_AGE_MS = 55 * 60 * 1000
+export const RESPONSES_WEBSOCKET_CONNECTION_MAX_IDLE_MS = 10 * 60 * 1000
+export const RESPONSES_WEBSOCKET_CONNECTION_MAX_REQUESTS = 12
 export const DEFAULT_RESPONSES_WEBSOCKET_SESSION_SCOPE = 'main'
 export const RESPONSES_WEBSOCKET_AGENT_MAIN_SCOPE = 'agent-main'
 export const RESPONSES_WEBSOCKET_SUB_AGENT_SCOPE_PREFIX = 'sub-agent'
@@ -42,16 +44,12 @@ export interface ResolvedResponsesWebsocketConfig {
   reason?: 'disabled' | 'invalid_explicit_url' | 'derived_url_invalid' | 'unsupported_provider'
 }
 
-export function normalizeResponsesWebsocketSessionScope(
-  value: string | null | undefined
-): string {
+export function normalizeResponsesWebsocketSessionScope(value: string | null | undefined): string {
   const trimmed = typeof value === 'string' ? value.trim() : ''
   return trimmed || DEFAULT_RESPONSES_WEBSOCKET_SESSION_SCOPE
 }
 
-export function shouldEnableResponsesWebsocketForScope(
-  value: string | null | undefined
-): boolean {
+export function shouldEnableResponsesWebsocketForScope(value: string | null | undefined): boolean {
   const scope = normalizeResponsesWebsocketSessionScope(value)
   return (
     scope === RESPONSES_WEBSOCKET_AGENT_MAIN_SCOPE ||
@@ -178,8 +176,7 @@ export function buildResponsesWebsocketHeaders(
   )
 
   if (!hasBetaHeader) {
-    websocketHeaders[OPENAI_RESPONSES_WEBSOCKET_BETA_HEADER] =
-      OPENAI_RESPONSES_WEBSOCKET_BETA_VALUE
+    websocketHeaders[OPENAI_RESPONSES_WEBSOCKET_BETA_HEADER] = OPENAI_RESPONSES_WEBSOCKET_BETA_VALUE
   }
 
   return websocketHeaders
@@ -339,7 +336,11 @@ export function extractResponsesWebsocketCompletionState(
       output?: unknown
     }
   }
-  if (record.type !== 'response.completed' || !record.response || typeof record.response !== 'object') {
+  if (
+    record.type !== 'response.completed' ||
+    !record.response ||
+    typeof record.response !== 'object'
+  ) {
     return null
   }
 
@@ -442,9 +443,7 @@ function stripInputForComparison(value: Record<string, unknown>): Record<string,
   return cloned
 }
 
-function normalizeResponsesOutputItemForReplayInput(
-  item: unknown
-): Record<string, unknown> | null {
+function normalizeResponsesOutputItemForReplayInput(item: unknown): Record<string, unknown> | null {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return null
   const record = item as Record<string, unknown>
   switch (record.type) {
@@ -533,7 +532,9 @@ function normalizeResponsesReasoningOutputItem(
 
   return {
     type: 'reasoning',
-    summary: normalizeResponsesReasoningSummaryForReplay(item.summary ?? getObjectValue(item.reasoning, 'summary')),
+    summary: normalizeResponsesReasoningSummaryForReplay(
+      item.summary ?? getObjectValue(item.reasoning, 'summary')
+    ),
     encrypted_content: encryptedContent
   }
 }

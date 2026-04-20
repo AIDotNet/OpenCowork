@@ -271,6 +271,8 @@ public sealed class OpenAiChatProvider : ILlmProvider
             },
             streamCts.Token).GetAsyncEnumerator();
 
+        HttpRequestException? streamTransportError = null;
+
         async Task<OpenAiChatChunk?> ReadNextChunkAsync()
         {
             try
@@ -282,6 +284,11 @@ public sealed class OpenAiChatProvider : ILlmProvider
             }
             catch (OperationCanceledException) when (compatTerminalTimeoutTriggered && !ct.IsCancellationRequested)
             {
+                return null;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested && SseStreamReader.IsRetryableTransportFailure(ex))
+            {
+                streamTransportError = SseStreamReader.RememberRetryableTransportFailure(circuitKey, ex);
                 return null;
             }
         }
@@ -510,6 +517,16 @@ public sealed class OpenAiChatProvider : ILlmProvider
         finally
         {
             ClearCompatTerminalTimer();
+        }
+
+        if (streamTransportError is not null)
+        {
+            yield return new StreamEvent
+            {
+                Type = "error",
+                Error = SseStreamReader.CreateTransportError(streamTransportError)
+            };
+            yield break;
         }
 
         if (toolIds.Count > 0)

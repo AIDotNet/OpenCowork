@@ -115,6 +115,7 @@ import {
   updateRuntimeMessage,
   updateRuntimeToolUseInput
 } from '@renderer/lib/agent/session-runtime-router'
+import { emitSessionRuntimeSync } from '@renderer/lib/session-runtime-sync'
 import type { CompressionConfig } from '@renderer/lib/agent/context-compression'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { useAppPluginStore } from '@renderer/stores/app-plugin-store'
@@ -170,6 +171,21 @@ const sessionSidecarRunIds = new Map<string, string>()
 const longRunningVerificationPasses = new Map<string, number>()
 let sidecarApprovalListenerAttached = false
 let sidecarRendererToolListenerAttached = false
+
+function addMessageWithSync(sessionId: string, message: UnifiedMessage): void {
+  useChatStore.getState().addMessage(sessionId, message)
+  emitSessionRuntimeSync({ kind: 'add_message', sessionId, message })
+}
+
+function setStreamingMessageIdWithSync(sessionId: string, messageId: string | null): void {
+  useChatStore.getState().setStreamingMessageId(sessionId, messageId)
+  emitSessionRuntimeSync({ kind: 'set_streaming_message', sessionId, messageId })
+}
+
+function setGeneratingImageWithSync(messageId: string, generating: boolean): void {
+  useChatStore.getState().setGeneratingImage(messageId, generating)
+  emitSessionRuntimeSync({ kind: 'set_generating_image', messageId, generating })
+}
 
 function extractPluginChatId(externalChatId?: string): string | undefined {
   if (!externalChatId) return undefined
@@ -1567,7 +1583,7 @@ export function abortSession(sessionId: string): void {
   }
   void cancelSidecarRun(sessionId)
   // Clean up streaming / status state
-  useChatStore.getState().setStreamingMessageId(sessionId, null)
+  setStreamingMessageIdWithSync(sessionId, null)
   useAgentStore.getState().setSessionStatus(sessionId, null)
 
   // Clear any pending AskUserQuestion promises
@@ -2571,13 +2587,13 @@ export function useChatActions(): {
           content: '',
           createdAt: Date.now()
         }
-        chatStore.addMessage(sessionId, assistantMsg)
+        addMessageWithSync(sessionId, assistantMsg)
       }
-      chatStore.setStreamingMessageId(sessionId, assistantMsgId)
+      setStreamingMessageIdWithSync(sessionId, assistantMsgId)
 
       const isImageRequest = baseProviderConfig.type === 'openai-images'
       if (isImageRequest) {
-        chatStore.setGeneratingImage(assistantMsgId, true)
+        setGeneratingImageWithSync(assistantMsgId, true)
       }
 
       // Setup abort controller (per-session)
@@ -3406,7 +3422,7 @@ export function useChatActions(): {
                 }
                 // Clear generating state after first image
                 if (isSessionForeground(sessionId!)) {
-                  useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+                  setGeneratingImageWithSync(assistantMsgId, false)
                 }
                 break
 
@@ -3424,7 +3440,7 @@ export function useChatActions(): {
                   })
                 }
                 if (isSessionForeground(sessionId!)) {
-                  useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+                  setGeneratingImageWithSync(assistantMsgId, false)
                 }
                 break
 
@@ -3965,7 +3981,7 @@ export function useChatActions(): {
           disposeToolInputQueues()
           if (isSessionForeground(sessionId!)) {
             // Clear image generating state
-            useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+            setGeneratingImageWithSync(assistantMsgId, false)
             // Defensive cleanup: if provider stream ended without completing a tool call,
             // avoid leaving tool cards stuck at "receiving args".
             const { executedToolCalls, pendingToolCalls, sessionToolCallsCache, updateToolCall } =
@@ -3993,7 +4009,7 @@ export function useChatActions(): {
           unsubSubAgent()
           subAgentEventBuffer.dispose()
           agentStore.setSessionStatus(sessionId, 'completed')
-          chatStore.setStreamingMessageId(sessionId, null)
+          setStreamingMessageIdWithSync(sessionId, null)
           sessionAbortControllers.delete(sessionId)
           sessionSidecarRunIds.delete(sessionId)
           // Derive global isRunning from remaining running sessions
@@ -4137,7 +4153,7 @@ export function useChatActions(): {
         sessionAbortControllers.delete(activeId)
       }
       void cancelSidecarRun(activeId)
-      useChatStore.getState().setStreamingMessageId(activeId, null)
+      setStreamingMessageIdWithSync(activeId, null)
       useAgentStore.getState().setSessionStatus(activeId, null)
     }
     // Only do global abort (which denies ALL pending approvals) when
@@ -4176,7 +4192,7 @@ export function useChatActions(): {
     const resumedAssistantMessageId = tailToolExecution.assistantMessageId
     let handedOffToSendMessage = false
 
-    chatStore.setStreamingMessageId(sessionId, resumedAssistantMessageId)
+    setStreamingMessageIdWithSync(sessionId, resumedAssistantMessageId)
     agentStore.setRunning(true)
 
     try {
@@ -4356,7 +4372,7 @@ export function useChatActions(): {
     } finally {
       if (!handedOffToSendMessage) {
         if (useChatStore.getState().streamingMessages[sessionId] === resumedAssistantMessageId) {
-          useChatStore.getState().setStreamingMessageId(sessionId, null)
+          setStreamingMessageIdWithSync(sessionId, null)
         }
         const hasOtherRunning = Object.values(useAgentStore.getState().runningSessions).some(
           (status) => status === 'running'
@@ -4961,7 +4977,7 @@ async function runSimpleChat(
           if (event.imageBlock) {
             appendRuntimeContentBlock(sessionId, assistantMsgId, event.imageBlock)
           }
-          useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+          setGeneratingImageWithSync(assistantMsgId, false)
           break
         case 'image_error':
           streamDeltaBuffer.flushNow()
@@ -4976,7 +4992,7 @@ async function runSimpleChat(
               message: event.imageError.message
             })
           }
-          useChatStore.getState().setGeneratingImage(assistantMsgId, false)
+          setGeneratingImageWithSync(assistantMsgId, false)
           break
         case 'message_end': {
           streamDeltaBuffer.flushNow()
@@ -5146,8 +5162,8 @@ async function runSimpleChat(
   } finally {
     streamDeltaBuffer.flushNow()
     streamDeltaBuffer.dispose()
-    useChatStore.getState().setGeneratingImage(assistantMsgId, false)
-    useChatStore.getState().setStreamingMessageId(sessionId, null)
+    setGeneratingImageWithSync(assistantMsgId, false)
+    setStreamingMessageIdWithSync(sessionId, null)
   }
 }
 

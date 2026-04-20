@@ -46,6 +46,7 @@ import { nanoid } from 'nanoid';
 import type { UnifiedMessage } from './lib/api/types';
 import { NotifyToastContainer } from './components/notify/NotifyWindow';
 import { ChangelogDialog } from './components/changelog/ChangelogDialog';
+import { installSessionRuntimeSyncListener } from './lib/session-runtime-sync';
 import {
    getGlobalMemorySnapshot,
    loadGlobalMemorySnapshot,
@@ -347,6 +348,8 @@ function App(): React.JSX.Element {
       window.addEventListener('hashchange', syncFromLocation)
       return () => window.removeEventListener('hashchange', syncFromLocation)
    }, [sessionWindowView])
+
+   useEffect(() => installSessionRuntimeSyncListener(), [])
 
    useEffect(() => {
       const offSessionUpdated = ipcClient.on(IPC.CHAT_SESSION_UPDATED, (data: unknown) => {

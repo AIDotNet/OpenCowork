@@ -15,10 +15,18 @@ export interface RequestDebugInfo {
 
 export class ApiStreamError extends Error {
   debugInfo: RequestDebugInfo
-  constructor(message: string, debugInfo: RequestDebugInfo) {
+  statusCode?: number
+  errorType?: string
+  constructor(
+    message: string,
+    debugInfo: RequestDebugInfo,
+    options?: { statusCode?: number; type?: string }
+  ) {
     super(message)
     this.name = 'ApiStreamError'
     this.debugInfo = debugInfo
+    this.statusCode = options?.statusCode
+    this.errorType = options?.type
   }
 }
 
@@ -38,7 +46,7 @@ export function maskHeaders(headers: Record<string, string>): Record<string, str
 type QueueItem =
   | { type: 'chunk'; data: string }
   | { type: 'end' }
-  | { type: 'error'; error: string }
+  | { type: 'error'; error: string; statusCode?: number; errorType?: string }
 
 type StreamQueueSink = {
   push: (item: QueueItem) => void
@@ -96,13 +104,21 @@ function ensureApiStreamDispatcher(): void {
     completeRequest(state, data.requestId, { type: 'end' })
   })
 
-  ipc.on('api:stream-error', (_event: unknown, data: { requestId?: string; error?: string }) => {
-    if (typeof data?.requestId !== 'string') return
-    completeRequest(state, data.requestId, {
-      type: 'error',
-      error: typeof data.error === 'string' ? data.error : 'Unknown stream error'
-    })
-  })
+  ipc.on(
+    'api:stream-error',
+    (
+      _event: unknown,
+      data: { requestId?: string; error?: string; type?: string; statusCode?: number }
+    ) => {
+      if (typeof data?.requestId !== 'string') return
+      completeRequest(state, data.requestId, {
+        type: 'error',
+        error: typeof data.error === 'string' ? data.error : 'Unknown stream error',
+        ...(typeof data.statusCode === 'number' ? { statusCode: data.statusCode } : {}),
+        ...(typeof data.type === 'string' ? { errorType: data.type } : {})
+      })
+    }
+  )
 
   state.initialized = true
 }
@@ -250,13 +266,20 @@ export async function* ipcStreamRequest(params: {
 
         if (item.type === 'error') {
           done = true
-          throw new ApiStreamError(item.error, {
-            url,
-            method,
-            headers: maskHeaders(headers),
-            body,
-            timestamp: Date.now()
-          })
+          throw new ApiStreamError(
+            item.error,
+            {
+              url,
+              method,
+              headers: maskHeaders(headers),
+              body,
+              timestamp: Date.now()
+            },
+            {
+              ...(typeof item.statusCode === 'number' ? { statusCode: item.statusCode } : {}),
+              ...(item.errorType ? { type: item.errorType } : {})
+            }
+          )
         }
 
         buffer += item.data

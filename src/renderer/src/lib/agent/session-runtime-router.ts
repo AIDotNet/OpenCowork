@@ -5,6 +5,7 @@ import type {
   ToolUseBlock,
   UnifiedMessage
 } from '@renderer/lib/api/types'
+import { emitSessionRuntimeSync } from '@renderer/lib/session-runtime-sync'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { summarizeToolInputForHistory } from '@renderer/lib/tools/tool-input-sanitizer'
 import { useBackgroundSessionStore } from '@renderer/stores/background-session-store'
@@ -119,6 +120,8 @@ export function updateRuntimeMessage(
   messageId: string,
   patch: Partial<UnifiedMessage>
 ): void {
+  emitSessionRuntimeSync({ kind: 'update_message', sessionId, messageId, patch })
+
   if (isSessionForeground(sessionId)) {
     useChatStore.getState().updateMessage(sessionId, messageId, patch)
     return
@@ -164,6 +167,8 @@ export function mergeRuntimeMessageUsage(
 
 export function appendRuntimeTextDelta(sessionId: string, messageId: string, text: string): void {
   if (!text) return
+  emitSessionRuntimeSync({ kind: 'append_text_delta', sessionId, messageId, text })
+
   if (isSessionForeground(sessionId)) {
     useChatStore.getState().appendTextDelta(sessionId, messageId, text)
     return
@@ -192,6 +197,13 @@ export function appendRuntimeThinkingDelta(
 ): void {
   const cleanedThinking = stripThinkTagMarkers(thinking)
   if (!cleanedThinking) return
+  emitSessionRuntimeSync({
+    kind: 'append_thinking_delta',
+    sessionId,
+    messageId,
+    thinking: cleanedThinking
+  })
+
   if (isSessionForeground(sessionId)) {
     useChatStore.getState().appendThinkingDelta(sessionId, messageId, cleanedThinking)
     return
@@ -231,6 +243,14 @@ export function setRuntimeThinkingEncryptedContent(
   provider: 'anthropic' | 'openai-responses' | 'google'
 ): void {
   if (!encryptedContent) return
+  emitSessionRuntimeSync({
+    kind: 'set_thinking_encrypted',
+    sessionId,
+    messageId,
+    encryptedContent,
+    provider
+  })
+
   if (isSessionForeground(sessionId)) {
     useChatStore
       .getState()
@@ -289,6 +309,8 @@ export function setRuntimeThinkingEncryptedContent(
 }
 
 export function completeRuntimeThinking(sessionId: string, messageId: string): void {
+  emitSessionRuntimeSync({ kind: 'complete_thinking', sessionId, messageId })
+
   if (isSessionForeground(sessionId)) {
     useChatStore.getState().completeThinking(sessionId, messageId)
     return
@@ -313,6 +335,13 @@ export function appendRuntimeToolUse(
     ...toolUse,
     input: summarizeToolInputForHistory(toolUse.name, toolUse.input)
   }
+  emitSessionRuntimeSync({
+    kind: 'append_tool_use',
+    sessionId,
+    messageId,
+    toolUse: normalizedToolUse
+  })
+
   if (isSessionForeground(sessionId)) {
     useChatStore.getState().appendToolUse(sessionId, messageId, normalizedToolUse)
     return
@@ -334,6 +363,14 @@ export function updateRuntimeToolUseInput(
   toolUseId: string,
   input: Record<string, unknown>
 ): void {
+  emitSessionRuntimeSync({
+    kind: 'update_tool_use_input',
+    sessionId,
+    messageId,
+    toolUseId,
+    input
+  })
+
   if (isSessionForeground(sessionId)) {
     useChatStore.getState().updateToolUseInput(sessionId, messageId, toolUseId, input)
     return
@@ -355,6 +392,8 @@ export function appendRuntimeContentBlock(
   messageId: string,
   block: ContentBlock
 ): void {
+  emitSessionRuntimeSync({ kind: 'append_content_block', sessionId, messageId, block })
+
   if (isSessionForeground(sessionId)) {
     useChatStore.getState().appendContentBlock(sessionId, messageId, block)
     return
@@ -371,6 +410,8 @@ export function appendRuntimeContentBlock(
 }
 
 export function addRuntimeMessage(sessionId: string, message: UnifiedMessage): void {
+  emitSessionRuntimeSync({ kind: 'add_message', sessionId, message })
+
   if (isSessionForeground(sessionId)) {
     useChatStore.getState().addMessage(sessionId, message)
     return

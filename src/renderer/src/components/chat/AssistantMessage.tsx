@@ -75,7 +75,7 @@ import {
   getLiveOutputDotClass,
   getLiveOutputSurfaceClass
 } from '@renderer/lib/live-output-animation'
-import type { ToolCallState } from '@renderer/lib/agent/types'
+import type { ToolCallState, ToolCallStatus } from '@renderer/lib/agent/types'
 import {
   DESKTOP_CLICK_TOOL_NAME,
   DESKTOP_SCREENSHOT_TOOL_NAME,
@@ -150,6 +150,16 @@ const WORKSPACE_PERSISTENT_TOOLS = new Set([
   ...TEAM_TOOL_NAMES
 ])
 const EMPTY_LIVE_TOOL_CALLS: ToolCallState[] = []
+
+function resolveToolCallStatus(
+  isStreaming: boolean | undefined,
+  liveToolCall: ToolCallState | undefined,
+  result?: { isError?: boolean }
+): ToolCallStatus | 'completed' {
+  if (liveToolCall?.status) return liveToolCall.status
+  if (!result && isStreaming) return 'streaming'
+  return result?.isError ? 'error' : 'completed'
+}
 
 function shouldShowToolInMessageList(name: string): boolean {
   return name !== 'TaskCreate' && name !== 'TaskUpdate'
@@ -348,7 +358,7 @@ function DebugToggleButton({ debugInfo }: { debugInfo: RequestDebugInfo }): Reac
     <>
       <button
         onClick={() => setShow(true)}
-        className={`flex items-center rounded px-1 py-0.5 transition-colors ${show ? 'text-orange-500 bg-orange-500/10' : 'text-muted-foreground hover:bg-muted-foreground/10'}`}
+        className={`flex items-center rounded px-1 py-0.5 transition-colors ${show ? 'bg-orange-500/10 text-orange-500' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}`}
       >
         <Bug className="size-3.5" />
       </button>
@@ -424,7 +434,7 @@ function CopyButton({ text }: { text: string }): React.JSX.Element {
   return (
     <button
       onClick={handleCopy}
-      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted-foreground/10 transition-colors"
+      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
     >
       {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
       {copied ? t('userMessage.copied') : t('action.copy', { ns: 'common' })}
@@ -450,7 +460,7 @@ function ActionIconButton({
           type="button"
           aria-label={label}
           onClick={onClick}
-          className={`flex size-7 items-center justify-center rounded-md border border-border/50 bg-background/80 text-muted-foreground transition-colors hover:bg-muted/80 ${danger ? 'hover:text-destructive' : 'hover:text-foreground'}`}
+          className={`flex size-7 items-center justify-center rounded-md border border-border/50 bg-background/90 text-muted-foreground transition-colors hover:bg-accent ${danger ? 'hover:text-destructive' : 'hover:text-accent-foreground'}`}
         >
           {icon}
         </button>
@@ -482,7 +492,7 @@ function MermaidImageCopyButton({ svg }: { svg: string }): React.JSX.Element {
       onClick={() => void handleCopy()}
       disabled={busy || !svg.trim()}
       title="复制 Mermaid 图到剪贴板"
-      className="flex items-center rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted-foreground/10 transition-colors disabled:opacity-50"
+      className="flex items-center rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
     >
       {copied ? <Check className="size-3" /> : <ImageDown className="size-3" />}
       <span>{copied ? '已复制' : '下载'}</span>
@@ -537,7 +547,7 @@ function MermaidCodeBlock({ code }: { code: string }): React.JSX.Element {
             onClick={() => setZoomOpen(true)}
             disabled={!svg.trim()}
             title="放大 Mermaid 图"
-            className="flex items-center rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted-foreground/10 transition-colors disabled:opacity-50"
+            className="flex items-center rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
           >
             <ZoomIn className="size-3" />
             <span>放大</span>
@@ -1359,7 +1369,7 @@ export function AssistantMessage({
         if (toolsCollapsed) return null
         const result = toolResults?.get(block.id)
         const liveTc = effectiveLiveToolCallMap?.get(block.id)
-        const statusValue = liveTc?.status ?? (result?.isError ? 'error' : 'completed')
+        const statusValue = resolveToolCallStatus(isStreaming, liveTc, result)
         return (
           <ScaleIn key={`${key}-${collapsePhaseKey(statusValue)}`} className="w-full origin-left">
             <FileChangeCard
@@ -1378,7 +1388,7 @@ export function AssistantMessage({
       if (block.name === IMAGE_GENERATE_TOOL_NAME) {
         const result = toolResults?.get(block.id)
         const liveTc = effectiveLiveToolCallMap?.get(block.id)
-        const statusValue = liveTc?.status ?? (result?.isError ? 'error' : 'completed')
+        const statusValue = resolveToolCallStatus(isStreaming, liveTc, result)
         return (
           <ScaleIn key={`${key}-${collapsePhaseKey(statusValue)}`} className="w-full origin-left">
             <ImagePluginToolCard
@@ -1401,7 +1411,7 @@ export function AssistantMessage({
         if (toolsCollapsed) return null
         const result = toolResults?.get(block.id)
         const liveTc = effectiveLiveToolCallMap?.get(block.id)
-        const statusValue = liveTc?.status ?? (result?.isError ? 'error' : 'completed')
+        const statusValue = resolveToolCallStatus(isStreaming, liveTc, result)
         return (
           <ScaleIn key={`${key}-${collapsePhaseKey(statusValue)}`} className="w-full origin-left">
             <DesktopActionToolCard
@@ -1418,7 +1428,7 @@ export function AssistantMessage({
       if (toolsCollapsed) return null
       const result = toolResults?.get(block.id)
       const liveTc = effectiveLiveToolCallMap?.get(block.id)
-      const statusValue = liveTc?.status ?? (result?.isError ? 'error' : 'completed')
+      const statusValue = resolveToolCallStatus(isStreaming, liveTc, result)
       return (
         <ScaleIn key={`${key}-${collapsePhaseKey(statusValue)}`} className="w-full origin-left">
           <ToolCallCard
@@ -1448,18 +1458,18 @@ export function AssistantMessage({
                 collapsed: !toolsCollapsed
               })
             }
-            className="group flex w-full items-center gap-1.5 px-0.5 py-0.5 text-left text-[12px] text-zinc-500 transition-colors hover:text-zinc-100"
+            className="group flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[12px] text-muted-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground"
           >
-            <span className="min-w-0 truncate font-medium text-zinc-400 transition-colors group-hover:text-zinc-100">
+            <span className="min-w-0 truncate font-medium text-foreground/80 transition-colors group-hover:text-accent-foreground">
               {workspaceSummary ||
                 (toolsCollapsed
                   ? t('assistantMessage.showWorkspace', { count: workspaceToolCount })
                   : t('assistantMessage.collapseWorkspace', { count: workspaceToolCount }))}
             </span>
             {toolsCollapsed ? (
-              <ChevronRight className="size-3 shrink-0 text-zinc-600 transition-colors group-hover:text-zinc-400" />
+              <ChevronRight className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-accent-foreground" />
             ) : (
-              <ChevronDown className="size-3 shrink-0 text-zinc-600 transition-colors group-hover:text-zinc-400" />
+              <ChevronDown className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-accent-foreground" />
             )}
           </button>
         )}
@@ -1593,7 +1603,7 @@ export function AssistantMessage({
             const block = groupBlocks[0]
             const result = toolResults?.get(block.id)
             const liveTc = effectiveLiveToolCallMap?.get(block.id)
-            const statusValue = liveTc?.status ?? (result?.isError ? 'error' : 'completed')
+            const statusValue = resolveToolCallStatus(isStreaming, liveTc, result)
             return (
               <ScaleIn
                 key={`${block.id}-${collapsePhaseKey(statusValue)}`}
@@ -1622,9 +1632,7 @@ export function AssistantMessage({
               name: block.name,
               input: block.input,
               output: liveTc?.output ?? result?.content,
-              status: (liveTc?.status ?? (result?.isError ? 'error' : 'completed')) as
-                | import('@renderer/lib/agent/types').ToolCallStatus
-                | 'completed',
+              status: resolveToolCallStatus(isStreaming, liveTc, result),
               error: liveTc?.error,
               startedAt: liveTc?.startedAt,
               completedAt: liveTc?.completedAt
@@ -1642,7 +1650,7 @@ export function AssistantMessage({
                 {groupBlocks.map((block) => {
                   const result = toolResults?.get(block.id)
                   const liveTc = effectiveLiveToolCallMap?.get(block.id)
-                  const statusValue = liveTc?.status ?? (result?.isError ? 'error' : 'completed')
+                  const statusValue = resolveToolCallStatus(isStreaming, liveTc, result)
                   return (
                     <ToolCallCard
                       key={`${block.id}-${collapsePhaseKey(statusValue)}`}
@@ -1775,7 +1783,7 @@ export function AssistantMessage({
               <RunChangeReviewCard runId={runChangeSet.runId} changeSet={runChangeSet} />
             )}
             {!isStreaming && plainText && (
-              <p className="mt-1 text-[10px] text-muted-foreground/40 tabular-nums">
+              <p className="mt-1 text-[10px] text-muted-foreground/55 tabular-nums">
                 {usage
                   ? (() => {
                       const u = usage!
@@ -1809,7 +1817,7 @@ export function AssistantMessage({
               </p>
             )}
             {!isStreaming && timingSummary && (
-              <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground/40 tabular-nums">
+              <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground/55 tabular-nums">
                 {timingSummary.totalDuration && (
                   <div>
                     {t('assistantMessage.totalDuration', { duration: timingSummary.totalDuration })}
@@ -1845,7 +1853,7 @@ export function AssistantMessage({
                       aria-label={t('assistantMessage.continueToolExecution', {
                         defaultValue: '继续执行'
                       })}
-                      className="flex size-7 items-center justify-center rounded-md border border-border/50 bg-background/80 text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+                      className="flex size-7 items-center justify-center rounded-md border border-border/50 bg-background/90 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                     >
                       <Play className="size-3.5" />
                     </button>
@@ -1873,7 +1881,7 @@ export function AssistantMessage({
                     type="button"
                     aria-label={t('action.showMore', { ns: 'common' })}
                     title={t('action.showMore', { ns: 'common' })}
-                    className="flex size-7 items-center justify-center rounded-md border border-border/50 bg-background/80 text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+                    className="flex size-7 items-center justify-center rounded-md border border-border/50 bg-background/90 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                   >
                     <Ellipsis className="size-3.5" />
                   </button>

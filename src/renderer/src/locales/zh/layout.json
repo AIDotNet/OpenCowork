@@ -359,6 +359,7 @@
     "autoApproveOff": "自动批准 已关闭",
     "autoApproveOn": "自动批准 已开启（危险）",
     "deleteAllConfirm": "删除全部 {{count}} 个会话？此操作不可撤销。",
+    "deleteConfirm": "确定要删除「{{title}}」吗？",
     "deletedSessions": "已删除 {{count}} 个会话",
     "importedSessions": "已导入 {{count}} 个会话",
     "noNewSessions": "没有新会话可导入（全部已存在）",

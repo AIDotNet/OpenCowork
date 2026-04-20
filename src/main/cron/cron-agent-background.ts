@@ -1932,7 +1932,10 @@ async function* sendOpenAIResponses(
     signal,
     label: config.sessionId ?? config.providerId ?? config.model,
     onEvent: (eventType, payload) => {
-      for (const event of handleResponseEvent(eventType, payload as Parameters<typeof handleResponseEvent>[1])) {
+      for (const event of handleResponseEvent(
+        eventType,
+        payload as Parameters<typeof handleResponseEvent>[1]
+      )) {
         pushEvent(event)
       }
     }
@@ -2185,10 +2188,17 @@ async function* runAgentLoop(
                 providerResponseId: event.providerResponseId
               }
               break
-            case 'error':
+            case 'error': {
+              const errorType = event.error?.type
+              const statusFromType =
+                typeof errorType === 'string'
+                  ? Number(/^http_(\d{3})$/i.exec(errorType)?.[1] ?? Number.NaN)
+                  : Number.NaN
               throw new ProviderRequestError(event.error?.message ?? 'Unknown API error', {
-                type: event.error?.type
+                type: errorType,
+                ...(Number.isFinite(statusFromType) ? { statusCode: statusFromType } : {})
               })
+            }
           }
         }
         if (toolArgsById.size > 0) {
@@ -2458,13 +2468,80 @@ function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function getRetryDelay(err: unknown, attempt: number, streamedContent: boolean): number | null {
+function extractErrorType(err: unknown): string | null {
+  if (err instanceof ProviderRequestError && typeof err.errorType === 'string') {
+    return err.errorType
+  }
+  if (
+    err &&
+    typeof err === 'object' &&
+    'errorType' in err &&
+    typeof (err as { errorType?: unknown }).errorType === 'string'
+  ) {
+    return (err as { errorType: string }).errorType
+  }
+  return null
+}
+
+function extractStatusCode(err: unknown): number | null {
+  if (err instanceof ProviderRequestError && typeof err.statusCode === 'number') {
+    return err.statusCode
+  }
+  if (
+    err &&
+    typeof err === 'object' &&
+    'statusCode' in err &&
+    typeof (err as { statusCode?: unknown }).statusCode === 'number'
+  ) {
+    return (err as { statusCode: number }).statusCode
+  }
+  const errorType = extractErrorType(err)
+  if (errorType) {
+    const typeMatch = /^http_(\d{3})$/i.exec(errorType)
+    if (typeMatch) {
+      const code = Number(typeMatch[1])
+      return Number.isFinite(code) ? code : null
+    }
+  }
   const message = err instanceof Error ? err.message : String(err)
   const match = /HTTP\s+(\d{3})/i.exec(message)
-  const status = match ? Number(match[1]) : null
+  return match ? Number(match[1]) : null
+}
+
+function isCircuitOpenError(err: unknown): boolean {
+  const errorType = extractErrorType(err)
+  if (errorType === 'transport_circuit_open') return true
+  const message = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  return message.includes('circuit is open')
+}
+
+function isTransportFailure(err: unknown): boolean {
+  const errorType = extractErrorType(err)
+  if (errorType === 'transport_error' || errorType === 'transport_circuit_open') return true
+  const message = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  return (
+    message.includes('response ended prematurely') ||
+    message.includes('responseended') ||
+    message.includes('unexpected eof') ||
+    message.includes('socket hang up') ||
+    message.includes('connection closed') ||
+    message.includes('connection timeout') ||
+    message.includes('request timed out') ||
+    message.includes('stream idle timeout') ||
+    message.includes('econnreset') ||
+    message.includes('etimedout')
+  )
+}
+
+function getRetryDelay(err: unknown, attempt: number, streamedContent: boolean): number | null {
+  if (isCircuitOpenError(err)) return null
+  const status = extractStatusCode(err)
   if (status === 429) return BASE_RETRY_DELAY_MS * Math.pow(2, attempt + 1)
   if (status && status >= 400 && status < 500) return null
   if (status && status >= 500) return BASE_RETRY_DELAY_MS * Math.pow(2, attempt)
+  if (isTransportFailure(err) && !streamedContent) {
+    return BASE_RETRY_DELAY_MS * Math.pow(2, attempt)
+  }
   if (!streamedContent) return BASE_RETRY_DELAY_MS * Math.pow(2, attempt)
   return BASE_RETRY_DELAY_MS
 }

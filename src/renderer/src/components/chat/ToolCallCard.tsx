@@ -1943,9 +1943,7 @@ export function ToolCallCard({
   return (
     <div
       className={cn(
-        useCompactToolHeader
-          ? 'my-0 min-w-0 overflow-hidden text-zinc-100'
-          : 'my-5 min-w-0 overflow-hidden'
+        useCompactToolHeader ? 'my-0 min-w-0 overflow-hidden' : 'my-5 min-w-0 overflow-hidden'
       )}
     >
       {/* Header — click to toggle */}
@@ -1953,23 +1951,25 @@ export function ToolCallCard({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           useCompactToolHeader
-            ? 'group w-full px-2 py-0.5 text-left'
+            ? 'group w-full rounded-md px-2 py-0.5 text-left transition-colors hover:bg-accent/50'
             : 'flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground'
         )}
       >
         {useCompactToolHeader ? (
           <div
-            className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-zinc-400 transition-colors group-hover:bg-white/[0.015] group-hover:text-zinc-100"
+            className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-muted-foreground transition-colors group-hover:text-foreground"
             title={compactTitle}
           >
             {compactPrefixKey ? (
-              <span className="shrink-0 text-[11px] font-medium text-zinc-400">
+              <span className="shrink-0 text-[11px] font-medium text-muted-foreground/85">
                 {t(compactPrefixKey)}
               </span>
             ) : (
-              <span className="shrink-0 text-[10px] font-medium text-zinc-400">{displayName}</span>
+              <span className="shrink-0 text-[10px] font-medium text-muted-foreground/85">
+                {displayName}
+              </span>
             )}
-            <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-zinc-200 transition-colors group-hover:text-zinc-100">
+            <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/80 transition-colors group-hover:text-foreground">
               {compactPrimary || t('toolCall.receivingArgs')}
             </span>
             {compactHeaderError ? (
@@ -1979,12 +1979,14 @@ export function ToolCallCard({
               />
             ) : null}
             {elapsed && (
-              <span className="shrink-0 text-[9px] tabular-nums text-zinc-600">{elapsed}</span>
+              <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground/60">
+                {elapsed}
+              </span>
             )}
             {open ? (
-              <ChevronDown className="size-3 shrink-0 text-zinc-600" />
+              <ChevronDown className="size-3 shrink-0 text-muted-foreground/60" />
             ) : (
-              <ChevronRight className="size-3 shrink-0 text-zinc-600" />
+              <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />
             )}
           </div>
         ) : (
@@ -2023,16 +2025,16 @@ export function ToolCallCard({
               <span className="text-red-400/70 text-[10px] animate-pulse">{t('error.label')}</span>
             )}
             {status !== 'streaming' && headerSummary && !open && (
-              <span className="truncate text-muted-foreground/50 max-w-[300px]">
+              <span className="max-w-[300px] truncate text-muted-foreground/70">
                 {headerSummary}
               </span>
             )}
             {elapsed && (
-              <span className="text-muted-foreground/30 tabular-nums text-[10px]">{elapsed}</span>
+              <span className="text-[10px] tabular-nums text-muted-foreground/55">{elapsed}</span>
             )}
             <ChevronDown
               className={cn(
-                'size-3 text-muted-foreground/40 transition-transform duration-200',
+                'size-3 text-muted-foreground/55 transition-transform duration-200',
                 !open && '-rotate-90'
               )}
             />

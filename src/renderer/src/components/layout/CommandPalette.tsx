@@ -36,6 +36,7 @@ import { abortSession, clearPendingSessionMessages } from '@renderer/hooks/use-c
 import { useTheme } from 'next-themes'
 import type { ProviderType } from '@renderer/lib/api/types'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
+import { openSessionOrFocusDetached } from '@renderer/lib/session-window'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 
@@ -387,7 +388,11 @@ export function CommandPalette(): React.JSX.Element {
               <CommandItem
                 key={s.id}
                 value={`${s.title} ${sessionKeywords(s)}`}
-                onSelect={() => runAndClose(() => setActiveSession(s.id))}
+                onSelect={() =>
+                  runAndClose(() => {
+                    void openSessionOrFocusDetached(s.id)
+                  })
+                }
               >
                 {s.mode === 'chat' ? (
                   <MessageSquare className="size-4" />

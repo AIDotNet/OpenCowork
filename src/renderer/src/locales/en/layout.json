@@ -359,6 +359,7 @@
     "autoApproveOff": "Auto-approve OFF",
     "autoApproveOn": "Auto-approve ON (Dangerous)",
     "deleteAllConfirm": "Delete all {{count}} sessions? This cannot be undone.",
+    "deleteConfirm": "Are you sure you want to delete \"{{title}}\"?",
     "deletedSessions": "Deleted {{count}} sessions",
     "importedSessions": "Imported {{count}} sessions",
     "noNewSessions": "No new sessions to import (all already exist)",

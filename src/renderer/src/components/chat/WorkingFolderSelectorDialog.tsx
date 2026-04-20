@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { FolderOpen, Monitor, Pencil, Server } from 'lucide-react'
+import { ArrowRight, FolderOpen, Monitor, Pencil, Server } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
 import { Input } from '@renderer/components/ui/input'
@@ -415,7 +415,30 @@ export function WorkingFolderSelectorDialog({
             </div>
           ) : null}
 
-          <div className="mb-2 flex items-center justify-end">
+          {createMode ? (
+            <button
+              className="group mb-3 flex w-full items-center gap-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/10"
+              onClick={() => void handleSelectOtherFolder()}
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <FolderOpen className="size-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[12px] font-medium text-foreground">
+                  {t('input.selectOtherFolder')}
+                </div>
+                <div className="text-[10px] text-muted-foreground/70">
+                  {t('input.selectOtherFolderHint')}
+                </div>
+              </div>
+              <ArrowRight className="size-4 shrink-0 text-primary/70 transition-transform group-hover:translate-x-0.5" />
+            </button>
+          ) : null}
+
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="text-[10px] font-medium text-muted-foreground/70">
+              {t('input.desktopFolders')}
+            </p>
             <button
               className="text-[10px] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
               onClick={() => void loadDesktopDirectories()}
@@ -455,13 +478,15 @@ export function WorkingFolderSelectorDialog({
               </span>
             )}
 
-            <button
-              className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-              onClick={() => void handleSelectOtherFolder()}
-            >
-              <FolderOpen className="size-3 shrink-0" />
-              {t('input.selectOtherFolder')}
-            </button>
+            {!createMode ? (
+              <button
+                className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                onClick={() => void handleSelectOtherFolder()}
+              >
+                <FolderOpen className="size-3 shrink-0" />
+                {t('input.selectOtherFolder')}
+              </button>
+            ) : null}
           </div>
 
           <div className="mt-3 border-t pt-3">

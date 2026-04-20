@@ -31,6 +31,7 @@ import { toast } from 'sonner'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
 import { AnimatePresence } from 'motion/react'
 import { PageTransition, PanelTransition } from '@renderer/components/animate-ui'
+import { openSessionOrFocusDetached } from '@renderer/lib/session-window'
 import { useShallow } from 'zustand/react/shallow'
 
 const SettingsPage = lazy(async () => {
@@ -357,7 +358,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
           e.key === 'ArrowDown'
             ? (idx + 1) % sorted.length
             : (idx - 1 + sorted.length) % sorted.length
-        store.setActiveSession(sorted[next].id)
+        void openSessionOrFocusDetached(sorted[next].id)
       }
       // Ctrl+Home/End: Scroll to top/bottom of messages
       if ((e.metaKey || e.ctrlKey) && (e.key === 'Home' || e.key === 'End')) {

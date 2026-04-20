@@ -105,108 +105,121 @@ public sealed class GeminiProvider : ILlmProvider
         var emittedThinkingEncrypted = new HashSet<string>(StringComparer.Ordinal);
         var emittedToolCalls = new HashSet<string>(StringComparer.Ordinal);
 
-        await foreach (var chunk in SseStreamReader.ReadAsync<GeminiStreamChunk>(
-            stream,
-            static (eventType, data) =>
-            {
-                if (data.IsEmpty || SseStreamReader.IsDoneSentinel(data))
-                    return null;
-
-                return JsonSerializer.Deserialize(data,
-                    AppJsonContext.Default.GeminiStreamChunk);
-            },
-            ct))
+        try
         {
-            usageMetadata = chunk.UsageMetadata ?? usageMetadata;
-
-            foreach (var candidate in chunk.Candidates ?? [])
-            {
-                pendingStopReason = candidate.FinishReason ?? candidate.FinishReasonCompat ?? pendingStopReason;
-                var parts = candidate.Content?.Parts;
-                if (parts is null)
-                    continue;
-
-                foreach (var part in parts)
+            await foreach (var chunk in SseStreamReader.ReadAsync<GeminiStreamChunk>(
+                stream,
+                static (eventType, data) =>
                 {
-                    var thoughtSignature = (part.ThoughtSignature ?? part.ThoughtSignatureCompat)?.Trim();
-                    if (!string.IsNullOrWhiteSpace(thoughtSignature) && emittedThinkingEncrypted.Add(thoughtSignature))
-                    {
-                        yield return new StreamEvent
-                        {
-                            Type = "thinking_encrypted",
-                            ThinkingEncryptedContent = thoughtSignature,
-                            ThinkingEncryptedProvider = "google"
-                        };
-                    }
+                    if (data.IsEmpty || SseStreamReader.IsDoneSentinel(data))
+                        return null;
 
-                    if (part.Text is not null)
-                    {
-                        firstTokenAt ??= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    return JsonSerializer.Deserialize(data,
+                        AppJsonContext.Default.GeminiStreamChunk);
+                },
+                ct))
+            {
+                usageMetadata = chunk.UsageMetadata ?? usageMetadata;
 
-                        if (part.Thought == true)
-                        {
-                            yield return new StreamEvent
-                            {
-                                Type = "thinking_delta",
-                                Thinking = part.Text
-                            };
-                        }
-                        else
+                foreach (var candidate in chunk.Candidates ?? [])
+                {
+                    pendingStopReason = candidate.FinishReason ?? candidate.FinishReasonCompat ?? pendingStopReason;
+                    var parts = candidate.Content?.Parts;
+                    if (parts is null)
+                        continue;
+
+                    foreach (var part in parts)
+                    {
+                        var thoughtSignature = (part.ThoughtSignature ?? part.ThoughtSignatureCompat)?.Trim();
+                        if (!string.IsNullOrWhiteSpace(thoughtSignature) && emittedThinkingEncrypted.Add(thoughtSignature))
                         {
                             yield return new StreamEvent
                             {
-                                Type = "text_delta",
-                                Text = part.Text
+                                Type = "thinking_encrypted",
+                                ThinkingEncryptedContent = thoughtSignature,
+                                ThinkingEncryptedProvider = "google"
                             };
                         }
-                    }
 
-                    var functionCall = part.FunctionCall ?? part.FunctionCallCompat;
-                    if (functionCall is not null && !string.IsNullOrWhiteSpace(functionCall.Name))
-                    {
-                        firstTokenAt ??= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                        var args = functionCall.Args ?? new Dictionary<string, JsonElement>();
-                        var callId = $"{functionCall.Name}:{JsonSerializer.Serialize(args, AppJsonContext.Default.DictionaryStringJsonElement)}";
-                        if (!emittedToolCalls.Add(callId))
-                            continue;
+                        if (part.Text is not null)
+                        {
+                            firstTokenAt ??= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-                        var extraContent = !string.IsNullOrWhiteSpace(thoughtSignature)
-                            ? new ToolCallExtraContent
+                            if (part.Thought == true)
                             {
-                                Google = new GoogleToolCallExtraContent
+                                yield return new StreamEvent
                                 {
-                                    ThoughtSignature = thoughtSignature
-                                }
+                                    Type = "thinking_delta",
+                                    Thinking = part.Text
+                                };
                             }
-                            : null;
-                        var argumentsDelta = JsonSerializer.Serialize(args, AppJsonContext.Default.DictionaryStringJsonElement);
+                            else
+                            {
+                                yield return new StreamEvent
+                                {
+                                    Type = "text_delta",
+                                    Text = part.Text
+                                };
+                            }
+                        }
 
-                        yield return new StreamEvent
+                        var functionCall = part.FunctionCall ?? part.FunctionCallCompat;
+                        if (functionCall is not null && !string.IsNullOrWhiteSpace(functionCall.Name))
                         {
-                            Type = "tool_call_start",
-                            ToolCallId = callId,
-                            ToolName = functionCall.Name,
-                            ToolCallExtraContent = extraContent
-                        };
+                            firstTokenAt ??= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                            var args = functionCall.Args ?? new Dictionary<string, JsonElement>();
+                            var callId = $"{functionCall.Name}:{JsonSerializer.Serialize(args, AppJsonContext.Default.DictionaryStringJsonElement)}";
+                            if (!emittedToolCalls.Add(callId))
+                                continue;
 
-                        yield return new StreamEvent
-                        {
-                            Type = "tool_call_delta",
-                            ToolCallId = callId,
-                            ArgumentsDelta = argumentsDelta
-                        };
+                            var extraContent = !string.IsNullOrWhiteSpace(thoughtSignature)
+                                ? new ToolCallExtraContent
+                                {
+                                    Google = new GoogleToolCallExtraContent
+                                    {
+                                        ThoughtSignature = thoughtSignature
+                                    }
+                                }
+                                : null;
+                            var argumentsDelta = JsonSerializer.Serialize(args, AppJsonContext.Default.DictionaryStringJsonElement);
 
-                        yield return new StreamEvent
-                        {
-                            Type = "tool_call_end",
-                            ToolCallId = callId,
-                            ToolName = functionCall.Name,
-                            ToolCallInput = args,
-                            ToolCallExtraContent = extraContent
-                        };
+                            yield return new StreamEvent
+                            {
+                                Type = "tool_call_start",
+                                ToolCallId = callId,
+                                ToolName = functionCall.Name,
+                                ToolCallExtraContent = extraContent
+                            };
+
+                            yield return new StreamEvent
+                            {
+                                Type = "tool_call_delta",
+                                ToolCallId = callId,
+                                ArgumentsDelta = argumentsDelta
+                            };
+
+                            yield return new StreamEvent
+                            {
+                                Type = "tool_call_end",
+                                ToolCallId = callId,
+                                ToolName = functionCall.Name,
+                                ToolCallInput = args,
+                                ToolCallExtraContent = extraContent
+                            };
+                        }
                     }
                 }
             }
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && SseStreamReader.IsRetryableTransportFailure(ex))
+        {
+            var transportReadError = SseStreamReader.RememberRetryableTransportFailure(circuitKey, ex);
+            yield return new StreamEvent
+            {
+                Type = "error",
+                Error = SseStreamReader.CreateTransportError(transportReadError)
+            };
+            yield break;
         }
 
         if (!emittedMessageEnd)

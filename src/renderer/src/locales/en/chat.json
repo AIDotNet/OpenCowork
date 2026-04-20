@@ -65,6 +65,7 @@
     "loadingFolders": "Loading folders...",
     "noDesktopFolders": "No folders found on Desktop",
     "selectOtherFolder": "Select other folder",
+    "selectOtherFolderHint": "Open the system folder picker and choose any local directory",
     "sshConnections": "SSH Connections",
     "noSshConnections": "No SSH connections configured",
     "sshDirectory": "Remote directory",

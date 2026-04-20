@@ -11,6 +11,32 @@ interface SessionWindowOpenResult extends SessionWindowHandledResult {
   error?: string
 }
 
+function isDetachedSessionView(): boolean {
+  const search = new URLSearchParams(window.location.search)
+  return search.get('appView') === 'session' && Boolean(search.get('sessionId'))
+}
+
+function leaveDetachedSessionInMainWindow(sessionId: string): void {
+  if (isDetachedSessionView()) return
+
+  const chatStore = useChatStore.getState()
+  const uiStore = useUIStore.getState()
+
+  if (uiStore.chatView !== 'session' || chatStore.activeSessionId !== sessionId) {
+    return
+  }
+
+  const session = chatStore.sessions.find((item) => item.id === sessionId)
+  chatStore.setActiveSession(null)
+
+  if (session?.projectId) {
+    uiStore.navigateToProject(session.projectId)
+    return
+  }
+
+  uiStore.navigateToHome()
+}
+
 function openSessionLocally(sessionId: string): void {
   useChatStore.getState().setActiveSession(sessionId)
   useUIStore.getState().navigateToSession(sessionId)
@@ -37,7 +63,12 @@ export async function openDetachedSessionWindow(sessionId: string): Promise<bool
       sessionId
     )) as SessionWindowOpenResult | null
 
-    return result?.handled === true && !result?.error
+    const handled = result?.handled === true && !result?.error
+    if (handled) {
+      leaveDetachedSessionInMainWindow(sessionId)
+    }
+
+    return handled
   } catch (error) {
     console.error('[SessionWindow] Failed to open detached session window:', sessionId, error)
     return false
@@ -46,6 +77,10 @@ export async function openDetachedSessionWindow(sessionId: string): Promise<bool
 
 export async function openSessionOrFocusDetached(sessionId: string): Promise<void> {
   const handled = await focusDetachedSessionWindowIfOpen(sessionId)
-  if (handled) return
+  if (handled) {
+    leaveDetachedSessionInMainWindow(sessionId)
+    return
+  }
+
   openSessionLocally(sessionId)
 }

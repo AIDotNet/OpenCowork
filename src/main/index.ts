@@ -649,6 +649,15 @@ function registerWindowControlHandlers(): void {
   ipcMain.handle('session-window:focus-if-open', (_event, sessionId: string) => {
     return { handled: focusDetachedSessionWindow(sessionId) }
   })
+
+  ipcMain.on('session-runtime:sync', (event, payload: unknown) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed() || window.webContents.id === event.sender.id) {
+        continue
+      }
+      safeSendToWindow(window, 'session-runtime:sync', payload)
+    }
+  })
 }
 
 function configureAppWindow(window: BrowserWindow, options?: { hideOnClose?: boolean; onClosed?: () => void }): void {

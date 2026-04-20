@@ -99,16 +99,16 @@ export function ToolCallGroup({
     <div className="my-0.5">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="group flex items-center gap-1.5 text-left text-[12px] text-zinc-500 transition-colors hover:text-zinc-100"
+        className="group flex items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[12px] text-muted-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground"
       >
-        <span className="font-medium text-zinc-400 transition-colors group-hover:text-zinc-100">
+        <span className="font-medium text-foreground/80 transition-colors group-hover:text-accent-foreground">
           {summaryLabel}
         </span>
         {isActive && <Loader2 className="size-3 animate-spin text-blue-400/70" />}
         {expanded ? (
-          <ChevronDown className="size-3 text-zinc-600 transition-colors group-hover:text-zinc-400" />
+          <ChevronDown className="size-3 text-muted-foreground/60 transition-colors group-hover:text-accent-foreground" />
         ) : (
-          <ChevronRight className="size-3 text-zinc-600 transition-colors group-hover:text-zinc-400" />
+          <ChevronRight className="size-3 text-muted-foreground/60 transition-colors group-hover:text-accent-foreground" />
         )}
       </button>
 

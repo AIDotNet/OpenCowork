@@ -814,7 +814,7 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
         }}
       >
         <DialogContent
-          className="h-[85vh] max-h-[85vh] gap-0 p-0 sm:max-w-sm flex flex-col"
+          className="flex h-[85vh] max-h-[85vh] gap-0 p-0 sm:max-w-xl flex-col"
           showCloseButton={false}
         >
           <SshConnectionForm

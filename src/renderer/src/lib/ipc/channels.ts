@@ -272,6 +272,7 @@ export const IPC = {
   SSH_WINDOW_OPEN: 'ssh-window:open',
   SESSION_WINDOW_OPEN: 'session-window:open',
   SESSION_WINDOW_FOCUS_IF_OPEN: 'session-window:focus-if-open',
+  SESSION_RUNTIME_SYNC: 'session-runtime:sync',
 
   // Images
   IMAGE_PERSIST_GENERATED: 'image:persist-generated',

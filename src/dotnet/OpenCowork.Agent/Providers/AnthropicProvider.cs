@@ -110,187 +110,200 @@ public sealed class AnthropicProvider : ILlmProvider
         var toolCalls = new Dictionary<int, (string Id, string Name)>();
         var emittedThinkingEncrypted = new HashSet<string>(StringComparer.Ordinal);
 
-        await foreach (var payload in SseStreamReader.ReadAsync<AnthropicSsePayload>(
-            stream,
-            static (eventType, data) =>
-            {
-                if (data.IsEmpty || SseStreamReader.IsDoneSentinel(data))
-                    return null;
-
-                return JsonSerializer.Deserialize(data,
-                    AppJsonContext.Default.AnthropicSsePayload);
-            },
-            ct))
+        try
         {
-            switch (payload.Type)
+            await foreach (var payload in SseStreamReader.ReadAsync<AnthropicSsePayload>(
+                stream,
+                static (eventType, data) =>
+                {
+                    if (data.IsEmpty || SseStreamReader.IsDoneSentinel(data))
+                        return null;
+
+                    return JsonSerializer.Deserialize(data,
+                        AppJsonContext.Default.AnthropicSsePayload);
+                },
+                ct))
             {
-                case "message_start":
-                    var msgUsage = payload.Message?.Usage;
-                    if (msgUsage is not null)
-                    {
-                        pendingUsage.InputTokens = msgUsage.InputTokens ?? 0;
-                        pendingUsage.ContextTokens = pendingUsage.InputTokens;
-
-                        if (msgUsage.CacheCreation?.Ephemeral5mInputTokens is { } cacheCreation5mTokens
-                            || msgUsage.CacheCreation?.Ephemeral1hInputTokens is { } cacheCreation1hTokens)
-                        {
-                            var totalCacheCreationTokens = (msgUsage.CacheCreation?.Ephemeral5mInputTokens ?? 0)
-                                + (msgUsage.CacheCreation?.Ephemeral1hInputTokens ?? 0);
-                            pendingUsage.CacheCreationTokens = totalCacheCreationTokens > 0 ? totalCacheCreationTokens : null;
-                        }
-                        else if (msgUsage.CacheCreationInputTokens.HasValue)
-                        {
-                            pendingUsage.CacheCreationTokens = msgUsage.CacheCreationInputTokens;
-                        }
-
-                        if (msgUsage.CacheReadInputTokens.HasValue)
-                            pendingUsage.CacheReadTokens = msgUsage.CacheReadInputTokens;
-
-                        var billableInputTokens = pendingUsage.InputTokens - (pendingUsage.CacheReadTokens ?? 0);
-                        pendingUsage.BillableInputTokens = billableInputTokens >= 0 ? billableInputTokens : 0;
-                    }
-                    break;
-
-                case "content_block_start":
+                switch (payload.Type)
                 {
-                    var idx = payload.Index ?? -1;
-                    var block = payload.ContentBlock;
-                    if (block?.Type == "tool_use" && idx >= 0)
-                    {
-                        toolBuffers[idx] = new StringBuilder();
-                        toolCalls[idx] = (block.Id ?? "", block.Name ?? "");
-                        yield return new StreamEvent
+                    case "message_start":
+                        var msgUsage = payload.Message?.Usage;
+                        if (msgUsage is not null)
                         {
-                            Type = "tool_call_start",
-                            ToolCallId = block.Id,
-                            ToolName = block.Name
-                        };
-                    }
-                    else if (block?.Type == "thinking")
+                            pendingUsage.InputTokens = msgUsage.InputTokens ?? 0;
+                            pendingUsage.ContextTokens = pendingUsage.InputTokens;
+
+                            if (msgUsage.CacheCreation?.Ephemeral5mInputTokens is { } cacheCreation5mTokens
+                                || msgUsage.CacheCreation?.Ephemeral1hInputTokens is { } cacheCreation1hTokens)
+                            {
+                                var totalCacheCreationTokens = (msgUsage.CacheCreation?.Ephemeral5mInputTokens ?? 0)
+                                    + (msgUsage.CacheCreation?.Ephemeral1hInputTokens ?? 0);
+                                pendingUsage.CacheCreationTokens = totalCacheCreationTokens > 0 ? totalCacheCreationTokens : null;
+                            }
+                            else if (msgUsage.CacheCreationInputTokens.HasValue)
+                            {
+                                pendingUsage.CacheCreationTokens = msgUsage.CacheCreationInputTokens;
+                            }
+
+                            if (msgUsage.CacheReadInputTokens.HasValue)
+                                pendingUsage.CacheReadTokens = msgUsage.CacheReadInputTokens;
+
+                            var billableInputTokens = pendingUsage.InputTokens - (pendingUsage.CacheReadTokens ?? 0);
+                            pendingUsage.BillableInputTokens = billableInputTokens >= 0 ? billableInputTokens : 0;
+                        }
+                        break;
+
+                    case "content_block_start":
                     {
-                        var sig = (block.Signature ?? block.EncryptedContent)?.Trim();
-                        if (!string.IsNullOrWhiteSpace(sig) && emittedThinkingEncrypted.Add(sig))
+                        var idx = payload.Index ?? -1;
+                        var block = payload.ContentBlock;
+                        if (block?.Type == "tool_use" && idx >= 0)
                         {
+                            toolBuffers[idx] = new StringBuilder();
+                            toolCalls[idx] = (block.Id ?? "", block.Name ?? "");
                             yield return new StreamEvent
                             {
-                                Type = "thinking_encrypted",
-                                ThinkingEncryptedContent = sig,
-                                ThinkingEncryptedProvider = "anthropic"
+                                Type = "tool_call_start",
+                                ToolCallId = block.Id,
+                                ToolName = block.Name
                             };
                         }
-                    }
-                    break;
-                }
-
-                case "content_block_delta":
-                {
-                    firstTokenAt ??= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                    var idx = payload.Index ?? -1;
-                    var delta = payload.Delta;
-
-                    if (delta?.Type == "text_delta")
-                    {
-                        yield return new StreamEvent { Type = "text_delta", Text = delta.Text };
-                    }
-                    else if (delta?.Type == "thinking_delta")
-                    {
-                        yield return new StreamEvent { Type = "thinking_delta", Thinking = delta.Thinking };
-                    }
-                    else if (delta?.Type == "signature_delta")
-                    {
-                        var sig = (delta.Signature ?? delta.EncryptedContent)?.Trim();
-                        if (!string.IsNullOrWhiteSpace(sig) && emittedThinkingEncrypted.Add(sig))
+                        else if (block?.Type == "thinking")
                         {
-                            yield return new StreamEvent
+                            var sig = (block.Signature ?? block.EncryptedContent)?.Trim();
+                            if (!string.IsNullOrWhiteSpace(sig) && emittedThinkingEncrypted.Add(sig))
                             {
-                                Type = "thinking_encrypted",
-                                ThinkingEncryptedContent = sig,
-                                ThinkingEncryptedProvider = "anthropic"
-                            };
+                                yield return new StreamEvent
+                                {
+                                    Type = "thinking_encrypted",
+                                    ThinkingEncryptedContent = sig,
+                                    ThinkingEncryptedProvider = "anthropic"
+                                };
+                            }
                         }
+                        break;
                     }
-                    else if (delta?.Type == "input_json_delta" && idx >= 0)
-                    {
-                        if (toolBuffers.TryGetValue(idx, out var buf))
-                        {
-                            buf.Append(delta.PartialJson);
 
-                            var tc = toolCalls.GetValueOrDefault(idx);
+                    case "content_block_delta":
+                    {
+                        firstTokenAt ??= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                        var idx = payload.Index ?? -1;
+                        var delta = payload.Delta;
+
+                        if (delta?.Type == "text_delta")
+                        {
+                            yield return new StreamEvent { Type = "text_delta", Text = delta.Text };
+                        }
+                        else if (delta?.Type == "thinking_delta")
+                        {
+                            yield return new StreamEvent { Type = "thinking_delta", Thinking = delta.Thinking };
+                        }
+                        else if (delta?.Type == "signature_delta")
+                        {
+                            var sig = (delta.Signature ?? delta.EncryptedContent)?.Trim();
+                            if (!string.IsNullOrWhiteSpace(sig) && emittedThinkingEncrypted.Add(sig))
+                            {
+                                yield return new StreamEvent
+                                {
+                                    Type = "thinking_encrypted",
+                                    ThinkingEncryptedContent = sig,
+                                    ThinkingEncryptedProvider = "anthropic"
+                                };
+                            }
+                        }
+                        else if (delta?.Type == "input_json_delta" && idx >= 0)
+                        {
+                            if (toolBuffers.TryGetValue(idx, out var buf))
+                            {
+                                buf.Append(delta.PartialJson);
+
+                                var tc = toolCalls.GetValueOrDefault(idx);
+                                yield return new StreamEvent
+                                {
+                                    Type = "tool_call_delta",
+                                    ToolCallId = tc.Id,
+                                    ArgumentsDelta = delta.PartialJson
+                                };
+                            }
+                        }
+                        break;
+                    }
+
+                    case "content_block_stop":
+                    {
+                        var idx = payload.Index ?? -1;
+                        if (toolCalls.TryGetValue(idx, out var tc))
+                        {
+                            var raw = toolBuffers.GetValueOrDefault(idx)?.ToString()?.Trim() ?? "";
+                            var input = ProviderMessageFormatter.ParseToolInputObject(raw);
+
                             yield return new StreamEvent
                             {
-                                Type = "tool_call_delta",
+                                Type = "tool_call_end",
                                 ToolCallId = tc.Id,
-                                ArgumentsDelta = delta.PartialJson
+                                ToolName = tc.Name,
+                                ToolCallInput = input
                             };
-                        }
-                    }
-                    break;
-                }
 
-                case "content_block_stop":
-                {
-                    var idx = payload.Index ?? -1;
-                    if (toolCalls.TryGetValue(idx, out var tc))
+                            toolBuffers.Remove(idx);
+                            toolCalls.Remove(idx);
+                        }
+                        break;
+                    }
+
+                    case "message_delta":
                     {
-                        var raw = toolBuffers.GetValueOrDefault(idx)?.ToString()?.Trim() ?? "";
-                        var input = ProviderMessageFormatter.ParseToolInputObject(raw);
+                        var completedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                        if (payload.Usage?.OutputTokens is { } outTok)
+                        {
+                            pendingUsage.OutputTokens = outTok;
+                            outputTokens = outTok;
+                        }
 
                         yield return new StreamEvent
                         {
-                            Type = "tool_call_end",
-                            ToolCallId = tc.Id,
-                            ToolName = tc.Name,
-                            ToolCallInput = input
+                            Type = "message_end",
+                            StopReason = payload.Delta?.StopReason,
+                            Usage = new TokenUsage
+                            {
+                                InputTokens = pendingUsage.InputTokens,
+                                OutputTokens = pendingUsage.OutputTokens,
+                                BillableInputTokens = pendingUsage.BillableInputTokens,
+                                CacheCreationTokens = pendingUsage.CacheCreationTokens,
+                                CacheReadTokens = pendingUsage.CacheReadTokens,
+                                ContextTokens = pendingUsage.ContextTokens
+                            },
+                            Timing = new RequestTiming
+                            {
+                                TotalMs = completedAt - requestStartedAt,
+                                TtftMs = firstTokenAt.HasValue ? firstTokenAt.Value - requestStartedAt : null,
+                                Tps = ComputeTps(outputTokens, firstTokenAt, completedAt)
+                            }
                         };
-
-                        toolBuffers.Remove(idx);
-                        toolCalls.Remove(idx);
-                    }
-                    break;
-                }
-
-                case "message_delta":
-                {
-                    var completedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                    if (payload.Usage?.OutputTokens is { } outTok)
-                    {
-                        pendingUsage.OutputTokens = outTok;
-                        outputTokens = outTok;
+                        break;
                     }
 
-                    yield return new StreamEvent
-                    {
-                        Type = "message_end",
-                        StopReason = payload.Delta?.StopReason,
-                        Usage = new TokenUsage
+                    case "error":
+                        yield return new StreamEvent
                         {
-                            InputTokens = pendingUsage.InputTokens,
-                            OutputTokens = pendingUsage.OutputTokens,
-                            BillableInputTokens = pendingUsage.BillableInputTokens,
-                            CacheCreationTokens = pendingUsage.CacheCreationTokens,
-                            CacheReadTokens = pendingUsage.CacheReadTokens,
-                            ContextTokens = pendingUsage.ContextTokens
-                        },
-                        Timing = new RequestTiming
-                        {
-                            TotalMs = completedAt - requestStartedAt,
-                            TtftMs = firstTokenAt.HasValue ? firstTokenAt.Value - requestStartedAt : null,
-                            Tps = ComputeTps(outputTokens, firstTokenAt, completedAt)
-                        }
-                    };
-                    break;
+                            Type = "error",
+                            Error = payload.Error is not null
+                                ? new StreamEventError { Type = payload.Error.Type, Message = payload.Error.Message }
+                                : null
+                        };
+                        break;
                 }
-
-                case "error":
-                    yield return new StreamEvent
-                    {
-                        Type = "error",
-                        Error = payload.Error is not null
-                            ? new StreamEventError { Type = payload.Error.Type, Message = payload.Error.Message }
-                            : null
-                    };
-                    break;
             }
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && SseStreamReader.IsRetryableTransportFailure(ex))
+        {
+            var transportReadError = SseStreamReader.RememberRetryableTransportFailure(circuitKey, ex);
+            yield return new StreamEvent
+            {
+                Type = "error",
+                Error = SseStreamReader.CreateTransportError(transportReadError)
+            };
+            yield break;
         }
     }
 

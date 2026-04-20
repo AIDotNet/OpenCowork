@@ -13,15 +13,75 @@ import { ResponsesWebSocketSessionManager } from '../lib/responses-websocket-ses
 
 const MAX_RESPONSE_BODY_CHARS = 10_000_000
 
-// Retry policy for transient AI provider failures: HTTP 429 (rate limited) and HTTP 500 (server error).
-// Total requests sent = 1 initial + up to MAX_RETRY_ATTEMPTS retries.
+// Retry policy for transient AI provider failures.
+// Total requests sent = 1 initial + up to MAX_RETRY_ATTEMPTS retries for HTTP status failures.
 const MAX_RETRY_ATTEMPTS = 10
+const MAX_TRANSPORT_RETRY_ATTEMPTS = 3
 const RETRY_BASE_DELAY_MS = 1000
 const RETRY_MAX_DELAY_MS = 30_000
 const RETRY_MAX_RETRY_AFTER_MS = 60_000
+const API_STREAM_CIRCUIT_BREAK_MS = 60_000
+
+const apiStreamCircuitBreakers = new Map<string, { expiresAt: number; reason: string }>()
 
 function isRetryableStatus(status: number): boolean {
-  return status === 500 || status === 429
+  return status === 429 || status >= 500
+}
+
+function shouldCircuitBreakStatus(status: number): boolean {
+  return status >= 500
+}
+
+function isRetryableTransportMessage(message: string | undefined): boolean {
+  if (!message) return false
+  return (
+    /the response ended prematurely/i.test(message) ||
+    /\bresponseended\b/i.test(message) ||
+    /unexpected eof/i.test(message) ||
+    /0 bytes from the transport stream/i.test(message) ||
+    /socket hang up/i.test(message) ||
+    /\beconnreset\b/i.test(message) ||
+    /\beconnaborted\b/i.test(message) ||
+    /\betimedout\b/i.test(message) ||
+    /ssl connection could not be established/i.test(message) ||
+    /connection timed out/i.test(message) ||
+    /request timed out/i.test(message) ||
+    /connection timeout/i.test(message) ||
+    /stream idle timeout/i.test(message) ||
+    /^connection closed$/i.test(message.trim())
+  )
+}
+
+function buildApiStreamCircuitKey(
+  req: Pick<APIStreamRequest, 'url' | 'providerId' | 'providerBuiltinId' | 'accountId'>
+): string {
+  const scope = req.accountId || req.providerId || req.providerBuiltinId || 'unknown'
+  try {
+    return `${scope}::${new URL(req.url).origin}`
+  } catch {
+    return `${scope}::${req.url}`
+  }
+}
+
+function getApiStreamCircuitReason(circuitKey: string): string | null {
+  const state = apiStreamCircuitBreakers.get(circuitKey)
+  if (!state) return null
+  if (state.expiresAt <= Date.now()) {
+    apiStreamCircuitBreakers.delete(circuitKey)
+    return null
+  }
+  return state.reason
+}
+
+function setApiStreamCircuitReason(circuitKey: string, reason: string): void {
+  apiStreamCircuitBreakers.set(circuitKey, {
+    expiresAt: Date.now() + API_STREAM_CIRCUIT_BREAK_MS,
+    reason
+  })
+}
+
+function resetApiStreamCircuit(circuitKey: string): void {
+  apiStreamCircuitBreakers.delete(circuitKey)
 }
 
 function parseRetryAfterMs(value: string | string[] | undefined): number | undefined {
@@ -50,8 +110,8 @@ function computeBackoffMs(attempt: number, retryAfterMs: number | undefined): nu
 
 type AttemptResult =
   | { kind: 'streamed' }
-  | { kind: 'retryable'; status: number; body: string; retryAfterMs?: number }
-  | { kind: 'fatal'; status: number; body: string }
+  | { kind: 'retryable'; status: number; body: string; retryAfterMs?: number; errorType?: string }
+  | { kind: 'fatal'; status: number; body: string; errorType?: string }
   | { kind: 'fallback'; reason: string }
 
 interface APIStreamRequest {
@@ -622,6 +682,7 @@ export function registerApiProxyHandlers(): void {
       providerBuiltinId,
       accountId
     } = req
+    const circuitKey = buildApiStreamCircuitKey({ url, providerId, providerBuiltinId, accountId })
 
     console.log(`[API Proxy] stream-request[${requestId}] ${method} ${url}`)
 
@@ -639,9 +700,16 @@ export function registerApiProxyHandlers(): void {
     }
     ipcMain.on('api:abort', abortHandler)
 
-    const sendError = (error: string): void => {
+    const sendError = (payload: { message: string; type?: string; statusCode?: number }): void => {
       const sender = getSender(event)
-      if (sender) sender.send('api:stream-error', { requestId, error })
+      if (sender) {
+        sender.send('api:stream-error', {
+          requestId,
+          error: payload.message,
+          type: payload.type,
+          statusCode: payload.statusCode
+        })
+      }
     }
 
     const waitForRetry = (ms: number): Promise<void> =>
@@ -660,6 +728,13 @@ export function registerApiProxyHandlers(): void {
           resolve()
         }
       })
+
+    const openCircuitReason = getApiStreamCircuitReason(circuitKey)
+    if (openCircuitReason) {
+      sendError({ message: openCircuitReason, type: 'transport_circuit_open' })
+      ipcMain.removeListener('api:abort', abortHandler)
+      return
+    }
 
     const runOneHttpAttempt = async (args?: {
       debugInfo?: {
@@ -681,6 +756,7 @@ export function registerApiProxyHandlers(): void {
         let chunkFlushTimer: ReturnType<typeof setTimeout> | null = null
         let settled = false
         let completed = false
+        let deliveredAnyChunk = false
 
         const finish = (result: AttemptResult): void => {
           if (settled) return
@@ -702,6 +778,7 @@ export function registerApiProxyHandlers(): void {
           const sender = getSender(event)
           if (sender) {
             sender.send('api:stream-chunk', { requestId, data: bufferedChunk })
+            deliveredAnyChunk = true
           }
           bufferedChunk = ''
         }
@@ -721,6 +798,17 @@ export function registerApiProxyHandlers(): void {
             return
           }
           queueChunkFlush()
+        }
+
+        const buildTransportAttemptResult = (message: string): AttemptResult => {
+          const trimmed = message.trim()
+          const retryableTransport = isRetryableTransportMessage(trimmed)
+          return {
+            kind: retryableTransport && !deliveredAnyChunk ? 'retryable' : 'fatal',
+            status: 0,
+            body: trimmed || 'Unknown transport error',
+            ...(retryableTransport ? { errorType: 'transport_error' } : {})
+          }
         }
 
         // Timeouts (ms):
@@ -825,7 +913,8 @@ export function registerApiProxyHandlers(): void {
                     kind,
                     status: statusCode,
                     body: errorBody,
-                    retryAfterMs
+                    retryAfterMs,
+                    errorType: `http_${statusCode}`
                   } as AttemptResult)
                 })
                 return
@@ -852,7 +941,7 @@ export function registerApiProxyHandlers(): void {
                 console.error(
                   `[API Proxy] stream-request[${requestId}] response error: ${err.message}`
                 )
-                finish({ kind: 'fatal', status: 0, body: err.message })
+                finish(buildTransportAttemptResult(err.message))
               })
             })
 
@@ -862,11 +951,9 @@ export function registerApiProxyHandlers(): void {
                   `[API Proxy] Connection timeout (${CONNECTION_TIMEOUT}ms) for ${requestId}`
                 )
                 cancelNetRequest(httpReq)
-                finish({
-                  kind: 'fatal',
-                  status: 0,
-                  body: `Connection timeout (${CONNECTION_TIMEOUT / 1000}s)`
-                })
+                finish(
+                  buildTransportAttemptResult(`Connection timeout (${CONNECTION_TIMEOUT / 1000}s)`)
+                )
               }, CONNECTION_TIMEOUT)
             }
 
@@ -878,7 +965,7 @@ export function registerApiProxyHandlers(): void {
               console.error(
                 `[API Proxy] stream-request[${requestId}] request error: ${err.message}`
               )
-              finish({ kind: 'fatal', status: 0, body: err.message })
+              finish(buildTransportAttemptResult(err.message))
             })
 
             httpReq.on('close', () => {
@@ -887,8 +974,7 @@ export function registerApiProxyHandlers(): void {
               clearChunkFlushTimer()
               bufferedChunk = ''
               // 正常流结束后，底层连接 close 是预期行为，不应再报错。
-              if (!settled && !completed)
-                finish({ kind: 'fatal', status: 0, body: 'Connection closed' })
+              if (!settled && !completed) finish(buildTransportAttemptResult('Connection closed'))
             })
 
             if (bodyBuffer) httpReq.write(bodyBuffer)
@@ -955,7 +1041,8 @@ export function registerApiProxyHandlers(): void {
                   kind: rateLimit ? 'fatal' : isRetryableStatus(statusCode) ? 'retryable' : 'fatal',
                   status: statusCode,
                   body: errorBody,
-                  retryAfterMs
+                  retryAfterMs,
+                  errorType: `http_${statusCode}`
                 } as AttemptResult)
               })
               return
@@ -992,7 +1079,7 @@ export function registerApiProxyHandlers(): void {
               console.error(
                 `[API Proxy] stream-request[${requestId}] response error: ${err.message}`
               )
-              finish({ kind: 'fatal', status: 0, body: err.message })
+              finish(buildTransportAttemptResult(err.message))
             })
           })
 
@@ -1017,15 +1104,14 @@ export function registerApiProxyHandlers(): void {
             clearChunkFlushTimer()
             bufferedChunk = ''
             console.error(`[API Proxy] stream-request[${requestId}] request error: ${err.message}`)
-            finish({ kind: 'fatal', status: 0, body: err.message })
+            finish(buildTransportAttemptResult(err.message))
           })
 
           httpReq.on('close', () => {
             clearIdleTimer()
             clearChunkFlushTimer()
             bufferedChunk = ''
-            if (!settled && !completed)
-              finish({ kind: 'fatal', status: 0, body: 'Connection closed' })
+            if (!settled && !completed) finish(buildTransportAttemptResult('Connection closed'))
           })
 
           if (bodyBuffer) httpReq.write(bodyBuffer)
@@ -1033,7 +1119,7 @@ export function registerApiProxyHandlers(): void {
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err)
           console.error(`[API Proxy] stream-request[${requestId}] fatal error: ${errMsg}`)
-          finish({ kind: 'fatal', status: 0, body: errMsg })
+          finish(buildTransportAttemptResult(errMsg))
         }
       })
     }
@@ -1046,31 +1132,79 @@ export function registerApiProxyHandlers(): void {
       fallbackReason?: string
       reusedConnection?: boolean
     }): Promise<boolean> => {
-      for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      let httpStatusAttempt = 0
+      let transportAttempt = 0
+      const shouldCircuitBreakResult = (
+        result: Extract<AttemptResult, { kind: 'retryable' | 'fatal' }>
+      ): boolean => {
+        if (result.status > 0) return shouldCircuitBreakStatus(result.status)
+        return result.errorType === 'transport_error' && isRetryableTransportMessage(result.body)
+      }
+      const buildCircuitReason = (
+        result: Extract<AttemptResult, { kind: 'retryable' | 'fatal' }>
+      ): string => {
+        const trimmed = result.body.trim().slice(0, 500)
+        const lastError =
+          result.status > 0
+            ? `HTTP ${result.status}${trimmed ? `: ${trimmed}` : ''}`
+            : trimmed || 'Unknown transport error'
+        return `Provider circuit is open after repeated upstream failures. Last error: ${lastError}`
+      }
+
+      while (true) {
         if (aborted) return true
         const result = await runOneHttpAttempt(
-          attempt === 0 && debugInfo ? { debugInfo } : undefined
+          httpStatusAttempt === 0 && transportAttempt === 0 && debugInfo ? { debugInfo } : undefined
         )
         if (aborted) return true
-        if (result.kind === 'streamed') return true
-        if (result.kind === 'retryable' && attempt < MAX_RETRY_ATTEMPTS) {
-          const delay = computeBackoffMs(attempt, result.retryAfterMs)
-          console.warn(
-            `[API Proxy] stream-request[${requestId}] HTTP ${result.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRY_ATTEMPTS})`
-          )
-          await waitForRetry(delay)
-          continue
+        if (result.kind === 'streamed') {
+          resetApiStreamCircuit(circuitKey)
+          return true
+        }
+        if (result.kind === 'retryable') {
+          const transportRetryable = result.status === 0 && result.errorType === 'transport_error'
+          const attemptsUsed = transportRetryable ? transportAttempt : httpStatusAttempt
+          const attemptLimit = transportRetryable
+            ? MAX_TRANSPORT_RETRY_ATTEMPTS
+            : MAX_RETRY_ATTEMPTS
+
+          if (attemptsUsed < attemptLimit) {
+            const delay = computeBackoffMs(attemptsUsed, result.retryAfterMs)
+            const reasonLabel =
+              result.status > 0
+                ? `HTTP ${result.status}`
+                : result.body.slice(0, 120) || 'transport error'
+            console.warn(
+              `[API Proxy] stream-request[${requestId}] ${reasonLabel}, retrying in ${delay}ms (attempt ${attemptsUsed + 1}/${attemptLimit})`
+            )
+            if (transportRetryable) {
+              transportAttempt += 1
+            } else {
+              httpStatusAttempt += 1
+            }
+            await waitForRetry(delay)
+            continue
+          }
         }
         if (result.kind === 'fallback') {
           continue
         }
+        if (
+          (result.kind === 'retryable' || result.kind === 'fatal') &&
+          shouldCircuitBreakResult(result)
+        ) {
+          setApiStreamCircuitReason(circuitKey, buildCircuitReason(result))
+        }
         const trimmed = result.body.slice(0, 2000)
         const errorMessage =
           result.status > 0 ? `HTTP ${result.status}: ${trimmed}` : trimmed || 'Unknown error'
-        sendError(errorMessage)
+        sendError({
+          message: errorMessage,
+          type: result.errorType,
+          ...(result.status > 0 ? { statusCode: result.status } : {})
+        })
         return false
       }
-      return true
     }
 
     const runResponsesWsAttempt = async (args: {
@@ -1202,7 +1336,7 @@ export function registerApiProxyHandlers(): void {
       }
 
       const trimmed = wsResult.body.slice(0, 2000)
-      sendError(trimmed || 'Unknown WebSocket error')
+      sendError({ message: trimmed || 'Unknown WebSocket error' })
     })().finally(() => {
       ipcMain.removeListener('api:abort', abortHandler)
     })

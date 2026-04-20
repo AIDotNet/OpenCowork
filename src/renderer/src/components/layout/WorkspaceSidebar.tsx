@@ -98,8 +98,14 @@ const MINUTE_MS = 60 * 1000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
 const WEEK_MS = 7 * DAY_MS
-const SIDEBAR_TREE_ROW_CLASS = 'min-h-8 rounded-lg'
-const SIDEBAR_TREE_ACTION_BUTTON_CLASS = 'size-6 rounded-md'
+const SIDEBAR_TREE_ROW_CLASS = 'min-h-8 rounded-lg border border-transparent'
+const SIDEBAR_TREE_ACTIVE_CLASS =
+  'border-border/70 bg-accent text-accent-foreground shadow-[0_1px_2px_rgba(15,23,42,0.06)]'
+const SIDEBAR_TREE_HOVER_CLASS =
+  'text-foreground/85 hover:border-border/70 hover:bg-accent hover:text-accent-foreground'
+const SIDEBAR_TREE_SUBITEM_HOVER_CLASS =
+  'text-foreground/80 hover:border-border/60 hover:bg-accent/80 hover:text-accent-foreground'
+const SIDEBAR_TREE_ACTION_BUTTON_CLASS = 'size-6 rounded-md text-muted-foreground'
 const SIDEBAR_TREE_LABEL_CLASS = 'text-[13px] leading-5'
 const SIDEBAR_TREE_META_CLASS = 'text-[10px]'
 
@@ -766,8 +772,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
       type="button"
       onClick={item.onClick}
       className={cn(
-        'flex h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium transition-colors',
-        item.active ? 'bg-accent text-accent-foreground' : 'text-foreground/80 hover:bg-muted/40'
+        'flex h-8 w-full items-center gap-2 px-2 text-[13px] font-medium transition-colors',
+        SIDEBAR_TREE_ROW_CLASS,
+        item.active ? SIDEBAR_TREE_ACTIVE_CLASS : SIDEBAR_TREE_HOVER_CLASS
       )}
     >
       {item.icon}
@@ -799,9 +806,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
             className={cn(
               'group/session flex w-full items-center gap-1.5 px-1.5 py-1 text-left transition-colors',
               SIDEBAR_TREE_ROW_CLASS,
-              active
-                ? 'bg-accent/90 text-accent-foreground'
-                : 'text-foreground/80 hover:bg-muted/45 hover:text-foreground'
+              active ? SIDEBAR_TREE_ACTIVE_CLASS : SIDEBAR_TREE_HOVER_CLASS
             )}
             onClick={() => openSession(session.id)}
           >
@@ -990,10 +995,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
               <button
                 type="button"
                 className={cn(
-                  'flex h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium transition-colors',
-                  featureMenuActive
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground/80 hover:bg-muted/40'
+                  'flex h-8 w-full items-center gap-2 px-2 text-[13px] font-medium transition-colors',
+                  SIDEBAR_TREE_ROW_CLASS,
+                  featureMenuActive ? SIDEBAR_TREE_ACTIVE_CLASS : SIDEBAR_TREE_HOVER_CLASS
                 )}
               >
                 <FolderOpen className="size-4 shrink-0" />
@@ -1019,10 +1023,11 @@ export function WorkspaceSidebar(): React.JSX.Element {
                     type="button"
                     onClick={() => useUIStore.getState().openResourcesPage()}
                     className={cn(
-                      'flex h-7 w-full items-center gap-2 rounded-lg px-2 text-[12px] font-medium transition-colors',
+                      'flex h-7 w-full items-center gap-2 px-2 text-[12px] font-medium transition-colors',
+                      SIDEBAR_TREE_ROW_CLASS,
                       resourcesPageOpen
-                        ? 'bg-accent/80 text-accent-foreground'
-                        : 'text-foreground/75 hover:bg-muted/40 hover:text-foreground'
+                        ? SIDEBAR_TREE_ACTIVE_CLASS
+                        : SIDEBAR_TREE_SUBITEM_HOVER_CLASS
                     )}
                   >
                     <FolderOpen className="size-3.5 shrink-0" />
@@ -1032,10 +1037,11 @@ export function WorkspaceSidebar(): React.JSX.Element {
                     type="button"
                     onClick={() => useUIStore.getState().openSkillsPage()}
                     className={cn(
-                      'flex h-7 w-full items-center gap-2 rounded-lg px-2 text-[12px] font-medium transition-colors',
+                      'flex h-7 w-full items-center gap-2 px-2 text-[12px] font-medium transition-colors',
+                      SIDEBAR_TREE_ROW_CLASS,
                       skillsPageOpen
-                        ? 'bg-accent/80 text-accent-foreground'
-                        : 'text-foreground/75 hover:bg-muted/40 hover:text-foreground'
+                        ? SIDEBAR_TREE_ACTIVE_CLASS
+                        : SIDEBAR_TREE_SUBITEM_HOVER_CLASS
                     )}
                   >
                     <Wand2 className="size-3.5 shrink-0" />
@@ -1139,8 +1145,8 @@ export function WorkspaceSidebar(): React.JSX.Element {
                               'group/project flex items-center gap-1.5 px-1.5 py-1 transition-colors',
                               SIDEBAR_TREE_ROW_CLASS,
                               isProjectActive
-                                ? 'bg-accent/80 text-accent-foreground'
-                                : 'hover:bg-muted/40'
+                                ? SIDEBAR_TREE_ACTIVE_CLASS
+                                : SIDEBAR_TREE_HOVER_CLASS
                             )}
                           >
                             <Button
@@ -1454,7 +1460,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
                               {canToggleExpansion ? (
                                 <button
                                   type="button"
-                                  className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+                                  className={cn(
+                                    'flex h-6 items-center gap-1 rounded-md border border-transparent px-1.5 text-[10px] text-muted-foreground transition-colors',
+                                    'hover:border-border/60 hover:bg-accent/80 hover:text-accent-foreground'
+                                  )}
                                   onClick={() => toggleProjectExpansion(project.id)}
                                 >
                                   {expandedProjectIds.has(project.id) ? (
@@ -1575,7 +1584,11 @@ export function WorkspaceSidebar(): React.JSX.Element {
 
             <Button
               variant="ghost"
-              className="h-8 flex-1 justify-between gap-2 px-2 text-[12px] text-foreground/80 hover:bg-muted/40"
+              className={cn(
+                'h-8 flex-1 justify-between gap-2 px-2 text-[12px]',
+                SIDEBAR_TREE_ROW_CLASS,
+                SIDEBAR_TREE_HOVER_CLASS
+              )}
               onClick={() => useUIStore.getState().openSettingsPage('general')}
             >
               <span className="flex min-w-0 items-center gap-2">

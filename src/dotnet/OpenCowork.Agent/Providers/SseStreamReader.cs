@@ -74,13 +74,13 @@ public static class SseStreamReader
 
     /// <summary>
     /// Max number of retry attempts for retryable HTTP status failures
-    /// (currently HTTP 500/429).
+    /// (HTTP 429 and all 5xx responses).
     /// </summary>
     private const int MaxHttpStatusRetryAttempts = 10;
 
     /// <summary>
     /// Max number of retry attempts for retryable transport failures before
-    /// opening a short-lived transport circuit for the same provider endpoint.
+    /// opening a short-lived provider circuit for the same provider endpoint.
     /// </summary>
     private const int MaxTransportRetryAttempts = 3;
 
@@ -158,7 +158,7 @@ public static class SseStreamReader
             {
                 response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             }
-            catch (HttpRequestException ex) when (IsRetryableTransportException(ex))
+            catch (HttpRequestException ex) when (IsRetryableTransportFailure(ex))
             {
                 request.Dispose();
                 if (transportAttempt < MaxTransportRetryAttempts)
@@ -189,7 +189,7 @@ public static class SseStreamReader
             }
 
             var status = (int)response.StatusCode;
-            if ((status == 500 || status == 429) && httpStatusAttempt < MaxHttpStatusRetryAttempts)
+            if (IsRetryableHttpStatus(status) && httpStatusAttempt < MaxHttpStatusRetryAttempts)
             {
                 var delay = ComputeRetryDelay(httpStatusAttempt, response);
                 response.Dispose();
@@ -197,6 +197,12 @@ public static class SseStreamReader
                 httpStatusAttempt++;
                 await Task.Delay(delay, ct);
                 continue;
+            }
+
+            if (ShouldOpenCircuitForStatus(status))
+            {
+                OpenProviderCircuit(normalizedCircuitKey, $"HTTP {status}");
+                return response;
             }
 
             ResetTransportCircuit(normalizedCircuitKey);
@@ -241,14 +247,21 @@ public static class SseStreamReader
         return TimeSpan.FromMilliseconds(Math.Max(100, jittered));
     }
 
-    private static bool IsRetryableTransportException(HttpRequestException ex)
+    public static bool IsRetryableTransportFailure(Exception ex)
     {
-        if (ex.StatusCode is not null)
-            return false;
-
         return EnumerateExceptionChain(ex).Any(static candidate =>
             candidate is IOException ioEx && HasRetryableTransportMessage(ioEx.Message)
-            || candidate is HttpRequestException httpEx && HasRetryableTransportMessage(httpEx.Message));
+            || candidate is HttpRequestException httpEx
+                && httpEx.StatusCode is null
+                && HasRetryableTransportMessage(httpEx.Message));
+    }
+
+    public static HttpRequestException RememberRetryableTransportFailure(string circuitKey, Exception ex)
+    {
+        var wrapped = ex as HttpRequestException ?? new HttpRequestException(ex.Message, ex);
+        if (IsRetryableTransportFailure(wrapped))
+            OpenTransportCircuit(circuitKey, wrapped);
+        return wrapped;
     }
 
     private static bool HasRetryableTransportMessage(string? message)
@@ -287,6 +300,19 @@ public static class SseStreamReader
         var state = new TransportCircuitState(
             DateTimeOffset.UtcNow.Add(TransportCircuitBreakDuration),
             NormalizeTransportFailureReason(ex));
+        return OpenProviderCircuit(circuitKey, state);
+    }
+
+    private static TransportCircuitState OpenProviderCircuit(string circuitKey, string reason)
+    {
+        var state = new TransportCircuitState(
+            DateTimeOffset.UtcNow.Add(TransportCircuitBreakDuration),
+            reason.Trim());
+        return OpenProviderCircuit(circuitKey, state);
+    }
+
+    private static TransportCircuitState OpenProviderCircuit(string circuitKey, TransportCircuitState state)
+    {
         TransportCircuitBreakers[circuitKey] = state;
         return state;
     }
@@ -319,8 +345,14 @@ public static class SseStreamReader
     {
         var remaining = state.ExpiresAt - DateTimeOffset.UtcNow;
         var remainingSeconds = Math.Max(1, (int)Math.Ceiling(remaining.TotalSeconds));
-        return $"Failed to send {method} {url}: transport circuit is open for {remainingSeconds}s after repeated transport failures. Last error: {state.Reason}";
+        return $"Failed to send {method} {url}: provider circuit is open for {remainingSeconds}s after repeated upstream failures. Last error: {state.Reason}";
     }
+
+    private static bool IsRetryableHttpStatus(int status)
+        => status == 429 || status >= 500;
+
+    private static bool ShouldOpenCircuitForStatus(int status)
+        => status >= 500;
 
     private static TimeSpan CapDelay(TimeSpan delay)
     {

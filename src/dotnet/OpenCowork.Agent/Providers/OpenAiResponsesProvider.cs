@@ -551,9 +551,9 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
 
                     httpEvent = httpStream.Current;
                 }
-                catch (HttpRequestException ex) when (!ct.IsCancellationRequested)
+                catch (Exception ex) when (!ct.IsCancellationRequested && SseStreamReader.IsRetryableTransportFailure(ex))
                 {
-                    transportError = ex;
+                    transportError = SseStreamReader.RememberRetryableTransportFailure(circuitKey, ex);
                     break;
                 }
                 catch (ResponsesHttpErrorException ex) when (!ct.IsCancellationRequested)

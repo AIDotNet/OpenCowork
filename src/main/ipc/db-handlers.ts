@@ -139,16 +139,11 @@ export function registerDbHandlers(options: RegisterDbHandlersOptions = {}): voi
         longRunningMode?: boolean
       }
     ) => {
-      let projectId = session.projectId
+      const projectId = session.projectId
       let workingFolder = session.workingFolder
       let sshConnectionId = session.sshConnectionId
 
-      if (!projectId) {
-        const project = projectsDao.ensureDefaultProject()
-        projectId = project.id
-        if (workingFolder === undefined) workingFolder = project.working_folder ?? undefined
-        if (sshConnectionId === undefined) sshConnectionId = project.ssh_connection_id ?? undefined
-      } else {
+      if (projectId) {
         const project = projectsDao.getProject(projectId)
         if (project) {
           if (workingFolder === undefined) workingFolder = project.working_folder ?? undefined

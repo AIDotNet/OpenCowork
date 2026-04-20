@@ -1501,14 +1501,10 @@ export const useChatStore = create<ChatStore>()(
         }
 
         const projectMap = new Map(projects.map((project) => [project.id, project]))
-        const fallbackProject = projects.find((project) => !project.pluginId) ?? projects[0]
 
         const sessionRows = (await ipcClient.invoke('db:sessions:list')) as SessionRow[]
         const sessions: Session[] = sessionRows.map((row) => {
           const session = rowToSession(row, [])
-          if (!session.projectId && fallbackProject) {
-            session.projectId = fallbackProject.id
-          }
           if (session.projectId) {
             const project = projectMap.get(session.projectId)
             if (project) {

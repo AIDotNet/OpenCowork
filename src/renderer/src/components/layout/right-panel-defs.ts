@@ -99,8 +99,5 @@ export function clampRightPanelWidth(width: number): number {
 }
 
 export function clampWorkingFolderPanelWidth(width: number): number {
-  return Math.min(
-    WORKING_FOLDER_PANEL_MAX_WIDTH,
-    Math.max(WORKING_FOLDER_PANEL_MIN_WIDTH, width)
-  )
+  return Math.min(WORKING_FOLDER_PANEL_MAX_WIDTH, Math.max(WORKING_FOLDER_PANEL_MIN_WIDTH, width))
 }

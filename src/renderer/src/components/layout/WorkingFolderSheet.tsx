@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FolderTree, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
@@ -8,8 +8,7 @@ import { SshFileExplorer } from '@renderer/components/ssh/SshFileExplorer'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
 import { useUIStore } from '@renderer/stores/ui-store'
-
-const WORKING_FOLDER_PANEL_WIDTH = 420
+import { clampWorkingFolderPanelWidth } from './right-panel-defs'
 
 function SshFilesPanel({
   connectionId,
@@ -92,6 +91,8 @@ export function WorkingFolderSheet({
   const { t } = useTranslation(['cowork'])
   const open = useUIStore((s) => s.workingFolderSheetOpen)
   const setOpen = useUIStore((s) => s.setWorkingFolderSheetOpen)
+  const panelWidth = useUIStore((s) => s.workingFolderPanelWidth)
+  const setPanelWidth = useUIStore((s) => s.setWorkingFolderPanelWidth)
   const sessionView = useChatStore(
     useShallow((state) => {
       const resolvedSessionId = sessionId ?? state.activeSessionId
@@ -116,15 +117,52 @@ export function WorkingFolderSheet({
     }
   }, [open, sessionView.sessionId, setOpen])
 
+  const draggingRef = useRef(false)
+  const startXRef = useRef(0)
+  const startWidthRef = useRef(panelWidth)
+  const [isDragging, setIsDragging] = useState(false)
+
+  useEffect(() => {
+    if (!isDragging) return
+
+    const handleMouseMove = (event: MouseEvent): void => {
+      if (!draggingRef.current) return
+      const delta = startXRef.current - event.clientX
+      setPanelWidth(clampWorkingFolderPanelWidth(startWidthRef.current + delta))
+    }
+
+    const handleMouseUp = (): void => {
+      draggingRef.current = false
+      setIsDragging(false)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging, setPanelWidth])
+
+  const startResize = (event: React.MouseEvent): void => {
+    if (!open) return
+    event.preventDefault()
+    draggingRef.current = true
+    startXRef.current = event.clientX
+    startWidthRef.current = panelWidth
+    setIsDragging(true)
+  }
+
   return (
     <div
       className="relative z-30 h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-out"
-      style={{ width: open ? WORKING_FOLDER_PANEL_WIDTH : 0 }}
+      style={{ width: open ? panelWidth : 0 }}
     >
       <aside
         className={`relative flex h-full w-[420px] flex-col border-l border-border/60 bg-background/92 backdrop-blur-xl transition-opacity duration-200 ${
           open ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
+        style={{ width: panelWidth }}
       >
         <div className="min-h-0 flex-1">
           {sessionView.workingFolder ? (
@@ -151,7 +189,16 @@ export function WorkingFolderSheet({
             </div>
           )}
         </div>
+
+        {open && (
+          <div
+            className="absolute bottom-0 left-0 top-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"
+            onMouseDown={startResize}
+          />
+        )}
       </aside>
+
+      {isDragging && <div className="fixed inset-0 z-[100] cursor-col-resize" />}
     </div>
   )
 }

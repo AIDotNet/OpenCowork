@@ -175,6 +175,10 @@ export function summarizeToolInputForLiveCard(
 ): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return input
 
+  if (toolName === 'visualize_show_widget') {
+    return input
+  }
+
   if (toolName === 'Write' && typeof input.content === 'string') {
     const content = input.content
     return {
@@ -222,6 +226,10 @@ export function summarizeToolInputForHistory(
   input: Record<string, unknown>
 ): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return input
+
+  if (toolName === 'visualize_show_widget') {
+    return input
+  }
 
   if (toolName === 'Write' && typeof input.content === 'string') {
     const content = input.content

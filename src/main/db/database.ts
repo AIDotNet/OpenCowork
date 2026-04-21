@@ -159,15 +159,17 @@ function migrateSessionsToProjects(database: Database.Database): void {
 
   const sessionsWithoutProject = database
     .prepare(
-      `SELECT id, working_folder, ssh_connection_id, plugin_id, created_at, updated_at
+      `SELECT id, working_folder, ssh_connection_id, plugin_id, mode, created_at, updated_at
          FROM sessions
-        WHERE project_id IS NULL`
+        WHERE project_id IS NULL
+          AND mode <> 'chat'`
     )
     .all() as Array<{
     id: string
     working_folder: string | null
     ssh_connection_id: string | null
     plugin_id: string | null
+    mode: string
     created_at: number
     updated_at: number
   }>

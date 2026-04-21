@@ -3,6 +3,7 @@ import { BookOpen, FolderOpen, GitBranch, MessageSquare } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@renderer/components/ui/button'
 import { InputArea } from '@renderer/components/chat/InputArea'
+import { ProjectTerminalDock } from '@renderer/components/terminal/ProjectTerminalDock'
 import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
@@ -14,6 +15,9 @@ export function ProjectHomePage(): React.JSX.Element {
   const activeProjectId = useChatStore((state) => state.activeProjectId)
   const projects = useChatStore((state) => state.projects)
   const mode = useUIStore((state) => state.mode)
+  const terminalDockOpen = useUIStore((state) =>
+    activeProjectId ? Boolean(state.bottomTerminalDockOpenByProjectId[activeProjectId]) : false
+  )
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null
   const workingFolder = activeProject?.workingFolder
   const sshConnectionId = activeProject?.sshConnectionId
@@ -65,12 +69,8 @@ export function ProjectHomePage(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-background">
-      <div className="shrink-0 px-6 pt-5">
-        <p className="truncate text-sm font-medium text-foreground/90">{activeProject.name}</p>
-      </div>
-
-      <div className="flex flex-1 flex-col px-6 pb-14 pt-8 sm:pt-10">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      <div className="flex flex-1 flex-col overflow-auto px-6 pb-14 pt-8 sm:pt-10">
         <div className="flex flex-1 items-start justify-center pt-8 lg:items-center lg:pt-0">
           <div className="w-full max-w-[760px]">
             <div className="mb-6 flex flex-col items-center gap-3 text-center sm:mb-7">
@@ -138,6 +138,15 @@ export function ProjectHomePage(): React.JSX.Element {
           </div>
         </div>
       </div>
+
+      {terminalDockOpen && (workingFolder || sshConnectionId) && (
+        <ProjectTerminalDock
+          projectId={activeProject.id}
+          projectName={activeProject.name}
+          workingFolder={workingFolder ?? null}
+          sshConnectionId={sshConnectionId}
+        />
+      )}
 
       <WorkingFolderSelectorDialog
         open={folderDialogOpen}

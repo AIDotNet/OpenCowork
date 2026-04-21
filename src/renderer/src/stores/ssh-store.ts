@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { toast } from 'sonner'
+import i18n from '@renderer/locales'
 import { ipcClient } from '../lib/ipc/ipc-client'
 import { IPC } from '../lib/ipc/channels'
 
@@ -59,6 +60,16 @@ export interface SshFileEntry {
   modifyTime: number
 }
 
+export type SshWorkspaceSection =
+  | 'hosts'
+  | 'keychain'
+  | 'forwarding'
+  | 'snippets'
+  | 'knownHosts'
+  | 'logs'
+  | 'sftp'
+  | 'terminal'
+
 export type SshUploadStage =
   | 'compress'
   | 'upload'
@@ -82,6 +93,57 @@ export type SshUploadTask = {
   message?: string
   updatedAt: number
 }
+
+export type SftpPaneId = 'left' | 'right'
+
+export type SftpConflictPolicy = 'skip' | 'overwrite' | 'duplicate'
+
+export type SftpTransferTaskType = 'upload' | 'download' | 'remote-copy'
+
+export type SftpTransferStage =
+  | 'preparing'
+  | 'transferring'
+  | 'cleanup'
+  | 'done'
+  | 'error'
+  | 'canceled'
+
+export type SftpTransferProgress = {
+  currentBytes?: number
+  totalBytes?: number
+  percent?: number
+  processedItems?: number
+  totalItems?: number
+}
+
+export type SftpTransferTask = {
+  taskId: string
+  type: SftpTransferTaskType
+  stage: SftpTransferStage
+  sourceConnectionId?: string | null
+  targetConnectionId?: string | null
+  progress?: SftpTransferProgress
+  message?: string
+  currentItem?: string
+  updatedAt: number
+  conflictPolicy?: SftpConflictPolicy
+}
+
+export type SftpConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error'
+
+export type SftpConnectionState = {
+  status: SftpConnectionStatus
+  error?: string
+  homeDir?: string | null
+  lastConnectedAt?: number
+}
+
+export type SftpPaneState = {
+  connectionId: string | null
+  currentPath: string | null
+}
+
+export type SftpInspectorTab = 'details' | 'tasks'
 
 interface SshGroupRow {
   id: string
@@ -192,8 +254,29 @@ function getListDirQueue(sessionId: string): ListDirQueue {
 const SLOT_ACQUIRE_TIMEOUT_MS = 10000
 
 let uploadEventsSubscribed = false
+let transferEventsSubscribed = false
 let sshConfigChangedSubscribed = false
 let sshStatusSubscribed = false
+
+function mapUploadStageToTransferStage(stage: SshUploadStage): SftpTransferStage {
+  switch (stage) {
+    case 'compress':
+      return 'preparing'
+    case 'upload':
+    case 'remote_unzip':
+      return 'transferring'
+    case 'cleanup':
+      return 'cleanup'
+    case 'done':
+      return 'done'
+    case 'error':
+      return 'error'
+    case 'canceled':
+      return 'canceled'
+    default:
+      return 'transferring'
+  }
+}
 
 function ensureUploadEventsSubscribed(): void {
   if (uploadEventsSubscribed) return
@@ -227,9 +310,67 @@ function ensureUploadEventsSubscribed(): void {
         uploadTasks: {
           ...s.uploadTasks,
           [taskId]: { ...prev, ...nextTask }
+        },
+        transferTasks: {
+          ...s.transferTasks,
+          [taskId]: {
+            taskId,
+            type: 'upload',
+            stage: mapUploadStageToTransferStage(stage),
+            targetConnectionId: connectionId,
+            progress: data.progress
+              ? {
+                  currentBytes: data.progress.current,
+                  totalBytes: data.progress.total,
+                  percent: data.progress.percent
+                }
+              : undefined,
+            message: data.message,
+            updatedAt: Date.now()
+          }
         }
       }
     })
+  })
+}
+
+function ensureTransferEventsSubscribed(): void {
+  if (transferEventsSubscribed) return
+  transferEventsSubscribed = true
+
+  ipcClient.on(IPC.SSH_FS_TRANSFER_EVENTS, (evt) => {
+    if (!evt || typeof evt !== 'object') return
+    const data = evt as {
+      taskId?: string
+      type?: SftpTransferTaskType
+      stage?: SftpTransferStage
+      sourceConnectionId?: string | null
+      targetConnectionId?: string | null
+      progress?: SftpTransferProgress
+      message?: string
+      currentItem?: string
+      conflictPolicy?: SftpConflictPolicy
+    }
+    if (!data.taskId || !data.type || !data.stage) return
+
+    useSshStore.setState((state) => ({
+      transferTasks: {
+        ...state.transferTasks,
+        [data.taskId!]: {
+          ...(state.transferTasks[data.taskId!] ?? {}),
+          taskId: data.taskId!,
+          type: data.type!,
+          stage: data.stage!,
+          sourceConnectionId: data.sourceConnectionId ?? null,
+          targetConnectionId: data.targetConnectionId ?? null,
+          progress: data.progress,
+          message: data.message,
+          currentItem: data.currentItem,
+          conflictPolicy: data.conflictPolicy,
+          updatedAt: Date.now()
+        }
+      }
+    }))
   })
 }
 
@@ -282,7 +423,7 @@ function ensureSshStatusSubscribed(): void {
 
     store.updateSessionStatus(data.sessionId, status, data.error)
     if (status === 'error' && data.error) {
-      toast.error('SSH 连接失败', { description: data.error })
+      toast.error(i18n.t('connectionFailed', { ns: 'ssh' }), { description: data.error })
     }
   })
 }
@@ -374,12 +515,30 @@ interface SshStore {
 
   // Upload tasks
   uploadTasks: Record<string, SshUploadTask>
+  transferTasks: Record<string, SftpTransferTask>
+
+  // SFTP workspace
+  sftpConnections: Record<string, SftpConnectionState>
+  sftpPaneStates: Record<SftpPaneId, SftpPaneState>
+  sftpCompareMode: boolean
+  sftpActivePane: SftpPaneId
+  sftpEntries: Record<string, Record<string, SshFileEntry[]>>
+  sftpPageInfo: Record<string, Record<string, FileExplorerPageInfo>>
+  sftpLoading: Record<string, Record<string, boolean>>
+  sftpErrors: Record<string, Record<string, string | null>>
+  sftpSelections: Record<SftpPaneId, Record<string, SshFileEntry>>
+  sftpConflictPolicy: SftpConflictPolicy
+  sftpInspectorTab: SftpInspectorTab
 
   // Connection list UI
   connectionListViewMode: 'table' | 'card'
   setConnectionListViewMode: (mode: 'table' | 'card') => void
+  workspaceSection: SshWorkspaceSection
+  setWorkspaceSection: (section: SshWorkspaceSection) => void
   detailConnectionId: string | null
   setDetailConnectionId: (id: string | null) => void
+  inspectorMode: 'create' | 'edit'
+  setInspectorMode: (mode: 'create' | 'edit') => void
 
   // Data loading
   loadAll: () => Promise<void>
@@ -438,7 +597,7 @@ interface SshStore {
   // Tab management
   openTab: (tab: SshTab) => void
   closeTab: (tabId: string) => void
-  setActiveTab: (tabId: string) => void
+  setActiveTab: (tabId: string | null) => void
   replaceTab: (tabId: string, tab: SshTab) => void
 
   // File explorer
@@ -458,6 +617,50 @@ interface SshStore {
   }) => Promise<string | null>
   cancelUpload: (taskId: string) => Promise<void>
   clearUploadTask: (taskId: string) => void
+
+  // SFTP workspace
+  connectSftpConnection: (
+    connectionId: string
+  ) => Promise<{ homeDir?: string | null; error?: string }>
+  disconnectSftpConnection: (connectionId: string) => Promise<void>
+  setSftpPaneConnection: (paneId: SftpPaneId, connectionId: string | null) => void
+  setSftpPanePath: (paneId: SftpPaneId, path: string) => void
+  setSftpCompareMode: (enabled: boolean) => void
+  setSftpActivePane: (paneId: SftpPaneId) => void
+  loadSftpEntries: (connectionId: string, path: string, force?: boolean) => Promise<void>
+  loadMoreSftpEntries: (connectionId: string, path: string) => Promise<void>
+  setSftpSelection: (paneId: SftpPaneId, entries: SshFileEntry[]) => void
+  toggleSftpSelection: (paneId: SftpPaneId, entry: SshFileEntry) => void
+  clearSftpSelection: (paneId: SftpPaneId) => void
+  setSftpConflictPolicy: (policy: SftpConflictPolicy) => void
+  setSftpInspectorTab: (tab: SftpInspectorTab) => void
+  startTransfer: (
+    args:
+      | {
+          type: 'upload'
+          connectionId: string
+          remoteDir: string
+          localPaths: string[]
+          conflictPolicy?: SftpConflictPolicy
+        }
+      | {
+          type: 'download'
+          connectionId: string
+          remotePaths: string[]
+          localDir: string
+          conflictPolicy?: SftpConflictPolicy
+        }
+      | {
+          type: 'remote-copy'
+          sourceConnectionId: string
+          targetConnectionId: string
+          sourcePaths: string[]
+          targetDir: string
+          conflictPolicy?: SftpConflictPolicy
+        }
+  ) => Promise<string | null>
+  cancelTransfer: (taskId: string) => Promise<void>
+  clearTransferTask: (taskId: string) => void
 }
 
 export const useSshStore = create<SshStore>()((set, get) => ({
@@ -471,7 +674,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
   openTabs: [],
   activeTabId: null,
 
-  fileExplorerOpen: true,
+  fileExplorerOpen: false,
   fileExplorerPaths: {},
   fileExplorerEntries: {},
   fileExplorerPageInfo: {},
@@ -480,15 +683,39 @@ export const useSshStore = create<SshStore>()((set, get) => ({
   fileExplorerErrors: {},
 
   uploadTasks: {},
+  transferTasks: {},
+
+  sftpConnections: {},
+  sftpPaneStates: {
+    left: { connectionId: null, currentPath: null },
+    right: { connectionId: null, currentPath: null }
+  },
+  sftpCompareMode: false,
+  sftpActivePane: 'left',
+  sftpEntries: {},
+  sftpPageInfo: {},
+  sftpLoading: {},
+  sftpErrors: {},
+  sftpSelections: {
+    left: {},
+    right: {}
+  },
+  sftpConflictPolicy: 'skip',
+  sftpInspectorTab: 'details',
 
   connectionListViewMode: 'card',
   setConnectionListViewMode: (mode) => set({ connectionListViewMode: mode }),
+  workspaceSection: 'hosts',
+  setWorkspaceSection: (section) => set({ workspaceSection: section }),
   detailConnectionId: null,
   setDetailConnectionId: (id) => set({ detailConnectionId: id }),
+  inspectorMode: 'edit',
+  setInspectorMode: (mode) => set({ inspectorMode: mode }),
 
   loadAll: async () => {
     try {
       ensureUploadEventsSubscribed()
+      ensureTransferEventsSubscribed()
       ensureSshConfigChangedSubscribed()
       ensureSshStatusSubscribed()
       const [groupRows, connRows, sessionRows] = await Promise.all([
@@ -515,7 +742,30 @@ export const useSshStore = create<SshStore>()((set, get) => ({
           }, {})
         : {}
 
-      set({ groups, connections, sessions, _loaded: true })
+      set((state) => ({
+        groups,
+        connections,
+        sessions,
+        _loaded: true,
+        sftpPaneStates: {
+          left: {
+            ...state.sftpPaneStates.left,
+            connectionId:
+              state.sftpPaneStates.left.connectionId &&
+              connections.some((item) => item.id === state.sftpPaneStates.left.connectionId)
+                ? state.sftpPaneStates.left.connectionId
+                : (connections[0]?.id ?? null)
+          },
+          right: {
+            ...state.sftpPaneStates.right,
+            connectionId:
+              state.sftpPaneStates.right.connectionId &&
+              connections.some((item) => item.id === state.sftpPaneStates.right.connectionId)
+                ? state.sftpPaneStates.right.connectionId
+                : null
+          }
+        }
+      }))
     } catch (err) {
       console.error('[SshStore] Failed to load:', err)
       set({ _loaded: true })
@@ -552,6 +802,467 @@ export const useSshStore = create<SshStore>()((set, get) => ({
       const next = { ...s.uploadTasks }
       delete next[taskId]
       return { uploadTasks: next }
+    })
+  },
+
+  connectSftpConnection: async (connectionId) => {
+    const existing = get().sftpConnections[connectionId]
+    if (existing?.status === 'connected') {
+      return { homeDir: existing.homeDir ?? null }
+    }
+    if (existing?.status === 'connecting') {
+      return { homeDir: existing.homeDir ?? null }
+    }
+
+    set((state) => ({
+      sftpConnections: {
+        ...state.sftpConnections,
+        [connectionId]: {
+          ...(state.sftpConnections[connectionId] ?? { homeDir: null }),
+          status: 'connecting',
+          error: undefined
+        }
+      }
+    }))
+
+    const result = (await ipcClient.invoke(IPC.SSH_FS_CONNECT, {
+      connectionId
+    })) as { success?: boolean; homeDir?: string | null; error?: string }
+
+    if (result?.error || !result?.success) {
+      set((state) => ({
+        sftpConnections: {
+          ...state.sftpConnections,
+          [connectionId]: {
+            ...(state.sftpConnections[connectionId] ?? { homeDir: null }),
+            status: 'error',
+            error: result?.error ?? 'Failed to connect'
+          }
+        }
+      }))
+      return { error: result?.error ?? 'Failed to connect' }
+    }
+
+    set((state) => {
+      const leftNeedsPath =
+        state.sftpPaneStates.left.connectionId === connectionId &&
+        !state.sftpPaneStates.left.currentPath
+      const rightNeedsPath =
+        state.sftpPaneStates.right.connectionId === connectionId &&
+        !state.sftpPaneStates.right.currentPath
+      return {
+        sftpConnections: {
+          ...state.sftpConnections,
+          [connectionId]: {
+            status: 'connected',
+            error: undefined,
+            homeDir: result.homeDir ?? null,
+            lastConnectedAt: Date.now()
+          }
+        },
+        sftpPaneStates: {
+          left: leftNeedsPath
+            ? { ...state.sftpPaneStates.left, currentPath: result.homeDir ?? '/' }
+            : state.sftpPaneStates.left,
+          right: rightNeedsPath
+            ? { ...state.sftpPaneStates.right, currentPath: result.homeDir ?? '/' }
+            : state.sftpPaneStates.right
+        }
+      }
+    })
+
+    return { homeDir: result.homeDir ?? null }
+  },
+
+  disconnectSftpConnection: async (connectionId) => {
+    await ipcClient.invoke(IPC.SSH_FS_DISCONNECT, { connectionId })
+    set((state) => ({
+      sftpConnections: {
+        ...state.sftpConnections,
+        [connectionId]: {
+          ...(state.sftpConnections[connectionId] ?? { homeDir: null }),
+          status: 'idle',
+          error: undefined
+        }
+      }
+    }))
+  },
+
+  setSftpPaneConnection: (paneId, connectionId) => {
+    set((state) => {
+      const connection = connectionId
+        ? (state.connections.find((item) => item.id === connectionId) ?? null)
+        : null
+      const currentState = connectionId ? state.sftpConnections[connectionId] : null
+      const nextPath =
+        connectionId == null ? null : (currentState?.homeDir ?? connection?.defaultDirectory ?? '/')
+
+      return {
+        sftpPaneStates: {
+          ...state.sftpPaneStates,
+          [paneId]: {
+            connectionId,
+            currentPath: nextPath
+          }
+        },
+        sftpSelections: {
+          ...state.sftpSelections,
+          [paneId]: {}
+        }
+      }
+    })
+  },
+
+  setSftpPanePath: (paneId, path) => {
+    set((state) => ({
+      sftpPaneStates: {
+        ...state.sftpPaneStates,
+        [paneId]: {
+          ...state.sftpPaneStates[paneId],
+          currentPath: path
+        }
+      }
+    }))
+  },
+
+  setSftpCompareMode: (enabled) => set({ sftpCompareMode: enabled }),
+
+  setSftpActivePane: (paneId) => set({ sftpActivePane: paneId }),
+
+  loadSftpEntries: async (connectionId, path, force = false) => {
+    const state = get()
+    const sessionLoading = state.sftpLoading[connectionId] ?? {}
+    const sessionEntries = state.sftpEntries[connectionId] ?? {}
+    const now = Date.now()
+    const listDirKey = getListDirKey(connectionId, path)
+    const startedAt = listDirInFlightSince.get(listDirKey)
+
+    if (sessionLoading[path]) {
+      if (!force && Object.prototype.hasOwnProperty.call(sessionEntries, path)) {
+        listDirInFlightSince.delete(listDirKey)
+        set((s) => ({
+          sftpLoading: {
+            ...s.sftpLoading,
+            [connectionId]: { ...(s.sftpLoading[connectionId] ?? {}), [path]: false }
+          }
+        }))
+        return
+      }
+
+      if (!startedAt || now - startedAt > SSH_FILE_EXPLORER_STALE_LOAD_MS) {
+        listDirInFlightSince.delete(listDirKey)
+        set((s) => ({
+          sftpLoading: {
+            ...s.sftpLoading,
+            [connectionId]: { ...(s.sftpLoading[connectionId] ?? {}), [path]: false }
+          }
+        }))
+      } else {
+        return
+      }
+    }
+
+    if (!force && Object.prototype.hasOwnProperty.call(sessionEntries, path)) return
+
+    const connectResult = await get().connectSftpConnection(connectionId)
+    if (connectResult.error) return
+
+    set((s) => ({
+      sftpLoading: {
+        ...s.sftpLoading,
+        [connectionId]: { ...(s.sftpLoading[connectionId] ?? {}), [path]: true }
+      },
+      sftpErrors: {
+        ...s.sftpErrors,
+        [connectionId]: { ...(s.sftpErrors[connectionId] ?? {}), [path]: null }
+      }
+    }))
+
+    listDirInFlightSince.set(listDirKey, now)
+    const release = await acquireListDirSlot(connectionId)
+
+    try {
+      const result = await ipcWithTimeout(
+        ipcClient.invoke(IPC.SSH_FS_LIST_DIR, {
+          connectionId,
+          path,
+          limit: SSH_FILE_EXPLORER_PAGE_SIZE,
+          refresh: force
+        }),
+        IPC_LIST_DIR_TIMEOUT_MS
+      )
+
+      if (result && typeof result === 'object' && 'error' in result) {
+        const errorMessage = String((result as { error?: string }).error ?? 'Failed to load')
+        set((s) => ({
+          sftpErrors: {
+            ...s.sftpErrors,
+            [connectionId]: { ...(s.sftpErrors[connectionId] ?? {}), [path]: errorMessage }
+          },
+          sftpConnections: {
+            ...s.sftpConnections,
+            [connectionId]: {
+              ...(s.sftpConnections[connectionId] ?? { homeDir: null }),
+              status: 'error',
+              error: errorMessage
+            }
+          }
+        }))
+        return
+      }
+
+      const entries = Array.isArray(result)
+        ? result
+        : Array.isArray((result as ListDirPagedResult | undefined)?.entries)
+          ? ((result as ListDirPagedResult).entries ?? [])
+          : null
+
+      if (!entries) {
+        throw new Error('Failed to load')
+      }
+
+      const sorted = sortEntries(entries)
+      const pageInfo = Array.isArray(result)
+        ? { hasMore: false }
+        : normalizePageInfo(result as ListDirPagedResult)
+
+      set((s) => ({
+        sftpEntries: {
+          ...s.sftpEntries,
+          [connectionId]: { ...(s.sftpEntries[connectionId] ?? {}), [path]: sorted }
+        },
+        sftpPageInfo: {
+          ...s.sftpPageInfo,
+          [connectionId]: { ...(s.sftpPageInfo[connectionId] ?? {}), [path]: pageInfo }
+        },
+        sftpErrors: {
+          ...s.sftpErrors,
+          [connectionId]: { ...(s.sftpErrors[connectionId] ?? {}), [path]: null }
+        },
+        sftpConnections: {
+          ...s.sftpConnections,
+          [connectionId]: {
+            ...(s.sftpConnections[connectionId] ?? { homeDir: null }),
+            status: 'connected',
+            error: undefined
+          }
+        }
+      }))
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load'
+      set((s) => ({
+        sftpErrors: {
+          ...s.sftpErrors,
+          [connectionId]: { ...(s.sftpErrors[connectionId] ?? {}), [path]: errorMessage }
+        },
+        sftpConnections: {
+          ...s.sftpConnections,
+          [connectionId]: {
+            ...(s.sftpConnections[connectionId] ?? { homeDir: null }),
+            status: 'error',
+            error: errorMessage
+          }
+        }
+      }))
+    } finally {
+      release()
+      listDirInFlightSince.delete(listDirKey)
+      set((s) => ({
+        sftpLoading: {
+          ...s.sftpLoading,
+          [connectionId]: { ...(s.sftpLoading[connectionId] ?? {}), [path]: false }
+        }
+      }))
+    }
+  },
+
+  loadMoreSftpEntries: async (connectionId, path) => {
+    const state = get()
+    const sessionLoading = state.sftpLoading[connectionId] ?? {}
+    const pageInfo = state.sftpPageInfo[connectionId]?.[path]
+    const now = Date.now()
+    const listDirKey = getListDirKey(connectionId, path)
+    const startedAt = listDirInFlightSince.get(listDirKey)
+
+    if (sessionLoading[path]) {
+      if (!startedAt || now - startedAt > SSH_FILE_EXPLORER_STALE_LOAD_MS) {
+        listDirInFlightSince.delete(listDirKey)
+        set((s) => ({
+          sftpLoading: {
+            ...s.sftpLoading,
+            [connectionId]: { ...(s.sftpLoading[connectionId] ?? {}), [path]: false }
+          }
+        }))
+      } else {
+        return
+      }
+    }
+
+    if (!pageInfo?.hasMore || !pageInfo.cursor) return
+
+    const connectResult = await get().connectSftpConnection(connectionId)
+    if (connectResult.error) return
+
+    set((s) => ({
+      sftpLoading: {
+        ...s.sftpLoading,
+        [connectionId]: { ...(s.sftpLoading[connectionId] ?? {}), [path]: true }
+      },
+      sftpErrors: {
+        ...s.sftpErrors,
+        [connectionId]: { ...(s.sftpErrors[connectionId] ?? {}), [path]: null }
+      }
+    }))
+
+    listDirInFlightSince.set(listDirKey, now)
+    const release = await acquireListDirSlot(connectionId)
+
+    try {
+      const result = await ipcWithTimeout(
+        ipcClient.invoke(IPC.SSH_FS_LIST_DIR, {
+          connectionId,
+          path,
+          cursor: pageInfo.cursor,
+          limit: SSH_FILE_EXPLORER_PAGE_SIZE
+        }),
+        IPC_LIST_DIR_TIMEOUT_MS
+      )
+
+      if (result && typeof result === 'object' && 'error' in result) {
+        throw new Error(String((result as { error?: string }).error ?? 'Failed to load'))
+      }
+
+      const entries = Array.isArray(result)
+        ? result
+        : Array.isArray((result as ListDirPagedResult | undefined)?.entries)
+          ? ((result as ListDirPagedResult).entries ?? [])
+          : null
+
+      if (!entries) throw new Error('Failed to load')
+
+      const sorted = sortEntries(entries)
+      const nextInfo = Array.isArray(result)
+        ? { hasMore: false }
+        : normalizePageInfo(result as ListDirPagedResult)
+
+      set((s) => {
+        const existing = s.sftpEntries[connectionId]?.[path] ?? []
+        const combined = sortEntries([...existing, ...sorted])
+        return {
+          sftpEntries: {
+            ...s.sftpEntries,
+            [connectionId]: { ...(s.sftpEntries[connectionId] ?? {}), [path]: combined }
+          },
+          sftpPageInfo: {
+            ...s.sftpPageInfo,
+            [connectionId]: { ...(s.sftpPageInfo[connectionId] ?? {}), [path]: nextInfo }
+          },
+          sftpErrors: {
+            ...s.sftpErrors,
+            [connectionId]: { ...(s.sftpErrors[connectionId] ?? {}), [path]: null }
+          }
+        }
+      })
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load'
+      set((s) => ({
+        sftpErrors: {
+          ...s.sftpErrors,
+          [connectionId]: { ...(s.sftpErrors[connectionId] ?? {}), [path]: errorMessage }
+        }
+      }))
+    } finally {
+      release()
+      listDirInFlightSince.delete(listDirKey)
+      set((s) => ({
+        sftpLoading: {
+          ...s.sftpLoading,
+          [connectionId]: { ...(s.sftpLoading[connectionId] ?? {}), [path]: false }
+        }
+      }))
+    }
+  },
+
+  setSftpSelection: (paneId, entries) => {
+    set((state) => ({
+      sftpSelections: {
+        ...state.sftpSelections,
+        [paneId]: entries.reduce<Record<string, SshFileEntry>>((acc, entry) => {
+          acc[entry.path] = entry
+          return acc
+        }, {})
+      }
+    }))
+  },
+
+  toggleSftpSelection: (paneId, entry) => {
+    set((state) => {
+      const current = { ...(state.sftpSelections[paneId] ?? {}) }
+      if (current[entry.path]) delete current[entry.path]
+      else current[entry.path] = entry
+      return {
+        sftpSelections: {
+          ...state.sftpSelections,
+          [paneId]: current
+        }
+      }
+    })
+  },
+
+  clearSftpSelection: (paneId) => {
+    set((state) => ({
+      sftpSelections: {
+        ...state.sftpSelections,
+        [paneId]: {}
+      }
+    }))
+  },
+
+  setSftpConflictPolicy: (policy) => set({ sftpConflictPolicy: policy }),
+  setSftpInspectorTab: (tab) => set({ sftpInspectorTab: tab }),
+
+  startTransfer: async (args) => {
+    ensureTransferEventsSubscribed()
+    const result = await ipcClient.invoke(IPC.SSH_FS_TRANSFER_START, args)
+    if (result && typeof result === 'object' && 'error' in result) return null
+    const taskId = (result as { taskId?: string }).taskId
+    if (!taskId) return null
+
+    set((state) => ({
+      transferTasks: {
+        ...state.transferTasks,
+        [taskId]: {
+          taskId,
+          type: args.type,
+          stage: 'preparing',
+          sourceConnectionId:
+            args.type === 'remote-copy' ? args.sourceConnectionId : args.connectionId,
+          targetConnectionId:
+            args.type === 'upload'
+              ? args.connectionId
+              : args.type === 'remote-copy'
+                ? args.targetConnectionId
+                : null,
+          conflictPolicy: args.conflictPolicy,
+          message: 'Preparing transfer...',
+          updatedAt: Date.now()
+        }
+      }
+    }))
+
+    return taskId
+  },
+
+  cancelTransfer: async (taskId) => {
+    await ipcClient.invoke(IPC.SSH_FS_TRANSFER_CANCEL, { taskId })
+  },
+
+  clearTransferTask: (taskId) => {
+    set((state) => {
+      if (!state.transferTasks[taskId]) return state
+      const next = { ...state.transferTasks }
+      delete next[taskId]
+      return { transferTasks: next }
     })
   },
 
@@ -669,7 +1380,7 @@ export const useSshStore = create<SshStore>()((set, get) => ({
     }
     if (result.error || !result.sessionId) {
       if (result.error) {
-        toast.error('SSH 连接失败', { description: result.error })
+        toast.error(i18n.t('connectionFailed', { ns: 'ssh' }), { description: result.error })
       }
       return null
     }
@@ -712,7 +1423,8 @@ export const useSshStore = create<SshStore>()((set, get) => ({
           status: 'connecting'
         }
       ],
-      activeTabId: pendingTabId
+      activeTabId: pendingTabId,
+      workspaceSection: 'terminal'
     }))
 
     const sessionId = await get().connect(connectionId)
@@ -799,10 +1511,11 @@ export const useSshStore = create<SshStore>()((set, get) => ({
   openTab: (tab) => {
     set((s) => {
       const exists = s.openTabs.find((t) => t.id === tab.id)
-      if (exists) return { activeTabId: tab.id }
+      if (exists) return { activeTabId: tab.id, workspaceSection: 'terminal' }
       return {
         openTabs: [...s.openTabs, tab],
-        activeTabId: tab.id
+        activeTabId: tab.id,
+        workspaceSection: 'terminal'
       }
     })
   },
@@ -819,18 +1532,26 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         activeTabId: wasActive
           ? (remaining[Math.min(idx, remaining.length - 1)]?.id ?? null)
           : s.activeTabId,
-        activeTerminalId: tab && s.activeTerminalId === tab.sessionId ? null : s.activeTerminalId
+        activeTerminalId: tab && s.activeTerminalId === tab.sessionId ? null : s.activeTerminalId,
+        workspaceSection:
+          wasActive && remaining.length === 0 && s.workspaceSection === 'terminal'
+            ? 'hosts'
+            : s.workspaceSection
       }
     })
   },
 
-  setActiveTab: (tabId) => set({ activeTabId: tabId }),
+  setActiveTab: (tabId) =>
+    set((s) => ({
+      activeTabId: tabId,
+      workspaceSection: tabId ? 'terminal' : s.workspaceSection
+    })),
 
   replaceTab: (tabId, tab) => {
     set((s) => {
       const openTabs = s.openTabs.map((t) => (t.id === tabId ? tab : t))
       const activeTabId = s.activeTabId === tabId ? tab.id : s.activeTabId
-      return { openTabs, activeTabId }
+      return { openTabs, activeTabId, workspaceSection: 'terminal' }
     })
   },
 

@@ -126,7 +126,7 @@ export function SshConnectionForm({
         publicKey: result.pubContent
       })
       if (installResult && typeof installResult === 'object' && 'error' in installResult) {
-        toast.error(String((installResult as { error?: string }).error ?? 'Install failed'))
+        toast.error(String((installResult as { error?: string }).error ?? t('form.installFailed')))
         return
       }
 

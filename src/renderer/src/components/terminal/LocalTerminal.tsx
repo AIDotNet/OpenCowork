@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Terminal as XTerm, type ITheme } from '@xterm/xterm'
+import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { useTheme } from 'next-themes'
+import { useTranslation } from 'react-i18next'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
+import { getTerminalTheme, resolveAppThemeMode } from '@renderer/lib/theme-presets'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -15,62 +17,29 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@renderer/components/ui/context-menu'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import { Clipboard, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 
-const DARK_THEME: ITheme = {
-  background: '#0b0b0b',
-  foreground: '#e5e7eb',
-  cursor: '#e5e7eb',
-  cursorAccent: '#0b0b0b',
-  selectionBackground: 'rgba(148, 163, 184, 0.35)',
-  black: '#0b0b0b',
-  red: '#ef4444',
-  green: '#22c55e',
-  yellow: '#eab308',
-  blue: '#3b82f6',
-  magenta: '#a855f7',
-  cyan: '#06b6d4',
-  white: '#e5e7eb',
-  brightBlack: '#6b7280',
-  brightRed: '#f87171',
-  brightGreen: '#4ade80',
-  brightYellow: '#facc15',
-  brightBlue: '#60a5fa',
-  brightMagenta: '#c084fc',
-  brightCyan: '#22d3ee',
-  brightWhite: '#f9fafb'
+interface TerminalOutputChunk {
+  seq?: number
+  data?: string
 }
 
-const LIGHT_THEME: ITheme = {
-  background: '#ffffff',
-  foreground: '#0f172a',
-  cursor: '#0f172a',
-  cursorAccent: '#ffffff',
-  selectionBackground: 'rgba(15, 23, 42, 0.15)',
-  black: '#0f172a',
-  red: '#dc2626',
-  green: '#16a34a',
-  yellow: '#ca8a04',
-  blue: '#2563eb',
-  magenta: '#7c3aed',
-  cyan: '#0891b2',
-  white: '#e2e8f0',
-  brightBlack: '#64748b',
-  brightRed: '#ef4444',
-  brightGreen: '#22c55e',
-  brightYellow: '#eab308',
-  brightBlue: '#3b82f6',
-  brightMagenta: '#a855f7',
-  brightCyan: '#06b6d4',
-  brightWhite: '#f8fafc'
+interface TerminalListEntry {
+  id?: string
+  buffer?: TerminalOutputChunk[]
 }
 
 export function LocalTerminal({ terminalId }: { terminalId: string }): React.JSX.Element {
+  const { t } = useTranslation('ssh')
   const { resolvedTheme } = useTheme()
+  const themePreset = useSettingsStore((state) => state.themePreset)
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
+  const initialThemeRef = useRef(getTerminalTheme(themePreset, resolveAppThemeMode(resolvedTheme)))
   const [hasSelection, setHasSelection] = useState(false)
+  const terminalTheme = getTerminalTheme(themePreset, resolveAppThemeMode(resolvedTheme))
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -84,7 +53,7 @@ export function LocalTerminal({ terminalId }: { terminalId: string }): React.JSX
       allowProposedApi: true,
       scrollback: 5000,
       convertEol: false,
-      theme: DARK_THEME
+      theme: initialThemeRef.current
     })
 
     const fitAddon = new FitAddon()
@@ -101,6 +70,18 @@ export function LocalTerminal({ terminalId }: { terminalId: string }): React.JSX
     fitAddon.fit()
     term.focus()
     termRef.current = term
+    let disposed = false
+    let snapshotLoaded = false
+    let latestSeq = 0
+    const pendingChunks: Array<{ seq: number; data: string }> = []
+
+    const writeChunk = (chunk: TerminalOutputChunk): void => {
+      if (!chunk.data) return
+      const seq = typeof chunk.seq === 'number' ? chunk.seq : latestSeq + 1
+      if (seq <= latestSeq) return
+      latestSeq = seq
+      term.write(chunk.data)
+    }
 
     const selectionDisposable = term.onSelectionChange(() => {
       setHasSelection(term.getSelection().length > 0)
@@ -115,10 +96,40 @@ export function LocalTerminal({ terminalId }: { terminalId: string }): React.JSX
     })
 
     const outputCleanup = ipcClient.on(IPC.TERMINAL_OUTPUT, (payload) => {
-      const data = payload as { id?: string; data?: string }
+      const data = payload as { id?: string; data?: string; seq?: number }
       if (data.id !== terminalId || !data.data) return
-      term.write(data.data)
+      if (!snapshotLoaded) {
+        pendingChunks.push({
+          seq: typeof data.seq === 'number' ? data.seq : latestSeq + pendingChunks.length + 1,
+          data: data.data
+        })
+        return
+      }
+      writeChunk(data)
     })
+
+    void ipcClient
+      .invoke(IPC.TERMINAL_LIST)
+      .then((result) => {
+        if (disposed) return
+        const sessions = Array.isArray(result) ? (result as TerminalListEntry[]) : []
+        const matched = sessions.find((item) => item.id === terminalId)
+        const snapshot = Array.isArray(matched?.buffer) ? matched.buffer : []
+
+        snapshot
+          .slice()
+          .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+          .forEach((chunk) => writeChunk(chunk))
+      })
+      .catch(() => {
+        // ignore terminal snapshot failures; live output listener remains active
+      })
+      .finally(() => {
+        if (disposed) return
+        snapshotLoaded = true
+        pendingChunks.sort((a, b) => a.seq - b.seq).forEach((chunk) => writeChunk(chunk))
+        pendingChunks.length = 0
+      })
 
     const resizeObserver = new ResizeObserver(() => {
       requestAnimationFrame(() => {
@@ -146,6 +157,7 @@ export function LocalTerminal({ terminalId }: { terminalId: string }): React.JSX
     })
 
     return () => {
+      disposed = true
       selectionDisposable.dispose()
       dataDisposable.dispose()
       resizeDisposable.dispose()
@@ -159,17 +171,17 @@ export function LocalTerminal({ terminalId }: { terminalId: string }): React.JSX
   useEffect(() => {
     const term = termRef.current
     if (!term) return
-    term.options.theme = resolvedTheme === 'light' ? LIGHT_THEME : DARK_THEME
-  }, [resolvedTheme])
+    term.options.theme = terminalTheme
+  }, [terminalTheme])
 
   const handleCopy = useCallback(() => {
     const selection = termRef.current?.getSelection()
     if (!selection) return
     navigator.clipboard.writeText(selection).then(
-      () => toast.success('已复制'),
-      () => toast.error('复制失败')
+      () => toast.success(t('terminal.copied')),
+      () => toast.error(t('terminal.copyFailed'))
     )
-  }, [])
+  }, [t])
 
   const handlePaste = useCallback(async () => {
     try {
@@ -177,9 +189,9 @@ export function LocalTerminal({ terminalId }: { terminalId: string }): React.JSX
       if (!text) return
       await ipcClient.invoke(IPC.TERMINAL_INPUT, { id: terminalId, data: text })
     } catch {
-      toast.error('粘贴失败')
+      toast.error(t('terminal.pasteFailed'))
     }
-  }, [terminalId])
+  }, [terminalId, t])
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-background">
@@ -195,15 +207,19 @@ export function LocalTerminal({ terminalId }: { terminalId: string }): React.JSX
         <ContextMenuContent>
           <ContextMenuItem onClick={handleCopy} disabled={!hasSelection}>
             <Copy className="mr-2 size-4" />
-            复制
+            {t('terminal.copy')}
           </ContextMenuItem>
           <ContextMenuItem onClick={() => void handlePaste()}>
             <Clipboard className="mr-2 size-4" />
-            粘贴
+            {t('terminal.paste')}
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => termRef.current?.clear()}>清空</ContextMenuItem>
-          <ContextMenuItem onClick={() => termRef.current?.selectAll()}>全选</ContextMenuItem>
+          <ContextMenuItem onClick={() => termRef.current?.clear()}>
+            {t('terminal.clear')}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => termRef.current?.selectAll()}>
+            {t('terminal.selectAll')}
+          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
     </div>

@@ -25,6 +25,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
+import { cn } from '@renderer/lib/utils'
 import { useSkillsStore } from '@renderer/stores/skills-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { useMcpStore } from '@renderer/stores/mcp-store'
@@ -38,6 +39,8 @@ interface SkillsMenuProps {
   disabled?: boolean
   projectId?: string | null
   showChannels?: boolean
+  triggerClassName?: string
+  menuClassName?: string
 }
 
 export function SkillsMenu({
@@ -46,7 +49,9 @@ export function SkillsMenu({
   onAttachMedia,
   disabled = false,
   projectId,
-  showChannels = true
+  showChannels = true,
+  triggerClassName,
+  menuClassName
 }: SkillsMenuProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const [open, setOpen] = React.useState(false)
@@ -123,8 +128,8 @@ export function SkillsMenu({
         <Button
           data-tour="composer-plus"
           variant="ghost"
-          size="icon"
-          className="size-8 shrink-0 rounded-lg"
+          size="icon-sm"
+          className={cn('size-8 shrink-0 rounded-lg', triggerClassName)}
           disabled={disabled}
           aria-label={t('skills.addActions')}
           title={t('skills.addActions')}
@@ -133,7 +138,7 @@ export function SkillsMenu({
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent align="start" className={cn('w-56', menuClassName)}>
         <DropdownMenuLabel>{t('skills.addToChat')}</DropdownMenuLabel>
         <DropdownMenuSeparator />
 
@@ -161,7 +166,9 @@ export function SkillsMenu({
               <span>{t('skills.commandsLabel')}</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
-              <DropdownMenuSubContent className="w-64 max-h-80 overflow-y-auto">
+              <DropdownMenuSubContent
+                className={cn('w-64 max-h-80 overflow-y-auto', menuClassName)}
+              >
                 <DropdownMenuLabel>
                   {t('skills.availableCommands', { defaultValue: 'Available commands' })}
                 </DropdownMenuLabel>
@@ -209,7 +216,9 @@ export function SkillsMenu({
               <span>{t('skills.skillsLabel')}</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
-              <DropdownMenuSubContent className="w-64 max-h-80 overflow-y-auto">
+              <DropdownMenuSubContent
+                className={cn('w-64 max-h-80 overflow-y-auto', menuClassName)}
+              >
                 <DropdownMenuLabel>{t('skills.availableSkills')}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {loading ? (
@@ -260,7 +269,9 @@ export function SkillsMenu({
                   )}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuPortal>
-                  <DropdownMenuSubContent className="w-56 max-h-80 overflow-y-auto">
+                  <DropdownMenuSubContent
+                    className={cn('w-56 max-h-80 overflow-y-auto', menuClassName)}
+                  >
                     <DropdownMenuLabel>
                       {t('skills.availableChannels', 'Available Channels')}
                     </DropdownMenuLabel>
@@ -332,7 +343,9 @@ export function SkillsMenu({
               )}
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
-              <DropdownMenuSubContent className="w-56 max-h-80 overflow-y-auto">
+              <DropdownMenuSubContent
+                className={cn('w-56 max-h-80 overflow-y-auto', menuClassName)}
+              >
                 <DropdownMenuLabel>
                   {t('skills.availableMcps', 'Connected MCP Servers')}
                 </DropdownMenuLabel>

@@ -167,12 +167,15 @@
     "backgroundCommandsTooltip": "查看并操作后台命令",
     "backgroundCommandsTitle": "后台命令（{{count}}）",
     "openSession": "进入会话",
-    "modelLabel": "模型：{{model}}",
+    "stopCommand": "停止",
     "openMiniWindow": "小窗",
     "currentSession": "当前会话",
     "openFileManager": "打开文件管理",
     "closeFileManager": "关闭文件管理",
-    "fileManagerUnavailable": "请先选择工作目录再打开文件管理"
+    "fileManagerUnavailable": "请先选择工作目录再打开文件管理",
+    "openProjectTerminal": "打开项目终端",
+    "closeProjectTerminal": "收起项目终端",
+    "projectTerminalUnavailable": "请先选择本地或 SSH 工作区再打开项目终端"
   },
   "commandPalette": {
     "placeholder": "输入命令或搜索会话...",
@@ -682,5 +685,16 @@
     "noApiKeyTitle": "未配置 OpenCoWork Skills API 密钥",
     "noApiKeyDesc": "点击顶栏的 ⚙️ 图标设置您的 API 密钥，即可浏览 skills.open-cowork.shop 技能市场。",
     "getApiKey": "获取 API 密钥"
+  },
+  "terminalDock": {
+    "sshContext": "SSH 工作区",
+    "newTerminal": "新建终端",
+    "closeTerminal": "关闭当前终端",
+    "collapse": "收起终端",
+    "empty": "当前还没有打开终端。",
+    "connecting": "正在连接终端...",
+    "terminalExited": "终端会话已结束",
+    "terminalExitedWithError": "终端会话已退出",
+    "exitCode": "退出码：{{code}}"
   }
 }

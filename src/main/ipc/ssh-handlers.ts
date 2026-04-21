@@ -176,6 +176,60 @@ type UploadTaskState = {
   remoteTempZipPath?: string
 }
 
+type SftpConflictPolicy = 'skip' | 'overwrite' | 'duplicate'
+
+type TransferTaskType = 'upload' | 'download' | 'remote-copy'
+
+type TransferStage = 'preparing' | 'transferring' | 'cleanup' | 'done' | 'error' | 'canceled'
+
+type TransferProgress = {
+  currentBytes?: number
+  totalBytes?: number
+  percent?: number
+  processedItems?: number
+  totalItems?: number
+}
+
+type TransferEvent = {
+  taskId: string
+  type: TransferTaskType
+  stage: TransferStage
+  sourceConnectionId?: string | null
+  targetConnectionId?: string | null
+  progress?: TransferProgress
+  message?: string
+  currentItem?: string
+  conflictPolicy?: SftpConflictPolicy
+}
+
+type TransferTaskState = {
+  taskId: string
+  type: TransferTaskType
+  sourceConnectionId?: string | null
+  targetConnectionId?: string | null
+  canceled: boolean
+  cancel: (reason?: string) => Promise<void>
+}
+
+type TransferNode = {
+  name: string
+  type: 'file' | 'directory'
+  size: number
+  itemCount: number
+  totalBytes: number
+  localPath?: string
+  remotePath?: string
+  connectionId?: string
+  children?: TransferNode[]
+}
+
+type TransferCounters = {
+  processedItems: number
+  totalItems: number
+  processedBytes: number
+  totalBytes: number
+}
+
 type SearchLimitReason = 'max_results' | 'max_output_bytes' | 'timeout' | 'max_depth' | null
 
 const SSH_SEARCH_IGNORE_DIRS = [
@@ -296,9 +350,7 @@ function includesSshIgnoredDir(pattern: string, dirName: string): boolean {
 }
 
 function buildSshFindPruneExpression(pattern: string): string {
-  const ignoredDirs = SSH_SEARCH_IGNORE_DIRS.filter(
-    (dir) => !includesSshIgnoredDir(pattern, dir)
-  )
+  const ignoredDirs = SSH_SEARCH_IGNORE_DIRS.filter((dir) => !includesSshIgnoredDir(pattern, dir))
   if (ignoredDirs.length === 0) return ''
 
   const nameClauses = ignoredDirs.map((dir) => `-name ${shellEscape(dir)}`).join(' -o ')
@@ -352,9 +404,14 @@ function createSshGrepResult(args: {
 }
 
 const uploadTasks = new Map<string, UploadTaskState>()
+const transferTasks = new Map<string, TransferTaskState>()
 
 function broadcastUploadEvent(evt: UploadEvent): void {
   safeSendToAllWindows('ssh:fs:upload:events', evt)
+}
+
+function broadcastTransferEvent(evt: TransferEvent): void {
+  safeSendToAllWindows('ssh:fs:transfer:events', evt)
 }
 
 function nowStamp(): string {
@@ -528,6 +585,664 @@ async function uploadFileWithProgress(
 
     readStream.pipe(writeStream)
   })
+}
+
+function createTransferCanceledError(message = 'Transfer canceled'): Error {
+  const error = new Error(message)
+  ;(error as Error & { code?: string }).code = 'TRANSFER_CANCELED'
+  return error
+}
+
+function isTransferCanceledError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  return (err as { code?: string }).code === 'TRANSFER_CANCELED'
+}
+
+function buildTransferProgress(counters: TransferCounters, inflightBytes = 0): TransferProgress {
+  const currentBytes = Math.min(counters.totalBytes, counters.processedBytes + inflightBytes)
+  const percent =
+    counters.totalBytes > 0
+      ? Math.round((currentBytes / counters.totalBytes) * 100)
+      : counters.totalItems > 0
+        ? Math.round((counters.processedItems / counters.totalItems) * 100)
+        : 100
+
+  return {
+    currentBytes,
+    totalBytes: counters.totalBytes,
+    percent,
+    processedItems: counters.processedItems,
+    totalItems: counters.totalItems
+  }
+}
+
+function emitTransferProgress(
+  task: TransferTaskState,
+  counters: TransferCounters,
+  args?: {
+    stage?: TransferStage
+    message?: string
+    currentItem?: string
+    inflightBytes?: number
+    conflictPolicy?: SftpConflictPolicy
+  }
+): void {
+  broadcastTransferEvent({
+    taskId: task.taskId,
+    type: task.type,
+    stage: args?.stage ?? 'transferring',
+    sourceConnectionId: task.sourceConnectionId ?? null,
+    targetConnectionId: task.targetConnectionId ?? null,
+    progress: buildTransferProgress(counters, args?.inflightBytes ?? 0),
+    message: args?.message,
+    currentItem: args?.currentItem,
+    conflictPolicy: args?.conflictPolicy
+  })
+}
+
+function buildCopyName(baseName: string, index: number, isDirectory: boolean): string {
+  if (isDirectory) {
+    return `${baseName} copy${index > 1 ? ` ${index}` : ''}`
+  }
+
+  const ext = path.extname(baseName)
+  const stem = ext ? baseName.slice(0, -ext.length) : baseName
+  return `${stem} copy${index > 1 ? ` ${index}` : ''}${ext}`
+}
+
+async function localStatSafe(targetPath: string): Promise<fs.Stats | null> {
+  try {
+    return await fs.promises.stat(targetPath)
+  } catch {
+    return null
+  }
+}
+
+async function removeLocalPath(targetPath: string): Promise<void> {
+  await fs.promises.rm(targetPath, { recursive: true, force: true })
+}
+
+async function ensureLocalDir(targetPath: string): Promise<void> {
+  await fs.promises.mkdir(targetPath, { recursive: true })
+}
+
+async function resolveLocalConflict(
+  targetPath: string,
+  sourceType: 'file' | 'directory',
+  policy: SftpConflictPolicy
+): Promise<string | null> {
+  const existing = await localStatSafe(targetPath)
+  if (!existing) return targetPath
+
+  if (policy === 'skip') return null
+
+  if (policy === 'duplicate') {
+    const dir = path.dirname(targetPath)
+    const baseName = path.basename(targetPath)
+    let index = 1
+    while (index < 10_000) {
+      const candidate = path.join(dir, buildCopyName(baseName, index, sourceType === 'directory'))
+      if (!(await localStatSafe(candidate))) return candidate
+      index += 1
+    }
+    throw new Error(`Unable to resolve duplicate path for ${targetPath}`)
+  }
+
+  const sameKind =
+    (sourceType === 'directory' && existing.isDirectory()) ||
+    (sourceType === 'file' && existing.isFile())
+
+  if (!sameKind || sourceType === 'file') {
+    await removeLocalPath(targetPath)
+  }
+
+  return targetPath
+}
+
+async function removeRemotePath(session: SshLikeSession, remotePath: string): Promise<void> {
+  const sftp = await getSftp(session)
+  const stat = await sftpStat(sftp, remotePath)
+  if (!stat) return
+
+  if (stat.isDirectory()) {
+    const result = await sshExec(session, `rm -rf ${shellEscape(remotePath)}`, 60_000)
+    if (result.exitCode !== 0) {
+      throw new Error(
+        result.stderr.trim() || result.stdout.trim() || 'Failed to remove remote path'
+      )
+    }
+    return
+  }
+
+  await withTimeout(
+    new Promise<void>((resolve, reject) => {
+      sftp.unlink(remotePath, (err) => {
+        if (err) return reject(err)
+        resolve()
+      })
+    }),
+    SFTP_LIST_DIR_TIMEOUT_MS,
+    'SFTP delete timeout'
+  )
+}
+
+async function resolveRemoteConflict(
+  session: SshLikeSession,
+  targetPath: string,
+  sourceType: 'file' | 'directory',
+  policy: SftpConflictPolicy
+): Promise<string | null> {
+  const sftp = await getSftp(session)
+  const existing = await sftpStat(sftp, targetPath)
+  if (!existing) return targetPath
+
+  if (policy === 'skip') return null
+
+  if (policy === 'duplicate') {
+    const dir = path.posix.dirname(targetPath)
+    const baseName = path.posix.basename(targetPath)
+    let index = 1
+    while (index < 10_000) {
+      const candidate = path.posix.join(
+        dir,
+        buildCopyName(baseName, index, sourceType === 'directory')
+      )
+      if (!(await sftpStat(sftp, candidate))) return candidate
+      index += 1
+    }
+    throw new Error(`Unable to resolve duplicate path for ${targetPath}`)
+  }
+
+  const sameKind =
+    (sourceType === 'directory' && existing.isDirectory()) ||
+    (sourceType === 'file' && existing.isFile())
+
+  if (!sameKind || sourceType === 'file') {
+    await removeRemotePath(session, targetPath)
+  }
+
+  return targetPath
+}
+
+async function copyLocalFileToRemote(
+  task: TransferTaskState,
+  sourcePath: string,
+  targetSession: SshLikeSession,
+  targetPath: string,
+  counters: TransferCounters,
+  currentItem: string
+): Promise<void> {
+  const stat = await fs.promises.stat(sourcePath)
+  const total = stat.size
+  const sftp = await getSftp(targetSession)
+  await ensureRemoteDir(targetSession, path.posix.dirname(targetPath))
+
+  await new Promise<void>((resolve, reject) => {
+    const readStream = fs.createReadStream(sourcePath)
+    const writeStream = sftp.createWriteStream(targetPath)
+    let sent = 0
+    let lastEmit = 0
+
+    const cleanup = (): void => {
+      readStream.removeAllListeners()
+      writeStream.removeAllListeners()
+    }
+
+    task.cancel = async (): Promise<void> => {
+      if (task.canceled) return
+      task.canceled = true
+      readStream.destroy(createTransferCanceledError())
+      writeStream.destroy()
+      try {
+        await sftpUnlinkSafe(targetSession, targetPath)
+      } catch {
+        // ignore
+      }
+    }
+
+    readStream.on('data', (chunk) => {
+      sent += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk))
+      const now = Date.now()
+      if (now - lastEmit > 180) {
+        lastEmit = now
+        emitTransferProgress(task, counters, {
+          currentItem,
+          inflightBytes: sent,
+          message: 'Transferring file...'
+        })
+      }
+    })
+
+    writeStream.on('close', () => {
+      cleanup()
+      counters.processedItems += 1
+      counters.processedBytes += total
+      emitTransferProgress(task, counters, {
+        currentItem,
+        message: 'Transferred file'
+      })
+      resolve()
+    })
+
+    writeStream.on('error', (err) => {
+      cleanup()
+      reject(err)
+    })
+
+    readStream.on('error', (err) => {
+      cleanup()
+      reject(err)
+    })
+
+    readStream.pipe(writeStream)
+  })
+}
+
+async function copyRemoteFileToLocal(
+  task: TransferTaskState,
+  sourceSession: SshLikeSession,
+  sourcePath: string,
+  targetPath: string,
+  size: number,
+  counters: TransferCounters,
+  currentItem: string
+): Promise<void> {
+  const sftp = await getSftp(sourceSession)
+  await ensureLocalDir(path.dirname(targetPath))
+
+  await new Promise<void>((resolve, reject) => {
+    const readStream = sftp.createReadStream(sourcePath)
+    const writeStream = fs.createWriteStream(targetPath)
+    let sent = 0
+    let lastEmit = 0
+
+    const cleanup = (): void => {
+      readStream.removeAllListeners()
+      writeStream.removeAllListeners()
+    }
+
+    task.cancel = async (): Promise<void> => {
+      if (task.canceled) return
+      task.canceled = true
+      readStream.destroy(createTransferCanceledError())
+      writeStream.destroy()
+      try {
+        await removeLocalPath(targetPath)
+      } catch {
+        // ignore
+      }
+    }
+
+    readStream.on('data', (chunk) => {
+      sent += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk))
+      const now = Date.now()
+      if (now - lastEmit > 180) {
+        lastEmit = now
+        emitTransferProgress(task, counters, {
+          currentItem,
+          inflightBytes: sent,
+          message: 'Transferring file...'
+        })
+      }
+    })
+
+    writeStream.on('close', () => {
+      cleanup()
+      counters.processedItems += 1
+      counters.processedBytes += size
+      emitTransferProgress(task, counters, {
+        currentItem,
+        message: 'Transferred file'
+      })
+      resolve()
+    })
+
+    writeStream.on('error', (err) => {
+      cleanup()
+      reject(err)
+    })
+
+    readStream.on('error', (err) => {
+      cleanup()
+      reject(err)
+    })
+
+    readStream.pipe(writeStream)
+  })
+}
+
+async function copyRemoteFileToRemote(
+  task: TransferTaskState,
+  sourceSession: SshLikeSession,
+  sourcePath: string,
+  targetSession: SshLikeSession,
+  targetPath: string,
+  size: number,
+  counters: TransferCounters,
+  currentItem: string
+): Promise<void> {
+  const sourceSftp = await getSftp(sourceSession)
+  const targetSftp = await getSftp(targetSession)
+  await ensureRemoteDir(targetSession, path.posix.dirname(targetPath))
+
+  await new Promise<void>((resolve, reject) => {
+    const readStream = sourceSftp.createReadStream(sourcePath)
+    const writeStream = targetSftp.createWriteStream(targetPath)
+    let sent = 0
+    let lastEmit = 0
+
+    const cleanup = (): void => {
+      readStream.removeAllListeners()
+      writeStream.removeAllListeners()
+    }
+
+    task.cancel = async (): Promise<void> => {
+      if (task.canceled) return
+      task.canceled = true
+      readStream.destroy(createTransferCanceledError())
+      writeStream.destroy()
+      try {
+        await sftpUnlinkSafe(targetSession, targetPath)
+      } catch {
+        // ignore
+      }
+    }
+
+    readStream.on('data', (chunk) => {
+      sent += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(String(chunk))
+      const now = Date.now()
+      if (now - lastEmit > 180) {
+        lastEmit = now
+        emitTransferProgress(task, counters, {
+          currentItem,
+          inflightBytes: sent,
+          message: 'Transferring file...'
+        })
+      }
+    })
+
+    writeStream.on('close', () => {
+      cleanup()
+      counters.processedItems += 1
+      counters.processedBytes += size
+      emitTransferProgress(task, counters, {
+        currentItem,
+        message: 'Transferred file'
+      })
+      resolve()
+    })
+
+    writeStream.on('error', (err) => {
+      cleanup()
+      reject(err)
+    })
+
+    readStream.on('error', (err) => {
+      cleanup()
+      reject(err)
+    })
+
+    readStream.pipe(writeStream)
+  })
+}
+
+async function scanLocalTransferNode(localPath: string): Promise<TransferNode> {
+  const stat = await fs.promises.stat(localPath)
+  const name = path.basename(localPath) || localPath
+
+  if (stat.isDirectory()) {
+    const childNames = await fs.promises.readdir(localPath)
+    const children = await Promise.all(
+      childNames
+        .sort((left, right) => left.localeCompare(right))
+        .map((childName) => scanLocalTransferNode(path.join(localPath, childName)))
+    )
+    const itemCount = 1 + children.reduce((sum, child) => sum + child.itemCount, 0)
+    const totalBytes = children.reduce((sum, child) => sum + child.totalBytes, 0)
+    return {
+      name,
+      type: 'directory',
+      size: 0,
+      itemCount,
+      totalBytes,
+      localPath,
+      children
+    }
+  }
+
+  return {
+    name,
+    type: 'file',
+    size: stat.size,
+    itemCount: 1,
+    totalBytes: stat.size,
+    localPath
+  }
+}
+
+async function scanRemoteTransferNode(
+  session: SshLikeSession,
+  remotePath: string,
+  entryType?: 'file' | 'directory' | 'symlink',
+  entrySize?: number
+): Promise<TransferNode> {
+  const sftp = await getSftp(session)
+  const stat = entryType && entryType !== 'symlink' ? null : await sftpStat(sftp, remotePath)
+  const isDirectory = entryType ? entryType === 'directory' : Boolean(stat?.isDirectory())
+  const size = entryType === 'file' ? (entrySize ?? 0) : (stat?.size ?? entrySize ?? 0)
+  const name = path.posix.basename(remotePath) || remotePath
+
+  if (isDirectory) {
+    const entries = await readAllSftpDirEntries(session, remotePath)
+    const children = await Promise.all(
+      entries
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((entry) => scanRemoteTransferNode(session, entry.path, entry.type, entry.size))
+    )
+    const itemCount = 1 + children.reduce((sum, child) => sum + child.itemCount, 0)
+    const totalBytes = children.reduce((sum, child) => sum + child.totalBytes, 0)
+    return {
+      name,
+      type: 'directory',
+      size: 0,
+      itemCount,
+      totalBytes,
+      remotePath,
+      connectionId: session.connectionId,
+      children
+    }
+  }
+
+  return {
+    name,
+    type: 'file',
+    size,
+    itemCount: 1,
+    totalBytes: size,
+    remotePath,
+    connectionId: session.connectionId
+  }
+}
+
+function markNodeSkipped(
+  task: TransferTaskState,
+  node: TransferNode,
+  counters: TransferCounters
+): void {
+  counters.processedItems += node.itemCount
+  counters.processedBytes += node.totalBytes
+  emitTransferProgress(task, counters, {
+    currentItem: node.name,
+    message: 'Skipped by conflict policy'
+  })
+}
+
+async function copyLocalNodeToRemote(
+  task: TransferTaskState,
+  node: TransferNode,
+  targetSession: SshLikeSession,
+  requestedTargetPath: string,
+  policy: SftpConflictPolicy,
+  counters: TransferCounters
+): Promise<void> {
+  if (task.canceled) throw createTransferCanceledError()
+
+  if (node.type === 'directory') {
+    const targetPath = await resolveRemoteConflict(
+      targetSession,
+      requestedTargetPath,
+      'directory',
+      policy
+    )
+    if (!targetPath) {
+      markNodeSkipped(task, node, counters)
+      return
+    }
+    await ensureRemoteDir(targetSession, targetPath)
+    counters.processedItems += 1
+    emitTransferProgress(task, counters, {
+      currentItem: targetPath,
+      message: 'Prepared directory'
+    })
+    for (const child of node.children ?? []) {
+      await copyLocalNodeToRemote(
+        task,
+        child,
+        targetSession,
+        path.posix.join(targetPath, child.name),
+        policy,
+        counters
+      )
+    }
+    return
+  }
+
+  const targetPath = await resolveRemoteConflict(targetSession, requestedTargetPath, 'file', policy)
+  if (!targetPath) {
+    markNodeSkipped(task, node, counters)
+    return
+  }
+
+  await copyLocalFileToRemote(
+    task,
+    node.localPath as string,
+    targetSession,
+    targetPath,
+    counters,
+    node.localPath as string
+  )
+}
+
+async function copyRemoteNodeToLocal(
+  task: TransferTaskState,
+  node: TransferNode,
+  sourceSession: SshLikeSession,
+  requestedTargetPath: string,
+  policy: SftpConflictPolicy,
+  counters: TransferCounters
+): Promise<void> {
+  if (task.canceled) throw createTransferCanceledError()
+
+  if (node.type === 'directory') {
+    const targetPath = await resolveLocalConflict(requestedTargetPath, 'directory', policy)
+    if (!targetPath) {
+      markNodeSkipped(task, node, counters)
+      return
+    }
+    await ensureLocalDir(targetPath)
+    counters.processedItems += 1
+    emitTransferProgress(task, counters, {
+      currentItem: targetPath,
+      message: 'Prepared directory'
+    })
+    for (const child of node.children ?? []) {
+      await copyRemoteNodeToLocal(
+        task,
+        child,
+        sourceSession,
+        path.join(targetPath, child.name),
+        policy,
+        counters
+      )
+    }
+    return
+  }
+
+  const targetPath = await resolveLocalConflict(requestedTargetPath, 'file', policy)
+  if (!targetPath) {
+    markNodeSkipped(task, node, counters)
+    return
+  }
+
+  await copyRemoteFileToLocal(
+    task,
+    sourceSession,
+    node.remotePath as string,
+    targetPath,
+    node.size,
+    counters,
+    node.remotePath as string
+  )
+}
+
+async function copyRemoteNodeToRemote(
+  task: TransferTaskState,
+  node: TransferNode,
+  sourceSession: SshLikeSession,
+  targetSession: SshLikeSession,
+  requestedTargetPath: string,
+  policy: SftpConflictPolicy,
+  counters: TransferCounters
+): Promise<void> {
+  if (task.canceled) throw createTransferCanceledError()
+
+  if (node.type === 'directory') {
+    const targetPath = await resolveRemoteConflict(
+      targetSession,
+      requestedTargetPath,
+      'directory',
+      policy
+    )
+    if (!targetPath) {
+      markNodeSkipped(task, node, counters)
+      return
+    }
+    await ensureRemoteDir(targetSession, targetPath)
+    counters.processedItems += 1
+    emitTransferProgress(task, counters, {
+      currentItem: targetPath,
+      message: 'Prepared directory'
+    })
+    for (const child of node.children ?? []) {
+      await copyRemoteNodeToRemote(
+        task,
+        child,
+        sourceSession,
+        targetSession,
+        path.posix.join(targetPath, child.name),
+        policy,
+        counters
+      )
+    }
+    return
+  }
+
+  const targetPath = await resolveRemoteConflict(targetSession, requestedTargetPath, 'file', policy)
+  if (!targetPath) {
+    markNodeSkipped(task, node, counters)
+    return
+  }
+
+  await copyRemoteFileToRemote(
+    task,
+    sourceSession,
+    node.remotePath as string,
+    targetSession,
+    targetPath,
+    node.size,
+    counters,
+    node.remotePath as string
+  )
 }
 
 class TimeoutError extends Error {
@@ -1709,6 +2424,238 @@ export function registerSshHandlers(): void {
   })
 
   ipcMain.handle(
+    'ssh:fs:transfer:start',
+    async (
+      _event,
+      args:
+        | {
+            type: 'upload'
+            connectionId: string
+            remoteDir: string
+            localPaths: string[]
+            conflictPolicy?: SftpConflictPolicy
+          }
+        | {
+            type: 'download'
+            connectionId: string
+            remotePaths: string[]
+            localDir: string
+            conflictPolicy?: SftpConflictPolicy
+          }
+        | {
+            type: 'remote-copy'
+            sourceConnectionId: string
+            targetConnectionId: string
+            sourcePaths: string[]
+            targetDir: string
+            conflictPolicy?: SftpConflictPolicy
+          }
+    ) => {
+      const taskId = `ssh-transfer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const conflictPolicy = args.conflictPolicy ?? 'skip'
+
+      try {
+        const task: TransferTaskState = {
+          taskId,
+          type: args.type,
+          sourceConnectionId:
+            args.type === 'remote-copy' ? args.sourceConnectionId : args.connectionId,
+          targetConnectionId:
+            args.type === 'upload'
+              ? args.connectionId
+              : args.type === 'remote-copy'
+                ? args.targetConnectionId
+                : null,
+          canceled: false,
+          cancel: async () => {
+            task.canceled = true
+            broadcastTransferEvent({
+              taskId,
+              type: args.type,
+              stage: 'canceled',
+              sourceConnectionId: task.sourceConnectionId ?? null,
+              targetConnectionId: task.targetConnectionId ?? null,
+              message: 'Canceled by user',
+              conflictPolicy
+            })
+          }
+        }
+
+        transferTasks.set(taskId, task)
+
+        void (async () => {
+          const counters: TransferCounters = {
+            processedItems: 0,
+            totalItems: 0,
+            processedBytes: 0,
+            totalBytes: 0
+          }
+
+          try {
+            emitTransferProgress(task, counters, {
+              stage: 'preparing',
+              message: 'Preparing transfer...',
+              conflictPolicy
+            })
+
+            if (args.type === 'upload') {
+              if (!Array.isArray(args.localPaths) || args.localPaths.length === 0) {
+                throw new Error('No local paths selected for upload')
+              }
+
+              const targetSession = await ensureFileSession(args.connectionId)
+              touchFileSession(targetSession)
+              const resolvedRemoteDir = await resolveSftpPath(targetSession, args.remoteDir)
+              const nodes = await Promise.all(
+                args.localPaths.map((localPath) => scanLocalTransferNode(localPath))
+              )
+              counters.totalItems = nodes.reduce((sum, node) => sum + node.itemCount, 0)
+              counters.totalBytes = nodes.reduce((sum, node) => sum + node.totalBytes, 0)
+
+              emitTransferProgress(task, counters, {
+                stage: 'preparing',
+                message: 'Transfer plan ready',
+                conflictPolicy
+              })
+
+              for (const node of nodes) {
+                await copyLocalNodeToRemote(
+                  task,
+                  node,
+                  targetSession,
+                  path.posix.join(resolvedRemoteDir, node.name),
+                  conflictPolicy,
+                  counters
+                )
+              }
+            } else if (args.type === 'download') {
+              if (!Array.isArray(args.remotePaths) || args.remotePaths.length === 0) {
+                throw new Error('No remote paths selected for download')
+              }
+
+              const sourceSession = await ensureFileSession(args.connectionId)
+              touchFileSession(sourceSession)
+              await ensureLocalDir(args.localDir)
+
+              const nodes = await Promise.all(
+                args.remotePaths.map(async (remotePath) =>
+                  scanRemoteTransferNode(
+                    sourceSession,
+                    await resolveSftpPath(sourceSession, remotePath)
+                  )
+                )
+              )
+              counters.totalItems = nodes.reduce((sum, node) => sum + node.itemCount, 0)
+              counters.totalBytes = nodes.reduce((sum, node) => sum + node.totalBytes, 0)
+
+              emitTransferProgress(task, counters, {
+                stage: 'preparing',
+                message: 'Transfer plan ready',
+                conflictPolicy
+              })
+
+              for (const node of nodes) {
+                await copyRemoteNodeToLocal(
+                  task,
+                  node,
+                  sourceSession,
+                  path.join(args.localDir, node.name),
+                  conflictPolicy,
+                  counters
+                )
+              }
+            } else {
+              if (!Array.isArray(args.sourcePaths) || args.sourcePaths.length === 0) {
+                throw new Error('No remote paths selected for copy')
+              }
+
+              const sourceSession = await ensureFileSession(args.sourceConnectionId)
+              const targetSession = await ensureFileSession(args.targetConnectionId)
+              touchFileSession(sourceSession)
+              touchFileSession(targetSession)
+
+              const resolvedTargetDir = await resolveSftpPath(targetSession, args.targetDir)
+              const nodes = await Promise.all(
+                args.sourcePaths.map(async (sourcePath) =>
+                  scanRemoteTransferNode(
+                    sourceSession,
+                    await resolveSftpPath(sourceSession, sourcePath)
+                  )
+                )
+              )
+              counters.totalItems = nodes.reduce((sum, node) => sum + node.itemCount, 0)
+              counters.totalBytes = nodes.reduce((sum, node) => sum + node.totalBytes, 0)
+
+              emitTransferProgress(task, counters, {
+                stage: 'preparing',
+                message: 'Transfer plan ready',
+                conflictPolicy
+              })
+
+              for (const node of nodes) {
+                await copyRemoteNodeToRemote(
+                  task,
+                  node,
+                  sourceSession,
+                  targetSession,
+                  path.posix.join(resolvedTargetDir, node.name),
+                  conflictPolicy,
+                  counters
+                )
+              }
+            }
+
+            if (task.canceled) {
+              emitTransferProgress(task, counters, {
+                stage: 'canceled',
+                message: 'Transfer canceled',
+                conflictPolicy
+              })
+              return
+            }
+
+            emitTransferProgress(task, counters, {
+              stage: 'done',
+              message: 'Transfer complete',
+              conflictPolicy
+            })
+          } catch (err) {
+            const canceled = task.canceled || isTransferCanceledError(err)
+            broadcastTransferEvent({
+              taskId,
+              type: task.type,
+              stage: canceled ? 'canceled' : 'error',
+              sourceConnectionId: task.sourceConnectionId ?? null,
+              targetConnectionId: task.targetConnectionId ?? null,
+              progress: buildTransferProgress(counters),
+              message: canceled ? 'Transfer canceled' : String(err),
+              conflictPolicy
+            })
+          } finally {
+            transferTasks.delete(taskId)
+          }
+        })()
+
+        return { taskId }
+      } catch (err) {
+        transferTasks.delete(taskId)
+        return { error: String(err) }
+      }
+    }
+  )
+
+  ipcMain.handle('ssh:fs:transfer:cancel', async (_event, args: { taskId: string }) => {
+    const task = transferTasks.get(args.taskId)
+    if (!task) return { error: 'Task not found' }
+    try {
+      await task.cancel('Canceled by user')
+      return { success: true }
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  ipcMain.handle(
     'ssh:group:update',
     async (_event, args: { id: string; name?: string; sortOrder?: number }) => {
       try {
@@ -2461,6 +3408,26 @@ export function registerSshHandlers(): void {
         if (!homeDir) return { error: 'Failed to resolve home dir' }
         return { path: homeDir }
       })
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  ipcMain.handle('ssh:fs:connect', async (_event, args: { connectionId: string }) => {
+    try {
+      const session = await ensureFileSession(args.connectionId)
+      touchFileSession(session)
+      const homeDir = await getHomeDir(session)
+      return { success: true, homeDir }
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  ipcMain.handle('ssh:fs:disconnect', async (_event, args: { connectionId: string }) => {
+    try {
+      resetFileSession(args.connectionId, 'Disconnected by user')
+      return { success: true }
     } catch (err) {
       return { error: String(err) }
     }

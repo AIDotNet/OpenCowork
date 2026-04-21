@@ -241,6 +241,46 @@
   --sidebar-accent-foreground: oklch(0.22 0.012 260);
   --sidebar-border: oklch(0.892 0.004 260);
   --sidebar-ring: oklch(0.648 0.03 260);
+  --composer-shell-top: var(--card);
+  --composer-shell-bottom: var(--card);
+  --composer-shell-border: color-mix(in srgb, var(--border) 92%, black 4%);
+  --composer-shell-border-focus: color-mix(in srgb, var(--ring) 28%, var(--border));
+  --composer-shell-shadow:
+    0 10px 24px -18px color-mix(in srgb, var(--foreground) 18%, transparent),
+    0 1px 2px color-mix(in srgb, var(--foreground) 6%, transparent);
+  --composer-shell-shadow-focus:
+    0 12px 28px -18px color-mix(in srgb, var(--foreground) 16%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--ring) 12%, transparent);
+  --composer-shell-glow: transparent;
+  --composer-editor-surface: transparent;
+  --composer-editor-surface-strong: transparent;
+  --composer-editor-border: transparent;
+  --composer-toolbar-border: color-mix(in srgb, var(--border) 76%, transparent);
+  --composer-panel-bg: var(--popover);
+  --composer-panel-border: color-mix(in srgb, var(--border) 90%, black 4%);
+  --composer-panel-shadow:
+    0 18px 36px -28px color-mix(in srgb, var(--foreground) 22%, transparent),
+    0 1px 2px color-mix(in srgb, var(--foreground) 8%, transparent);
+  --composer-control-bg: transparent;
+  --composer-control-bg-hover: color-mix(in srgb, var(--accent) 72%, white 28%);
+  --composer-control-border: transparent;
+  --composer-control-shadow: none;
+  --composer-control-active-bg: transparent;
+  --composer-control-active-border: transparent;
+  --composer-control-active-text: var(--foreground);
+  --composer-send-start: var(--foreground);
+  --composer-send-end: var(--foreground);
+  --composer-send-shadow: 0 8px 20px -12px color-mix(in srgb, var(--foreground) 20%, transparent);
+  --composer-send-shadow-hover: 0 10px 22px -12px
+    color-mix(in srgb, var(--foreground) 24%, transparent);
+  --composer-send-foreground: var(--background);
+  --composer-chip-bg: transparent;
+  --composer-chip-border: color-mix(in srgb, var(--border) 92%, transparent);
+  --composer-chip-text: color-mix(in srgb, var(--foreground) 72%, var(--muted-foreground) 28%);
+  --composer-chip-hover: color-mix(in srgb, var(--accent) 74%, white 26%);
+  --composer-drop-bg: color-mix(in srgb, var(--accent) 70%, white 30%);
+  --composer-placeholder: color-mix(in srgb, var(--muted-foreground) 82%, transparent);
+  --composer-suggestion: color-mix(in srgb, var(--muted-foreground) 54%, transparent);
   --radius: 0.625rem;
   --app-background: var(--background);
   --app-font-family:
@@ -282,6 +322,40 @@
   --sidebar-accent-foreground: oklch(0.985 0.004 260);
   --sidebar-border: oklch(0.3 0.012 260);
   --sidebar-ring: oklch(0.62 0.09 255);
+  --composer-shell-top: color-mix(in srgb, var(--card) 92%, var(--background) 8%);
+  --composer-shell-bottom: color-mix(in srgb, var(--card) 92%, var(--background) 8%);
+  --composer-shell-border: color-mix(in srgb, var(--border) 82%, black 18%);
+  --composer-shell-border-focus: color-mix(in srgb, var(--ring) 24%, var(--border));
+  --composer-shell-shadow: 0 18px 32px -24px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.35);
+  --composer-shell-shadow-focus:
+    0 20px 36px -24px rgba(0, 0, 0, 0.6), 0 0 0 3px color-mix(in srgb, var(--ring) 10%, transparent);
+  --composer-shell-glow: transparent;
+  --composer-editor-surface: transparent;
+  --composer-editor-surface-strong: transparent;
+  --composer-editor-border: transparent;
+  --composer-toolbar-border: color-mix(in srgb, var(--border) 68%, black 32%);
+  --composer-panel-bg: color-mix(in srgb, var(--popover) 96%, black 4%);
+  --composer-panel-border: color-mix(in srgb, var(--border) 78%, black 22%);
+  --composer-panel-shadow: 0 20px 38px -28px rgba(0, 0, 0, 0.72), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --composer-control-bg: transparent;
+  --composer-control-bg-hover: color-mix(in srgb, var(--accent) 72%, black 28%);
+  --composer-control-border: transparent;
+  --composer-control-shadow: none;
+  --composer-control-active-bg: transparent;
+  --composer-control-active-border: transparent;
+  --composer-control-active-text: var(--foreground);
+  --composer-send-start: color-mix(in srgb, var(--foreground) 88%, black 12%);
+  --composer-send-end: color-mix(in srgb, var(--foreground) 88%, black 12%);
+  --composer-send-shadow: 0 10px 22px -14px rgba(0, 0, 0, 0.45);
+  --composer-send-shadow-hover: 0 12px 24px -14px rgba(0, 0, 0, 0.52);
+  --composer-send-foreground: var(--background);
+  --composer-chip-bg: transparent;
+  --composer-chip-border: color-mix(in srgb, var(--border) 78%, black 22%);
+  --composer-chip-text: color-mix(in srgb, var(--foreground) 78%, var(--muted-foreground) 22%);
+  --composer-chip-hover: color-mix(in srgb, var(--accent) 70%, black 30%);
+  --composer-drop-bg: color-mix(in srgb, var(--accent) 68%, black 32%);
+  --composer-placeholder: color-mix(in srgb, var(--muted-foreground) 72%, transparent);
+  --composer-suggestion: color-mix(in srgb, var(--muted-foreground) 46%, transparent);
 }
 
 @layer base {
@@ -506,6 +580,222 @@
 
   .ai-live-thinking--elegant .thinking-live-label {
     animation: thinking-live-label-elegant 2.6s ease-in-out infinite;
+  }
+
+  .composer-shell {
+    position: relative;
+    isolation: isolate;
+    border: 1px solid var(--composer-shell-border);
+    background: linear-gradient(
+      180deg,
+      var(--composer-shell-top) 0%,
+      var(--composer-shell-bottom) 100%
+    );
+    box-shadow: var(--composer-shell-shadow);
+  }
+
+  .composer-shell::before {
+    display: none;
+  }
+
+  .composer-shell::after {
+    display: none;
+  }
+
+  .composer-shell:focus-within {
+    border-color: var(--composer-shell-border-focus);
+    box-shadow: var(--composer-shell-shadow-focus);
+  }
+
+  .composer-shell[data-composer-variant='project'] {
+    border-radius: 1.375rem;
+  }
+
+  .composer-shell[data-composer-variant='session'] {
+    border-radius: 1.0625rem;
+  }
+
+  .composer-drag-handle {
+    position: relative;
+    z-index: 1;
+    background: transparent;
+  }
+
+  .composer-drag-grip {
+    background: color-mix(in srgb, var(--border) 88%, transparent);
+    box-shadow: none;
+  }
+
+  .composer-editor-region::before {
+    display: none;
+  }
+
+  .composer-toolbar {
+    position: relative;
+    z-index: 1;
+    border-top: 1px solid var(--composer-toolbar-border);
+    background: transparent;
+  }
+
+  .composer-panel {
+    border: 1px solid var(--composer-panel-border);
+    background: var(--composer-panel-bg);
+    box-shadow: var(--composer-panel-shadow);
+  }
+
+  .composer-cardlet {
+    border: 1px solid color-mix(in srgb, var(--composer-panel-border) 88%, transparent);
+    background: color-mix(in srgb, var(--muted) 22%, transparent);
+    box-shadow: none;
+  }
+
+  .composer-shell [data-slot='button'].composer-control {
+    border: 0;
+    background: var(--composer-control-bg);
+    color: color-mix(in srgb, var(--foreground) 70%, var(--muted-foreground) 30%);
+    box-shadow: none;
+  }
+
+  .composer-shell [data-slot='button'].composer-control:hover:not(:disabled) {
+    background: var(--composer-control-bg-hover);
+    color: var(--foreground);
+  }
+
+  .composer-shell [data-slot='button'].composer-control[data-active='true'] {
+    background: var(--composer-control-active-bg);
+    color: var(--composer-control-active-text);
+  }
+
+  .composer-shell [data-slot='button'].composer-control[data-tone='warning'] {
+    background: transparent;
+    color: color-mix(in srgb, #b45309 76%, var(--foreground));
+  }
+
+  .composer-shell [data-slot='button'].composer-control[data-tone='warning']:hover:not(:disabled) {
+    background: color-mix(in srgb, #f59e0b 12%, var(--composer-control-bg-hover));
+    color: color-mix(in srgb, #92400e 82%, var(--foreground));
+  }
+
+  .dark .composer-shell [data-slot='button'].composer-control[data-tone='warning'] {
+    color: color-mix(in srgb, #fbbf24 78%, var(--foreground));
+  }
+
+  .dark
+    .composer-shell
+    [data-slot='button'].composer-control[data-tone='warning']:hover:not(:disabled) {
+    color: color-mix(in srgb, #fde68a 82%, var(--foreground));
+  }
+
+  .composer-shell [data-slot='button'].composer-control[data-tone='danger'] {
+    background: transparent;
+    color: color-mix(in srgb, #b91c1c 74%, var(--foreground));
+  }
+
+  .composer-shell [data-slot='button'].composer-control[data-tone='danger']:hover:not(:disabled) {
+    background: color-mix(in srgb, #ef4444 12%, var(--composer-control-bg-hover));
+    color: color-mix(in srgb, #991b1b 80%, var(--foreground));
+  }
+
+  .dark .composer-shell [data-slot='button'].composer-control[data-tone='danger'] {
+    color: color-mix(in srgb, #fca5a5 82%, var(--foreground));
+  }
+
+  .dark
+    .composer-shell
+    [data-slot='button'].composer-control[data-tone='danger']:hover:not(:disabled) {
+    color: color-mix(in srgb, #fecaca 86%, var(--foreground));
+  }
+
+  .composer-shell [data-slot='button'].composer-send {
+    border: 0;
+    background: var(--composer-send-start);
+    color: var(--composer-send-foreground);
+    box-shadow: var(--composer-send-shadow);
+  }
+
+  .composer-shell [data-slot='button'].composer-send:hover:not(:disabled) {
+    box-shadow: var(--composer-send-shadow-hover);
+    filter: brightness(1.04);
+  }
+
+  .composer-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border: 1px solid var(--composer-chip-border);
+    background: var(--composer-chip-bg);
+    color: var(--composer-chip-text);
+    box-shadow: none;
+  }
+
+  .composer-skill-tag {
+    border: 1px solid var(--composer-chip-border);
+    background: var(--composer-chip-bg);
+    color: var(--composer-chip-text);
+    box-shadow: none;
+  }
+
+  .composer-image-thumb {
+    border: 1px solid var(--composer-panel-border);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .composer-drop-overlay {
+    background: color-mix(in srgb, var(--composer-drop-bg) 78%, transparent);
+  }
+
+  .composer-flyout {
+    border: 1px solid var(--composer-panel-border);
+    background: var(--composer-panel-bg);
+    box-shadow: var(--composer-panel-shadow);
+  }
+
+  .composer-flyout-header {
+    border-bottom: 1px solid var(--composer-toolbar-border);
+    background: transparent;
+  }
+
+  .composer-editor-placeholder {
+    color: var(--composer-placeholder);
+  }
+
+  .composer-editor-suggestion {
+    color: var(--composer-suggestion);
+  }
+
+  .composer-editor-content {
+    position: relative;
+    z-index: 1;
+    color: var(--foreground);
+  }
+
+  .composer-file-ref {
+    border: 1px solid var(--composer-chip-border);
+    background: var(--composer-chip-bg);
+    color: var(--composer-chip-text);
+    box-shadow: none;
+  }
+
+  .composer-file-ref--highlighted {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--primary) 26%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--primary) 8%, transparent);
+  }
+
+  .composer-file-ref-action {
+    color: color-mix(in srgb, var(--composer-chip-text) 82%, transparent);
+  }
+
+  .composer-file-ref-action:hover {
+    background: var(--composer-chip-hover);
+    color: var(--foreground);
+  }
+
+  textarea.composer-aux-textarea {
+    border-color: var(--composer-chip-border);
+    background: transparent;
+    box-shadow: none;
   }
 }
 

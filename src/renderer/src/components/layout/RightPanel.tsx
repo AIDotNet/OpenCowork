@@ -5,7 +5,6 @@ import { FadeIn } from '@renderer/components/animate-ui'
 import { useUIStore, type RightPanelTab } from '@renderer/stores/ui-store'
 import { ArtifactsPanel } from '@renderer/components/cowork/ArtifactsPanel'
 import { ContextPanel } from '@renderer/components/cowork/ContextPanel'
-import { TerminalPanel } from '@renderer/components/terminal/TerminalPanel'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
@@ -109,7 +108,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
           if (item.value === 'preview') {
             return previewPanelOpen || detailPanelOpen || tab === 'preview'
           }
-          return item.value !== 'files' && item.value !== 'terminal' && item.value !== 'artifacts'
+          return item.value !== 'files' && item.value !== 'artifacts'
         }),
     [
       builtinBrowserEnabled,
@@ -202,7 +201,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
     >
       <aside
         className={cn(
-          'relative flex h-full w-full border-l border-border/50 bg-background/55 backdrop-blur-sm transition-opacity duration-200',
+          'relative flex h-full w-full border-l border-border/60 bg-background transition-opacity duration-200',
           rightPanelOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
         )}
       >
@@ -215,7 +214,7 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
               onClose={() => setRightPanelOpen(false)}
               t={t}
             />
-            <div className="min-h-0 flex-1 overflow-auto bg-background/5 p-4">
+            <div className="min-h-0 flex-1 overflow-auto bg-background p-4">
               <AnimatePresence mode="wait">
                 {(resolvedTab === 'orchestration' || resolvedTab === 'team') && (
                   <FadeIn key="orchestration" className="h-full">
@@ -261,12 +260,6 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
                 {resolvedTab === 'browser' && (
                   <FadeIn key="browser" className="h-full">
                     <BrowserPanel />
-                  </FadeIn>
-                )}
-
-                {resolvedTab === 'terminal' && (
-                  <FadeIn key="terminal" className="h-full">
-                    <TerminalPanel />
                   </FadeIn>
                 )}
 

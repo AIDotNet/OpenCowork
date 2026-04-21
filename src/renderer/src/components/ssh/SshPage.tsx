@@ -1,63 +1,394 @@
-import { useEffect, useCallback } from 'react'
-import { WindowControls } from '@renderer/components/layout/WindowControls'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTheme } from 'next-themes'
 import { useTranslation } from 'react-i18next'
 import {
-  X,
-  Plus,
-  PanelLeftOpen,
-  PanelLeftClose,
-  Search,
-  Eraser,
-  RotateCcw,
-  Terminal,
-  FileText,
-  Upload,
+  Bell,
+  ChevronDown,
+  FolderOpen,
   Loader2,
-  Server
+  Palette,
+  PanelRightClose,
+  PanelRightOpen,
+  Plus,
+  Terminal,
+  Upload,
+  X
 } from 'lucide-react'
+import { toast } from 'sonner'
+import {
+  getSshChromePalette,
+  resolveAppThemeMode,
+  type SshChromePalette
+} from '@renderer/lib/theme-presets'
+import { cn } from '@renderer/lib/utils'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useSshStore, type SshTab } from '@renderer/stores/ssh-store'
+import { WindowControls } from '@renderer/components/layout/WindowControls'
 import { Button } from '@renderer/components/ui/button'
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
-  SheetDescription,
   SheetTrigger
 } from '@renderer/components/ui/sheet'
-import { cn } from '@renderer/lib/utils'
-import { toast } from 'sonner'
 import { SshConnectionList } from './SshConnectionList'
-import { SshFileExplorer } from './SshFileExplorer'
-import { SshTerminal } from './SshTerminal'
 import { SshFileEditor } from './SshFileEditor'
+import { SshTerminalThemePanel } from './SshTerminalThemePanel'
+import { SshTerminal } from './SshTerminal'
+import { SshTerminalStatusPanel } from './SshTerminalStatusPanel'
+
+type ShellTone = 'library' | 'connect' | 'terminal'
+
+function getShellTone(showTerminalView: boolean, connected: boolean): ShellTone {
+  if (!showTerminalView) return 'library'
+  if (connected) return 'terminal'
+  return 'connect'
+}
+
+function getTitlebarStyle(tone: ShellTone, palette: SshChromePalette): React.CSSProperties {
+  if (tone === 'terminal') {
+    return {
+      background: palette.terminalFrame,
+      borderColor: palette.terminalBorder,
+      color: palette.terminalText
+    }
+  }
+
+  if (tone === 'connect') {
+    return {
+      background: palette.connectFrame,
+      borderColor: palette.connectBorder,
+      color: palette.connectText
+    }
+  }
+
+  return {
+    background: `linear-gradient(90deg, ${palette.libraryFrameStart} 0%, ${palette.libraryFrameEnd} 100%)`,
+    borderColor: palette.libraryBorder,
+    color: palette.libraryText
+  }
+}
+
+function getChromePillStyle(
+  tone: ShellTone,
+  active: boolean,
+  palette: SshChromePalette
+): React.CSSProperties {
+  if (tone === 'terminal') {
+    return active
+      ? {
+          background: palette.terminalPillActive,
+          color: palette.terminalPillActiveText,
+          boxShadow: `inset 0 0 0 1px ${palette.panelBorder}`
+        }
+      : {
+          background: palette.terminalPill,
+          color: palette.terminalPillText
+        }
+  }
+
+  if (tone === 'connect') {
+    return active
+      ? {
+          background: palette.connectPillActive,
+          color: palette.connectPillActiveText
+        }
+      : {
+          background: palette.connectPill,
+          color: palette.connectPillText
+        }
+  }
+
+  return active
+    ? {
+        background: palette.libraryPillActive,
+        color: palette.libraryPillActiveText,
+        boxShadow: `inset 0 0 0 1px ${palette.panelBorder}`
+      }
+    : {
+        background: palette.libraryPill,
+        color: palette.libraryPillText
+      }
+}
+
+function getToneIconButtonStyle(tone: ShellTone, palette: SshChromePalette): React.CSSProperties {
+  if (tone === 'terminal') {
+    return { color: palette.terminalPillText }
+  }
+  if (tone === 'connect') {
+    return { color: palette.connectPillText }
+  }
+  return { color: palette.libraryPillText }
+}
+
+function ChromePill({
+  active,
+  tone,
+  palette,
+  children,
+  className,
+  onClick
+}: {
+  active?: boolean
+  tone: ShellTone
+  palette: SshChromePalette
+  children: React.ReactNode
+  className?: string
+  onClick?: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'titlebar-no-drag inline-flex h-8 items-center gap-2 rounded-[12px] px-4 text-[0.88rem] font-medium transition-all hover:opacity-90',
+        className
+      )}
+      style={getChromePillStyle(tone, !!active, palette)}
+    >
+      {children}
+    </button>
+  )
+}
+
+function ConnectionStage({
+  connectionName,
+  sessionStatus,
+  sessionError,
+  palette,
+  onClose,
+  onShowList,
+  onRetry
+}: {
+  connectionName: string
+  sessionStatus: 'connecting' | 'error' | 'disconnected' | null
+  sessionError?: string
+  palette: SshChromePalette
+  onClose: () => void
+  onShowList: () => void
+  onRetry: () => void
+}): React.JSX.Element {
+  const { t } = useTranslation('ssh')
+  const [showLogs, setShowLogs] = useState(false)
+
+  const isConnecting = sessionStatus === 'connecting'
+  const steps = [
+    {
+      key: 'dial',
+      active: isConnecting,
+      done: !!sessionStatus
+    },
+    {
+      key: 'auth',
+      active: isConnecting,
+      done: sessionStatus === 'connecting'
+    },
+    {
+      key: 'shell',
+      active: false,
+      done: false
+    }
+  ]
+
+  return (
+    <div
+      className="flex flex-1 items-start justify-center overflow-auto px-6 py-14"
+      style={{ background: palette.canvas }}
+    >
+      <div className="w-full max-w-[700px]">
+        <div className="mx-auto flex max-w-[380px] items-start justify-between gap-6">
+          <div className="flex items-start gap-4">
+            <div
+              className="flex size-10 shrink-0 items-center justify-center rounded-[14px] text-white shadow-[0_14px_30px_rgba(15,138,166,0.22)]"
+              style={{ background: palette.accent }}
+            >
+              <Terminal className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-[1.1rem] font-semibold" style={{ color: palette.text }}>
+                {connectionName}
+              </div>
+              <div className="mt-1 text-[0.82rem]" style={{ color: palette.muted }}>
+                SSH {connectionName}:22
+              </div>
+            </div>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-10 rounded-2xl px-4 text-[0.85rem] font-semibold shadow-none hover:opacity-90"
+            style={{
+              borderColor: palette.panelBorder,
+              background: palette.panel,
+              color: palette.terminalText
+            }}
+            onClick={() => setShowLogs((current) => !current)}
+          >
+            {t('workspace.showLogs', { defaultValue: 'Show logs' })}
+          </Button>
+        </div>
+
+        <div className="mx-auto mt-8 flex max-w-[380px] items-center gap-3">
+          {steps.map((step, index) => (
+            <div key={step.key} className="flex flex-1 items-center gap-3">
+              <div
+                className="flex size-6 shrink-0 items-center justify-center rounded-full text-[0.7rem] font-semibold text-white"
+                style={{ background: step.done ? palette.accent : palette.muted }}
+              >
+                {index + 1}
+              </div>
+              {index < steps.length - 1 ? (
+                <div
+                  className="h-1 flex-1 rounded-full"
+                  style={{ background: step.done ? palette.accent : palette.muted }}
+                />
+              ) : null}
+            </div>
+          ))}
+        </div>
+
+        <div className="mx-auto mt-12 max-w-[380px]">
+          <h2
+            className="text-[2rem] font-semibold tracking-[-0.03em]"
+            style={{ color: palette.text }}
+          >
+            {sessionStatus === 'error'
+              ? t('workspace.connectFailedTitle', {
+                  defaultValue: 'Connection could not complete.'
+                })
+              : t('workspace.connectingTitle', {
+                  defaultValue: 'Are you sure you want to connect?'
+                })}
+          </h2>
+          <p className="mt-8 text-[1rem] leading-7" style={{ color: palette.text }}>
+            {sessionStatus === 'error'
+              ? sessionError ||
+                t('workspace.connectFailedBody', {
+                  defaultValue:
+                    'The SSH client returned an error before the shell opened. You can review the logs or retry the connection.'
+                })
+              : t('workspace.connectingBody', {
+                  defaultValue:
+                    'OpenCowork is preparing the secure transport, authenticating your host profile, and waiting for the remote shell to become interactive.'
+                })}
+          </p>
+          <p className="mt-6 text-[0.95rem] leading-7" style={{ color: palette.muted }}>
+            {sessionStatus === 'error'
+              ? t('workspace.connectFailedHint', {
+                  defaultValue:
+                    'Check the credentials, jump host, or server reachability and try again.'
+                })
+              : t('workspace.connectingHint', {
+                  defaultValue:
+                    'You can leave this screen open or return to the host list while the session finishes dialing.'
+                })}
+          </p>
+
+          <div className="mt-10 flex flex-wrap gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-11 rounded-2xl px-5 text-[0.9rem] font-semibold shadow-none hover:opacity-90"
+              style={{
+                borderColor: palette.panelBorder,
+                background: palette.panel,
+                color: palette.terminalText
+              }}
+              onClick={onClose}
+            >
+              {t('workspace.close', { defaultValue: 'Close' })}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-11 rounded-2xl px-5 text-[0.9rem] font-semibold shadow-none hover:opacity-90"
+              style={{
+                borderColor: palette.panelBorder,
+                background: palette.panel,
+                color: palette.terminalText
+              }}
+              onClick={onShowList}
+            >
+              {t('workspace.backToHosts', { defaultValue: 'Back to hosts' })}
+            </Button>
+            <Button
+              size="sm"
+              className="h-11 rounded-2xl px-5 text-[0.9rem] font-semibold text-white hover:opacity-90"
+              style={{ background: palette.accent, color: palette.accentContrast }}
+              onClick={onRetry}
+            >
+              {sessionStatus === 'error'
+                ? t('terminal.reconnect')
+                : t('workspace.keepWaiting', { defaultValue: 'Keep waiting' })}
+            </Button>
+          </div>
+
+          {showLogs ? (
+            <div
+              className="mt-8 rounded-[24px] border p-5 shadow-[0_18px_42px_rgba(111,133,165,0.12)]"
+              style={{ borderColor: palette.panelBorder, background: palette.surface }}
+            >
+              <div
+                className="text-[0.8rem] font-semibold uppercase tracking-[0.2em]"
+                style={{ color: palette.muted }}
+              >
+                {t('workspace.connectionLog', { defaultValue: 'Connection log' })}
+              </div>
+              <div
+                className="mt-4 space-y-2 font-mono text-[0.8rem]"
+                style={{ color: palette.text }}
+              >
+                <div>• resolving profile: {connectionName}</div>
+                <div>• session state: {sessionStatus ?? 'idle'}</div>
+                <div>• transport: ssh2</div>
+                {sessionError ? <div>• error: {sessionError}</div> : <div>• waiting for shell</div>}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function SshPage(): React.JSX.Element {
   const { t } = useTranslation('ssh')
+  const { resolvedTheme } = useTheme()
   const isMac = /Mac/.test(navigator.userAgent)
 
-  const openTabs = useSshStore((s) => s.openTabs)
-  const activeTabId = useSshStore((s) => s.activeTabId)
-  const sessions = useSshStore((s) => s.sessions)
-  const fileExplorerOpen = useSshStore((s) => s.fileExplorerOpen)
-  const loadAll = useSshStore((s) => s.loadAll)
-  const _loaded = useSshStore((s) => s._loaded)
-  const uploadTasks = useSshStore((s) => s.uploadTasks)
+  const themePreset = useSettingsStore((state) => state.themePreset)
+  const openTabs = useSshStore((state) => state.openTabs)
+  const activeTabId = useSshStore((state) => state.activeTabId)
+  const sessions = useSshStore((state) => state.sessions)
+  const connections = useSshStore((state) => state.connections)
+  const workspaceSection = useSshStore((state) => state.workspaceSection)
+  const setWorkspaceSection = useSshStore((state) => state.setWorkspaceSection)
+  const loadAll = useSshStore((state) => state.loadAll)
+  const loaded = useSshStore((state) => state._loaded)
+  const transferTasks = useSshStore((state) => state.transferTasks)
+  const setDetailConnectionId = useSshStore((state) => state.setDetailConnectionId)
+  const setInspectorMode = useSshStore((state) => state.setInspectorMode)
+  const [terminalStatusOpen, setTerminalStatusOpen] = useState(false)
 
-  const uploadTaskList = Object.values(uploadTasks).sort((a, b) => b.updatedAt - a.updatedAt)
+  const uploadTaskList = Object.values(transferTasks).sort(
+    (left, right) => right.updatedAt - left.updatedAt
+  )
   const activeUploadCount = uploadTaskList.filter(
     (task) => task.stage !== 'done' && task.stage !== 'error' && task.stage !== 'canceled'
   ).length
 
   useEffect(() => {
-    if (!_loaded) void loadAll()
-  }, [_loaded, loadAll])
+    if (!loaded) void loadAll()
+  }, [loaded, loadAll])
 
   const handleConnect = useCallback(
     async (connectionId: string) => {
       const store = useSshStore.getState()
-      const conn = store.connections.find((c) => c.id === connectionId)
-      if (!conn) return
+      const connection = store.connections.find((item) => item.id === connectionId)
+      if (!connection) return
 
       const existingTab = store.openTabs.find(
         (tab) => tab.connectionId === connectionId && tab.type === 'terminal'
@@ -77,8 +408,8 @@ export function SshPage(): React.JSX.Element {
           type: 'terminal',
           sessionId: existingSession.id,
           connectionId,
-          connectionName: conn.name,
-          title: conn.name
+          connectionName: connection.name,
+          title: connection.name
         })
         return
       }
@@ -89,8 +420,8 @@ export function SshPage(): React.JSX.Element {
         type: 'terminal',
         sessionId: null,
         connectionId,
-        connectionName: conn.name,
-        title: conn.name,
+        connectionName: connection.name,
+        title: connection.name,
         status: 'connecting'
       })
 
@@ -113,39 +444,36 @@ export function SshPage(): React.JSX.Element {
         type: 'terminal',
         sessionId,
         connectionId,
-        connectionName: conn.name,
-        title: conn.name
+        connectionName: connection.name,
+        title: connection.name
       }
       store.replaceTab(pendingTabId, tab)
     },
     [t]
   )
 
-  const handleCloseTab = useCallback((tabId: string) => {
-    useSshStore.getState().closeTab(tabId)
-  }, [])
-
   const handleNewTerminal = useCallback(async () => {
     const store = useSshStore.getState()
-    const active = store.openTabs.find((tab) => tab.id === store.activeTabId)
-    if (!active) return
+    const activeTab = store.openTabs.find((tab) => tab.id === store.activeTabId)
+    if (!activeTab) return
 
     const tabCount =
       store.openTabs.filter(
-        (tab) => tab.connectionId === active.connectionId && tab.type === 'terminal'
+        (tab) => tab.connectionId === activeTab.connectionId && tab.type === 'terminal'
       ).length + 1
-    const pendingTabId = `pending-${active.connectionId}-${Date.now()}`
+
+    const pendingTabId = `pending-${activeTab.connectionId}-${Date.now()}`
     store.openTab({
       id: pendingTabId,
       type: 'terminal',
       sessionId: null,
-      connectionId: active.connectionId,
-      connectionName: active.connectionName,
-      title: `${active.connectionName} (${tabCount})`,
+      connectionId: activeTab.connectionId,
+      connectionName: activeTab.connectionName,
+      title: `${activeTab.connectionName} (${tabCount})`,
       status: 'connecting'
     })
 
-    const sessionId = await store.connect(active.connectionId)
+    const sessionId = await store.connect(activeTab.connectionId)
     if (!sessionId) {
       store.closeTab(pendingTabId)
       toast.error(t('connectionFailed'))
@@ -158,266 +486,319 @@ export function SshPage(): React.JSX.Element {
       return
     }
 
-    const tabId = `tab-${sessionId}`
-    const tab: SshTab = {
-      id: tabId,
+    store.replaceTab(pendingTabId, {
+      id: `tab-${sessionId}`,
       type: 'terminal',
       sessionId,
-      connectionId: active.connectionId,
-      connectionName: active.connectionName,
-      title: `${active.connectionName} (${tabCount})`
-    }
-    store.replaceTab(pendingTabId, tab)
+      connectionId: activeTab.connectionId,
+      connectionName: activeTab.connectionName,
+      title: `${activeTab.connectionName} (${tabCount})`
+    })
   }, [t])
 
-  const handleShowList = useCallback(() => {
-    useSshStore.getState().setActiveTab(null as unknown as string)
-    useSshStore.setState({ activeTabId: null })
+  const handleCloseTab = useCallback((tabId: string) => {
+    useSshStore.getState().closeTab(tabId)
   }, [])
 
-  const activeTab = openTabs.find((tab) => tab.id === activeTabId)
+  const handleShowList = useCallback(() => {
+    setWorkspaceSection('hosts')
+  }, [setWorkspaceSection])
+
+  const activeTab = openTabs.find((tab) => tab.id === activeTabId) ?? null
   const activeSession =
     activeTab?.type === 'terminal' && activeTab.sessionId ? sessions[activeTab.sessionId] : null
-  const explorerSessionId = activeTab
-    ? (activeTab.sessionId ??
-      Object.values(sessions).find(
-        (session) =>
-          session.connectionId === activeTab.connectionId && session.status === 'connected'
-      )?.id ??
-      null)
+  const showTerminalView = workspaceSection === 'terminal' && !!activeTabId && openTabs.length > 0
+  const activeConnection = activeTab
+    ? (connections.find((connection) => connection.id === activeTab.connectionId) ?? null)
     : null
-  const showTerminalView = !!activeTabId && openTabs.length > 0
+  const terminalConnected = activeSession?.status === 'connected'
+  const shellTone = getShellTone(showTerminalView, terminalConnected)
+  const shellPalette = useMemo(
+    () => getSshChromePalette(themePreset, resolveAppThemeMode(resolvedTheme)),
+    [resolvedTheme, themePreset]
+  )
+  const stageStatus =
+    activeSession?.status === 'connecting' ||
+    activeSession?.status === 'error' ||
+    activeSession?.status === 'disconnected'
+      ? activeSession.status
+      : activeTab?.status === 'connecting' || activeTab?.status === 'error'
+        ? activeTab.status
+        : null
+  const effectiveTerminalStatusOpen = showTerminalView && terminalConnected && terminalStatusOpen
+
+  const handlePrimaryPlus = useCallback(() => {
+    if (showTerminalView) {
+      void handleNewTerminal()
+      return
+    }
+
+    setWorkspaceSection('hosts')
+    setInspectorMode('create')
+    setDetailConnectionId(null)
+  }, [
+    handleNewTerminal,
+    setDetailConnectionId,
+    setInspectorMode,
+    setWorkspaceSection,
+    showTerminalView
+  ])
+
+  const handleRetryActive = useCallback(() => {
+    if (!activeConnection) return
+    handleConnect(activeConnection.id)
+  }, [activeConnection, handleConnect])
+
+  const body = useMemo(() => {
+    if (!showTerminalView) {
+      return <SshConnectionList onConnect={(connectionId) => void handleConnect(connectionId)} />
+    }
+
+    if (!terminalConnected) {
+      return (
+        <ConnectionStage
+          connectionName={activeConnection?.name ?? activeTab?.connectionName ?? 'SSH'}
+          sessionStatus={stageStatus}
+          sessionError={activeSession?.error ?? activeTab?.error}
+          palette={shellPalette}
+          onClose={() => {
+            if (activeTab) handleCloseTab(activeTab.id)
+          }}
+          onShowList={handleShowList}
+          onRetry={handleRetryActive}
+        />
+      )
+    }
+
+    return (
+      <div
+        className="flex flex-1 overflow-hidden"
+        style={{ background: shellPalette.terminalCanvas }}
+      >
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {openTabs.map((tab) => (
+            <div
+              key={tab.id}
+              className="absolute inset-0"
+              style={{ display: tab.id === activeTabId ? undefined : 'none' }}
+            >
+              {tab.type === 'file' ? (
+                tab.filePath ? (
+                  <SshFileEditor
+                    connectionId={tab.connectionId}
+                    filePath={tab.filePath}
+                    sessionId={tab.sessionId ?? undefined}
+                  />
+                ) : null
+              ) : tab.sessionId ? (
+                <SshTerminal sessionId={tab.sessionId} connectionName={tab.connectionName} />
+              ) : (
+                <div className="flex h-full items-center justify-center text-white/70">
+                  <Loader2 className="size-5 animate-spin" />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {activeConnection && effectiveTerminalStatusOpen ? (
+          <SshTerminalStatusPanel
+            connectionId={activeConnection.id}
+            connectionName={activeConnection.name}
+            host={activeConnection.host}
+            onClose={() => setTerminalStatusOpen(false)}
+          />
+        ) : null}
+      </div>
+    )
+  }, [
+    activeConnection,
+    activeSession?.error,
+    activeTab,
+    activeTabId,
+    handleCloseTab,
+    handleConnect,
+    handleRetryActive,
+    handleShowList,
+    openTabs,
+    showTerminalView,
+    stageStatus,
+    terminalConnected,
+    effectiveTerminalStatusOpen,
+    shellPalette
+  ])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
-      {/* Title bar with terminal tabs */}
+    <div
+      className="flex h-full flex-col overflow-hidden"
+      style={{
+        background: shellTone === 'terminal' ? shellPalette.terminalCanvas : shellPalette.canvas
+      }}
+    >
       <div
         className={cn(
-          'titlebar-drag relative flex h-10 shrink-0 items-center border-b pr-[132px]',
-          isMac && 'pl-[78px] pr-3'
+          'titlebar-drag relative flex h-[52px] shrink-0 items-center gap-3 border-b px-3',
+          isMac ? 'pl-[78px]' : 'pr-[132px]'
         )}
+        style={{
+          ...getTitlebarStyle(shellTone, shellPalette),
+          paddingRight: isMac ? undefined : 'calc(132px + 0.75rem)'
+        }}
       >
-        {/* SSH title — acts as "server list" tab */}
-        <button
-          className={cn(
-            'titlebar-no-drag flex h-full items-center gap-2 border-r border-border px-4 text-xs transition-colors shrink-0',
-            !showTerminalView
-              ? 'bg-background text-foreground font-medium'
-              : 'bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/50'
-          )}
-          onClick={handleShowList}
-        >
-          <Server className="size-3.5" />
-          {t('list.addServer')}
-        </button>
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+          <ChromePill
+            tone={shellTone}
+            palette={shellPalette}
+            active={!showTerminalView && workspaceSection !== 'sftp'}
+            onClick={() => setWorkspaceSection('hosts')}
+          >
+            <span>{t('workspace.vaults', { defaultValue: 'Vaults' })}</span>
+            <ChevronDown className="size-3.5" />
+          </ChromePill>
 
-        {/* Terminal session tabs */}
-        <div className="flex h-full flex-1 items-center overflow-x-auto min-w-0">
+          <ChromePill
+            tone={shellTone}
+            palette={shellPalette}
+            active={!showTerminalView && workspaceSection === 'sftp'}
+            onClick={() => setWorkspaceSection('sftp')}
+          >
+            <FolderOpen className="size-3.5" />
+            <span>SFTP</span>
+          </ChromePill>
+
           {openTabs.map((tab) => {
-            const isActive = tab.id === activeTabId
+            const active = showTerminalView && tab.id === activeTabId
             const session = tab.sessionId ? sessions[tab.sessionId] : null
-            const isTerminal = tab.type === 'terminal'
-            const isConnected = isTerminal && !!session && session.status === 'connected'
+            const isConnected = session?.status === 'connected'
             const isConnecting =
-              isTerminal &&
+              tab.type === 'terminal' &&
               (tab.sessionId ? session?.status === 'connecting' : tab.status === 'connecting')
-            const isError =
-              isTerminal && (tab.sessionId ? session?.status === 'error' : tab.status === 'error')
+
             return (
-              <div
+              <ChromePill
                 key={tab.id}
-                className={cn(
-                  'titlebar-no-drag flex h-full items-center gap-1.5 border-r border-border px-3 text-xs cursor-pointer shrink-0 transition-colors',
-                  isActive
-                    ? 'bg-background text-foreground'
-                    : 'bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                )}
+                tone={shellTone}
+                palette={shellPalette}
+                active={active}
+                className="max-w-[240px] pr-2"
                 onClick={() => useSshStore.getState().setActiveTab(tab.id)}
               >
-                {isTerminal ? (
-                  <Terminal className="size-3 shrink-0" />
-                ) : (
-                  <FileText className="size-3 shrink-0" />
-                )}
-                <span className="max-w-[120px] truncate">{tab.title}</span>
-                {isTerminal && isConnecting && (
-                  <Loader2 className="size-3 animate-spin text-amber-500 shrink-0" />
-                )}
-                {isTerminal && isConnected && (
-                  <div className="size-1.5 rounded-full bg-emerald-500 shrink-0" />
-                )}
-                {isTerminal && isError && (
-                  <div className="size-1.5 rounded-full bg-red-500 shrink-0" />
-                )}
-                <button
-                  className="ml-0.5 rounded p-0.5 hover:bg-muted/80 transition-colors shrink-0"
-                  onClick={(e) => {
-                    e.stopPropagation()
+                <Terminal className="size-3.5 shrink-0" />
+                <span className="truncate">{tab.title}</span>
+                {isConnecting ? (
+                  <Loader2 className="size-3 animate-spin shrink-0" />
+                ) : isConnected ? (
+                  <span className="size-2 shrink-0 rounded-full bg-current opacity-85" />
+                ) : null}
+                <span
+                  className="rounded-full p-1 transition-opacity hover:opacity-75"
+                  onClick={(event) => {
+                    event.stopPropagation()
                     handleCloseTab(tab.id)
                   }}
                 >
-                  <X className="size-2.5" />
-                </button>
-              </div>
+                  <X className="size-3" />
+                </span>
+              </ChromePill>
             )
           })}
+
+          <button
+            type="button"
+            onClick={handlePrimaryPlus}
+            className="titlebar-no-drag inline-flex size-8 items-center justify-center rounded-[12px] transition-opacity hover:opacity-80"
+            style={getToneIconButtonStyle(shellTone, shellPalette)}
+            title={showTerminalView ? t('terminal.newTab') : t('newConnection')}
+          >
+            <Plus className="size-4" />
+          </button>
         </div>
 
-        {/* Right side: Uploads + window controls */}
-        <div className="titlebar-no-drag flex items-center gap-1 px-2 shrink-0">
+        <div className="titlebar-no-drag flex items-center gap-1">
+          {showTerminalView && terminalConnected ? (
+            <button
+              type="button"
+              className="inline-flex size-8 items-center justify-center rounded-[12px] transition-opacity hover:opacity-80"
+              style={getToneIconButtonStyle(shellTone, shellPalette)}
+              onClick={() => setTerminalStatusOpen((current) => !current)}
+              title={t('workspace.terminalStatus.title', { defaultValue: 'Terminal status' })}
+            >
+              {effectiveTerminalStatusOpen ? (
+                <PanelRightClose className="size-4" />
+              ) : (
+                <PanelRightOpen className="size-4" />
+              )}
+            </button>
+          ) : null}
+
           <Sheet>
             <SheetTrigger asChild>
               <button
-                className={cn(
-                  'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors',
-                  activeUploadCount > 0 && 'text-primary'
-                )}
-                title="Uploads"
+                type="button"
+                className="inline-flex size-8 items-center justify-center rounded-[12px] transition-opacity hover:opacity-80"
+                style={getToneIconButtonStyle(shellTone, shellPalette)}
+                title={t('workspace.terminalTheme.title')}
               >
-                <Upload className="size-3.5" />
-                {activeUploadCount > 0 && (
-                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                <Palette className="size-4" />
+              </button>
+            </SheetTrigger>
+            <SheetContent className="gap-0 sm:max-w-[460px]">
+              <SheetHeader className="border-b border-border px-5 py-5 pr-12">
+                <SheetTitle>{t('workspace.terminalTheme.title')}</SheetTitle>
+                <SheetDescription>{t('workspace.terminalTheme.sheetDescription')}</SheetDescription>
+              </SheetHeader>
+              <div className="flex-1 overflow-y-auto px-5 py-5">
+                <SshTerminalThemePanel />
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <Sheet>
+            <SheetTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-[12px] px-2.5 py-2 text-[0.78rem] font-medium transition-opacity hover:opacity-80"
+                style={getToneIconButtonStyle(shellTone, shellPalette)}
+                title={t('workspace.uploads.title')}
+              >
+                <Upload className="size-4" />
+                {activeUploadCount > 0 ? (
+                  <span
+                    className="rounded-full px-1.5 py-0.5 text-[0.68rem] font-semibold text-white"
+                    style={{ background: shellPalette.badge }}
+                  >
                     {activeUploadCount}
                   </span>
-                )}
+                ) : null}
               </button>
             </SheetTrigger>
             <SheetContent className="sm:max-w-md">
               <SheetHeader>
-                <SheetTitle>Uploads</SheetTitle>
-                <SheetDescription>Compression / upload / unzip progress</SheetDescription>
+                <SheetTitle>{t('workspace.uploads.title')}</SheetTitle>
+                <SheetDescription>{t('workspace.uploads.description')}</SheetDescription>
               </SheetHeader>
               <UploadTaskList tasks={uploadTaskList} />
             </SheetContent>
           </Sheet>
+
+          <button
+            type="button"
+            className="inline-flex size-8 items-center justify-center rounded-[12px] transition-opacity hover:opacity-80"
+            style={getToneIconButtonStyle(shellTone, shellPalette)}
+            title={t('workspace.notifications', { defaultValue: 'Notifications' })}
+          >
+            <Bell className="size-4" />
+          </button>
         </div>
 
-        {!isMac && (
+        {!isMac ? (
           <div className="absolute right-0 top-0 z-10">
             <WindowControls />
           </div>
-        )}
+        ) : null}
       </div>
 
-      {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Terminal view */}
-        <div
-          className="flex flex-1 overflow-hidden"
-          style={{ display: showTerminalView ? 'flex' : 'none' }}
-        >
-          <div
-            className={cn(
-              'shrink-0 border-r flex flex-col overflow-hidden transition-[width] duration-200 ease-in-out',
-              fileExplorerOpen ? 'w-56' : 'w-0 border-r-0'
-            )}
-          >
-            {activeTab && explorerSessionId && (
-              <SshFileExplorer
-                sessionId={explorerSessionId}
-                connectionId={activeTab.connectionId}
-              />
-            )}
-          </div>
-
-          <div className="flex flex-1 flex-col overflow-hidden min-w-0">
-            {/* Terminal toolbar */}
-            <div className="flex items-center border-b bg-background shrink-0 h-8">
-              <button
-                className="px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                onClick={() => useSshStore.getState().toggleFileExplorer()}
-                title={t('fileExplorer.title')}
-              >
-                {fileExplorerOpen ? (
-                  <PanelLeftClose className="size-3.5" />
-                ) : (
-                  <PanelLeftOpen className="size-3.5" />
-                )}
-              </button>
-              <div className="h-4 w-px bg-border mx-0.5" />
-              <button
-                className="px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shrink-0"
-                onClick={() => void handleNewTerminal()}
-                title={t('terminal.newTab')}
-              >
-                <Plus className="size-3.5" />
-              </button>
-              <div className="flex-1" />
-              {activeTab?.type === 'terminal' && (
-                <div className="flex items-center gap-0.5 px-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                    title={t('terminal.search')}
-                  >
-                    <Search className="size-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                    title={t('terminal.clear')}
-                  >
-                    <Eraser className="size-3" />
-                  </Button>
-                  {activeSession && activeSession.status !== 'connected' && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      <RotateCcw className="size-3" />
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Terminal panels */}
-            <div className="flex-1 overflow-hidden relative">
-              {openTabs.map((tab) => (
-                <div
-                  key={tab.id}
-                  className="absolute inset-0"
-                  style={{ display: tab.id === activeTabId ? undefined : 'none' }}
-                >
-                  {tab.type === 'file' ? (
-                    tab.filePath ? (
-                      <SshFileEditor
-                        connectionId={tab.connectionId}
-                        filePath={tab.filePath}
-                        sessionId={tab.sessionId ?? undefined}
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-background text-muted-foreground text-xs">
-                        {t('fileExplorer.error')}
-                      </div>
-                    )
-                  ) : tab.sessionId ? (
-                    <SshTerminal sessionId={tab.sessionId} connectionName={tab.connectionName} />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-background text-muted-foreground text-sm">
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="size-4 animate-spin text-amber-500" />
-                        {t('connecting')}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Connection list view */}
-        <div
-          className="flex flex-1 overflow-hidden"
-          style={{ display: showTerminalView ? 'none' : 'flex' }}
-        >
-          <SshConnectionList onConnect={(connId) => void handleConnect(connId)} />
-        </div>
-      </div>
+      <div className="flex min-h-0 flex-1 overflow-hidden">{body}</div>
     </div>
   )
 }
@@ -428,63 +809,88 @@ function UploadTaskList({
   tasks: {
     taskId: string
     stage: string
+    type?: string
     message?: string
-    progress?: { current?: number; total?: number; percent?: number }
+    currentItem?: string
+    progress?: {
+      current?: number
+      total?: number
+      percent?: number
+      currentBytes?: number
+      totalBytes?: number
+      processedItems?: number
+      totalItems?: number
+    }
   }[]
 }): React.JSX.Element {
+  const { t } = useTranslation('ssh')
+
   if (tasks.length === 0) {
-    return <div className="px-4 pb-4 text-xs text-muted-foreground">No uploads</div>
+    return (
+      <div className="px-4 pb-4 text-sm text-muted-foreground">{t('workspace.logs.noUploads')}</div>
+    )
   }
+
   return (
-    <div className="flex flex-col gap-2 px-4 pb-4">
+    <div className="flex flex-col gap-3 px-4 pb-4">
       {tasks.map((task) => {
         const percent = task.progress?.percent
-        const showCancel =
+        const canCancel =
           task.stage !== 'done' && task.stage !== 'error' && task.stage !== 'canceled'
-        const showClear = !showCancel
+
         return (
-          <div key={task.taskId} className="rounded border border-border p-2">
-            <div className="flex items-center justify-between gap-2">
+          <div key={task.taskId} className="rounded-2xl border border-border p-3">
+            <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="truncate text-xs font-medium">{task.taskId}</div>
-                <div className="truncate text-[11px] text-muted-foreground">
-                  {task.stage}
+                <div className="truncate text-sm font-medium">{task.taskId}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {task.type ? `${task.type} · ` : ''}
+                  {t(`workspace.uploads.stages.${task.stage}`, { defaultValue: task.stage })}
                   {task.message ? ` · ${task.message}` : ''}
+                  {task.currentItem ? ` · ${task.currentItem}` : ''}
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                {showCancel && (
+              <div className="flex items-center gap-2">
+                {canCancel ? (
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => void useSshStore.getState().cancelUpload(task.taskId)}
+                    onClick={() => void useSshStore.getState().cancelTransfer(task.taskId)}
                   >
-                    Cancel
+                    {t('workspace.uploads.cancel')}
                   </Button>
-                )}
-                {showClear && (
+                ) : (
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => useSshStore.getState().clearUploadTask(task.taskId)}
+                    onClick={() => useSshStore.getState().clearTransferTask(task.taskId)}
                   >
-                    Clear
+                    {t('workspace.uploads.clear')}
                   </Button>
                 )}
               </div>
             </div>
-            <div className="mt-2">
-              <div className="h-1.5 w-full rounded bg-muted">
+
+            <div className="mt-3">
+              <div className="h-1.5 rounded-full bg-muted">
                 <div
-                  className="h-1.5 rounded bg-primary transition-all"
+                  className="h-1.5 rounded-full bg-primary transition-all"
                   style={{ width: typeof percent === 'number' ? `${percent}%` : '0%' }}
                 />
               </div>
-              <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
+              <div className="mt-1 flex items-center justify-between text-[0.72rem] text-muted-foreground">
                 <span>{typeof percent === 'number' ? `${percent}%` : ''}</span>
                 <span>
-                  {typeof task.progress?.current === 'number' ? `${task.progress.current}` : ''}
-                  {typeof task.progress?.total === 'number' ? ` / ${task.progress.total}` : ''}
+                  {typeof task.progress?.processedItems === 'number'
+                    ? `${task.progress.processedItems}`
+                    : typeof task.progress?.current === 'number'
+                      ? `${task.progress.current}`
+                      : ''}
+                  {typeof task.progress?.totalItems === 'number'
+                    ? ` / ${task.progress.totalItems}`
+                    : typeof task.progress?.total === 'number'
+                      ? ` / ${task.progress.total}`
+                      : ''}
                 </span>
               </div>
             </div>

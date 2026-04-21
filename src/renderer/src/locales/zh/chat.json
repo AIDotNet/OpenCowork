@@ -5,6 +5,7 @@
     "placeholderCowork": "让助手帮你处理项目...",
     "placeholderCode": "描述你想构建的内容，例如修复 Bug、写脚本，或使用 /commit 提交仓库...",
     "placeholderAcp": "描述目标、背景、约束和验收标准；我会先做设计与分派，不会直接写代码...",
+    "placeholderPlanReview": "输入计划审阅反馈，或点击上方卡片以实施...",
     "placeholderInitWorkspace": "当前工作目录还没有 AGENTS.md，推荐先输入 /init 初始化项目上下文...",
     "noApiKey": "未配置 API Key，点击此处打开设置。",
     "attachImages": "附加图片（也支持粘贴或拖放）",

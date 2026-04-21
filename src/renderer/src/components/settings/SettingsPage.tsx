@@ -65,6 +65,7 @@ import { McpPanel } from './McpPanel'
 import { WebSearchPanel } from './WebSearchPanel'
 import { SkillsMarketPanel } from './SkillsMarketPanel'
 import { MigrationPanel } from './MigrationPanel'
+import { GlobalThemePanel } from './GlobalThemePanel'
 import { ModelIcon, ProviderIcon } from './provider-icons'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -89,6 +90,10 @@ import {
   getLiveOutputDotClass,
   getLiveOutputSurfaceClass
 } from '@renderer/lib/live-output-animation'
+import {
+  DEFAULT_APP_THEME_PRESET,
+  DEFAULT_SSH_TERMINAL_THEME_PRESET
+} from '@renderer/lib/theme-presets'
 
 const LazyAnalyticsOverview = lazy(async () => {
   const mod = await import('./AnalyticsOverview')
@@ -705,35 +710,7 @@ function GeneralPanel(): React.JSX.Element {
 
       <Separator />
 
-      {/* Theme */}
-      <section className="space-y-3">
-        <div>
-          <label className="text-sm font-medium">{t('general.theme')}</label>
-          <p className="text-xs text-muted-foreground">{t('general.themeDesc')}</p>
-        </div>
-        <Select
-          value={settings.theme}
-          onValueChange={(v: 'light' | 'dark' | 'system') => {
-            settings.updateSettings({ theme: v })
-            setTheme(v)
-          }}
-        >
-          <SelectTrigger className="w-60 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="light" className="text-xs">
-              {t('general.light')}
-            </SelectItem>
-            <SelectItem value="dark" className="text-xs">
-              {t('general.dark')}
-            </SelectItem>
-            <SelectItem value="system" className="text-xs">
-              {t('general.system')}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </section>
+      <GlobalThemePanel />
 
       <section className="space-y-3">
         <div>
@@ -1344,6 +1321,8 @@ function GeneralPanel(): React.JSX.Element {
               maxTokens: 32000,
               temperature: 0.7,
               theme: 'system',
+              themePreset: DEFAULT_APP_THEME_PRESET,
+              sshTerminalThemePreset: DEFAULT_SSH_TERMINAL_THEME_PRESET,
               backgroundColor: '',
               fontFamily: '',
               fontSize: 16,
@@ -2984,14 +2963,11 @@ export function SettingsPage(): React.JSX.Element {
   const ActivePanel = panelMap[effectiveSettingsTab]
 
   return (
-    <div className="flex h-screen w-full bg-background">
+    <div className="flex h-full min-h-0 w-full bg-background">
       {/* Left Sidebar - LobeHub Style */}
       <div className="flex w-64 shrink-0 flex-col border-r bg-muted/20">
-        {/* Titlebar drag area */}
-        <div className="titlebar-drag h-10 w-full shrink-0" />
-
         {/* Header */}
-        <div className="px-5 pb-5">
+        <div className="px-5 pb-5 pt-5">
           <h1 className="text-xl font-bold">{t('page.title')}</h1>
           <p className="mt-1 text-xs text-muted-foreground">{t('page.subtitle')}</p>
         </div>

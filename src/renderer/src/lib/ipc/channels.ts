@@ -333,9 +333,14 @@ export const IPC = {
   SSH_FS_HOME_DIR: 'ssh:fs:home-dir',
   SSH_FS_ZIP_DIR: 'ssh:fs:zip-dir',
   SSH_FS_DOWNLOAD: 'ssh:fs:download',
+  SSH_FS_CONNECT: 'ssh:fs:connect',
+  SSH_FS_DISCONNECT: 'ssh:fs:disconnect',
   SSH_FS_UPLOAD_START: 'ssh:fs:upload:start',
   SSH_FS_UPLOAD_CANCEL: 'ssh:fs:upload:cancel',
   SSH_FS_UPLOAD_EVENTS: 'ssh:fs:upload:events',
+  SSH_FS_TRANSFER_START: 'ssh:fs:transfer:start',
+  SSH_FS_TRANSFER_CANCEL: 'ssh:fs:transfer:cancel',
+  SSH_FS_TRANSFER_EVENTS: 'ssh:fs:transfer:events',
 
   // SSH Auth
   SSH_AUTH_INSTALL_PUBLIC_KEY: 'ssh:auth:install-public-key',

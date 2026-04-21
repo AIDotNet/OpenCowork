@@ -3,6 +3,13 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { ProviderType, ReasoningEffortLevel, ThinkingConfig } from '../lib/api/types'
 import { ipcStorage } from '../lib/ipc/ipc-storage'
 import {
+  DEFAULT_APP_THEME_PRESET,
+  DEFAULT_SSH_TERMINAL_THEME_PRESET,
+  isAppThemePreset,
+  type AppThemePreset,
+  type SshTerminalThemePreset
+} from '../lib/theme-presets'
+import {
   LEFT_SIDEBAR_DEFAULT_WIDTH,
   clampLeftSidebarWidth
 } from '@renderer/components/layout/right-panel-defs'
@@ -145,6 +152,8 @@ interface SettingsStore {
   temperature: number
   systemPrompt: string
   theme: 'light' | 'dark' | 'system'
+  themePreset: AppThemePreset
+  sshTerminalThemePreset: SshTerminalThemePreset
   language: 'en' | 'zh'
   autoApprove: boolean
   autoUpdateEnabled: boolean
@@ -234,6 +243,8 @@ export const useSettingsStore = create<SettingsStore>()(
       temperature: 0.7,
       systemPrompt: '',
       theme: 'system',
+      themePreset: DEFAULT_APP_THEME_PRESET,
+      sshTerminalThemePreset: DEFAULT_SSH_TERMINAL_THEME_PRESET,
       language: getSystemLanguage(),
       autoApprove: false,
       autoUpdateEnabled: true,
@@ -317,7 +328,7 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'opencowork-settings',
-      version: 14,
+      version: 16,
       storage: createJSONStorage(() => ipcStorage),
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Record<string, unknown>
@@ -375,6 +386,14 @@ export const useSettingsStore = create<SettingsStore>()(
         // Add appearance settings if missing
         if (state.backgroundColor === undefined) {
           state.backgroundColor = ''
+        }
+        if (!isAppThemePreset(state.themePreset)) {
+          state.themePreset = DEFAULT_APP_THEME_PRESET
+        }
+        if (!isAppThemePreset(state.sshTerminalThemePreset)) {
+          state.sshTerminalThemePreset = isAppThemePreset(state.themePreset)
+            ? state.themePreset
+            : DEFAULT_SSH_TERMINAL_THEME_PRESET
         }
         if (state.fontFamily === undefined) {
           state.fontFamily = ''
@@ -446,6 +465,8 @@ export const useSettingsStore = create<SettingsStore>()(
         temperature: state.temperature,
         systemPrompt: state.systemPrompt,
         theme: state.theme,
+        themePreset: state.themePreset,
+        sshTerminalThemePreset: state.sshTerminalThemePreset,
         language: state.language,
         autoApprove: state.autoApprove,
         autoUpdateEnabled: state.autoUpdateEnabled,

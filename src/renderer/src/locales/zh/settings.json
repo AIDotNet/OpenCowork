@@ -18,6 +18,34 @@
     "light": "浅色",
     "dark": "深色",
     "system": "跟随系统",
+    "themePreset": {
+      "title": "主题预设",
+      "desc": "选择一套内置配色。会全局作用到应用界面、SSH 工作区和终端。",
+      "globalHint": "全局生效",
+      "current": "当前",
+      "presets": {
+        "studio": {
+          "label": "Studio 蓝调",
+          "desc": "冷静的蓝灰工作台，适合长时间编码和主机管理。"
+        },
+        "graphite": {
+          "label": "Graphite 石墨",
+          "desc": "更克制的中性色界面，强调对比和专业感。"
+        },
+        "ocean": {
+          "label": "Ocean 深海",
+          "desc": "青蓝层次更强，终端和状态面板会更有纵深感。"
+        },
+        "forest": {
+          "label": "Forest 松林",
+          "desc": "偏柔和的绿色系，适合持续盯着终端和日志。"
+        },
+        "dawn": {
+          "label": "Dawn 暖曦",
+          "desc": "暖铜橙色系，在浅色模式下更有温度和层次。"
+        }
+      }
+    },
     "appearance": {
       "title": "外观",
       "subtitle": "背景与字体设置",

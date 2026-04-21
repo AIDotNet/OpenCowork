@@ -21,6 +21,7 @@ import {
   Loader2,
   MessageSquare,
   MoreHorizontal,
+  PanelLeftClose,
   Pencil,
   Pin,
   PinOff,
@@ -297,6 +298,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function WorkspaceSidebar(): React.JSX.Element {
   const { t } = useTranslation('layout')
   const { t: tCommon } = useTranslation('common')
+  const isMac = /Mac/.test(navigator.userAgent)
   const chatView = useUIStore((state) => state.chatView)
   const settingsPageOpen = useUIStore((state) => state.settingsPageOpen)
   const skillsPageOpen = useUIStore((state) => state.skillsPageOpen)
@@ -306,6 +308,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const tasksPageOpen = useUIStore((state) => state.tasksPageOpen)
   const leftSidebarWidth = useUIStore((state) => state.leftSidebarWidth)
   const setLeftSidebarWidth = useUIStore((state) => state.setLeftSidebarWidth)
+  const toggleLeftSidebar = useUIStore((state) => state.toggleLeftSidebar)
   const persistedLeftSidebarWidth = useSettingsStore((state) => state.leftSidebarWidth)
   const updateSettings = useSettingsStore((state) => state.updateSettings)
   const projectsRaw = useStoreWithEqualityFn(
@@ -981,9 +984,29 @@ export function WorkspaceSidebar(): React.JSX.Element {
   return (
     <>
       <aside
-        className="flex h-full shrink-0 flex-col border-r bg-background"
+        className="relative flex h-full shrink-0 flex-col border-r border-sidebar-border/80 bg-sidebar text-sidebar-foreground"
         style={{ width: currentSidebarWidth }}
       >
+        <div
+          className={cn(
+            'titlebar-drag flex h-10 shrink-0 items-center gap-2 bg-sidebar px-3 backdrop-blur-md',
+            isMac ? 'pl-[78px]' : ''
+          )}
+        >
+          <div className="min-w-0 flex-1 truncate text-sm font-semibold text-sidebar-foreground/90">
+            OpenCowork
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="titlebar-no-drag size-7 shrink-0 rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            onClick={toggleLeftSidebar}
+            title={t('commandPalette.toggleSidebar', { defaultValue: 'Toggle sidebar' })}
+          >
+            <PanelLeftClose className="size-4" />
+          </Button>
+        </div>
+
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="space-y-1 border-b border-border/60 px-2 py-1.5">
             {navItems.slice(0, 3).map(renderNavItem)}

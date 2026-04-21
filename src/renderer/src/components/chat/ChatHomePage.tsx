@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { InputArea } from '@renderer/components/chat/InputArea'
+import { ProjectTerminalDock } from '@renderer/components/terminal/ProjectTerminalDock'
 import { WorkingFolderSelectorDialog } from './WorkingFolderSelectorDialog'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
@@ -31,7 +32,6 @@ function applySuggestedPrompt(prompt: string): void {
 
 export function ChatHomePage(): React.JSX.Element {
   const { t } = useTranslation('chat')
-  const { t: tLayout } = useTranslation('layout')
   const mode = useUIStore((s) => s.mode)
   const activeProjectId = useChatStore((s) => s.activeProjectId)
   const { activeProject, workingFolder, sshConnectionId } = useChatStore(
@@ -47,6 +47,9 @@ export function ChatHomePage(): React.JSX.Element {
         sshConnectionId: project?.sshConnectionId ?? null
       }
     })
+  )
+  const terminalDockOpen = useUIStore((s) =>
+    activeProject?.id ? Boolean(s.bottomTerminalDockOpenByProjectId[activeProject.id]) : false
   )
   const { sendMessage } = useChatActions()
   const [folderDialogOpen, setFolderDialogOpen] = React.useState(false)
@@ -116,14 +119,8 @@ export function ChatHomePage(): React.JSX.Element {
         : t('input.noWorkingFolder', { mode })
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-background">
-      <div className="shrink-0 px-6 pt-5">
-        <p className="text-sm font-medium text-foreground/90">
-          {tLayout('sidebar.newChat', { defaultValue: '新建聊天' })}
-        </p>
-      </div>
-
-      <div className="flex flex-1 flex-col px-6 pb-14 pt-8 sm:pt-10">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      <div className="flex flex-1 flex-col overflow-auto px-6 pb-14 pt-8 sm:pt-10">
         <div className="flex flex-1 items-start justify-center pt-8 lg:items-center lg:pt-0">
           <div className="w-full max-w-[760px]">
             <div className="mb-6 flex flex-col items-center gap-3 text-center sm:mb-7">
@@ -176,6 +173,15 @@ export function ChatHomePage(): React.JSX.Element {
           </div>
         </div>
       </div>
+
+      {activeProject?.id && terminalDockOpen && (workingFolder || sshConnectionId) && (
+        <ProjectTerminalDock
+          projectId={activeProject.id}
+          projectName={activeProject.name}
+          workingFolder={workingFolder ?? null}
+          sshConnectionId={sshConnectionId}
+        />
+      )}
 
       {mode !== 'chat' && (
         <WorkingFolderSelectorDialog

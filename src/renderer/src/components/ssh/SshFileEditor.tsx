@@ -78,19 +78,19 @@ export function SshFileEditor({
           setModified(false)
         }
       } else if (result && typeof result === 'object' && 'error' in result) {
-        setError(String((result as { error?: string }).error ?? 'Failed to load'))
+        setError(String((result as { error?: string }).error ?? t('fileExplorer.loadFailed')))
         setContent('')
       } else {
-        setError('Failed to load')
+        setError(t('fileExplorer.loadFailed'))
         setContent('')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load')
+      setError(err instanceof Error ? err.message : t('fileExplorer.loadFailed'))
       setContent('')
     } finally {
       setLoading(false)
     }
-  }, [connectionId, filePath])
+  }, [connectionId, filePath, t])
 
   React.useEffect(() => {
     void loadFile()
@@ -106,12 +106,14 @@ export function SshFileEditor({
         content
       })
       if (result && typeof result === 'object' && 'error' in result) {
-        throw new Error(String((result as { error?: string }).error ?? 'Save failed'))
+        throw new Error(
+          String((result as { error?: string }).error ?? t('fileExplorer.saveFailed'))
+        )
       }
       setModified(false)
       toast.success(t('fileExplorer.saved'))
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Save failed'
+      const message = err instanceof Error ? err.message : t('fileExplorer.saveFailed')
       toast.error(message)
     } finally {
       setSaving(false)

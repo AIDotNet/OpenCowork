@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
+import { useTheme } from 'next-themes'
 import { useTranslation } from 'react-i18next'
-import { Terminal as XTerm, type ITheme } from '@xterm/xterm'
+import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
@@ -8,11 +9,12 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
+import { getTerminalTheme, resolveAppThemeMode } from '@renderer/lib/theme-presets'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { RotateCcw, Copy, Clipboard } from 'lucide-react'
-import { useTheme } from 'next-themes'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -27,67 +29,18 @@ interface SshTerminalProps {
   connectionName: string
 }
 
-const DARK_THEME: ITheme = {
-  background: '#0b0b0b',
-  foreground: '#e5e7eb',
-  cursor: '#e5e7eb',
-  cursorAccent: '#0b0b0b',
-  selectionBackground: 'rgba(148, 163, 184, 0.35)',
-  black: '#0b0b0b',
-  red: '#ef4444',
-  green: '#22c55e',
-  yellow: '#eab308',
-  blue: '#3b82f6',
-  magenta: '#a855f7',
-  cyan: '#06b6d4',
-  white: '#e5e7eb',
-  brightBlack: '#6b7280',
-  brightRed: '#f87171',
-  brightGreen: '#4ade80',
-  brightYellow: '#facc15',
-  brightBlue: '#60a5fa',
-  brightMagenta: '#c084fc',
-  brightCyan: '#22d3ee',
-  brightWhite: '#f9fafb'
-}
-
-const LIGHT_THEME: ITheme = {
-  background: '#ffffff',
-  foreground: '#0f172a',
-  cursor: '#0f172a',
-  cursorAccent: '#ffffff',
-  selectionBackground: 'rgba(15, 23, 42, 0.15)',
-  black: '#0f172a',
-  red: '#dc2626',
-  green: '#16a34a',
-  yellow: '#ca8a04',
-  blue: '#2563eb',
-  magenta: '#7c3aed',
-  cyan: '#0891b2',
-  white: '#e2e8f0',
-  brightBlack: '#64748b',
-  brightRed: '#ef4444',
-  brightGreen: '#22c55e',
-  brightYellow: '#eab308',
-  brightBlue: '#3b82f6',
-  brightMagenta: '#a855f7',
-  brightCyan: '#06b6d4',
-  brightWhite: '#f8fafc'
-}
-
-export function SshTerminal({
-  sessionId,
-  connectionName: _connectionName
-}: SshTerminalProps): React.JSX.Element {
+export function SshTerminal({ sessionId }: SshTerminalProps): React.JSX.Element {
   const { t } = useTranslation('ssh')
   const { resolvedTheme } = useTheme()
+  const terminalThemePreset = useSettingsStore((state) => state.sshTerminalThemePreset)
+  const terminalTheme = getTerminalTheme(terminalThemePreset, resolveAppThemeMode(resolvedTheme))
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const lastSeqRef = useRef(0)
+  const initialThemeRef = useRef(terminalTheme)
   const [hasSelection, setHasSelection] = useState(false)
-
   const session = useSshStore((s) => s.sessions[sessionId])
 
   // Initialize xterm
@@ -104,7 +57,7 @@ export function SshTerminal({
       allowProposedApi: true,
       scrollback: 2000,
       convertEol: true,
-      theme: resolvedTheme === 'light' ? LIGHT_THEME : DARK_THEME
+      theme: initialThemeRef.current
     })
 
     const fitAddon = new FitAddon()
@@ -271,10 +224,9 @@ export function SshTerminal({
   }, [sessionId])
 
   useEffect(() => {
-    const term = termRef.current
-    if (!term) return
-    term.options.theme = resolvedTheme === 'light' ? LIGHT_THEME : DARK_THEME
-  }, [resolvedTheme])
+    if (!termRef.current) return
+    termRef.current.options.theme = terminalTheme
+  }, [terminalTheme])
 
   // Focus terminal on click
   const handleContainerClick = useCallback(() => {
@@ -325,23 +277,21 @@ export function SshTerminal({
   }, [])
 
   return (
-    <div className="relative flex flex-col h-full overflow-hidden bg-background">
+    <div className="relative flex h-full flex-col overflow-hidden bg-[#151b30]">
       {/* Disconnected overlay */}
       {session && session.status !== 'connected' && session.status !== 'connecting' && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#11162a]/80 backdrop-blur-sm">
           <div className="flex flex-col items-center gap-2 text-center">
-            <Badge variant="destructive" className="text-xs">
+            <Badge variant="destructive" className="rounded-full px-3 py-1 text-xs">
               {session.status === 'error'
                 ? t('terminal.errorMessage')
                 : t('terminal.disconnectedMessage')}
             </Badge>
-            {session.error && (
-              <p className="text-[10px] text-muted-foreground max-w-xs">{session.error}</p>
-            )}
+            {session.error && <p className="max-w-xs text-[10px] text-white/70">{session.error}</p>}
             <Button
               variant="outline"
               size="sm"
-              className="h-7 gap-1 text-xs mt-1"
+              className="mt-1 h-8 gap-1 rounded-full border-white/10 bg-white/5 text-xs text-white hover:bg-white/10"
               onClick={() => void handleReconnect()}
             >
               <RotateCcw className="size-3" />
@@ -356,7 +306,7 @@ export function SshTerminal({
         <ContextMenuTrigger asChild>
           <div
             ref={containerRef}
-            className="flex-1 overflow-hidden px-1 py-1"
+            className="flex-1 overflow-hidden px-3 py-3"
             onClick={handleContainerClick}
             style={{ minHeight: 0 }}
           />

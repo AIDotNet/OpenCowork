@@ -248,8 +248,8 @@ function ActiveMcpsBadge({ projectId }: { projectId?: string | null }): React.JS
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-600 dark:text-blue-400 cursor-default">
-          <span className="size-1.5 rounded-full bg-blue-500 animate-pulse" />
+        <div className="composer-status-pill flex cursor-default items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px]">
+          <span className="size-1.5 rounded-full bg-current animate-pulse opacity-80" />
           <span>{t('skills.mcpCount', { count: activeMcpIds.length })}</span>
         </div>
       </TooltipTrigger>
@@ -1549,14 +1549,16 @@ export function InputArea({
   }, [])
 
   const effectiveLongRunningMode = activeSessionId ? longRunningMode : homeLongRunningMode
-  const availableComposerModes = React.useMemo(
-    () =>
-      projectScoped
-        ? composerModeOptions.filter((option) => option.value !== 'chat')
-        : composerModeOptions.filter((option) => option.value === 'chat'),
-    [projectScoped]
-  )
-  const showModeSwitchControl = projectScoped && availableComposerModes.length > 1
+  const showAllComposerModesForNewSession = !draftSessionId && Boolean(activeProjectId)
+  const availableComposerModes = React.useMemo(() => {
+    if (showAllComposerModesForNewSession) {
+      return composerModeOptions
+    }
+    return projectScoped
+      ? composerModeOptions.filter((option) => option.value !== 'chat')
+      : composerModeOptions.filter((option) => option.value === 'chat')
+  }, [projectScoped, showAllComposerModesForNewSession])
+  const showModeSwitchControl = availableComposerModes.length > 1
   const activeComposerMode =
     availableComposerModes.find((option) => option.value === mode) ??
     availableComposerModes[0] ??
@@ -1955,6 +1957,16 @@ export function InputArea({
     setShowOptimizationDialog(false)
   }, [])
 
+  const composerVariant = usesProjectComposerChrome ? 'project' : 'session'
+  const composerIconControlClass = cn(
+    'composer-control rounded-xl',
+    usesProjectComposerChrome && 'rounded-full'
+  )
+  const composerTextControlClass = cn(
+    'composer-control rounded-xl text-[11px] shadow-none',
+    usesProjectComposerChrome && 'rounded-full'
+  )
+
   const modeSwitchControl = (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -1962,12 +1974,7 @@ export function InputArea({
           variant="ghost"
           size="sm"
           data-tour="mode-switch"
-          className={cn(
-            'h-8 shrink-0 gap-1.5 rounded-md border-0 bg-transparent px-1.5 text-[11px] shadow-none transition-colors hover:bg-transparent',
-            usesProjectComposerChrome
-              ? 'text-foreground/85 hover:text-foreground'
-              : 'text-muted-foreground hover:text-foreground'
-          )}
+          className={cn('gap-1.5 px-2.5', composerTextControlClass)}
           disabled={disabled || isStreaming}
         >
           {activeComposerMode.icon}
@@ -1975,7 +1982,7 @@ export function InputArea({
           <ChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-40">
+      <DropdownMenuContent align="start" className="composer-flyout w-40">
         {availableComposerModes.map((option) => {
           const active = mode === option.value
           return (
@@ -2002,15 +2009,9 @@ export function InputArea({
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className={cn(
-            'size-8 transition-colors hover:bg-muted/50',
-            usesProjectComposerChrome ? 'rounded-full' : 'rounded-lg',
-            webSearchEnabled
-              ? 'text-blue-600 dark:text-blue-400'
-              : 'text-muted-foreground hover:text-foreground',
-            usesProjectComposerChrome && !webSearchEnabled && 'hover:bg-white/5'
-          )}
+          size="icon-sm"
+          className={composerIconControlClass}
+          data-active={webSearchEnabled ? 'true' : 'false'}
           onClick={toggleWebSearch}
           disabled={disabled || isStreaming}
         >
@@ -2040,6 +2041,8 @@ export function InputArea({
       disabled={disabled || isStreaming}
       projectId={activeProjectId}
       showChannels={mode !== 'chat'}
+      triggerClassName={composerIconControlClass}
+      menuClassName="composer-flyout"
     />
   )
 
@@ -2050,14 +2053,9 @@ export function InputArea({
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className={cn(
-            'size-8 transition-colors hover:bg-muted/50',
-            usesProjectComposerChrome ? 'rounded-full' : 'rounded-lg',
-            effectiveLongRunningMode
-              ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400'
-              : 'text-muted-foreground hover:text-foreground'
-          )}
+          size="icon-sm"
+          className={composerIconControlClass}
+          data-active={effectiveLongRunningMode ? 'true' : 'false'}
           onClick={handleToggleLongRunningMode}
           disabled={disabled || isStreaming}
         >
@@ -2077,11 +2075,8 @@ export function InputArea({
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className={cn(
-            'size-8 rounded-lg text-muted-foreground hover:text-foreground',
-            usesProjectComposerChrome && 'rounded-full hover:bg-white/5'
-          )}
+          size="icon-sm"
+          className={composerIconControlClass}
           onClick={onSelectFolder}
         >
           <FolderOpen className="size-4" />
@@ -2095,12 +2090,13 @@ export function InputArea({
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
-          variant="outline"
-          size="icon"
-          className="size-8 rounded-lg border-amber-200 bg-amber-50 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:hover:bg-amber-900/40"
+          variant="ghost"
+          size="icon-sm"
+          className={composerIconControlClass}
+          data-tone="warning"
           onClick={onStop}
         >
-          <Spinner className="size-4 text-amber-600 dark:text-amber-400" />
+          <Spinner className="size-4" />
         </Button>
       </TooltipTrigger>
       <TooltipContent>{t('input.stopTooltip')}</TooltipContent>
@@ -2112,8 +2108,8 @@ export function InputArea({
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="size-8 rounded-lg text-muted-foreground hover:text-foreground disabled:opacity-50"
+          size="icon-sm"
+          className={composerIconControlClass}
           onClick={handleOptimizePrompt}
           disabled={!text.trim() || disabled || isOptimizing}
         >
@@ -2130,13 +2126,12 @@ export function InputArea({
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
-          size="sm"
+          size={usesProjectComposerChrome ? 'icon' : 'default'}
           className={cn(
-            'transition-all shadow-sm',
-            usesProjectComposerChrome
-              ? 'size-9 rounded-full bg-white p-0 text-black hover:bg-white/90 shadow-[0_10px_24px_-14px_rgba(255,255,255,0.65)]'
-              : 'h-8 rounded-lg bg-primary px-3 text-primary-foreground hover:bg-primary/90'
+            'composer-send transition-[filter,box-shadow] duration-200',
+            usesProjectComposerChrome ? 'rounded-full' : 'rounded-xl px-3.5'
           )}
+          data-composer-variant={composerVariant}
           onClick={handleSend}
           disabled={
             (!finalSerializedText.trim() && attachedImages.length === 0) ||
@@ -2234,13 +2229,11 @@ export function InputArea({
         <div
           ref={containerRef}
           className={cn(
-            'relative flex flex-col rounded-lg border transition-shadow focus-within:ring-1 focus-within:ring-ring/20',
-            usesProjectComposerChrome
-              ? 'border-white/8 bg-muted/30 shadow-[0_18px_40px_-28px_rgba(0,0,0,0.68)] backdrop-blur-sm dark:bg-[#2e2e31]/94 focus-within:shadow-[0_22px_48px_-30px_rgba(0,0,0,0.76)]'
-              : 'bg-background shadow-[0_12px_28px_-24px_rgba(0,0,0,0.6)] focus-within:shadow-[0_16px_32px_-24px_rgba(0,0,0,0.65)]',
+            'composer-shell relative flex flex-col transition-[box-shadow,border-color] duration-200',
             fileMenuOpen || slashMenuOpen ? 'overflow-visible' : 'overflow-hidden',
             dragging && 'ring-2 ring-primary/50'
           )}
+          data-composer-variant={composerVariant}
           style={
             inputHeight !== null
               ? { height: inputHeight }
@@ -2250,16 +2243,16 @@ export function InputArea({
           {/* Top drag handle */}
           {isSessionComposer && (
             <div
-              className="flex h-2.5 cursor-row-resize items-center justify-center rounded-t-lg"
+              className="composer-drag-handle flex h-3 cursor-row-resize items-center justify-center"
               onMouseDown={handleDragStart}
             >
-              <div className="h-1 w-10 rounded-full bg-border/70" />
+              <div className="composer-drag-grip h-1 w-11 rounded-full" />
             </div>
           )}
           {/* Queued message list */}
           {queuedMessages.length > 0 && (
             <div className="shrink-0 px-3 pt-3 pb-1">
-              <div className="overflow-hidden rounded-xl border border-border/60 bg-muted/20 shadow-sm">
+              <div className="composer-panel overflow-hidden rounded-[18px]">
                 <div className="flex items-center justify-between gap-2 px-3 py-2.5">
                   <button
                     type="button"
@@ -2275,7 +2268,7 @@ export function InputArea({
                     <span className="truncate text-xs font-medium text-foreground">
                       {t('input.queueTitle', { defaultValue: '排队消息' })}
                     </span>
-                    <span className="rounded-full border border-border/60 bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    <span className="composer-status-pill rounded-full px-1.5 py-0.5 text-[10px]">
                       {queuedMessages.length}
                     </span>
                     <span className="truncate text-[10px] text-muted-foreground/80">
@@ -2294,7 +2287,7 @@ export function InputArea({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-7 gap-1 rounded-lg px-2 text-[10px]"
+                        className="composer-control rounded-lg px-2 text-[10px]"
                         onClick={resumeQueuedMessages}
                       >
                         <Send className="size-3" />
@@ -2305,7 +2298,8 @@ export function InputArea({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-7 gap-1 rounded-lg px-2 text-[10px] text-muted-foreground hover:text-destructive"
+                      className="composer-control rounded-lg px-2 text-[10px]"
+                      data-tone="danger"
                       onClick={handleClearQueuedMessages}
                     >
                       <Trash2 className="size-3" />
@@ -2315,17 +2309,14 @@ export function InputArea({
                 </div>
 
                 {isQueueExpanded && (
-                  <div className="border-t border-border/50 px-3 py-2">
+                  <div className="border-t border-[var(--composer-toolbar-border)] px-3 py-2">
                     <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
                       {queuedMessages.map((msg) => {
                         const isEditing = editingQueueItemId === msg.id
                         const summaryText = summarizeQueuedMessage(msg.text)
                         const commandLabel = msg.command ? `/${msg.command.name}` : ''
                         return (
-                          <div
-                            key={msg.id}
-                            className="rounded-lg border border-border/60 bg-background/80 px-3 py-2 shadow-sm"
-                          >
+                          <div key={msg.id} className="composer-cardlet rounded-[14px] px-3 py-2">
                             {isEditing ? (
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between gap-2">
@@ -2337,7 +2328,7 @@ export function InputArea({
                                       type="button"
                                       variant="ghost"
                                       size="sm"
-                                      className="h-6 px-2 text-[10px]"
+                                      className="composer-control rounded-md px-2 text-[10px]"
                                       onClick={() => saveQueuedMessage(msg.id)}
                                     >
                                       {t('action.save', { ns: 'common' })}
@@ -2346,7 +2337,7 @@ export function InputArea({
                                       type="button"
                                       variant="ghost"
                                       size="sm"
-                                      className="h-6 px-2 text-[10px]"
+                                      className="composer-control rounded-md px-2 text-[10px]"
                                       onClick={cancelEditQueuedMessage}
                                     >
                                       {t('action.cancel', { ns: 'common' })}
@@ -2362,7 +2353,7 @@ export function InputArea({
                                   value={editingQueueText}
                                   onChange={(e) => setEditingQueueText(e.target.value)}
                                   onPaste={handleQueueEditPaste}
-                                  className="min-h-[56px] max-h-36 resize-none border-border/70 bg-background text-xs"
+                                  className="composer-aux-textarea min-h-[56px] max-h-36 resize-none text-xs"
                                   rows={2}
                                 />
                                 {editingQueueImages.length > 0 && (
@@ -2372,7 +2363,7 @@ export function InputArea({
                                         <img
                                           src={img.dataUrl}
                                           alt=""
-                                          className="size-12 rounded-md border border-border/60 object-cover shadow-sm"
+                                          className="composer-image-thumb size-12 rounded-lg object-cover"
                                         />
                                         <button
                                           type="button"
@@ -2399,9 +2390,9 @@ export function InputArea({
                                   {supportsVision && (
                                     <Button
                                       type="button"
-                                      variant="outline"
+                                      variant="ghost"
                                       size="sm"
-                                      className="h-6 gap-1 px-2 text-[10px]"
+                                      className="composer-control rounded-md px-2 text-[10px]"
                                       onClick={() => queueFileInputRef.current?.click()}
                                     >
                                       <ImagePlus className="size-3" />
@@ -2425,7 +2416,7 @@ export function InputArea({
                                   )}
                                   {msg.images.length > 0 && (
                                     <div className="mt-1 flex items-center gap-1.5">
-                                      <span className="rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                      <span className="composer-status-pill rounded-full px-1.5 py-0.5 text-[10px]">
                                         {t('input.queueImageCount', {
                                           defaultValue: '{{count}} 张图片',
                                           count: msg.images.length
@@ -2439,7 +2430,7 @@ export function InputArea({
                                     type="button"
                                     variant="ghost"
                                     size="sm"
-                                    className="h-7 w-7 rounded-md p-0 text-muted-foreground hover:text-foreground"
+                                    className="composer-control size-7 rounded-md p-0"
                                     onClick={() => startEditQueuedMessage(msg)}
                                     title={t('action.edit', { ns: 'common', defaultValue: '编辑' })}
                                   >
@@ -2449,7 +2440,8 @@ export function InputArea({
                                     type="button"
                                     variant="ghost"
                                     size="sm"
-                                    className="h-7 w-7 rounded-md p-0 text-muted-foreground hover:text-destructive"
+                                    className="composer-control size-7 rounded-md p-0"
+                                    data-tone="danger"
                                     onClick={() => removeQueuedMessage(msg.id)}
                                     title={t('action.delete', { ns: 'common' })}
                                   >
@@ -2499,12 +2491,12 @@ export function InputArea({
           {/* Skill tag */}
           {selectedSkill && (
             <div className="shrink-0 px-3 pt-3 pb-0">
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-xs font-medium text-violet-600 dark:text-violet-400">
+              <span className="composer-skill-tag inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium">
                 <Sparkles className="size-3" />
                 {selectedSkill}
                 <button
                   type="button"
-                  className="ml-0.5 rounded-sm p-0.5 hover:bg-violet-500/20 transition-colors"
+                  className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10"
                   onClick={() => setSelectedSkill(null)}
                 >
                   <X className="size-3" />
@@ -2524,7 +2516,7 @@ export function InputArea({
                   <img
                     src={img.dataUrl}
                     alt=""
-                    className="size-16 rounded-lg object-cover border border-border/60 shadow-sm"
+                    className="composer-image-thumb size-16 rounded-xl object-cover"
                   />
                   <button
                     type="button"
@@ -2541,10 +2533,10 @@ export function InputArea({
           {/* Optimizing indicator - only show spinner, hide text */}
           {isOptimizing && (
             <div className="shrink-0 px-3 pt-3 pb-1">
-              <div className="rounded-md border border-blue-500/30 bg-blue-500/5 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <Spinner className="size-3.5 text-blue-600 dark:text-blue-400" />
-                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+              <div className="composer-panel rounded-[14px] px-3 py-2">
+                <div className="flex items-center gap-2 text-[var(--composer-chip-text)]">
+                  <Spinner className="size-3.5" />
+                  <span className="text-xs font-semibold">
                     {t('input.optimizing', { defaultValue: 'Optimizing your prompt...' })}
                   </span>
                 </div>
@@ -2640,7 +2632,7 @@ export function InputArea({
           {/* Text input area */}
           <div
             className={cn(
-              'relative flex min-h-0 flex-1 flex-col px-3',
+              'composer-editor-region relative flex min-h-0 flex-1 flex-col px-3',
               usesProjectComposerChrome
                 ? selectedSkill || attachedImages.length > 0
                   ? 'pt-1.5'
@@ -2654,7 +2646,7 @@ export function InputArea({
             onDragLeave={handleDragLeave}
           >
             {dragging && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/5 pointer-events-none">
+              <div className="composer-drop-overlay absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
                 <span className="flex items-center gap-1.5 text-xs text-primary/70 font-medium">
                   <FileUp className="size-3.5" />
                   {supportsVision ? t('input.dropImages') : t('input.dropFiles')}
@@ -2715,11 +2707,11 @@ export function InputArea({
                 )}
               />
               {fileMenuOpen && (
-                <div className="absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-xl border border-border/70 bg-popover shadow-xl">
-                  <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+                <div className="composer-flyout absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-[18px]">
+                  <div className="composer-flyout-header flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
                     <Command className="size-3.5" />
                     <span>{t('input.fileSuggestions', { defaultValue: '文件建议' })}</span>
-                    <span className="ml-auto rounded-full border border-border/60 bg-background/80 px-1.5 py-0.5 text-[10px]">
+                    <span className="composer-status-pill ml-auto rounded-full px-1.5 py-0.5 text-[10px]">
                       @{fileQuery || ''}
                     </span>
                   </div>
@@ -2782,11 +2774,11 @@ export function InputArea({
                 </div>
               )}
               {slashMenuOpen && (
-                <div className="absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-xl border border-border/70 bg-popover shadow-xl">
-                  <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+                <div className="composer-flyout absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-[18px]">
+                  <div className="composer-flyout-header flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
                     <Command className="size-3.5" />
                     <span>{t('input.commandSuggestions', { defaultValue: '命令建议' })}</span>
-                    <span className="ml-auto rounded-full border border-border/60 bg-background/80 px-1.5 py-0.5 text-[10px]">
+                    <span className="composer-status-pill ml-auto rounded-full px-1.5 py-0.5 text-[10px]">
                       /{slashQuery ?? ''}
                     </span>
                   </div>
@@ -2867,8 +2859,8 @@ export function InputArea({
           <div
             ref={bottomToolbarRef}
             className={cn(
-              'relative z-20 mt-1 shrink-0 flex items-center justify-between gap-2 px-2 pb-2',
-              usesProjectComposerChrome && 'border-t border-border/50 px-4 pb-3.5 pt-2.5'
+              'composer-toolbar relative z-20 mt-1 shrink-0 flex items-center justify-between gap-2 px-2 pb-2',
+              usesProjectComposerChrome && 'px-4 pb-3.5 pt-2.5'
             )}
           >
             {usesProjectComposerChrome ? (
@@ -2923,8 +2915,9 @@ export function InputArea({
                       <AlertDialogTrigger asChild>
                         <Button
                           variant="ghost"
-                          size="icon"
-                          className="size-8 rounded-lg text-muted-foreground/40 hover:text-destructive"
+                          size="icon-sm"
+                          className="composer-control rounded-lg"
+                          data-tone="danger"
                           aria-label={t('input.clearConversation')}
                           title={t('input.clearConversation')}
                         >

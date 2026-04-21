@@ -172,7 +172,10 @@
     "currentSession": "Current session",
     "openFileManager": "Open file manager",
     "closeFileManager": "Close file manager",
-    "fileManagerUnavailable": "Select a working folder to open the file manager"
+    "fileManagerUnavailable": "Select a working folder to open the file manager",
+    "openProjectTerminal": "Open project terminal",
+    "closeProjectTerminal": "Close project terminal",
+    "projectTerminalUnavailable": "Select a local or SSH workspace to open the project terminal"
   },
   "commandPalette": {
     "placeholder": "Type a command or search sessions...",
@@ -682,5 +685,16 @@
     "noApiKeyTitle": "OpenCoWork Skills API key not configured",
     "noApiKeyDesc": "Set your API key via the \u2699\ufe0f icon in the top bar to browse the skills.open-cowork.shop marketplace.",
     "getApiKey": "Get API Key"
+  },
+  "terminalDock": {
+    "sshContext": "SSH workspace",
+    "newTerminal": "New terminal",
+    "closeTerminal": "Close current terminal",
+    "collapse": "Collapse terminal",
+    "empty": "No terminal is open yet.",
+    "connecting": "Connecting terminal...",
+    "terminalExited": "Terminal session ended",
+    "terminalExitedWithError": "Terminal session exited",
+    "exitCode": "Exit code: {{code}}"
   }
 }

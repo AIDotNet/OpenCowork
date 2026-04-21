@@ -17,6 +17,11 @@ import {
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { Badge } from '@renderer/components/ui/badge'
+import {
+  buildUnifiedTerminalTabs,
+  getUnifiedActiveTerminalTabId,
+  type UnifiedTerminalTab
+} from '@renderer/lib/terminal/unified-terminal-tabs'
 import { cn } from '@renderer/lib/utils'
 import { useTerminalStore } from '@renderer/stores/terminal-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
@@ -26,36 +31,6 @@ import { useChatStore } from '@renderer/stores/chat-store'
 import { LocalTerminal } from './LocalTerminal'
 import { SshConnectionPicker } from './SshConnectionPicker'
 import { SshTerminal } from '../ssh/SshTerminal'
-
-type UnifiedTerminalTab =
-  | {
-      id: string
-      type: 'local'
-      title: string
-      badge: 'LOCAL'
-      icon: typeof SquareTerminal
-      status: 'running' | 'exited' | 'error'
-      cwd: string
-      shell: string
-      exitCode?: number
-      meta: string
-      localTabId: string
-    }
-  | {
-      id: string
-      type: 'ssh'
-      title: string
-      badge: 'SSH'
-      icon: typeof MonitorSmartphone
-      status: 'connecting' | 'connected' | 'disconnected' | 'error'
-      cwd: string
-      shell: string
-      meta: string
-      sessionId: string | null
-      connectionId: string
-      connectionName: string
-      sshTabId: string
-    }
 
 function StatusDot({
   status
@@ -76,13 +51,6 @@ function StatusDot({
       )}
     />
   )
-}
-
-function buildSshTitle(username: string, host: string): string {
-  if (!username && !host) return 'SSH'
-  if (!username) return host
-  if (!host) return username
-  return `${username}@${host}`
 }
 
 export function TerminalPanel(): React.JSX.Element {
@@ -128,51 +96,22 @@ export function TerminalPanel(): React.JSX.Element {
     void createLocalTab(activeSession?.workingFolder)
   }, [localTabs.length, sshOpenTabs.length, createLocalTab, activeSession?.workingFolder])
 
-  const tabs = useMemo<UnifiedTerminalTab[]>(() => {
-    const localUnifiedTabs: UnifiedTerminalTab[] = localTabs.map((tab) => ({
-      id: `local:${tab.id}`,
-      type: 'local',
-      title: tab.title,
-      badge: 'LOCAL',
-      icon: SquareTerminal,
-      status: tab.status,
-      cwd: tab.cwd,
-      shell: tab.shell,
-      exitCode: tab.exitCode,
-      meta: tab.cwd || tab.shell || '-',
-      localTabId: tab.id
-    }))
+  const tabs = useMemo(
+    () =>
+      buildUnifiedTerminalTabs({
+        localTabs,
+        sshOpenTabs,
+        sshConnections,
+        sshSessions
+      }),
+    [localTabs, sshOpenTabs, sshConnections, sshSessions]
+  )
 
-    const sshUnifiedTabs: UnifiedTerminalTab[] = sshOpenTabs
-      .filter((tab) => tab.type === 'terminal')
-      .map((tab) => {
-        const connection = sshConnections.find((item) => item.id === tab.connectionId)
-        const session = tab.sessionId ? sshSessions[tab.sessionId] : null
-
-        return {
-          id: `ssh:${tab.id}`,
-          type: 'ssh',
-          title: buildSshTitle(connection?.username || '', connection?.host || ''),
-          badge: 'SSH',
-          icon: MonitorSmartphone,
-          status: tab.sessionId ? (session?.status ?? 'connecting') : (tab.status ?? 'connecting'),
-          cwd: connection?.defaultDirectory || '',
-          shell: connection ? `${connection.host}:${connection.port}` : '',
-          meta: connection?.name || connection?.host || tab.connectionName,
-          sessionId: tab.sessionId,
-          connectionId: tab.connectionId,
-          connectionName: tab.connectionName,
-          sshTabId: tab.id
-        }
-      })
-
-    return [...localUnifiedTabs, ...sshUnifiedTabs]
-  }, [localTabs, sshOpenTabs, sshConnections, sshSessions])
-
-  const activeUnifiedTabId = sshActiveTabId ? `ssh:${sshActiveTabId}` : `local:${localActiveTabId || ''}`
+  const activeUnifiedTabId = getUnifiedActiveTerminalTabId(tabs, localActiveTabId, sshActiveTabId)
   const activeTab = tabs.find((tab) => tab.id === activeUnifiedTabId) ?? tabs[0] ?? null
 
   const handleCreateLocal = (): void => {
+    setSshActiveTab(null)
     void createLocalTab(activeSession?.workingFolder)
   }
 
@@ -181,6 +120,7 @@ export function TerminalPanel(): React.JSX.Element {
   }
 
   const handleSelectSsh = async (connectionId: string): Promise<void> => {
+    setLocalActiveTab(null)
     const tabId = await openSshTerminal(connectionId)
     if (tabId) {
       setSshPickerOpen(false)
@@ -189,10 +129,12 @@ export function TerminalPanel(): React.JSX.Element {
 
   const handleSetActive = (tab: UnifiedTerminalTab): void => {
     if (tab.type === 'local') {
+      setSshActiveTab(null)
       setLocalActiveTab(tab.localTabId)
       return
     }
 
+    setLocalActiveTab(null)
     setSshActiveTab(tab.sshTabId)
   }
 

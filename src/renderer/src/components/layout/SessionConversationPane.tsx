@@ -31,6 +31,7 @@ import { Input } from '@renderer/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { MessageList } from '@renderer/components/chat/MessageList'
 import { InputArea } from '@renderer/components/chat/InputArea'
+import { ProjectTerminalDock } from '@renderer/components/terminal/ProjectTerminalDock'
 import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
 import {
   abortSession,
@@ -44,16 +45,19 @@ import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
 import { cn } from '@renderer/lib/utils'
 import { dataUrlToBlob, writeImageBlobToClipboard } from '@renderer/lib/utils/image-clipboard'
 import { useChatStore } from '@renderer/stores/chat-store'
+import { useUIStore } from '@renderer/stores/ui-store'
 import { toast } from 'sonner'
 
 interface SessionConversationPaneProps {
   sessionId?: string | null
   allowOpenInNewWindow?: boolean
+  windowHeaderOwnsTitle?: boolean
 }
 
 export function SessionConversationPane({
   sessionId,
-  allowOpenInNewWindow = true
+  allowOpenInNewWindow = true,
+  windowHeaderOwnsTitle = false
 }: SessionConversationPaneProps): React.JSX.Element {
   const { t } = useTranslation('layout')
   const renameSessionLabel = t('renameSession', { defaultValue: 'Rename session' }).replace(
@@ -88,6 +92,11 @@ export function SessionConversationPane({
   )
   const streamingMessageId = useChatStore((state) =>
     resolvedSessionId ? (state.streamingMessages[resolvedSessionId] ?? null) : null
+  )
+  const terminalDockOpen = useUIStore((state) =>
+    sessionView.projectId
+      ? Boolean(state.bottomTerminalDockOpenByProjectId[sessionView.projectId])
+      : false
   )
   const isStreaming = Boolean(streamingMessageId)
   const {
@@ -265,6 +274,7 @@ export function SessionConversationPane({
   }, [deleteSession, resolvedSessionId, sessionView.title, t])
 
   const conversationRoot = useMemo(() => resolvedSessionId ?? 'empty', [resolvedSessionId])
+  const showInlineSessionTitle = !windowHeaderOwnsTitle
 
   if (!resolvedSessionId) {
     return (
@@ -279,40 +289,59 @@ export function SessionConversationPane({
       <div
         className={cn(
           'flex shrink-0 items-center gap-3 px-4 pt-3',
-          compactSessionHeader ? 'pb-1' : 'pb-2'
+          showInlineSessionTitle ? (compactSessionHeader ? 'pb-1' : 'pb-2') : 'pb-2 pt-2'
         )}
       >
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <div
-              className={cn(
-                'min-w-0 flex-1 truncate text-foreground',
-                compactSessionHeader ? 'text-[13px] font-medium' : 'text-[14px] font-medium'
-              )}
-            >
-              {sessionView.title ?? t('sidebar.newChat', { defaultValue: 'New chat' })}
-            </div>
-            {sessionView.projectId ? (
-              <div className="flex min-w-0 max-w-[38%] shrink items-center gap-1.5 text-[11px] text-muted-foreground/65">
-                <span className="shrink-0 text-muted-foreground/35">/</span>
-                {sessionView.workingFolder ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="truncate cursor-default">
-                        {sessionView.projectName ??
-                          t('sidebar.projects', { defaultValue: 'Project' })}
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>{sessionView.workingFolder}</TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <span className="truncate">
-                    {sessionView.projectName ?? t('sidebar.projects', { defaultValue: 'Project' })}
-                  </span>
+          {showInlineSessionTitle ? (
+            <div className="flex min-w-0 items-center gap-2">
+              <div
+                className={cn(
+                  'min-w-0 flex-1 truncate text-foreground',
+                  compactSessionHeader ? 'text-[13px] font-medium' : 'text-[14px] font-medium'
                 )}
+              >
+                {sessionView.title ?? t('sidebar.newChat', { defaultValue: 'New chat' })}
               </div>
-            ) : null}
-          </div>
+              {sessionView.projectId ? (
+                <div className="flex min-w-0 max-w-[38%] shrink items-center gap-1.5 text-[11px] text-muted-foreground/65">
+                  <span className="shrink-0 text-muted-foreground/35">/</span>
+                  {sessionView.workingFolder ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="truncate cursor-default">
+                          {sessionView.projectName ??
+                            t('sidebar.projects', { defaultValue: 'Project' })}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>{sessionView.workingFolder}</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <span className="truncate">
+                      {sessionView.projectName ??
+                        t('sidebar.projects', { defaultValue: 'Project' })}
+                    </span>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : sessionView.projectId ? (
+            <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground/65">
+              <span className="truncate">
+                {sessionView.projectName ?? t('sidebar.projects', { defaultValue: 'Project' })}
+              </span>
+              {sessionView.workingFolder ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="truncate cursor-default text-muted-foreground/55">
+                      {sessionView.workingFolder}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>{sessionView.workingFolder}</TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
@@ -480,6 +509,16 @@ export function SessionConversationPane({
           hideWorkingFolderIndicator
           isStreaming={isStreaming}
         />
+        {sessionView.projectId &&
+          terminalDockOpen &&
+          (sessionView.workingFolder || sessionView.sshConnectionId) && (
+            <ProjectTerminalDock
+              projectId={sessionView.projectId}
+              projectName={sessionView.projectName}
+              workingFolder={sessionView.workingFolder ?? null}
+              sshConnectionId={sessionView.sshConnectionId}
+            />
+          )}
       </div>
 
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>

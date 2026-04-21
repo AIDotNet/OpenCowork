@@ -59,7 +59,7 @@ export function DetachedSessionPage({ sessionId }: DetachedSessionPageProps): Re
       <div className="flex h-screen flex-col overflow-hidden bg-background">
         <header
           className={cn(
-            'titlebar-drag relative flex h-10 shrink-0 items-center gap-3 border-b border-border/60 bg-background/85 px-3 backdrop-blur-md',
+            'titlebar-drag relative flex h-10 shrink-0 items-center gap-3 bg-background/85 px-3 backdrop-blur-md',
             isMac ? 'pl-[78px]' : 'pr-[132px]'
           )}
           style={{ paddingRight: isMac ? undefined : 'calc(132px + 0.75rem)' }}

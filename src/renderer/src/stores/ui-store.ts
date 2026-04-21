@@ -23,7 +23,6 @@ export type RightPanelTab =
   | 'plan'
   | 'preview'
   | 'browser'
-  | 'terminal'
   | 'subagents'
   | 'team'
   | 'acp'
@@ -131,6 +130,10 @@ interface UIStore {
   setWorkingFolderSheetOpen: (open: boolean) => void
   workingFolderPanelWidth: number
   setWorkingFolderPanelWidth: (width: number) => void
+  bottomTerminalDockOpenByProjectId: Record<string, boolean>
+  setBottomTerminalDockOpen: (projectId: string, open: boolean) => void
+  toggleBottomTerminalDock: (projectId: string) => void
+  isBottomTerminalDockOpen: (projectId?: string | null) => boolean
   rightPanelTab: RightPanelTab
   setRightPanelTab: (tab: RightPanelTab) => void
   rightPanelSection: RightPanelSection
@@ -307,6 +310,23 @@ export const useUIStore = create<UIStore>((set, get) => ({
   workingFolderPanelWidth: WORKING_FOLDER_PANEL_DEFAULT_WIDTH,
   setWorkingFolderPanelWidth: (width) =>
     set({ workingFolderPanelWidth: clampWorkingFolderPanelWidth(width) }),
+  bottomTerminalDockOpenByProjectId: {},
+  setBottomTerminalDockOpen: (projectId, open) =>
+    set((state) => ({
+      bottomTerminalDockOpenByProjectId: {
+        ...state.bottomTerminalDockOpenByProjectId,
+        [projectId]: open
+      }
+    })),
+  toggleBottomTerminalDock: (projectId) =>
+    set((state) => ({
+      bottomTerminalDockOpenByProjectId: {
+        ...state.bottomTerminalDockOpenByProjectId,
+        [projectId]: !state.bottomTerminalDockOpenByProjectId[projectId]
+      }
+    })),
+  isBottomTerminalDockOpen: (projectId) =>
+    projectId ? Boolean(get().bottomTerminalDockOpenByProjectId[projectId]) : false,
   rightPanelTab: 'preview',
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
   rightPanelSection: 'execution',

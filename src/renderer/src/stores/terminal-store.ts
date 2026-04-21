@@ -18,17 +18,25 @@ interface TerminalStore {
   activeTabId: string | null
   initialized: boolean
   init: () => void
-  createTab: (cwd?: string) => Promise<string | null>
+  createTab: (cwd?: string, title?: string) => Promise<string | null>
   closeTab: (id: string) => Promise<void>
-  setActiveTab: (id: string) => void
+  setActiveTab: (id: string | null) => void
+  findTabByCwd: (cwd?: string | null) => LocalTerminalTab | null
   markExited: (id: string, exitCode?: number) => void
 }
 
 let subscribed = false
 
-function buildNextTitle(tabs: LocalTerminalTab[]): string {
-  const nextIndex = tabs.length + 1
-  return nextIndex === 1 ? 'Terminal' : `Terminal ${nextIndex}`
+function buildNextTitle(tabs: LocalTerminalTab[], preferredTitle?: string): string {
+  const baseTitle = preferredTitle?.trim() || 'Terminal'
+  if (!tabs.some((tab) => tab.title === baseTitle)) return baseTitle
+
+  let nextIndex = 2
+  while (tabs.some((tab) => tab.title === `${baseTitle} ${nextIndex}`)) {
+    nextIndex += 1
+  }
+
+  return `${baseTitle} ${nextIndex}`
 }
 
 export const useTerminalStore = create<TerminalStore>()((set, get) => ({
@@ -51,8 +59,8 @@ export const useTerminalStore = create<TerminalStore>()((set, get) => ({
 
     set({ initialized: true })
   },
-  createTab: async (cwd) => {
-    const title = buildNextTitle(get().tabs)
+  createTab: async (cwd, preferredTitle) => {
+    const title = buildNextTitle(get().tabs, preferredTitle)
     const result = (await ipcClient.invoke(IPC.TERMINAL_CREATE, {
       cwd,
       title
@@ -105,6 +113,10 @@ export const useTerminalStore = create<TerminalStore>()((set, get) => ({
     })
   },
   setActiveTab: (id) => set({ activeTabId: id }),
+  findTabByCwd: (cwd) => {
+    if (!cwd) return null
+    return get().tabs.find((tab) => tab.cwd === cwd) ?? null
+  },
   markExited: (id, exitCode) =>
     set((state) => ({
       tabs: state.tabs.map((tab) =>

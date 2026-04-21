@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useRef } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
@@ -101,16 +101,35 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const activeSessionView = useChatStore(
     useShallow((s) => {
       const activeSession = s.sessions.find((session) => session.id === s.activeSessionId)
+      const activeSessionProject = activeSession?.projectId
+        ? (s.projects.find((project) => project.id === activeSession.projectId) ?? null)
+        : null
+      const explicitActiveProject = s.activeProjectId
+        ? (s.projects.find((project) => project.id === s.activeProjectId) ?? null)
+        : null
+      const fallbackHomeProject =
+        explicitActiveProject ??
+        s.projects.find((project) => !project.pluginId) ??
+        s.projects[0] ??
+        null
       return {
         activeProjectId: activeSession?.projectId ?? s.activeProjectId ?? null,
+        activeProjectName: explicitActiveProject?.name ?? fallbackHomeProject?.name ?? null,
         activeSessionProjectId: activeSession?.projectId ?? null,
+        activeSessionProjectName: activeSessionProject?.name ?? null,
         activeSessionTitle: activeSession?.title ?? null,
         activeSessionMode: activeSession?.mode as SessionMode | undefined
       }
     })
   )
-  const { activeProjectId, activeSessionProjectId, activeSessionTitle, activeSessionMode } =
-    activeSessionView
+  const {
+    activeProjectId,
+    activeProjectName,
+    activeSessionProjectId,
+    activeSessionProjectName,
+    activeSessionTitle,
+    activeSessionMode
+  } = activeSessionView
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const updateSessionMode = useChatStore((s) => s.updateSessionMode)
   const streamingMessageId = useChatStore((s) => s.streamingMessageId)
@@ -252,6 +271,73 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const tasksPageOpen = useUIStore((s) => s.tasksPageOpen)
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar)
   const appliedDefaultToolbarStateRef = useRef(false)
+  const contentHeader = useMemo(() => {
+    if (tasksPageOpen) {
+      return { title: t('navRail.tasks', { defaultValue: '任务' }), subtitle: null }
+    }
+    if (resourcesPageOpen) {
+      return { title: t('navRail.resources', { defaultValue: '资源' }), subtitle: null }
+    }
+    if (skillsPageOpen) {
+      return { title: t('navRail.skills', { defaultValue: '工具' }), subtitle: null }
+    }
+    if (settingsPageOpen) {
+      return { title: t('navRail.settings', { defaultValue: '设置' }), subtitle: null }
+    }
+    if (drawPageOpen) {
+      return { title: t('navRail.draw', { defaultValue: '绘图' }), subtitle: null }
+    }
+    if (translatePageOpen) {
+      return { title: t('navRail.translate', { defaultValue: '翻译' }), subtitle: null }
+    }
+    if (chatView === 'project') {
+      return {
+        title: activeProjectName ?? t('sidebar.projects', { defaultValue: '项目' }),
+        subtitle: null
+      }
+    }
+    if (chatView === 'archive') {
+      return {
+        title: t('sidebar.projectArchive', { defaultValue: '项目档案' }),
+        subtitle: activeProjectName
+      }
+    }
+    if (chatView === 'channels') {
+      return {
+        title: t('projectHome.openChannels', { defaultValue: '频道' }),
+        subtitle: activeProjectName
+      }
+    }
+    if (chatView === 'git') {
+      return {
+        title: t('sidebar.projectGit', { defaultValue: 'Git' }),
+        subtitle: activeProjectName
+      }
+    }
+    if (chatView === 'session') {
+      return {
+        title: activeSessionTitle ?? t('sidebar.newChat', { defaultValue: '新建聊天' }),
+        subtitle: activeSessionProjectName
+      }
+    }
+    return {
+      title: t('sidebar.newChat', { defaultValue: '新建聊天' }),
+      subtitle: mode !== 'chat' ? activeProjectName : null
+    }
+  }, [
+    activeProjectName,
+    activeSessionProjectName,
+    activeSessionTitle,
+    chatView,
+    drawPageOpen,
+    mode,
+    resourcesPageOpen,
+    settingsPageOpen,
+    skillsPageOpen,
+    t,
+    tasksPageOpen,
+    translatePageOpen
+  ])
 
   useEffect(() => {
     if (appliedDefaultToolbarStateRef.current) return
@@ -539,22 +625,26 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="flex h-screen flex-col overflow-hidden">
-        {/* Full-width title bar */}
-        <TitleBar updateInfo={updateInfo} onOpenUpdateDialog={onOpenUpdateDialog} />
+      <div className="flex h-screen overflow-hidden bg-background">
+        <AnimatePresence>
+          {showEmbeddedSidebar && (
+            <PanelTransition side="left" disabled={false} className="z-10 h-full shrink-0">
+              <WorkspaceSidebar />
+            </PanelTransition>
+          )}
+        </AnimatePresence>
 
-        <div className="flex flex-1 overflow-hidden px-1 pt-1 pb-1.5">
-          <div className="relative flex flex-1 overflow-hidden rounded-lg border border-border/60 bg-background/85 shadow-[0_12px_40px_-20px_rgba(0,0,0,0.55)] backdrop-blur-sm">
-            {/* Embedded workspace sidebar */}
-            <AnimatePresence>
-              {showEmbeddedSidebar && (
-                <PanelTransition side="left" disabled={false} className="h-full z-10">
-                  <WorkspaceSidebar />
-                </PanelTransition>
-              )}
-            </AnimatePresence>
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
+          <TitleBar
+            updateInfo={updateInfo}
+            onOpenUpdateDialog={onOpenUpdateDialog}
+            title={contentHeader.title}
+            subtitle={contentHeader.subtitle}
+            showSidebarToggle={!showEmbeddedSidebar}
+            insetForMacTrafficLights={!showEmbeddedSidebar}
+          />
 
-            {/* Main content area */}
+          <div className="flex min-h-0 flex-1 overflow-hidden">
             <AnimatePresence mode="wait">
               {tasksPageOpen ? (
                 <PageTransition
@@ -645,7 +735,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                 >
                   <ErrorBoundary
                     renderFallback={(error, reset) => (
-                      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center overflow-hidden">
+                      <div className="flex flex-1 flex-col items-center justify-center gap-4 overflow-hidden p-8 text-center">
                         <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
                           <svg
                             className="size-6 text-destructive"
@@ -671,19 +761,19 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                         </div>
                         <div className="flex items-center gap-2">
                           <button
-                            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
                             onClick={reset}
                           >
                             {t('layout.tryAgain')}
                           </button>
                           <button
-                            className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                             onClick={() => window.location.reload()}
                           >
                             {t('layout.reloadApp')}
                           </button>
                           <button
-                            className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                             onClick={() => {
                               const text = `Error: ${error?.message}\nStack: ${error?.stack}`
                               navigator.clipboard.writeText(text)
@@ -694,7 +784,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                         </div>
                         {error?.stack && (
                           <details className="w-full max-w-lg text-left">
-                            <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                            <summary className="cursor-pointer text-[10px] text-muted-foreground transition-colors hover:text-foreground">
                               {t('layout.errorDetails')}
                             </summary>
                             <pre className="mt-1 max-h-32 overflow-auto rounded-md bg-muted p-2 text-[10px] leading-relaxed text-muted-foreground">
@@ -706,7 +796,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                     )}
                   >
                     <div className="flex flex-1 overflow-hidden">
-                      <SessionConversationPane />
+                      <SessionConversationPane windowHeaderOwnsTitle />
                       <WorkingFolderSheet />
                       <RightPanel />
                     </div>

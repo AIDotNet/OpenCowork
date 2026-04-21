@@ -1,926 +1,679 @@
-import { useEffect, useCallback, useMemo, useState, useRef, type ElementType } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowUp,
-  RefreshCw,
-  Loader2,
-  Folder,
-  FolderPlus,
-  FilePlus2,
-  Pencil,
-  Trash2,
-  Copy,
-  Download,
-  FileText,
-  FileCode,
-  FileImage,
-  FileArchive,
-  FileJson,
-  FileSpreadsheet,
   File,
-  ChevronRight
+  FileArchive,
+  FileCode2,
+  FileImage,
+  FileJson2,
+  FileSpreadsheet,
+  FileText,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  HardDriveDownload,
+  HardDriveUpload,
+  Loader2,
+  Pencil,
+  Plug,
+  Plug2,
+  RefreshCw,
+  SquareTerminal,
+  Trash2
 } from 'lucide-react'
-import { useSshStore, type SshFileEntry } from '@renderer/stores/ssh-store'
 import { cn } from '@renderer/lib/utils'
 import {
-  Files,
-  FolderItem,
-  FolderTrigger,
-  FolderContent,
-  FileItem,
-  SubFiles
-} from '@renderer/components/animate-ui/components/radix/files'
+  type SftpConnectionState,
+  type SftpPaneState,
+  type SshConnection,
+  type SshFileEntry
+} from '@renderer/stores/ssh-store'
+import { Button } from '@renderer/components/ui/button'
+import { Checkbox } from '@renderer/components/ui/checkbox'
 import {
-  ContextMenu,
-  ContextMenuTrigger,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator
-} from '@renderer/components/ui/context-menu'
-import { confirm } from '@renderer/components/ui/confirm-dialog'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
-import { IPC } from '@renderer/lib/ipc/channels'
-import { toast } from 'sonner'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@renderer/components/ui/select'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { useSshStore } from '@renderer/stores/ssh-store'
 
-interface SshFileExplorerProps {
+interface ModernSshFileExplorerProps {
+  active: boolean
+  connections: SshConnection[]
+  connection: SshConnection | null
+  paneState: SftpPaneState
+  connectionState?: SftpConnectionState | null
+  entries: SshFileEntry[]
+  loading: boolean
+  error?: string | null
+  hasMore: boolean
+  selectedEntries: Record<string, SshFileEntry>
+  onActivatePane: () => void
+  onSelectConnection: (connectionId: string | null) => void
+  onConnect: () => void
+  onDisconnect: () => void
+  onOpenTerminal: () => void
+  onNavigate: (path: string) => void
+  onGoUp: () => void
+  onRefresh: () => void
+  onLoadMore: () => void
+  onSelectOnly: (entry: SshFileEntry) => void
+  onToggleSelect: (entry: SshFileEntry) => void
+  onSelectAll: (entries: SshFileEntry[]) => void
+  onClearSelection: () => void
+  onDownloadSelection: () => void
+  onUploadFile: () => void
+  onUploadFolder: () => void
+  onCreateFile: () => void
+  onCreateFolder: () => void
+  onRenameEntry: (entry: SshFileEntry) => void
+  onDeleteEntry: (entry: SshFileEntry) => void
+}
+
+interface LegacySshFileExplorerProps {
   sessionId: string
   connectionId: string
   rootPath?: string
 }
 
-const ROOT_PATH = '/'
-const EMPTY_ENTRY_MAP: Record<string, SshFileEntry[]> = {}
-const EMPTY_LOADING_MAP: Record<string, boolean> = {}
-const EMPTY_ERROR_MAP: Record<string, string | null> = {}
-const EMPTY_PAGEINFO_MAP: Record<string, { cursor?: string; hasMore: boolean }> = {}
-const EMPTY_EXPANDED_DIRS = new Set<string>()
-const FILE_SIZE_LIMIT = 2 * 1024 * 1024
-const DEFAULT_ROOT_PATH = '/'
-
-function normalizeRootPath(input?: string): string {
-  if (!input) return ROOT_PATH
-  const trimmed = input.trim()
-  if (!trimmed) return ROOT_PATH
-  if (trimmed.length > 1 && trimmed.endsWith('/')) return trimmed.slice(0, -1)
-  return trimmed
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '--'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let amount = value
+  let index = 0
+  while (amount >= 1024 && index < units.length - 1) {
+    amount /= 1024
+    index += 1
+  }
+  return `${amount >= 100 ? amount.toFixed(0) : amount.toFixed(1)} ${units[index]}`
 }
 
-function joinRemotePath(parent: string, name: string): string {
-  if (parent === '/' || parent === '') return `/${name}`
-  return `${parent}/${name}`
+function formatModifiedTime(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '--'
+  return new Date(value).toLocaleString()
 }
 
-function getParentPath(path: string): string {
-  if (!path || path === '/') return '/'
-  if (path === '~') return '~'
-  const trimmed = path.endsWith('/') && path.length > 1 ? path.slice(0, -1) : path
-  if (trimmed === '~') return '~'
-  const idx = trimmed.lastIndexOf('/')
-  if (idx <= 0) return trimmed.startsWith('~') ? '~' : '/'
-  return trimmed.slice(0, idx)
+function getParentPath(currentPath?: string | null): string {
+  if (!currentPath || currentPath === '/') return '/'
+  const trimmed = currentPath.endsWith('/') ? currentPath.slice(0, -1) : currentPath
+  const index = trimmed.lastIndexOf('/')
+  if (index <= 0) return '/'
+  return trimmed.slice(0, index)
 }
 
-function InlineInput({
-  defaultValue,
-  icon,
-  placeholder,
-  onConfirm,
-  onCancel
-}: {
-  defaultValue: string
-  icon: React.ReactNode
-  placeholder?: string
-  onConfirm: (value: string) => void
-  onCancel: () => void
-}): React.JSX.Element {
-  const ref = useRef<HTMLInputElement>(null)
-  const [value, setValue] = useState(defaultValue)
+function buildPathSegments(value?: string | null): Array<{ label: string; path: string }> {
+  const currentPath = value && value.trim() ? value.trim() : '/'
+  if (currentPath === '/') return [{ label: '/', path: '/' }]
 
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.focus()
-    const dot = defaultValue.lastIndexOf('.')
-    el.setSelectionRange(0, dot > 0 ? dot : defaultValue.length)
-  }, [defaultValue])
-
-  return (
-    <div className="flex items-center gap-2 p-2 text-sm">
-      {icon}
-      <input
-        ref={ref}
-        className="pointer-events-auto flex-1 min-w-0 rounded border border-border bg-muted/60 px-2 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => setValue(e.target.value)}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            const trimmed = value.trim()
-            if (trimmed) onConfirm(trimmed)
-            else onCancel()
-          }
-          if (e.key === 'Escape') onCancel()
-        }}
-        onBlur={() => onCancel()}
-      />
-    </div>
-  )
+  const parts = currentPath.split('/').filter(Boolean)
+  const segments: Array<{ label: string; path: string }> = [{ label: '/', path: '/' }]
+  let current = ''
+  for (const part of parts) {
+    current = `${current}/${part}`.replace(/\/{2,}/g, '/')
+    segments.push({ label: part, path: current })
+  }
+  return segments
 }
 
-function getFileIconComponent(name: string): ElementType {
-  const lowered = name.toLowerCase()
-  if (lowered === 'dockerfile' || lowered === 'makefile') return FileCode
-  if (lowered === 'license' || lowered === 'readme' || lowered === 'readme.md') return FileText
-  if (lowered === '.gitignore' || lowered === '.env' || lowered.startsWith('.env.')) return FileText
+function getEntryIcon(entry: SshFileEntry): typeof Folder {
+  if (entry.type === 'directory') return Folder
 
-  const ext = name.split('.').pop()?.toLowerCase()
-  if (!ext) return File
+  const lowered = entry.name.toLowerCase()
+  const ext = lowered.split('.').pop() ?? ''
 
-  const codeExts = [
-    'ts',
-    'tsx',
-    'js',
-    'jsx',
-    'py',
-    'go',
-    'rs',
-    'java',
-    'cpp',
-    'c',
-    'h',
-    'rb',
-    'php',
-    'vue',
-    'svelte',
-    'sh',
-    'bash',
-    'zsh',
-    'yaml',
-    'yml',
-    'toml',
-    'json',
-    'xml',
-    'html',
-    'css',
-    'scss',
-    'sql'
-  ]
-  const textExts = ['md', 'txt', 'log', 'conf', 'cfg', 'ini', 'env']
-  const jsonExts = ['json', 'jsonl']
-  const sheetExts = ['csv', 'tsv', 'xls', 'xlsx']
-  const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp']
-  const archiveExts = ['zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar']
-
-  if (codeExts.includes(ext)) return FileCode
-  if (jsonExts.includes(ext)) return FileJson
-  if (sheetExts.includes(ext)) return FileSpreadsheet
-  if (textExts.includes(ext)) return FileText
-  if (imageExts.includes(ext)) return FileImage
-  if (archiveExts.includes(ext)) return FileArchive
-
+  if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico'].includes(ext)) return FileImage
+  if (['json', 'jsonl'].includes(ext)) return FileJson2
+  if (['csv', 'tsv', 'xlsx', 'xls'].includes(ext)) return FileSpreadsheet
+  if (['zip', 'tar', 'gz', '7z', 'rar'].includes(ext)) return FileArchive
+  if (
+    [
+      'ts',
+      'tsx',
+      'js',
+      'jsx',
+      'py',
+      'go',
+      'rs',
+      'java',
+      'c',
+      'cpp',
+      'h',
+      'sh',
+      'sql',
+      'yaml',
+      'yml',
+      'toml',
+      'html',
+      'css',
+      'scss'
+    ].includes(ext)
+  ) {
+    return FileCode2
+  }
+  if (['md', 'txt', 'log', 'env', 'ini', 'conf'].includes(ext)) return FileText
   return File
 }
 
-export function SshFileExplorer({
-  sessionId,
-  connectionId,
-  rootPath
-}: SshFileExplorerProps): React.JSX.Element {
-  const { t } = useTranslation('ssh')
-
-  const effectiveRootPath = rootPath == null ? DEFAULT_ROOT_PATH : rootPath
-  const baseRoot = useMemo(() => normalizeRootPath(effectiveRootPath), [effectiveRootPath])
-  const hasCustomRoot = typeof rootPath === 'string' && rootPath.trim() !== ''
-  const [resolvedHomeDir, setResolvedHomeDir] = useState<string | null>(null)
-  const effectiveBaseRoot = baseRoot
-  const enforceRoot = effectiveBaseRoot !== ROOT_PATH
-  const currentPath = useSshStore(
-    (s) => s.fileExplorerPaths[sessionId] ?? resolvedHomeDir ?? effectiveBaseRoot
-  )
-  const entriesByPath = useSshStore((s) => s.fileExplorerEntries[sessionId] ?? EMPTY_ENTRY_MAP)
-  const loadingByPath = useSshStore((s) => s.fileExplorerLoading[sessionId] ?? EMPTY_LOADING_MAP)
-  const errorsByPath = useSshStore((s) => s.fileExplorerErrors[sessionId] ?? EMPTY_ERROR_MAP)
-  const pageInfoByPath = useSshStore((s) => s.fileExplorerPageInfo[sessionId] ?? EMPTY_PAGEINFO_MAP)
-  const expandedDirs = useSshStore((s) => s.fileExplorerExpanded[sessionId] ?? EMPTY_EXPANDED_DIRS)
-  const sessionStatus = useSshStore((s) => s.sessions[sessionId]?.status)
-  const [renamingPath, setRenamingPath] = useState<string | null>(null)
-  const [newItemParent, setNewItemParent] = useState<string | null>(null)
-  const [newItemType, setNewItemType] = useState<'file' | 'directory'>('file')
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setRenamingPath(null)
-      setNewItemParent(null)
-    }, 0)
-
-    return () => {
-      window.clearTimeout(timer)
-    }
-  }, [effectiveBaseRoot, sessionId])
-
-  useEffect(() => {
-    if (!sessionId || !connectionId) return
-    if (sessionStatus !== 'connected') return
-    if (hasCustomRoot) return
-    if (baseRoot !== ROOT_PATH) return
-
-    const loadHome = async (): Promise<void> => {
-      const result = await ipcClient.invoke(IPC.SSH_FS_HOME_DIR, { connectionId })
-      if (result && typeof result === 'object' && 'error' in result) return
-      const home = (result as { path?: string }).path
-      if (!home) return
-
-      setResolvedHomeDir(home)
-
-      const store = useSshStore.getState()
-      const existingPath = store.fileExplorerPaths[sessionId]
-      if (!existingPath || existingPath === baseRoot) {
-        store.setFileExplorerPath(sessionId, home)
-        store.setFileExplorerExpanded(sessionId, [])
-      }
-    }
-
-    void loadHome()
-  }, [baseRoot, connectionId, hasCustomRoot, sessionId, sessionStatus])
-
-  const handleDownloadFile = useCallback(
-    async (entry: SshFileEntry) => {
-      const selected = await ipcClient.invoke(IPC.FS_SELECT_SAVE_FILE, {
-        defaultPath: entry.name
-      })
-      if (!selected || typeof selected !== 'object') return
-      if ((selected as { canceled?: boolean }).canceled) return
-      const localPath = (selected as { path?: string }).path
-      if (!localPath) return
-
-      const result = await ipcClient.invoke(IPC.SSH_FS_DOWNLOAD, {
-        connectionId,
-        remotePath: entry.path,
-        localPath
-      })
-      if (result && typeof result === 'object' && 'error' in result) {
-        toast.error(String((result as { error?: string }).error ?? 'Download failed'))
-        return
-      }
-      toast.success(t('fileExplorer.downloaded'))
-    },
-    [connectionId, t]
-  )
-
-  useEffect(() => {
-    if (!sessionId || !connectionId) return
-    if (sessionStatus !== 'connected') return
-
-    const store = useSshStore.getState()
-    const existingPath = store.fileExplorerPaths[sessionId]
-    const shouldReset = hasCustomRoot && existingPath !== effectiveBaseRoot
-    const shouldEnforceRoot =
-      !!existingPath && enforceRoot && !existingPath.startsWith(effectiveBaseRoot)
-    const preferHome = !hasCustomRoot && baseRoot === ROOT_PATH && resolvedHomeDir
-    const nextPath = preferHome ? resolvedHomeDir : effectiveBaseRoot
-    const shouldSetPath =
-      !existingPath ||
-      shouldReset ||
-      shouldEnforceRoot ||
-      (preferHome && existingPath === effectiveBaseRoot)
-
-    if (shouldSetPath) {
-      store.setFileExplorerPath(sessionId, nextPath)
-      if (!existingPath || shouldReset || shouldEnforceRoot) {
-        store.setFileExplorerExpanded(sessionId, [])
-      }
-    }
-
-    const loadEntries = async (): Promise<void> => {
-      if (hasCustomRoot && effectiveBaseRoot !== ROOT_PATH) {
-        await ipcClient.invoke(IPC.SSH_FS_MKDIR, { connectionId, path: effectiveBaseRoot })
-      }
-      void store.loadFileExplorerEntries(sessionId, effectiveBaseRoot)
-    }
-
-    void loadEntries()
-  }, [
-    sessionId,
-    connectionId,
-    sessionStatus,
-    effectiveBaseRoot,
-    enforceRoot,
-    hasCustomRoot,
-    baseRoot,
-    resolvedHomeDir
-  ])
-
-  useEffect(() => {
-    if (sessionStatus !== 'connected') return
-    const store = useSshStore.getState()
-
-    for (const path of expandedDirs) {
-      if (
-        !Object.prototype.hasOwnProperty.call(entriesByPath, path) &&
-        !loadingByPath[path] &&
-        !errorsByPath[path]
-      ) {
-        void store.loadFileExplorerEntries(sessionId, path)
-      }
-    }
-  }, [expandedDirs, entriesByPath, loadingByPath, errorsByPath, sessionId, sessionStatus])
-
-  useEffect(() => {
-    if (sessionStatus !== 'connected') return
-    if (!currentPath) return
-    if (
-      !Object.prototype.hasOwnProperty.call(entriesByPath, currentPath) &&
-      !loadingByPath[currentPath] &&
-      !errorsByPath[currentPath]
-    ) {
-      void useSshStore.getState().loadFileExplorerEntries(sessionId, currentPath)
-    }
-  }, [currentPath, entriesByPath, loadingByPath, errorsByPath, sessionId, sessionStatus])
-
-  useEffect(() => {
-    if (!enforceRoot) return
-    const filtered = Array.from(expandedDirs).filter(
-      (path) => path === effectiveBaseRoot || path.startsWith(`${effectiveBaseRoot}/`)
-    )
-    if (filtered.length !== expandedDirs.size) {
-      useSshStore.getState().setFileExplorerExpanded(sessionId, filtered)
-    }
-  }, [effectiveBaseRoot, expandedDirs, sessionId, enforceRoot])
-
-  const handleOpenChange = useCallback(
-    (next: string[]) => {
-      const prev = expandedDirs
-      const opened = next.find((value) => !prev.has(value))
-      if (opened) {
-        const store = useSshStore.getState()
-        store.setFileExplorerPath(sessionId, opened)
-        const sessionEntries = store.fileExplorerEntries[sessionId] ?? {}
-        if (!Object.prototype.hasOwnProperty.call(sessionEntries, opened)) {
-          void store.loadFileExplorerEntries(sessionId, opened)
-        }
-      }
-      useSshStore.getState().setFileExplorerExpanded(sessionId, next)
-    },
-    [expandedDirs, sessionId]
-  )
-
-  const handleRefreshDir = useCallback(
-    (dirPath: string) => {
-      void useSshStore.getState().loadFileExplorerEntries(sessionId, dirPath, true)
-    },
-    [sessionId]
-  )
-
-  const handleZipDir = useCallback(
-    async (dirPath: string) => {
-      const result = await ipcClient.invoke(IPC.SSH_FS_ZIP_DIR, { connectionId, dirPath })
-      if (result && typeof result === 'object' && 'error' in result) {
-        toast.error(String((result as { error?: string }).error ?? 'Zip failed'))
-        return
-      }
-      const outputPath = (result as { outputPath?: string }).outputPath
-      if (outputPath) toast.success(outputPath)
-      const parent = getParentPath(dirPath)
-      void useSshStore.getState().loadFileExplorerEntries(sessionId, parent, true)
-    },
-    [connectionId, sessionId]
-  )
-
-  const handleUploadFileToDir = useCallback(
-    async (remoteDir: string) => {
-      const selected = await ipcClient.invoke(IPC.FS_SELECT_FILE)
-      if (!selected || typeof selected !== 'object') return
-      if ((selected as { canceled?: boolean }).canceled) return
-      const localPath = (selected as { path?: string }).path
-      if (!localPath) return
-      const taskId = await useSshStore
-        .getState()
-        .startUpload({ connectionId, remoteDir, localPath, kind: 'file' })
-      if (!taskId) toast.error('Upload failed')
-    },
-    [connectionId]
-  )
-
-  const handleUploadFolderToDir = useCallback(
-    async (remoteDir: string) => {
-      const selected = await ipcClient.invoke(IPC.FS_SELECT_FOLDER)
-      if (!selected || typeof selected !== 'object') return
-      if ((selected as { canceled?: boolean }).canceled) return
-      const localPath = (selected as { path?: string }).path
-      if (!localPath) return
-      const taskId = await useSshStore
-        .getState()
-        .startUpload({ connectionId, remoteDir, localPath, kind: 'folder' })
-      if (!taskId) toast.error('Upload failed')
-    },
-    [connectionId]
-  )
-
-  const handleSelectPath = useCallback(
-    (path: string) => {
-      useSshStore.getState().setFileExplorerPath(sessionId, path)
-    },
-    [sessionId]
-  )
-
-  const handleGoUp = useCallback(() => {
-    if (currentPath === ROOT_PATH) return
-    if (enforceRoot && currentPath === effectiveBaseRoot) return
-    const parent = getParentPath(currentPath)
-    if (enforceRoot && !parent.startsWith(effectiveBaseRoot)) {
-      handleSelectPath(effectiveBaseRoot)
-      return
-    }
-    handleSelectPath(parent)
-  }, [currentPath, effectiveBaseRoot, enforceRoot, handleSelectPath])
-
-  const handleRefresh = useCallback(() => {
-    const store = useSshStore.getState()
-    void store.loadFileExplorerEntries(sessionId, effectiveBaseRoot, true)
-    for (const path of expandedDirs) {
-      void store.loadFileExplorerEntries(sessionId, path, true)
-    }
-  }, [sessionId, expandedDirs, effectiveBaseRoot])
-
-  const handleLoadMore = useCallback(
-    (path: string) => {
-      void useSshStore.getState().loadMoreFileExplorerEntries(sessionId, path)
-    },
-    [sessionId]
-  )
-
-  const ensureExpanded = useCallback(
-    (dirPath: string) => {
-      if (expandedDirs.has(dirPath)) return
-      const next = new Set(expandedDirs)
-      next.add(dirPath)
-      useSshStore.getState().setFileExplorerExpanded(sessionId, Array.from(next))
-    },
-    [expandedDirs, sessionId]
-  )
-
-  const openFilePreview = useCallback(
-    (entry: SshFileEntry) => {
-      if (entry.size >= FILE_SIZE_LIMIT) {
-        toast.error(t('fileExplorer.tooLarge'))
-        return
-      }
-      useUIStore.getState().openFilePreview(entry.path, undefined, connectionId, sessionId)
-    },
-    [connectionId, sessionId, t]
-  )
-
-  const handleDelete = useCallback(
-    async (entry: SshFileEntry) => {
-      const confirmed = await confirm({
-        title: t('fileExplorer.deleteConfirm', { name: entry.name }),
-        variant: 'destructive'
-      })
-      if (!confirmed) return
-      const result = await ipcClient.invoke(IPC.SSH_FS_DELETE, {
-        connectionId,
-        path: entry.path
-      })
-      if (result && typeof result === 'object' && 'error' in result) {
-        toast.error(String((result as { error?: string }).error ?? 'Delete failed'))
-        return
-      }
-      const parent = getParentPath(entry.path)
-      void useSshStore.getState().loadFileExplorerEntries(sessionId, parent, true)
-    },
-    [connectionId, sessionId, t]
-  )
-
-  const handleRenameConfirm = useCallback(
-    async (entry: SshFileEntry, newName: string) => {
-      const parent = getParentPath(entry.path)
-      const nextPath = joinRemotePath(parent, newName)
-      if (!newName || nextPath === entry.path) {
-        setRenamingPath(null)
-        return
-      }
-      const result = await ipcClient.invoke(IPC.SSH_FS_MOVE, {
-        connectionId,
-        from: entry.path,
-        to: nextPath
-      })
-      if (result && typeof result === 'object' && 'error' in result) {
-        toast.error(String((result as { error?: string }).error ?? 'Rename failed'))
-        return
-      }
-      setRenamingPath(null)
-      void useSshStore.getState().loadFileExplorerEntries(sessionId, parent, true)
-    },
-    [connectionId, sessionId]
-  )
-
-  const handleNewFile = useCallback(
-    (dirPath: string) => {
-      setNewItemParent(dirPath)
-      setNewItemType('file')
-      setRenamingPath(null)
-      ensureExpanded(dirPath)
-    },
-    [ensureExpanded]
-  )
-
-  const handleNewFolder = useCallback(
-    (dirPath: string) => {
-      setNewItemParent(dirPath)
-      setNewItemType('directory')
-      setRenamingPath(null)
-      ensureExpanded(dirPath)
-    },
-    [ensureExpanded]
-  )
-
-  const handleNewItemConfirm = useCallback(
-    async (value: string) => {
-      if (!newItemParent) return
-      const targetPath = joinRemotePath(newItemParent, value)
-      const result =
-        newItemType === 'directory'
-          ? await ipcClient.invoke(IPC.SSH_FS_MKDIR, { connectionId, path: targetPath })
-          : await ipcClient.invoke(IPC.SSH_FS_WRITE_FILE, {
-              connectionId,
-              path: targetPath,
-              content: ''
-            })
-      if (result && typeof result === 'object' && 'error' in result) {
-        toast.error(String((result as { error?: string }).error ?? 'Create failed'))
-        return
-      }
-      setNewItemParent(null)
-      void useSshStore.getState().loadFileExplorerEntries(sessionId, newItemParent, true)
-    },
-    [connectionId, newItemParent, newItemType, sessionId]
-  )
-
-  const openValues = useMemo(() => Array.from(expandedDirs), [expandedDirs])
-  const rootEntries = entriesByPath[effectiveBaseRoot] ?? []
-  const rootError = errorsByPath[effectiveBaseRoot]
-  const hasRootLoaded = Object.prototype.hasOwnProperty.call(entriesByPath, effectiveBaseRoot)
-  const rootLoading = loadingByPath[effectiveBaseRoot] ?? false
-  const rootInitialLoading = !hasRootLoaded && !rootError
-  const rootLoadingMore = rootLoading && hasRootLoaded
-  const rootHasMore = pageInfoByPath[effectiveBaseRoot]?.hasMore ?? false
-
-  function renderEntries(entries: SshFileEntry[]): React.ReactNode {
-    return entries.map((entry) => {
-      if (entry.type === 'directory') {
-        const hasLoaded = Object.prototype.hasOwnProperty.call(entriesByPath, entry.path)
-        const error = errorsByPath[entry.path]
-        const isLoading = loadingByPath[entry.path] ?? false
-        const children = hasLoaded ? (entriesByPath[entry.path] ?? []) : []
-        const isInitialLoading = !hasLoaded && !error
-        const isLoadingMore = isLoading && hasLoaded
-        const pageInfo = pageInfoByPath[entry.path]
-        const hasMore = pageInfo?.hasMore ?? false
-        const isRenaming = renamingPath === entry.path
-        const showNewItem = newItemParent === entry.path
-
-        return (
-          <FolderItem key={entry.path} value={entry.path}>
-            <ContextMenu>
-              <ContextMenuTrigger asChild>
-                <div
-                  className="w-full"
-                  onClick={() => {
-                    handleSelectPath(entry.path)
-                    const store = useSshStore.getState()
-                    const sessionEntries = store.fileExplorerEntries[sessionId] ?? {}
-                    if (!Object.prototype.hasOwnProperty.call(sessionEntries, entry.path)) {
-                      void store.loadFileExplorerEntries(sessionId, entry.path)
-                    }
-                  }}
-                >
-                  <FolderTrigger>
-                    {isRenaming ? (
-                      <input
-                        autoFocus
-                        className="pointer-events-auto w-full min-w-[120px] rounded border border-border bg-muted/60 px-2 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
-                        defaultValue={entry.name}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const val = (e.target as HTMLInputElement).value.trim()
-                            if (val) void handleRenameConfirm(entry, val)
-                            else setRenamingPath(null)
-                          }
-                          if (e.key === 'Escape') setRenamingPath(null)
-                        }}
-                        onBlur={() => setRenamingPath(null)}
-                      />
-                    ) : (
-                      <span className="inline-flex items-center gap-1">
-                        <ChevronRight
-                          className={cn(
-                            'size-3 shrink-0 text-muted-foreground transition-transform duration-200',
-                            expandedDirs.has(entry.path) && 'rotate-90'
-                          )}
-                        />
-                        <span className="truncate">{entry.name}</span>
-                      </span>
-                    )}
-                  </FolderTrigger>
-                </div>
-              </ContextMenuTrigger>
-              <ContextMenuContent className="w-44">
-                <ContextMenuItem
-                  className="gap-2 text-xs"
-                  onSelect={() => {
-                    handleSelectPath(entry.path)
-                    ensureExpanded(entry.path)
-                  }}
-                >
-                  <Folder className="size-3.5" />
-                  {t('fileExplorer.open')}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  className="gap-2 text-xs"
-                  onSelect={() => void handleZipDir(entry.path)}
-                >
-                  <FileArchive className="size-3.5" />
-                  {t('fileExplorer.zipDir')}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  className="gap-2 text-xs"
-                  onSelect={() => void handleUploadFileToDir(entry.path)}
-                >
-                  <FilePlus2 className="size-3.5" />
-                  {t('fileExplorer.uploadFile')}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  className="gap-2 text-xs"
-                  onSelect={() => void handleUploadFolderToDir(entry.path)}
-                >
-                  <FolderPlus className="size-3.5" />
-                  {t('fileExplorer.uploadFolder')}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  className="gap-2 text-xs"
-                  onSelect={() => handleRefreshDir(entry.path)}
-                >
-                  <RefreshCw className="size-3.5" />
-                  {t('fileExplorer.refresh')}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  className="gap-2 text-xs"
-                  onSelect={() => handleNewFile(entry.path)}
-                >
-                  <FilePlus2 className="size-3.5" />
-                  {t('fileExplorer.newFile')}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  className="gap-2 text-xs"
-                  onSelect={() => handleNewFolder(entry.path)}
-                >
-                  <FolderPlus className="size-3.5" />
-                  {t('fileExplorer.newFolder')}
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  className="gap-2 text-xs"
-                  onSelect={() => {
-                    setRenamingPath(entry.path)
-                    setNewItemParent(null)
-                  }}
-                >
-                  <Pencil className="size-3.5" />
-                  {t('fileExplorer.rename')}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  className="gap-2 text-xs"
-                  onSelect={() => navigator.clipboard.writeText(entry.path)}
-                >
-                  <Copy className="size-3.5" />
-                  {t('fileExplorer.copyPath')}
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  className="gap-2 text-xs text-destructive focus:text-destructive"
-                  onSelect={() => void handleDelete(entry)}
-                >
-                  <Trash2 className="size-3.5" />
-                  {t('fileExplorer.delete')}
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
-            <FolderContent>
-              {error && children.length === 0 ? (
-                <div className="px-2 py-1 text-xs text-muted-foreground">
-                  {t('fileExplorer.error')}
-                </div>
-              ) : isInitialLoading ? (
-                <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
-                  <Loader2 className="size-3 animate-spin" />
-                  {t('fileExplorer.loading')}
-                </div>
-              ) : children.length === 0 && !showNewItem ? (
-                <div className="px-2 py-1 text-xs text-muted-foreground">
-                  {t('fileExplorer.empty')}
-                </div>
-              ) : (
-                <>
-                  {showNewItem && (
-                    <InlineInput
-                      defaultValue={newItemType === 'directory' ? 'new-folder' : 'untitled'}
-                      icon={
-                        newItemType === 'directory' ? (
-                          <Folder className="size-4 text-amber-400" />
-                        ) : (
-                          <File className="size-4 text-muted-foreground" />
-                        )
-                      }
-                      onConfirm={(value) => void handleNewItemConfirm(value)}
-                      onCancel={() => setNewItemParent(null)}
-                    />
-                  )}
-                  {children.length > 0 && <SubFiles>{renderEntries(children)}</SubFiles>}
-                  {isLoadingMore && (
-                    <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
-                      <Loader2 className="size-3 animate-spin" />
-                      {t('fileExplorer.loadingMore')}
-                    </div>
-                  )}
-                  {!isLoadingMore && hasMore && (
-                    <div className="px-2 py-1">
-                      <button
-                        className="pointer-events-auto text-xs text-muted-foreground hover:text-foreground"
-                        onClick={() => handleLoadMore(entry.path)}
-                      >
-                        {t('fileExplorer.loadMore')}
-                      </button>
-                    </div>
-                  )}
-                  {error && children.length > 0 && (
-                    <div className="px-2 py-1 text-xs text-muted-foreground">
-                      {t('fileExplorer.error')}
-                    </div>
-                  )}
-                </>
-              )}
-            </FolderContent>
-          </FolderItem>
-        )
-      }
-
-      const isRenaming = renamingPath === entry.path
-      return (
-        <ContextMenu key={entry.path}>
-          <ContextMenuTrigger asChild>
-            <div
-              className="w-full"
-              onClick={() => {
-                handleSelectPath(entry.path)
-                if (!isRenaming) openFilePreview(entry)
-              }}
-            >
-              <FileItem icon={getFileIconComponent(entry.name)} className="text-sm">
-                {isRenaming ? (
-                  <input
-                    autoFocus
-                    className="pointer-events-auto w-full min-w-[120px] rounded border border-border bg-muted/60 px-2 py-0.5 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
-                    defaultValue={entry.name}
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        const val = (e.target as HTMLInputElement).value.trim()
-                        if (val) void handleRenameConfirm(entry, val)
-                        else setRenamingPath(null)
-                      }
-                      if (e.key === 'Escape') setRenamingPath(null)
-                    }}
-                    onBlur={() => setRenamingPath(null)}
-                  />
-                ) : (
-                  entry.name
-                )}
-              </FileItem>
-            </div>
-          </ContextMenuTrigger>
-          <ContextMenuContent className="w-44">
-            <ContextMenuItem
-              className="gap-2 text-xs"
-              onSelect={() => {
-                handleSelectPath(entry.path)
-                openFilePreview(entry)
-              }}
-            >
-              <FileText className="size-3.5" />
-              {t('fileExplorer.open')}
-            </ContextMenuItem>
-            <ContextMenuItem
-              className="gap-2 text-xs"
-              onSelect={() => void handleDownloadFile(entry)}
-            >
-              <Download className="size-3.5" />
-              {t('fileExplorer.download')}
-            </ContextMenuItem>
-            <ContextMenuItem
-              className="gap-2 text-xs"
-              onSelect={() => {
-                setRenamingPath(entry.path)
-                setNewItemParent(null)
-              }}
-            >
-              <Pencil className="size-3.5" />
-              {t('fileExplorer.rename')}
-            </ContextMenuItem>
-            <ContextMenuItem
-              className="gap-2 text-xs"
-              onSelect={() => navigator.clipboard.writeText(entry.path)}
-            >
-              <Copy className="size-3.5" />
-              {t('fileExplorer.copyPath')}
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              className="gap-2 text-xs text-destructive focus:text-destructive"
-              onSelect={() => void handleDelete(entry)}
-            >
-              <Trash2 className="size-3.5" />
-              {t('fileExplorer.delete')}
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
-      )
-    })
-  }
+function PaneStatus({ status }: { status?: SftpConnectionState['status'] }): React.JSX.Element {
+  const statusClass =
+    status === 'connected'
+      ? 'bg-[#eaf7ef] text-[#217a49]'
+      : status === 'connecting'
+        ? 'bg-[#fff3df] text-[#b77618]'
+        : status === 'error'
+          ? 'bg-[#ffeaea] text-[#c54c4c]'
+          : 'bg-[#edf2f7] text-[#607088]'
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
-      {/* Path bar */}
-      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border shrink-0">
-        <button
-          className="p-0.5 rounded hover:bg-muted/60 transition-colors"
-          onClick={handleGoUp}
-          title={t('fileExplorer.goUp')}
-        >
-          <ArrowUp className="size-3 text-muted-foreground" />
-        </button>
-        <div className="flex-1 min-w-0 text-[11px] text-muted-foreground truncate font-mono">
-          {currentPath}
+    <span className={cn('rounded-full px-2.5 py-1 text-[11px] font-semibold', statusClass)}>
+      {status ?? 'idle'}
+    </span>
+  )
+}
+
+function LegacySshFileExplorer({
+  connectionId,
+  rootPath = '/'
+}: LegacySshFileExplorerProps): React.JSX.Element {
+  const { t } = useTranslation('ssh')
+  const connectSftpConnection = useSshStore((state) => state.connectSftpConnection)
+  const loadSftpEntries = useSshStore((state) => state.loadSftpEntries)
+  const sftpEntries = useSshStore((state) => state.sftpEntries)
+  const sftpLoading = useSshStore((state) => state.sftpLoading)
+  const sftpErrors = useSshStore((state) => state.sftpErrors)
+  const openFilePreview = useUIStore((state) => state.openFilePreview)
+  const [currentPath, setCurrentPath] = useState(rootPath)
+
+  const entries = sftpEntries[connectionId]?.[currentPath] ?? []
+  const loading = sftpLoading[connectionId]?.[currentPath] ?? false
+  const error = sftpErrors[connectionId]?.[currentPath] ?? null
+
+  useEffect(() => {
+    setCurrentPath(rootPath)
+  }, [rootPath])
+
+  useEffect(() => {
+    void connectSftpConnection(connectionId).then(() => {
+      void loadSftpEntries(connectionId, currentPath)
+    })
+  }, [connectSftpConnection, connectionId, currentPath, loadSftpEntries])
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden bg-white">
+      <div className="border-b border-[#dce4ee] px-4 py-3">
+        <div className="flex items-center gap-2 rounded-[14px] border border-[#d7e0ea] bg-[#f9fbfd] px-2 py-2">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-8 rounded-[10px] text-[#6f7f96] hover:bg-[#eef3f8]"
+            onClick={() => setCurrentPath(getParentPath(currentPath))}
+            disabled={currentPath === rootPath || currentPath === '/'}
+          >
+            <ArrowUp className="size-4" />
+          </Button>
+          <div className="min-w-0 flex-1 truncate text-[12px] text-[#607088]">{currentPath}</div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-8 rounded-[10px] text-[#6f7f96] hover:bg-[#eef3f8]"
+            onClick={() => void loadSftpEntries(connectionId, currentPath, true)}
+          >
+            <RefreshCw className={cn('size-4', loading && 'animate-spin')} />
+          </Button>
         </div>
-        <button
-          className="p-0.5 rounded hover:bg-muted/60 transition-colors"
-          onClick={handleRefresh}
-          title={t('fileExplorer.refresh')}
-        >
-          <RefreshCw
-            className={cn(
-              'size-3 text-muted-foreground',
-              (rootLoading || rootInitialLoading) && 'animate-spin'
-            )}
-          />
-        </button>
       </div>
 
-      {/* File tree */}
-      <div className="flex-1 overflow-y-auto py-1">
-        {rootInitialLoading && rootEntries.length === 0 ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {loading && entries.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <Loader2 className="size-5 animate-spin text-[#2f8cf3]" />
           </div>
-        ) : rootError && rootEntries.length === 0 ? (
-          <div className="px-3 py-4 text-center">
-            <p className="text-[11px] text-muted-foreground">{t('fileExplorer.error')}</p>
-          </div>
-        ) : rootEntries.length === 0 ? (
-          <div className="px-3 py-4 text-center">
-            <p className="text-[11px] text-muted-foreground">{t('fileExplorer.empty')}</p>
+        ) : error && entries.length === 0 ? (
+          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[#8795aa]">
+            {error}
           </div>
         ) : (
           <div>
-            <Files open={openValues} onOpenChange={handleOpenChange}>
-              {renderEntries(rootEntries)}
-            </Files>
-            {rootLoadingMore && (
-              <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
-                <Loader2 className="size-3 animate-spin" />
-                {t('fileExplorer.loadingMore')}
-              </div>
-            )}
-            {!rootLoadingMore && rootHasMore && (
-              <div className="px-4 py-2">
+            {entries.map((entry) => {
+              const Icon = getEntryIcon(entry)
+              return (
                 <button
-                  className="pointer-events-auto text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => handleLoadMore(effectiveBaseRoot)}
+                  key={entry.path}
+                  type="button"
+                  className="grid w-full grid-cols-[minmax(0,1fr)_120px_110px] items-center px-4 py-3 text-left transition-colors hover:bg-[#f6f9fc]"
+                  onClick={() => {
+                    if (entry.type === 'directory') {
+                      setCurrentPath(entry.path)
+                    } else {
+                      openFilePreview(entry.path, undefined, connectionId)
+                    }
+                  }}
                 >
-                  {t('fileExplorer.loadMore')}
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Icon
+                      className={cn(
+                        'size-4 shrink-0',
+                        entry.type === 'directory' ? 'text-[#c58617]' : 'text-[#607088]'
+                      )}
+                    />
+                    <span className="truncate text-[13px] font-medium text-[#22304a]">
+                      {entry.name}
+                    </span>
+                  </div>
+                  <div className="text-[12px] text-[#7d8ba0]">
+                    {entry.type === 'directory'
+                      ? t('workspace.sftp.directory', { defaultValue: 'Directory' })
+                      : formatBytes(entry.size)}
+                  </div>
+                  <div className="truncate text-right text-[12px] text-[#7d8ba0]">
+                    {formatModifiedTime(entry.modifyTime)}
+                  </div>
                 </button>
-              </div>
-            )}
-            {rootError && rootEntries.length > 0 && (
-              <div className="px-4 py-2 text-xs text-muted-foreground">
-                {t('fileExplorer.error')}
-              </div>
-            )}
+              )
+            })}
           </div>
         )}
       </div>
     </div>
   )
+}
+
+function ModernSshFileExplorer({
+  active,
+  connections,
+  connection,
+  paneState,
+  connectionState,
+  entries,
+  loading,
+  error,
+  hasMore,
+  selectedEntries,
+  onActivatePane,
+  onSelectConnection,
+  onConnect,
+  onDisconnect,
+  onOpenTerminal,
+  onNavigate,
+  onGoUp,
+  onRefresh,
+  onLoadMore,
+  onSelectOnly,
+  onToggleSelect,
+  onSelectAll,
+  onClearSelection,
+  onDownloadSelection,
+  onUploadFile,
+  onUploadFolder,
+  onCreateFile,
+  onCreateFolder,
+  onRenameEntry,
+  onDeleteEntry
+}: ModernSshFileExplorerProps): React.JSX.Element {
+  const { t } = useTranslation('ssh')
+  const selectedCount = Object.keys(selectedEntries).length
+  const allSelected = entries.length > 0 && entries.every((entry) => selectedEntries[entry.path])
+
+  const breadcrumbs = useMemo(
+    () => buildPathSegments(paneState.currentPath ?? connectionState?.homeDir ?? '/'),
+    [connectionState?.homeDir, paneState.currentPath]
+  )
+
+  const emptyState = !connection
+    ? t('workspace.sftp.paneEmpty', {
+        defaultValue: 'Select a host to start browsing remote files.'
+      })
+    : connectionState?.status !== 'connected'
+      ? t('workspace.sftp.connectHint', {
+          defaultValue: 'Connect this pane before loading the remote directory.'
+        })
+      : t('fileExplorer.empty')
+
+  return (
+    <section
+      className={cn(
+        'flex h-full min-w-0 flex-col rounded-[28px] border bg-white/92 shadow-[0_22px_48px_rgba(111,133,165,0.08)]',
+        active ? 'border-[#2f8cf3]' : 'border-[#d8e1eb]'
+      )}
+      onMouseDown={onActivatePane}
+    >
+      <div className="border-b border-[#dce4ee] px-4 py-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-[220px] flex-1">
+            <Select
+              value={connection?.id ?? ''}
+              onValueChange={(value) => onSelectConnection(value || null)}
+            >
+              <SelectTrigger className="h-11 rounded-[16px] border-[#d3dbe6] bg-white px-4 text-[0.9rem] text-[#24314a] shadow-none">
+                <SelectValue
+                  placeholder={t('workspace.sftp.chooseHost', {
+                    defaultValue: 'Choose remote host'
+                  })}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {connections.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <PaneStatus status={connectionState?.status} />
+
+          <Button
+            size="sm"
+            className="h-10 rounded-[14px] bg-[#2f8cf3] px-4 text-[0.82rem] font-semibold text-white hover:bg-[#247fe6]"
+            onClick={onConnect}
+            disabled={!connection || connectionState?.status === 'connecting'}
+          >
+            {connectionState?.status === 'connecting' ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Plug className="size-4" />
+            )}
+            {connectionState?.status === 'connected'
+              ? t('workspace.sftp.connected', { defaultValue: 'Connected' })
+              : t('connect')}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-10 rounded-[14px] border-[#d0d8e4] bg-white px-4 text-[0.82rem] font-semibold text-[#51627a] shadow-none hover:bg-[#f3f7fb]"
+            onClick={onDisconnect}
+            disabled={!connection || connectionState?.status !== 'connected'}
+          >
+            <Plug2 className="size-4" />
+            {t('disconnect')}
+          </Button>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="truncate text-[1rem] font-semibold text-[#22304a]">
+              {connection?.name ??
+                t('workspace.sftp.paneTitle', { defaultValue: 'Remote file pane' })}
+            </div>
+            <div className="mt-1 truncate text-[0.78rem] text-[#8a98ac]">
+              {connection
+                ? `${connection.username}@${connection.host}:${connection.port}`
+                : t('workspace.sftp.paneMeta', {
+                    defaultValue: 'Pick a host and connect to start.'
+                  })}
+            </div>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-10 rounded-[14px] border-[#d0d8e4] bg-white px-4 text-[0.82rem] font-semibold text-[#51627a] shadow-none hover:bg-[#f3f7fb]"
+            onClick={onOpenTerminal}
+            disabled={!connection}
+          >
+            <SquareTerminal className="size-4" />
+            {t('openTerminal')}
+          </Button>
+        </div>
+      </div>
+
+      <div className="border-b border-[#dce4ee] px-4 py-3">
+        <div className="flex items-center gap-2 rounded-[16px] border border-[#d7e0ea] bg-[#f9fbfd] px-2 py-2 shadow-[0_8px_20px_rgba(111,133,165,0.04)]">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-8 rounded-[10px] text-[#6f7f96] hover:bg-[#eef3f8]"
+            onClick={onGoUp}
+            disabled={
+              !connection ||
+              !paneState.currentPath ||
+              getParentPath(paneState.currentPath) === paneState.currentPath
+            }
+          >
+            <ArrowUp className="size-4" />
+          </Button>
+
+          <div className="min-w-0 flex-1 overflow-x-auto">
+            <div className="flex min-w-max items-center gap-1 text-[11px] text-[#5f7088]">
+              {breadcrumbs.map((segment, index) => (
+                <button
+                  key={`${segment.path}-${index}`}
+                  type="button"
+                  className="rounded px-1.5 py-0.5 hover:bg-white"
+                  onClick={() => onNavigate(segment.path)}
+                >
+                  {segment.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-8 rounded-[10px] text-[#6f7f96] hover:bg-[#eef3f8]"
+            onClick={onRefresh}
+            disabled={!connection || connectionState?.status !== 'connected'}
+          >
+            <RefreshCw className={cn('size-4', loading && 'animate-spin')} />
+          </Button>
+        </div>
+      </div>
+
+      <div className="border-b border-[#dce4ee] px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 rounded-[12px] border-[#d0d8e4] bg-white px-3 text-[0.78rem] font-semibold text-[#51627a] shadow-none hover:bg-[#f3f7fb]"
+            onClick={onUploadFile}
+            disabled={!connection || connectionState?.status !== 'connected'}
+          >
+            <HardDriveUpload className="size-3.5" />
+            {t('fileExplorer.uploadFile')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 rounded-[12px] border-[#d0d8e4] bg-white px-3 text-[0.78rem] font-semibold text-[#51627a] shadow-none hover:bg-[#f3f7fb]"
+            onClick={onUploadFolder}
+            disabled={!connection || connectionState?.status !== 'connected'}
+          >
+            <FolderOpen className="size-3.5" />
+            {t('fileExplorer.uploadFolder')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 rounded-[12px] border-[#d0d8e4] bg-white px-3 text-[0.78rem] font-semibold text-[#51627a] shadow-none hover:bg-[#f3f7fb]"
+            onClick={onDownloadSelection}
+            disabled={selectedCount === 0}
+          >
+            <HardDriveDownload className="size-3.5" />
+            {t('workspace.sftp.downloadSelected', { defaultValue: 'Download selected' })}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 rounded-[12px] border-[#d0d8e4] bg-white px-3 text-[0.78rem] font-semibold text-[#51627a] shadow-none hover:bg-[#f3f7fb]"
+            onClick={onCreateFile}
+            disabled={!connection || connectionState?.status !== 'connected'}
+          >
+            <FileText className="size-3.5" />
+            {t('fileExplorer.newFile')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 rounded-[12px] border-[#d0d8e4] bg-white px-3 text-[0.78rem] font-semibold text-[#51627a] shadow-none hover:bg-[#f3f7fb]"
+            onClick={onCreateFolder}
+            disabled={!connection || connectionState?.status !== 'connected'}
+          >
+            <FolderPlus className="size-3.5" />
+            {t('fileExplorer.newFolder')}
+          </Button>
+
+          <div className="ml-auto rounded-full bg-[#eef3f8] px-3 py-1.5 text-[11px] font-semibold text-[#607088]">
+            {selectedCount} {t('workspace.sftp.selected', { defaultValue: 'selected' })}
+          </div>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="grid grid-cols-[40px_minmax(0,1fr)_100px_168px_88px] items-center border-b border-[#e2e8f0] bg-[#f8fbfd] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8592a4]">
+          <div className="flex items-center justify-center">
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={(checked) => {
+                if (checked) onSelectAll(entries)
+                else onClearSelection()
+              }}
+              aria-label="Select all"
+              disabled={entries.length === 0}
+            />
+          </div>
+          <div>{t('migration.columns.name', { defaultValue: 'Name' })}</div>
+          <div>{t('workspace.sftp.columns.type', { defaultValue: 'Type' })}</div>
+          <div>{t('workspace.sftp.columns.modified', { defaultValue: 'Modified' })}</div>
+          <div className="text-right">
+            {t('workspace.sftp.columns.size', { defaultValue: 'Size' })}
+          </div>
+        </div>
+
+        <div className="h-full overflow-y-auto">
+          {!connection || connectionState?.status !== 'connected' ? (
+            <div className="flex h-full flex-col items-center justify-center px-8 text-center">
+              <div className="flex size-16 items-center justify-center rounded-[22px] bg-[#e2ebf5] text-[#3d5879]">
+                <Folder className="size-7" />
+              </div>
+              <div className="mt-5 text-[1rem] font-semibold text-[#22304a]">{emptyState}</div>
+            </div>
+          ) : error && entries.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center px-8 text-center">
+              <div className="text-[0.95rem] font-semibold text-[#22304a]">
+                {t('fileExplorer.error')}
+              </div>
+              <div className="mt-2 max-w-sm text-[0.82rem] text-[#8795aa]">{error}</div>
+            </div>
+          ) : loading && entries.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="size-5 animate-spin text-[#2f8cf3]" />
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center px-8 text-center">
+              <div className="text-[0.95rem] font-semibold text-[#22304a]">
+                {t('fileExplorer.empty')}
+              </div>
+            </div>
+          ) : (
+            <div>
+              {entries.map((entry) => {
+                const Icon = getEntryIcon(entry)
+                const selected = Boolean(selectedEntries[entry.path])
+
+                return (
+                  <div
+                    key={entry.path}
+                    className={cn(
+                      'grid grid-cols-[40px_minmax(0,1fr)_100px_168px_88px] items-center px-4 py-2.5 text-[13px] text-[#26334d] transition-colors',
+                      selected ? 'bg-[#edf5ff]' : 'hover:bg-[#f6f9fc]'
+                    )}
+                    onClick={() => {
+                      onActivatePane()
+                      onSelectOnly(entry)
+                    }}
+                    onDoubleClick={() => {
+                      if (entry.type === 'directory') {
+                        onNavigate(entry.path)
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-center">
+                      <Checkbox
+                        checked={selected}
+                        onCheckedChange={() => onToggleSelect(entry)}
+                        aria-label={entry.name}
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Icon
+                        className={cn(
+                          'size-4 shrink-0',
+                          entry.type === 'directory' ? 'text-[#c58617]' : 'text-[#607088]'
+                        )}
+                      />
+                      <div className="min-w-0 truncate font-medium">{entry.name}</div>
+                    </div>
+                    <div className="text-[12px] text-[#6b7b91]">
+                      {entry.type === 'directory'
+                        ? t('workspace.sftp.directory', { defaultValue: 'Directory' })
+                        : t('workspace.sftp.file', { defaultValue: 'File' })}
+                    </div>
+                    <div className="truncate text-[12px] text-[#7d8ba0]">
+                      {formatModifiedTime(entry.modifyTime)}
+                    </div>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span className="text-[12px] text-[#7d8ba0]">
+                        {entry.type === 'directory' ? '--' : formatBytes(entry.size)}
+                      </span>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-[#8b97ab] hover:bg-white hover:text-[#41526c]"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onRenameEntry(entry)
+                        }}
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-[#8b97ab] hover:bg-white hover:text-[#c45555]"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onDeleteEntry(entry)
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {hasMore ? (
+                <div className="px-4 py-4">
+                  <Button
+                    variant="outline"
+                    className="h-10 rounded-[14px] border-[#d0d8e4] bg-white px-4 text-[0.82rem] font-semibold text-[#51627a] shadow-none hover:bg-[#f3f7fb]"
+                    onClick={onLoadMore}
+                  >
+                    {loading ? <Loader2 className="size-4 animate-spin" /> : null}
+                    {t('fileExplorer.loadMore')}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+export function SshFileExplorer(
+  props: ModernSshFileExplorerProps | LegacySshFileExplorerProps
+): React.JSX.Element {
+  if ('sessionId' in props) {
+    return <LegacySshFileExplorer {...props} />
+  }
+
+  return <ModernSshFileExplorer {...props} />
 }

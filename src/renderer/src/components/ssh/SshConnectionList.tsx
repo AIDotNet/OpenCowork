@@ -1,45 +1,55 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Plus,
-  FolderPlus,
-  ChevronRight,
+  ArrowLeftRight,
+  Braces,
   ChevronDown,
-  Server,
-  Trash2,
-  Pencil,
-  Play,
-  Square,
-  Loader2,
-  CheckCircle2,
-  RefreshCw,
   Download,
-  Upload,
-  Search
+  Fingerprint,
+  FolderArchive,
+  FolderSync,
+  HardDriveDownload,
+  KeyRound,
+  Loader2,
+  Plus,
+  RefreshCw,
+  ScrollText,
+  Search,
+  Server,
+  SquareTerminal
 } from 'lucide-react'
-import { useSshStore, type SshConnection, type SshGroup } from '@renderer/stores/ssh-store'
+import { toast } from 'sonner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
+import { cn } from '@renderer/lib/utils'
+import {
+  useSshStore,
+  type SshConnection,
+  type SshGroup,
+  type SshSession,
+  type SshWorkspaceSection
+} from '@renderer/stores/ssh-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
+import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { Button } from '@renderer/components/ui/button'
-import { Badge } from '@renderer/components/ui/badge'
-import { Checkbox } from '@renderer/components/ui/checkbox'
-import { Dialog, DialogContent } from '@renderer/components/ui/dialog'
+import { Avatar, AvatarFallback, AvatarImage } from '@renderer/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
-import { cn } from '@renderer/lib/utils'
-import { toast } from 'sonner'
-import { confirm } from '@renderer/components/ui/confirm-dialog'
-import { SshConnectionForm } from './SshConnectionForm'
+import { SshConnectionInspector } from './SshConnectionInspector'
 import { SshGroupDialog } from './SshGroupDialog'
 import { SshImportDialog } from './SshImportDialog'
-import { SshDashboardStats } from './SshDashboardStats'
-import { SshConnectionCard } from './SshConnectionCard'
-import { SshViewToggle } from './SshViewToggle'
-import { SshConnectionDetail } from './SshConnectionDetail'
+import { SshKeychainWorkspace } from './SshKeychainWorkspace'
+import { SshSftpWorkspace } from './SshSftpWorkspace'
+import {
+  SshKnownHostsWorkspace,
+  SshLogsWorkspace,
+  SshPortForwardingWorkspace,
+  SshSnippetsWorkspace
+} from './SshSupportWorkspaces'
 
 interface SshConnectionListProps {
   onConnect: (connectionId: string) => void
@@ -47,65 +57,295 @@ interface SshConnectionListProps {
 
 const TEST_STATUS_TTL_MS = 15000
 
-export function SshConnectionList({ onConnect }: SshConnectionListProps): React.JSX.Element {
+const NAV_ITEMS: Array<{
+  key: Exclude<SshWorkspaceSection, 'terminal' | 'sftp'>
+  icon: typeof Server
+}> = [
+  { key: 'hosts', icon: Server },
+  { key: 'keychain', icon: KeyRound },
+  { key: 'forwarding', icon: ArrowLeftRight },
+  { key: 'snippets', icon: Braces },
+  { key: 'knownHosts', icon: Fingerprint },
+  { key: 'logs', icon: ScrollText }
+]
+
+const HOST_ACCENTS = [
+  {
+    iconBg: 'var(--primary)',
+    iconShadow: '0 16px 30px -18px color-mix(in srgb, var(--primary) 44%, transparent)',
+    highlight: 'var(--primary)',
+    highlightShadow: '0 18px 40px -24px color-mix(in srgb, var(--primary) 28%, transparent)'
+  },
+  {
+    iconBg: 'var(--chart-3)',
+    iconShadow: '0 16px 30px -18px color-mix(in srgb, var(--chart-3) 44%, transparent)',
+    highlight: 'var(--chart-3)',
+    highlightShadow: '0 18px 40px -24px color-mix(in srgb, var(--chart-3) 28%, transparent)'
+  }
+] as const
+
+function hashConnection(connection: SshConnection): number {
+  return Array.from(`${connection.name}:${connection.host}:${connection.username}`).reduce(
+    (acc, char) => acc + char.charCodeAt(0),
+    0
+  )
+}
+
+function HostCard({
+  connection,
+  group,
+  session,
+  isSelected,
+  isTesting,
+  testOk,
+  onSelect,
+  onConnect,
+  onTest
+}: {
+  connection: SshConnection
+  group: SshGroup | undefined
+  session: SshSession | undefined
+  isSelected: boolean
+  isTesting: boolean
+  testOk: boolean | undefined
+  onSelect: () => void
+  onConnect: () => void
+  onTest: () => void
+}): React.JSX.Element {
   const { t } = useTranslation('ssh')
+  const accent = HOST_ACCENTS[hashConnection(connection) % HOST_ACCENTS.length]
+  const isConnected = session?.status === 'connected'
+  const isConnecting = session?.status === 'connecting'
 
-  const groups = useSshStore((s) => s.groups)
-  const connections = useSshStore((s) => s.connections)
-  const sessions = useSshStore((s) => s.sessions)
-  const loadAll = useSshStore((s) => s.loadAll)
-  const uploadTasks = useSshStore((s) => s.uploadTasks)
-  const viewMode = useSshStore((s) => s.connectionListViewMode)
-  const setViewMode = useSshStore((s) => s.setConnectionListViewMode)
-  const detailConnectionId = useSshStore((s) => s.detailConnectionId)
-  const setDetailConnectionId = useSshStore((s) => s.setDetailConnectionId)
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      onDoubleClick={onConnect}
+      className={cn(
+        'group flex min-h-[132px] flex-col justify-between rounded-[22px] border bg-card/95 p-4 text-left transition-all',
+        'shadow-[0_18px_44px_-30px_color-mix(in_srgb,var(--foreground)_20%,transparent)] hover:-translate-y-0.5 hover:border-primary/30',
+        !isSelected && 'border-border'
+      )}
+      style={
+        isSelected
+          ? {
+              borderColor: accent.highlight,
+              boxShadow: accent.highlightShadow
+            }
+          : undefined
+      }
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div
+            className="flex size-12 shrink-0 items-center justify-center rounded-[16px] text-white"
+            style={{
+              background: accent.iconBg,
+              boxShadow: accent.iconShadow
+            }}
+          >
+            <Server className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-[1rem] font-semibold text-foreground">
+              {connection.name}
+            </div>
+            <div className="truncate text-[0.82rem] text-muted-foreground">
+              ssh, {connection.username}
+            </div>
+          </div>
+        </div>
 
-  const [showForm, setShowForm] = useState(false)
-  const [editingConnection, setEditingConnection] = useState<SshConnection | null>(null)
-  const [groupDialogOpen, setGroupDialogOpen] = useState(false)
-  const [editingGroup, setEditingGroup] = useState<SshGroup | null>(null)
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+        <div className="flex shrink-0 items-center gap-2">
+          {group ? (
+            <span className="rounded-full bg-muted px-2 py-1 text-[0.67rem] font-medium text-muted-foreground">
+              {group.name}
+            </span>
+          ) : null}
+          {isConnected ? (
+            <span className="rounded-full bg-emerald-500/12 px-2 py-1 text-[0.67rem] font-semibold text-emerald-600 dark:text-emerald-400">
+              {t('list.online')}
+            </span>
+          ) : isConnecting ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/12 px-2 py-1 text-[0.67rem] font-semibold text-amber-600 dark:text-amber-400">
+              <Loader2 className="size-3 animate-spin" />
+              {t('connecting')}
+            </span>
+          ) : testOk === true ? (
+            <span className="rounded-full bg-emerald-500/12 px-2 py-1 text-[0.67rem] font-semibold text-emerald-600 dark:text-emerald-400">
+              {t('list.reachable')}
+            </span>
+          ) : testOk === false ? (
+            <span className="rounded-full bg-rose-500/12 px-2 py-1 text-[0.67rem] font-semibold text-rose-600 dark:text-rose-400">
+              {t('list.unreachable')}
+            </span>
+          ) : (
+            <span className="rounded-full bg-muted px-2 py-1 text-[0.67rem] font-medium text-muted-foreground">
+              {t('list.offline')}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <div className="truncate text-[0.88rem] text-foreground/90">
+            {connection.host}:{connection.port}
+          </div>
+          <div className="mt-1 truncate text-[0.74rem] text-muted-foreground">
+            {t(`migration.auth.${connection.authType}`)}
+            {connection.defaultDirectory ? ` · ${connection.defaultDirectory}` : ''}
+          </div>
+        </div>
+
+        <div
+          className="flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 rounded-full border-border bg-card px-3 text-[0.75rem] font-medium text-foreground shadow-none hover:bg-accent"
+            onClick={onTest}
+            disabled={isTesting}
+          >
+            {isTesting ? <Loader2 className="size-3.5 animate-spin" /> : t('testConnection')}
+          </Button>
+          <Button
+            size="sm"
+            className="h-9 rounded-full bg-primary px-4 text-[0.75rem] font-semibold text-primary-foreground hover:bg-primary/90"
+            onClick={onConnect}
+          >
+            {isConnected ? t('openTerminal') : t('connect')}
+          </Button>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+function HostsWorkspace({
+  onConnect
+}: {
+  onConnect: (connectionId: string) => void
+}): React.JSX.Element {
+  const { t } = useTranslation('ssh')
+  const groups = useSshStore((state) => state.groups)
+  const connections = useSshStore((state) => state.connections)
+  const sessions = useSshStore((state) => state.sessions)
+  const loadAll = useSshStore((state) => state.loadAll)
+  const detailConnectionId = useSshStore((state) => state.detailConnectionId)
+  const setDetailConnectionId = useSshStore((state) => state.setDetailConnectionId)
+  const inspectorMode = useSshStore((state) => state.inspectorMode)
+  const setInspectorMode = useSshStore((state) => state.setInspectorMode)
+
+  const userAvatar = useSettingsStore((state) => state.userAvatar)
+  const userName = useSettingsStore((state) => state.userName)
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+  const [draftKey, setDraftKey] = useState(0)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testStatus, setTestStatus] = useState<Record<string, { ok: boolean; at: number }>>({})
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false)
+  const [editingGroup, setEditingGroup] = useState<SshGroup | null>(null)
   const [importOpen, setImportOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
 
-  const toggleGroup = (groupId: string): void => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev)
-      if (next.has(groupId)) next.delete(groupId)
-      else next.add(groupId)
-      return next
+  const getSessionForConnection = useCallback(
+    (connectionId: string) =>
+      Object.values(sessions).find(
+        (item) =>
+          item.connectionId === connectionId &&
+          (item.status === 'connected' || item.status === 'connecting')
+      ),
+    [sessions]
+  )
+
+  const visibleConnections = useMemo(() => {
+    const normalized = searchQuery.trim().toLowerCase()
+    return connections.filter((connection) => {
+      if (selectedGroupId !== null && connection.groupId !== selectedGroupId) return false
+      if (!normalized) return true
+      return (
+        connection.name.toLowerCase().includes(normalized) ||
+        connection.host.toLowerCase().includes(normalized) ||
+        connection.username.toLowerCase().includes(normalized)
+      )
     })
-  }
+  }, [connections, searchQuery, selectedGroupId])
 
-  const handleConnect = useCallback(
-    async (connectionId: string) => {
-      onConnect(connectionId)
-    },
-    [onConnect]
+  const selectedConnection =
+    inspectorMode === 'edit' && detailConnectionId
+      ? (connections.find((connection) => connection.id === detailConnectionId) ?? null)
+      : null
+
+  const selectedSession = selectedConnection
+    ? getSessionForConnection(selectedConnection.id)
+    : undefined
+
+  const onlineCount = useMemo(
+    () =>
+      connections.filter((connection) =>
+        Object.values(sessions).some(
+          (session) => session.connectionId === connection.id && session.status === 'connected'
+        )
+      ).length,
+    [connections, sessions]
   )
 
-  const handleOpenTerminal = useCallback(
+  const activeVaultLabel =
+    selectedGroupId == null
+      ? t('workspace.allVaults', { defaultValue: 'All vaults' })
+      : (groups.find((group) => group.id === selectedGroupId)?.name ??
+        t('workspace.allVaults', { defaultValue: 'All vaults' }))
+
+  useEffect(() => {
+    if (connections.length === 0) {
+      setInspectorMode('create')
+      setDetailConnectionId(null)
+      return
+    }
+
+    if (inspectorMode === 'create') return
+
+    const selectedStillVisible = visibleConnections.some(
+      (connection) => connection.id === detailConnectionId
+    )
+    if (selectedStillVisible) return
+
+    const nextConnection = visibleConnections[0] ?? connections[0] ?? null
+    setDetailConnectionId(nextConnection?.id ?? null)
+  }, [
+    connections,
+    detailConnectionId,
+    inspectorMode,
+    setDetailConnectionId,
+    setInspectorMode,
+    visibleConnections
+  ])
+
+  const startCreateConnection = useCallback(() => {
+    setInspectorMode('create')
+    setDetailConnectionId(null)
+    setDraftKey((current) => current + 1)
+  }, [setDetailConnectionId, setInspectorMode])
+
+  const handleSelectConnection = useCallback(
     (connectionId: string) => {
-      onConnect(connectionId)
+      setInspectorMode('edit')
+      setDetailConnectionId(connectionId)
     },
-    [onConnect]
+    [setDetailConnectionId, setInspectorMode]
   )
-
-  const handleDisconnect = useCallback(async (sessionId: string) => {
-    await useSshStore.getState().disconnect(sessionId)
-  }, [])
 
   const handleTest = useCallback(
     async (connectionId: string) => {
       setTestingId(connectionId)
       try {
         const result = await useSshStore.getState().testConnection(connectionId)
-        setTestStatus((prev) => ({
-          ...prev,
+        setTestStatus((current) => ({
+          ...current,
           [connectionId]: { ok: result.success, at: Date.now() }
         }))
         if (result.success) {
@@ -127,713 +367,315 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
         description: t('confirmDelete')
       })
       if (!ok) return
+
       await useSshStore.getState().deleteConnection(connection.id)
-      setSelectedIds((prev) => {
-        const next = new Set(prev)
-        next.delete(connection.id)
-        return next
-      })
       toast.success(t('deleted'))
-    },
-    [t]
-  )
 
-  const handleDeleteGroup = useCallback(
-    async (group: SshGroup) => {
-      const ok = await confirm({
-        title: t('groupDialog.title'),
-        description: t('confirmDeleteGroup')
-      })
-      if (!ok) return
-      await useSshStore.getState().deleteGroup(group.id)
-      toast.success(t('groupDeleted'))
-    },
-    [t]
-  )
-
-  const handleExport = useCallback(
-    async (scope: 'all' | 'selected') => {
-      const connectionIds =
-        scope === 'selected' ? Array.from(selectedIds) : connections.map((item) => item.id)
-      if (connectionIds.length === 0) {
-        toast.error(t('migration.noSelection'))
+      const remaining = useSshStore.getState().connections
+      if (remaining.length === 0) {
+        startCreateConnection()
         return
       }
 
-      const ok = await confirm({
-        title: t('migration.exportSensitiveTitle'),
-        description: t('migration.exportSensitiveDesc')
-      })
-      if (!ok) return
+      const nextConnection =
+        visibleConnections.find((item) => item.id !== connection.id) ??
+        remaining.find((item) => item.id !== connection.id) ??
+        remaining[0]
 
-      const date = new Date().toISOString().slice(0, 10)
-      const filePick = await ipcClient.invoke(IPC.FS_SELECT_SAVE_FILE, {
-        defaultPath: `open-cowork-ssh-${scope}-${date}.json`,
-        filters: [{ name: 'JSON', extensions: ['json'] }]
-      })
-      if (!filePick || typeof filePick !== 'object' || !('path' in filePick) || !filePick.path)
-        return
-
-      const result = (await ipcClient.invoke(IPC.SSH_EXPORT, {
-        filePath: filePick.path,
-        connectionIds: scope === 'all' ? undefined : connectionIds
-      })) as { success?: boolean; error?: string }
-
-      if (result.error) {
-        toast.error(result.error)
-        return
+      if (nextConnection) {
+        setInspectorMode('edit')
+        setDetailConnectionId(nextConnection.id)
       }
-
-      toast.success(t('migration.exportSuccess'))
     },
-    [connections, selectedIds, t]
+    [setDetailConnectionId, setInspectorMode, startCreateConnection, t, visibleConnections]
   )
 
-  const getSessionForConnection = useCallback(
-    (connectionId: string) => {
-      return Object.values(sessions).find(
-        (s) =>
-          s.connectionId === connectionId && (s.status === 'connected' || s.status === 'connecting')
-      )
-    },
-    [sessions]
-  )
+  const handleExportAll = useCallback(async (): Promise<void> => {
+    if (connections.length === 0) {
+      toast.error(t('migration.noSelection'))
+      return
+    }
 
-  const grouped = new Map<string | null, SshConnection[]>()
-  for (const conn of connections) {
-    const key = conn.groupId
-    if (!grouped.has(key)) grouped.set(key, [])
-    grouped.get(key)!.push(conn)
-  }
+    const ok = await confirm({
+      title: t('migration.exportSensitiveTitle'),
+      description: t('migration.exportSensitiveDesc')
+    })
+    if (!ok) return
 
-  const visibleConnections = useMemo(() => {
-    const byGroup =
-      selectedGroupId === null
-        ? connections
-        : connections.filter((c) => c.groupId === selectedGroupId)
-    if (!searchQuery.trim()) return byGroup
-    const q = searchQuery.toLowerCase()
-    return byGroup.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.host.toLowerCase().includes(q) ||
-        c.username.toLowerCase().includes(q)
-    )
-  }, [connections, selectedGroupId, searchQuery])
+    const date = new Date().toISOString().slice(0, 10)
+    const filePick = await ipcClient.invoke(IPC.FS_SELECT_SAVE_FILE, {
+      defaultPath: `open-cowork-ssh-all-${date}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (!filePick || typeof filePick !== 'object' || !('path' in filePick) || !filePick.path) {
+      return
+    }
 
-  const onlineCount = useMemo(
-    () =>
-      connections.filter((c) =>
-        Object.values(sessions).some((s) => s.connectionId === c.id && s.status === 'connected')
-      ).length,
-    [connections, sessions]
-  )
-  const offlineCount = connections.length - onlineCount
+    const result = (await ipcClient.invoke(IPC.SSH_EXPORT, {
+      filePath: filePick.path
+    })) as { success?: boolean; error?: string }
 
-  const sessionCount = useMemo(
-    () => Object.values(sessions).filter((s) => s.status === 'connected').length,
-    [sessions]
-  )
+    if (result.error) {
+      toast.error(result.error)
+      return
+    }
 
-  const activeUploadCount = useMemo(
-    () =>
-      Object.values(uploadTasks).filter(
-        (task) => task.stage !== 'done' && task.stage !== 'error' && task.stage !== 'canceled'
-      ).length,
-    [uploadTasks]
-  )
-
-  const detailConnection = detailConnectionId
-    ? (connections.find((c) => c.id === detailConnectionId) ?? null)
-    : null
-
-  const visibleIds = useMemo(
-    () => visibleConnections.map((connection) => connection.id),
-    [visibleConnections]
-  )
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id))
-  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id))
-  const now = Date.now()
+    toast.success(t('migration.exportSuccess'))
+  }, [connections.length, t])
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-1 overflow-hidden">
-      {/* Left sidebar: Group tree */}
-      <div className="flex w-56 shrink-0 flex-col border-r bg-muted/20">
-        <div className="flex items-center justify-between border-b px-3 py-2">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-            {t('groups')}
-          </span>
-        </div>
-        <div className="border-b px-3 py-2">
-          <div className="flex items-center gap-3 text-[10px]">
-            <span className="flex items-center gap-1 text-muted-foreground">
-              <div className="size-1.5 rounded-full bg-emerald-500" />
-              {onlineCount} {t('list.online')}
-            </span>
-            <span className="flex items-center gap-1 text-muted-foreground">
-              <div className="size-1.5 rounded-full bg-muted-foreground/30" />
-              {offlineCount} {t('list.offline')}
-            </span>
+    <>
+      <div className="flex min-w-0 flex-1 overflow-hidden">
+        <main className="flex min-w-0 flex-1 flex-col border-r border-border bg-background">
+          <div className="border-b border-border px-4 py-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative min-w-[280px] flex-1">
+                <Search className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder={t('workspace.searchHosts', {
+                    defaultValue: 'Find a host or ssh user@hostname...'
+                  })}
+                  className="h-12 w-full rounded-[18px] border border-input bg-card pl-11 pr-4 text-[0.95rem] text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15"
+                />
+              </div>
+              <Button
+                size="sm"
+                className="h-11 rounded-2xl bg-secondary px-5 text-[0.78rem] font-semibold uppercase tracking-[0.12em] text-secondary-foreground shadow-none hover:bg-secondary/80"
+                onClick={() => {
+                  if (selectedConnection) onConnect(selectedConnection.id)
+                }}
+                disabled={!selectedConnection}
+              >
+                {t('connect')}
+              </Button>
+            </div>
           </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-1">
-          {/* All connections */}
-          <button
-            className={cn(
-              'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-              selectedGroupId === null
-                ? 'bg-primary/10 font-medium text-primary'
-                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-            )}
-            onClick={() => setSelectedGroupId(null)}
-          >
-            <Server className="size-3 shrink-0" />
-            <span className="truncate">{t('list.allConnections')}</span>
-            <span className="ml-auto text-[9px] text-muted-foreground/50">
-              {connections.length}
-            </span>
-          </button>
 
-          {/* Groups */}
-          {groups.map((group) => {
-            const groupConns = grouped.get(group.id) || []
-            const isCollapsed = collapsedGroups.has(group.id)
-            const isSelected = selectedGroupId === group.id
-            return (
-              <div key={group.id} className="mt-0.5">
-                <div className="flex items-center group">
-                  <button
-                    className={cn(
-                      'flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-                      isSelected
-                        ? 'bg-primary/10 font-medium text-primary'
-                        : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                    )}
-                    onClick={() => setSelectedGroupId(group.id)}
+          <div className="border-b border-border px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    className="h-10 rounded-[14px] bg-secondary px-4 text-[0.8rem] font-semibold text-secondary-foreground hover:bg-secondary/80"
                   >
-                    <button
-                      className="shrink-0"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        toggleGroup(group.id)
-                      }}
-                    >
-                      {isCollapsed ? (
-                        <ChevronRight className="size-3 text-muted-foreground/50" />
-                      ) : (
-                        <ChevronDown className="size-3 text-muted-foreground/50" />
-                      )}
-                    </button>
-                    <span className="truncate">{group.name}</span>
-                    <span className="ml-auto text-[9px] text-muted-foreground/50">
-                      {groupConns.length}
-                    </span>
-                  </button>
-                  <button
-                    className="mr-0.5 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
+                    <Server className="size-3.5" />
+                    {t('workspace.newHost', { defaultValue: 'NEW HOST' })}
+                    <ChevronDown className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={startCreateConnection}>
+                    {t('newConnection')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
                     onClick={() => {
-                      setEditingGroup(group)
+                      setEditingGroup(null)
                       setGroupDialogOpen(true)
                     }}
                   >
-                    <Pencil className="size-2.5 text-muted-foreground/50" />
-                  </button>
-                  <button
-                    className="mr-1 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/10"
-                    onClick={() => void handleDeleteGroup(group)}
-                  >
-                    <Trash2 className="size-2.5 text-destructive/60" />
-                  </button>
-                </div>
-                {!isCollapsed &&
-                  groupConns.map((conn) => {
-                    const sess = getSessionForConnection(conn.id)
-                    const isConnected = sess?.status === 'connected'
-                    return (
-                      <button
-                        key={conn.id}
-                        className="ml-4 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-muted-foreground/70 transition-colors hover:bg-muted/40 hover:text-foreground"
-                        onClick={() => void handleOpenTerminal(conn.id)}
-                      >
-                        <div className="relative">
-                          <Server className="size-2.5" />
-                          {isConnected && (
-                            <div className="absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full bg-emerald-500" />
-                          )}
-                        </div>
-                        <span className="truncate">{conn.name}</span>
-                      </button>
-                    )
-                  })}
-              </div>
-            )
-          })}
-        </div>
-        <div className="border-t px-3 py-2 space-y-1 shrink-0">
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-muted-foreground/50">{t('dashboard.activeSessions')}</span>
-            <span className="text-muted-foreground">{sessionCount}</span>
-          </div>
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-muted-foreground/50">{t('dashboard.activeUploads')}</span>
-            <span className={cn('text-muted-foreground', activeUploadCount > 0 && 'text-primary')}>
-              {activeUploadCount}
-            </span>
-          </div>
-        </div>
-      </div>
+                    {t('newGroup')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-      {/* Main area */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Stats bar */}
-        <SshDashboardStats
-          connections={connections}
-          sessions={sessions}
-          groups={groups}
-          uploadTasks={uploadTasks}
-        />
-
-        {/* Toolbar */}
-        <div className="flex items-center gap-1.5 border-b px-3 py-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1 text-xs"
-            onClick={() => void loadAll()}
-          >
-            <RefreshCw className="size-3.5" />
-            {t('list.refresh')}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1 text-xs"
-            onClick={() => setImportOpen(true)}
-          >
-            <Upload className="size-3.5" />
-            {t('migration.importButton')}
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs">
-                <Download className="size-3.5" />
-                {t('migration.exportAll')}
-                <ChevronDown className="size-3 ml-0.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => void handleExport('all')}>
-                {t('migration.exportAll')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => void handleExport('selected')}
-                disabled={selectedIds.size === 0}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-10 rounded-[14px] border-border bg-secondary px-4 text-[0.8rem] font-semibold text-secondary-foreground hover:bg-secondary/80"
+                disabled
+                title={t('workspace.comingSoon', { defaultValue: 'Coming soon' })}
               >
-                {t('migration.exportSelected')}
-                {selectedIds.size > 0 && (
-                  <Badge variant="secondary" className="ml-2 text-[10px]">
-                    {selectedIds.size}
-                  </Badge>
-                )}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <div className="mx-1 h-4 w-px bg-border" />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1 text-xs"
-            onClick={() => {
-              setEditingGroup(null)
-              setGroupDialogOpen(true)
-            }}
-          >
-            <FolderPlus className="size-3.5" />
-            {t('list.addGroup')}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1 text-xs"
-            onClick={() => {
-              setEditingConnection(null)
-              setShowForm(true)
-            }}
-          >
-            <Plus className="size-3.5" />
-            {t('list.addServer')}
-          </Button>
-          <div className="ml-auto flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground/40" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={t('list.search')}
-                className="h-8 w-44 rounded-md border border-border bg-transparent pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30"
-              />
-            </div>
-            <SshViewToggle mode={viewMode} onChange={setViewMode} />
-          </div>
-        </div>
+                <SquareTerminal className="size-3.5" />
+                {t('workspace.serial', { defaultValue: 'SERIAL' })}
+              </Button>
 
-        {/* Connection list */}
-        <div className="min-h-0 flex-1 overflow-auto">
-          {visibleConnections.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center px-8 py-12 text-center h-full">
-              <div className="mb-4 flex size-16 items-center justify-center rounded-2xl bg-muted/30">
-                <Server className="size-8 text-muted-foreground/30" />
-              </div>
-              <p className="text-sm font-medium text-foreground/80">{t('noConnections')}</p>
-              <p className="mt-1.5 max-w-xs text-xs text-muted-foreground/50">
-                {t('noConnectionsDesc')}
-              </p>
-              <div className="mt-6 flex items-center gap-2">
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-10 rounded-[14px] border-border bg-card px-4 text-[0.8rem] font-medium text-foreground shadow-none hover:bg-accent"
+                    >
+                      <FolderArchive className="size-3.5" />
+                      {activeVaultLabel}
+                      <ChevronDown className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setSelectedGroupId(null)}>
+                      {t('workspace.allVaults', { defaultValue: 'All vaults' })}
+                    </DropdownMenuItem>
+                    {groups.map((group) => (
+                      <DropdownMenuItem key={group.id} onClick={() => setSelectedGroupId(group.id)}>
+                        {group.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                 <Button
-                  variant="default"
-                  size="sm"
-                  className="h-8 gap-1 text-xs"
-                  onClick={() => {
-                    setEditingConnection(null)
-                    setShowForm(true)
-                  }}
+                  variant="outline"
+                  size="icon-sm"
+                  className="size-10 rounded-[14px] border-border bg-card text-foreground shadow-none hover:bg-accent"
+                  onClick={() => void loadAll()}
+                  title={t('list.refresh')}
                 >
-                  <Plus className="size-3.5" />
-                  {t('newConnection')}
+                  <RefreshCw className="size-4" />
                 </Button>
                 <Button
                   variant="outline"
+                  size="icon-sm"
+                  className="size-10 rounded-[14px] border-border bg-card text-foreground shadow-none hover:bg-accent"
+                  onClick={() => setImportOpen(true)}
+                  title={t('migration.importButton')}
+                >
+                  <FolderSync className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="size-10 rounded-[14px] border-border bg-card text-foreground shadow-none hover:bg-accent"
+                  onClick={() => void handleExportAll()}
+                  title={t('migration.exportAll')}
+                >
+                  <Download className="size-4" />
+                </Button>
+                <Avatar className="size-10 rounded-[14px] border border-border bg-card">
+                  {userAvatar ? <AvatarImage src={userAvatar} alt={userName || 'SSH'} /> : null}
+                  <AvatarFallback className="rounded-[14px] bg-primary/12 text-[0.78rem] font-semibold text-primary">
+                    {(userName || 'SSH').slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="rounded-[24px] border border-border bg-card/72 px-5 py-4 shadow-[0_22px_48px_-34px_color-mix(in_srgb,var(--foreground)_20%,transparent)] backdrop-blur-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-[1rem] font-semibold text-foreground">
+                    {t('workspace.bannerTitle', {
+                      defaultValue: 'Manage hosts from one workspace.'
+                    })}
+                  </div>
+                  <div className="mt-1 text-[0.84rem] text-muted-foreground">
+                    {t('workspace.bannerDesc', {
+                      defaultValue:
+                        'Keep credentials, jump hosts, and default directories ready for the next session.'
+                    })}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
                   size="sm"
-                  className="h-8 gap-1 text-xs"
+                  className="h-9 rounded-full border-border bg-muted/60 px-4 text-[0.78rem] font-medium text-foreground shadow-none hover:bg-card"
                   onClick={() => setImportOpen(true)}
                 >
-                  <Upload className="size-3.5" />
+                  <HardDriveDownload className="size-3.5" />
                   {t('migration.importButton')}
                 </Button>
               </div>
             </div>
-          ) : viewMode === 'card' ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2 p-3">
-              {visibleConnections.map((conn) => {
-                const sess = getSessionForConnection(conn.id)
-                const group = groups.find((g) => g.id === conn.groupId)
-                const testInfo = testStatus[conn.id]
-                const testFresh = testInfo ? now - testInfo.at < TEST_STATUS_TTL_MS : false
-                return (
-                  <SshConnectionCard
-                    key={conn.id}
-                    connection={conn}
-                    session={sess}
-                    group={group}
-                    isChecked={selectedIds.has(conn.id)}
-                    isDetailSelected={detailConnectionId === conn.id}
-                    isTesting={testingId === conn.id}
-                    testFresh={testFresh}
-                    testOk={testFresh ? testInfo?.ok : undefined}
-                    onConnect={(id) => void handleConnect(id)}
-                    onOpenTerminal={handleOpenTerminal}
-                    onDisconnect={(sid) => void handleDisconnect(sid)}
-                    onTest={(id) => void handleTest(id)}
-                    onEdit={(c) => {
-                      setEditingConnection(c)
-                      setShowForm(true)
-                    }}
-                    onDelete={(c) => void handleDeleteConnection(c)}
-                    onCheck={(id, checked) => {
-                      setSelectedIds((prev) => {
-                        const next = new Set(prev)
-                        if (checked) next.add(id)
-                        else next.delete(id)
-                        return next
-                      })
-                    }}
-                    onDetailClick={setDetailConnectionId}
-                  />
-                )
-              })}
-            </div>
-          ) : (
-            <div className="min-w-[980px]">
-              <div className="grid grid-cols-[36px_minmax(0,1.3fr)_160px_190px_150px_190px] items-center border-b bg-muted/20 px-4 py-2 text-[11px] font-medium text-muted-foreground">
-                <div className="flex items-center justify-center">
-                  <Checkbox
-                    checked={
-                      allVisibleSelected ? true : someVisibleSelected ? 'indeterminate' : false
-                    }
-                    onCheckedChange={(checked) => {
-                      setSelectedIds((prev) => {
-                        const next = new Set(prev)
-                        if (checked) {
-                          visibleIds.forEach((id) => next.add(id))
-                        } else {
-                          visibleIds.forEach((id) => next.delete(id))
-                        }
-                        return next
-                      })
-                    }}
-                    aria-label={t('migration.selectAll')}
-                  />
+
+            <div className="mt-6 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[1.12rem] font-semibold text-foreground">
+                  {t('workspace.hostsHeading', { defaultValue: 'Hosts' })}
                 </div>
-                <span>{t('migration.columns.name')}</span>
-                <span>{t('migration.columns.status')}</span>
-                <span>{t('migration.columns.address')}</span>
-                <span>{t('migration.columns.system')}</span>
-                <span>{t('migration.columns.operation')}</span>
+                <div className="mt-1 text-[0.82rem] text-muted-foreground">
+                  {t('workspace.hostsMeta', {
+                    defaultValue: '{{count}} hosts · {{online}} online',
+                    count: visibleConnections.length,
+                    online: onlineCount
+                  })}
+                </div>
               </div>
 
-              {visibleConnections.map((conn) => {
-                const sess = getSessionForConnection(conn.id)
-                const isConnected = sess?.status === 'connected'
-                const isConnecting = sess?.status === 'connecting'
-                const isTesting = testingId === conn.id
-                const group = groups.find((g) => g.id === conn.groupId)
-                const testInfo = testStatus[conn.id]
-                const testFresh = testInfo ? now - testInfo.at < TEST_STATUS_TTL_MS : false
-                const isReachable = !isConnected && !isConnecting && testFresh && !!testInfo?.ok
-                const isUnreachable =
-                  !isConnected && !isConnecting && testFresh && testInfo != null && !testInfo.ok
-                const isSelected = selectedIds.has(conn.id)
-
-                return (
-                  <div
-                    key={conn.id}
-                    className={cn(
-                      'grid grid-cols-[36px_minmax(0,1.3fr)_160px_190px_150px_190px] items-center gap-3 border-b px-4 py-3 text-xs transition-colors hover:bg-muted/20 cursor-pointer',
-                      isSelected && 'bg-primary/5',
-                      detailConnectionId === conn.id && 'bg-primary/5 border-l-2 border-l-primary'
-                    )}
-                    onClick={() => setDetailConnectionId(conn.id)}
-                  >
-                    <div className="flex items-center justify-center">
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={(checked) => {
-                          setSelectedIds((prev) => {
-                            const next = new Set(prev)
-                            if (checked) next.add(conn.id)
-                            else next.delete(conn.id)
-                            return next
-                          })
-                        }}
-                        aria-label={t('migration.selectOne', { name: conn.name })}
-                      />
-                    </div>
-
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <div className="relative shrink-0">
-                          <div className="flex size-8 items-center justify-center rounded-lg bg-muted/40">
-                            <Server className="size-4 text-muted-foreground" />
-                          </div>
-                          {isConnected && (
-                            <div className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background bg-emerald-500" />
-                          )}
-                          {isConnecting && (
-                            <div className="absolute -top-0.5 -right-0.5 size-2.5 animate-pulse rounded-full border-2 border-background bg-amber-500" />
-                          )}
-                          {isReachable && (
-                            <div className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background bg-emerald-400" />
-                          )}
-                          {isUnreachable && (
-                            <div className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background bg-destructive" />
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate font-medium text-foreground">{conn.name}</div>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {group && <Badge variant="outline">{group.name}</Badge>}
-                            <Badge variant="outline">{t(`migration.auth.${conn.authType}`)}</Badge>
-                            {conn.proxyJump && <Badge variant="outline">ProxyJump</Badge>}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      {isConnected ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-emerald-500">
-                          <div className="size-1.5 rounded-full bg-emerald-500" />
-                          {t('list.online')}
-                        </span>
-                      ) : isConnecting ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-amber-500">
-                          <Loader2 className="size-3 animate-spin" />
-                          {t('connecting')}
-                        </span>
-                      ) : isReachable ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-emerald-500">
-                          <div className="size-1.5 rounded-full bg-emerald-500" />
-                          {t('list.reachable')}
-                        </span>
-                      ) : isUnreachable ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-destructive">
-                          <div className="size-1.5 rounded-full bg-destructive" />
-                          {t('list.unreachable')}
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground/60">
-                          {t('list.offline')}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="min-w-0 text-muted-foreground">
-                      <div className="truncate">
-                        {conn.host}:{conn.port}
-                      </div>
-                      <div className="truncate text-[11px] text-muted-foreground/70">
-                        {conn.username}
-                      </div>
-                    </div>
-
-                    <div className="min-w-0 text-muted-foreground">
-                      <div className="truncate">{conn.authType}</div>
-                      <div className="truncate text-[11px] text-muted-foreground/70">
-                        {conn.keepAliveInterval}s keepalive
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      {isConnected && sess ? (
-                        <>
-                          <Button
-                            variant="default"
-                            size="sm"
-                            className="h-7 px-3 text-xs"
-                            onClick={() => handleOpenTerminal(conn.id)}
-                          >
-                            {t('openTerminal')}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 text-destructive/60 hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => void handleDisconnect(sess.id)}
-                            title={t('disconnect')}
-                          >
-                            <Square className="size-3" />
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          variant="default"
-                          size="sm"
-                          className="h-7 px-3 text-xs"
-                          onClick={() => void handleConnect(conn.id)}
-                          disabled={isConnecting}
-                        >
-                          {isConnecting ? (
-                            <Loader2 className="size-3 animate-spin" />
-                          ) : (
-                            <>
-                              <Play className="mr-1 size-3" />
-                              {t('connect')}
-                            </>
-                          )}
-                        </Button>
-                      )}
-                      {isTesting ? (
-                        <Loader2 className="size-3 animate-spin text-muted-foreground/50" />
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0"
-                          onClick={() => void handleTest(conn.id)}
-                          title={t('testConnection')}
-                        >
-                          <CheckCircle2 className="size-3 text-muted-foreground/50" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0"
-                        onClick={() => {
-                          setEditingConnection(conn)
-                          setShowForm(true)
-                        }}
-                        title={t('editConnection')}
-                      >
-                        <Pencil className="size-3 text-muted-foreground/50" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-destructive/50 hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => void handleDeleteConnection(conn)}
-                        title={t('deleteConnection')}
-                      >
-                        <Trash2 className="size-3" />
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })}
+              <div className="rounded-full bg-card px-3 py-2 text-[0.76rem] font-medium text-muted-foreground shadow-[0_10px_24px_-18px_color-mix(in_srgb,var(--foreground)_18%,transparent)]">
+                {activeVaultLabel}
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* Detail panel */}
-        {detailConnection ? (
-          <SshConnectionDetail
-            connection={detailConnection}
-            session={getSessionForConnection(detailConnection.id)}
-            group={groups.find((g) => g.id === detailConnection.groupId)}
-            onConnect={(id) => void handleConnect(id)}
-            onOpenTerminal={handleOpenTerminal}
-            onTest={(id) => void handleTest(id)}
-            onEdit={(c) => {
-              setEditingConnection(c)
-              setShowForm(true)
-            }}
-            onDelete={(c) => void handleDeleteConnection(c)}
-            onClose={() => setDetailConnectionId(null)}
-          />
-        ) : visibleConnections.length > 0 ? (
-          <div className="flex items-center justify-center border-t bg-muted/5 px-4 py-4 shrink-0">
-            <div className="text-center">
-              <Server className="mx-auto mb-1 size-5 text-muted-foreground/20" />
-              <span className="text-[10px] text-muted-foreground/40">
-                {t('dashboard.noSelection')}
-              </span>
-            </div>
+            {visibleConnections.length === 0 ? (
+              <div className="mt-6 flex min-h-[320px] flex-col items-center justify-center rounded-[28px] border border-dashed border-border bg-card/62 px-8 text-center">
+                <div className="flex size-16 items-center justify-center rounded-[22px] bg-primary/12 text-primary shadow-[0_14px_30px_-20px_color-mix(in_srgb,var(--primary)_25%,transparent)]">
+                  <Server className="size-7" />
+                </div>
+                <div className="mt-5 text-[1.1rem] font-semibold text-foreground">
+                  {t('noConnections')}
+                </div>
+                <div className="mt-2 max-w-sm text-[0.88rem] text-muted-foreground">
+                  {searchQuery.trim()
+                    ? t('workspace.noSearchMatches', {
+                        defaultValue:
+                          'No hosts match the current search. Try another hostname or user.'
+                      })
+                    : t('noConnectionsDesc')}
+                </div>
+                <Button
+                  size="sm"
+                  className="mt-6 h-11 rounded-2xl bg-primary px-5 text-[0.88rem] font-semibold text-primary-foreground hover:bg-primary/90"
+                  onClick={startCreateConnection}
+                >
+                  <Plus className="size-4" />
+                  {t('newConnection')}
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {visibleConnections.map((connection) => {
+                  const testInfo = testStatus[connection.id]
+                  const fresh =
+                    typeof testInfo?.at === 'number' &&
+                    Date.now() - testInfo.at < TEST_STATUS_TTL_MS
+                  const testOk = fresh ? testInfo?.ok : undefined
+
+                  return (
+                    <HostCard
+                      key={connection.id}
+                      connection={connection}
+                      group={groups.find((group) => group.id === connection.groupId)}
+                      session={getSessionForConnection(connection.id)}
+                      isSelected={inspectorMode === 'edit' && detailConnectionId === connection.id}
+                      isTesting={testingId === connection.id}
+                      testOk={testOk}
+                      onSelect={() => handleSelectConnection(connection.id)}
+                      onConnect={() => onConnect(connection.id)}
+                      onTest={() => void handleTest(connection.id)}
+                    />
+                  )
+                })}
+              </div>
+            )}
           </div>
-        ) : null}
+        </main>
+
+        <aside className="hidden w-[360px] shrink-0 bg-muted/35 lg:flex lg:flex-col">
+          <SshConnectionInspector
+            mode={connections.length === 0 ? 'create' : inspectorMode}
+            draftKey={draftKey}
+            connection={selectedConnection}
+            groups={groups}
+            session={selectedSession}
+            onConnect={(connectionId) => onConnect(connectionId)}
+            onSaved={(connectionId) => {
+              setInspectorMode('edit')
+              setDetailConnectionId(connectionId)
+            }}
+            onDelete={(connection) => void handleDeleteConnection(connection)}
+            onManageGroups={() => {
+              setEditingGroup(null)
+              setGroupDialogOpen(true)
+            }}
+          />
+        </aside>
       </div>
 
-      {/* Connection Dialog */}
-      <Dialog
-        open={showForm}
-        onOpenChange={(open) => {
-          if (!open) {
-            setShowForm(false)
-            setEditingConnection(null)
-          }
-        }}
-      >
-        <DialogContent
-          className="flex h-[85vh] max-h-[85vh] gap-0 p-0 sm:max-w-xl flex-col"
-          showCloseButton={false}
-        >
-          <SshConnectionForm
-            connection={editingConnection}
-            groups={groups}
-            onClose={() => {
-              setShowForm(false)
-              setEditingConnection(null)
-            }}
-            onSaved={() => {
-              setShowForm(false)
-              setEditingConnection(null)
-              toast.success(t('saved'))
-            }}
-          />
-        </DialogContent>
-      </Dialog>
-
-      {/* Group Dialog */}
       <SshGroupDialog
         open={groupDialogOpen}
         group={editingGroup}
@@ -847,10 +689,112 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
         open={importOpen}
         onOpenChange={setImportOpen}
         onImported={() => {
-          setSelectedIds(new Set())
           void loadAll()
         }}
       />
+    </>
+  )
+}
+
+export function SshConnectionList({ onConnect }: SshConnectionListProps): React.JSX.Element {
+  const { t } = useTranslation('ssh')
+  const connections = useSshStore((state) => state.connections)
+  const sessions = useSshStore((state) => state.sessions)
+  const workspaceSection = useSshStore((state) => state.workspaceSection)
+  const setWorkspaceSection = useSshStore((state) => state.setWorkspaceSection)
+
+  const onlineCount = useMemo(
+    () =>
+      connections.filter((connection) =>
+        Object.values(sessions).some(
+          (session) => session.connectionId === connection.id && session.status === 'connected'
+        )
+      ).length,
+    [connections, sessions]
+  )
+
+  const body = useMemo(() => {
+    switch (workspaceSection) {
+      case 'keychain':
+        return <SshKeychainWorkspace />
+      case 'forwarding':
+        return <SshPortForwardingWorkspace />
+      case 'snippets':
+        return <SshSnippetsWorkspace />
+      case 'knownHosts':
+        return <SshKnownHostsWorkspace />
+      case 'logs':
+        return <SshLogsWorkspace />
+      case 'sftp':
+        return <SshSftpWorkspace />
+      case 'hosts':
+      default:
+        return <HostsWorkspace onConnect={onConnect} />
+    }
+  }, [onConnect, workspaceSection])
+
+  return (
+    <div className="flex h-full w-full min-w-0 overflow-hidden bg-background text-foreground">
+      <aside className="flex w-[184px] shrink-0 flex-col border-r border-border bg-sidebar/55">
+        <div className="px-4 py-5">
+          <div className="text-[0.74rem] font-semibold uppercase tracking-[0.28em] text-muted-foreground">
+            SSH
+          </div>
+          <div className="mt-2 text-[1.15rem] font-semibold text-foreground">
+            {t('workspace.controlCenter', { defaultValue: 'Control Center' })}
+          </div>
+        </div>
+
+        <nav className="flex-1 space-y-1 px-3">
+          {NAV_ITEMS.map((item) => {
+            const label = t(`workspace.nav.${item.key}`, {
+              defaultValue:
+                item.key === 'hosts'
+                  ? 'Hosts'
+                  : item.key === 'keychain'
+                    ? 'Keychain'
+                    : item.key === 'forwarding'
+                      ? 'Port Forwarding'
+                      : item.key === 'snippets'
+                        ? 'Snippets'
+                        : item.key === 'knownHosts'
+                          ? 'Known Hosts'
+                          : 'Logs'
+            })
+            const active = workspaceSection === item.key
+
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setWorkspaceSection(item.key)}
+                className={cn(
+                  'flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-[0.95rem] transition-colors',
+                  active
+                    ? 'bg-accent font-medium text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                )}
+              >
+                <item.icon className="size-4" />
+                <span>{label}</span>
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="border-t border-border px-4 py-4">
+          <div className="flex items-center justify-between text-[0.74rem] text-muted-foreground">
+            <span>{t('dashboard.totalServers')}</span>
+            <span className="font-semibold text-foreground">{connections.length}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between text-[0.74rem] text-muted-foreground">
+            <span>{t('dashboard.onlineServers')}</span>
+            <span className="font-semibold text-foreground">{onlineCount}</span>
+          </div>
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 overflow-hidden">{body}</div>
     </div>
   )
 }

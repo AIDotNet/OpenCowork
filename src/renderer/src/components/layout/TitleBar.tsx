@@ -7,6 +7,7 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  SquareTerminal,
   ShieldCheck
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -18,6 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { ensureProjectTerminalReady } from '@renderer/lib/terminal/project-terminal-context'
 import { cn } from '@renderer/lib/utils'
 import { PendingInboxPopover } from './PendingInboxPopover'
 import { WindowControls } from './WindowControls'
@@ -31,9 +33,20 @@ interface TitleBarUpdateInfo {
 interface TitleBarProps {
   updateInfo: TitleBarUpdateInfo | null
   onOpenUpdateDialog: () => void
+  title: string
+  subtitle?: string | null
+  showSidebarToggle?: boolean
+  insetForMacTrafficLights?: boolean
 }
 
-export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): React.JSX.Element {
+export function TitleBar({
+  updateInfo,
+  onOpenUpdateDialog,
+  title,
+  subtitle = null,
+  showSidebarToggle = true,
+  insetForMacTrafficLights = false
+}: TitleBarProps): React.JSX.Element {
   const { t } = useTranslation('layout')
   const { t: tCommon } = useTranslation('common')
   const isMac = /Mac/.test(navigator.userAgent)
@@ -44,7 +57,9 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
   const toggleRightPanel = useUIStore((s) => s.toggleRightPanel)
   const workingFolderSheetOpen = useUIStore((s) => s.workingFolderSheetOpen)
   const toggleWorkingFolderSheet = useUIStore((s) => s.toggleWorkingFolderSheet)
+  const setBottomTerminalDockOpen = useUIStore((s) => s.setBottomTerminalDockOpen)
   const chatView = useUIStore((s) => s.chatView)
+  const mode = useUIStore((s) => s.mode)
   const settingsPageOpen = useUIStore((s) => s.settingsPageOpen)
   const skillsPageOpen = useUIStore((s) => s.skillsPageOpen)
   const resourcesPageOpen = useUIStore((s) => s.resourcesPageOpen)
@@ -55,15 +70,45 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
     useShallow((state) => {
       const activeSession = state.activeSessionId
         ? state.sessions.find((session) => session.id === state.activeSessionId)
-        : undefined
-      const activeProject = activeSession?.projectId
-        ? state.projects.find((project) => project.id === activeSession.projectId)
-        : undefined
+        : null
+      const activeSessionProject = activeSession?.projectId
+        ? (state.projects.find((project) => project.id === activeSession.projectId) ?? null)
+        : null
+      const explicitActiveProject = state.activeProjectId
+        ? (state.projects.find((project) => project.id === state.activeProjectId) ?? null)
+        : null
+      const fallbackHomeProject =
+        explicitActiveProject ??
+        state.projects.find((project) => !project.pluginId) ??
+        state.projects[0] ??
+        null
+      const currentProject =
+        chatView === 'session'
+          ? activeSessionProject
+          : chatView === 'project' || (chatView === 'home' && mode !== 'chat')
+            ? fallbackHomeProject
+            : null
 
       return {
-        workingFolder: activeSession?.workingFolder ?? activeProject?.workingFolder ?? null
+        sessionWorkingFolder:
+          activeSession?.workingFolder ?? activeSessionProject?.workingFolder ?? null,
+        terminalProjectId: currentProject?.id ?? null,
+        terminalProjectName: currentProject?.name ?? null,
+        terminalWorkingFolder:
+          chatView === 'session'
+            ? (activeSession?.workingFolder ?? activeSessionProject?.workingFolder ?? null)
+            : (currentProject?.workingFolder ?? null),
+        terminalSshConnectionId:
+          chatView === 'session'
+            ? (activeSession?.sshConnectionId ?? activeSessionProject?.sshConnectionId ?? null)
+            : (currentProject?.sshConnectionId ?? null)
       }
     })
+  )
+  const terminalDockOpen = useUIStore((s) =>
+    sessionContext.terminalProjectId
+      ? Boolean(s.bottomTerminalDockOpenByProjectId[sessionContext.terminalProjectId])
+      : false
   )
 
   const autoApprove = useSettingsStore((s) => s.autoApprove)
@@ -77,7 +122,34 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
     !tasksPageOpen
   const showInspectorToggle = chatSurfaceActive && chatView === 'session'
   const showFileManagerToggle = chatSurfaceActive && chatView === 'session'
-  const canOpenFileManager = Boolean(sessionContext.workingFolder)
+  const canOpenFileManager = Boolean(sessionContext.sessionWorkingFolder)
+  const showProjectTerminalToggle =
+    chatSurfaceActive &&
+    Boolean(sessionContext.terminalProjectId) &&
+    (chatView === 'project' || chatView === 'session' || (chatView === 'home' && mode !== 'chat'))
+  const canOpenProjectTerminal = Boolean(
+    sessionContext.terminalWorkingFolder || sessionContext.terminalSshConnectionId
+  )
+  const showProjectToolGroup =
+    showProjectTerminalToggle || showFileManagerToggle || showInspectorToggle
+  const projectToolButtonClass =
+    'titlebar-no-drag inline-flex size-[30px] items-center justify-center rounded-[11px] transition-all'
+
+  const handleToggleProjectTerminal = async (): Promise<void> => {
+    if (!sessionContext.terminalProjectId || !canOpenProjectTerminal) return
+
+    if (terminalDockOpen) {
+      setBottomTerminalDockOpen(sessionContext.terminalProjectId, false)
+      return
+    }
+
+    setBottomTerminalDockOpen(sessionContext.terminalProjectId, true)
+    await ensureProjectTerminalReady({
+      projectName: sessionContext.terminalProjectName,
+      workingFolder: sessionContext.terminalWorkingFolder,
+      sshConnectionId: sessionContext.terminalSshConnectionId
+    })
+  }
 
   const handleToggleAutoApprove = async (): Promise<void> => {
     if (!autoApprove) {
@@ -92,34 +164,49 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
   return (
     <header
       className={cn(
-        'titlebar-drag relative flex h-10 w-full shrink-0 items-center gap-2 overflow-hidden bg-background/80 px-3 backdrop-blur-md',
-        isMac ? 'pl-[78px]' : 'pr-[132px]'
+        'titlebar-drag relative flex h-10 w-full shrink-0 items-center gap-3 overflow-hidden bg-background px-3 backdrop-blur-md',
+        isMac && insetForMacTrafficLights ? 'pl-[78px]' : '',
+        !isMac ? 'pr-[132px]' : ''
       )}
       style={{
         paddingRight: isMac ? undefined : 'calc(132px + 0.75rem)'
       }}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="titlebar-no-drag size-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-            onClick={toggleLeftSidebar}
-          >
-            {leftSidebarOpen ? (
-              <PanelLeftClose className="size-4" />
-            ) : (
-              <PanelLeftOpen className="size-4" />
-            )}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {t('commandPalette.toggleSidebar', { defaultValue: 'Toggle sidebar' })}
-        </TooltipContent>
-      </Tooltip>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        {showSidebarToggle ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="titlebar-no-drag size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={toggleLeftSidebar}
+              >
+                {leftSidebarOpen ? (
+                  <PanelLeftClose className="size-4" />
+                ) : (
+                  <PanelLeftOpen className="size-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t('commandPalette.toggleSidebar', { defaultValue: 'Toggle sidebar' })}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
 
-      <div className="min-w-0 flex-1" />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="truncate text-sm font-semibold text-foreground/92">{title}</div>
+            {subtitle ? (
+              <>
+                <span className="shrink-0 text-muted-foreground/35">/</span>
+                <div className="truncate text-xs text-muted-foreground/72">{subtitle}</div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </div>
 
       <div className="flex min-w-0 shrink items-center justify-end gap-1 overflow-hidden pr-1">
         {updateInfo && (
@@ -178,67 +265,103 @@ export function TitleBar({ updateInfo, onOpenUpdateDialog }: TitleBarProps): Rea
 
         <PendingInboxPopover />
 
-        {showFileManagerToggle && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-pressed={workingFolderSheetOpen}
-                aria-disabled={!canOpenFileManager}
-                className={cn(
-                  'titlebar-no-drag inline-flex size-7 items-center justify-center rounded-md transition-all',
-                  workingFolderSheetOpen
-                    ? 'bg-accent text-accent-foreground'
-                    : 'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50',
-                  !canOpenFileManager && 'cursor-not-allowed opacity-40 hover:bg-transparent'
-                )}
-                onClick={() => {
-                  if (!canOpenFileManager) return
-                  toggleWorkingFolderSheet()
-                }}
-              >
-                <FolderOpen className="size-4" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {canOpenFileManager
-                ? workingFolderSheetOpen
-                  ? t('topbar.closeFileManager', { defaultValue: 'Close file manager' })
-                  : t('topbar.openFileManager', { defaultValue: 'Open file manager' })
-                : t('topbar.fileManagerUnavailable', {
-                    defaultValue: 'Select a working folder to open the file manager'
-                  })}
-            </TooltipContent>
-          </Tooltip>
-        )}
+        {showProjectToolGroup && (
+          <div className="titlebar-no-drag flex items-center gap-0.5 rounded-[14px] border border-border/60 bg-background/88 p-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+            {showProjectTerminalToggle && sessionContext.terminalProjectId && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-pressed={terminalDockOpen}
+                    aria-disabled={!canOpenProjectTerminal}
+                    className={cn(
+                      projectToolButtonClass,
+                      terminalDockOpen
+                        ? 'bg-muted text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]'
+                        : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+                      !canOpenProjectTerminal &&
+                        'cursor-not-allowed opacity-40 hover:bg-transparent'
+                    )}
+                    onClick={() => {
+                      void handleToggleProjectTerminal()
+                    }}
+                  >
+                    <SquareTerminal className="size-[14px]" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {canOpenProjectTerminal
+                    ? terminalDockOpen
+                      ? t('topbar.closeProjectTerminal')
+                      : t('topbar.openProjectTerminal')
+                    : t('topbar.projectTerminalUnavailable')}
+                </TooltipContent>
+              </Tooltip>
+            )}
 
-        {showInspectorToggle && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-pressed={rightPanelOpen}
-                className={cn(
-                  'titlebar-no-drag inline-flex size-7 items-center justify-center rounded-md transition-all',
-                  rightPanelOpen
-                    ? 'bg-accent text-accent-foreground'
-                    : 'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50'
-                )}
-                onClick={toggleRightPanel}
-              >
-                {rightPanelOpen ? (
-                  <PanelRightClose className="size-4" />
-                ) : (
-                  <PanelRightOpen className="size-4" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {rightPanelOpen
-                ? t('topbar.closeInspector', { defaultValue: 'Close inspector' })
-                : t('topbar.openInspector', { defaultValue: 'Open inspector' })}
-            </TooltipContent>
-          </Tooltip>
+            {showFileManagerToggle && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-pressed={workingFolderSheetOpen}
+                    aria-disabled={!canOpenFileManager}
+                    className={cn(
+                      projectToolButtonClass,
+                      workingFolderSheetOpen
+                        ? 'bg-muted text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]'
+                        : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+                      !canOpenFileManager && 'cursor-not-allowed opacity-40 hover:bg-transparent'
+                    )}
+                    onClick={() => {
+                      if (!canOpenFileManager) return
+                      toggleWorkingFolderSheet()
+                    }}
+                  >
+                    <FolderOpen className="size-[14px]" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {canOpenFileManager
+                    ? workingFolderSheetOpen
+                      ? t('topbar.closeFileManager', { defaultValue: 'Close file manager' })
+                      : t('topbar.openFileManager', { defaultValue: 'Open file manager' })
+                    : t('topbar.fileManagerUnavailable', {
+                        defaultValue: 'Select a working folder to open the file manager'
+                      })}
+                </TooltipContent>
+              </Tooltip>
+            )}
+
+            {showInspectorToggle && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-pressed={rightPanelOpen}
+                    className={cn(
+                      projectToolButtonClass,
+                      rightPanelOpen
+                        ? 'bg-muted text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]'
+                        : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                    )}
+                    onClick={toggleRightPanel}
+                  >
+                    {rightPanelOpen ? (
+                      <PanelRightClose className="size-[14px]" />
+                    ) : (
+                      <PanelRightOpen className="size-[14px]" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {rightPanelOpen
+                    ? t('topbar.closeInspector', { defaultValue: 'Close inspector' })
+                    : t('topbar.openInspector', { defaultValue: 'Open inspector' })}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         )}
 
         <Tooltip>

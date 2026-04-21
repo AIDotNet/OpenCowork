@@ -7,7 +7,6 @@ import {
 } from '@renderer/components/ui/dialog'
 import { Separator } from '@renderer/components/ui/separator'
 import { Slider } from '@renderer/components/ui/slider'
-import { useTheme } from 'next-themes'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import {
@@ -25,6 +24,7 @@ import {
 import { Input } from '@renderer/components/ui/input'
 import { Settings } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { GlobalThemePanel } from './GlobalThemePanel'
 import { ProviderIcon, ModelIcon } from './provider-icons'
 
 export function SettingsDialog(): React.JSX.Element {
@@ -33,7 +33,6 @@ export function SettingsDialog(): React.JSX.Element {
   const setOpen = useUIStore((s) => s.setSettingsOpen)
   const openSettingsPage = useUIStore((s) => s.openSettingsPage)
   const settings = useSettingsStore()
-  const { setTheme } = useTheme()
 
   const providers = useProviderStore((s) => s.providers)
   const activeProviderId = useProviderStore((s) => s.activeProviderId)
@@ -245,28 +244,7 @@ export function SettingsDialog(): React.JSX.Element {
 
           <Separator />
 
-          {/* Theme */}
-          <section className="space-y-2">
-            <label className="text-sm font-medium">{t('dialog.theme')}</label>
-            <Select
-              value={settings.theme}
-              onValueChange={(v: 'light' | 'dark' | 'system') => {
-                settings.updateSettings({ theme: v })
-                setTheme(v)
-              }}
-            >
-              <SelectTrigger className="w-full text-xs capitalize">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(['light', 'dark', 'system'] as const).map((themeVal) => (
-                  <SelectItem key={themeVal} value={themeVal} className="text-xs capitalize">
-                    {themeVal}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </section>
+          <GlobalThemePanel compact />
 
           <Separator />
 

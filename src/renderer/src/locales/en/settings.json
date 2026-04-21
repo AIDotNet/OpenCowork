@@ -18,6 +18,34 @@
     "light": "Light",
     "dark": "Dark",
     "system": "Follow System",
+    "themePreset": {
+      "title": "Theme Preset",
+      "desc": "Choose a built-in palette. It applies globally across the app, SSH workspaces, and terminals.",
+      "globalHint": "Global",
+      "current": "Current",
+      "presets": {
+        "studio": {
+          "label": "Studio Blue",
+          "desc": "A calm blue-gray workspace tuned for coding and host management."
+        },
+        "graphite": {
+          "label": "Graphite",
+          "desc": "A restrained neutral system with stronger contrast and a more editorial feel."
+        },
+        "ocean": {
+          "label": "Ocean",
+          "desc": "A deeper teal-blue palette that gives terminals and status panes more depth."
+        },
+        "forest": {
+          "label": "Forest",
+          "desc": "A softer green system that stays easy on the eyes during long terminal sessions."
+        },
+        "dawn": {
+          "label": "Dawn",
+          "desc": "A warm copper palette with more glow and texture in light mode."
+        }
+      }
+    },
     "appearance": {
       "title": "Appearance",
       "subtitle": "Background and typography preferences",

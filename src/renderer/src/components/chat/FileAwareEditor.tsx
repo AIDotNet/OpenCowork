@@ -78,10 +78,8 @@ function buildFileChip(
   wrapper.setAttribute('data-fallback-text', node.fallbackText)
   wrapper.setAttribute('contenteditable', 'false')
   wrapper.className = cn(
-    'group/file-ref mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 align-baseline text-[12px] font-medium text-blue-700 dark:text-blue-300',
-    highlightedFileId && highlightedFileId === node.fileId
-      ? 'ring-2 ring-blue-400/50 ring-offset-1 ring-offset-background'
-      : ''
+    'composer-file-ref group/file-ref mx-0.5 inline-flex max-w-full items-center gap-1 rounded-lg px-2.5 py-1 align-baseline text-[12px] font-medium',
+    highlightedFileId && highlightedFileId === node.fileId ? 'composer-file-ref--highlighted' : ''
   )
 
   const trigger = document.createElement('button')
@@ -114,7 +112,7 @@ function buildFileChip(
     const locateBtn = document.createElement('button')
     locateBtn.type = 'button'
     locateBtn.className =
-      'inline-flex size-4 items-center justify-center rounded-sm hover:bg-blue-500/15'
+      'composer-file-ref-action inline-flex size-4 items-center justify-center rounded-sm'
     locateBtn.title = '定位到文件条'
     locateBtn.addEventListener('mousedown', (event) => {
       event.preventDefault()
@@ -132,7 +130,7 @@ function buildFileChip(
     const deleteBtn = document.createElement('button')
     deleteBtn.type = 'button'
     deleteBtn.className =
-      'inline-flex size-4 items-center justify-center rounded-sm hover:bg-blue-500/15'
+      'composer-file-ref-action inline-flex size-4 items-center justify-center rounded-sm'
     deleteBtn.title = '删除引用'
     deleteBtn.addEventListener('mousedown', (event) => {
       event.preventDefault()
@@ -642,14 +640,14 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
     return (
       <div className={cn('relative flex min-h-0 flex-col', className)}>
         {!hasContent && placeholder && (
-          <div className="pointer-events-none absolute inset-0 p-1 pb-12 pr-2 text-base text-muted-foreground md:text-sm">
+          <div className="composer-editor-placeholder pointer-events-none absolute inset-0 p-2 pb-12 pr-3 text-base md:text-sm">
             {placeholder}
           </div>
         )}
         {showSuggestion && suggestionText && plainText.length > 0 && (
           <div
             ref={suggestionOverlayRef}
-            className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-1 pb-12 pr-2 text-base text-muted-foreground/45 md:text-sm"
+            className="composer-editor-suggestion pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-2 pb-12 pr-3 text-base md:text-sm"
           >
             <span className="invisible">{plainText}</span>
             <span>{suggestionText}</span>
@@ -661,7 +659,7 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
           suppressContentEditableWarning
           spellCheck={false}
           data-gramm="false"
-          className="relative z-10 block min-h-[60px] flex-1 overflow-y-auto whitespace-pre-wrap break-words p-1 pb-12 pr-2 text-base outline-none md:text-sm"
+          className="composer-editor-content block min-h-[60px] flex-1 overflow-y-auto whitespace-pre-wrap break-words p-2 pb-12 pr-3 text-base outline-none md:text-sm"
           style={{ scrollbarGutter: 'stable' }}
           onInput={handleInput}
           onKeyDown={onKeyDown}

@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.6] - 2026-04-21
+
+### Added
+
+- Added background task scheduling support across the main process, IPC layer, and cowork UI.
+- Added Responses WebSocket protocol support for provider routing and chat streaming flows.
+- Added richer chat streaming error cards with localized coverage for transport, auth, rate-limit, timeout, cancellation, and parameter failures.
+
+### Changed
+
+- Synchronized session runtime state across windows so streaming progress, tool activity, and detached-session focus stay consistent.
+- Refactored the working-folder browser into a dedicated drawer, persisted its width, and improved remote workspace navigation behavior.
+- Optimized right-panel, message-list, and layout performance to reduce unnecessary rendering and keep panel interactions smoother.
+- Refined chat components and tool rendering for WebSocket streaming, including preserving visualize widget tool inputs for downstream rendering.
+
+### Fixed
+
+- Fixed background and provider streaming retries to better handle upstream transport failures, early disconnects, and short-lived error bursts.
+- Fixed session creation and persistence ordering so initial messages do not race ahead of newly created sessions.
+- Fixed database migration behavior to skip remapping `chat` sessions into project-scoped records.
+
 ## [0.9.5] - 2026-04-20
 
 ### Added

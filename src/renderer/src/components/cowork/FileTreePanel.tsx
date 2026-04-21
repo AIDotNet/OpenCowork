@@ -821,6 +821,7 @@ export function FileTreePanel({
   const handleCollapseAll = useCallback(() => {
     setTree((current) => collapseTree(current))
   }, [])
+  const compactSheetSurface = surface === 'sheet'
 
   if (!workingFolder) {
     return (
@@ -836,78 +837,87 @@ export function FileTreePanel({
       <div
         className={cn(
           'flex min-h-0 flex-1 flex-col overflow-hidden',
-          surface === 'sheet'
+          compactSheetSurface
             ? 'bg-background'
             : 'rounded-[20px] border border-border/60 bg-background/70 shadow-[0_10px_30px_rgba(0,0,0,0.12)]'
         )}
       >
         <div
           className={cn(
-            'border-b border-border/60 bg-gradient-to-b from-muted/30 to-background/30',
-            surface === 'sheet' ? 'px-4 py-4' : 'px-3 py-3'
+            'border-b border-border/60',
+            compactSheetSurface
+              ? 'bg-background px-3 py-3'
+              : 'bg-gradient-to-b from-muted/30 to-background/30 px-3 py-3'
           )}
         >
-          <div className="flex items-start gap-2">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10">
-              <FolderOpen className="size-4 text-amber-400" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <div className="truncate text-sm font-medium text-foreground" title={workingFolder}>
-                  {workingFolder.split(/[\\/]/).pop()}
+          {!compactSheetSurface && (
+            <>
+              <div className="flex items-start gap-2">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10">
+                  <FolderOpen className="size-4 text-amber-400" />
                 </div>
-                <span className="rounded-full border border-primary/15 bg-primary/8 px-1.5 py-0.5 text-[10px] text-primary/80">
-                  {t('fileTree.dragToReference')}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="truncate text-sm font-medium text-foreground"
+                      title={workingFolder}
+                    >
+                      {workingFolder.split(/[\\/]/).pop()}
+                    </div>
+                    <span className="rounded-full border border-primary/15 bg-primary/8 px-1.5 py-0.5 text-[10px] text-primary/80">
+                      {t('fileTree.dragToReference')}
+                    </span>
+                  </div>
+                  <div
+                    className="mt-1 truncate text-[11px] text-muted-foreground"
+                    title={workingFolder}
+                  >
+                    {workingFolder}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 rounded-lg"
+                    onClick={handleCollapseAll}
+                    disabled={tree.length === 0 || isSearching}
+                    title={t('action.showLess', { ns: 'common' })}
+                  >
+                    <ChevronDown className="size-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 rounded-lg"
+                    onClick={() => {
+                      void loadRoot()
+                    }}
+                    disabled={loading}
+                    title={t('action.refresh', { ns: 'common' })}
+                  >
+                    <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground">
+                <span className="rounded-full border border-border/60 bg-background/80 px-2 py-1">
+                  {treeStats.folders} {t('unit.folders', { ns: 'common' })}
                 </span>
+                <span className="rounded-full border border-border/60 bg-background/80 px-2 py-1">
+                  {treeStats.files} {t('unit.files', { ns: 'common' })}
+                </span>
+                {isSearching && (
+                  <span className="rounded-full border border-primary/20 bg-primary/8 px-2 py-1 text-primary/80">
+                    {searchResults.length} {t('unit.matches', { ns: 'common' })}
+                  </span>
+                )}
               </div>
-              <div
-                className="mt-1 truncate text-[11px] text-muted-foreground"
-                title={workingFolder}
-              >
-                {workingFolder}
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 rounded-lg"
-                onClick={handleCollapseAll}
-                disabled={tree.length === 0 || isSearching}
-                title={t('action.showLess', { ns: 'common' })}
-              >
-                <ChevronDown className="size-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 rounded-lg"
-                onClick={() => {
-                  void loadRoot()
-                }}
-                disabled={loading}
-                title={t('action.refresh', { ns: 'common' })}
-              >
-                <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
-              </Button>
-            </div>
-          </div>
+            </>
+          )}
 
-          <div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground">
-            <span className="rounded-full border border-border/60 bg-background/80 px-2 py-1">
-              {treeStats.folders} {t('unit.folders', { ns: 'common' })}
-            </span>
-            <span className="rounded-full border border-border/60 bg-background/80 px-2 py-1">
-              {treeStats.files} {t('unit.files', { ns: 'common' })}
-            </span>
-            {isSearching && (
-              <span className="rounded-full border border-primary/20 bg-primary/8 px-2 py-1 text-primary/80">
-                {searchResults.length} {t('unit.matches', { ns: 'common' })}
-              </span>
-            )}
-          </div>
-
-          <div className="relative mt-3">
+          <div className={cn('relative', !compactSheetSurface && 'mt-3')}>
             <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
             <Input
               value={searchQuery}
@@ -937,7 +947,7 @@ export function FileTreePanel({
         <div
           className={cn(
             'min-h-0 flex-1 overflow-y-auto text-[12px]',
-            surface === 'sheet' ? 'px-3 py-3' : 'px-2 py-2'
+            compactSheetSurface ? 'px-3 py-3' : 'px-2 py-2'
           )}
         >
           {loading && tree.length === 0 ? (
@@ -1022,19 +1032,16 @@ export function FileTreePanel({
           )}
         </div>
 
-        <div
-          className={cn(
-            'border-t border-border/60 bg-background/40 text-[10px] text-muted-foreground/80',
-            surface === 'sheet' ? 'px-4 py-3' : 'px-3 py-2'
-          )}
-        >
-          {isSearching
-            ? t('fileTree.searchHint', { defaultValue: '点击预览，拖到输入框可插入文件引用' })
-            : t('fileTree.stats', {
-                folders: treeStats.folders,
-                files: treeStats.files
-              })}
-        </div>
+        {!compactSheetSurface && (
+          <div className="border-t border-border/60 bg-background/40 px-3 py-2 text-[10px] text-muted-foreground/80">
+            {isSearching
+              ? t('fileTree.searchHint', { defaultValue: '点击预览，拖到输入框可插入文件引用' })
+              : t('fileTree.stats', {
+                  folders: treeStats.folders,
+                  files: treeStats.files
+                })}
+          </div>
+        )}
       </div>
     </div>
   )

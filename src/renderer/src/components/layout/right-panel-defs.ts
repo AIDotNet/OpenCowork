@@ -21,6 +21,9 @@ export const RIGHT_PANEL_MIN_WIDTH = 320
 export const RIGHT_PANEL_MAX_WIDTH = 560
 export const RIGHT_PANEL_RAIL_WIDTH = 48
 export const RIGHT_PANEL_RAIL_SLIM_WIDTH = 12
+export const WORKING_FOLDER_PANEL_DEFAULT_WIDTH = 420
+export const WORKING_FOLDER_PANEL_MIN_WIDTH = 280
+export const WORKING_FOLDER_PANEL_MAX_WIDTH = 560
 
 export interface RightPanelTabDef {
   value: RightPanelTab
@@ -93,4 +96,11 @@ export function clampLeftSidebarWidth(width: number): number {
 
 export function clampRightPanelWidth(width: number): number {
   return Math.min(RIGHT_PANEL_MAX_WIDTH, Math.max(RIGHT_PANEL_MIN_WIDTH, width))
+}
+
+export function clampWorkingFolderPanelWidth(width: number): number {
+  return Math.min(
+    WORKING_FOLDER_PANEL_MAX_WIDTH,
+    Math.max(WORKING_FOLDER_PANEL_MIN_WIDTH, width)
+  )
 }

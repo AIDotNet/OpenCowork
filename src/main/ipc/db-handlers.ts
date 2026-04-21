@@ -237,16 +237,12 @@ export function registerDbHandlers(options: RegisterDbHandlersOptions = {}): voi
       // Ensure session exists to avoid FK constraint failure (race with fire-and-forget IPC)
       const existing = sessionsDao.getSession(msg.sessionId)
       if (!existing) {
-        const project = projectsDao.ensureDefaultProject()
         sessionsDao.createSession({
           id: msg.sessionId,
           title: 'New Conversation',
           mode: 'chat',
           createdAt: msg.createdAt,
-          updatedAt: msg.createdAt,
-          projectId: project.id,
-          workingFolder: project.working_folder ?? undefined,
-          sshConnectionId: project.ssh_connection_id ?? undefined
+          updatedAt: msg.createdAt
         })
       }
       messagesDao.addMessage(msg)

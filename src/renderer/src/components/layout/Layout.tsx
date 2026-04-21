@@ -707,6 +707,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                   >
                     <div className="flex flex-1 overflow-hidden">
                       <SessionConversationPane />
+                      <WorkingFolderSheet />
                       <RightPanel />
                     </div>
                   </ErrorBoundary>
@@ -737,9 +738,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
           <PreviewPanel embedded />
         </DialogContent>
       </Dialog>
-
-      <WorkingFolderSheet />
-
       <Dialog
         open={subAgentExecutionDetailOpen}
         onOpenChange={(open) => {

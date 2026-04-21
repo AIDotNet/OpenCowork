@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import {
   LEFT_SIDEBAR_DEFAULT_WIDTH,
-  clampLeftSidebarWidth
+  WORKING_FOLDER_PANEL_DEFAULT_WIDTH,
+  clampLeftSidebarWidth,
+  clampWorkingFolderPanelWidth
 } from '@renderer/components/layout/right-panel-defs'
 import { parseChatRoute, replaceChatRoute } from '@renderer/lib/chat-route'
 import { useChatStore } from '@renderer/stores/chat-store'
@@ -127,6 +129,8 @@ interface UIStore {
   workingFolderSheetOpen: boolean
   toggleWorkingFolderSheet: () => void
   setWorkingFolderSheetOpen: (open: boolean) => void
+  workingFolderPanelWidth: number
+  setWorkingFolderPanelWidth: (width: number) => void
   rightPanelTab: RightPanelTab
   setRightPanelTab: (tab: RightPanelTab) => void
   rightPanelSection: RightPanelSection
@@ -300,6 +304,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
   toggleWorkingFolderSheet: () =>
     set((state) => ({ workingFolderSheetOpen: !state.workingFolderSheetOpen })),
   setWorkingFolderSheetOpen: (open) => set({ workingFolderSheetOpen: open }),
+  workingFolderPanelWidth: WORKING_FOLDER_PANEL_DEFAULT_WIDTH,
+  setWorkingFolderPanelWidth: (width) =>
+    set({ workingFolderPanelWidth: clampWorkingFolderPanelWidth(width) }),
   rightPanelTab: 'preview',
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
   rightPanelSection: 'execution',
@@ -643,7 +650,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
     const resolvedSession = resolvedSessionId
       ? store.sessions.find((item) => item.id === resolvedSessionId)
       : null
-    const resolvedProjectId = resolvedSession?.projectId ?? store.activeProjectId ?? null
+    const resolvedProjectId = resolvedSession
+      ? (resolvedSession.projectId ?? null)
+      : (store.activeProjectId ?? null)
     set({ activeNavItem: 'chat', chatView: 'session', ...CHAT_SURFACE_NAV_RESET })
     replaceChatRoute({
       chatView: resolvedSessionId ? 'session' : resolvedProjectId ? 'project' : 'home',
@@ -670,6 +679,11 @@ export const useUIStore = create<UIStore>((set, get) => ({
       if (session) {
         chatStore.setActiveSession(session.id)
         set({ activeNavItem: 'chat', chatView: 'session' })
+        replaceChatRoute({
+          chatView: 'session',
+          projectId: session.projectId ?? null,
+          sessionId: session.id
+        })
         return
       }
     }

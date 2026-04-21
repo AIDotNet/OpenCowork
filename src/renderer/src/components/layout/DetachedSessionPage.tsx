@@ -113,9 +113,8 @@ export function DetachedSessionPage({ sessionId }: DetachedSessionPageProps): Re
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <SessionConversationPane sessionId={sessionId} allowOpenInNewWindow={false} />
+          <WorkingFolderSheet sessionId={sessionId} />
         </div>
-
-        <WorkingFolderSheet sessionId={sessionId} />
 
         <Dialog
           open={previewPanelOpen && previewPanelState?.source === 'file'}

@@ -96,8 +96,10 @@ export interface CreateSessionOptions {
 
 // --- DB persistence helpers (fire-and-forget) ---
 
+const _pendingSessionCreates = new Map<string, Promise<unknown>>()
+
 function dbCreateSession(s: Session): void {
-  ipcClient
+  const pending = ipcClient
     .invoke('db:sessions:create', {
       id: s.id,
       title: s.title,
@@ -115,6 +117,13 @@ function dbCreateSession(s: Session): void {
       longRunningMode: s.longRunningMode
     })
     .catch(() => {})
+    .finally(() => {
+      if (_pendingSessionCreates.get(s.id) === pending) {
+        _pendingSessionCreates.delete(s.id)
+      }
+    })
+
+  _pendingSessionCreates.set(s.id, pending)
 }
 
 function dbUpdateSession(id: string, patch: Record<string, unknown>): void {
@@ -164,17 +173,22 @@ function sanitizeMessageContentForPersistence(
 }
 
 function dbAddMessage(sessionId: string, msg: UnifiedMessage, sortOrder: number): void {
-  ipcClient
-    .invoke('db:messages:add', {
-      id: msg.id,
-      sessionId,
-      role: msg.role,
-      content: JSON.stringify(sanitizeMessageContentForPersistence(msg.content)),
-      meta: msg.meta ? JSON.stringify(msg.meta) : null,
-      createdAt: msg.createdAt,
-      usage: msg.usage ? JSON.stringify(msg.usage) : null,
-      sortOrder
-    })
+  const pendingCreate = _pendingSessionCreates.get(sessionId) ?? Promise.resolve()
+
+  void pendingCreate
+    .catch(() => {})
+    .then(() =>
+      ipcClient.invoke('db:messages:add', {
+        id: msg.id,
+        sessionId,
+        role: msg.role,
+        content: JSON.stringify(sanitizeMessageContentForPersistence(msg.content)),
+        meta: msg.meta ? JSON.stringify(msg.meta) : null,
+        createdAt: msg.createdAt,
+        usage: msg.usage ? JSON.stringify(msg.usage) : null,
+        sortOrder
+      })
+    )
     .catch(() => {})
 }
 
@@ -1573,14 +1587,16 @@ export const useChatStore = create<ChatStore>()(
             projects.some((project) => project.id === initialRoute.projectId)
               ? initialRoute.projectId
               : null
-          const preferredProjectId = activeSession?.projectId
-          nextActiveProjectId =
-            preferredProjectId ??
-            routeProjectId ??
-            state.activeProjectId ??
-            projects.find((project) => !project.pluginId)?.id ??
-            projects[0]?.id ??
-            null
+          if (activeSession) {
+            nextActiveProjectId = activeSession.projectId ?? null
+          } else {
+            nextActiveProjectId =
+              routeProjectId ??
+              state.activeProjectId ??
+              projects.find((project) => !project.pluginId)?.id ??
+              projects[0]?.id ??
+              null
+          }
           state.activeProjectId = nextActiveProjectId
         })
 

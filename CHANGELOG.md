@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.71] - 2026-04-22
+
+### Changed
+
+- Tightened the title-bar project action group styling and switched to a lighter-weight layout.
+- Unified the workspace panel and image preview flow, added context statistics, and avoided loading full message history unnecessarily.
+
 ## [0.9.7] - 2026-04-22
 
 ### Added

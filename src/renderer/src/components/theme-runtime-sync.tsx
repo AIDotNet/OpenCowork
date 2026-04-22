@@ -4,12 +4,19 @@ import { applyThemePresetCssVars, resolveAppThemeMode } from '@renderer/lib/them
 import { useSettingsStore } from '@renderer/stores/settings-store'
 
 export function ThemeRuntimeSync(): null {
+  const theme = useSettingsStore((state) => state.theme)
   const backgroundColor = useSettingsStore((state) => state.backgroundColor)
   const fontFamily = useSettingsStore((state) => state.fontFamily)
   const fontSize = useSettingsStore((state) => state.fontSize)
   const animationsEnabled = useSettingsStore((state) => state.animationsEnabled)
   const themePreset = useSettingsStore((state) => state.themePreset)
-  const { resolvedTheme } = useTheme()
+  const { theme: activeTheme, resolvedTheme, setTheme } = useTheme()
+
+  useEffect(() => {
+    if (theme !== activeTheme) {
+      setTheme(theme)
+    }
+  }, [activeTheme, setTheme, theme])
 
   useEffect(() => {
     const root = document.documentElement

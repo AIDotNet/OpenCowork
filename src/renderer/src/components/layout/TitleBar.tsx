@@ -133,7 +133,7 @@ export function TitleBar({
   const showProjectToolGroup =
     showProjectTerminalToggle || showFileManagerToggle || showInspectorToggle
   const projectToolButtonClass =
-    'titlebar-no-drag inline-flex size-[30px] items-center justify-center rounded-[11px] transition-all'
+    'workspace-titlebar-toolbutton titlebar-no-drag inline-flex size-[30px] items-center justify-center rounded-[11px] transition-all'
 
   const handleToggleProjectTerminal = async (): Promise<void> => {
     if (!sessionContext.terminalProjectId || !canOpenProjectTerminal) return
@@ -164,7 +164,7 @@ export function TitleBar({
   return (
     <header
       className={cn(
-        'titlebar-drag relative flex h-10 w-full shrink-0 items-center gap-3 overflow-hidden bg-background px-3 backdrop-blur-md',
+        'workspace-titlebar-surface titlebar-drag relative flex h-10 w-full shrink-0 items-center gap-3 overflow-hidden px-3',
         isMac && insetForMacTrafficLights ? 'pl-[78px]' : '',
         !isMac ? 'pr-[132px]' : ''
       )}
@@ -179,7 +179,7 @@ export function TitleBar({
               <Button
                 variant="ghost"
                 size="icon"
-                className="titlebar-no-drag size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="workspace-titlebar-action titlebar-no-drag size-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
                 onClick={toggleLeftSidebar}
               >
                 {leftSidebarOpen ? (
@@ -251,7 +251,7 @@ export function TitleBar({
                 'titlebar-no-drag size-7 rounded-md transition-colors',
                 autoApprove
                   ? 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/15 dark:text-emerald-400'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  : 'workspace-titlebar-action text-muted-foreground hover:text-accent-foreground'
               )}
               onClick={() => void handleToggleAutoApprove()}
             >
@@ -266,19 +266,17 @@ export function TitleBar({
         <PendingInboxPopover />
 
         {showProjectToolGroup && (
-          <div className="titlebar-no-drag flex items-center gap-0.5 rounded-[14px] border border-border/60 bg-background/88 p-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+          <div className="workspace-titlebar-toolgroup titlebar-no-drag flex items-center gap-0.5 rounded-[14px] border p-0.5">
             {showProjectTerminalToggle && sessionContext.terminalProjectId && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
                     aria-pressed={terminalDockOpen}
+                    data-active={terminalDockOpen ? 'true' : 'false'}
                     aria-disabled={!canOpenProjectTerminal}
                     className={cn(
                       projectToolButtonClass,
-                      terminalDockOpen
-                        ? 'bg-muted text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]'
-                        : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
                       !canOpenProjectTerminal &&
                         'cursor-not-allowed opacity-40 hover:bg-transparent'
                     )}
@@ -305,12 +303,10 @@ export function TitleBar({
                   <button
                     type="button"
                     aria-pressed={workingFolderSheetOpen}
+                    data-active={workingFolderSheetOpen ? 'true' : 'false'}
                     aria-disabled={!canOpenFileManager}
                     className={cn(
                       projectToolButtonClass,
-                      workingFolderSheetOpen
-                        ? 'bg-muted text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]'
-                        : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
                       !canOpenFileManager && 'cursor-not-allowed opacity-40 hover:bg-transparent'
                     )}
                     onClick={() => {
@@ -339,12 +335,8 @@ export function TitleBar({
                   <button
                     type="button"
                     aria-pressed={rightPanelOpen}
-                    className={cn(
-                      projectToolButtonClass,
-                      rightPanelOpen
-                        ? 'bg-muted text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]'
-                        : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
-                    )}
+                    data-active={rightPanelOpen ? 'true' : 'false'}
+                    className={projectToolButtonClass}
                     onClick={toggleRightPanel}
                   >
                     {rightPanelOpen ? (
@@ -368,7 +360,7 @@ export function TitleBar({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="titlebar-no-drag inline-flex size-7 items-center justify-center rounded-md transition-all hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50"
+              className="workspace-titlebar-action titlebar-no-drag inline-flex size-7 items-center justify-center rounded-md transition-all"
               onClick={() => useUIStore.getState().setConversationGuideOpen(true)}
             >
               <HelpCircle className="size-4" />

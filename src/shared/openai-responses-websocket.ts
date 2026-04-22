@@ -398,13 +398,15 @@ export function isResponsesWsFirstModelEvent(payload: unknown): boolean {
     case 'response.reasoning_summary_text.done':
     case 'response.function_call_arguments.delta':
     case 'response.function_call_arguments.done':
+    case 'response.image_generation_call.partial_image':
       return true
     case 'response.output_item.added':
     case 'response.output_item.done':
       return (
         record.item?.type === 'function_call' ||
         record.item?.type === 'computer_call' ||
-        record.item?.type === 'reasoning'
+        record.item?.type === 'reasoning' ||
+        record.item?.type === 'image_generation_call'
       )
     default:
       return false
@@ -453,6 +455,8 @@ function normalizeResponsesOutputItemForReplayInput(item: unknown): Record<strin
       return normalizeResponsesReasoningOutputItem(record)
     case 'function_call':
       return normalizeResponsesFunctionCallOutputItem(record)
+    case 'image_generation_call':
+      return normalizeResponsesImageGenerationOutputItem(record)
     default:
       return null
   }
@@ -580,6 +584,26 @@ function normalizeResponsesFunctionCallOutputItem(
     name,
     arguments: stringifyResponsesReplayValue(item.arguments),
     status: 'completed'
+  }
+}
+
+function normalizeResponsesImageGenerationOutputItem(
+  item: Record<string, unknown>
+): Record<string, unknown> | null {
+  const rawResults = Array.isArray(item.result)
+    ? item.result
+    : typeof item.result === 'string'
+      ? [item.result]
+      : []
+  const results = rawResults.filter(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0
+  )
+  if (results.length === 0) return null
+
+  return {
+    type: 'image_generation_call',
+    result: results.length === 1 ? results[0] : results,
+    ...(typeof item.output_format === 'string' ? { output_format: item.output_format } : {})
   }
 }
 

@@ -231,6 +231,24 @@ export async function* runAgentLoop(
                 appendTextToBlocks(assistantContentBlocks, event.text!)
                 break
 
+              case 'image_generation_started':
+                streamedContent = true
+                yield { type: 'image_generation_started' }
+                break
+
+              case 'image_generation_partial':
+                streamedContent = true
+                if (event.imageBlock) {
+                  yield {
+                    type: 'image_generation_partial',
+                    imageBlock: event.imageBlock,
+                    ...(event.partialImageIndex !== undefined
+                      ? { partialImageIndex: event.partialImageIndex }
+                      : {})
+                  }
+                }
+                break
+
               case 'image_generated':
                 streamedContent = true
                 if (event.imageBlock) {

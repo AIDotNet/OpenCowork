@@ -81,8 +81,27 @@ import type {
   AIProvider,
   ThinkingConfig,
   ModelCategory,
-  ReasoningEffortLevel
+  ReasoningEffortLevel,
+  ResponsesImageGenerationAction,
+  ResponsesImageGenerationBackground,
+  ResponsesImageGenerationInputFidelity,
+  ResponsesImageGenerationModeration,
+  ResponsesImageGenerationOutputFormat,
+  ResponsesImageGenerationQuality,
+  ResponsesImageGenerationSize
 } from '@renderer/lib/api/types'
+import {
+  RESPONSES_IMAGE_GENERATION_ACTIONS,
+  RESPONSES_IMAGE_GENERATION_BACKGROUNDS,
+  RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION,
+  RESPONSES_IMAGE_GENERATION_INPUT_FIDELITIES,
+  RESPONSES_IMAGE_GENERATION_MODERATIONS,
+  RESPONSES_IMAGE_GENERATION_OUTPUT_FORMATS,
+  RESPONSES_IMAGE_GENERATION_QUALITIES,
+  RESPONSES_IMAGE_GENERATION_SIZES,
+  normalizeResponsesImageGenerationOutputCompression,
+  normalizeResponsesImageGenerationPartialImages
+} from '@renderer/lib/api/responses-image-generation'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { ipcStreamRequest } from '@renderer/lib/ipc/api-stream'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -130,6 +149,12 @@ const REASONING_EFFORT_OPTIONS: ReasoningEffortLevel[] = [
   'max',
   'xhigh'
 ]
+
+function toOptionalSelectValue<T extends string>(
+  value?: T
+): T | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION {
+  return value ?? RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+}
 
 function toModelConfig(model: ManagedModelConfig): AIModelConfig {
   const { normalizedKey, ...nextModel } = model
@@ -366,6 +391,35 @@ function ModelFormDialog({
   const [enableSystemPromptCache, setEnableSystemPromptCache] = useState(
     initial?.enableSystemPromptCache ?? true
   )
+  const [responsesImageGenerationEnabled, setResponsesImageGenerationEnabled] = useState(
+    initial?.responsesImageGeneration?.enabled ?? true
+  )
+  const [responsesImageGenerationAction, setResponsesImageGenerationAction] = useState<
+    ResponsesImageGenerationAction | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+  >(toOptionalSelectValue(initial?.responsesImageGeneration?.action))
+  const [responsesImageGenerationBackground, setResponsesImageGenerationBackground] = useState<
+    ResponsesImageGenerationBackground | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+  >(toOptionalSelectValue(initial?.responsesImageGeneration?.background))
+  const [responsesImageGenerationInputFidelity, setResponsesImageGenerationInputFidelity] =
+    useState<
+      ResponsesImageGenerationInputFidelity | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+    >(toOptionalSelectValue(initial?.responsesImageGeneration?.inputFidelity))
+  const [responsesImageGenerationModeration, setResponsesImageGenerationModeration] = useState<
+    ResponsesImageGenerationModeration | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+  >(toOptionalSelectValue(initial?.responsesImageGeneration?.moderation))
+  const [responsesImageGenerationOutputFormat, setResponsesImageGenerationOutputFormat] = useState<
+    ResponsesImageGenerationOutputFormat | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+  >(toOptionalSelectValue(initial?.responsesImageGeneration?.outputFormat))
+  const [responsesImageGenerationQuality, setResponsesImageGenerationQuality] = useState<
+    ResponsesImageGenerationQuality | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+  >(toOptionalSelectValue(initial?.responsesImageGeneration?.quality))
+  const [responsesImageGenerationSize, setResponsesImageGenerationSize] = useState<
+    ResponsesImageGenerationSize | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+  >(toOptionalSelectValue(initial?.responsesImageGeneration?.size))
+  const [responsesImageGenerationOutputCompression, setResponsesImageGenerationOutputCompression] =
+    useState(initial?.responsesImageGeneration?.outputCompression?.toString() ?? '')
+  const [responsesImageGenerationPartialImages, setResponsesImageGenerationPartialImages] =
+    useState(initial?.responsesImageGeneration?.partialImages?.toString() ?? '')
   const requestType = typeOverride === 'none' ? providerType : typeOverride
   const isResponsesModel = requestType === 'openai-responses'
   const handleSave = (): void => {
@@ -426,6 +480,42 @@ function ModelFormDialog({
     model.enableSystemPromptCache = enableSystemPromptCache
     if (isResponsesModel) {
       model.websocketMode = websocketMode
+      const outputCompression = responsesImageGenerationOutputCompression.trim()
+        ? normalizeResponsesImageGenerationOutputCompression(
+            Number(responsesImageGenerationOutputCompression)
+          )
+        : undefined
+      const partialImages = responsesImageGenerationPartialImages.trim()
+        ? normalizeResponsesImageGenerationPartialImages(
+            Number(responsesImageGenerationPartialImages)
+          )
+        : undefined
+      model.responsesImageGeneration = {
+        enabled: responsesImageGenerationEnabled,
+        ...(responsesImageGenerationAction !== RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+          ? { action: responsesImageGenerationAction }
+          : {}),
+        ...(responsesImageGenerationBackground !== RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+          ? { background: responsesImageGenerationBackground }
+          : {}),
+        ...(responsesImageGenerationInputFidelity !== RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+          ? { inputFidelity: responsesImageGenerationInputFidelity }
+          : {}),
+        ...(responsesImageGenerationModeration !== RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+          ? { moderation: responsesImageGenerationModeration }
+          : {}),
+        ...(responsesImageGenerationOutputFormat !== RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+          ? { outputFormat: responsesImageGenerationOutputFormat }
+          : {}),
+        ...(responsesImageGenerationQuality !== RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+          ? { quality: responsesImageGenerationQuality }
+          : {}),
+        ...(responsesImageGenerationSize !== RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+          ? { size: responsesImageGenerationSize }
+          : {}),
+        ...(outputCompression !== undefined ? { outputCompression } : {}),
+        ...(partialImages !== undefined ? { partialImages } : {})
+      }
     } else if (initial?.websocketMode !== undefined) {
       model.websocketMode = undefined
     }
@@ -737,15 +827,309 @@ function ModelFormDialog({
                 </Select>
               </div>
               {isResponsesModel && (
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
-                    {t('provider.responsesWebsocket')}
-                  </span>
-                  <Switch
-                    checked={websocketMode === 'auto'}
-                    onCheckedChange={(v) => setWebsocketMode(v ? 'auto' : 'disabled')}
-                  />
-                </div>
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {t('provider.responsesWebsocket')}
+                    </span>
+                    <Switch
+                      checked={websocketMode === 'auto'}
+                      onCheckedChange={(v) => setWebsocketMode(v ? 'auto' : 'disabled')}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {t('provider.responsesImageGeneration')}
+                    </span>
+                    <Switch
+                      checked={responsesImageGenerationEnabled}
+                      onCheckedChange={setResponsesImageGenerationEnabled}
+                    />
+                  </div>
+                  {responsesImageGenerationEnabled && (
+                    <div className="space-y-2 rounded-md border border-border/60 p-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {t('provider.responsesImageGenerationAction')}
+                          </span>
+                          <Select
+                            value={responsesImageGenerationAction}
+                            onValueChange={(value) =>
+                              setResponsesImageGenerationAction(
+                                value as
+                                  | ResponsesImageGenerationAction
+                                  | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-[11px]">
+                              <SelectValue
+                                placeholder={t('provider.responsesImageGenerationDefault')}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem
+                                value={RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION}
+                                className="text-[11px]"
+                              >
+                                {t('provider.responsesImageGenerationDefault')}
+                              </SelectItem>
+                              {RESPONSES_IMAGE_GENERATION_ACTIONS.map((value) => (
+                                <SelectItem key={value} value={value} className="text-[11px]">
+                                  {t(`provider.responsesImageGenerationOption.${value}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {t('provider.responsesImageGenerationBackground')}
+                          </span>
+                          <Select
+                            value={responsesImageGenerationBackground}
+                            onValueChange={(value) =>
+                              setResponsesImageGenerationBackground(
+                                value as
+                                  | ResponsesImageGenerationBackground
+                                  | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-[11px]">
+                              <SelectValue
+                                placeholder={t('provider.responsesImageGenerationDefault')}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem
+                                value={RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION}
+                                className="text-[11px]"
+                              >
+                                {t('provider.responsesImageGenerationDefault')}
+                              </SelectItem>
+                              {RESPONSES_IMAGE_GENERATION_BACKGROUNDS.map((value) => (
+                                <SelectItem key={value} value={value} className="text-[11px]">
+                                  {t(`provider.responsesImageGenerationOption.${value}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {t('provider.responsesImageGenerationQuality')}
+                          </span>
+                          <Select
+                            value={responsesImageGenerationQuality}
+                            onValueChange={(value) =>
+                              setResponsesImageGenerationQuality(
+                                value as
+                                  | ResponsesImageGenerationQuality
+                                  | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-[11px]">
+                              <SelectValue
+                                placeholder={t('provider.responsesImageGenerationDefault')}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem
+                                value={RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION}
+                                className="text-[11px]"
+                              >
+                                {t('provider.responsesImageGenerationDefault')}
+                              </SelectItem>
+                              {RESPONSES_IMAGE_GENERATION_QUALITIES.map((value) => (
+                                <SelectItem key={value} value={value} className="text-[11px]">
+                                  {t(`provider.responsesImageGenerationOption.${value}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {t('provider.responsesImageGenerationSize')}
+                          </span>
+                          <Select
+                            value={responsesImageGenerationSize}
+                            onValueChange={(value) =>
+                              setResponsesImageGenerationSize(
+                                value as
+                                  | ResponsesImageGenerationSize
+                                  | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-[11px]">
+                              <SelectValue
+                                placeholder={t('provider.responsesImageGenerationDefault')}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem
+                                value={RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION}
+                                className="text-[11px]"
+                              >
+                                {t('provider.responsesImageGenerationDefault')}
+                              </SelectItem>
+                              {RESPONSES_IMAGE_GENERATION_SIZES.map((value) => (
+                                <SelectItem key={value} value={value} className="text-[11px]">
+                                  {t(`provider.responsesImageGenerationOption.${value}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {t('provider.responsesImageGenerationOutputFormat')}
+                          </span>
+                          <Select
+                            value={responsesImageGenerationOutputFormat}
+                            onValueChange={(value) =>
+                              setResponsesImageGenerationOutputFormat(
+                                value as
+                                  | ResponsesImageGenerationOutputFormat
+                                  | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-[11px]">
+                              <SelectValue
+                                placeholder={t('provider.responsesImageGenerationDefault')}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem
+                                value={RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION}
+                                className="text-[11px]"
+                              >
+                                {t('provider.responsesImageGenerationDefault')}
+                              </SelectItem>
+                              {RESPONSES_IMAGE_GENERATION_OUTPUT_FORMATS.map((value) => (
+                                <SelectItem key={value} value={value} className="text-[11px]">
+                                  {t(`provider.responsesImageGenerationOption.${value}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {t('provider.responsesImageGenerationModeration')}
+                          </span>
+                          <Select
+                            value={responsesImageGenerationModeration}
+                            onValueChange={(value) =>
+                              setResponsesImageGenerationModeration(
+                                value as
+                                  | ResponsesImageGenerationModeration
+                                  | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-[11px]">
+                              <SelectValue
+                                placeholder={t('provider.responsesImageGenerationDefault')}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem
+                                value={RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION}
+                                className="text-[11px]"
+                              >
+                                {t('provider.responsesImageGenerationDefault')}
+                              </SelectItem>
+                              {RESPONSES_IMAGE_GENERATION_MODERATIONS.map((value) => (
+                                <SelectItem key={value} value={value} className="text-[11px]">
+                                  {t(`provider.responsesImageGenerationOption.${value}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {t('provider.responsesImageGenerationInputFidelity')}
+                          </span>
+                          <Select
+                            value={responsesImageGenerationInputFidelity}
+                            onValueChange={(value) =>
+                              setResponsesImageGenerationInputFidelity(
+                                value as
+                                  | ResponsesImageGenerationInputFidelity
+                                  | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-[11px]">
+                              <SelectValue
+                                placeholder={t('provider.responsesImageGenerationDefault')}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem
+                                value={RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION}
+                                className="text-[11px]"
+                              >
+                                {t('provider.responsesImageGenerationDefault')}
+                              </SelectItem>
+                              {RESPONSES_IMAGE_GENERATION_INPUT_FIDELITIES.map((value) => (
+                                <SelectItem key={value} value={value} className="text-[11px]">
+                                  {t(`provider.responsesImageGenerationOption.${value}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {t('provider.responsesImageGenerationOutputCompression')}
+                          </span>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={100}
+                            placeholder="0-100"
+                            value={responsesImageGenerationOutputCompression}
+                            onChange={(e) =>
+                              setResponsesImageGenerationOutputCompression(e.target.value)
+                            }
+                            className="h-7 text-[11px]"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-muted-foreground">
+                            {t('provider.responsesImageGenerationPartialImages')}
+                          </span>
+                          <Input
+                            type="number"
+                            min={0}
+                            placeholder="0"
+                            value={responsesImageGenerationPartialImages}
+                            onChange={(e) =>
+                              setResponsesImageGenerationPartialImages(e.target.value)
+                            }
+                            className="h-7 text-[11px]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">{t('provider.promptCache')}</span>

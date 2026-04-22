@@ -8,6 +8,7 @@ type ThinkingProvider = 'anthropic' | 'openai-responses' | 'google'
 export type SessionRuntimeSyncEvent =
   | { kind: 'set_streaming_message'; sessionId: string; messageId: string | null }
   | { kind: 'set_generating_image'; messageId: string; generating: boolean }
+  | { kind: 'set_generating_image_preview'; messageId: string; preview: ContentBlock | null }
   | { kind: 'add_message'; sessionId: string; message: UnifiedMessage }
   | { kind: 'update_message'; sessionId: string; messageId: string; patch: Partial<UnifiedMessage> }
   | { kind: 'append_text_delta'; sessionId: string; messageId: string; text: string }
@@ -62,6 +63,13 @@ function applySessionRuntimeSyncEvent(event: SessionRuntimeSyncEvent): void {
 
     case 'set_generating_image':
       chatStore.setGeneratingImage(event.messageId, event.generating)
+      return
+
+    case 'set_generating_image_preview':
+      chatStore.setGeneratingImagePreview(
+        event.messageId,
+        event.preview?.type === 'image' ? event.preview : null
+      )
       return
 
     case 'add_message':

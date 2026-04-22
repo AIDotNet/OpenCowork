@@ -24,6 +24,10 @@
       "globalHint": "Global",
       "current": "Current",
       "presets": {
+        "mulberry": {
+          "label": "Shadcn Default",
+          "desc": "A neutral black, white, and gray system modeled after the default shadcn/ui look."
+        },
         "studio": {
           "label": "Studio Blue",
           "desc": "A calm blue-gray workspace tuned for coding and host management."
@@ -638,6 +642,33 @@
     "responsesSummaryConcise": "Concise",
     "responsesSummaryDetailed": "Detailed",
     "responsesWebsocket": "Enable WebSocket protocol",
+    "responsesImageGeneration": "Image generation",
+    "responsesImageGenerationDefault": "Default",
+    "responsesImageGenerationAction": "Action",
+    "responsesImageGenerationBackground": "Background",
+    "responsesImageGenerationQuality": "Quality",
+    "responsesImageGenerationSize": "Size",
+    "responsesImageGenerationOutputFormat": "Output format",
+    "responsesImageGenerationModeration": "Moderation",
+    "responsesImageGenerationInputFidelity": "Input fidelity",
+    "responsesImageGenerationOutputCompression": "Output compression",
+    "responsesImageGenerationPartialImages": "Partial images",
+    "responsesImageGenerationOption": {
+      "auto": "Auto",
+      "generate": "Generate",
+      "edit": "Edit",
+      "transparent": "Transparent",
+      "opaque": "Opaque",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "png": "PNG",
+      "webp": "WebP",
+      "jpeg": "JPEG",
+      "1024x1024": "1024 x 1024",
+      "1024x1536": "1024 x 1536",
+      "1536x1024": "1536 x 1024"
+    },
     "promptCache": "Prompt cache (responses)",
     "systemPromptCache": "System prompt cache (anthropic)",
 

@@ -193,6 +193,17 @@ function setGeneratingImageWithSync(messageId: string, generating: boolean): voi
   emitSessionRuntimeSync({ kind: 'set_generating_image', messageId, generating })
 }
 
+function setGeneratingImagePreviewWithSync(messageId: string, preview: ContentBlock | null): void {
+  useChatStore
+    .getState()
+    .setGeneratingImagePreview(messageId, preview?.type === 'image' ? preview : null)
+  emitSessionRuntimeSync({
+    kind: 'set_generating_image_preview',
+    messageId,
+    preview
+  })
+}
+
 function extractPluginChatId(externalChatId?: string): string | undefined {
   if (!externalChatId) return undefined
   const match = externalChatId.match(/^plugin:[^:]+:chat:(.+?)(?::message:.+)?$/)
@@ -907,6 +918,8 @@ function buildProviderConfigWithRuntimeSettings(
     thinkingConfig: resolvedThinkingConfig,
     reasoningEffort,
     responseSummary: modelConfig?.responseSummary ?? providerConfig.responseSummary,
+    responsesImageGeneration:
+      modelConfig?.responsesImageGeneration ?? providerConfig.responsesImageGeneration,
     enablePromptCache: modelConfig?.enablePromptCache ?? providerConfig.enablePromptCache,
     enableSystemPromptCache:
       modelConfig?.enableSystemPromptCache ?? providerConfig.enableSystemPromptCache,
@@ -2623,6 +2636,7 @@ export function useChatActions(): {
         addMessageWithSync(sessionId, assistantMsg)
       }
       setStreamingMessageIdWithSync(sessionId, assistantMsgId)
+      setGeneratingImagePreviewWithSync(assistantMsgId, null)
 
       const isImageRequest = baseProviderConfig.type === 'openai-images'
       if (isImageRequest) {
@@ -3442,6 +3456,19 @@ export function useChatActions(): {
                 streamDeltaBuffer.pushText(event.text)
                 break
 
+              case 'image_generation_started':
+                if (isSessionForeground(sessionId!)) {
+                  setGeneratingImageWithSync(assistantMsgId, true)
+                }
+                break
+
+              case 'image_generation_partial':
+                if (event.imageBlock && isSessionForeground(sessionId!)) {
+                  setGeneratingImageWithSync(assistantMsgId, true)
+                  setGeneratingImagePreviewWithSync(assistantMsgId, event.imageBlock)
+                }
+                break
+
               case 'image_generated':
                 // Flush any pending text before adding image
                 streamDeltaBuffer.flushNow()
@@ -3453,6 +3480,7 @@ export function useChatActions(): {
                 if (event.imageBlock) {
                   appendRuntimeContentBlock(sessionId!, assistantMsgId, event.imageBlock)
                 }
+                setGeneratingImagePreviewWithSync(assistantMsgId, null)
                 // Clear generating state after first image
                 if (isSessionForeground(sessionId!)) {
                   setGeneratingImageWithSync(assistantMsgId, false)
@@ -3472,6 +3500,7 @@ export function useChatActions(): {
                     message: event.imageError.message
                   })
                 }
+                setGeneratingImagePreviewWithSync(assistantMsgId, null)
                 if (isSessionForeground(sessionId!)) {
                   setGeneratingImageWithSync(assistantMsgId, false)
                 }
@@ -3768,6 +3797,9 @@ export function useChatActions(): {
                 if (!thinkingDone) {
                   thinkingDone = true
                   completeRuntimeThinking(sessionId!, assistantMsgId)
+                }
+                if (isSessionForeground(sessionId!)) {
+                  setGeneratingImageWithSync(assistantMsgId, false)
                 }
                 const estimatedContextTokens =
                   preciseContextTokens && preciseContextTokens > 0
@@ -4994,6 +5026,15 @@ async function runSimpleChat(
           }
           streamDeltaBuffer.pushText(event.text!)
           break
+        case 'image_generation_started':
+          setGeneratingImageWithSync(assistantMsgId, true)
+          break
+        case 'image_generation_partial':
+          if (event.imageBlock) {
+            setGeneratingImageWithSync(assistantMsgId, true)
+            setGeneratingImagePreviewWithSync(assistantMsgId, event.imageBlock)
+          }
+          break
         case 'image_generated':
           streamDeltaBuffer.flushNow()
           if (!thinkingDone) {
@@ -5003,6 +5044,7 @@ async function runSimpleChat(
           if (event.imageBlock) {
             appendRuntimeContentBlock(sessionId, assistantMsgId, event.imageBlock)
           }
+          setGeneratingImagePreviewWithSync(assistantMsgId, null)
           setGeneratingImageWithSync(assistantMsgId, false)
           break
         case 'image_error':
@@ -5018,6 +5060,7 @@ async function runSimpleChat(
               message: event.imageError.message
             })
           }
+          setGeneratingImagePreviewWithSync(assistantMsgId, null)
           setGeneratingImageWithSync(assistantMsgId, false)
           break
         case 'message_end': {
@@ -5026,6 +5069,7 @@ async function runSimpleChat(
             thinkingDone = true
             completeRuntimeThinking(sessionId, assistantMsgId)
           }
+          setGeneratingImageWithSync(assistantMsgId, false)
           if (event.usage) {
             const contextTokensOverride =
               preciseContextTokens && preciseContextTokens > 0

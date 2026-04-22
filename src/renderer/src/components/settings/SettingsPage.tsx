@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   Settings,
   BrainCircuit,
@@ -29,6 +29,7 @@ import { useUIStore, type SettingsTab } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import {
   clampMaxParallelToolCalls,
+  DEFAULT_THEME_MODE,
   DEFAULT_MAX_PARALLEL_TOOL_CALLS,
   MAX_MAX_PARALLEL_TOOL_CALLS,
   MIN_MAX_PARALLEL_TOOL_CALLS,
@@ -66,6 +67,7 @@ import { WebSearchPanel } from './WebSearchPanel'
 import { SkillsMarketPanel } from './SkillsMarketPanel'
 import { MigrationPanel } from './MigrationPanel'
 import { GlobalThemePanel } from './GlobalThemePanel'
+import { AnalyticsOverview } from './AnalyticsOverview'
 import { ModelIcon, ProviderIcon } from './provider-icons'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -94,11 +96,6 @@ import {
   DEFAULT_APP_THEME_PRESET,
   DEFAULT_SSH_TERMINAL_THEME_PRESET
 } from '@renderer/lib/theme-presets'
-
-const LazyAnalyticsOverview = lazy(async () => {
-  const mod = await import('./AnalyticsOverview')
-  return { default: mod.AnalyticsOverview }
-})
 
 const DEFAULT_GLOBAL_MEMORY_TEMPLATES = {
   soul: `# SOUL.md
@@ -1320,7 +1317,7 @@ function GeneralPanel(): React.JSX.Element {
               fastModel: 'claude-3-5-haiku-20241022',
               maxTokens: 32000,
               temperature: 0.7,
-              theme: 'system',
+              theme: DEFAULT_THEME_MODE,
               themePreset: DEFAULT_APP_THEME_PRESET,
               sshTerminalThemePreset: DEFAULT_SSH_TERMINAL_THEME_PRESET,
               backgroundColor: '',
@@ -1333,7 +1330,7 @@ function GeneralPanel(): React.JSX.Element {
               autoUpdateEnabled: true,
               apiKey: currentKey
             })
-            setTheme('system')
+            setTheme(DEFAULT_THEME_MODE)
             toast.success(t('general.resetDone'))
           }}
         >
@@ -1919,25 +1916,16 @@ function AnalyticsPanel(): React.JSX.Element {
         </div>
       ) : (
         <>
-          <Suspense
-            fallback={
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                {t('analytics.loading')}
-              </div>
-            }
-          >
-            <LazyAnalyticsOverview
-              overview={overview}
-              timeline={timeline}
-              rangeDays={rangeDays}
-              bucket={timelineBucket}
-              from={query.from}
-              to={query.to}
-              tokenLocale={tokenLocale}
-              inputTokenLabel={inputTokenLabel}
-            />
-          </Suspense>
+          <AnalyticsOverview
+            overview={overview}
+            timeline={timeline}
+            rangeDays={rangeDays}
+            bucket={timelineBucket}
+            from={query.from}
+            to={query.to}
+            tokenLocale={tokenLocale}
+            inputTokenLabel={inputTokenLabel}
+          />
 
           {renderSimpleTable(t('analytics.daily'), daily, [
             { key: 'day', label: t('analytics.time') },

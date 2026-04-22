@@ -228,6 +228,8 @@ export type StreamEventType =
   | 'tool_call_start'
   | 'tool_call_delta'
   | 'tool_call_end'
+  | 'image_generation_started'
+  | 'image_generation_partial'
   | 'image_generated'
   | 'image_error'
   | 'message_end'
@@ -245,6 +247,7 @@ export interface StreamEvent {
   argumentsDelta?: string
   toolCallInput?: Record<string, unknown>
   toolCallExtraContent?: ToolCallExtraContent
+  partialImageIndex?: number
   imageBlock?: ImageBlock
   imageError?: { code: ImageErrorCode; message: string }
   stopReason?: string
@@ -309,6 +312,26 @@ export type ProviderType =
   | 'gemini'
   | 'vertex-ai'
 export type ResponseSummary = 'auto' | 'concise' | 'detailed'
+export type ResponsesImageGenerationAction = 'auto' | 'generate' | 'edit'
+export type ResponsesImageGenerationBackground = 'auto' | 'transparent' | 'opaque'
+export type ResponsesImageGenerationInputFidelity = 'low' | 'high'
+export type ResponsesImageGenerationModeration = 'auto' | 'low'
+export type ResponsesImageGenerationOutputFormat = 'png' | 'webp' | 'jpeg'
+export type ResponsesImageGenerationQuality = 'auto' | 'low' | 'medium' | 'high'
+export type ResponsesImageGenerationSize = 'auto' | '1024x1024' | '1024x1536' | '1536x1024'
+
+export interface ResponsesImageGenerationConfig {
+  enabled?: boolean
+  action?: ResponsesImageGenerationAction
+  background?: ResponsesImageGenerationBackground
+  inputFidelity?: ResponsesImageGenerationInputFidelity
+  moderation?: ResponsesImageGenerationModeration
+  outputCompression?: number
+  outputFormat?: ResponsesImageGenerationOutputFormat
+  partialImages?: number
+  quality?: ResponsesImageGenerationQuality
+  size?: ResponsesImageGenerationSize
+}
 
 export type AuthMode = 'apiKey' | 'oauth' | 'channel'
 export type OAuthFlowType = 'authorization_code' | 'device_code'
@@ -454,6 +477,8 @@ export interface AIModelConfig {
   thinkingConfig?: ThinkingConfig
   /** OpenAI Responses: summary of reasoning (auto/concise/detailed) */
   responseSummary?: ResponseSummary
+  /** OpenAI Responses: image_generation tool configuration */
+  responsesImageGeneration?: ResponsesImageGenerationConfig
   /** OpenAI-compatible endpoints: enable prompt caching with the app-global cache key */
   enablePromptCache?: boolean
   /** Anthropic: enable system prompt caching */
@@ -567,6 +592,8 @@ export interface ProviderConfig {
   responsesSessionScope?: string
   /** OpenAI Responses: summary of reasoning (auto/concise/detailed) */
   responseSummary?: ResponseSummary
+  /** OpenAI Responses: image_generation tool configuration */
+  responsesImageGeneration?: ResponsesImageGenerationConfig
   /** OpenAI Responses: enable prompt caching with session-based key */
   enablePromptCache?: boolean
   /** Whether OpenAI Computer Use should be enabled for this request */

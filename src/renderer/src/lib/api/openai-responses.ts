@@ -20,6 +20,13 @@ import { useProviderStore } from '@renderer/stores/provider-store'
 import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { loadPrompt } from '../prompts/prompt-loader'
 import { getGlobalPromptCacheKey, registerProvider } from './provider'
+import {
+  buildResponsesImageGenerationTool,
+  extractResponsesImageBlocks,
+  extractResponsesPartialImageBlock,
+  getResponsesImageGenerationErrorMessage,
+  inferResponsesImageGenerationOutputFormat
+} from './responses-image-generation'
 import { sanitizeMessagesForToolReplay } from '../tools/tool-input-sanitizer'
 
 function resolveHeaderTemplate(value: string, config: ProviderConfig): string {
@@ -203,7 +210,10 @@ class OpenAIResponsesProvider implements APIProvider {
     const argBuffers = new Map<string, string>()
     const emittedThinkingEncrypted = new Set<string>()
     const emittedComputerCallIds = new Set<string>()
+    const emittedImageGenerationStartIds = new Set<string>()
+    const emittedImageOutputItemIds = new Set<string>()
     let emittedThinkingDelta = false
+    let imageGenerationStarted = false
 
     const extractReasoningSummaryText = (summary: unknown): string => {
       if (typeof summary === 'string') return summary
@@ -233,6 +243,81 @@ class OpenAIResponsesProvider implements APIProvider {
         type: 'thinking_encrypted',
         thinkingEncryptedContent: trimmed,
         thinkingEncryptedProvider: 'openai-responses'
+      }
+    }
+
+    const getImageGenerationItemId = (item: unknown): string | null => {
+      if (!item || typeof item !== 'object') return null
+      const record = item as { id?: unknown; item_id?: unknown; call_id?: unknown }
+      if (typeof record.id === 'string' && record.id.trim()) return record.id
+      if (typeof record.item_id === 'string' && record.item_id.trim()) return record.item_id
+      if (typeof record.call_id === 'string' && record.call_id.trim()) return record.call_id
+      return null
+    }
+
+    const tryBuildImageGenerationStartedEvent = (item: unknown): StreamEvent | null => {
+      const itemId = getImageGenerationItemId(item)
+      if (itemId && emittedImageGenerationStartIds.has(itemId)) return null
+      if (itemId) emittedImageGenerationStartIds.add(itemId)
+      if (firstTokenAt === null) firstTokenAt = Date.now()
+      imageGenerationStarted = true
+      return { type: 'image_generation_started' }
+    }
+
+    const buildImageGenerationEvents = function* (item: unknown): Iterable<StreamEvent> {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return
+      const record = item as { type?: unknown }
+      if (record.type !== 'image_generation_call') return
+
+      const startEvent = tryBuildImageGenerationStartedEvent(item)
+      if (startEvent) {
+        yield startEvent
+      }
+
+      const itemId = getImageGenerationItemId(item)
+      if (itemId && emittedImageOutputItemIds.has(itemId)) return
+
+      const imageBlocks = extractResponsesImageBlocks(
+        item,
+        runtimeConfig.responsesImageGeneration?.outputFormat
+      )
+      if (imageBlocks.length > 0) {
+        if (itemId) emittedImageOutputItemIds.add(itemId)
+        if (firstTokenAt === null) firstTokenAt = Date.now()
+        imageGenerationStarted = false
+        for (const imageBlock of imageBlocks) {
+          yield { type: 'image_generated', imageBlock }
+        }
+        return
+      }
+
+      const errorMessage = getResponsesImageGenerationErrorMessage(item)
+      if (errorMessage) {
+        if (itemId) emittedImageOutputItemIds.add(itemId)
+        if (firstTokenAt === null) firstTokenAt = Date.now()
+        imageGenerationStarted = false
+        yield {
+          type: 'image_error',
+          imageError: {
+            code: 'api_error',
+            message: errorMessage
+          }
+        }
+      }
+    }
+
+    const tryBuildTerminalImageErrorEvent = (payload: unknown): StreamEvent | null => {
+      if (!imageGenerationStarted) return null
+      const message =
+        getResponsesImageGenerationErrorMessage(payload) ??
+        (typeof payload === 'string' && payload.trim() ? payload.trim() : 'Image generation failed')
+      imageGenerationStarted = false
+      return {
+        type: 'image_error',
+        imageError: {
+          code: 'api_error',
+          message
+        }
       }
     }
 
@@ -319,6 +404,11 @@ class OpenAIResponsesProvider implements APIProvider {
               if (thinkingEncryptedEvent) {
                 yield thinkingEncryptedEvent
               }
+            } else if (data.item?.type === 'image_generation_call') {
+              const imageEvent = tryBuildImageGenerationStartedEvent(data.item)
+              if (imageEvent) {
+                yield imageEvent
+              }
             }
             break
 
@@ -344,6 +434,31 @@ class OpenAIResponsesProvider implements APIProvider {
             )
             if (thinkingEncryptedEvent) {
               yield thinkingEncryptedEvent
+            }
+            for (const imageEvent of buildImageGenerationEvents(data.item)) {
+              yield imageEvent
+            }
+            break
+          }
+
+          case 'response.image_generation_call.partial_image': {
+            const startEvent = tryBuildImageGenerationStartedEvent(data)
+            if (startEvent) {
+              yield startEvent
+            }
+            const imageBlock = extractResponsesPartialImageBlock(
+              data,
+              runtimeConfig.responsesImageGeneration?.outputFormat
+            )
+            if (imageBlock) {
+              if (firstTokenAt === null) firstTokenAt = Date.now()
+              yield {
+                type: 'image_generation_partial',
+                imageBlock,
+                ...(typeof data.partial_image_index === 'number'
+                  ? { partialImageIndex: data.partial_image_index }
+                  : {})
+              }
             }
             break
           }
@@ -401,6 +516,9 @@ class OpenAIResponsesProvider implements APIProvider {
                 if (thinkingEncryptedEvent) {
                   yield thinkingEncryptedEvent
                 }
+                for (const imageEvent of buildImageGenerationEvents(item)) {
+                  yield imageEvent
+                }
               }
             }
             if (data.response?.usage?.output_tokens !== undefined) {
@@ -438,10 +556,22 @@ class OpenAIResponsesProvider implements APIProvider {
           }
 
           case 'response.failed':
+            {
+              const imageErrorEvent = tryBuildTerminalImageErrorEvent(data)
+              if (imageErrorEvent) {
+                yield imageErrorEvent
+              }
+            }
             yield { type: 'error', error: { type: 'api_error', message: JSON.stringify(data) } }
             break
 
           case 'error':
+            {
+              const imageErrorEvent = tryBuildTerminalImageErrorEvent(data)
+              if (imageErrorEvent) {
+                yield imageErrorEvent
+              }
+            }
             yield { type: 'error', error: { type: 'api_error', message: JSON.stringify(data) } }
             break
         }
@@ -521,6 +651,16 @@ class OpenAIResponsesProvider implements APIProvider {
         switch (block.type) {
           case 'text':
             input.push({ type: 'message', role: m.role, content: block.text })
+            break
+          case 'image':
+            if (m.role === 'assistant' && block.source.type === 'base64' && block.source.data) {
+              const outputFormat = inferResponsesImageGenerationOutputFormat(block.source.mediaType)
+              input.push({
+                type: 'image_generation_call',
+                result: block.source.data,
+                ...(outputFormat ? { output_format: outputFormat } : {})
+              })
+            }
             break
           case 'thinking':
             if (
@@ -664,8 +804,15 @@ class OpenAIResponsesProvider implements APIProvider {
 
   private buildToolsPayload(tools: ToolDefinition[], config: ProviderConfig): unknown[] {
     const formattedTools = this.formatTools(tools)
-    if (!config.computerUseEnabled) return formattedTools
-    return [{ type: 'computer' }, ...formattedTools]
+    const imageGenerationTool = buildResponsesImageGenerationTool(config.responsesImageGeneration)
+    const specialTools: unknown[] = []
+    if (config.computerUseEnabled) {
+      specialTools.push({ type: 'computer' })
+    }
+    if (imageGenerationTool) {
+      specialTools.push(imageGenerationTool)
+    }
+    return [...specialTools, ...formattedTools]
   }
 
   private buildComputerUseToolEvents(

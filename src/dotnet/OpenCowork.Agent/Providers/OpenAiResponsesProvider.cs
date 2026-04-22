@@ -48,6 +48,7 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
     {
         var requestStartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var state = new StreamingState();
+        state.RequestedImageOutputFormat = config.ResponsesImageGeneration?.OutputFormat;
         var outputTokens = 0;
 
         var baseUrl = (config.BaseUrl ?? "https://api.openai.com/v1").TrimEnd('/');
@@ -138,6 +139,17 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                         {
                             foreach (var evt in HandleOutputItemDone(doneItem, state))
                                 yield return evt;
+                        }
+                        break;
+
+                    case "response.image_generation_call.partial_image":
+                        {
+                            var imageStartedEvent = TryCreateImageGenerationStartedEvent(root, state);
+                            if (imageStartedEvent is not null)
+                                yield return imageStartedEvent;
+                            var partialImageEvent = TryCreateImageGenerationPartialEvent(root, state);
+                            if (partialImageEvent is not null)
+                                yield return partialImageEvent;
                         }
                         break;
 
@@ -236,6 +248,11 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
 
                     case "response.failed":
                     case "error":
+                        {
+                            var imageErrorEvent = TryBuildTerminalImageErrorEvent(root, state);
+                            if (imageErrorEvent is not null)
+                                yield return imageErrorEvent;
+                        }
                         yield return new StreamEvent
                         {
                             Type = "error",
@@ -1247,7 +1264,10 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                 body["prompt_cache_key"] = cacheKey;
         }
 
-        var formattedTools = BuildToolsPayload(tools, config.ComputerUseEnabled == true);
+        var formattedTools = BuildToolsPayload(
+            tools,
+            config.ComputerUseEnabled == true,
+            config.ResponsesImageGeneration);
         if (formattedTools.Count > 0)
             body["tools"] = formattedTools;
 
@@ -1303,11 +1323,17 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         return ms.ToArray();
     }
 
-    private static JsonArray BuildToolsPayload(List<ToolDefinition> tools, bool includeComputerTool)
+    private static JsonArray BuildToolsPayload(
+        List<ToolDefinition> tools,
+        bool includeComputerTool,
+        ResponsesImageGenerationConfig? imageGenerationConfig)
     {
         var result = new JsonArray();
         if (includeComputerTool)
             result.Add(new JsonObject { ["type"] = "computer" });
+        var imageGenerationTool = BuildImageGenerationTool(imageGenerationConfig);
+        if (imageGenerationTool is not null)
+            result.Add(imageGenerationTool);
 
         foreach (var tool in tools)
         {
@@ -1322,6 +1348,38 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         }
 
         return result;
+    }
+
+    private static JsonObject? BuildImageGenerationTool(ResponsesImageGenerationConfig? config)
+    {
+        if (config?.Enabled == false)
+            return null;
+
+        var tool = new JsonObject
+        {
+            ["type"] = "image_generation"
+        };
+
+        if (!string.IsNullOrWhiteSpace(config?.Action))
+            tool["action"] = config.Action;
+        if (!string.IsNullOrWhiteSpace(config?.Background))
+            tool["background"] = config.Background;
+        if (!string.IsNullOrWhiteSpace(config?.InputFidelity))
+            tool["input_fidelity"] = config.InputFidelity;
+        if (!string.IsNullOrWhiteSpace(config?.Moderation))
+            tool["moderation"] = config.Moderation;
+        if (!string.IsNullOrWhiteSpace(config?.OutputFormat))
+            tool["output_format"] = config.OutputFormat;
+        if (!string.IsNullOrWhiteSpace(config?.Quality))
+            tool["quality"] = config.Quality;
+        if (!string.IsNullOrWhiteSpace(config?.Size))
+            tool["size"] = config.Size;
+        if (config?.OutputCompression is int outputCompression)
+            tool["output_compression"] = Math.Clamp(outputCompression, 0, 100);
+        if (config?.PartialImages is int partialImages)
+            tool["partial_images"] = Math.Max(0, partialImages);
+
+        return tool;
     }
 
     private static JsonArray FormatResponsesInput(List<UnifiedMessage> messages, string? systemPrompt, bool includeEncryptedReasoning)
@@ -1413,6 +1471,19 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                             ["content"] = textBlock.Text
                         });
                         break;
+                    case ImageBlock imageBlock when message.Role == "assistant"
+                        && imageBlock.Source.Type == "base64"
+                        && !string.IsNullOrWhiteSpace(imageBlock.Source.Data):
+                        var imageGenerationCall = new JsonObject
+                        {
+                            ["type"] = "image_generation_call",
+                            ["result"] = imageBlock.Source.Data
+                        };
+                        var outputFormat = InferImageOutputFormatFromMediaType(imageBlock.Source.MediaType);
+                        if (!string.IsNullOrWhiteSpace(outputFormat))
+                            imageGenerationCall["output_format"] = outputFormat;
+                        input.Add(imageGenerationCall);
+                        break;
                     case ThinkingBlock thinkingBlock when includeEncryptedReasoning
                         && message.Role == "assistant"
                         && !string.IsNullOrWhiteSpace(thinkingBlock.EncryptedContent)
@@ -1478,6 +1549,288 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         };
     }
 
+    private static string? InferImageOutputFormatFromMediaType(string? mediaType)
+        => mediaType?.Trim().ToLowerInvariant() switch
+        {
+            "image/jpeg" or "image/jpg" => "jpeg",
+            "image/webp" => "webp",
+            "image/png" => "png",
+            _ => null
+        };
+
+    private static string? GetImageGenerationItemId(JsonElement item)
+    {
+        foreach (var propertyName in new[] { "id", "item_id", "call_id" })
+        {
+            if (item.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String)
+            {
+                var value = property.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static StreamEvent? TryCreateImageGenerationStartedEvent(JsonElement item, StreamingState state)
+    {
+        var itemId = GetImageGenerationItemId(item);
+        if (!string.IsNullOrWhiteSpace(itemId) && !state.EmittedImageGenerationStartIds.Add(itemId))
+            return null;
+
+        state.MarkFirstToken();
+        state.ImageGenerationStarted = true;
+        return new StreamEvent { Type = "image_generation_started" };
+    }
+
+    private static List<StreamEvent> BuildImageGenerationEvents(JsonElement item, StreamingState state)
+    {
+        var events = new List<StreamEvent>();
+        var type = GetStringOrDefault(item, "type");
+        if (!string.Equals(type, "image_generation_call", StringComparison.Ordinal))
+            return events;
+
+        var startedEvent = TryCreateImageGenerationStartedEvent(item, state);
+        if (startedEvent is not null)
+            events.Add(startedEvent);
+
+        var itemId = GetImageGenerationItemId(item);
+        if (!string.IsNullOrWhiteSpace(itemId) && state.EmittedImageOutputItemIds.Contains(itemId))
+            return events;
+
+        var outputFormat = GetStringOrDefault(item, "output_format");
+        if (string.IsNullOrWhiteSpace(outputFormat))
+            outputFormat = state.RequestedImageOutputFormat;
+        if (item.TryGetProperty("result", out var result))
+        {
+            foreach (var imageBlock in ExtractImageBlocks(result, outputFormat))
+            {
+                if (!string.IsNullOrWhiteSpace(itemId))
+                    state.EmittedImageOutputItemIds.Add(itemId);
+                state.MarkFirstToken();
+                state.ImageGenerationStarted = false;
+                events.Add(new StreamEvent
+                {
+                    Type = "image_generated",
+                    ImageBlock = imageBlock
+                });
+            }
+        }
+
+        if (events.Any(evt => evt.Type == "image_generated"))
+            return events;
+
+        var errorMessage = GetImageGenerationErrorMessage(item);
+        if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            if (!string.IsNullOrWhiteSpace(itemId))
+                state.EmittedImageOutputItemIds.Add(itemId);
+            state.MarkFirstToken();
+            state.ImageGenerationStarted = false;
+            events.Add(new StreamEvent
+            {
+                Type = "image_error",
+                ImageError = new StreamEventImageError
+                {
+                    Code = "api_error",
+                    Message = errorMessage
+                }
+            });
+        }
+
+        return events;
+    }
+
+    private static StreamEvent? TryBuildTerminalImageErrorEvent(JsonElement payload, StreamingState state)
+    {
+        if (!state.ImageGenerationStarted)
+            return null;
+
+        var errorMessage = GetImageGenerationErrorMessage(payload);
+        if (string.IsNullOrWhiteSpace(errorMessage))
+            errorMessage = payload.GetRawText();
+
+        state.ImageGenerationStarted = false;
+        return new StreamEvent
+        {
+            Type = "image_error",
+            ImageError = new StreamEventImageError
+            {
+                Code = "api_error",
+                Message = errorMessage
+            }
+        };
+    }
+
+    private static StreamEvent? TryCreateImageGenerationPartialEvent(JsonElement payload, StreamingState state)
+    {
+        var partialImageB64 = GetStringOrDefault(payload, "partial_image_b64");
+        if (string.IsNullOrWhiteSpace(partialImageB64))
+            return null;
+
+        var outputFormat = GetStringOrDefault(payload, "output_format");
+        if (string.IsNullOrWhiteSpace(outputFormat))
+            outputFormat = state.RequestedImageOutputFormat;
+
+        state.MarkFirstToken();
+        return new StreamEvent
+        {
+            Type = "image_generation_partial",
+            ImageBlock = CreateImageBlock(partialImageB64, outputFormat),
+            PartialImageIndex = payload.TryGetProperty("partial_image_index", out var partialImageIndex)
+                && partialImageIndex.ValueKind == JsonValueKind.Number
+                && partialImageIndex.TryGetInt32(out var partialIndexValue)
+                    ? partialIndexValue
+                    : null
+        };
+    }
+
+    private static IEnumerable<ImageBlock> ExtractImageBlocks(JsonElement result, string? outputFormat)
+    {
+        foreach (var imageBase64 in EnumerateImageBase64Values(result))
+        {
+            yield return CreateImageBlock(imageBase64, outputFormat);
+        }
+    }
+
+    private static IEnumerable<string> EnumerateImageBase64Values(JsonElement value)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.String:
+                {
+                    var imageBase64 = value.GetString();
+                    if (!string.IsNullOrWhiteSpace(imageBase64))
+                        yield return imageBase64;
+                    yield break;
+                }
+            case JsonValueKind.Array:
+                foreach (var item in value.EnumerateArray())
+                {
+                    foreach (var imageBase64 in EnumerateImageBase64Values(item))
+                        yield return imageBase64;
+                }
+                yield break;
+            case JsonValueKind.Object:
+                foreach (var propertyName in new[] { "b64_json", "image_base64", "data", "result" })
+                {
+                    if (!value.TryGetProperty(propertyName, out var property))
+                        continue;
+
+                    var foundAny = false;
+                    foreach (var imageBase64 in EnumerateImageBase64Values(property))
+                    {
+                        foundAny = true;
+                        yield return imageBase64;
+                    }
+
+                    if (foundAny)
+                        yield break;
+                }
+                yield break;
+            default:
+                yield break;
+        }
+    }
+
+    private static ImageBlock CreateImageBlock(string imageBase64, string? outputFormat)
+        => new()
+        {
+            Source = new ImageSource
+            {
+                Type = "base64",
+                Data = imageBase64,
+                MediaType = GetImageMediaType(outputFormat, imageBase64)
+            }
+        };
+
+    private static string GetImageMediaType(string? outputFormat, string imageBase64)
+        => outputFormat?.Trim().ToLowerInvariant() switch
+        {
+            "jpeg" or "jpg" => "image/jpeg",
+            "webp" => "image/webp",
+            "png" => "image/png",
+            _ => DetectImageMediaTypeFromBase64(imageBase64) ?? "image/png"
+        };
+
+    private static string? DetectImageMediaTypeFromBase64(string? imageBase64)
+    {
+        if (string.IsNullOrWhiteSpace(imageBase64))
+            return null;
+
+        var normalized = imageBase64.Trim();
+        var dataUrlPrefix = ";base64,";
+        var prefixIndex = normalized.IndexOf(dataUrlPrefix, StringComparison.OrdinalIgnoreCase);
+        if (normalized.StartsWith("data:", StringComparison.OrdinalIgnoreCase) && prefixIndex >= 0)
+            normalized = normalized[(prefixIndex + dataUrlPrefix.Length)..];
+
+        normalized = string.Concat(normalized.Where(ch => !char.IsWhiteSpace(ch)));
+        if (string.IsNullOrWhiteSpace(normalized))
+            return null;
+
+        if (normalized.StartsWith("iVBORw0KGgo", StringComparison.Ordinal))
+            return "image/png";
+        if (normalized.StartsWith("/9j/", StringComparison.Ordinal))
+            return "image/jpeg";
+        if (normalized.StartsWith("UklGR", StringComparison.Ordinal))
+            return "image/webp";
+
+        try
+        {
+            var headerLength = Math.Min(normalized.Length, 24);
+            var header = Convert.FromBase64String(normalized[..headerLength]);
+            if (header.Length >= 4 && header[0] == 0x89 && header[1] == 0x50)
+                return "image/png";
+            if (header.Length >= 3 && header[0] == 0xFF && header[1] == 0xD8)
+                return "image/jpeg";
+            if (header.Length >= 12
+                && header[0] == (byte)'R'
+                && header[1] == (byte)'I'
+                && header[2] == (byte)'F'
+                && header[3] == (byte)'F'
+                && header[8] == (byte)'W'
+                && header[9] == (byte)'E'
+                && header[10] == (byte)'B'
+                && header[11] == (byte)'P')
+            {
+                return "image/webp";
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    private static string? GetImageGenerationErrorMessage(JsonElement payload)
+    {
+        if (payload.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var key in new[] { "message", "code", "type" })
+            {
+                var value = GetStringOrDefault(error, key);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+        }
+
+        foreach (var key in new[] { "message", "status", "code", "type" })
+        {
+            var value = GetStringOrDefault(payload, key);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                if (key == "status" && !string.Equals(value, "failed", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                return key == "status" ? "Image generation failed" : value;
+            }
+        }
+
+        return null;
+    }
+
     private static List<StreamEvent> HandleOutputItemAdded(JsonElement item, StreamingState state)
     {
         var events = new List<StreamEvent>();
@@ -1520,6 +1873,13 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                             ThinkingEncryptedProvider = "openai-responses"
                         });
                     }
+                    break;
+                }
+            case "image_generation_call":
+                {
+                    var imageStartedEvent = TryCreateImageGenerationStartedEvent(item, state);
+                    if (imageStartedEvent is not null)
+                        events.Add(imageStartedEvent);
                     break;
                 }
         }
@@ -1575,6 +1935,8 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
                 });
             }
         }
+
+        events.AddRange(BuildImageGenerationEvents(item, state));
 
         return events;
     }
@@ -2156,8 +2518,12 @@ public sealed class OpenAiResponsesProvider : ILlmProvider
         public Dictionary<string, string> FunctionNamesByItemId { get; } = new(StringComparer.Ordinal);
         public HashSet<string> EmittedThinkingEncrypted { get; } = new(StringComparer.Ordinal);
         public HashSet<string> EmittedComputerCallIds { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> EmittedImageGenerationStartIds { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> EmittedImageOutputItemIds { get; } = new(StringComparer.Ordinal);
         public long? FirstTokenAt { get; private set; }
         public bool EmittedThinkingDelta { get; set; }
+        public bool ImageGenerationStarted { get; set; }
+        public string? RequestedImageOutputFormat { get; set; }
 
         public void MarkFirstToken()
         {

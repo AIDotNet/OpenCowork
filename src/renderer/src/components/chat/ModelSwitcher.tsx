@@ -36,6 +36,7 @@ import {
 } from '@renderer/components/settings/provider-icons'
 import { cn } from '@renderer/lib/utils'
 import type { AIModelConfig, AIProvider, ReasoningEffortLevel } from '@renderer/lib/api/types'
+import { isResponsesImageGenerationEnabled } from '@renderer/lib/api/responses-image-generation'
 import {
   clampCompressionThreshold,
   DEFAULT_CONTEXT_COMPRESSION_THRESHOLD,
@@ -159,6 +160,7 @@ function ModelSettingsPopover({
   const supportsThinking = model?.supportsThinking ?? false
   const supportsFastMode = supportsPriorityServiceTier(model)
   const supportsResponsesWebsocket = !!model && requestType === 'openai-responses'
+  const supportsResponsesImageGeneration = !!model && requestType === 'openai-responses'
   const supportsContextCompression = !!model
   const levels = model?.thinkingConfig?.reasoningEffortLevels
   const thinkingEnabled = useSettingsStore((s) => s.thinkingEnabled)
@@ -203,7 +205,11 @@ function ModelSettingsPopover({
   )
 
   const hasAnySetting =
-    supportsThinking || supportsFastMode || supportsResponsesWebsocket || supportsContextCompression
+    supportsThinking ||
+    supportsFastMode ||
+    supportsResponsesWebsocket ||
+    supportsResponsesImageGeneration ||
+    supportsContextCompression
 
   const contextCompressionPercent = Math.round(
     clampCompressionThreshold(
@@ -226,6 +232,9 @@ function ModelSettingsPopover({
   )
 
   const websocketEnabled = (model?.websocketMode ?? providerWebsocketMode ?? 'auto') !== 'disabled'
+  const responsesImageGenerationEnabled = isResponsesImageGenerationEnabled(
+    model?.responsesImageGeneration
+  )
 
   const toggleResponsesWebsocket = useCallback(() => {
     if (!model?.id) return
@@ -236,6 +245,19 @@ function ModelSettingsPopover({
       websocketMode: websocketEnabled ? 'disabled' : 'auto'
     })
   }, [model, providerId, websocketEnabled])
+
+  const toggleResponsesImageGeneration = useCallback(() => {
+    if (!model?.id) return
+    const providerStore = useProviderStore.getState()
+    const targetProviderId = providerId ?? providerStore.activeProviderId
+    if (!targetProviderId) return
+    providerStore.updateModel(targetProviderId, model.id, {
+      responsesImageGeneration: {
+        ...(model.responsesImageGeneration ?? {}),
+        enabled: !responsesImageGenerationEnabled
+      }
+    })
+  }, [model, providerId, responsesImageGenerationEnabled])
 
   return (
     <Popover>
@@ -402,12 +424,37 @@ function ModelSettingsPopover({
                   )}
                 />
               </button>
+              <button
+                type="button"
+                className={cn(
+                  'flex items-center justify-between rounded-md px-2.5 py-2 text-xs transition-colors',
+                  responsesImageGenerationEnabled
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    : 'hover:bg-muted/60 text-foreground/80'
+                )}
+                onClick={toggleResponsesImageGeneration}
+              >
+                <span className="font-medium">
+                  {tSettings('provider.responsesImageGeneration')}
+                </span>
+                <span
+                  className={cn(
+                    'size-4 rounded-full border-2 transition-colors shrink-0',
+                    responsesImageGenerationEnabled
+                      ? 'bg-emerald-500 border-emerald-500'
+                      : 'border-muted-foreground/30'
+                  )}
+                />
+              </button>
             </>
           )}
 
           {supportsContextCompression && (
             <>
-              {(supportsThinking || supportsFastMode || supportsResponsesWebsocket) && (
+              {(supportsThinking ||
+                supportsFastMode ||
+                supportsResponsesWebsocket ||
+                supportsResponsesImageGeneration) && (
                 <div className="my-1 border-t border-border/50" />
               )}
               <div className="flex items-center gap-1.5 px-1 pb-1 pt-1 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">

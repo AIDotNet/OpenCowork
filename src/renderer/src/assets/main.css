@@ -241,6 +241,26 @@
   --sidebar-accent-foreground: oklch(0.22 0.012 260);
   --sidebar-border: oklch(0.892 0.004 260);
   --sidebar-ring: oklch(0.648 0.03 260);
+  --workspace-titlebar-bg: color-mix(in srgb, var(--background) 92%, white 8%);
+  --workspace-titlebar-border: color-mix(in srgb, var(--border) 76%, transparent);
+  --workspace-titlebar-button-hover: color-mix(in srgb, var(--accent) 78%, white 22%);
+  --workspace-titlebar-toolgroup-bg: color-mix(in srgb, var(--background) 88%, white 12%);
+  --workspace-titlebar-toolgroup-border: color-mix(in srgb, var(--border) 82%, transparent);
+  --workspace-titlebar-toolbutton-hover: color-mix(in srgb, var(--accent) 84%, white 16%);
+  --workspace-titlebar-toolbutton-active: color-mix(in srgb, var(--accent) 92%, white 8%);
+  --workspace-sidebar-divider: color-mix(in srgb, var(--sidebar-border) 72%, transparent);
+  --workspace-sidebar-section-border: color-mix(in srgb, var(--border) 62%, transparent);
+  --workspace-sidebar-row-hover-bg: color-mix(in srgb, var(--sidebar-accent) 92%, white 8%);
+  --workspace-sidebar-row-hover-border: color-mix(in srgb, var(--sidebar-border) 76%, transparent);
+  --workspace-sidebar-row-active-bg: color-mix(in srgb, var(--sidebar-accent) 98%, white 2%);
+  --workspace-sidebar-row-active-border: color-mix(in srgb, var(--sidebar-border) 84%, transparent);
+  --workspace-sidebar-row-active-shadow: 0 8px 20px -18px
+    color-mix(in srgb, var(--foreground) 20%, transparent);
+  --activity-card-bg: color-mix(in srgb, var(--card) 94%, black 6%);
+  --activity-card-border: color-mix(in srgb, var(--border) 84%, black 16%);
+  --activity-card-divider: color-mix(in srgb, var(--border) 76%, transparent);
+  --activity-card-header-hover: color-mix(in srgb, var(--accent) 76%, white 24%);
+  --activity-card-shadow: 0 14px 28px -20px color-mix(in srgb, var(--foreground) 24%, transparent);
   --composer-shell-top: var(--card);
   --composer-shell-bottom: var(--card);
   --composer-shell-border: color-mix(in srgb, var(--border) 92%, black 4%);
@@ -322,6 +342,25 @@
   --sidebar-accent-foreground: oklch(0.985 0.004 260);
   --sidebar-border: oklch(0.3 0.012 260);
   --sidebar-ring: oklch(0.62 0.09 255);
+  --workspace-titlebar-bg: color-mix(in srgb, var(--background) 84%, black 16%);
+  --workspace-titlebar-border: color-mix(in srgb, var(--border) 70%, black 30%);
+  --workspace-titlebar-button-hover: color-mix(in srgb, var(--accent) 70%, black 30%);
+  --workspace-titlebar-toolgroup-bg: color-mix(in srgb, var(--background) 74%, black 26%);
+  --workspace-titlebar-toolgroup-border: color-mix(in srgb, var(--border) 74%, black 26%);
+  --workspace-titlebar-toolbutton-hover: color-mix(in srgb, var(--accent) 72%, black 28%);
+  --workspace-titlebar-toolbutton-active: color-mix(in srgb, var(--accent) 88%, black 12%);
+  --workspace-sidebar-divider: color-mix(in srgb, var(--sidebar-border) 72%, black 28%);
+  --workspace-sidebar-section-border: color-mix(in srgb, var(--border) 64%, black 36%);
+  --workspace-sidebar-row-hover-bg: color-mix(in srgb, var(--sidebar-accent) 82%, black 18%);
+  --workspace-sidebar-row-hover-border: color-mix(in srgb, var(--sidebar-border) 74%, black 26%);
+  --workspace-sidebar-row-active-bg: color-mix(in srgb, var(--sidebar-accent) 94%, black 6%);
+  --workspace-sidebar-row-active-border: color-mix(in srgb, var(--sidebar-border) 82%, black 18%);
+  --workspace-sidebar-row-active-shadow: 0 12px 24px -20px rgba(0, 0, 0, 0.45);
+  --activity-card-bg: color-mix(in srgb, var(--card) 88%, black 12%);
+  --activity-card-border: color-mix(in srgb, var(--border) 74%, black 26%);
+  --activity-card-divider: color-mix(in srgb, var(--border) 68%, black 32%);
+  --activity-card-header-hover: color-mix(in srgb, var(--accent) 62%, black 38%);
+  --activity-card-shadow: 0 18px 32px -24px rgba(0, 0, 0, 0.48);
   --composer-shell-top: color-mix(in srgb, var(--card) 92%, var(--background) 8%);
   --composer-shell-bottom: color-mix(in srgb, var(--card) 92%, var(--background) 8%);
   --composer-shell-border: color-mix(in srgb, var(--border) 82%, black 18%);
@@ -796,6 +835,102 @@
     border-color: var(--composer-chip-border);
     background: transparent;
     box-shadow: none;
+  }
+
+  .workspace-sidebar-surface {
+    border-right-color: var(--workspace-sidebar-divider);
+  }
+
+  .workspace-sidebar-titlebar {
+    background: transparent;
+    border-bottom: 0;
+  }
+
+  .workspace-sidebar-section {
+    border-bottom: 1px solid var(--workspace-sidebar-section-border);
+  }
+
+  .workspace-sidebar-row {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .workspace-sidebar-row--hover:hover {
+    background: var(--workspace-sidebar-row-hover-bg);
+    border-color: var(--workspace-sidebar-row-hover-border);
+  }
+
+  .workspace-sidebar-row--active {
+    background: var(--workspace-sidebar-row-active-bg);
+    border-color: var(--workspace-sidebar-row-active-border);
+    box-shadow: var(--workspace-sidebar-row-active-shadow);
+  }
+
+  .workspace-sidebar-row-action {
+    color: color-mix(in srgb, var(--sidebar-foreground) 66%, transparent);
+  }
+
+  .workspace-sidebar-row-action:hover {
+    background: color-mix(in srgb, var(--workspace-sidebar-row-hover-bg) 92%, transparent);
+    color: var(--sidebar-foreground);
+  }
+
+  .workspace-titlebar-surface {
+    background: transparent;
+    border-bottom: 0;
+  }
+
+  .workspace-page-top-surface {
+    background: transparent;
+  }
+
+  .workspace-titlebar-action {
+    color: color-mix(in srgb, var(--foreground) 70%, var(--muted-foreground) 30%);
+  }
+
+  .workspace-titlebar-action:hover {
+    background: var(--workspace-titlebar-button-hover);
+    color: var(--foreground);
+  }
+
+  .workspace-titlebar-toolgroup {
+    background: var(--workspace-titlebar-toolgroup-bg);
+    border-color: var(--workspace-titlebar-toolgroup-border);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 8%, transparent);
+  }
+
+  .workspace-titlebar-toolbutton {
+    color: color-mix(in srgb, var(--foreground) 68%, var(--muted-foreground) 32%);
+  }
+
+  .workspace-titlebar-toolbutton:hover {
+    background: var(--workspace-titlebar-toolbutton-hover);
+    color: var(--foreground);
+  }
+
+  .workspace-titlebar-toolbutton[data-active='true'] {
+    background: var(--workspace-titlebar-toolbutton-active);
+    color: var(--foreground);
+    box-shadow: inset 0 0 0 1px
+      color-mix(in srgb, var(--workspace-titlebar-toolgroup-border) 82%, transparent);
+  }
+
+  .activity-card-shell {
+    border: 1px solid var(--activity-card-border);
+    background: var(--activity-card-bg);
+    box-shadow: var(--activity-card-shadow);
+  }
+
+  .activity-card-divider {
+    border-color: var(--activity-card-divider);
+  }
+
+  .activity-card-header {
+    border-bottom: 1px solid var(--activity-card-divider);
+  }
+
+  .activity-card-header--interactive:hover {
+    background: var(--activity-card-header-hover);
   }
 }
 

@@ -1,0 +1,32 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dotnet", "dotnet", "{204ECC8A-4C8C-06A8-7EEC-D568B118FA74}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenCowork.Agent", "src\dotnet\OpenCowork.Agent\OpenCowork.Agent.csproj", "{791A396F-5E43-52B9-717F-277E75BCF845}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{791A396F-5E43-52B9-717F-277E75BCF845}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{791A396F-5E43-52B9-717F-277E75BCF845}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{791A396F-5E43-52B9-717F-277E75BCF845}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{791A396F-5E43-52B9-717F-277E75BCF845}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{204ECC8A-4C8C-06A8-7EEC-D568B118FA74} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{791A396F-5E43-52B9-717F-277E75BCF845} = {204ECC8A-4C8C-06A8-7EEC-D568B118FA74}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {60B75B01-6DAD-4A50-B6C8-E17C8892B3D7}
+	EndGlobalSection
+EndGlobal

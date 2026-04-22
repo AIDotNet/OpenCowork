@@ -7,7 +7,7 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({
   children,
-  defaultTheme = 'system'
+  defaultTheme = 'dark'
 }: ThemeProviderProps): React.JSX.Element {
   return (
     <NextThemesProvider

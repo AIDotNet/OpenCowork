@@ -164,6 +164,7 @@ public static class AgentLoop
             var textBuilder = new StringBuilder();
             var thinkingBuilder = new StringBuilder();
             var toolCalls = new List<ToolCallState>();
+            var imageBlocks = new List<ContentBlock>();
             var activeToolArgs = new Dictionary<string, StringBuilder>();
             var lastParsedArgLen = new Dictionary<string, int>(); // Debounce partial JSON parse
             TokenUsage? usage = null;
@@ -226,6 +227,48 @@ public static class AgentLoop
                             {
                                 ThinkingEncryptedContent = evt.ThinkingEncryptedContent,
                                 ThinkingEncryptedProvider = evt.ThinkingEncryptedProvider
+                            };
+                        }
+                        break;
+
+                    case "image_generation_started":
+                        yield return new ImageGenerationStartedEvent();
+                        break;
+
+                    case "image_generation_partial":
+                        if (evt.ImageBlock is not null)
+                        {
+                            yield return new ImageGenerationPartialEvent
+                            {
+                                ImageBlock = evt.ImageBlock,
+                                PartialImageIndex = evt.PartialImageIndex
+                            };
+                        }
+                        break;
+
+                    case "image_generated":
+                        if (evt.ImageBlock is not null)
+                        {
+                            imageBlocks.Add(evt.ImageBlock);
+                            yield return new ImageGeneratedEvent
+                            {
+                                ImageBlock = evt.ImageBlock
+                            };
+                        }
+                        break;
+
+                    case "image_error":
+                        if (evt.ImageError is not null)
+                        {
+                            var imageErrorBlock = new ImageErrorBlock
+                            {
+                                Code = evt.ImageError.Code,
+                                Message = evt.ImageError.Message
+                            };
+                            imageBlocks.Add(imageErrorBlock);
+                            yield return new ImageErrorEvent
+                            {
+                                ImageError = imageErrorBlock
                             };
                         }
                         break;
@@ -383,6 +426,8 @@ public static class AgentLoop
                 });
             if (textBuilder.Length > 0)
                 assistantContent.Add(new TextBlock { Text = textBuilder.ToString() });
+            foreach (var imageBlock in imageBlocks)
+                assistantContent.Add(imageBlock);
             foreach (var tc in toolCalls)
             {
                 assistantContent.Add(new ToolUseBlock

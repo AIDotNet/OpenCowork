@@ -1242,7 +1242,7 @@ export function FileChangeCard({
       className={cn(
         useCompactChangeLayout
           ? 'my-0 overflow-hidden bg-transparent text-zinc-100 transition-all duration-200'
-          : 'my-3 overflow-hidden rounded-[18px] border bg-[#111214] text-zinc-100 transition-all duration-200 shadow-[0_16px_40px_rgba(0,0,0,0.18)]',
+          : 'activity-card-shell my-3 overflow-hidden rounded-[18px] text-zinc-100 transition-all duration-200',
         borderColor
       )}
     >
@@ -1253,7 +1253,7 @@ export function FileChangeCard({
         className={cn(
           useCompactChangeLayout
             ? 'group w-full px-1.5 py-0.5 text-left'
-            : 'flex w-full items-center gap-2 border-b border-zinc-800/80 px-3 py-2.5 text-left transition-colors hover:bg-[#17191d]',
+            : 'activity-card-header activity-card-header--interactive flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors',
           status === 'running' && 'bg-blue-500/[0.05]'
         )}
       >
@@ -1367,7 +1367,7 @@ export function FileChangeCard({
               'overflow-hidden',
               useCompactChangeLayout
                 ? 'bg-transparent px-0 pb-3 pt-0.5'
-                : 'border-t border-zinc-800/80 bg-[#0f1012]'
+                : 'activity-card-divider border-t bg-[#0f1012]'
             )}
           >
             {showTrackedEditDiff && trackedChange && (
@@ -1428,7 +1428,7 @@ export function FileChangeCard({
           className={cn(
             useCompactChangeLayout
               ? 'bg-transparent px-3 py-2'
-              : 'border-t border-zinc-800/80 bg-[#15171a] px-3 py-2'
+              : 'activity-card-divider border-t bg-[#15171a] px-3 py-2'
           )}
         >
           <div className="flex items-center justify-between gap-2">

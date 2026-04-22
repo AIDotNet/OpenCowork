@@ -144,10 +144,12 @@ internal static class OpenAiResponsesWebSocketProtocol
             "response.reasoning_summary_text.done" => true,
             "response.function_call_arguments.delta" => true,
             "response.function_call_arguments.done" => true,
+            "response.image_generation_call.partial_image" => true,
             "response.output_item.added" or "response.output_item.done" => root.TryGetProperty("item", out var item)
                 && (GetStringOrDefault(item, "type") == "function_call"
                     || GetStringOrDefault(item, "type") == "computer_call"
-                    || GetStringOrDefault(item, "type") == "reasoning"),
+                    || GetStringOrDefault(item, "type") == "reasoning"
+                    || GetStringOrDefault(item, "type") == "image_generation_call"),
             _ => false
         };
     }
@@ -238,6 +240,7 @@ internal static class OpenAiResponsesWebSocketProtocol
             "message" => NormalizeMessageOutputItem(record),
             "reasoning" => NormalizeReasoningOutputItem(record),
             "function_call" => NormalizeFunctionCallOutputItem(record),
+            "image_generation_call" => NormalizeImageGenerationOutputItem(record),
             _ => null
         };
     }
@@ -400,6 +403,36 @@ internal static class OpenAiResponsesWebSocketProtocol
             ["arguments"] = StringifyReplayValue(item["arguments"]),
             ["status"] = "completed"
         };
+    }
+
+    private static JsonObject? NormalizeImageGenerationOutputItem(JsonObject item)
+    {
+        var results = new JsonArray();
+        if (item["result"] is JsonArray resultArray)
+        {
+            foreach (var result in resultArray)
+            {
+                if (TryGetString(result, out var base64) && !string.IsNullOrEmpty(base64))
+                    results.Add(base64);
+            }
+        }
+        else if (TryGetString(item["result"], out var singleResult) && !string.IsNullOrEmpty(singleResult))
+        {
+            results.Add(singleResult);
+        }
+
+        if (results.Count == 0)
+            return null;
+
+        var normalized = new JsonObject
+        {
+            ["type"] = "image_generation_call",
+            ["result"] = results.Count == 1 ? results[0]?.DeepClone() : results.DeepClone()
+        };
+        var outputFormat = GetString(item, "output_format");
+        if (!string.IsNullOrWhiteSpace(outputFormat))
+            normalized["output_format"] = outputFormat;
+        return normalized;
     }
 
     private static string StringifyReplayValue(JsonNode? value)

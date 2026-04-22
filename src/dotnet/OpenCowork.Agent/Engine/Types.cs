@@ -440,12 +440,27 @@ public sealed class ProviderConfig
     public RequestOverrides? RequestOverrides { get; set; }
     public string? InstructionsPrompt { get; set; }
     public string? ResponseSummary { get; set; }
+    public ResponsesImageGenerationConfig? ResponsesImageGeneration { get; set; }
     public bool? ComputerUseEnabled { get; set; }
     public string? Organization { get; set; }
     public string? Project { get; set; }
     public string? AccountId { get; set; }
     public string? WebsocketUrl { get; set; }
     public string? WebsocketMode { get; set; }
+}
+
+public sealed class ResponsesImageGenerationConfig
+{
+    public bool? Enabled { get; set; }
+    public string? Action { get; set; }
+    public string? Background { get; set; }
+    public string? InputFidelity { get; set; }
+    public string? Moderation { get; set; }
+    public int? OutputCompression { get; set; }
+    public string? OutputFormat { get; set; }
+    public int? PartialImages { get; set; }
+    public string? Quality { get; set; }
+    public string? Size { get; set; }
 }
 
 // --- Agent Events ---
@@ -456,6 +471,10 @@ public sealed class ProviderConfig
 [JsonDerivedType(typeof(TextDeltaEvent), "text_delta")]
 [JsonDerivedType(typeof(ThinkingDeltaEvent), "thinking_delta")]
 [JsonDerivedType(typeof(ThinkingEncryptedEvent), "thinking_encrypted")]
+[JsonDerivedType(typeof(ImageGenerationStartedEvent), "image_generation_started")]
+[JsonDerivedType(typeof(ImageGenerationPartialEvent), "image_generation_partial")]
+[JsonDerivedType(typeof(ImageGeneratedEvent), "image_generated")]
+[JsonDerivedType(typeof(ImageErrorEvent), "image_error")]
 [JsonDerivedType(typeof(MessageEndEvent), "message_end")]
 [JsonDerivedType(typeof(ToolUseStreamingStartEvent), "tool_use_streaming_start")]
 [JsonDerivedType(typeof(ToolUseArgsDeltaEvent), "tool_use_args_delta")]
@@ -525,6 +544,30 @@ public sealed class ThinkingEncryptedEvent : AgentEvent
     protected override string TypeValue => "thinking_encrypted";
     public required string ThinkingEncryptedContent { get; init; }
     public required string ThinkingEncryptedProvider { get; init; }
+}
+
+public sealed class ImageGenerationStartedEvent : AgentEvent
+{
+    protected override string TypeValue => "image_generation_started";
+}
+
+public sealed class ImageGenerationPartialEvent : AgentEvent
+{
+    protected override string TypeValue => "image_generation_partial";
+    public required ImageBlock ImageBlock { get; init; }
+    public int? PartialImageIndex { get; init; }
+}
+
+public sealed class ImageGeneratedEvent : AgentEvent
+{
+    protected override string TypeValue => "image_generated";
+    public required ImageBlock ImageBlock { get; init; }
+}
+
+public sealed class ImageErrorEvent : AgentEvent
+{
+    protected override string TypeValue => "image_error";
+    public required ImageErrorBlock ImageError { get; init; }
 }
 
 public sealed class MessageEndEvent : AgentEvent

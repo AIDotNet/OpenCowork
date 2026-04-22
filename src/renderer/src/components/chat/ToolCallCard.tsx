@@ -620,8 +620,8 @@ function BashOutputBlock({
 
   return (
     <div className="space-y-2">
-      <div className="overflow-hidden rounded-[14px] border border-white/[0.06] bg-[#2b2b2d] shadow-[0_12px_24px_rgba(0,0,0,0.18)]">
-        <div className="flex items-center justify-between gap-2 px-3 py-2">
+      <div className="activity-card-shell overflow-hidden rounded-[14px]">
+        <div className="activity-card-header flex items-center justify-between gap-2 px-3 py-2">
           <span className="text-[12px] font-medium text-zinc-100">{t('toolCall.shell')}</span>
           <div className="flex items-center gap-1.5">
             {processId ? <span className="text-[9px] text-zinc-500">{processId}</span> : null}
@@ -630,7 +630,7 @@ function BashOutputBlock({
         </div>
         <div
           ref={scrollRef}
-          className="max-h-72 overflow-auto border-t border-white/[0.05] px-3 py-2.5 text-[11px] font-mono text-zinc-200"
+          className="activity-card-divider max-h-72 overflow-auto border-t px-3 py-2.5 text-[11px] font-mono text-zinc-200"
           style={{ fontFamily: MONO_FONT }}
         >
           {text ? (
@@ -655,7 +655,7 @@ function BashOutputBlock({
           )}
         </div>
         {(statusText || exitCode !== undefined || lineCount > 0) && (
-          <div className="flex items-center justify-between gap-2 border-t border-white/[0.05] px-3 py-2">
+          <div className="activity-card-divider flex items-center justify-between gap-2 border-t px-3 py-2">
             <span className="text-[10px] text-zinc-500">{lineCount} lines</span>
             <div className="flex items-center gap-2 text-[11px]">
               {statusText && exitCode === undefined && (

@@ -24,6 +24,10 @@
       "globalHint": "全局生效",
       "current": "当前",
       "presets": {
+        "mulberry": {
+          "label": "Shadcn 默认",
+          "desc": "中性的黑白灰默认风格，深色保持干净对比，浅色则是白底配浅灰层级。"
+        },
         "studio": {
           "label": "Studio 蓝调",
           "desc": "冷静的蓝灰工作台，适合长时间编码和主机管理。"
@@ -638,6 +642,33 @@
     "responsesSummaryConcise": "简洁",
     "responsesSummaryDetailed": "详细",
     "responsesWebsocket": "启用 WebSocket 协议",
+    "responsesImageGeneration": "图片生成",
+    "responsesImageGenerationDefault": "默认",
+    "responsesImageGenerationAction": "动作",
+    "responsesImageGenerationBackground": "背景",
+    "responsesImageGenerationQuality": "质量",
+    "responsesImageGenerationSize": "尺寸",
+    "responsesImageGenerationOutputFormat": "输出格式",
+    "responsesImageGenerationModeration": "审核",
+    "responsesImageGenerationInputFidelity": "输入保真度",
+    "responsesImageGenerationOutputCompression": "输出压缩",
+    "responsesImageGenerationPartialImages": "中间图数量",
+    "responsesImageGenerationOption": {
+      "auto": "自动",
+      "generate": "生成",
+      "edit": "编辑",
+      "transparent": "透明",
+      "opaque": "不透明",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "png": "PNG",
+      "webp": "WebP",
+      "jpeg": "JPEG",
+      "1024x1024": "1024 x 1024",
+      "1024x1536": "1024 x 1536",
+      "1536x1024": "1536 x 1024"
+    },
     "promptCache": "Prompt 缓存（Responses）",
     "systemPromptCache": "System 缓存（Anthropic）",
 

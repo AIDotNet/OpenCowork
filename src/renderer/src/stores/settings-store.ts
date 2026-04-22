@@ -35,6 +35,16 @@ export type ClarifyPlanModeAutoSwitchTarget = 'off' | 'code' | 'acp'
 export type ProjectDefaultDirectoryMode = 'last-used' | 'custom'
 export type FileDiffViewMode = 'split' | 'inline'
 export type LiveOutputAnimationStyle = 'agile' | 'elegant'
+export const DEFAULT_THEME_MODE = 'dark' as const
+const LEGACY_DEFAULT_THEME_MODE = 'system' as const
+const LEGACY_DEFAULT_APP_THEME_PRESET: AppThemePreset = 'studio'
+const LEGACY_DEFAULT_SSH_TERMINAL_THEME_PRESET: SshTerminalThemePreset = 'graphite'
+const V17_DEFAULT_THEME_MODE = 'dark' as const
+const V17_DEFAULT_APP_THEME_PRESET: AppThemePreset = 'mulberry'
+const V17_DEFAULT_SSH_TERMINAL_THEME_PRESET: SshTerminalThemePreset = 'mulberry'
+const V18_DEFAULT_THEME_MODE = 'dark' as const
+const V18_DEFAULT_APP_THEME_PRESET: AppThemePreset = 'graphite'
+const V18_DEFAULT_SSH_TERMINAL_THEME_PRESET: SshTerminalThemePreset = 'graphite'
 
 export const DEFAULT_MAX_PARALLEL_TOOL_CALLS = 8
 export const MIN_MAX_PARALLEL_TOOL_CALLS = 1
@@ -95,6 +105,10 @@ function sanitizeRecentWorkingTargets(targets: unknown): RecentWorkingTarget[] {
   return Array.from(deduped.values())
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, MAX_RECENT_WORKING_TARGETS)
+}
+
+function isThemeSetting(value: unknown): value is 'light' | 'dark' | 'system' {
+  return value === 'light' || value === 'dark' || value === 'system'
 }
 
 function getSystemLanguage(): 'en' | 'zh' {
@@ -242,7 +256,7 @@ export const useSettingsStore = create<SettingsStore>()(
       maxTokens: 32000,
       temperature: 0.7,
       systemPrompt: '',
-      theme: 'system',
+      theme: DEFAULT_THEME_MODE,
       themePreset: DEFAULT_APP_THEME_PRESET,
       sshTerminalThemePreset: DEFAULT_SSH_TERMINAL_THEME_PRESET,
       language: getSystemLanguage(),
@@ -328,10 +342,26 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'opencowork-settings',
-      version: 16,
+      version: 19,
       storage: createJSONStorage(() => ipcStorage),
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Record<string, unknown>
+        const matchesLegacyThemeDefaults =
+          (state.theme === undefined || state.theme === LEGACY_DEFAULT_THEME_MODE) &&
+          (state.themePreset === undefined ||
+            state.themePreset === LEGACY_DEFAULT_APP_THEME_PRESET) &&
+          (state.sshTerminalThemePreset === undefined ||
+            state.sshTerminalThemePreset === LEGACY_DEFAULT_SSH_TERMINAL_THEME_PRESET)
+        const matchesV17ThemeDefaults =
+          (state.theme === undefined || state.theme === V17_DEFAULT_THEME_MODE) &&
+          (state.themePreset === undefined || state.themePreset === V17_DEFAULT_APP_THEME_PRESET) &&
+          (state.sshTerminalThemePreset === undefined ||
+            state.sshTerminalThemePreset === V17_DEFAULT_SSH_TERMINAL_THEME_PRESET)
+        const matchesV18ThemeDefaults =
+          (state.theme === undefined || state.theme === V18_DEFAULT_THEME_MODE) &&
+          (state.themePreset === undefined || state.themePreset === V18_DEFAULT_APP_THEME_PRESET) &&
+          (state.sshTerminalThemePreset === undefined ||
+            state.sshTerminalThemePreset === V18_DEFAULT_SSH_TERMINAL_THEME_PRESET)
         if (version === 0) {
           state.language = getSystemLanguage()
         }
@@ -384,16 +414,37 @@ export const useSettingsStore = create<SettingsStore>()(
         }
         state.recentWorkingTargets = sanitizeRecentWorkingTargets(state.recentWorkingTargets)
         // Add appearance settings if missing
+        if (!isThemeSetting(state.theme)) {
+          state.theme = DEFAULT_THEME_MODE
+        } else if (
+          (version < 17 && matchesLegacyThemeDefaults) ||
+          (version < 18 && matchesV17ThemeDefaults) ||
+          (version < 19 && matchesV18ThemeDefaults)
+        ) {
+          state.theme = DEFAULT_THEME_MODE
+        }
         if (state.backgroundColor === undefined) {
           state.backgroundColor = ''
         }
         if (!isAppThemePreset(state.themePreset)) {
+          state.themePreset = DEFAULT_APP_THEME_PRESET
+        } else if (
+          (version < 17 && matchesLegacyThemeDefaults) ||
+          (version < 18 && matchesV17ThemeDefaults) ||
+          (version < 19 && matchesV18ThemeDefaults)
+        ) {
           state.themePreset = DEFAULT_APP_THEME_PRESET
         }
         if (!isAppThemePreset(state.sshTerminalThemePreset)) {
           state.sshTerminalThemePreset = isAppThemePreset(state.themePreset)
             ? state.themePreset
             : DEFAULT_SSH_TERMINAL_THEME_PRESET
+        } else if (
+          (version < 17 && matchesLegacyThemeDefaults) ||
+          (version < 18 && matchesV17ThemeDefaults) ||
+          (version < 19 && matchesV18ThemeDefaults)
+        ) {
+          state.sshTerminalThemePreset = DEFAULT_SSH_TERMINAL_THEME_PRESET
         }
         if (state.fontFamily === undefined) {
           state.fontFamily = ''

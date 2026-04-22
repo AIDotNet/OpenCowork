@@ -5,6 +5,7 @@ import type {
   UnifiedMessage,
   ContentBlock,
   TextBlock,
+  ImageBlock,
   ThinkingBlock,
   ToolUseBlock,
   ToolDefinition
@@ -210,8 +211,7 @@ function dbUpdateMessage(msgId: string, content: unknown, usage?: unknown, meta?
           msgId,
           toolUseId: (b as { id?: string }).id,
           inputKeys: Object.keys(input),
-          widget_code_len:
-            typeof input.widget_code === 'string' ? input.widget_code.length : null
+          widget_code_len: typeof input.widget_code === 'string' ? input.widget_code.length : null
         })
       }
     }
@@ -456,7 +456,9 @@ interface ChatStore {
   setStreamingMessageId: (sessionId: string, id: string | null) => void
   /** Image generation state (per-message) - using Record instead of Set for Immer compatibility */
   generatingImageMessages: Record<string, boolean>
+  generatingImagePreviews: Record<string, ImageBlock>
   setGeneratingImage: (msgId: string, generating: boolean) => void
+  setGeneratingImagePreview: (msgId: string, preview: ImageBlock | null) => void
 
   // Helpers
   getActiveSession: () => Session | undefined
@@ -1064,6 +1066,7 @@ export const useChatStore = create<ChatStore>()(
     streamingMessageId: null,
     streamingMessages: {},
     generatingImageMessages: {},
+    generatingImagePreviews: {},
     _loaded: false,
 
     ensureDefaultProject: async () => {
@@ -2754,9 +2757,10 @@ export const useChatStore = create<ChatStore>()(
           msgId,
           toolUseId,
           inputKeys: Object.keys(input),
-          widget_code_len: typeof (input as Record<string, unknown>).widget_code === 'string'
-            ? ((input as Record<string, unknown>).widget_code as string).length
-            : null
+          widget_code_len:
+            typeof (input as Record<string, unknown>).widget_code === 'string'
+              ? ((input as Record<string, unknown>).widget_code as string).length
+              : null
         })
       }
       set((state) => {
@@ -2894,6 +2898,15 @@ export const useChatStore = create<ChatStore>()(
           state.generatingImageMessages[msgId] = true
         } else {
           delete state.generatingImageMessages[msgId]
+        }
+      }),
+
+    setGeneratingImagePreview: (msgId, preview) =>
+      set((state) => {
+        if (preview) {
+          state.generatingImagePreviews[msgId] = preview
+        } else {
+          delete state.generatingImagePreviews[msgId]
         }
       }),
 

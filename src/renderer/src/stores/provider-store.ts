@@ -12,6 +12,7 @@ import type {
 import { builtinProviderPresets } from './providers'
 import type { BuiltinProviderPreset } from './providers'
 import { resolveCopilotApiBaseUrl, resolveCopilotModelId } from '../lib/auth/copilot'
+import { normalizeResponsesImageGenerationConfig } from '../lib/api/responses-image-generation'
 import { configStorage } from '../lib/ipc/config-storage'
 import { useSettingsStore } from './settings-store'
 
@@ -116,6 +117,7 @@ function scoreManagedModelRichness(model: AIModelConfig | ManagedModelConfig): n
     'enableComputerUse',
     'thinkingConfig',
     'responseSummary',
+    'responsesImageGeneration',
     'enablePromptCache',
     'enableSystemPromptCache',
     'requestOverrides',
@@ -1179,6 +1181,10 @@ export const useProviderStore = create<ProviderStore>()(
         const websocketMode = activeModel?.websocketMode ?? provider.websocketMode
         const serviceTier = resolveServiceTier(activeModel, provider.builtinId)
         const accountId = resolveProviderAccountId(provider)
+        const responsesImageGeneration =
+          requestType === 'openai-responses'
+            ? normalizeResponsesImageGenerationConfig(activeModel?.responsesImageGeneration)
+            : undefined
         return {
           type: requestType,
           apiKey: provider.apiKey,
@@ -1197,6 +1203,7 @@ export const useProviderStore = create<ProviderStore>()(
             ? { allowInsecureTls: provider.allowInsecureTls }
             : {}),
           responseSummary: activeModel?.responseSummary,
+          ...(responsesImageGeneration ? { responsesImageGeneration } : {}),
           enablePromptCache: activeModel?.enablePromptCache,
           enableSystemPromptCache: activeModel?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
@@ -1293,6 +1300,10 @@ export const useProviderStore = create<ProviderStore>()(
         const websocketMode = model?.websocketMode ?? provider.websocketMode
         const serviceTier = resolveServiceTier(model, provider.builtinId)
         const accountId = resolveProviderAccountId(provider)
+        const responsesImageGeneration =
+          requestType === 'openai-responses'
+            ? normalizeResponsesImageGenerationConfig(model?.responsesImageGeneration)
+            : undefined
         return {
           type: requestType,
           apiKey: provider.apiKey,
@@ -1311,6 +1322,7 @@ export const useProviderStore = create<ProviderStore>()(
             ? { allowInsecureTls: provider.allowInsecureTls }
             : {}),
           responseSummary: model?.responseSummary,
+          ...(responsesImageGeneration ? { responsesImageGeneration } : {}),
           enablePromptCache: model?.enablePromptCache,
           enableSystemPromptCache: model?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
@@ -1389,6 +1401,10 @@ export const useProviderStore = create<ProviderStore>()(
         const websocketMode = fastModel?.websocketMode ?? provider.websocketMode
         const serviceTier = resolveServiceTier(fastModel, provider.builtinId)
         const accountId = resolveProviderAccountId(provider)
+        const responsesImageGeneration =
+          requestType === 'openai-responses'
+            ? normalizeResponsesImageGenerationConfig(fastModel?.responsesImageGeneration)
+            : undefined
         return {
           type: requestType,
           apiKey: provider.apiKey,
@@ -1406,6 +1422,7 @@ export const useProviderStore = create<ProviderStore>()(
             ? { allowInsecureTls: provider.allowInsecureTls }
             : {}),
           responseSummary: fastModel?.responseSummary,
+          ...(responsesImageGeneration ? { responsesImageGeneration } : {}),
           enablePromptCache: fastModel?.enablePromptCache,
           enableSystemPromptCache: fastModel?.enableSystemPromptCache,
           ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),

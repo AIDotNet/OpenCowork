@@ -17,6 +17,9 @@ public sealed class StreamEvent
     public string? ArgumentsDelta { get; init; }
     public Dictionary<string, JsonElement>? ToolCallInput { get; init; }
     public Engine.ToolCallExtraContent? ToolCallExtraContent { get; init; }
+    public int? PartialImageIndex { get; init; }
+    public Engine.ImageBlock? ImageBlock { get; init; }
+    public StreamEventImageError? ImageError { get; init; }
     public string? StopReason { get; init; }
     public Engine.TokenUsage? Usage { get; init; }
     public Engine.RequestTiming? Timing { get; init; }
@@ -28,6 +31,12 @@ public sealed class StreamEvent
 public sealed class StreamEventError
 {
     public string Type { get; init; } = "";
+    public string Message { get; init; } = "";
+}
+
+public sealed class StreamEventImageError
+{
+    public string Code { get; init; } = "";
     public string Message { get; init; } = "";
 }
 

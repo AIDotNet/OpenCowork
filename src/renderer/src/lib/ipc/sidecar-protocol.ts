@@ -129,6 +129,7 @@ export interface SidecarProviderConfig {
   requestOverrides?: ProviderConfig['requestOverrides']
   instructionsPrompt?: string
   responseSummary?: string
+  responsesImageGeneration?: ProviderConfig['responsesImageGeneration']
   computerUseEnabled?: boolean
   organization?: string
   project?: string
@@ -395,6 +396,9 @@ function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig {
     ...(provider.requestOverrides ? { requestOverrides: provider.requestOverrides } : {}),
     ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
     ...(provider.responseSummary ? { responseSummary: provider.responseSummary } : {}),
+    ...(provider.responsesImageGeneration
+      ? { responsesImageGeneration: provider.responsesImageGeneration }
+      : {}),
     ...(provider.computerUseEnabled !== undefined
       ? { computerUseEnabled: provider.computerUseEnabled }
       : {}),
@@ -859,6 +863,70 @@ export function normalizeSidecarAgentEvent(rawEvent: unknown): AgentEvent | null
         }
       }
       return null
+    }
+    case 'image_generation_started':
+      return { type: 'image_generation_started' }
+    case 'image_generation_partial': {
+      const imageBlock = normalizeSidecarRecord(event.imageBlock)
+      const source = normalizeSidecarRecord(imageBlock.source)
+      const sourceType = source.type === 'url' ? 'url' : source.type === 'base64' ? 'base64' : null
+      if (!sourceType) return null
+      return {
+        type: 'image_generation_partial',
+        ...(typeof event.partialImageIndex === 'number'
+          ? { partialImageIndex: event.partialImageIndex }
+          : {}),
+        imageBlock: {
+          type: 'image',
+          source: {
+            type: sourceType,
+            ...(typeof source.mediaType === 'string' ? { mediaType: source.mediaType } : {}),
+            ...(typeof source.data === 'string' ? { data: source.data } : {}),
+            ...(typeof source.url === 'string' ? { url: source.url } : {}),
+            ...(typeof source.filePath === 'string' ? { filePath: source.filePath } : {})
+          }
+        }
+      }
+    }
+    case 'image_generated': {
+      const imageBlock = normalizeSidecarRecord(event.imageBlock)
+      const source = normalizeSidecarRecord(imageBlock.source)
+      const sourceType = source.type === 'url' ? 'url' : source.type === 'base64' ? 'base64' : null
+      if (!sourceType) return null
+      return {
+        type: 'image_generated',
+        imageBlock: {
+          type: 'image',
+          source: {
+            type: sourceType,
+            ...(typeof source.mediaType === 'string' ? { mediaType: source.mediaType } : {}),
+            ...(typeof source.data === 'string' ? { data: source.data } : {}),
+            ...(typeof source.url === 'string' ? { url: source.url } : {}),
+            ...(typeof source.filePath === 'string' ? { filePath: source.filePath } : {})
+          }
+        }
+      }
+    }
+    case 'image_error': {
+      const imageError = normalizeSidecarRecord(event.imageError)
+      return {
+        type: 'image_error',
+        imageError: {
+          code:
+            typeof imageError.code === 'string' &&
+            ['timeout', 'network', 'request_aborted', 'api_error', 'unknown'].includes(
+              imageError.code
+            )
+              ? (imageError.code as
+                  | 'timeout'
+                  | 'network'
+                  | 'request_aborted'
+                  | 'api_error'
+                  | 'unknown')
+              : 'unknown',
+          message: String(imageError.message ?? '')
+        }
+      }
     }
     case 'message_end':
       return {

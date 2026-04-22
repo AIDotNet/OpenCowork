@@ -96,14 +96,13 @@ const MINUTE_MS = 60 * 1000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
 const WEEK_MS = 7 * DAY_MS
-const SIDEBAR_TREE_ROW_CLASS = 'min-h-8 rounded-lg border border-transparent'
-const SIDEBAR_TREE_ACTIVE_CLASS =
-  'border-border/80 bg-accent text-foreground shadow-[0_2px_6px_rgba(15,23,42,0.06)]'
+const SIDEBAR_TREE_ROW_CLASS = 'workspace-sidebar-row min-h-8 rounded-xl border border-transparent'
+const SIDEBAR_TREE_ACTIVE_CLASS = 'workspace-sidebar-row--active text-foreground'
 const SIDEBAR_TREE_HOVER_CLASS =
-  'text-foreground/90 hover:border-border/80 hover:bg-accent hover:text-foreground hover:shadow-[0_1px_3px_rgba(15,23,42,0.04)]'
+  'workspace-sidebar-row--hover text-foreground/90 hover:text-foreground'
 const SIDEBAR_TREE_SUBITEM_HOVER_CLASS =
-  'text-foreground/85 hover:border-border/70 hover:bg-accent/90 hover:text-foreground hover:shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
-const SIDEBAR_TREE_ACTION_BUTTON_CLASS = 'size-6 rounded-md text-muted-foreground/80'
+  'workspace-sidebar-row--hover text-foreground/82 hover:text-foreground'
+const SIDEBAR_TREE_ACTION_BUTTON_CLASS = 'workspace-sidebar-row-action size-6 rounded-md'
 const SIDEBAR_TREE_LABEL_CLASS = 'text-[13px] leading-5'
 const SIDEBAR_TREE_META_CLASS = 'text-[10px]'
 
@@ -984,12 +983,12 @@ export function WorkspaceSidebar(): React.JSX.Element {
   return (
     <>
       <aside
-        className="relative flex h-full shrink-0 flex-col border-r border-sidebar-border/80 bg-sidebar text-sidebar-foreground"
+        className="workspace-sidebar-surface relative flex h-full shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground"
         style={{ width: currentSidebarWidth }}
       >
         <div
           className={cn(
-            'titlebar-drag flex h-10 shrink-0 items-center gap-2 bg-sidebar px-3 backdrop-blur-md',
+            'workspace-sidebar-titlebar titlebar-drag flex h-10 shrink-0 items-center gap-2 px-3',
             isMac ? 'pl-[78px]' : ''
           )}
         >
@@ -999,7 +998,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
           <Button
             variant="ghost"
             size="icon"
-            className="titlebar-no-drag size-7 shrink-0 rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            className="workspace-titlebar-action titlebar-no-drag size-7 shrink-0 rounded-md text-sidebar-foreground/70 hover:text-sidebar-foreground"
             onClick={toggleLeftSidebar}
             title={t('commandPalette.toggleSidebar', { defaultValue: 'Toggle sidebar' })}
           >
@@ -1008,7 +1007,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="space-y-1 border-b border-border/60 px-2 py-1.5">
+          <div className="workspace-sidebar-section space-y-1 px-2 py-1.5">
             {navItems.slice(0, 3).map(renderNavItem)}
 
             <div className="group/resources-menu space-y-1">

@@ -19,6 +19,7 @@ import { GitPage } from '@renderer/components/chat/GitPage'
 import { KeyboardShortcutsDialog } from '@renderer/components/settings/KeyboardShortcutsDialog'
 import { PermissionDialog } from '@renderer/components/cowork/PermissionDialog'
 import { ConversationGuideDialog } from '@renderer/components/chat/ConversationGuideDialog'
+import { SettingsPage } from '@renderer/components/settings/SettingsPage'
 import { CommandPalette } from './CommandPalette'
 import { SessionConversationPane } from './SessionConversationPane'
 import { WorkingFolderSheet } from './WorkingFolderSheet'
@@ -34,11 +35,6 @@ import { AnimatePresence } from 'motion/react'
 import { PageTransition, PanelTransition } from '@renderer/components/animate-ui'
 import { openSessionOrFocusDetached } from '@renderer/lib/session-window'
 import { useShallow } from 'zustand/react/shallow'
-
-const SettingsPage = lazy(async () => {
-  const mod = await import('@renderer/components/settings/SettingsPage')
-  return { default: mod.SettingsPage }
-})
 
 const SkillsPage = lazy(async () => {
   const mod = await import('@renderer/components/skills/SkillsPage')

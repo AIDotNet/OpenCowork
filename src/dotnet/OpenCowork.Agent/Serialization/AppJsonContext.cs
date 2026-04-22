@@ -38,6 +38,7 @@ namespace OpenCowork.Agent;
 [JsonSerializable(typeof(RequestTiming))]
 [JsonSerializable(typeof(AgentLoopConfig))]
 [JsonSerializable(typeof(ProviderConfig))]
+[JsonSerializable(typeof(ResponsesImageGenerationConfig))]
 [JsonSerializable(typeof(ThinkingConfig))]
 [JsonSerializable(typeof(RequestOverrides))]
 [JsonSerializable(typeof(RequestDebugInfo))]
@@ -88,9 +89,14 @@ namespace OpenCowork.Agent;
 [JsonSerializable(typeof(GeminiUsageMetadata))]
 // Stream events
 [JsonSerializable(typeof(StreamEvent))]
+[JsonSerializable(typeof(StreamEventImageError))]
 // Additional event types from agent loop
 [JsonSerializable(typeof(ToolCallDeltaEvent))]
 [JsonSerializable(typeof(ToolCallRunningEvent))]
+[JsonSerializable(typeof(ImageGenerationStartedEvent))]
+[JsonSerializable(typeof(ImageGenerationPartialEvent))]
+[JsonSerializable(typeof(ImageGeneratedEvent))]
+[JsonSerializable(typeof(ImageErrorEvent))]
 [JsonSerializable(typeof(ErrorEvent))]
 [JsonSerializable(typeof(AgentEventNotification))]
 [JsonSerializable(typeof(AgentEventBatchNotification))]

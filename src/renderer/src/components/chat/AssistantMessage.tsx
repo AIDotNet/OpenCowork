@@ -1028,6 +1028,9 @@ export function AssistantMessage({
   const isGeneratingImage = useChatStore((s) =>
     msgId ? !!s.generatingImageMessages[msgId] : false
   )
+  const generatingImagePreview = useChatStore((s) =>
+    msgId ? s.generatingImagePreviews[msgId] : undefined
+  )
   const runChangeSet = useAgentStore((s) => (msgId ? s.runChangesByRunId[msgId] : undefined))
   const visibleRunChanges = useMemo(
     () => (runChangeSet ? aggregateDisplayableRunFileChanges(runChangeSet.changes) : []),
@@ -1173,9 +1176,27 @@ export function AssistantMessage({
     return items
   }, [normalizedContent])
   const renderContent = (): React.JSX.Element => {
-    // Show image generation loader when generating images
-    if (isGeneratingImage && isStreaming) {
-      return <ImageGeneratingLoader />
+    const shouldShowImageGeneratingLoader = isGeneratingImage && isStreaming
+    const hasEmptyContent =
+      (typeof content === 'string' && content.length === 0) ||
+      (Array.isArray(normalizedContent) && normalizedContent.length === 0)
+    const generatingImagePreviewSrc =
+      generatingImagePreview?.source.type === 'base64'
+        ? `data:${generatingImagePreview.source.mediaType || 'image/png'};base64,${generatingImagePreview.source.data}`
+        : (generatingImagePreview?.source.url ?? '')
+
+    if (shouldShowImageGeneratingLoader && hasEmptyContent) {
+      return <ImageGeneratingLoader previewSrc={generatingImagePreviewSrc || undefined} />
+    }
+
+    if (generatingImagePreviewSrc && hasEmptyContent) {
+      return (
+        <ImagePreview
+          src={generatingImagePreviewSrc}
+          alt="Generated image preview"
+          filePath={generatingImagePreview?.source.filePath}
+        />
+      )
     }
 
     // Show thinking indicator when streaming just started
@@ -1554,7 +1575,7 @@ export function AssistantMessage({
                 const imgBlock = block as Extract<ContentBlock, { type: 'image' }>
                 const imgSrc =
                   imgBlock.source.type === 'base64'
-                    ? `data:${imgBlock.source.mediaType};base64,${imgBlock.source.data}`
+                    ? `data:${imgBlock.source.mediaType || 'image/png'};base64,${imgBlock.source.data}`
                     : (imgBlock.source.url ?? '')
                 if (!imgSrc) return null
                 return (
@@ -1667,6 +1688,11 @@ export function AssistantMessage({
           )
         })}
         {isStreaming && <span className={getLiveOutputCursorClass(liveOutputAnimationStyle)} />}
+        {shouldShowImageGeneratingLoader && (
+          <div className="pt-3">
+            <ImageGeneratingLoader previewSrc={generatingImagePreviewSrc || undefined} />
+          </div>
+        )}
       </div>
     )
   }

@@ -22,7 +22,9 @@ const SIDECAR_MAX_RESTARTS = 5
 const SIDECAR_PING_INTERVAL_MS = 30_000
 const SIDECAR_PING_TIMEOUT_MS = 5000
 const SIDECAR_RENDERER_REQUEST_TIMEOUT_MS = 10 * 60_000
-const SIDECAR_MAX_BUFFER_BYTES = 1024 * 1024 // 1 MB
+// Sidecar JSON-RPC is newline-delimited. Image events can carry large base64 payloads,
+// so we must tolerate a large in-flight partial line before the trailing newline arrives.
+const SIDECAR_MAX_PENDING_LINE_BYTES = 64 * 1024 * 1024 // 64 MB
 
 interface JsonRpcMessage {
   jsonrpc: '2.0'
@@ -326,15 +328,16 @@ export class SidecarManager {
 
       this.process.stdout!.on('data', (chunk: Buffer) => {
         this.buffer += chunk.toString()
-        // Guard against unbounded buffer growth if processBuffer() can't keep up
-        if (this.buffer.length > SIDECAR_MAX_BUFFER_BYTES) {
-          console.warn(
-            `[Sidecar] Buffer exceeded ${SIDECAR_MAX_BUFFER_BYTES} bytes, truncating to last newline`
-          )
-          const lastNewline = this.buffer.lastIndexOf('\n')
-          this.buffer = lastNewline >= 0 ? this.buffer.slice(lastNewline + 1) : ''
-        }
         this.processBuffer()
+        // After processBuffer() runs, this.buffer only contains the trailing partial line.
+        // Keep a generous cap to avoid dropping valid large image events while still
+        // protecting the main process from unbounded growth if framing breaks.
+        if (this.buffer.length > SIDECAR_MAX_PENDING_LINE_BYTES) {
+          console.warn(
+            `[Sidecar] Pending line exceeded ${SIDECAR_MAX_PENDING_LINE_BYTES} bytes, dropping incomplete payload`
+          )
+          this.buffer = ''
+        }
       })
 
       this.process.stderr!.on('data', (chunk: Buffer) => {

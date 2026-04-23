@@ -171,9 +171,79 @@ import { attachRendererProviderBridge } from '@renderer/lib/ipc/renderer-provide
 const sessionAbortControllers = new Map<string, AbortController>()
 const sessionSidecarRunIds = new Map<string, string>()
 const longRunningVerificationPasses = new Map<string, number>()
-let sidecarApprovalListenerAttached = false
-let sidecarRendererToolListenerAttached = false
-let sessionControlListenerAttached = false
+// Register IPC listeners once at module level — not inside useEffect —
+// to avoid accumulating duplicate listeners when multiple components call useChatActions.
+attachRendererToolBridge()
+attachRendererProviderBridge()
+installSessionControlSyncListener((event) => {
+  applySessionControlSyncEvent(event)
+})
+window.electron.ipcRenderer.on(
+  'sidecar:approval-request',
+  async (_event: unknown, payload: { requestId: string; method: string; params: unknown }) => {
+    if (payload?.method !== 'approval/request' || !payload.requestId) return
+
+    const request = normalizeSidecarApprovalRequest(payload.params)
+    if (!request) {
+      await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
+        requestId: payload.requestId,
+        approved: false,
+        reason: 'Invalid approval request payload'
+      })
+      return
+    }
+
+    const registeredDecision = await resolveSidecarApprovalRequest(request)
+    if (registeredDecision) {
+      await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
+        requestId: payload.requestId,
+        approved: registeredDecision.approved,
+        ...(registeredDecision.reason ? { reason: registeredDecision.reason } : {})
+      })
+      return
+    }
+
+    const agentStore = useAgentStore.getState()
+    const autoApprove = useSettingsStore.getState().autoApprove
+    if (autoApprove || agentStore.approvedToolNames.includes(request.toolCall.name)) {
+      if (!autoApprove) {
+        agentStore.addApprovedTool(request.toolCall.name)
+      }
+      await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
+        requestId: payload.requestId,
+        approved: true
+      })
+      return
+    }
+
+    agentStore.addToolCall(request.toolCall, request.sessionId)
+    if (request.sessionId && !isSessionForeground(request.sessionId)) {
+      const sessionTitle =
+        useChatStore.getState().sessions.find((session) => session.id === request.sessionId)
+          ?.title ?? '后台会话'
+      useBackgroundSessionStore.getState().addInboxItem({
+        sessionId: request.sessionId,
+        type: 'approval',
+        title: request.toolCall.name,
+        description: `${sessionTitle} 正在等待工具审批`,
+        toolUseId: request.toolCall.id
+      })
+      toast.warning('后台会话等待审批', {
+        description: `${sessionTitle} · ${request.toolCall.name}`
+      })
+    }
+    const approved = await agentStore.requestApproval(request.toolCall.id)
+    useBackgroundSessionStore.getState().resolveInboxItemByToolUseId(request.toolCall.id)
+    if (approved) {
+      agentStore.addApprovedTool(request.toolCall.name)
+    }
+    await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
+      requestId: payload.requestId,
+      approved,
+      ...(approved ? {} : { reason: 'User denied permission' })
+    })
+  }
+)
 
 function addMessageWithSync(sessionId: string, message: UnifiedMessage): void {
   useChatStore.getState().addMessage(sessionId, message)
@@ -4361,105 +4431,8 @@ export function useChatActions(): {
     }
   }, [])
 
-  useEffect(() => {
-    if (!sidecarRendererToolListenerAttached) {
-      attachRendererToolBridge()
-      attachRendererProviderBridge()
-      sidecarRendererToolListenerAttached = true
-    }
-  }, [])
-
-  useEffect(() => {
-    if (sessionControlListenerAttached) return
-    sessionControlListenerAttached = true
-
-    const off = installSessionControlSyncListener((event) => {
-      applySessionControlSyncEvent(event)
-    })
-
-    return () => {
-      sessionControlListenerAttached = false
-      off()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (sidecarApprovalListenerAttached) return
-    sidecarApprovalListenerAttached = true
-
-    const handler = async (
-      _event: unknown,
-      payload: { requestId: string; method: string; params: unknown }
-    ): Promise<void> => {
-      if (payload?.method !== 'approval/request' || !payload.requestId) return
-
-      const request = normalizeSidecarApprovalRequest(payload.params)
-      if (!request) {
-        await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
-          requestId: payload.requestId,
-          approved: false,
-          reason: 'Invalid approval request payload'
-        })
-        return
-      }
-
-      const registeredDecision = await resolveSidecarApprovalRequest(request)
-      if (registeredDecision) {
-        await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
-          requestId: payload.requestId,
-          approved: registeredDecision.approved,
-          ...(registeredDecision.reason ? { reason: registeredDecision.reason } : {})
-        })
-        return
-      }
-
-      const agentStore = useAgentStore.getState()
-      const autoApprove = useSettingsStore.getState().autoApprove
-      if (autoApprove || agentStore.approvedToolNames.includes(request.toolCall.name)) {
-        if (!autoApprove) {
-          agentStore.addApprovedTool(request.toolCall.name)
-        }
-        await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
-          requestId: payload.requestId,
-          approved: true
-        })
-        return
-      }
-
-      agentStore.addToolCall(request.toolCall, request.sessionId)
-      if (request.sessionId && !isSessionForeground(request.sessionId)) {
-        const sessionTitle =
-          useChatStore.getState().sessions.find((session) => session.id === request.sessionId)
-            ?.title ?? '后台会话'
-        useBackgroundSessionStore.getState().addInboxItem({
-          sessionId: request.sessionId,
-          type: 'approval',
-          title: request.toolCall.name,
-          description: `${sessionTitle} 正在等待工具审批`,
-          toolUseId: request.toolCall.id
-        })
-        toast.warning('后台会话等待审批', {
-          description: `${sessionTitle} · ${request.toolCall.name}`
-        })
-      }
-      const approved = await agentStore.requestApproval(request.toolCall.id)
-      useBackgroundSessionStore.getState().resolveInboxItemByToolUseId(request.toolCall.id)
-      if (approved) {
-        agentStore.addApprovedTool(request.toolCall.name)
-      }
-      await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
-        requestId: payload.requestId,
-        approved,
-        ...(approved ? {} : { reason: 'User denied permission' })
-      })
-    }
-
-    window.electron.ipcRenderer.on('sidecar:approval-request', handler)
-    return () => {
-      sidecarApprovalListenerAttached = false
-      window.electron.ipcRenderer.removeListener('sidecar:approval-request', handler)
-    }
-  }, [])
+  // IPC listeners (session-control, sidecar tools/approval) are registered
+  // at module level above — no useEffect needed here.
 
   // Cron session delivery is now handled by cron-agent-runner.ts (deliveryMode='session')
   // No cron event subscription needed here.

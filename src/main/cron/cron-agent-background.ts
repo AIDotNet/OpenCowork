@@ -535,10 +535,26 @@ function buildCronSearchWarnings(messages: Array<string | false | null | undefin
   return messages.filter((item): item is string => typeof item === 'string' && item.length > 0)
 }
 
+const BINARY_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg',
+  '.mp3', '.mp4', '.wav', '.ogg', '.webm', '.avi', '.mov',
+  '.zip', '.gz', '.tar', '.rar', '.7z', '.bz2',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  '.exe', '.dll', '.so', '.dylib', '.bin', '.dat',
+  '.node', '.wasm', '.pyc', '.class',
+  '.sqlite', '.db', '.db-wal', '.db-shm',
+  '.asar', '.snap', '.deb', '.rpm', '.msi', '.dmg',
+  '.lock'
+])
+const MAX_GREP_FILE_SIZE = 1_048_576
+
 function isNonEmptyTextFile(filePath: string): Promise<boolean> {
+  const ext = path.extname(filePath).toLowerCase()
+  if (BINARY_EXTENSIONS.has(ext)) return Promise.resolve(false)
   return fs.promises
     .stat(filePath)
-    .then((stat) => stat.isFile() && stat.size > 0)
+    .then((stat) => stat.isFile() && stat.size > 0 && stat.size <= MAX_GREP_FILE_SIZE)
     .catch(() => false)
 }
 

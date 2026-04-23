@@ -93,7 +93,7 @@ export function PendingInboxPopover(): React.JSX.Element | null {
   const resolveInboxItem = useBackgroundSessionStore((state) => state.resolveInboxItem)
   const sessions = useChatStore((state) => state.sessions)
 
-  const unresolvedItems = useMemo(() => inboxItems.filter((item) => !item.resolvedAt), [inboxItems])
+  const unresolvedItems = inboxItems
 
   const sessionTitleById = useMemo(
     () =>

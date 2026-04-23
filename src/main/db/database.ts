@@ -267,6 +267,12 @@ export function getDb(): Database.Database {
 
   // Enable WAL mode for better concurrent read performance
   db.pragma('journal_mode = WAL')
+  // NORMAL is safe for WAL mode and avoids fsync on every transaction
+  db.pragma('synchronous = NORMAL')
+  // Increase WAL autocheckpoint threshold to reduce checkpoint frequency (default 1000 ≈ 4 MB)
+  db.pragma('wal_autocheckpoint = 4000')
+  // 32 MB page cache — keeps hot pages in memory, reduces disk reads
+  db.pragma('cache_size = -32000')
   db.pragma('foreign_keys = ON')
 
   // Create tables

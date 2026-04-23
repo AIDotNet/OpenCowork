@@ -3,6 +3,8 @@ import { immer } from 'zustand/middleware/immer'
 import { nanoid } from 'nanoid'
 import type { UnifiedMessage } from '@renderer/lib/api/types'
 
+const MAX_BUFFERED_ADDED_MESSAGES = 200
+
 export type PendingInboxItemType =
   | 'ask_user'
   | 'approval'
@@ -117,14 +119,27 @@ function createEmptySessionState(): BackgroundBufferedSessionState {
   }
 }
 
-function rebuildBlockedCounts(items: PendingInboxItem[]): Record<string, number> {
-  const counts: Record<string, number> = {}
-  for (const item of items) {
-    if (item.resolvedAt) continue
-    if (item.type === 'error') continue
-    counts[item.sessionId] = (counts[item.sessionId] ?? 0) + 1
+function incrementBlockedCount(
+  counts: Record<string, number>,
+  sessionId: string,
+  type: PendingInboxItemType
+): void {
+  if (type === 'error') return
+  counts[sessionId] = (counts[sessionId] ?? 0) + 1
+}
+
+function decrementBlockedCount(
+  counts: Record<string, number>,
+  sessionId: string,
+  type: PendingInboxItemType
+): void {
+  if (type === 'error') return
+  const next = (counts[sessionId] ?? 1) - 1
+  if (next <= 0) {
+    delete counts[sessionId]
+  } else {
+    counts[sessionId] = next
   }
-  return counts
 }
 
 function isSamePreviewTarget(
@@ -219,6 +234,13 @@ export const useBackgroundSessionStore = create<BackgroundSessionStore>()(
         if (session.addedMessagesById[message.id]) return
         session.addedMessagesById[message.id] = cloneMessageStructured(message)
         session.addedMessageIds.push(message.id)
+        if (session.addedMessageIds.length > MAX_BUFFERED_ADDED_MESSAGES) {
+          const overflow = session.addedMessageIds.length - MAX_BUFFERED_ADDED_MESSAGES
+          const removed = session.addedMessageIds.splice(0, overflow)
+          for (const id of removed) {
+            delete session.addedMessagesById[id]
+          }
+        }
       })
     },
 
@@ -333,7 +355,6 @@ export const useBackgroundSessionStore = create<BackgroundSessionStore>()(
 
       const existing = get().inboxItems.find(
         (candidate) =>
-          !candidate.resolvedAt &&
           candidate.sessionId === sessionId &&
           candidate.type === type &&
           ((toolUseId && candidate.toolUseId === toolUseId) ||
@@ -356,7 +377,7 @@ export const useBackgroundSessionStore = create<BackgroundSessionStore>()(
           ...(item.target ? { target: item.target } : {}),
           createdAt: Date.now()
         })
-        state.blockedCountsBySession = rebuildBlockedCounts(state.inboxItems)
+        incrementBlockedCount(state.blockedCountsBySession, sessionId, type)
       })
       return nextId
     },
@@ -364,25 +385,27 @@ export const useBackgroundSessionStore = create<BackgroundSessionStore>()(
     resolveInboxItem: (itemId) => {
       if (!itemId) return
       set((state) => {
-        const item = state.inboxItems.find((candidate) => candidate.id === itemId)
-        if (!item || item.resolvedAt) return
-        item.resolvedAt = Date.now()
-        state.blockedCountsBySession = rebuildBlockedCounts(state.inboxItems)
+        const idx = state.inboxItems.findIndex((candidate) => candidate.id === itemId)
+        if (idx === -1) return
+        const item = state.inboxItems[idx]
+        if (item.resolvedAt) return
+        state.inboxItems.splice(idx, 1)
+        decrementBlockedCount(state.blockedCountsBySession, item.sessionId, item.type)
       })
     },
 
     resolveInboxItemByToolUseId: (toolUseId) => {
       if (!toolUseId) return
       set((state) => {
-        let changed = false
+        const remaining: PendingInboxItem[] = []
         for (const item of state.inboxItems) {
-          if (item.toolUseId !== toolUseId || item.resolvedAt) continue
-          item.resolvedAt = Date.now()
-          changed = true
+          if (item.toolUseId === toolUseId && !item.resolvedAt) {
+            decrementBlockedCount(state.blockedCountsBySession, item.sessionId, item.type)
+          } else {
+            remaining.push(item)
+          }
         }
-        if (changed) {
-          state.blockedCountsBySession = rebuildBlockedCounts(state.inboxItems)
-        }
+        state.inboxItems = remaining
       })
     },
 
@@ -391,7 +414,7 @@ export const useBackgroundSessionStore = create<BackgroundSessionStore>()(
         delete state.sessions[sessionId]
         delete state.unreadCountsBySession[sessionId]
         state.inboxItems = state.inboxItems.filter((item) => item.sessionId !== sessionId)
-        state.blockedCountsBySession = rebuildBlockedCounts(state.inboxItems)
+        delete state.blockedCountsBySession[sessionId]
       })
     }
   }))

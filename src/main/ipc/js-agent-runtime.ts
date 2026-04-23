@@ -17,8 +17,14 @@ class IpcEventChannel {
   private buffer: Array<{ runId: string; event: Record<string, unknown> }> = []
   private timer: ReturnType<typeof setInterval> | null = null
   private flushHandler: FlushHandler | null = null
+  private maxBufferSize: number
 
-  constructor(private intervalMs = 50) {}
+  constructor(
+    private intervalMs = 50,
+    maxBufferSize = 500
+  ) {
+    this.maxBufferSize = maxBufferSize
+  }
 
   setFlushHandler(handler: FlushHandler): void {
     this.flushHandler = handler
@@ -26,6 +32,10 @@ class IpcEventChannel {
 
   push(runId: string, event: Record<string, unknown>): void {
     this.buffer.push({ runId, event })
+    if (this.buffer.length >= this.maxBufferSize) {
+      this.flush()
+      return
+    }
     if (this.timer === null) {
       this.timer = setInterval(() => this.flush(), this.intervalMs)
     }

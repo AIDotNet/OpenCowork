@@ -83,7 +83,7 @@ import {
   serializeSystemCommand,
   type SystemCommandSnapshot
 } from '@renderer/lib/commands/system-command'
-import type { AgentEvent, ToolCallState } from '@renderer/lib/agent/types'
+import type { AgentEvent, AgentLoopConfig, ToolCallState } from '@renderer/lib/agent/types'
 import { ApiStreamError } from '@renderer/lib/ipc/api-stream'
 import { recordUsageEvent } from '@renderer/lib/usage-analytics'
 import {
@@ -94,6 +94,7 @@ import {
   resolveCompressionReservedOutputBudget,
   resolveCompressionThreshold
 } from '@renderer/lib/agent/context-compression'
+import { runAgentLoop } from '@renderer/lib/agent/agent-loop'
 import {
   summarizeToolInputForHistory,
   summarizeToolInputForLiveCard
@@ -3535,31 +3536,95 @@ export function useChatActions(): {
               hasMcps: activeMcps.length > 0
             })
 
-            if (!sidecarRequest) {
-              throw new Error('Main-process agent request build failed')
+            let loop: AsyncIterable<AgentEvent>
+
+            if (useSidecar) {
+              if (!sidecarRequest) {
+                throw new Error('Main-process agent request build failed')
+              }
+
+              setRequestTraceInfo(assistantMsgId, {
+                executionPath: 'sidecar'
+              })
+
+              const initialized = await agentBridge.initialize()
+              if (!initialized) {
+                throw new Error('Sidecar unavailable')
+              }
+
+              loop = createSidecarEventStream({
+                sessionId,
+                sidecarRequest,
+                signal: abortController.signal,
+                logLabel: 'agent'
+              })
+            } else {
+              setRequestTraceInfo(assistantMsgId, {
+                executionPath: 'node'
+              })
+
+              const loopConfig: AgentLoopConfig = {
+                maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
+                provider: agentProviderConfig,
+                tools: effectiveToolDefs,
+                systemPrompt: agentSystemPrompt,
+                workingFolder: sessionWorkingFolder,
+                signal: abortController.signal,
+                enableParallelToolExecution: true,
+                maxParallelTools,
+                forceApproval: false,
+                ...(compressionConfig && compressionContextLength > 0
+                  ? {
+                      contextCompression: {
+                        config: compressionConfig,
+                        compressFn: async (msgs: UnifiedMessage[]) => {
+                          const { messages: compressed } = await compressMessages(
+                            msgs,
+                            agentProviderConfig,
+                            abortController.signal
+                          )
+                          return compressed
+                        }
+                      }
+                    }
+                  : {})
+              }
+
+              const toolCtx: ToolContext = {
+                sessionId,
+                workingFolder: sessionWorkingFolder,
+                sshConnectionId: session?.sshConnectionId,
+                signal: abortController.signal,
+                ipc: ipcClient,
+                agentRunId: assistantMsgId,
+                readFileHistory: new Map(),
+                pluginId: session?.pluginId,
+                pluginChatId: session?.externalChatId
+                  ? extractPluginChatId(session.externalChatId)
+                  : undefined,
+                pluginChatType: session?.pluginChatType,
+                pluginSenderId: session?.pluginSenderId,
+                pluginSenderName: session?.pluginSenderName,
+                sharedState: {}
+              }
+
+              const handleApproval = async (tc: ToolCallState): Promise<boolean> => {
+                const autoApprove =
+                  useSettingsStore.getState().autoApprove ||
+                  useAgentStore.getState().approvedToolNames.includes(tc.name)
+                if (autoApprove) {
+                  useAgentStore.getState().addApprovedTool(tc.name)
+                  return true
+                }
+                const approved = await useAgentStore.getState().requestApproval(tc.id)
+                if (approved) {
+                  useAgentStore.getState().addApprovedTool(tc.name)
+                }
+                return approved
+              }
+
+              loop = runAgentLoop(messagesToSend, loopConfig, toolCtx, handleApproval)
             }
-
-            if (!useSidecar) {
-              throw new Error(
-                'Main-process agent runtime unavailable; renderer fallback is disabled'
-              )
-            }
-
-            setRequestTraceInfo(assistantMsgId, {
-              executionPath: 'sidecar'
-            })
-
-            const initialized = await agentBridge.initialize()
-            if (!initialized) {
-              throw new Error('Sidecar unavailable')
-            }
-
-            const loop = createSidecarEventStream({
-              sessionId,
-              sidecarRequest,
-              signal: abortController.signal,
-              logLabel: 'agent'
-            })
 
             let thinkingDone = false
             let hasThinkingDelta = false

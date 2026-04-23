@@ -499,7 +499,27 @@ export const useUIStore = create<UIStore>((set, get) => ({
     })),
   getMessageListViewState: (sessionId) =>
     sessionId ? (get().messageListViewStatesBySession[sessionId] ?? null) : null,
-  releaseDormantSessionUiState: () => undefined,
+  releaseDormantSessionUiState: (keepSessionId) =>
+    set((state) => {
+      const keep = (key: string): boolean => key === keepSessionId
+      return {
+        messageListViewStatesBySession: Object.fromEntries(
+          Object.entries(state.messageListViewStatesBySession).filter(([k]) => keep(k))
+        ),
+        autoModelSelectionsBySession: Object.fromEntries(
+          Object.entries(state.autoModelSelectionsBySession).filter(([k]) => keep(k))
+        ),
+        autoModelHighConfidenceSelectionsBySession: Object.fromEntries(
+          Object.entries(state.autoModelHighConfidenceSelectionsBySession).filter(([k]) => keep(k))
+        ),
+        autoModelRoutingStatesBySession: Object.fromEntries(
+          Object.entries(state.autoModelRoutingStatesBySession).filter(([k]) => keep(k))
+        ),
+        planModesBySession: Object.fromEntries(
+          Object.entries(state.planModesBySession).filter(([k]) => keep(k))
+        )
+      }
+    }),
   autoModelSelectionsBySession: {},
   autoModelHighConfidenceSelectionsBySession: {},
   autoModelRoutingStatesBySession: {},

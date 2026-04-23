@@ -181,7 +181,7 @@ export class JsAgentRuntimeManager {
   private running = false
   private onRequestFromSidecar: RequestHandler | null = null
   private activeRuns = new Map<string, ActiveRun>()
-  private eventChannel = new IpcEventChannel(50)
+  private eventChannel = new IpcEventChannel(50, 100)
 
   setEventHandler(handler: EventHandler): void {
     this.eventChannel.setFlushHandler((batches) => {

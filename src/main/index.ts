@@ -33,7 +33,7 @@ import { registerShellHandlers } from './ipc/shell-handlers'
 
 import { registerApiProxyHandlers } from './ipc/api-proxy'
 
-import { registerSettingsHandlers } from './ipc/settings-handlers'
+import { registerSettingsHandlers, flushSettingsSync } from './ipc/settings-handlers'
 
 import { registerSkillsHandlers } from './ipc/skills-handlers'
 import { registerAgentsHandlers } from './ipc/agents-handlers'
@@ -114,7 +114,14 @@ const GENERATED_IMAGES_DIR = 'generated-images'
 const MACOS_SHELL_ENV_TIMEOUT_MS = 4000
 const SHELL_ENV_LINE_RE = /^[A-Za-z_][A-Za-z0-9_]*=/
 const SHELL_ENV_SKIP_KEYS = new Set(['PWD', 'OLDPWD', 'SHLVL', '_'])
-const SYSTEM_PROXY_ENV_KEYS = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy']
+const SYSTEM_PROXY_ENV_KEYS = [
+  'HTTPS_PROXY',
+  'https_proxy',
+  'HTTP_PROXY',
+  'http_proxy',
+  'ALL_PROXY',
+  'all_proxy'
+]
 
 function getEnvProxyUrl(): string | null {
   for (const key of SYSTEM_PROXY_ENV_KEYS) {
@@ -128,7 +135,7 @@ async function configureSystemProxy(): Promise<void> {
   try {
     const { readSettings } = await import('./ipc/settings-handlers')
     const saved = readSettings().systemProxyUrl
-    const proxyUrl = (typeof saved === 'string' && saved.trim()) ? saved.trim() : getEnvProxyUrl()
+    const proxyUrl = typeof saved === 'string' && saved.trim() ? saved.trim() : getEnvProxyUrl()
 
     if (proxyUrl) {
       await session.defaultSession.setProxy({ mode: 'fixed_servers', proxyRules: proxyUrl })
@@ -457,7 +464,10 @@ function buildRendererUrl(searchParams?: URLSearchParams): string {
   return fileUrl.toString()
 }
 
-async function loadRendererWindow(window: BrowserWindow, searchParams?: URLSearchParams): Promise<void> {
+async function loadRendererWindow(
+  window: BrowserWindow,
+  searchParams?: URLSearchParams
+): Promise<void> {
   await window.loadURL(buildRendererUrl(searchParams))
 }
 
@@ -679,7 +689,10 @@ function registerWindowControlHandlers(): void {
   })
 }
 
-function configureAppWindow(window: BrowserWindow, options?: { hideOnClose?: boolean; onClosed?: () => void }): void {
+function configureAppWindow(
+  window: BrowserWindow,
+  options?: { hideOnClose?: boolean; onClosed?: () => void }
+): void {
   window.on('maximize', () => safeSendToWindow(window, 'window:maximized', true))
 
   window.on('unmaximize', () => safeSendToWindow(window, 'window:maximized', false))
@@ -825,6 +838,7 @@ app.on('child-process-gone', (_event, details) => {
 
 app.on('before-quit', () => {
   isQuiting = true
+  flushSettingsSync()
 })
 
 configureChromiumCachePaths()
@@ -867,7 +881,6 @@ if (gotSingleInstanceLock) {
       crashLogDir: getCrashLogDir()
     })
     console.log(`[CrashLogger] Logs will be written to ${getCrashLogDir()}`)
-
 
     // Set app identity for Windows integration
     electronApp.setAppUserModelId('com.opencowork.app')
@@ -963,7 +976,8 @@ if (gotSingleInstanceLock) {
       'window:capture-region',
       async (event, args: { x: number; y: number; width: number; height: number }) => {
         try {
-          const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+          const win =
+            BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
           if (!win) return { error: 'No active window found' }
 
           const [contentWidth, contentHeight] = win.getContentSize()
@@ -972,7 +986,12 @@ if (gotSingleInstanceLock) {
           const width = Math.max(1, Math.min(Math.ceil(args.width), contentWidth - x))
           const height = Math.max(1, Math.min(Math.ceil(args.height), contentHeight - y))
 
-          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) {
+          if (
+            !Number.isFinite(x) ||
+            !Number.isFinite(y) ||
+            !Number.isFinite(width) ||
+            !Number.isFinite(height)
+          ) {
             return { error: 'Invalid capture bounds' }
           }
 
@@ -1097,7 +1116,9 @@ app.on('window-all-closed', () => {
   closeAllSshSessions()
   cancelAllJobs()
   stopAllIsolatedTeamWorkers()
-  getSidecarManager().stop().catch(() => { })
+  getSidecarManager()
+    .stop()
+    .catch(() => {})
   closeDb()
   if (process.platform !== 'darwin') {
     app.quit()

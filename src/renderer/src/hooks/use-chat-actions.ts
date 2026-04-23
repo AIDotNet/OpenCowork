@@ -179,6 +179,23 @@ attachRendererProviderBridge()
 installSessionControlSyncListener((event) => {
   applySessionControlSyncEvent(event)
 })
+
+// Clean up module-level Maps when sessions are deleted to prevent unbounded growth.
+let knownSessionIds: Set<string> | null = null
+useChatStore.subscribe((state) => {
+  const currentIds = new Set(state.sessions.map((s) => s.id))
+  if (knownSessionIds) {
+    for (const id of knownSessionIds) {
+      if (!currentIds.has(id)) {
+        pendingSessionMessages.delete(id)
+        pendingSessionMessageViews.delete(id)
+        pausedPendingSessionDispatch.delete(id)
+        longRunningVerificationPasses.delete(id)
+      }
+    }
+  }
+  knownSessionIds = currentIds
+})
 window.electron.ipcRenderer.on(
   'sidecar:approval-request',
   async (_event: unknown, payload: { requestId: string; method: string; params: unknown }) => {
@@ -3348,6 +3365,7 @@ export function useChatActions(): {
           const verificationPassIndex = longRunningVerificationPasses.get(sessionId) ?? 0
           let runUsedTools = false
           let shouldAutoContinueLongRunning = false
+          const liveToolNames = new Map<string, string>()
 
           // Tool input throttling state — defined before try block so finally can safely dispose
           const toolInputThrottle = new Map<
@@ -3628,7 +3646,6 @@ export function useChatActions(): {
 
             let thinkingDone = false
             let hasThinkingDelta = false
-            const liveToolNames = new Map<string, string>()
             streamDeltaBuffer = createStreamDeltaBuffer(
               sessionId!,
               assistantMsgId,
@@ -4408,6 +4425,7 @@ export function useChatActions(): {
             streamDeltaBuffer?.flushNow()
             streamDeltaBuffer?.dispose()
             disposeToolInputQueues()
+            liveToolNames.clear()
             if (isSessionForeground(sessionId!)) {
               // Clear image generating state
               setGeneratingImageWithSync(assistantMsgId, false)

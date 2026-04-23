@@ -174,8 +174,7 @@ export async function* runAgentLoop(
       while (sendAttempt < MAX_PROVIDER_RETRIES) {
         assistantContentBlocks = []
         toolCalls = []
-        const toolArgChunksById = new Map<string, string[]>()
-        const toolArgsLenById = new Map<string, number>()
+        const toolArgBufferById = new Map<string, string>()
         const toolNamesById = new Map<string, string>()
         const toolExtraContentById = new Map<string, ToolCallExtraContent>()
         let currentToolId = ''
@@ -274,8 +273,7 @@ export async function* runAgentLoop(
                 currentToolId = event.toolCallId!
                 currentToolName = event.toolName!
                 if (currentToolId) {
-                  toolArgChunksById.set(currentToolId, [])
-                  toolArgsLenById.set(currentToolId, 0)
+                  toolArgBufferById.set(currentToolId, '')
                   toolNamesById.set(currentToolId, currentToolName)
                   if (event.toolCallExtraContent) {
                     toolExtraContentById.set(currentToolId, event.toolCallExtraContent)
@@ -298,32 +296,21 @@ export async function* runAgentLoop(
                   const targetToolId = event.toolCallId || currentToolId
                   if (!targetToolId) break
                   const delta = event.argumentsDelta ?? ''
-                  const chunks = toolArgChunksById.get(targetToolId)
-                  if (chunks) {
-                    chunks.push(delta)
-                  } else {
-                    toolArgChunksById.set(targetToolId, [delta])
-                  }
-                  const newLen = (toolArgsLenById.get(targetToolId) ?? 0) + delta.length
-                  toolArgsLenById.set(targetToolId, newLen)
+                  const prev = toolArgBufferById.get(targetToolId)
+                  const buffer = prev !== undefined ? prev + delta : delta
+                  toolArgBufferById.set(targetToolId, buffer)
 
                   const targetToolName = toolNamesById.get(targetToolId) || currentToolName
 
-                  // For Write/Edit, only parse the first few deltas to extract
-                  // file_path for the UI card. Skip all subsequent parsing —
-                  // the full content is parsed once at tool_call_end.
-                  // This avoids sending growing file content through the
-                  // entire event→store→render pipeline on every delta.
                   if (targetToolName === 'Edit') {
                     break
                   }
 
-                  if (targetToolName === 'Write' && newLen > 200) {
+                  if (targetToolName === 'Write' && buffer.length > 200) {
                     break
                   }
 
-                  const nextArgs = chunks ? chunks.join('') : delta
-                  const partialInput = parseToolInputSnapshot(nextArgs, targetToolName)
+                  const partialInput = parseToolInputSnapshot(buffer, targetToolName)
                   if (partialInput && Object.keys(partialInput).length > 0) {
                     yield {
                       type: 'tool_use_args_delta',
@@ -338,7 +325,7 @@ export async function* runAgentLoop(
                 streamedContent = true
                 const endToolId = event.toolCallId || currentToolId || nanoid()
                 const endToolName = event.toolName || currentToolName
-                const rawToolArgs = (toolArgChunksById.get(endToolId) ?? []).join('')
+                const rawToolArgs = toolArgBufferById.get(endToolId) ?? ''
                 const streamedToolInput = parseToolInputSnapshot(rawToolArgs, endToolName)
                 const mergedToolInput = mergeToolInputs(streamedToolInput, event.toolCallInput)
                 const toolInput =
@@ -354,8 +341,7 @@ export async function* runAgentLoop(
                   extraContent: event.toolCallExtraContent ?? toolExtraContentById.get(endToolId)
                 }
                 assistantContentBlocks.push(toolUseBlock)
-                toolArgChunksById.delete(endToolId)
-                toolArgsLenById.delete(endToolId)
+                toolArgBufferById.delete(endToolId)
                 toolNamesById.delete(endToolId)
                 toolExtraContentById.delete(endToolId)
 
@@ -434,9 +420,8 @@ export async function* runAgentLoop(
 
           // Defensive: some providers may occasionally miss explicit tool_call_end.
           // Finalize any dangling tool calls so UI/state can transition out of streaming.
-          if (toolArgChunksById.size > 0) {
-            for (const [danglingToolId, chunks] of toolArgChunksById) {
-              const argsText = chunks.join('')
+          if (toolArgBufferById.size > 0) {
+            for (const [danglingToolId, argsText] of toolArgBufferById) {
               const danglingName = toolNamesById.get(danglingToolId) || currentToolName
               const danglingInput =
                 parseToolInputSnapshot(argsText, danglingName) ?? safeParseJSON(argsText)
@@ -468,8 +453,7 @@ export async function* runAgentLoop(
                 }
               }
             }
-            toolArgChunksById.clear()
-            toolArgsLenById.clear()
+            toolArgBufferById.clear()
             toolNamesById.clear()
           }
 
@@ -748,6 +732,7 @@ export async function* runAgentLoop(
         createdAt: Date.now()
       }
       conversationMessages.push(toolResultMsg)
+      startedAtByToolId.clear()
 
       // Notify UI about tool results so it can sync to chat store
       yield {

@@ -2,10 +2,7 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { TeamMember, TeamTask, TeamMessage, TeamEvent } from '../lib/agent/teams/types'
-import {
-  emitAgentRuntimeSync,
-  isAgentRuntimeSyncSuppressed
-} from '../lib/agent-runtime-sync'
+import { emitAgentRuntimeSync, isAgentRuntimeSyncSuppressed } from '../lib/agent-runtime-sync'
 import type {
   TeamRuntimeBackendType,
   TeamRuntimePermissionMode,
@@ -76,27 +73,34 @@ export const useTeamStore = create<TeamStore>()(
               if (state.activeTeam) {
                 // Guard: skip if a member with the same id or name already exists
                 const dup = state.activeTeam.members.some(
-                  (m) => m.id === eventWithSession.member.id || m.name === eventWithSession.member.name
+                  (m) =>
+                    m.id === eventWithSession.member.id || m.name === eventWithSession.member.name
                 )
                 if (!dup) state.activeTeam.members.push(eventWithSession.member)
               }
               break
             case 'team_member_update': {
               if (!state.activeTeam) break
-              const member = state.activeTeam.members.find((m) => m.id === eventWithSession.memberId)
+              const member = state.activeTeam.members.find(
+                (m) => m.id === eventWithSession.memberId
+              )
               if (member) Object.assign(member, eventWithSession.patch)
               break
             }
             case 'team_member_remove': {
               if (!state.activeTeam) break
-              const idx = state.activeTeam.members.findIndex((m) => m.id === eventWithSession.memberId)
+              const idx = state.activeTeam.members.findIndex(
+                (m) => m.id === eventWithSession.memberId
+              )
               if (idx !== -1) state.activeTeam.members.splice(idx, 1)
               break
             }
             case 'team_task_add':
               if (state.activeTeam) {
                 // Guard: skip if a task with the same id already exists
-                const dupTask = state.activeTeam.tasks.some((t) => t.id === eventWithSession.task.id)
+                const dupTask = state.activeTeam.tasks.some(
+                  (t) => t.id === eventWithSession.task.id
+                )
                 if (!dupTask) state.activeTeam.tasks.push(eventWithSession.task)
               }
               break

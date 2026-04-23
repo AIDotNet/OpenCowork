@@ -43,7 +43,10 @@ export function startWorkerPermissionPoller(memberName: string): void {
         for (const message of messages) {
           if (seenWorkerMessageIds.has(message.id)) continue
           seenWorkerMessageIds.add(message.id)
-          workerMessageCursor.set(memberName, Math.max(workerMessageCursor.get(memberName) ?? 0, message.timestamp))
+          workerMessageCursor.set(
+            memberName,
+            Math.max(workerMessageCursor.get(memberName) ?? 0, message.timestamp)
+          )
 
           if (message.type !== 'permission_response') continue
           const payload = parsePermissionResponse(message.content)

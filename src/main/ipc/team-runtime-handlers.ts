@@ -217,7 +217,9 @@ async function appendTeamMessage(args: AppendTeamRuntimeMessageArgs): Promise<{ 
   return { success: true }
 }
 
-async function getTeamSnapshot(args: GetTeamRuntimeSnapshotArgs): Promise<TeamRuntimeSnapshot | null> {
+async function getTeamSnapshot(
+  args: GetTeamRuntimeSnapshotArgs
+): Promise<TeamRuntimeSnapshot | null> {
   const manifest = readManifest(args.teamName)
   if (!manifest) return null
 
@@ -311,21 +313,30 @@ export function registerTeamRuntimeHandlers(): void {
     return deleteTeamRuntime(args)
   })
 
-  ipcMain.handle('team-runtime:message:append', async (_event, args: AppendTeamRuntimeMessageArgs) => {
-    return appendTeamMessage(args)
-  })
+  ipcMain.handle(
+    'team-runtime:message:append',
+    async (_event, args: AppendTeamRuntimeMessageArgs) => {
+      return appendTeamMessage(args)
+    }
+  )
 
   ipcMain.handle('team-runtime:snapshot', async (_event, args: GetTeamRuntimeSnapshotArgs) => {
     return getTeamSnapshot(args)
   })
 
-  ipcMain.handle('team-runtime:member:update', async (_event, args: UpdateTeamRuntimeMemberArgs) => {
-    return updateTeamMember(args)
-  })
+  ipcMain.handle(
+    'team-runtime:member:update',
+    async (_event, args: UpdateTeamRuntimeMemberArgs) => {
+      return updateTeamMember(args)
+    }
+  )
 
-  ipcMain.handle('team-runtime:manifest:update', async (_event, args: UpdateTeamRuntimeManifestArgs) => {
-    return updateTeamManifest(args)
-  })
+  ipcMain.handle(
+    'team-runtime:manifest:update',
+    async (_event, args: UpdateTeamRuntimeManifestArgs) => {
+      return updateTeamManifest(args)
+    }
+  )
 
   ipcMain.handle(
     'team-runtime:messages:consume',

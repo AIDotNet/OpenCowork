@@ -55,10 +55,7 @@ export function startWorkerInboxPoller(params: {
             continue
           }
 
-          if (
-            message.type === 'team_permission_update' ||
-            message.type === 'mode_set_request'
-          ) {
+          if (message.type === 'team_permission_update' || message.type === 'mode_set_request') {
             const payload = parsePermissionUpdate(message.content)
             if (!payload) continue
             useTeamStore.getState().updateTeamMeta({
@@ -68,7 +65,10 @@ export function startWorkerInboxPoller(params: {
             continue
           }
 
-          params.onMessage(`[Team message from ${message.from}]: ${message.content}`, message.timestamp)
+          params.onMessage(
+            `[Team message from ${message.from}]: ${message.content}`,
+            message.timestamp
+          )
         }
       })
       .catch((error) => {

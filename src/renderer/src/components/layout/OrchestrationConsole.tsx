@@ -11,17 +11,15 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { buildOrchestrationRuns } from '@renderer/lib/orchestration/build-runs'
 import { OrchestrationStagePills } from '@renderer/components/chat/OrchestrationStagePills'
 import { TranscriptMessageList } from '@renderer/components/chat/TranscriptMessageList'
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger
-} from '@renderer/components/ui/hover-card'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
 import { cn } from '@renderer/lib/utils'
 
 export function OrchestrationConsole(): React.JSX.Element {
   const { t } = useTranslation('layout')
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const messages = useChatStore((s) => (activeSessionId ? s.getSessionMessages(activeSessionId) : []))
+  const messages = useChatStore((s) =>
+    activeSessionId ? s.getSessionMessages(activeSessionId) : []
+  )
   const { activeSubAgents, completedSubAgents, subAgentHistory } = useAgentStore(
     useShallow((s) => ({
       activeSubAgents: s.activeSubAgents,
@@ -143,9 +141,14 @@ export function OrchestrationConsole(): React.JSX.Element {
               <div className="space-y-3">
                 {run.tasks.length > 0 ? (
                   run.tasks.map((task) => (
-                    <div key={task.id} className="rounded-xl border border-border/60 bg-background/70 p-3">
+                    <div
+                      key={task.id}
+                      className="rounded-xl border border-border/60 bg-background/70 p-3"
+                    >
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-foreground/90">{task.subject}</span>
+                        <span className="text-sm font-medium text-foreground/90">
+                          {task.subject}
+                        </span>
                         <span className="rounded-full border border-border/60 bg-background/70 px-1.5 py-0.5 text-[9px] text-muted-foreground/70">
                           {task.status}
                         </span>
@@ -164,7 +167,9 @@ export function OrchestrationConsole(): React.JSX.Element {
                   ))
                 ) : (
                   <div className="rounded-xl border border-dashed border-border/60 bg-background/60 p-4 text-sm text-muted-foreground">
-                    {t('rightPanel.orchestrationTasksEmpty', { defaultValue: '当前 run 没有独立任务列表' })}
+                    {t('rightPanel.orchestrationTasksEmpty', {
+                      defaultValue: '当前 run 没有独立任务列表'
+                    })}
                   </div>
                 )}
               </div>
@@ -174,11 +179,16 @@ export function OrchestrationConsole(): React.JSX.Element {
                   <section className="rounded-xl border border-border/60 bg-background/70 p-3">
                     <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
                       <MessagesSquare className="size-3.5" />
-                      <span>{t('rightPanel.orchestrationTeamMessages', { defaultValue: '团队消息' })}</span>
+                      <span>
+                        {t('rightPanel.orchestrationTeamMessages', { defaultValue: '团队消息' })}
+                      </span>
                     </div>
                     <div className="space-y-2">
                       {run.messages.slice(-8).map((message) => (
-                        <div key={message.id} className="rounded-lg border border-border/60 bg-background/70 px-3 py-2">
+                        <div
+                          key={message.id}
+                          className="rounded-lg border border-border/60 bg-background/70 px-3 py-2"
+                        >
                           <div className="text-[10px] text-muted-foreground/65">
                             {message.from} → {message.to}
                           </div>
@@ -193,7 +203,9 @@ export function OrchestrationConsole(): React.JSX.Element {
                 <section className="rounded-xl border border-border/60 bg-background/70 p-3">
                   <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
                     <Users className="size-3.5" />
-                    <span>{t('rightPanel.orchestrationMemberSummary', { defaultValue: '成员摘要' })}</span>
+                    <span>
+                      {t('rightPanel.orchestrationMemberSummary', { defaultValue: '成员摘要' })}
+                    </span>
                   </div>
                   <div className="space-y-2">
                     {run.members.map((member, index) => (
@@ -210,8 +222,12 @@ export function OrchestrationConsole(): React.JSX.Element {
                           {String(index + 1).padStart(2, '0')}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-foreground/9">{member.name}</div>
-                          <div className="truncate text-[11px] text-muted-foreground/70">{member.latestAction || member.summary}</div>
+                          <div className="truncate text-sm font-medium text-foreground/9">
+                            {member.name}
+                          </div>
+                          <div className="truncate text-[11px] text-muted-foreground/70">
+                            {member.latestAction || member.summary}
+                          </div>
                         </div>
                         <div className="text-[10px] text-muted-foreground/65">
                           {t('rightPanel.orchestrationToolCallCount', {
@@ -228,7 +244,9 @@ export function OrchestrationConsole(): React.JSX.Element {
               <div className="space-y-4">
                 <section className="rounded-xl border border-border/60 bg-background/70 p-3">
                   <div className="flex items-center gap-2">
-                    <div className="text-sm font-semibold text-foreground/92">{selectedMember.name}</div>
+                    <div className="text-sm font-semibold text-foreground/92">
+                      {selectedMember.name}
+                    </div>
                     <span className="rounded-full border border-border/60 bg-background/70 px-1.5 py-0.5 text-[9px] text-muted-foreground/70">
                       {selectedMember.status}
                     </span>
@@ -244,7 +262,9 @@ export function OrchestrationConsole(): React.JSX.Element {
                   <section className="rounded-xl border border-border/60 bg-background/70 p-3">
                     <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
                       <MessagesSquare className="size-3.5" />
-                      <span>{t('rightPanel.orchestrationTranscript', { defaultValue: '轨迹' })}</span>
+                      <span>
+                        {t('rightPanel.orchestrationTranscript', { defaultValue: '轨迹' })}
+                      </span>
                     </div>
                     <TranscriptMessageList messages={selectedMember.transcript} />
                   </section>

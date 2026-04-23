@@ -55,7 +55,10 @@ export class DingTalkService extends BasePluginService {
     return this.messageChatCache.get(messageId) ?? null
   }
 
-  private async sendMessageToResolvedChat(chatId: string, content: string): Promise<{ messageId: string }> {
+  private async sendMessageToResolvedChat(
+    chatId: string,
+    content: string
+  ): Promise<{ messageId: string }> {
     if (!chatId) {
       throw new Error('DingTalk reply missing conversation id')
     }

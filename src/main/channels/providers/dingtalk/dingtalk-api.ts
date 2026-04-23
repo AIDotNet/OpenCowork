@@ -123,7 +123,9 @@ export class DingTalkApi {
     if (!openConversationId) {
       throw new Error(`DingTalk replyMessage missing conversation id for message ${messageId}`)
     }
-    console.log(`[DingTalkApi] Replying to messageId=${messageId} in conversation ${openConversationId}`)
+    console.log(
+      `[DingTalkApi] Replying to messageId=${messageId} in conversation ${openConversationId}`
+    )
     return this.sendMessage(openConversationId, content)
   }
 

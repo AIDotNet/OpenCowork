@@ -19,11 +19,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger
-} from '@renderer/components/ui/hover-card'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
 import { useAgentStore, type SubAgentState } from '@renderer/stores/agent-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
@@ -185,13 +181,17 @@ function normalizeToolCallStatus(status: string): ToolCallState['status'] {
     : 'completed'
 }
 
-function parseSubAgentToolResult(content?: ToolResultContent, isError = false): {
+function parseSubAgentToolResult(
+  content?: ToolResultContent,
+  isError = false
+): {
   report: string
   error: string | null
   meta: ReturnType<typeof parseSubAgentMeta>['meta']
 } {
   const rawOutput = extractToolResultText(content)
-  if (!rawOutput.trim()) return { report: '', error: isError ? 'Tool call failed' : null, meta: null }
+  if (!rawOutput.trim())
+    return { report: '', error: isError ? 'Tool call failed' : null, meta: null }
 
   const { meta, text } = parseSubAgentMeta(rawOutput)
   const payloadText = text.trim() || rawOutput.trim()
@@ -214,7 +214,10 @@ function getPromptText(input: Record<string, unknown>): string {
     .join('\n\n')
 }
 
-function buildMessageSubAgents(messages: UnifiedMessage[], sessionId: string | null): SubAgentState[] {
+function buildMessageSubAgents(
+  messages: UnifiedMessage[],
+  sessionId: string | null
+): SubAgentState[] {
   if (!sessionId) return []
 
   const toolResults = new Map<

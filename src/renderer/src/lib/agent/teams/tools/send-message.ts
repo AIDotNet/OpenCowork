@@ -4,7 +4,10 @@ import { encodeStructuredToolResult, encodeToolError } from '../../../tools/tool
 import { teamEvents } from '../events'
 import { useTeamStore } from '../../../../stores/team-store'
 import type { TeamMessage, TeamMessageType } from '../types'
-import type { TeamRuntimePermissionMode, TeamRuntimePermissionUpdatePayload } from '../../../../../../shared/team-runtime-types'
+import type {
+  TeamRuntimePermissionMode,
+  TeamRuntimePermissionUpdatePayload
+} from '../../../../../../shared/team-runtime-types'
 import { appendTeamRuntimeMessage, updateTeamRuntimeManifest } from '../runtime-client'
 
 const VALID_TYPES: TeamMessageType[] = [

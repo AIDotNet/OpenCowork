@@ -248,16 +248,17 @@ export function SubAgentExecutionDetail({
   const fallbackDisplayName = fallbackInput
     ? String(fallbackInput.subagent_type ?? fallbackInput.name ?? 'SubAgent')
     : 'SubAgent'
-  const fallbackDescription = fallbackInput?.description
-    ? String(fallbackInput.description)
-    : ''
+  const fallbackDescription = fallbackInput?.description ? String(fallbackInput.description) : ''
   const fallbackPrompt = getPromptText(fallbackInput)
 
   if (!agent) {
     if (fallbackDetailText) {
       return (
         <div
-          className={cn('flex h-full min-h-0 flex-col', embedded ? 'bg-transparent' : 'bg-background')}
+          className={cn(
+            'flex h-full min-h-0 flex-col',
+            embedded ? 'bg-transparent' : 'bg-background'
+          )}
         >
           <div className="border-b border-border/60 px-4 py-3">
             <div className="flex items-start gap-3">

@@ -18,9 +18,7 @@ function buildRequestId(memberName: string, taskId?: string | null): string {
   return `plan-${memberName}-${taskId ?? 'none'}-${nanoid(6)}`
 }
 
-function parsePlanApprovalResponse(
-  content: string
-): TeamRuntimePlanApprovalResponsePayload | null {
+function parsePlanApprovalResponse(content: string): TeamRuntimePlanApprovalResponsePayload | null {
   try {
     const parsed = JSON.parse(content) as TeamRuntimePlanApprovalResponsePayload
     if (!parsed || typeof parsed.requestId !== 'string' || typeof parsed.approved !== 'boolean') {

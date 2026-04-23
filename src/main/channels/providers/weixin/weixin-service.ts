@@ -266,10 +266,7 @@ export class WeixinService extends BasePluginService {
 
         const delayMs =
           recoverableIssue === 'session_timeout'
-            ? Math.min(
-                120_000,
-                1000 * Math.pow(2, Math.min(this.sessionTimeoutStreak - 1, 16))
-              )
+            ? Math.min(120_000, 1000 * Math.pow(2, Math.min(this.sessionTimeoutStreak - 1, 16)))
             : recoverableIssue
               ? 2000
               : 3000

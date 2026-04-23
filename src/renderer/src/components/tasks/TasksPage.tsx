@@ -290,9 +290,7 @@ function getSourceSessionMeta(
   item: TimelineItem,
   sessionSummaryById: Map<string, TaskPageSessionSummary>
 ): { title: string; model: string | null; workingFolder: string | null } {
-  const session = item.sourceSessionId
-    ? sessionSummaryById.get(item.sourceSessionId)
-    : null
+  const session = item.sourceSessionId ? sessionSummaryById.get(item.sourceSessionId) : null
   return {
     title: item.sourceSessionTitle ?? session?.title ?? '未知会话',
     model: item.model ?? session?.modelId ?? null,
@@ -623,9 +621,9 @@ export function TasksPage(): React.JSX.Element {
         editorMode === 'create'
           ? await ipcClient.invoke(IPC.CRON_ADD, payload)
           : await ipcClient.invoke(IPC.CRON_UPDATE, {
-            jobId: editorForm.id,
-            patch: payload
-          })
+              jobId: editorForm.id,
+              patch: payload
+            })
 
       if (result && typeof result === 'object' && 'error' in (result as Record<string, unknown>)) {
         toast.error(String((result as { error: string }).error))

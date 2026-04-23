@@ -6,13 +6,7 @@ import type {
   TeamRuntimePermissionMode
 } from '../../../../../shared/team-runtime-types'
 
-export type TeamMemberStatus =
-  | 'working'
-  | 'idle'
-  | 'waiting'
-  | 'stopped'
-  | 'completed'
-  | 'failed'
+export type TeamMemberStatus = 'working' | 'idle' | 'waiting' | 'stopped' | 'completed' | 'failed'
 
 export interface TeamMember {
   id: string

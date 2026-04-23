@@ -1,9 +1,6 @@
 import { create } from 'zustand'
 import { ipcClient } from '../lib/ipc/ipc-client'
-import {
-  emitAgentRuntimeSync,
-  isAgentRuntimeSyncSuppressed
-} from '../lib/agent-runtime-sync'
+import { emitAgentRuntimeSync, isAgentRuntimeSyncSuppressed } from '../lib/agent-runtime-sync'
 import { useChatStore } from './chat-store'
 
 export interface TaskItem {
@@ -146,10 +143,7 @@ interface TaskStore {
   /** Delete all tasks for a session from DB and memory */
   deleteSessionTasks: (sessionId: string) => void
   applySyncedTaskAdd: (task: TaskItem) => void
-  applySyncedTaskUpdate: (
-    id: string,
-    patch: Partial<Omit<TaskItem, 'id' | 'createdAt'>>
-  ) => void
+  applySyncedTaskUpdate: (id: string, patch: Partial<Omit<TaskItem, 'id' | 'createdAt'>>) => void
   applySyncedTaskDelete: (id: string) => void
   applySyncedDeleteSessionTasks: (sessionId: string) => void
 
@@ -438,7 +432,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
       const nextTasksBySession = { ...state.tasksBySession, [sessionId]: nextSessionTasks }
       if (state.currentSessionId === sessionId) {
-        return { tasks: nextSessionTasks, todos: nextSessionTasks, tasksBySession: nextTasksBySession }
+        return {
+          tasks: nextSessionTasks,
+          todos: nextSessionTasks,
+          tasksBySession: nextTasksBySession
+        }
       }
       return { tasksBySession: nextTasksBySession }
     })

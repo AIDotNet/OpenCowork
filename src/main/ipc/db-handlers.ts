@@ -252,6 +252,44 @@ export function registerDbHandlers(options: RegisterDbHandlersOptions = {}): voi
   )
 
   ipcMain.handle(
+    'db:messages:add-batch',
+    (
+      _event,
+      msgs: Array<{
+        id: string
+        sessionId: string
+        role: string
+        content: string
+        meta?: string | null
+        createdAt: number
+        usage?: string | null
+        sortOrder: number
+      }>
+    ) => {
+      if (!Array.isArray(msgs) || msgs.length === 0) return { success: true }
+      const sessionIds = new Set(msgs.map((m) => m.sessionId))
+      for (const sessionId of sessionIds) {
+        const existing = sessionsDao.getSession(sessionId)
+        if (!existing) {
+          const earliest = msgs.filter((m) => m.sessionId === sessionId)[0]
+          sessionsDao.createSession({
+            id: sessionId,
+            title: 'New Conversation',
+            mode: 'chat',
+            createdAt: earliest.createdAt,
+            updatedAt: earliest.createdAt
+          })
+        }
+      }
+      messagesDao.addMessages(msgs)
+      for (const sessionId of sessionIds) {
+        emitSessionUpdated(sessionId, 'message-added')
+      }
+      return { success: true }
+    }
+  )
+
+  ipcMain.handle(
     'db:messages:update',
     (
       _event,

@@ -198,6 +198,33 @@ function dbAddMessage(sessionId: string, msg: UnifiedMessage, sortOrder: number)
     .catch(() => {})
 }
 
+function dbAddMessageBatch(
+  sessionId: string,
+  items: Array<{ msg: UnifiedMessage; sortOrder: number }>
+): void {
+  if (items.length === 0) return
+  const pendingCreate = _pendingSessionCreates.get(sessionId) ?? Promise.resolve()
+
+  void pendingCreate
+    .catch(() => {})
+    .then(() =>
+      ipcClient.invoke(
+        'db:messages:add-batch',
+        items.map(({ msg, sortOrder }) => ({
+          id: msg.id,
+          sessionId,
+          role: msg.role,
+          content: JSON.stringify(sanitizeMessageContentForPersistence(msg.content)),
+          meta: msg.meta ? JSON.stringify(msg.meta) : null,
+          createdAt: msg.createdAt,
+          usage: msg.usage ? JSON.stringify(msg.usage) : null,
+          sortOrder
+        }))
+      )
+    )
+    .catch(() => {})
+}
+
 function dbUpdateMessage(msgId: string, content: unknown, usage?: unknown, meta?: unknown): void {
   const normalizedContent =
     typeof content === 'string' || Array.isArray(content)
@@ -283,7 +310,7 @@ function dbFlushMessage(msg: UnifiedMessage): void {
     setTimeout(() => {
       _pendingFlush.delete(key)
       dbUpdateMessage(msg.id, msg.content, msg.usage, msg.meta ?? null)
-    }, 500)
+    }, 2000)
   )
 }
 
@@ -2607,6 +2634,7 @@ export const useChatStore = create<ChatStore>()(
     },
 
     stripOldSystemReminders: (sessionId) => {
+      const changedMsgIds = new Set<string>()
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (!session || session.messages.length === 0) return
@@ -2628,6 +2656,7 @@ export const useChatStore = create<ChatStore>()(
           if (filtered.length !== msg.content.length) {
             msg.content = filtered
             changed = true
+            changedMsgIds.add(msg.id)
           }
         }
 
@@ -2638,11 +2667,14 @@ export const useChatStore = create<ChatStore>()(
 
       // Persist changes to DB
       const session = get().sessions.find((s) => s.id === sessionId)
-      if (session) {
-        session.messages.forEach((msg) => {
+      if (session && session.messages.length > 0) {
+        const changedMsgs = session.messages.filter((m) => changedMsgIds.has(m.id))
+        for (const msg of changedMsgs) {
           dbUpdateMessage(msg.id, msg.content, msg.usage, msg.meta ?? null)
-        })
-        dbUpdateSession(sessionId, { updatedAt: session.updatedAt })
+        }
+        if (changedMsgs.length > 0) {
+          dbUpdateSession(sessionId, { updatedAt: session.updatedAt })
+        }
       }
     },
 
@@ -2718,10 +2750,12 @@ export const useChatStore = create<ChatStore>()(
         releaseDormantSessionMemory(state)
       })
       const now = Date.now()
-      if (shouldPersistUser && userMsg) dbAddMessage(sessionId, userMsg, userSortOrder)
+      const batch: Array<{ msg: UnifiedMessage; sortOrder: number }> = []
+      if (shouldPersistUser && userMsg) batch.push({ msg: userMsg, sortOrder: userSortOrder })
       if (shouldPersistAssistant && assistantMsg)
-        dbAddMessage(sessionId, assistantMsg, assistantSortOrder)
-      if (shouldPersistUser || shouldPersistAssistant) {
+        batch.push({ msg: assistantMsg, sortOrder: assistantSortOrder })
+      if (batch.length > 0) {
+        dbAddMessageBatch(sessionId, batch)
         dbUpdateSession(sessionId, { updatedAt: now })
       }
     },

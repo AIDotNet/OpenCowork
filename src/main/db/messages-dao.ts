@@ -36,29 +36,78 @@ export function addMessage(msg: {
   sortOrder: number
 }): void {
   const db = getDb()
-  const existing = db.prepare('SELECT session_id FROM messages WHERE id = ?').get(msg.id) as
-    | { session_id: string }
-    | undefined
+  const tx = db.transaction(() => {
+    const existing = db.prepare('SELECT session_id FROM messages WHERE id = ?').get(msg.id) as
+      | { session_id: string }
+      | undefined
 
-  db.prepare(
-    `INSERT OR REPLACE INTO messages (id, session_id, role, content, meta, created_at, usage, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    msg.id,
-    msg.sessionId,
-    msg.role,
-    msg.content,
-    msg.meta ?? null,
-    msg.createdAt,
-    msg.usage ?? null,
-    msg.sortOrder
-  )
-
-  if (!existing) {
     db.prepare(
-      'UPDATE sessions SET message_count = COALESCE(message_count, 0) + 1 WHERE id = ?'
-    ).run(msg.sessionId)
-  }
+      `INSERT OR REPLACE INTO messages (id, session_id, role, content, meta, created_at, usage, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      msg.id,
+      msg.sessionId,
+      msg.role,
+      msg.content,
+      msg.meta ?? null,
+      msg.createdAt,
+      msg.usage ?? null,
+      msg.sortOrder
+    )
+
+    if (!existing) {
+      db.prepare(
+        'UPDATE sessions SET message_count = COALESCE(message_count, 0) + 1 WHERE id = ?'
+      ).run(msg.sessionId)
+    }
+  })
+  tx()
+}
+
+export function addMessages(
+  msgs: Array<{
+    id: string
+    sessionId: string
+    role: string
+    content: string
+    meta?: string | null
+    createdAt: number
+    usage?: string | null
+    sortOrder: number
+  }>
+): void {
+  if (msgs.length === 0) return
+  const db = getDb()
+  const tx = db.transaction(() => {
+    const select = db.prepare('SELECT session_id FROM messages WHERE id = ?')
+    const insert = db.prepare(
+      `INSERT OR REPLACE INTO messages (id, session_id, role, content, meta, created_at, usage, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    const newCountBySession = new Map<string, number>()
+    for (const msg of msgs) {
+      const existing = select.get(msg.id) as { session_id: string } | undefined
+      insert.run(
+        msg.id,
+        msg.sessionId,
+        msg.role,
+        msg.content,
+        msg.meta ?? null,
+        msg.createdAt,
+        msg.usage ?? null,
+        msg.sortOrder
+      )
+      if (!existing) {
+        newCountBySession.set(msg.sessionId, (newCountBySession.get(msg.sessionId) ?? 0) + 1)
+      }
+    }
+    for (const [sessionId, count] of newCountBySession) {
+      db.prepare(
+        'UPDATE sessions SET message_count = COALESCE(message_count, 0) + ? WHERE id = ?'
+      ).run(count, sessionId)
+    }
+  })
+  tx()
 }
 
 export function updateMessage(

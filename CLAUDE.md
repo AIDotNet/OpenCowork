@@ -39,9 +39,19 @@ The app supports multiple session modes: `chat`, `clarify`, `cowork`, `code`, `a
 
 Renderer-side tool definitions and handlers live in `src/renderer/src/lib/tools/`. Each tool file exports a handler conforming to `ToolHandler` (see `tool-types.ts`). Tools receive a `ToolContext` with session info, working folder, abort signal, and an IPC client. The main-process agent loop in `cron-agent-background.ts` also executes tools directly for cron/background runs.
 
+Tools are registered in phases via `registerAllTools()` in `src/renderer/src/lib/tools/index.ts`: core tools first, then skills (async), then sub-agents, then teams. Some tools (WebSearch, Browser, Wiki) are registered/unregistered dynamically based on user settings. `ToolContext` carries cross-tool state: `sharedState` (mutable bag for flags like `deliveryUsed`), `readFileHistory` (tracks file reads per run), `inlineToolHandlers` (per-run tool shadowing), and `channelPermissions` (approval checks).
+
 ### Channel / messaging plugins
 
-Eight messaging platform integrations under `src/main/channels/providers/`: Feishu, DingTalk, Discord, QQ, Telegram, WeCom, Weixin, WhatsApp. All extend `base-plugin-service.ts`. Channel manager (`channel-manager.ts`) handles lifecycle; channel descriptors define capabilities.
+Eight messaging platform integrations under `src/main/channels/providers/`: Feishu, DingTalk, Discord, QQ, Telegram, WeCom, Weixin, WhatsApp. All extend `base-plugin-service.ts`, which defines the abstract contract: subclasses implement `onStart()`, `onStop()`, and messaging methods (`sendMessage`, `replyMessage`, `getGroupMessages`, `listGroups`). The base class handles WebSocket lifecycle and message freshness filtering (15-minute window). Channel manager (`channel-manager.ts`) handles lifecycle; channel descriptors define capabilities.
+
+### Custom skills and agents
+
+Bundled skills live in `resources/skills/` as folders containing a `SKILL.md` metadata file and a `scripts/` subdirectory (typically Python). Bundled agents live in `resources/agents/` as Markdown files with frontmatter (`name`, `description`, `compatibility`). Users can also add custom skills and agents in `~/.open-cowork/skills/` and `~/.open-cowork/agents/` respectively — these are loaded at runtime alongside the bundled ones.
+
+### Agent runtime
+
+The main-process agent runtime (`js-agent-runtime.ts`) is provider-agnostic: it accepts a generic `provider` object in `JsAgentRunRequest` rather than importing any specific LLM SDK. Provider-specific logic is resolved by the caller. The runtime checks capabilities dynamically via `supportsCapability()` for feature gating (e.g., `provider.streaming`, `provider.tools`).
 
 ### Data and runtime assets
 
@@ -55,11 +65,15 @@ Generated/ignored: `dist/`, `out/`, `build/`, `node_modules/`. Do not edit.
 
 ### Native modules
 
-`better-sqlite3`, `@jitsi/robotjs`, `ssh2`, and `node-pty` are native addons rebuilt by `npm run postinstall`. They are `asarUnpack`'d in `electron-builder.yml` so they load outside the asar archive. `cpu-features` is overridden to a noop (`package.json` overrides).
+`better-sqlite3`, `@jitsi/robotjs`, `ssh2`, and `node-pty` are native addons rebuilt by `npm run postinstall` (via `scripts/postinstall.mjs`) for the installed Electron version. On Windows, `node-pty` is skipped during rebuild. They are `asarUnpack`'d in `electron-builder.yml` so they load outside the asar archive. `cpu-features` is overridden to a noop (`package.json` overrides).
 
 ### Path aliases
 
 Renderer code uses `@renderer/*` → `src/renderer/src/*` (configured in `tsconfig.web.json` and `electron.vite.config.ts`).
+
+### i18n
+
+`react-i18next` with namespaced JSON files under `src/renderer/src/locales/` (`en`/`zh`, split into: common, layout, chat, settings, cowork, agent, ssh). Language is read from `settingsStore.language` at init time — this is static initialization, not reactive. Language changes require an app restart or explicit i18n reload.
 
 ## Conventions
 

@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.73] - 2026-04-24
+
+### Added
+
+- Added interaction tooling to extend the built-in browser with automation-oriented workflow support.
+
+### Changed
+
+- Updated package metadata for the new patch release.
+
+### Fixed
+
+- Synchronized lockfile root metadata version with the package manifest version.
+
 ## [0.9.72] - 2026-04-22
 
 ### Added

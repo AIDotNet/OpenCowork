@@ -1845,16 +1845,9 @@ export const useAgentStore = create<AgentStore>()(
       name: 'opencowork-agent',
       storage: createJSONStorage(() => ipcStorage),
       partialize: (state) => ({
-        approvedToolNames: state.approvedToolNames,
-        subAgentHistory: state.subAgentHistory
+        approvedToolNames: state.approvedToolNames
       }),
-      onRehydrateStorage: () => (state) => {
-        if (!state) return
-        // Trim oversized persisted history from previous versions
-        if (state.subAgentHistory.length > MAX_SUBAGENT_HISTORY) {
-          state.subAgentHistory.splice(0, state.subAgentHistory.length - MAX_SUBAGENT_HISTORY)
-        }
-      }
+      onRehydrateStorage: () => () => {}
     }
   )
 )

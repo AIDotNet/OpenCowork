@@ -265,6 +265,29 @@ function dbTruncateMessagesFrom(sessionId: string, fromSortOrder: number): void 
 // --- Debounced message persistence for streaming ---
 
 const _pendingFlush = new Map<string, ReturnType<typeof setTimeout>>()
+const _streamingDirtyMessageIds = new Set<string>()
+const _activeStreamingMessageIds = new Set<string>()
+const _deferredMessageAdds: Array<{
+  sessionId: string
+  msg: UnifiedMessage
+  sortOrder: number
+}> = []
+
+function flushDeferredMessageAdds(sessionId: string): void {
+  const toFlush: typeof _deferredMessageAdds = []
+  for (let i = _deferredMessageAdds.length - 1; i >= 0; i--) {
+    if (_deferredMessageAdds[i].sessionId === sessionId) {
+      toFlush.push(_deferredMessageAdds[i])
+      _deferredMessageAdds.splice(i, 1)
+    }
+  }
+  if (toFlush.length === 0) return
+  toFlush.reverse()
+  dbAddMessageBatch(
+    sessionId,
+    toFlush.map(({ msg, sortOrder }) => ({ msg, sortOrder }))
+  )
+}
 
 // --- RAF-batched streaming delta buffer ---
 // Multiple tokens arrive per animation frame; batching them into a single
@@ -284,6 +307,10 @@ function stripThinkTagMarkers(text: string): string {
 }
 
 function dbFlushMessage(msg: UnifiedMessage): void {
+  if (_activeStreamingMessageIds.has(msg.id)) {
+    _streamingDirtyMessageIds.add(msg.id)
+    return
+  }
   if (Array.isArray(msg.content)) {
     for (const b of msg.content) {
       if (
@@ -315,6 +342,10 @@ function dbFlushMessage(msg: UnifiedMessage): void {
 }
 
 function dbFlushMessageImmediate(msg: UnifiedMessage): void {
+  if (_activeStreamingMessageIds.has(msg.id)) {
+    _streamingDirtyMessageIds.add(msg.id)
+    return
+  }
   const existing = _pendingFlush.get(msg.id)
   if (existing) {
     clearTimeout(existing)
@@ -1886,6 +1917,7 @@ export const useChatStore = create<ChatStore>()(
       const deletedSession = get().sessions.find((session) => session.id === id)
       const wasActiveSession = get().activeSessionId === id
       const deletedProjectId = deletedSession?.projectId ?? null
+      const deletedStreamingMsgId = get().streamingMessages[id]
       const currentChatView = useUIStore.getState().chatView
       let nextActiveId: string | null = null
 
@@ -1904,6 +1936,17 @@ export const useChatStore = create<ChatStore>()(
         nextActiveId = state.activeSessionId
         delete state.streamingMessages[id]
       })
+
+      // Clean up deferred streaming state for deleted session
+      if (deletedStreamingMsgId) {
+        _activeStreamingMessageIds.delete(deletedStreamingMsgId)
+        _streamingDirtyMessageIds.delete(deletedStreamingMsgId)
+      }
+      for (let i = _deferredMessageAdds.length - 1; i >= 0; i--) {
+        if (_deferredMessageAdds[i].sessionId === id) {
+          _deferredMessageAdds.splice(i, 1)
+        }
+      }
 
       const agentState = useAgentStore.getState()
       const wasLiveSession = agentState.liveSessionId === id
@@ -2702,6 +2745,10 @@ export const useChatStore = create<ChatStore>()(
         releaseDormantSessionMemory(state)
       })
       if (!shouldPersist) return
+      if (get().streamingMessages[sessionId]) {
+        _deferredMessageAdds.push({ sessionId, msg, sortOrder })
+        return
+      }
       dbAddMessage(sessionId, msg, sortOrder)
       dbUpdateSession(sessionId, { updatedAt: Date.now() })
     },
@@ -2770,7 +2817,10 @@ export const useChatStore = create<ChatStore>()(
           bumpMessageRevision(msg)
         }
       })
-      // Persist updated message
+      if (_activeStreamingMessageIds.has(msgId)) {
+        _streamingDirtyMessageIds.add(msgId)
+        return
+      }
       const session = getSessionByIdFromState(get(), sessionId)
       const msg = session?.messages.find((m) => m.id === msgId)
       if (msg) dbUpdateMessage(msgId, msg.content, msg.usage, msg.meta ?? null)
@@ -3035,7 +3085,8 @@ export const useChatStore = create<ChatStore>()(
       dbUpdateSession(sessionId, { updatedAt: session.updatedAt })
     },
 
-    setStreamingMessageId: (sessionId, id) =>
+    setStreamingMessageId: (sessionId, id) => {
+      const prevStreamingMsgId = get().streamingMessages[sessionId]
       set((state) => {
         if (id) {
           _streamingBackfillBlockedSessionIds.delete(sessionId)
@@ -3049,7 +3100,24 @@ export const useChatStore = create<ChatStore>()(
         if (sessionId === state.activeSessionId) {
           state.streamingMessageId = id
         }
-      }),
+      })
+
+      if (id) {
+        _activeStreamingMessageIds.add(id)
+      }
+
+      if (!id && prevStreamingMsgId) {
+        _activeStreamingMessageIds.delete(prevStreamingMsgId)
+        flushDeferredMessageAdds(sessionId)
+        if (_streamingDirtyMessageIds.has(prevStreamingMsgId)) {
+          _streamingDirtyMessageIds.delete(prevStreamingMsgId)
+          const session = getSessionByIdFromState(get(), sessionId)
+          const msg = session?.messages.find((m) => m.id === prevStreamingMsgId)
+          if (msg) dbFlushMessageImmediate(msg)
+        }
+        dbUpdateSession(sessionId, { updatedAt: Date.now() })
+      }
+    },
 
     setGeneratingImage: (msgId, generating, occurredAt = Date.now()) =>
       set((state) => {

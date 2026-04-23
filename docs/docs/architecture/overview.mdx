@@ -56,45 +56,45 @@ flowchart TD
 
 ### 主进程 (`src/main/`)
 
-| 模块 | 职责 |
-| --- | --- |
-| `index.ts` | 应用启动、窗口/托盘、IPC 注册、代理与缓存配置、托管服务初始化 |
-| `ipc/` | 文件、Shell、数据库、Git、通知、截图、OAuth、MCP、Cron、Agent Runtime 等领域处理器 |
-| `channels/` | 多消息平台接入、解析器注册、自动回复链路、插件化平台适配 |
-| `cron/` | 定时任务调度、恢复持久化任务、执行记录 |
-| `db/` | SQLite 建表、迁移、DAO |
-| `mcp/` | MCP Server 生命周期与工具接入 |
-| `ssh/` | SSH 会话与远程执行能力 |
-| `image/` | 图像下载、剪贴板、GIF 等系统能力 |
-| `window-ipc.ts` | 向窗口安全推送主进程事件 |
-| `updater.ts` / `crash-logger.ts` | 自动更新与崩溃诊断 |
+| 模块                             | 职责                                                                               |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `index.ts`                       | 应用启动、窗口/托盘、IPC 注册、代理与缓存配置、托管服务初始化                      |
+| `ipc/`                           | 文件、Shell、数据库、Git、通知、截图、OAuth、MCP、Cron、Agent Runtime 等领域处理器 |
+| `channels/`                      | 多消息平台接入、解析器注册、自动回复链路、插件化平台适配                           |
+| `cron/`                          | 定时任务调度、恢复持久化任务、执行记录                                             |
+| `db/`                            | SQLite 建表、迁移、DAO                                                             |
+| `mcp/`                           | MCP Server 生命周期与工具接入                                                      |
+| `ssh/`                           | SSH 会话与远程执行能力                                                             |
+| `image/`                         | 图像下载、剪贴板、GIF 等系统能力                                                   |
+| `window-ipc.ts`                  | 向窗口安全推送主进程事件                                                           |
+| `updater.ts` / `crash-logger.ts` | 自动更新与崩溃诊断                                                                 |
 
 ### 预加载脚本 (`src/preload/`)
 
-| 模块 | 职责 |
-| --- | --- |
-| `index.ts` | 暴露标准 Electron API 与自定义 `window.api` |
+| 模块           | 职责                                                    |
+| -------------- | ------------------------------------------------------- |
+| `index.ts`     | 暴露标准 Electron API 与自定义 `window.api`             |
 | `window.api.*` | 图像能力、Team Runtime、独立 Team Worker 等最小必要桥接 |
 
 ### 渲染进程 (`src/renderer/src/`)
 
-| 模块 | 职责 |
-| --- | --- |
-| `App.tsx` / `main.tsx` | 主窗口与通知窗口渲染入口 |
-| `lib/agent/` | 会话编排、流式消息消费、上下文压缩、审批、子代理、团队协作 |
-| `lib/tools/` + `lib/agent/tool-registry.ts` | 工具定义、注册、执行与审批策略 |
-| `lib/mcp/` / `lib/channel/` / `lib/app-plugin/` | 外部能力与桌面工具接入层 |
-| `stores/` | chat、agent、provider、settings、task、plan、team、cron、mcp、ssh、resources 等状态域 |
-| `components/` / `hooks/` | UI 组件与交互逻辑 |
+| 模块                                            | 职责                                                                                  |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `App.tsx` / `main.tsx`                          | 主窗口与通知窗口渲染入口                                                              |
+| `lib/agent/`                                    | 会话编排、流式消息消费、上下文压缩、审批、子代理、团队协作                            |
+| `lib/tools/` + `lib/agent/tool-registry.ts`     | 工具定义、注册、执行与审批策略                                                        |
+| `lib/mcp/` / `lib/channel/` / `lib/app-plugin/` | 外部能力与桌面工具接入层                                                              |
+| `stores/`                                       | chat、agent、provider、settings、task、plan、team、cron、mcp、ssh、resources 等状态域 |
+| `components/` / `hooks/`                        | UI 组件与交互逻辑                                                                     |
 
 ### 主进程 Agent Runtime (`src/main/ipc/js-agent-runtime.ts`)
 
-| 模块 | 职责 |
-| --- | --- |
-| `js-agent-runtime.ts` | IPC runtime 入口、请求分发、事件转发 |
-| `cron-agent-background.ts` | 统一 Agent Loop、Provider 重试、工具执行链路 |
-| `api-proxy.ts` | HTTP 代理、状态码与异常重试、circuit 控制 |
-| `responses-websocket-session-manager.ts` | Responses WebSocket 连接、恢复与 fallback |
+| 模块                                     | 职责                                         |
+| ---------------------------------------- | -------------------------------------------- |
+| `js-agent-runtime.ts`                    | IPC runtime 入口、请求分发、事件转发         |
+| `cron-agent-background.ts`               | 统一 Agent Loop、Provider 重试、工具执行链路 |
+| `api-proxy.ts`                           | HTTP 代理、状态码与异常重试、circuit 控制    |
+| `responses-websocket-session-manager.ts` | Responses WebSocket 连接、恢复与 fallback    |
 
 ## 核心设计要点 / Key Design Choices
 

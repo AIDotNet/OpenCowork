@@ -21,6 +21,7 @@ import { useProviderStore } from './provider-store'
 import { useSettingsStore } from './settings-store'
 import { useInputDraftStore } from './input-draft-store'
 import { invalidateVisibleSessionCache } from '../lib/agent/session-runtime-router'
+import { agentStream } from '../lib/ipc/agent-stream-receiver'
 import { parseChatRoute } from '../lib/chat-route'
 import {
   summarizeToolInputForHistory,
@@ -267,6 +268,33 @@ function dbTruncateMessagesFrom(sessionId: string, fromSortOrder: number): void 
 const _pendingFlush = new Map<string, ReturnType<typeof setTimeout>>()
 const _streamingDirtyMessageIds = new Set<string>()
 const _activeStreamingMessageIds = new Set<string>()
+
+const STREAMING_PERIODIC_FLUSH_MS = 1_000
+const _streamingFlushIntervals = new Map<string, ReturnType<typeof setInterval>>()
+
+function startStreamingPeriodicFlush(
+  sessionId: string,
+  msgId: string,
+  getState: () => ChatStore
+): void {
+  stopStreamingPeriodicFlush(sessionId)
+  const intervalId = setInterval(() => {
+    const session = getSessionByIdFromState(getState(), sessionId)
+    const msg = session?.messages.find((m) => m.id === msgId)
+    if (msg) {
+      dbUpdateMessage(msgId, msg.content, msg.usage, msg.meta ?? null)
+    }
+  }, STREAMING_PERIODIC_FLUSH_MS)
+  _streamingFlushIntervals.set(sessionId, intervalId)
+}
+
+function stopStreamingPeriodicFlush(sessionId: string): void {
+  const intervalId = _streamingFlushIntervals.get(sessionId)
+  if (intervalId) {
+    clearInterval(intervalId)
+    _streamingFlushIntervals.delete(sessionId)
+  }
+}
 const _deferredMessageAdds: Array<{
   sessionId: string
   msg: UnifiedMessage
@@ -682,6 +710,14 @@ function mergeSessionSummary(
   session.providerId = next.providerId
   session.modelId = next.modelId
   session.longRunningMode = next.longRunningMode
+  // When preserveLoadedMessages is true the in-memory state may already be
+  // ahead of the DB snapshot (e.g. beginUserTurn appended messages that the
+  // fire-and-forget persist hasn't landed yet). Accepting a stale lower count
+  // would wipe those resident messages and leave MessageList empty.
+  if (preserveLoadedMessages && next.messageCount < session.messageCount) {
+    return
+  }
+
   session.messageCount = next.messageCount
 
   if (next.messageCount === 0) {
@@ -1996,6 +2032,12 @@ export const useChatStore = create<ChatStore>()(
     setActiveSession: (id) => {
       const prevId = get().activeSessionId
       invalidateVisibleSessionCache()
+      if (prevId && prevId !== id) {
+        agentStream.notifySessionVisibility(prevId, false)
+      }
+      if (id) {
+        agentStream.notifySessionVisibility(id, true)
+      }
       set((state) => {
         state.activeSessionId = id
         const activeSession = state.sessions.find((session) => session.id === id)
@@ -2808,6 +2850,7 @@ export const useChatStore = create<ChatStore>()(
       })
       if (streamingMessageId !== null) {
         _activeStreamingMessageIds.add(streamingMessageId)
+        startStreamingPeriodicFlush(sessionId, streamingMessageId, get)
       }
       const now = Date.now()
       const batch: Array<{ msg: UnifiedMessage; sortOrder: number }> = []
@@ -3117,9 +3160,11 @@ export const useChatStore = create<ChatStore>()(
 
       if (id) {
         _activeStreamingMessageIds.add(id)
+        startStreamingPeriodicFlush(sessionId, id, get)
       }
 
       if (!id && prevStreamingMsgId) {
+        stopStreamingPeriodicFlush(sessionId)
         _activeStreamingMessageIds.delete(prevStreamingMsgId)
         flushDeferredMessageAdds(sessionId)
         if (_streamingDirtyMessageIds.has(prevStreamingMsgId)) {

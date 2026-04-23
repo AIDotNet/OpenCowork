@@ -31,7 +31,9 @@ interface OpenCoworkAPI {
   teamRuntimeGetSnapshot: (args: GetTeamRuntimeSnapshotArgs) => Promise<TeamRuntimeSnapshot | null>
   teamRuntimeUpdateMember: (args: UpdateTeamRuntimeMemberArgs) => Promise<{ success: true }>
   teamRuntimeUpdateManifest: (args: UpdateTeamRuntimeManifestArgs) => Promise<{ success: true }>
-  teamRuntimeConsumeMessages: (args: ConsumeTeamRuntimeMessagesArgs) => Promise<TeamRuntimeMessageRecord[]>
+  teamRuntimeConsumeMessages: (
+    args: ConsumeTeamRuntimeMessagesArgs
+  ) => Promise<TeamRuntimeMessageRecord[]>
   teamWorkerSpawn: (args: SpawnIsolatedTeamWorkerArgs) => Promise<SpawnIsolatedTeamWorkerResult>
   teamWorkerStop: (args: StopIsolatedTeamWorkerArgs) => Promise<{ success: true }>
   teamWorkerStopTeam: (args: StopIsolatedTeamWorkersArgs) => Promise<{ success: true }>

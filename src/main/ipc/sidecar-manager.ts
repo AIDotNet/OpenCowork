@@ -39,10 +39,13 @@ type ElectronInvokeParams = {
 }
 
 type SidecarBridgeManager = {
-  setEventHandler: (handler: (method: string, params: unknown) => void) => void
+  setEventHandler: (
+    handler: (envelope: import('../../shared/agent-stream-protocol').AgentStreamEnvelope) => void
+  ) => void
   setRequestHandler: (
     handler: (id: number | string, method: string, params: unknown) => Promise<unknown>
   ) => void
+  setSessionVisibility: (sessionId: string, visible: boolean) => void
   start: () => Promise<boolean>
   ensureStarted: () => Promise<boolean>
   stop: () => Promise<void>
@@ -72,19 +75,10 @@ export function registerSidecarHandlers(): void {
   const pendingRendererToolRequests = new Map<string, PendingRendererToolRequest>()
   const pendingProviderStreamRequests = new Map<string, PendingRendererToolRequest>()
 
-  manager.setEventHandler((method, params) => {
-    if (method === 'agent/event-batch') {
-      const payload = params as { runId: string; events: Array<Record<string, unknown>> }
-      for (const win of BrowserWindow.getAllWindows()) {
-        safeSendToWindow(win, 'sidecar:event', {
-          method: 'agent/event-batch',
-          params: { runId: payload.runId, events: payload.events }
-        })
-      }
-      return
-    }
+  // New protocol: typed AgentStreamEnvelope on 'agent:stream'
+  manager.setEventHandler((envelope) => {
     for (const win of BrowserWindow.getAllWindows()) {
-      safeSendToWindow(win, 'sidecar:event', { method, params })
+      safeSendToWindow(win, 'agent:stream', envelope)
     }
   })
 
@@ -333,6 +327,15 @@ export function registerSidecarHandlers(): void {
     }
     return await manager.request('agent/append-messages', params, 10_000)
   })
+
+  ipcMain.on(
+    'agent:session-visibility',
+    (_event, payload: { sessionId: string; visible: boolean }) => {
+      if (payload?.sessionId) {
+        manager.setSessionVisibility(payload.sessionId, payload.visible === true)
+      }
+    }
+  )
 
   ipcMain.on('sidecar:notify', (_event, method: string, params: unknown) => {
     if (manager.isRunning) {

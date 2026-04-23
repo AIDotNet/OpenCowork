@@ -87,6 +87,14 @@ export type InteractiveAgentEvent =
   | { type: 'tool_call_start'; toolCall: ToolCallState }
   | { type: 'tool_call_approval_needed'; toolCall: ToolCallState }
   | { type: 'tool_call_result'; toolCall: ToolCallState }
+  | { type: 'image_generation_started' }
+  | {
+      type: 'image_generation_partial'
+      imageBlock: AgentImageResultBlock
+      partialImageIndex?: number
+    }
+  | { type: 'image_generated'; imageBlock: AgentImageResultBlock }
+  | { type: 'image_error'; imageError: { code: string; message: string } }
   | {
       type: 'request_retry'
       attempt: number
@@ -140,3 +148,4 @@ export type AgentLoopContentBlock =
       extraContent?: Record<string, unknown>
     }
   | { type: 'tool_result'; toolUseId: string; content: AgentToolResultContent; isError?: boolean }
+  | AgentImageResultBlock

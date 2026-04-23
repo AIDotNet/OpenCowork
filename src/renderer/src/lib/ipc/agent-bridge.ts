@@ -3,67 +3,24 @@ import {
   RESPONSES_SESSION_SCOPE_SIDECAR_TEXT_REQUEST,
   withAuxiliaryResponsesRequestPolicy
 } from '@renderer/lib/api/responses-session-policy'
-import {
-  buildSidecarAgentRunRequest,
-  normalizeSidecarAgentEvent,
-  normalizeSidecarRecord
-} from '@renderer/lib/ipc/sidecar-protocol'
+import { buildSidecarAgentRunRequest } from '@renderer/lib/ipc/sidecar-protocol'
+import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
+import { toAgentEvent } from '@renderer/lib/agent/stream-event-adapter'
 
-type AgentEventHandler = (event: { type: string; [key: string]: unknown }) => void
-
-/**
- * Bridge client for communicating with the main-process agent runtime over the
- * existing sidecar IPC protocol.
- */
 class AgentBridgeClient {
-  private eventHandlers = new Map<string, Set<AgentEventHandler>>()
   private initialized = false
-  private listenerAttached = false
 
-  /**
-   * Initialize the bridge: start sidecar and set up event forwarding.
-   */
   async initialize(): Promise<boolean> {
     if (this.initialized) return true
 
     const ipc = window.electron.ipcRenderer
 
-    // Listen for agent events forwarded from sidecar via main process
-    if (!this.listenerAttached) {
-      ipc.on('sidecar:event', (_event: unknown, payload: { method: string; params: unknown }) => {
-        if (payload.method === 'agent/event-batch') {
-          // Unpack batch into individual agent/event dispatches
-          const batch = payload.params as {
-            runId?: string
-            events?: Array<{ type?: string; [key: string]: unknown }>
-          } | null
-          if (batch?.runId && Array.isArray(batch.events)) {
-            for (const evt of batch.events) {
-              this.dispatchEvent('agent/event', {
-                runId: batch.runId,
-                event: evt,
-                type: evt?.type ?? 'unknown'
-              })
-            }
-          }
-        } else {
-          this.dispatchEvent(
-            payload.method,
-            payload.params as { type: string; [key: string]: unknown }
-          )
-        }
-      })
-      this.listenerAttached = true
-    }
-
-    // Start the sidecar
     const result = (await ipc.invoke('sidecar:start')) as { ok: boolean }
     if (!result.ok) {
       console.warn('[AgentBridge] Failed to start sidecar')
       return false
     }
 
-    // Initialize the sidecar
     try {
       await this.request('initialize', {
         workingFolder: undefined
@@ -76,72 +33,19 @@ class AgentBridgeClient {
     }
   }
 
-  /**
-   * Send a JSON-RPC request to the sidecar and await the response.
-   */
   async request(method: string, params?: unknown): Promise<unknown> {
     return window.electron.ipcRenderer.invoke('sidecar:request', method, params)
   }
 
-  /**
-   * Send a JSON-RPC notification to the sidecar (fire-and-forget).
-   */
   notify(method: string, params?: unknown): void {
     window.electron.ipcRenderer.send('sidecar:notify', method, params)
   }
 
-  /**
-   * Check if the sidecar is currently running.
-   */
   async isRunning(): Promise<boolean> {
     const result = (await window.electron.ipcRenderer.invoke('sidecar:status')) as {
       running: boolean
     }
     return result.running
-  }
-
-  /**
-   * Subscribe to agent events from the sidecar.
-   */
-  on(eventMethod: string, handler: AgentEventHandler): () => void {
-    let handlers = this.eventHandlers.get(eventMethod)
-    if (!handlers) {
-      handlers = new Set()
-      this.eventHandlers.set(eventMethod, handlers)
-    }
-    handlers.add(handler)
-
-    return () => {
-      handlers!.delete(handler)
-      if (handlers!.size === 0) {
-        this.eventHandlers.delete(eventMethod)
-      }
-    }
-  }
-
-  /**
-   * Subscribe to all agent events regardless of method.
-   */
-  onAnyEvent(handler: AgentEventHandler): () => void {
-    return this.on('*', handler)
-  }
-
-  private dispatchEvent(method: string, params: { type: string; [key: string]: unknown }): void {
-    // Dispatch to specific method handlers
-    const handlers = this.eventHandlers.get(method)
-    if (handlers) {
-      for (const handler of handlers) {
-        handler(params)
-      }
-    }
-
-    // Dispatch to wildcard handlers
-    const wildcardHandlers = this.eventHandlers.get('*')
-    if (wildcardHandlers) {
-      for (const handler of wildcardHandlers) {
-        handler(params)
-      }
-    }
   }
 
   async runAgent(params: unknown): Promise<{ started: boolean; runId: string }> {
@@ -162,9 +66,6 @@ class AgentBridgeClient {
     })
   }
 
-  /**
-   * Gracefully stop the sidecar.
-   */
   async stop(): Promise<void> {
     await window.electron.ipcRenderer.invoke('sidecar:stop')
     this.initialized = false
@@ -275,11 +176,8 @@ export async function runSidecarTextRequest(args: {
       }
       args.signal?.addEventListener('abort', abortHandler, { once: true })
 
-      unsubscribe = agentBridge.on('agent/event', (payload) => {
-        const record = normalizeSidecarRecord(payload)
-        const recordRunId = String(record.runId ?? '')
-        if (!recordRunId) return
-        const event = normalizeSidecarAgentEvent(record.event)
+      unsubscribe = agentStream.subscribeAll((eventRunId, _sessionId, streamEvent) => {
+        const event = toAgentEvent(streamEvent)
         if (!event) return
 
         if (!runId) {
@@ -287,7 +185,7 @@ export async function runSidecarTextRequest(args: {
           return
         }
 
-        if (recordRunId !== runId) return
+        if (eventRunId !== runId) return
         handleEvent(event as unknown as { type: string; [key: string]: unknown })
       })
 

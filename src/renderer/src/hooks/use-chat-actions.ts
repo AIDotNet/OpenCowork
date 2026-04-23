@@ -160,13 +160,13 @@ import type { AutoModelSelectionStatus } from '@renderer/stores/ui-store'
 import { agentBridge, canSidecarHandle } from '@renderer/lib/ipc/agent-bridge'
 import {
   buildSidecarAgentRunRequest,
-  normalizeSidecarAgentEvent,
-  normalizeSidecarApprovalRequest,
-  normalizeSidecarRecord,
-  normalizeSidecarSubAgentEvent
+  normalizeSidecarApprovalRequest
 } from '@renderer/lib/ipc/sidecar-protocol'
 import { attachRendererToolBridge } from '@renderer/lib/ipc/renderer-tool-bridge'
 import { attachRendererProviderBridge } from '@renderer/lib/ipc/renderer-provider-bridge'
+import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
+import { toAgentEvent, toSubAgentEvent } from '@renderer/lib/agent/stream-event-adapter'
+import type { AgentStreamEvent } from '../../../shared/agent-stream-protocol'
 
 /** Per-session abort controllers — module-level so concurrent sessions don't overwrite each other */
 const sessionAbortControllers = new Map<string, AbortController>()
@@ -176,6 +176,7 @@ const longRunningVerificationPasses = new Map<string, number>()
 // to avoid accumulating duplicate listeners when multiple components call useChatActions.
 attachRendererToolBridge()
 attachRendererProviderBridge()
+agentStream.attach()
 installSessionControlSyncListener((event) => {
   applySessionControlSyncEvent(event)
 })
@@ -2185,7 +2186,7 @@ function createSidecarEventStream(options: {
   return {
     async *[Symbol.asyncIterator]() {
       const queue: AgentEvent[] = []
-      const pendingEvents: Array<{ runId: string; rawEvent: unknown }> = []
+      const pendingEvents: Array<{ runId: string; event: AgentStreamEvent }> = []
       let finished = false
       let pendingFailure: Error | null = null
       let notify: (() => void) | null = null
@@ -2257,18 +2258,18 @@ function createSidecarEventStream(options: {
         wake()
       }
 
-      const dispatchSidecarEvent = (rawEvent: unknown): void => {
+      const dispatchStreamEvent = (event: AgentStreamEvent): void => {
         if (finished || pendingFailure) return
-        const subAgentEvent = normalizeSidecarSubAgentEvent(rawEvent)
-        if (subAgentEvent) {
+        const subEvent = toSubAgentEvent(event)
+        if (subEvent) {
           markProgress()
-          subAgentEvents.emit(subAgentEvent)
+          subAgentEvents.emit(subEvent)
           return
         }
 
-        const normalized = normalizeSidecarAgentEvent(rawEvent)
-        if (normalized) {
-          pushEvent(normalized)
+        const agentEvent = toAgentEvent(event)
+        if (agentEvent) {
+          pushEvent(agentEvent)
         }
       }
 
@@ -2279,18 +2280,16 @@ function createSidecarEventStream(options: {
 
       signal?.addEventListener('abort', onAbort, { once: true })
 
-      const unsub = agentBridge.on('agent/event', (payload) => {
+      const unsub = agentStream.subscribeAll((eventRunId, _sessionId, event) => {
         if (finished || pendingFailure) return
-        const record = normalizeSidecarRecord(payload)
-        const eventRunId = String(record.runId ?? '')
 
         if (!runId) {
-          pendingEvents.push({ runId: eventRunId, rawEvent: record.event })
+          pendingEvents.push({ runId: eventRunId, event })
           return
         }
 
         if (eventRunId && eventRunId !== runId) return
-        dispatchSidecarEvent(record.event)
+        dispatchStreamEvent(event)
       })
 
       try {
@@ -2309,7 +2308,7 @@ function createSidecarEventStream(options: {
         const pendingSnapshot = pendingEvents.splice(0, pendingEvents.length)
         for (const pending of pendingSnapshot) {
           if (pending.runId && pending.runId !== runId) continue
-          dispatchSidecarEvent(pending.rawEvent)
+          dispatchStreamEvent(pending.event)
           if (finished) break
         }
 

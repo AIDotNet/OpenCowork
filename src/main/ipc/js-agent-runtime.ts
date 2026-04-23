@@ -6,78 +6,11 @@ import type {
   ToolResultContent
 } from '../cron/cron-agent-background'
 import { runInteractiveAgentLoop } from '../cron/cron-agent-background'
+import type { AgentStreamEnvelope } from '../../shared/agent-stream-protocol'
+import { AdaptiveEventBatcher } from './adaptive-event-batcher'
 
-type EventHandler = (method: string, params: unknown) => void
+type EventHandler = (envelope: AgentStreamEnvelope) => void
 type RequestHandler = (id: number | string, method: string, params: unknown) => Promise<unknown>
-
-type EventBatch = { runId: string; events: Array<Record<string, unknown>> }
-type FlushHandler = (batches: EventBatch[]) => void
-
-class IpcEventChannel {
-  private buffer: Array<{ runId: string; event: Record<string, unknown> }> = []
-  private timer: ReturnType<typeof setInterval> | null = null
-  private flushHandler: FlushHandler | null = null
-  private maxBufferSize: number
-
-  constructor(
-    private intervalMs = 50,
-    maxBufferSize = 500
-  ) {
-    this.maxBufferSize = maxBufferSize
-  }
-
-  setFlushHandler(handler: FlushHandler): void {
-    this.flushHandler = handler
-  }
-
-  push(runId: string, event: Record<string, unknown>): void {
-    this.buffer.push({ runId, event })
-    if (this.buffer.length >= this.maxBufferSize) {
-      this.flush()
-      return
-    }
-    if (this.timer === null) {
-      this.timer = setInterval(() => this.flush(), this.intervalMs)
-    }
-  }
-
-  flush(): void {
-    if (this.buffer.length === 0) {
-      if (this.timer !== null) {
-        clearInterval(this.timer)
-        this.timer = null
-      }
-      return
-    }
-
-    const items = this.buffer
-    this.buffer = []
-
-    const byRunId = new Map<string, Array<Record<string, unknown>>>()
-    for (const { runId, event } of items) {
-      let arr = byRunId.get(runId)
-      if (!arr) {
-        arr = []
-        byRunId.set(runId, arr)
-      }
-      arr.push(event)
-    }
-
-    const batches: EventBatch[] = []
-    for (const [runId, events] of byRunId) {
-      batches.push({ runId, events })
-    }
-    this.flushHandler?.(batches)
-  }
-
-  stop(): void {
-    if (this.timer !== null) {
-      clearInterval(this.timer)
-      this.timer = null
-    }
-    this.flush()
-  }
-}
 
 interface JsAgentRunRequest {
   runId?: string
@@ -181,14 +114,14 @@ export class JsAgentRuntimeManager {
   private running = false
   private onRequestFromSidecar: RequestHandler | null = null
   private activeRuns = new Map<string, ActiveRun>()
-  private eventChannel = new IpcEventChannel(50, 100)
+  private eventBatcher = new AdaptiveEventBatcher()
 
   setEventHandler(handler: EventHandler): void {
-    this.eventChannel.setFlushHandler((batches) => {
-      for (const { runId, events } of batches) {
-        handler('agent/event-batch', { runId, events })
-      }
-    })
+    this.eventBatcher.setHandler(handler)
+  }
+
+  setSessionVisibility(sessionId: string, visible: boolean): void {
+    this.eventBatcher.setSessionVisibility(sessionId, visible)
   }
 
   setRequestHandler(handler: RequestHandler): void {
@@ -213,7 +146,7 @@ export class JsAgentRuntimeManager {
 
   async stop(): Promise<void> {
     this.running = false
-    this.eventChannel.stop()
+    this.eventBatcher.stop()
     const runs = Array.from(this.activeRuns.values())
     for (const run of runs) {
       run.controller.abort()
@@ -270,8 +203,9 @@ export class JsAgentRuntimeManager {
     return false
   }
 
-  private emitAgentEvent(runId: string, event: unknown): void {
-    this.eventChannel.push(runId, event as Record<string, unknown>)
+  private emitAgentEvent(runId: string, sessionId: string | undefined, event: unknown): void {
+    const record = event as Record<string, unknown>
+    this.eventBatcher.push(runId, sessionId ?? '', record)
   }
 
   private async startRun(params: JsAgentRunRequest): Promise<{ started: true; runId: string }> {
@@ -318,17 +252,25 @@ export class JsAgentRuntimeManager {
       }
     }
 
+    const sessionId = params.sessionId
+
     const runPromise = (async () => {
       try {
         const messages = Array.isArray(params.messages)
           ? (params.messages as Parameters<typeof runInteractiveAgentLoop>[0])
           : []
+        let eventsSinceYield = 0
         for await (const event of runInteractiveAgentLoop(messages, loopConfig, toolCtx)) {
-          this.emitAgentEvent(runId, event)
+          this.emitAgentEvent(runId, sessionId, event)
+          eventsSinceYield++
+          if (eventsSinceYield >= 20) {
+            eventsSinceYield = 0
+            await new Promise<void>((r) => setImmediate(r))
+          }
         }
       } catch (error) {
         const normalized = error instanceof Error ? error : new Error(String(error))
-        this.emitAgentEvent(runId, {
+        this.emitAgentEvent(runId, sessionId, {
           type: 'error',
           error: {
             message: normalized.message,
@@ -338,11 +280,13 @@ export class JsAgentRuntimeManager {
           details: normalized.message,
           stackTrace: normalized.stack
         })
-        this.emitAgentEvent(runId, {
+        this.emitAgentEvent(runId, sessionId, {
           type: 'loop_end',
           reason: controller.signal.aborted ? 'aborted' : 'error'
         })
       } finally {
+        this.eventBatcher.flush(runId)
+        this.eventBatcher.cleanupRun(runId)
         this.activeRuns.delete(runId)
       }
     })()

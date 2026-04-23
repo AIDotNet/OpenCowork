@@ -17,7 +17,6 @@ import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 import { Badge } from '@renderer/components/ui/badge'
 import { Textarea } from '@renderer/components/ui/textarea'
-import { useChatStore } from '@renderer/stores/chat-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { coerceAskUserQuestions, resolveAskUserAnswers } from '@renderer/lib/tools/ask-user-tool'
 import type {
@@ -554,9 +553,6 @@ export function AskUserQuestionCard({
 }: AskUserQuestionCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const questions = React.useMemo(() => coerceAskUserQuestions(input.questions), [input.questions])
-  const activeSessionMode = useChatStore(
-    (s) => s.sessions.find((session) => session.id === s.activeSessionId)?.mode
-  )
   const clarifyAutoAcceptRecommended = useSettingsStore((s) => s.clarifyAutoAcceptRecommended)
   const parsedAnswers = React.useMemo(() => parseAnsweredPairs(output), [output])
   const answeredPairs = parsedAnswers.pairs
@@ -597,7 +593,6 @@ export function AskUserQuestionCard({
   React.useEffect(() => {
     if (autoSubmittedRef.current) return
     if (!isPending || isAnswered) return
-    if (activeSessionMode !== 'clarify') return
     if (!clarifyAutoAcceptRecommended) return
     if (!recommendedPayload) return
 
@@ -606,7 +601,6 @@ export function AskUserQuestionCard({
     setCurrentQuestionIndex(Math.max(questions.length - 1, 0))
     resolveAskUserAnswers(toolUseId, recommendedPayload.payload)
   }, [
-    activeSessionMode,
     clarifyAutoAcceptRecommended,
     isAnswered,
     isPending,

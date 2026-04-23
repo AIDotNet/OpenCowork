@@ -864,6 +864,21 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     void useChatStore.getState().loadRecentSessionMessages(activeSessionId, false, estimatedLimit)
   }, [activeSessionId])
 
+  React.useEffect(() => {
+    if (!activeSessionId || !streamingMessageId) return
+
+    const hasStreamingMessageInView = messages.some((message) => message.id === streamingMessageId)
+    if (hasStreamingMessageInView) return
+
+    const viewportHeight = containerRef.current?.clientHeight ?? window.innerHeight ?? 0
+    const estimatedLimit = Math.max(
+      5,
+      Math.ceil(viewportHeight / INITIAL_MESSAGE_ESTIMATED_HEIGHT) + 2
+    )
+
+    void useChatStore.getState().loadRecentSessionMessages(activeSessionId, true, estimatedLimit)
+  }, [activeSessionId, messages, streamingMessageId])
+
   React.useLayoutEffect(() => {
     pendingInitialScrollSessionIdRef.current = activeSessionId
     preserveScrollOnPrependRef.current = null

@@ -146,7 +146,11 @@ type ToolResultBlock = {
   content: ToolResultContent
   isError?: boolean
 }
-type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock
+type ImageBlock = {
+  type: 'image'
+  source: { type: 'base64' | 'url'; data?: string; mediaType?: string; url?: string }
+}
+type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock | ImageBlock
 export type ToolResultContent = AgentToolResultContent
 
 interface UnifiedMessage {
@@ -233,6 +237,19 @@ interface ProviderConfig {
   serviceTier?: string
   sessionId?: string
   computerUseEnabled?: boolean
+  responsesImageGeneration?: {
+    enabled?: boolean
+    action?: string
+    background?: string
+    inputFidelity?: string
+    inputImageMask?: { fileId?: string; imageUrl?: string }
+    moderation?: string
+    outputFormat?: string
+    outputCompression?: number
+    quality?: string
+    size?: string
+    partialImages?: number
+  }
   accountId?: string
   websocketUrl?: string
   websocketMode?: ResponsesWebsocketMode
@@ -246,6 +263,10 @@ interface StreamEvent {
     | 'tool_call_start'
     | 'tool_call_delta'
     | 'tool_call_end'
+    | 'image_generation_started'
+    | 'image_generation_partial'
+    | 'image_generated'
+    | 'image_error'
     | 'message_end'
     | 'error'
   thinking?: string
@@ -257,6 +278,12 @@ interface StreamEvent {
   argumentsDelta?: string
   toolCallInput?: Record<string, unknown>
   toolCallExtraContent?: Record<string, unknown>
+  imageBlock?: {
+    type: 'image'
+    source: { type: 'base64' | 'url'; data?: string; mediaType?: string }
+  }
+  partialImageIndex?: number
+  imageError?: { code: string; message: string }
   stopReason?: string
   usage?: TokenUsage
   timing?: RequestTiming
@@ -471,15 +498,59 @@ function buildCronSearchWarnings(messages: Array<string | false | null | undefin
 }
 
 const BINARY_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg',
-  '.mp3', '.mp4', '.wav', '.ogg', '.webm', '.avi', '.mov',
-  '.zip', '.gz', '.tar', '.rar', '.7z', '.bz2',
-  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-  '.woff', '.woff2', '.ttf', '.otf', '.eot',
-  '.exe', '.dll', '.so', '.dylib', '.bin', '.dat',
-  '.node', '.wasm', '.pyc', '.class',
-  '.sqlite', '.db', '.db-wal', '.db-shm',
-  '.asar', '.snap', '.deb', '.rpm', '.msi', '.dmg',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.bmp',
+  '.ico',
+  '.webp',
+  '.svg',
+  '.mp3',
+  '.mp4',
+  '.wav',
+  '.ogg',
+  '.webm',
+  '.avi',
+  '.mov',
+  '.zip',
+  '.gz',
+  '.tar',
+  '.rar',
+  '.7z',
+  '.bz2',
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.otf',
+  '.eot',
+  '.exe',
+  '.dll',
+  '.so',
+  '.dylib',
+  '.bin',
+  '.dat',
+  '.node',
+  '.wasm',
+  '.pyc',
+  '.class',
+  '.sqlite',
+  '.db',
+  '.db-wal',
+  '.db-shm',
+  '.asar',
+  '.snap',
+  '.deb',
+  '.rpm',
+  '.msi',
+  '.dmg',
   '.lock'
 ])
 const MAX_GREP_FILE_SIZE = 1_048_576
@@ -1108,10 +1179,90 @@ function formatOpenAIResponsesMessages(
             output: block.content
           })
           break
+        case 'image':
+          if (
+            message.role === 'assistant' &&
+            block.source?.type === 'base64' &&
+            block.source.data
+          ) {
+            const mediaType = block.source.mediaType ?? ''
+            let outputFormat: string | undefined
+            if (mediaType.includes('jpeg') || mediaType.includes('jpg')) outputFormat = 'jpeg'
+            else if (mediaType.includes('webp')) outputFormat = 'webp'
+            else if (mediaType.includes('png')) outputFormat = 'png'
+            input.push({
+              type: 'image_generation_call',
+              result: block.source.data,
+              ...(outputFormat ? { output_format: outputFormat } : {})
+            })
+          }
+          break
       }
     }
   }
   return input
+}
+
+function buildImageGenerationTool(
+  config?: ProviderConfig['responsesImageGeneration']
+): Record<string, unknown> | null {
+  if (!config || config.enabled === false) return null
+  const tool: Record<string, unknown> = { type: 'image_generation' }
+  if (config.action) tool.action = config.action
+  if (config.background) tool.background = config.background
+  if (config.inputFidelity) tool.input_fidelity = config.inputFidelity
+  if (config.inputImageMask) {
+    tool.input_image_mask = {
+      ...(config.inputImageMask.fileId ? { file_id: config.inputImageMask.fileId } : {}),
+      ...(config.inputImageMask.imageUrl ? { image_url: config.inputImageMask.imageUrl } : {})
+    }
+  }
+  if (config.moderation) tool.moderation = config.moderation
+  if (config.outputFormat) tool.output_format = config.outputFormat
+  if (config.quality) tool.quality = config.quality
+  if (config.size) tool.size = config.size
+  if (typeof config.outputCompression === 'number')
+    tool.output_compression = config.outputCompression
+  const partialImages = typeof config.partialImages === 'number' ? config.partialImages : 3
+  tool.partial_images = partialImages
+  return tool
+}
+
+function collectImageBase64Values(value: unknown): string[] {
+  if (typeof value === 'string') return value.trim() ? [value] : []
+  if (Array.isArray(value)) return value.flatMap((item) => collectImageBase64Values(item))
+  if (!value || typeof value !== 'object') return []
+  const record = value as {
+    b64_json?: unknown
+    image_base64?: unknown
+    data?: unknown
+    result?: unknown
+  }
+  for (const candidate of [record.b64_json, record.image_base64, record.data, record.result]) {
+    const extracted = collectImageBase64Values(candidate)
+    if (extracted.length > 0) return extracted
+  }
+  return []
+}
+
+function getImageGenerationErrorMessage(item: unknown): string | null {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+  const record = item as {
+    error?: { message?: unknown; code?: unknown; type?: unknown } | unknown
+    message?: unknown
+    status?: unknown
+  }
+  if (record.error && typeof record.error === 'object' && !Array.isArray(record.error)) {
+    const errorRecord = record.error as { message?: unknown; code?: unknown; type?: unknown }
+    for (const candidate of [errorRecord.message, errorRecord.code, errorRecord.type]) {
+      if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
+    }
+  }
+  if (typeof record.message === 'string' && record.message.trim()) return record.message.trim()
+  if (typeof record.status === 'string' && record.status.trim() === 'failed') {
+    return 'Image generation failed'
+  }
+  return null
 }
 
 function formatOpenAIResponsesTools(tools: ToolDefinition[]): unknown[] {
@@ -1151,6 +1302,8 @@ function formatAnthropicMessages(messages: UnifiedMessage[]): unknown[] {
               return { type: 'tool_use', id: block.id, name: block.name, input: block.input }
             case 'tool_result':
               return { type: 'tool_result', tool_use_id: block.toolUseId, content: block.content }
+            case 'image':
+              return { type: 'image', source: block.source }
           }
         })
       }
@@ -1713,8 +1866,17 @@ async function* sendOpenAIResponses(
     stream: true
   }
   const formattedTools = formatOpenAIResponsesTools(tools)
-  if (formattedTools.length > 0) {
-    body.tools = formattedTools
+  const allTools: unknown[] = []
+  if (config.computerUseEnabled) {
+    allTools.push({ type: 'computer' })
+  }
+  const imageGenTool = buildImageGenerationTool(config.responsesImageGeneration)
+  if (imageGenTool) {
+    allTools.push(imageGenTool)
+  }
+  allTools.push(...formattedTools)
+  if (allTools.length > 0) {
+    body.tools = allTools
   }
   if (config.temperature !== undefined) body.temperature = config.temperature
   if (config.maxTokens) body.max_output_tokens = config.maxTokens
@@ -1752,6 +1914,45 @@ async function* sendOpenAIResponses(
       thinkingEncryptedProvider: 'openai-responses'
     }
   }
+  const emittedImageGenerationStartIds = new Set<string>()
+  const emittedImageOutputItemIds = new Set<string>()
+  let imageGenerationStarted = false
+
+  const getImageGenerationItemId = (item: unknown): string | null => {
+    if (!item || typeof item !== 'object') return null
+    const record = item as { id?: unknown; item_id?: unknown; call_id?: unknown }
+    if (typeof record.id === 'string' && record.id.trim()) return record.id
+    if (typeof record.item_id === 'string' && record.item_id.trim()) return record.item_id
+    if (typeof record.call_id === 'string' && record.call_id.trim()) return record.call_id
+    return null
+  }
+
+  const tryBuildImageGenerationStartedEvent = (item: unknown): StreamEvent | null => {
+    const itemId = getImageGenerationItemId(item)
+    if (itemId && emittedImageGenerationStartIds.has(itemId)) return null
+    if (itemId) emittedImageGenerationStartIds.add(itemId)
+    if (firstTokenAt === null) firstTokenAt = Date.now()
+    imageGenerationStarted = true
+    return { type: 'image_generation_started' }
+  }
+
+  const createImageBlock = (
+    base64: string,
+    outputFormat?: string | null
+  ): NonNullable<StreamEvent['imageBlock']> => {
+    let mediaType = 'image/png'
+    switch ((outputFormat ?? '').trim().toLowerCase()) {
+      case 'jpeg':
+      case 'jpg':
+        mediaType = 'image/jpeg'
+        break
+      case 'webp':
+        mediaType = 'image/webp'
+        break
+    }
+    return { type: 'image', source: { type: 'base64', data: base64, mediaType } }
+  }
+
   const handleResponseEvent = (
     eventType: string | undefined,
     data: {
@@ -1760,12 +1961,20 @@ async function* sendOpenAIResponses(
       call_id?: string
       name?: string
       arguments?: string
+      partial_image_b64?: string
+      partial_image_index?: number
+      output_format?: string
       item?: {
         type?: string
+        id?: string
         call_id?: string
         name?: string
+        result?: unknown
+        output_format?: string
+        status?: string
         encrypted_content?: string
-        reasoning?: { encrypted_content?: string }
+        summary?: unknown
+        reasoning?: { encrypted_content?: string; summary?: unknown }
       }
       response?: {
         id?: string
@@ -1813,7 +2022,73 @@ async function* sendOpenAIResponses(
           )
           return encryptedEvent ? [encryptedEvent] : []
         }
+        if (data.item?.type === 'image_generation_call') {
+          const imageEvent = tryBuildImageGenerationStartedEvent(data.item)
+          return imageEvent ? [imageEvent] : []
+        }
         return []
+      case 'response.output_item.done': {
+        const events: StreamEvent[] = []
+        if (data.item?.type === 'image_generation_call') {
+          const startEvent = tryBuildImageGenerationStartedEvent(data.item)
+          if (startEvent) events.push(startEvent)
+          const itemId = getImageGenerationItemId(data.item)
+          if (!itemId || !emittedImageOutputItemIds.has(itemId)) {
+            const b64Values = collectImageBase64Values(data.item.result)
+            const outputFormat =
+              typeof data.item.output_format === 'string'
+                ? data.item.output_format
+                : config.responsesImageGeneration?.outputFormat
+            if (b64Values.length > 0) {
+              if (itemId) emittedImageOutputItemIds.add(itemId)
+              imageGenerationStarted = false
+              for (const b64 of b64Values) {
+                events.push({
+                  type: 'image_generated',
+                  imageBlock: createImageBlock(b64, outputFormat)
+                })
+              }
+            } else {
+              const errorMessage = getImageGenerationErrorMessage(data.item)
+              if (errorMessage) {
+                if (itemId) emittedImageOutputItemIds.add(itemId)
+                imageGenerationStarted = false
+                events.push({
+                  type: 'image_error',
+                  imageError: { code: 'api_error', message: errorMessage }
+                })
+              }
+            }
+          }
+        }
+        if (data.item?.type === 'reasoning') {
+          const encryptedEvent = tryBuildThinkingEncryptedEvent(
+            data.item.encrypted_content ?? data.item.reasoning?.encrypted_content
+          )
+          if (encryptedEvent) events.push(encryptedEvent)
+        }
+        return events
+      }
+      case 'response.image_generation_call.partial_image': {
+        const events: StreamEvent[] = []
+        const startEvent = tryBuildImageGenerationStartedEvent(data)
+        if (startEvent) events.push(startEvent)
+        if (typeof data.partial_image_b64 === 'string' && data.partial_image_b64.trim()) {
+          if (firstTokenAt === null) firstTokenAt = Date.now()
+          const outputFormat =
+            typeof data.output_format === 'string'
+              ? data.output_format
+              : config.responsesImageGeneration?.outputFormat
+          events.push({
+            type: 'image_generation_partial',
+            imageBlock: createImageBlock(data.partial_image_b64, outputFormat),
+            ...(typeof data.partial_image_index === 'number'
+              ? { partialImageIndex: data.partial_image_index }
+              : {})
+          })
+        }
+        return events
+      }
       case 'response.function_call_arguments.delta':
         return [{ type: 'tool_call_delta', toolCallId: data.call_id, argumentsDelta: data.delta }]
       case 'response.function_call_arguments.done':
@@ -1871,8 +2146,23 @@ async function* sendOpenAIResponses(
         ]
       }
       case 'response.failed':
-      case 'error':
-        return [{ type: 'error', error: { type: 'api_error', message: JSON.stringify(data) } }]
+      case 'error': {
+        const events: StreamEvent[] = []
+        if (imageGenerationStarted) {
+          imageGenerationStarted = false
+          const message =
+            getImageGenerationErrorMessage(data) ??
+            (typeof data?.response?.status === 'string' && data.response.status.trim()
+              ? data.response.status
+              : 'Image generation failed')
+          events.push({
+            type: 'image_error',
+            imageError: { code: 'api_error', message }
+          })
+        }
+        events.push({ type: 'error', error: { type: 'api_error', message: JSON.stringify(data) } })
+        return events
+      }
       default:
         return []
     }
@@ -2243,6 +2533,38 @@ async function* runAgentLoop(
               }
               break
             }
+            case 'image_generation_started':
+              streamedContent = true
+              yield { type: 'image_generation_started' }
+              break
+            case 'image_generation_partial':
+              streamedContent = true
+              if (event.imageBlock) {
+                yield {
+                  type: 'image_generation_partial',
+                  imageBlock: event.imageBlock,
+                  ...(typeof event.partialImageIndex === 'number'
+                    ? { partialImageIndex: event.partialImageIndex }
+                    : {})
+                }
+              }
+              break
+            case 'image_generated':
+              streamedContent = true
+              if (event.imageBlock) {
+                assistantContentBlocks.push(event.imageBlock)
+                yield { type: 'image_generated', imageBlock: event.imageBlock }
+              }
+              break
+            case 'image_error':
+              streamedContent = true
+              if (event.imageError) {
+                yield {
+                  type: 'image_error',
+                  imageError: event.imageError
+                }
+              }
+              break
             case 'message_end':
               providerResponseId = event.providerResponseId
               yield {

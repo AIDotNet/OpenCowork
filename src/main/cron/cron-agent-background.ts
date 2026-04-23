@@ -13,6 +13,12 @@ import { HttpsProxyAgent } from 'https-proxy-agent'
 import { readConfig } from '../ipc/secure-key-store'
 import { readSettings } from '../ipc/settings-handlers'
 import { showSystemNotification } from '../ipc/notify-handlers'
+import type {
+  ToolCallState,
+  InteractiveAgentEvent,
+  AgentToolResultContent
+} from '../../shared/agent-loop-types'
+export type { ToolCallState, InteractiveAgentEvent }
 import { executePluginAction } from '../ipc/channel-handlers'
 import { safeSendToAllWindows } from '../window-ipc'
 import { getDb } from '../db/database'
@@ -119,16 +125,6 @@ interface TokenUsage {
 }
 
 type TextBlock = { type: 'text'; text: string }
-type ImageResultBlock = {
-  type: 'image'
-  source: {
-    type: 'base64' | 'url'
-    mediaType?: string
-    data?: string
-    url?: string
-    filePath?: string
-  }
-}
 type ThinkingBlock = {
   type: 'thinking'
   thinking: string
@@ -151,7 +147,7 @@ type ToolResultBlock = {
   isError?: boolean
 }
 type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock
-export type ToolResultContent = string | Array<TextBlock | ImageResultBlock>
+export type ToolResultContent = AgentToolResultContent
 
 interface UnifiedMessage {
   id: string
@@ -268,18 +264,6 @@ interface StreamEvent {
   error?: { type?: string; message?: string }
 }
 
-export interface ToolCallState {
-  id: string
-  name: string
-  input: Record<string, unknown>
-  status: 'streaming' | 'pending_approval' | 'running' | 'completed' | 'error'
-  output?: ToolResultContent
-  error?: string
-  requiresApproval: boolean
-  startedAt?: number
-  completedAt?: number
-}
-
 export interface ToolContext {
   sessionId?: string
   workingFolder?: string
@@ -326,55 +310,6 @@ export interface AgentLoopConfig {
   messageQueue?: MessageQueueLike
   captureFinalMessages?: boolean
 }
-
-export type InteractiveAgentEvent =
-  | { type: 'loop_start' }
-  | { type: 'iteration_start'; iteration: number }
-  | { type: 'thinking_delta'; thinking: string }
-  | {
-      type: 'thinking_encrypted'
-      thinkingEncryptedContent: string
-      thinkingEncryptedProvider: 'anthropic' | 'openai-responses' | 'google'
-    }
-  | { type: 'text_delta'; text: string }
-  | {
-      type: 'tool_use_streaming_start'
-      toolCallId: string
-      toolName: string
-      toolCallExtraContent?: Record<string, unknown>
-    }
-  | { type: 'tool_use_args_delta'; toolCallId: string; partialInput: Record<string, unknown> }
-  | {
-      type: 'tool_use_generated'
-      toolUseBlock: {
-        id: string
-        name: string
-        input: Record<string, unknown>
-        extraContent?: Record<string, unknown>
-      }
-    }
-  | { type: 'tool_call_start'; toolCall: ToolCallState }
-  | { type: 'tool_call_approval_needed'; toolCall: ToolCallState }
-  | { type: 'tool_call_result'; toolCall: ToolCallState }
-  | {
-      type: 'request_retry'
-      attempt: number
-      maxAttempts: number
-      delayMs: number
-      statusCode?: number
-      reason: string
-    }
-  | {
-      type: 'iteration_end'
-      toolResults: { toolUseId: string; content: ToolResultContent; isError?: boolean }[]
-    }
-  | { type: 'message_end'; usage?: TokenUsage; timing?: RequestTiming; providerResponseId?: string }
-  | { type: 'error'; error: Error }
-  | {
-      type: 'loop_end'
-      reason: 'completed' | 'max_iterations' | 'aborted' | 'error'
-      messages?: UnifiedMessage[]
-    }
 
 interface AgentDefinition {
   name: string

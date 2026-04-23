@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.74] - 2026-04-24
+
+### Added
+
+- Added GPT 5.5 model to built-in RoutinAI provider presets.
+
+### Fixed
+
+- Expanded streaming message context window and fixed Q&A auto-accept and preview styling issues.
+
 ## [0.9.73] - 2026-04-24
 
 ### Added

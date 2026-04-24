@@ -653,14 +653,6 @@ class OpenAIResponsesProvider implements APIProvider {
             input.push({ type: 'message', role: m.role, content: block.text })
             break
           case 'image':
-            if (m.role === 'assistant' && block.source.type === 'base64' && block.source.data) {
-              const outputFormat = inferResponsesImageGenerationOutputFormat(block.source.mediaType)
-              input.push({
-                type: 'image_generation_call',
-                result: block.source.data,
-                ...(outputFormat ? { output_format: outputFormat } : {})
-              })
-            }
             break
           case 'thinking':
             if (

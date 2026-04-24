@@ -1006,7 +1006,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="workspace-sidebar-section space-y-1 px-2 py-1.5">
+          <div className="space-y-1 px-2 py-1.5">
             {navItems.slice(0, 3).map(renderNavItem)}
 
             <div className="group/resources-menu space-y-1">
@@ -1071,6 +1071,43 @@ export function WorkspaceSidebar(): React.JSX.Element {
           </div>
 
           <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+            <div className="mb-2 flex items-center justify-between gap-2 px-1">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
+                  {t('sidebar.projects')}
+                </span>
+                <span className="rounded-full border border-border/60 bg-muted/45 px-1 py-0.5 text-[9px] text-muted-foreground">
+                  {projectGroups.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6"
+                  onClick={() => importProjectInputRef.current?.click()}
+                  title={t('sidebar.importProject')}
+                >
+                  <Upload className="size-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-6"
+                  onClick={() =>
+                    setFolderPickerTarget({
+                      type: 'create',
+                      projectName: t('sidebar.newProject'),
+                      preferredSection: 'local'
+                    })
+                  }
+                  title={t('sidebar.newProject')}
+                >
+                  <Plus className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+
             {projectGroups.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border/60 px-3.5 py-5 text-center text-[12px] text-muted-foreground">
                 {t('sidebar.noProjects')}

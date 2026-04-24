@@ -1,13 +1,16 @@
 import type React from 'react'
 import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import {
   BOTTOM_TERMINAL_DOCK_DEFAULT_HEIGHT,
   LEFT_SIDEBAR_DEFAULT_WIDTH,
   WORKING_FOLDER_PANEL_DEFAULT_WIDTH,
   clampBottomTerminalDockHeight,
   clampLeftSidebarWidth,
+  clampRightPanelWidth,
   clampWorkingFolderPanelWidth
 } from '@renderer/components/layout/right-panel-defs'
+import { ipcStorage } from '@renderer/lib/ipc/ipc-storage'
 import { parseChatRoute, replaceChatRoute } from '@renderer/lib/chat-route'
 import { useChatStore } from '@renderer/stores/chat-store'
 
@@ -306,7 +309,9 @@ function buildFilePreviewState(
   }
 }
 
-export const useUIStore = create<UIStore>((set, get) => ({
+export const useUIStore = create<UIStore>()(
+  persist(
+    (set, get) => ({
   mode: 'cowork',
   setMode: (mode) => set({ mode }),
   activeNavItem: 'chat',
@@ -779,4 +784,45 @@ export const useUIStore = create<UIStore>((set, get) => ({
       sessionId: null
     })
   }
-}))
+    }),
+    {
+      name: 'opencowork-ui-state',
+      version: 1,
+      storage: createJSONStorage(() => ipcStorage),
+      partialize: (state) => ({
+        leftSidebarOpen: state.leftSidebarOpen,
+        leftSidebarWidth: clampLeftSidebarWidth(state.leftSidebarWidth),
+        rightPanelOpen: state.rightPanelOpen,
+        rightPanelTab: state.rightPanelTab,
+        rightPanelSection: state.rightPanelSection,
+        rightPanelWidth: clampRightPanelWidth(state.rightPanelWidth),
+        workingFolderSheetOpen: state.workingFolderSheetOpen,
+        workingFolderPanelWidth: clampWorkingFolderPanelWidth(state.workingFolderPanelWidth),
+        bottomTerminalDockOpenByProjectId: state.bottomTerminalDockOpenByProjectId,
+        bottomTerminalDockHeight: clampBottomTerminalDockHeight(state.bottomTerminalDockHeight)
+      }),
+      merge: (persisted, current) => {
+        const state = persisted as Partial<UIStore>
+        return {
+          ...current,
+          ...state,
+          toolbarCollapsedByDefault: undefined,
+          leftSidebarOpen:
+            typeof state.leftSidebarOpen === 'boolean'
+              ? state.leftSidebarOpen
+              : !(state as { toolbarCollapsedByDefault?: boolean }).toolbarCollapsedByDefault,
+          leftSidebarWidth: clampLeftSidebarWidth(
+            state.leftSidebarWidth ?? current.leftSidebarWidth
+          ),
+          rightPanelWidth: clampRightPanelWidth(state.rightPanelWidth ?? current.rightPanelWidth),
+          workingFolderPanelWidth: clampWorkingFolderPanelWidth(
+            state.workingFolderPanelWidth ?? current.workingFolderPanelWidth
+          ),
+          bottomTerminalDockHeight: clampBottomTerminalDockHeight(
+            state.bottomTerminalDockHeight ?? current.bottomTerminalDockHeight
+          )
+        }
+      }
+    }
+  )
+)

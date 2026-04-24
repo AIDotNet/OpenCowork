@@ -7,36 +7,76 @@ export const deepseekPreset: BuiltinProviderPreset = {
   defaultBaseUrl: 'https://api.deepseek.com/v1',
   homepage: 'https://platform.deepseek.com',
   apiKeyUrl: 'https://platform.deepseek.com/api_keys',
+  defaultModel: 'deepseek-v4-flash',
   defaultModels: [
     {
-      id: 'deepseek-chat',
-      name: 'DeepSeek V3.2 (Chat)',
+      id: 'deepseek-v4-flash',
+      name: 'DeepSeek V4 Flash',
       icon: 'deepseek',
       enabled: true,
-      contextLength: 128_000,
-      maxOutputTokens: 8_192,
+      contextLength: 1_000_000,
+      maxOutputTokens: 384_000,
       supportsVision: false,
       supportsFunctionCall: true,
-      inputPrice: 0.26,
-      outputPrice: 0.38,
-      cacheCreationPrice: 0.26,
-      cacheHitPrice: 0.026,
+      inputPrice: 1,
+      outputPrice: 2,
+      cacheCreationPrice: 1,
+      cacheHitPrice: 0.2,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: {
+        bodyParams: { enable_thinking: true },
+        disabledBodyParams: { enable_thinking: false }
+      }
+    },
+    {
+      id: 'deepseek-v4-pro',
+      name: 'DeepSeek V4 Pro',
+      icon: 'deepseek',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 384_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 12,
+      outputPrice: 24,
+      cacheCreationPrice: 12,
+      cacheHitPrice: 1,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { enable_thinking: true },
+        disabledBodyParams: { enable_thinking: false }
+      }
+    },
+    {
+      id: 'deepseek-chat',
+      name: 'DeepSeek V4 Flash (Chat, Deprecated)',
+      icon: 'deepseek',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 384_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 1,
+      outputPrice: 2,
+      cacheCreationPrice: 1,
+      cacheHitPrice: 0.2
     },
     {
       id: 'deepseek-reasoner',
-      name: 'DeepSeek V3.2 (Reasoner)',
+      name: 'DeepSeek V4 Flash (Reasoner, Deprecated)',
       icon: 'deepseek',
       enabled: true,
-      contextLength: 128_000,
-      maxOutputTokens: 64_000,
+      contextLength: 1_000_000,
+      maxOutputTokens: 384_000,
       supportsVision: false,
-      supportsFunctionCall: false,
-      inputPrice: 0.7,
-      outputPrice: 2.5,
-      cacheCreationPrice: 0.7,
-      cacheHitPrice: 0.07
+      supportsFunctionCall: true,
+      inputPrice: 1,
+      outputPrice: 2,
+      cacheCreationPrice: 1,
+      cacheHitPrice: 0.2,
+      supportsThinking: true,
+      thinkingConfig: { bodyParams: { enable_thinking: true } }
     }
-  ]
+  ],
+  deprecatedModelIds: ['deepseek-chat', 'deepseek-reasoner']
 }

@@ -92,7 +92,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const subAgentExecutionDetailToolUseId = useUIStore((s) => s.subAgentExecutionDetailToolUseId)
   const subAgentExecutionDetailInlineText = useUIStore((s) => s.subAgentExecutionDetailInlineText)
   const closeSubAgentExecutionDetail = useUIStore((s) => s.closeSubAgentExecutionDetail)
-  const toolbarCollapsedByDefault = useSettingsStore((s) => s.toolbarCollapsedByDefault)
   const chatView = useUIStore((s) => s.chatView)
   const activeSessionView = useChatStore(
     useShallow((s) => {
@@ -269,7 +268,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
   const tasksPageOpen = useUIStore((s) => s.tasksPageOpen)
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar)
-  const appliedDefaultToolbarStateRef = useRef(false)
   const contentHeader = useMemo(() => {
     if (tasksPageOpen) {
       return { title: t('navRail.tasks', { defaultValue: '任务' }), subtitle: null }
@@ -344,12 +342,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     tasksPageOpen,
     translatePageOpen
   ])
-
-  useEffect(() => {
-    if (appliedDefaultToolbarStateRef.current) return
-    useUIStore.getState().setLeftSidebarOpen(!toolbarCollapsedByDefault)
-    appliedDefaultToolbarStateRef.current = true
-  }, [toolbarCollapsedByDefault])
 
   const getActiveSessionSnapshot = useCallback(
     (): ReturnType<typeof useChatStore.getState>['sessions'][number] | undefined =>

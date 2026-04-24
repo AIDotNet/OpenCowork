@@ -74,23 +74,25 @@ function statusLabelKey(
 
 function statusTone(change: AggregatedFileChange): string {
   if (change.status === 'accepted') {
-    return 'text-emerald-300'
+    return 'text-emerald-600 dark:text-emerald-300'
   }
   if (change.status === 'reverted') {
-    return 'text-zinc-300'
+    return 'text-muted-foreground dark:text-zinc-300'
   }
   if (change.status === 'conflicted') {
-    return 'text-amber-300'
+    return 'text-amber-600 dark:text-amber-300'
   }
-  return 'text-sky-300'
+  return 'text-sky-600 dark:text-sky-300'
 }
 
 function actionTone(): string {
-  return 'text-zinc-400'
+  return 'text-muted-foreground dark:text-zinc-400'
 }
 
 function transportTone(change: AggregatedFileChange): string {
-  return change.transport === 'ssh' ? 'text-sky-300' : 'text-zinc-400'
+  return change.transport === 'ssh'
+    ? 'text-sky-600 dark:text-sky-300'
+    : 'text-muted-foreground dark:text-zinc-400'
 }
 
 function ActionLabel({ change }: { change: AggregatedFileChange }): React.JSX.Element {
@@ -111,7 +113,7 @@ function CopyIconButton({ text }: { text: string }): React.JSX.Element {
       type="button"
       variant="ghost"
       size="icon-xs"
-      className="rounded-full text-zinc-400 hover:bg-white/[0.08] hover:text-white"
+      className="rounded-full text-muted-foreground hover:bg-muted hover:text-foreground dark:text-zinc-400 dark:hover:bg-white/[0.08] dark:hover:text-white"
       onClick={() => {
         void navigator.clipboard.writeText(text)
         setCopied(true)
@@ -337,8 +339,8 @@ function ChangeRow({
       className={cn(
         'overflow-hidden rounded-lg border transition-colors',
         expanded
-          ? 'border-white/[0.12] bg-white/[0.03]'
-          : 'border-white/[0.06] bg-[#0f1012] hover:border-white/[0.1]'
+          ? 'border-border bg-muted/40 dark:border-white/[0.12] dark:bg-white/[0.03]'
+          : 'border-border bg-card hover:border-muted-foreground/30 dark:border-white/[0.06] dark:bg-[#0f1012] dark:hover:border-white/[0.1]'
       )}
     >
       <div className="flex items-start gap-1.5 px-2.5 py-2">
@@ -352,24 +354,24 @@ function ChangeRow({
           <ChevronDown
             className={cn(
               'mt-0.5 size-3.5 shrink-0 transition-transform duration-200',
-              expanded ? 'rotate-180 text-zinc-300' : 'text-zinc-600'
+              expanded ? 'rotate-180 text-foreground dark:text-zinc-300' : 'text-muted-foreground'
             )}
           />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               <ActionLabel change={change} />
-              <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-sky-300">
+              <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-sky-600 dark:text-sky-300">
                 {fileName(change.filePath)}
               </span>
-              <span className="shrink-0 text-[10px] font-medium text-emerald-300">
+              <span className="shrink-0 text-[10px] font-medium text-emerald-600 dark:text-emerald-300">
                 +{summary.added}
               </span>
-              <span className="shrink-0 text-[10px] font-medium text-red-300">
+              <span className="shrink-0 text-[10px] font-medium text-red-600 dark:text-red-300">
                 -{summary.deleted}
               </span>
             </div>
             <div
-              className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-zinc-500"
+              className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-muted-foreground"
               style={{ fontFamily: MONO_FONT }}
             >
               {change.filePath}
@@ -383,7 +385,7 @@ function ChangeRow({
               type="button"
               size="icon-xs"
               variant="ghost"
-              className="rounded-full text-zinc-500 hover:bg-white/[0.03] hover:text-white"
+              className="rounded-full text-muted-foreground hover:bg-muted hover:text-foreground dark:text-zinc-500 dark:hover:bg-white/[0.03] dark:hover:text-white"
               onClick={() => void handleRollback()}
               disabled={isAccepting || isRollingBack}
               title={t('action.undo', { ns: 'common' })}
@@ -399,7 +401,7 @@ function ChangeRow({
               type="button"
               size="icon-xs"
               variant="ghost"
-              className="rounded-full text-emerald-300 hover:bg-white/[0.03] hover:text-emerald-200"
+              className="rounded-full text-emerald-600 hover:bg-muted hover:text-emerald-700 dark:text-emerald-300 dark:hover:bg-white/[0.03] dark:hover:text-emerald-200"
               onClick={() => void handleAccept()}
               disabled={isAccepting || isRollingBack}
               title={t('action.allow', { ns: 'common' })}
@@ -415,14 +417,14 @@ function ChangeRow({
         ) : change.status === 'accepted' ? (
           <CheckCircle2 className="mt-1 size-4 shrink-0 text-emerald-400" />
         ) : change.status === 'reverted' ? (
-          <RotateCcw className="mt-1 size-4 shrink-0 text-zinc-500" />
+          <RotateCcw className="mt-1 size-4 shrink-0 text-muted-foreground" />
         ) : (
           <XCircle className="mt-1 size-4 shrink-0 text-amber-400" />
         )}
       </div>
 
       {expanded ? (
-        <div className="border-t border-white/[0.06] px-3 pb-3 pt-2.5">
+        <div className="border-t border-border px-3 pb-3 pt-2.5 dark:border-white/[0.06]">
           <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
             <span className={cn(statusTone(change))}>{t(statusLabelKey(change))}</span>
             <span className={cn(transportTone(change))}>
@@ -430,7 +432,7 @@ function ChangeRow({
             </span>
           </div>
           <div
-            className="mb-2 break-all text-[10px] text-zinc-500"
+            className="mb-2 break-all text-[10px] text-muted-foreground"
             style={{ fontFamily: MONO_FONT }}
           >
             {change.filePath}
@@ -560,18 +562,22 @@ export function ChangeReviewPanelContent({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col text-zinc-100">
+    <div className="flex h-full min-h-0 flex-col text-foreground dark:text-zinc-100">
       <div className="px-4 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] text-zinc-400">
+              <span className="text-[11px] text-muted-foreground dark:text-zinc-400">
                 {t('fileChange.filesChanged', { count: aggregatedChanges.length })}
               </span>
-              <span className="text-xs font-semibold text-emerald-300">+{summary.added}</span>
-              <span className="text-xs font-semibold text-red-300">-{summary.deleted}</span>
+              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-300">
+                +{summary.added}
+              </span>
+              <span className="text-xs font-semibold text-red-600 dark:text-red-300">
+                -{summary.deleted}
+              </span>
             </div>
-            <p className="mt-2 text-xs leading-5 text-zinc-500">
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
               {t('fileChange.reviewPanelDescription', {
                 defaultValue:
                   'Review the changed files from this run, expand an item to inspect details, and confirm or undo each change.'
@@ -584,7 +590,7 @@ export function ChangeReviewPanelContent({
               type="button"
               size="xs"
               variant="ghost"
-              className="text-zinc-200 hover:bg-white/[0.04]"
+              className="text-foreground hover:bg-muted dark:text-zinc-200 dark:hover:bg-white/[0.04]"
               onClick={() => void handleAcceptAll()}
               disabled={!actionable || isAcceptingAll || isRollingBackAll}
             >
@@ -599,7 +605,7 @@ export function ChangeReviewPanelContent({
               type="button"
               size="xs"
               variant="ghost"
-              className="text-zinc-200 hover:bg-white/[0.04]"
+              className="text-foreground hover:bg-muted dark:text-zinc-200 dark:hover:bg-white/[0.04]"
               onClick={() => void handleRollbackAll()}
               disabled={!actionable || isAcceptingAll || isRollingBackAll}
             >
@@ -616,7 +622,7 @@ export function ChangeReviewPanelContent({
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="px-4 py-2">
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
+          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
             {t('fileChange.reviewFileList', { defaultValue: 'Files' })}
           </p>
         </div>

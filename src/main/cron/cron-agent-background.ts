@@ -1180,22 +1180,6 @@ function formatOpenAIResponsesMessages(
           })
           break
         case 'image':
-          if (
-            message.role === 'assistant' &&
-            block.source?.type === 'base64' &&
-            block.source.data
-          ) {
-            const mediaType = block.source.mediaType ?? ''
-            let outputFormat: string | undefined
-            if (mediaType.includes('jpeg') || mediaType.includes('jpg')) outputFormat = 'jpeg'
-            else if (mediaType.includes('webp')) outputFormat = 'webp'
-            else if (mediaType.includes('png')) outputFormat = 'png'
-            input.push({
-              type: 'image_generation_call',
-              result: block.source.data,
-              ...(outputFormat ? { output_format: outputFormat } : {})
-            })
-          }
           break
       }
     }

@@ -1231,6 +1231,7 @@ export const useChatStore = create<ChatStore>()(
     },
 
     setActiveProject: (id) => {
+      const prevSessionId = get().activeSessionId
       let nextSessionId: string | null = null
       set((state) => {
         state.activeProjectId = id
@@ -1239,13 +1240,25 @@ export const useChatStore = create<ChatStore>()(
           return
         }
         const currentSession = state.sessions.find((s) => s.id === state.activeSessionId)
-        if (currentSession?.projectId === id) return
+        if (currentSession?.projectId === id) {
+          nextSessionId = state.activeSessionId
+          return
+        }
         const sessionsInProject = state.sessions
           .filter((s) => s.projectId === id)
           .sort((a, b) => b.updatedAt - a.updatedAt)
         nextSessionId = sessionsInProject[0]?.id ?? null
         state.activeSessionId = nextSessionId
       })
+      if (prevSessionId !== nextSessionId) {
+        invalidateVisibleSessionCache()
+        if (prevSessionId) {
+          agentStream.notifySessionVisibility(prevSessionId, false)
+        }
+        if (nextSessionId) {
+          agentStream.notifySessionVisibility(nextSessionId, true)
+        }
+      }
       useUIStore.getState().syncSessionScopedState(nextSessionId)
       get().releaseDormantSessions()
       if (nextSessionId) {

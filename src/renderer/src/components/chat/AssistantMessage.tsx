@@ -130,6 +130,7 @@ interface AssistantMessageProps {
   orchestrationRun?: OrchestrationRun | null
   hiddenToolUseIds?: Set<string>
   requestRetryState?: RequestRetryState | null
+  requestDebugInfo?: RequestDebugInfo
 }
 
 const MARKDOWN_WRAPPER_CLASS = 'text-sm leading-relaxed text-foreground break-words'
@@ -390,10 +391,14 @@ function DebugToggleButton({ debugInfo }: { debugInfo: RequestDebugInfo }): Reac
   return (
     <>
       <button
+        type="button"
         onClick={() => setShow(true)}
-        className={`flex items-center rounded px-1 py-0.5 transition-colors ${show ? 'bg-orange-500/10 text-orange-500' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}`}
+        aria-label="Debug"
+        title="Debug"
+        className={`flex items-center gap-1 rounded px-1 py-0.5 text-[11px] transition-colors ${show ? 'bg-orange-500/10 text-orange-500' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}`}
       >
         <Bug className="size-3.5" />
+        <span>Debug</span>
       </button>
       <Dialog open={show} onOpenChange={setShow}>
         <DialogContent className="flex max-h-[80vh] max-w-[90vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
@@ -1047,12 +1052,13 @@ export function AssistantMessage({
   renderMode = 'default',
   orchestrationRun,
   hiddenToolUseIds,
-  requestRetryState
+  requestRetryState,
+  requestDebugInfo
 }: AssistantMessageProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const devMode = useSettingsStore((s) => s.devMode)
   const liveOutputAnimationStyle = useSettingsStore((s) => s.liveOutputAnimationStyle)
-  const debugInfo = devMode && msgId ? getLastDebugInfo(msgId) : undefined
+  const debugInfo = devMode ? (requestDebugInfo ?? (msgId ? getLastDebugInfo(msgId) : undefined)) : undefined
   const openTranslatePage = useUIStore((s) => s.openTranslatePage)
   const setTranslateSourceText = useTranslateStore((s) => s.setSourceText)
   const openImageEditor = useImageEditStore((s) => s.openEditor)

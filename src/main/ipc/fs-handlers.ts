@@ -101,7 +101,7 @@ interface GrepCollector {
   readonly truncated: boolean
 }
 
-const GREP_IGNORE_DIRS = new Set([
+const GREP_IGNORE_DIR_NAMES = [
   'node_modules',
   '.git',
   '.svn',
@@ -128,7 +128,8 @@ const GREP_IGNORE_DIRS = new Set([
   '.venv',
   'venv',
   'env'
-])
+]
+const GREP_IGNORE_DIRS = new Set(GREP_IGNORE_DIR_NAMES)
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -149,6 +150,17 @@ function buildGlobIgnorePatterns(pattern: string): string[] {
   }
 
   return ignorePatterns
+}
+
+function isDefaultIgnoredDirName(name: string): boolean {
+  return GREP_IGNORE_DIRS.has(name.toLowerCase())
+}
+
+function includesDefaultIgnoredDir(filePath: string, searchRoot: string): boolean {
+  const absolutePath = path.resolve(searchRoot, filePath)
+  const relativePath = path.relative(searchRoot, absolutePath)
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) return false
+  return relativePath.split(/[\\/]+/).some((part) => isDefaultIgnoredDirName(part))
 }
 
 const GREP_BINARY_EXTENSIONS = new Set([
@@ -406,7 +418,7 @@ async function listSearchableFiles(searchRoot: string): Promise<string[]> {
     for (const entry of entries) {
       const absolutePath = path.join(dirPath, entry.name)
       if (entry.isDirectory()) {
-        if (GREP_IGNORE_DIRS.has(entry.name)) continue
+        if (isDefaultIgnoredDirName(entry.name)) continue
         if (await matcher.ignores(absolutePath, true)) continue
         await walk(absolutePath)
         continue
@@ -619,6 +631,7 @@ async function runSidecarGrepSearch(args: {
         pattern: args.pattern,
         path: args.searchTarget,
         include: args.include,
+        ignoredDirs: GREP_IGNORE_DIR_NAMES,
         maxResults: GREP_MAX_RESULTS,
         maxLineLength: GREP_MAX_LINE_LENGTH,
         maxOutputBytes: GREP_MAX_OUTPUT_BYTES,
@@ -729,6 +742,7 @@ async function runRipgrepSearch(args: {
         const absolutePath = path.isAbsolute(rawPath)
           ? rawPath
           : path.join(args.searchRoot, rawPath)
+        if (includesDefaultIgnoredDir(absolutePath, args.searchRoot)) return
         if (!collector.append(absolutePath, lineNumber, text)) {
           child.kill()
         }
@@ -1107,7 +1121,12 @@ export function registerFsHandlers(): void {
         })
 
         if (sidecarResult) {
-          return sidecarResult
+          return {
+            ...sidecarResult,
+            results: sidecarResult.results.filter(
+              (item) => !includesDefaultIgnoredDir(item.file, searchRoot)
+            )
+          }
         }
 
         const matchesInclude = createIncludeMatcher(searchRoot, includePatterns)
@@ -1180,7 +1199,7 @@ export function registerFsHandlers(): void {
 
               const fullPath = path.join(dir, entry.name)
               if (entry.isDirectory()) {
-                if (GREP_IGNORE_DIRS.has(entry.name)) continue
+                if (isDefaultIgnoredDirName(entry.name)) continue
                 if (gitIgnoreMatcher && (await gitIgnoreMatcher.ignores(fullPath, true))) continue
                 if (await walkDir(fullPath)) return true
                 continue

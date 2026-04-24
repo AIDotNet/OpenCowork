@@ -154,6 +154,7 @@ function MessageItemInner({
             orchestrationRun={orchestrationRun}
             hiddenToolUseIds={hiddenToolUseIds}
             requestRetryState={isLastAssistantMessage ? requestRetryState : null}
+            requestDebugInfo={message.debugInfo}
           />
         )
       case 'system':
@@ -289,6 +290,7 @@ function areEqual(prev: MessageItemProps, next: MessageItemProps): boolean {
     prev.message.role === next.message.role &&
     prev.message.createdAt === next.message.createdAt &&
     prev.message.source === next.message.source &&
+    prev.message.debugInfo === next.message.debugInfo &&
     contentEqual &&
     prevUsageSignal === nextUsageSignal &&
     areToolResultsEqual(prev.toolResults, next.toolResults) &&

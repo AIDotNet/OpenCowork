@@ -1934,9 +1934,8 @@ export function abortSession(sessionId: string): void {
   emitSessionControlSync({ kind: 'abort_session', sessionId })
 }
 
-// 60fps flush causes expensive markdown + layout work during panel resizing.
-// 33ms keeps streaming smooth while lowering render/reflow pressure.
-const STREAM_DELTA_FLUSH_MS = 60
+// Keep foreground response streaming visibly real-time while still batching tiny chunks.
+const STREAM_DELTA_FLUSH_MS = 16
 const BACKGROUND_STREAM_DELTA_FLUSH_MS = 200
 const TOOL_INPUT_FLUSH_MS = 300
 const BACKGROUND_TOOL_INPUT_FLUSH_MS = 600
@@ -3523,22 +3522,24 @@ export function useChatActions(): {
               sshConnectionId: session?.sshConnectionId
             })
 
-            const useSidecar = await canUseSidecarForAgentRun({
-              messages: messagesToSend,
-              provider: agentProviderConfig,
-              tools: effectiveToolDefs,
-              sessionId,
-              workingFolder: sessionWorkingFolder,
-              sshConnectionId: session?.sshConnectionId,
-              maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
-              forceApproval: false,
-              compression: compressionConfig,
-              isPlanMode,
-              sessionMode: mode,
-              desktopControlMode,
-              hasChannels: scopedActiveChannels.length > 0,
-              hasMcps: activeMcps.length > 0
-            })
+            const useSidecar = settings.devMode
+              ? false
+              : await canUseSidecarForAgentRun({
+                  messages: messagesToSend,
+                  provider: agentProviderConfig,
+                  tools: effectiveToolDefs,
+                  sessionId,
+                  workingFolder: sessionWorkingFolder,
+                  sshConnectionId: session?.sshConnectionId,
+                  maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
+                  forceApproval: false,
+                  compression: compressionConfig,
+                  isPlanMode,
+                  sessionMode: mode,
+                  desktopControlMode,
+                  hasChannels: scopedActiveChannels.length > 0,
+                  hasMcps: activeMcps.length > 0
+                })
 
             console.log('[ChatActions] Agent execution path', {
               sessionId,
@@ -4275,6 +4276,9 @@ export function useChatActions(): {
                     currentUsageProviderId = event.debugInfo.providerId ?? currentUsageProviderId
                     currentUsageModelId = event.debugInfo.model ?? currentUsageModelId
                     setLastDebugInfo(assistantMsgId, event.debugInfo)
+                    updateRuntimeMessage(sessionId!, assistantMsgId, {
+                      debugInfo: lastRequestDebugInfo
+                    })
                     if (shouldUseEstimatedContextTokens(lastRequestDebugInfo)) {
                       const debugContextEstimate =
                         estimateContextTokensFromDebugInfo(lastRequestDebugInfo)
@@ -4316,6 +4320,10 @@ export function useChatActions(): {
                             return
                           }
                           preciseContextTokens = exactContextTokens
+                          accumulatedUsage.contextTokens = exactContextTokens
+                          if (compressionContextLength > 0) {
+                            accumulatedUsage.contextLength = compressionContextLength
+                          }
                           mergeRuntimeMessageUsage(sessionId!, assistantMsgId, {
                             contextTokens: exactContextTokens,
                             ...(compressionContextLength > 0
@@ -4414,7 +4422,9 @@ export function useChatActions(): {
                 appendRuntimeTextDelta(sessionId!, assistantMsgId, `\n\n> **Error:** ${errMsg}`)
               }
               if (err instanceof ApiStreamError) {
-                setLastDebugInfo(assistantMsgId, err.debugInfo as RequestDebugInfo)
+                const debugInfo = err.debugInfo as RequestDebugInfo
+                setLastDebugInfo(assistantMsgId, debugInfo)
+                updateRuntimeMessage(sessionId!, assistantMsgId, { debugInfo })
               }
             }
           } finally {
@@ -5453,6 +5463,9 @@ async function runSimpleChat(
             setLastDebugInfo(assistantMsgId, {
               ...lastRequestDebugInfo
             })
+            updateRuntimeMessage(sessionId, assistantMsgId, {
+              debugInfo: lastRequestDebugInfo
+            })
             if (shouldUseEstimatedContextTokens(lastRequestDebugInfo)) {
               const debugContextEstimate = estimateContextTokensFromDebugInfo(lastRequestDebugInfo)
               const provisionalUsage = buildStreamingContextUsage(
@@ -5548,12 +5561,14 @@ async function runSimpleChat(
         appendRuntimeTextDelta(sessionId, assistantMsgId, `\n\n> **Error:** ${errMsg}`)
       }
       if (err instanceof ApiStreamError) {
-        setLastDebugInfo(assistantMsgId, {
+        const debugInfo = {
           ...(err.debugInfo as RequestDebugInfo),
           providerId: config.providerId,
           providerBuiltinId: config.providerBuiltinId,
           model: config.model
-        })
+        }
+        setLastDebugInfo(assistantMsgId, debugInfo)
+        updateRuntimeMessage(sessionId, assistantMsgId, { debugInfo })
       }
     }
   } finally {

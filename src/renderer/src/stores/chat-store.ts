@@ -1561,12 +1561,27 @@ export const useChatStore = create<ChatStore>()(
           MIN_INITIAL_SESSION_MESSAGE_PAGE_SIZE,
           Math.min(limit ?? INITIAL_SESSION_DISPLAY_PAGE_SIZE, knownCount)
         )
-        let windowStart = Math.max(0, knownCount - nextLimit)
-        const msgRows = (await ipcClient.invoke('db:messages:list-page', {
+        let effectiveKnownCount = knownCount
+        let windowStart = Math.max(0, effectiveKnownCount - nextLimit)
+        let msgRows = (await ipcClient.invoke('db:messages:list-page', {
           sessionId,
           limit: nextLimit,
           offset: windowStart
         })) as MessageRow[]
+
+        if (msgRows.length === 0) {
+          const actualCount = (await ipcClient.invoke('db:messages:count', sessionId)) as number
+          if (actualCount !== effectiveKnownCount) {
+            effectiveKnownCount = actualCount
+            windowStart = Math.max(0, effectiveKnownCount - nextLimit)
+            msgRows = (await ipcClient.invoke('db:messages:list-page', {
+              sessionId,
+              limit: nextLimit,
+              offset: windowStart
+            })) as MessageRow[]
+          }
+        }
+
         let messages = msgRows.map(rowToMessage)
 
         while (
@@ -1599,10 +1614,10 @@ export const useChatStore = create<ChatStore>()(
           }
           target.messages = messages
           target.messagesLoaded = true
-          target.messageCount = knownCount
+          target.messageCount = effectiveKnownCount
           target.loadedRangeStart = windowStart
-          target.loadedRangeEnd = knownCount
-          target.lastKnownMessageCount = knownCount
+          target.loadedRangeEnd = effectiveKnownCount
+          target.lastKnownMessageCount = effectiveKnownCount
         })
       } catch (err) {
         console.error('[ChatStore] Failed to load recent session messages:', err)

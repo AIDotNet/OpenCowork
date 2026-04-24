@@ -422,6 +422,7 @@ export function InputArea({
   const [fileSearchLoading, setFileSearchLoading] = React.useState(false)
   const [selectedFileSearchIndex, setSelectedFileSearchIndex] = React.useState(0)
   const [attachedImages, setAttachedImages] = React.useState<ImageAttachment[]>([])
+  const [pendingImageReads, setPendingImageReads] = React.useState(0)
   const [isOptimizing, setIsOptimizing] = React.useState(false)
   const [, setOptimizingText] = React.useState('')
   const [optimizationOptions, setOptimizationOptions] = React.useState<
@@ -1433,10 +1434,17 @@ export function InputArea({
 
   // --- Image helpers ---
   const addImages = React.useCallback(async (files: File[]) => {
-    const results = await Promise.all(files.map(fileToImageAttachment))
-    const valid = results.filter(Boolean) as ImageAttachment[]
-    if (valid.length > 0) {
-      setAttachedImages((prev) => [...prev, ...valid])
+    if (files.length === 0) return
+
+    setPendingImageReads((prev) => prev + files.length)
+    try {
+      const results = await Promise.all(files.map(fileToImageAttachment))
+      const valid = results.filter(Boolean) as ImageAttachment[]
+      if (valid.length > 0) {
+        setAttachedImages((prev) => [...prev, ...valid])
+      }
+    } finally {
+      setPendingImageReads((prev) => Math.max(0, prev - files.length))
     }
   }, [])
 
@@ -1588,7 +1596,7 @@ export function InputArea({
     const liveEditorState = getLiveEditorState()
     const serialized = liveEditorState.serializedText.trim()
     if (!serialized && attachedImages.length === 0) return
-    if (disabled || needsWorkingFolder) return
+    if (disabled || needsWorkingFolder || pendingImageReads > 0) return
 
     cancelPromptRecommendation()
 
@@ -1621,6 +1629,7 @@ export function InputArea({
     attachedImages,
     disabled,
     needsWorkingFolder,
+    pendingImageReads,
     cancelPromptRecommendation,
     selectedSkill,
     onSend,
@@ -2134,6 +2143,7 @@ export function InputArea({
             (!finalSerializedText.trim() && attachedImages.length === 0) ||
             disabled ||
             needsWorkingFolder ||
+            pendingImageReads > 0 ||
             isOptimizing
           }
         >

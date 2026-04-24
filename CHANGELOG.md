@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.81] - 2026-04-24
+
+### Added
+
+- Added image-read gating so send actions are blocked until images finish loading.
+- Added session message backfill logic to reload the message window after resolving the real total count when the view is empty.
+
+### Changed
+
+- Improved shell result handling so terminal output can connect directly to the session flow.
+- Updated the model panel interaction model and kept the inline terminal experience in the tool panel.
+- Persisted sidebar and panel state, and refreshed debugger and model default values.
+
 ## [0.9.80] - 2026-04-24
 
 ### Added

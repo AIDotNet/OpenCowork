@@ -1,11 +1,9 @@
 import { Check } from 'lucide-react'
-import { useTheme } from 'next-themes'
 import { useTranslation } from 'react-i18next'
 import {
   APP_THEME_PRESETS,
   getTerminalTheme,
   getThemePresetDefinition,
-  resolveAppThemeMode,
   type SshTerminalThemePreset
 } from '@renderer/lib/theme-presets'
 import { cn } from '@renderer/lib/utils'
@@ -21,9 +19,8 @@ function TerminalThemeCard({
   onClick: () => void
 }): React.JSX.Element {
   const { t } = useTranslation(['ssh', 'settings'])
-  const { resolvedTheme } = useTheme()
   const definition = getThemePresetDefinition(preset)
-  const preview = getTerminalTheme(preset, resolveAppThemeMode(resolvedTheme))
+  const preview = getTerminalTheme(preset, 'dark')
 
   return (
     <button

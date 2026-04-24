@@ -83,7 +83,8 @@
     "changeWorkingFolder": "工作目录",
     "projectGit": "Git",
     "showMoreSessions": "展开更多（{{count}}）",
-    "showLessSessions": "收起"
+    "showLessSessions": "收起",
+    "openInNewWindow": "在新窗口打开"
   },
   "sidebar_toast": {
     "sessionDeleted": "会话已删除",
@@ -359,7 +360,14 @@
   "layout": {
     "newModeSession": "新建 {{mode}} 会话",
     "clearConfirm": "清除 {{count}} 条消息？",
+    "clearConversation": "清空会话",
     "conversationCleared": "对话已清除",
+    "openFolder": "打开文件夹",
+    "copyAll": "复制会话",
+    "exportImage": "复制为图片",
+    "imageCopied": "图片已复制到剪贴板",
+    "exportImageFailed": "复制图片失败",
+    "deleteConversation": "删除会话",
     "sessionDuplicated": "会话已复制",
     "pinned": "已置顶",
     "unpinned": "已取消置顶",

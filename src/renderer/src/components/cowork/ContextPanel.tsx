@@ -59,6 +59,7 @@ export function ContextPanel(): React.JSX.Element {
     activeSession,
     activeProject,
     activeProjectId,
+    streamingMessageId,
     updateProjectDirectory
   } = useChatStore(
     useShallow((s) => {
@@ -73,6 +74,7 @@ export function ContextPanel(): React.JSX.Element {
         activeSession,
         activeProject,
         activeProjectId: s.activeProjectId,
+        streamingMessageId: s.streamingMessageId,
         updateProjectDirectory: s.updateProjectDirectory
       }
     })
@@ -395,7 +397,7 @@ export function ContextPanel(): React.JSX.Element {
                       totals.reasoning += member.usage.reasoningTokens
                   }
                 }
-                if (totals.input + totals.output === 0) return null
+                const hasTokenUsage = totals.input + totals.output > 0
                 const totalUsage = {
                   inputTokens: totals.input,
                   outputTokens: totals.output,
@@ -405,11 +407,18 @@ export function ContextPanel(): React.JSX.Element {
                   cacheCreation1hTokens: totals.cacheCreation1h || undefined,
                   cacheReadTokens: totals.cacheRead || undefined
                 }
-                const cost = calculateCost(totalUsage, activeModelCfg)
-                const totalTokens = getBillableTotalTokens(totalUsage, activeModelCfg?.type)
-                // Context window = last API call's input tokens (stored as contextTokens, not accumulated)
-                // Fallback to inputTokens for older messages that don't have contextTokens
-                const lastUsage = [...activeSession.messages].reverse().find((m) => m.usage)?.usage
+                const cost = hasTokenUsage ? calculateCost(totalUsage, activeModelCfg) : null
+                const totalTokens = hasTokenUsage
+                  ? getBillableTotalTokens(totalUsage, activeModelCfg?.type)
+                  : 0
+                const lastUsage = [...activeSession.messages].reverse().find((m) => {
+                  if (!m.usage) return false
+                  if (streamingMessageId && m.id === streamingMessageId) {
+                    const streamingCtxUsed = m.usage.contextTokens ?? 0
+                    if (streamingCtxUsed <= 0) return false
+                  }
+                  return true
+                })?.usage
                 const ctxUsed = lastUsage?.contextTokens ?? lastUsage?.inputTokens ?? 0
                 const ctxLimit =
                   lastUsage?.contextLength ?? compressionConfig?.contextLength ?? null
@@ -423,33 +432,36 @@ export function ContextPanel(): React.JSX.Element {
                       : pct > 50
                         ? 'bg-amber-500'
                         : 'bg-green-500'
+                if (!hasTokenUsage && pct === null) return null
                 return (
                   <>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Zap className="size-3 shrink-0" />
-                      <span>
-                        {formatTokens(totalTokens)} tokens
-                        <span className="text-muted-foreground/50">
-                          {' '}
-                          ({formatTokens(totals.input)}↓ {formatTokens(totals.output)}↑)
+                    {hasTokenUsage && (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Zap className="size-3 shrink-0" />
+                        <span>
+                          {formatTokens(totalTokens)} tokens
+                          <span className="text-muted-foreground/50">
+                            {' '}
+                            ({formatTokens(totals.input)}↓ {formatTokens(totals.output)}↑)
+                          </span>
+                          {cost !== null && (
+                            <span className="text-emerald-500/70"> · {formatCost(cost)}</span>
+                          )}
+                          {totals.cacheRead > 0 && (
+                            <span className="text-green-500/60">
+                              {' '}
+                              · {formatTokens(totals.cacheRead)} {tCommon('unit.cached')}
+                            </span>
+                          )}
+                          {totals.reasoning > 0 && (
+                            <span className="text-blue-500/60">
+                              {' '}
+                              · {formatTokens(totals.reasoning)} {tCommon('unit.reasoning')}
+                            </span>
+                          )}
                         </span>
-                        {cost !== null && (
-                          <span className="text-emerald-500/70"> · {formatCost(cost)}</span>
-                        )}
-                        {totals.cacheRead > 0 && (
-                          <span className="text-green-500/60">
-                            {' '}
-                            · {formatTokens(totals.cacheRead)} {tCommon('unit.cached')}
-                          </span>
-                        )}
-                        {totals.reasoning > 0 && (
-                          <span className="text-blue-500/60">
-                            {' '}
-                            · {formatTokens(totals.reasoning)} {tCommon('unit.reasoning')}
-                          </span>
-                        )}
-                      </span>
-                    </div>
+                      </div>
+                    )}
                     {pct !== null && (
                       <div className="mt-1 space-y-0.5">
                         <div className="flex items-center justify-between text-[9px] text-muted-foreground/40">

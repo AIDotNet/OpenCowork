@@ -1345,7 +1345,7 @@ export function AssistantMessage({
               return (
                 <ThinkingBlock
                   key={`${idx}-${seg.closed ? 'settled' : 'active'}`}
-                  thinking={seg.closed ? seg.content : ''}
+                  thinking={seg.content}
                   isStreaming={!!isStreaming && !seg.closed}
                 />
               )
@@ -1606,7 +1606,7 @@ export function AssistantMessage({
                 return (
                   <ThinkingBlock
                     key={`${item.index}-${block.completedAt ? 'settled' : 'active'}`}
-                    thinking={block.completedAt ? block.thinking : ''}
+                    thinking={block.thinking}
                     isStreaming={isStreaming}
                     startedAt={block.startedAt}
                     completedAt={block.completedAt}
@@ -1652,7 +1652,7 @@ export function AssistantMessage({
                         return (
                           <ThinkingBlock
                             key={`${item.index}-${j}-${seg.closed ? 'settled' : 'active'}`}
-                            thinking={seg.closed ? seg.content : ''}
+                            thinking={seg.content}
                             isStreaming={isBlockStreaming && !seg.closed}
                           />
                         )

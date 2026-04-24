@@ -54,7 +54,21 @@ interface TerminalOutputChunk {
   data: string
 }
 
+interface TerminalOutputEvent {
+  id: string
+  data: string
+  seq: number
+}
+
+interface TerminalExitEvent {
+  id: string
+  exitCode: number
+  signal?: number
+}
+
 const terminalSessions = new Map<string, TerminalSession>()
+const terminalOutputListeners = new Set<(event: TerminalOutputEvent) => void>()
+const terminalExitListeners = new Set<(event: TerminalExitEvent) => void>()
 const TERMINAL_OUTPUT_BUFFER_MAX_BYTES = 64 * 1024
 
 function isExecutableFile(filePath?: string): filePath is string {
@@ -127,6 +141,14 @@ function createWindowEvent(windowId: number | null, channel: string, payload: un
   safeSendToWindow(win, channel, payload)
 }
 
+function emitTerminalOutput(event: TerminalOutputEvent): void {
+  terminalOutputListeners.forEach((listener) => listener(event))
+}
+
+function emitTerminalExit(event: TerminalExitEvent): void {
+  terminalExitListeners.forEach((listener) => listener(event))
+}
+
 function getWindowsCommandArgs(command?: string): string[] {
   if (!command?.trim()) return []
   return ['/d', '/s', '/c', command]
@@ -187,13 +209,17 @@ export async function createTerminalSession(
 
       pty.onData((data) => {
         const chunk = appendTerminalOutput(session, data)
-        createWindowEvent(session.windowId, 'terminal:output', { id, data, seq: chunk.seq })
+        const payload = { id, data, seq: chunk.seq }
+        createWindowEvent(session.windowId, 'terminal:output', payload)
+        emitTerminalOutput(payload)
       })
 
       pty.onExit(({ exitCode, signal }) => {
         session.exitCode = exitCode
         session.exitSignal = signal
-        createWindowEvent(session.windowId, 'terminal:exit', { id, exitCode, signal })
+        const payload = { id, exitCode, signal }
+        createWindowEvent(session.windowId, 'terminal:exit', payload)
+        emitTerminalExit(payload)
       })
 
       return {
@@ -240,6 +266,16 @@ function appendTerminalOutput(session: TerminalSession, data: string): TerminalO
   }
 
   return chunk
+}
+
+export function onTerminalSessionOutput(listener: (event: TerminalOutputEvent) => void): () => void {
+  terminalOutputListeners.add(listener)
+  return () => terminalOutputListeners.delete(listener)
+}
+
+export function onTerminalSessionExit(listener: (event: TerminalExitEvent) => void): () => void {
+  terminalExitListeners.add(listener)
+  return () => terminalExitListeners.delete(listener)
 }
 
 export function registerTerminalHandlers(): void {

@@ -1,6 +1,12 @@
 import { ipcMain, shell, BrowserWindow } from 'electron'
 import { safeSendToWindow } from '../window-ipc'
-import { createTerminalSession, getTerminalSessionSnapshot, killTerminalSession } from './terminal-handlers'
+import {
+  createTerminalSession,
+  getTerminalSessionSnapshot,
+  killTerminalSession,
+  onTerminalSessionExit,
+  onTerminalSessionOutput
+} from './terminal-handlers'
 
 const ANSI_ESCAPE_RE = new RegExp(`${String.fromCharCode(27)}\[[0-9;?]*[ -/]*[@-~]`, 'g')
 const COMPACT_OUTPUT_CHAR_THRESHOLD = 6000
@@ -321,24 +327,20 @@ export function registerShellHandlers(): void {
           )
         }
 
-        const terminalOutputListener = (_event: Electron.IpcMainEvent, payload: unknown): void => {
-          const data = payload as { id?: string; data?: string }
-          if (data.id !== terminalId || !data.data) return
+        const cleanupOutputListener = onTerminalSessionOutput((payload) => {
+          if (payload.id !== terminalId || !payload.data) return
           if (firstChunkAt === null) firstChunkAt = Date.now()
-          sendChunk(data.data, 'stdout')
-        }
+          sendChunk(payload.data, 'stdout')
+        })
 
-        const terminalExitListener = (_event: Electron.IpcMainEvent, payload: unknown): void => {
-          const data = payload as { id?: string }
-          if (data.id !== terminalId) return
+        const cleanupExitListener = onTerminalSessionExit((payload) => {
+          if (payload.id !== terminalId) return
           finalize()
-        }
+        })
 
-        ipcMain.on('terminal:output', terminalOutputListener)
-        ipcMain.on('terminal:exit', terminalExitListener)
         exitCleanup = () => {
-          ipcMain.removeListener('terminal:output', terminalOutputListener)
-          ipcMain.removeListener('terminal:exit', terminalExitListener)
+          cleanupOutputListener()
+          cleanupExitListener()
         }
 
         const requestAbort = (reason: 'user' | 'timeout' = 'user'): void => {

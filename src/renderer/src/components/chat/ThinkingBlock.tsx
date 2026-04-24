@@ -1,4 +1,4 @@
-import { memo, useState, useEffect } from 'react'
+import { memo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight, ChevronDown } from 'lucide-react'
 import Markdown from 'react-markdown'
@@ -6,7 +6,9 @@ import remarkGfm from 'remark-gfm'
 import { MONO_FONT } from '@renderer/lib/constants'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import {
+  getLiveOutputCursorClass,
   getLiveOutputDotClass,
+  getLiveOutputSurfaceClass,
   getLiveOutputThinkingClass
 } from '@renderer/lib/live-output-animation'
 import {
@@ -37,6 +39,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
 
   const [collapsed, setCollapsed] = useState(defaultCollapsed)
   const [liveElapsed, setLiveElapsed] = useState(0)
+  const contentRef = useRef<HTMLDivElement>(null)
 
   // Live timer while thinking
   useEffect(() => {
@@ -46,6 +49,11 @@ export const ThinkingBlock = memo(function ThinkingBlock({
     const interval = setInterval(tick, 1000)
     return () => clearInterval(interval)
   }, [isThinking, startedAt])
+
+  useEffect(() => {
+    if (!isThinking || !hasThinkingContent || !contentRef.current) return
+    contentRef.current.scrollTop = contentRef.current.scrollHeight
+  }, [hasThinkingContent, isThinking, thinking])
 
   const expanded = isThinking || (hasThinkingContent && !collapsed)
 
@@ -96,7 +104,79 @@ export const ThinkingBlock = memo(function ThinkingBlock({
             className="overflow-hidden"
           >
             <div className="mt-1.5 text-sm text-muted-foreground/80 leading-relaxed">
-              {isThinking ? (
+              {hasThinkingContent ? (
+                <div
+                  ref={contentRef}
+                  className="max-h-80 overflow-y-auto border-l border-border/45 pl-2.5"
+                >
+                  {isThinking ? (
+                    <div
+                      className={`${getLiveOutputSurfaceClass(liveOutputAnimationStyle)} whitespace-pre-wrap break-words leading-relaxed`}
+                    >
+                      {thinking}
+                      <span className={getLiveOutputCursorClass(liveOutputAnimationStyle)} />
+                    </div>
+                  ) : (
+                    <Markdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        a: ({ href, children, ...props }) => (
+                          <a
+                            {...props}
+                            href={href}
+                            className="text-primary underline underline-offset-2 hover:text-primary/80 break-all"
+                            onClick={(event) => {
+                              if (!href) return
+                              const handled = openMarkdownHref(href)
+                              if (handled) event.preventDefault()
+                            }}
+                          >
+                            {children}
+                          </a>
+                        ),
+                        code: ({ children, className, ...props }) => {
+                          const isInline = !className
+                          if (isInline) {
+                            const code = String(children ?? '').replace(/\n$/, '')
+                            const resolvedPath = resolveLocalFilePath(code)
+                            if (resolvedPath) {
+                              return (
+                                <button
+                                  type="button"
+                                  className="cursor-pointer rounded bg-muted px-1 py-0.5 text-xs font-mono text-primary underline-offset-2 hover:underline"
+                                  style={{ fontFamily: MONO_FONT }}
+                                  title={resolvedPath}
+                                  onClick={() => {
+                                    void openLocalFilePath(code)
+                                  }}
+                                >
+                                  {children}
+                                </button>
+                              )
+                            }
+                            return (
+                              <code
+                                className="rounded bg-muted px-1 py-0.5 text-xs font-mono"
+                                style={{ fontFamily: MONO_FONT }}
+                                {...props}
+                              >
+                                {children}
+                              </code>
+                            )
+                          }
+                          return (
+                            <code className={className} style={{ fontFamily: MONO_FONT }} {...props}>
+                              {children}
+                            </code>
+                          )
+                        }
+                      }}
+                    >
+                      {thinking}
+                    </Markdown>
+                  )}
+                </div>
+              ) : (
                 <div
                   role="status"
                   aria-live="polite"
@@ -124,66 +204,6 @@ export const ThinkingBlock = memo(function ThinkingBlock({
                       {compactElapsedLabel}
                     </span>
                   )}
-                </div>
-              ) : (
-                <div className="max-h-80 overflow-y-auto border-l border-border/45 pl-2.5">
-                  <Markdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      a: ({ href, children, ...props }) => (
-                        <a
-                          {...props}
-                          href={href}
-                          className="text-primary underline underline-offset-2 hover:text-primary/80 break-all"
-                          onClick={(event) => {
-                            if (!href) return
-                            const handled = openMarkdownHref(href)
-                            if (handled) event.preventDefault()
-                          }}
-                        >
-                          {children}
-                        </a>
-                      ),
-                      code: ({ children, className, ...props }) => {
-                        const isInline = !className
-                        if (isInline) {
-                          const code = String(children ?? '').replace(/\n$/, '')
-                          const resolvedPath = resolveLocalFilePath(code)
-                          if (resolvedPath) {
-                            return (
-                              <button
-                                type="button"
-                                className="cursor-pointer rounded bg-muted px-1 py-0.5 text-xs font-mono text-primary underline-offset-2 hover:underline"
-                                style={{ fontFamily: MONO_FONT }}
-                                title={resolvedPath}
-                                onClick={() => {
-                                  void openLocalFilePath(code)
-                                }}
-                              >
-                                {children}
-                              </button>
-                            )
-                          }
-                          return (
-                            <code
-                              className="rounded bg-muted px-1 py-0.5 text-xs font-mono"
-                              style={{ fontFamily: MONO_FONT }}
-                              {...props}
-                            >
-                              {children}
-                            </code>
-                          )
-                        }
-                        return (
-                          <code className={className} style={{ fontFamily: MONO_FONT }} {...props}>
-                            {children}
-                          </code>
-                        )
-                      }
-                    }}
-                  >
-                    {thinking}
-                  </Markdown>
                 </div>
               )}
             </div>

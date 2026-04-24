@@ -37,6 +37,7 @@ export const IPC = {
   // Shell
   SHELL_EXEC: 'shell:exec',
   SHELL_ABORT: 'shell:abort',
+  SHELL_OUTPUT: 'shell:output',
   SHELL_OPEN_PATH: 'shell:openPath',
   SHELL_OPEN_EXTERNAL: 'shell:openExternal',
 

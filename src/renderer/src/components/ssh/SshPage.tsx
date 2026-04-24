@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useTheme } from 'next-themes'
 import { useTranslation } from 'react-i18next'
 import {
   Bell,
@@ -15,11 +14,7 @@ import {
   X
 } from 'lucide-react'
 import { toast } from 'sonner'
-import {
-  getSshChromePalette,
-  resolveAppThemeMode,
-  type SshChromePalette
-} from '@renderer/lib/theme-presets'
+import { getSshChromePalette, type SshChromePalette } from '@renderer/lib/theme-presets'
 import { cn } from '@renderer/lib/utils'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useSshStore, type SshTab } from '@renderer/stores/ssh-store'
@@ -356,10 +351,9 @@ function ConnectionStage({
 
 export function SshPage(): React.JSX.Element {
   const { t } = useTranslation('ssh')
-  const { resolvedTheme } = useTheme()
   const isMac = /Mac/.test(navigator.userAgent)
 
-  const themePreset = useSettingsStore((state) => state.themePreset)
+  const sshTerminalThemePreset = useSettingsStore((state) => state.sshTerminalThemePreset)
   const openTabs = useSshStore((state) => state.openTabs)
   const activeTabId = useSshStore((state) => state.activeTabId)
   const sessions = useSshStore((state) => state.sessions)
@@ -514,8 +508,8 @@ export function SshPage(): React.JSX.Element {
   const terminalConnected = activeSession?.status === 'connected'
   const shellTone = getShellTone(showTerminalView, terminalConnected)
   const shellPalette = useMemo(
-    () => getSshChromePalette(themePreset, resolveAppThemeMode(resolvedTheme)),
-    [resolvedTheme, themePreset]
+    () => getSshChromePalette(sshTerminalThemePreset, 'dark'),
+    [sshTerminalThemePreset]
   )
   const stageStatus =
     activeSession?.status === 'connecting' ||

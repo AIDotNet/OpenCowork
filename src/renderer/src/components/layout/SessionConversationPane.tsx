@@ -61,12 +61,11 @@ export function SessionConversationPane({
   windowHeaderOwnsTitle = false
 }: SessionConversationPaneProps): React.JSX.Element {
   const { t } = useTranslation('layout')
-  const renameSessionLabel = t('renameSession', { defaultValue: 'Rename session' }).replace(
+  const renameSessionLabel = t('sidebar.renameSession', { defaultValue: 'Rename session' }).replace(
     /[:：]\s*$/,
     ''
   )
-  const clearConversationLabel = t('clearConversation', {
-    ns: 'chat',
+  const clearConversationLabel = t('layout.clearConversation', {
     defaultValue: 'Clear conversation'
   })
   const resolvedSessionId = useChatStore((state) => sessionId ?? state.activeSessionId)
@@ -411,6 +410,20 @@ export function SessionConversationPane({
                     <TooltipContent>
                       {t('layout.exportImage', { defaultValue: 'Copy as image' })}
                     </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
+                        onClick={() => void handleClearConversation()}
+                        disabled={isStreaming}
+                      >
+                        <Eraser className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{clearConversationLabel}</TooltipContent>
                   </Tooltip>
                 </>
               ) : null}

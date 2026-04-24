@@ -83,7 +83,8 @@
     "changeWorkingFolder": "Working folder",
     "projectGit": "Git",
     "showMoreSessions": "Show more ({{count}})",
-    "showLessSessions": "Show less"
+    "showLessSessions": "Show less",
+    "openInNewWindow": "Open in new window"
   },
   "sidebar_toast": {
     "sessionDeleted": "Session deleted",
@@ -359,7 +360,14 @@
   "layout": {
     "newModeSession": "New {{mode}} session",
     "clearConfirm": "Clear {{count}} messages?",
+    "clearConversation": "Clear conversation",
     "conversationCleared": "Conversation cleared",
+    "openFolder": "Open folder",
+    "copyAll": "Copy conversation",
+    "exportImage": "Copy as image",
+    "imageCopied": "Image copied to clipboard",
+    "exportImageFailed": "Copy image failed",
+    "deleteConversation": "Delete conversation",
     "sessionDuplicated": "Session duplicated",
     "pinned": "Pinned",
     "unpinned": "Unpinned",

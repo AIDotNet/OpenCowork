@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.82] - 2026-04-25
+
+### Changed
+
+- Unified terminal output with the thinking stream display and added a session clear entry point.
+
+### Fixed
+
+- Completed terminal session cleanup immediately when a terminal session has already ended, avoiding duplicate pending states.
+
 ## [0.9.81] - 2026-04-24
 
 ### Added

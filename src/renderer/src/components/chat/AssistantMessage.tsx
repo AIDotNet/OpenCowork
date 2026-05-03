@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useState, useCallback, useMemo, useEffect, useId, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import MarkstreamRenderer from 'markstream-react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import mermaid from 'mermaid'
@@ -134,6 +135,8 @@ interface AssistantMessageProps {
 }
 
 const MARKDOWN_WRAPPER_CLASS = 'text-sm leading-relaxed text-foreground break-words'
+const MARKSTREAM_CLASS =
+  'opencowork-markstream [&_.markdown-renderer]:contents [&_.node-slot]:contents [&_.node-content]:contents [&_.paragraph-node]:my-1 [&_.paragraph-node]:leading-snug [&_.paragraph-node]:whitespace-pre-wrap [&_.paragraph-node]:break-words [&_.heading-node]:mt-3 [&_.heading-node]:mb-1.5 [&_.heading-node]:text-foreground [&_.heading-1]:text-lg [&_.heading-1]:leading-snug [&_.heading-2]:text-base [&_.heading-2]:leading-snug [&_.heading-3]:text-sm [&_.heading-3]:leading-snug [&_.heading-4]:text-sm [&_.heading-4]:leading-snug [&_.heading-5]:text-sm [&_.heading-5]:leading-snug [&_.heading-6]:text-sm [&_.heading-6]:leading-snug [&_.list-node]:my-1 [&_.list-node]:pl-4 [&_.list-node]:space-y-0.5 [&_.list-item-node]:leading-snug [&_.list-item-node]:break-words [&_.list-item-node_.paragraph-node]:m-0 [&_.table-node-wrapper]:my-2 [&_.table-node]:text-sm [&_.table-node_th]:whitespace-pre-wrap [&_.table-node_th]:break-words [&_.table-node_td]:whitespace-pre-wrap [&_.table-node_td]:break-words [&_.link-node]:text-primary [&_.link-node]:underline [&_.link-node]:underline-offset-2 [&_.link-node]:break-all [&_.link-node:hover]:text-primary/80 [&_.inline-code]:rounded [&_.inline-code]:bg-muted [&_.inline-code]:px-1.5 [&_.inline-code]:py-0.5 [&_.inline-code]:text-xs [&_.inline-code]:font-mono [&_.code-block-node]:my-3 [&_.code-block-node]:whitespace-pre-wrap [&_.code-block-node]:break-all [&_.code-block-node]:text-xs [&_.code-block-node]:leading-6 [&_.code-block-node]:font-mono [&_.code-block-container]:my-3 [&_.code-block-container]:border-border/60 [&_.code-block-container]:shadow-sm [&_.code-block-container]:bg-[hsl(var(--muted))] [&_.code-block-container.is-dark]:bg-[hsl(var(--muted))] [&_.code-block-header]:bg-muted/40 [&_.code-block-header]:px-3 [&_.code-block-header]:py-1.5 [&_.code-block-header]:border-border/60 [&_.code-block-content]:max-h-[500px] [&_.code-fallback-plain]:whitespace-pre-wrap [&_.code-fallback-plain]:break-all [&_.code-fallback-plain]:text-xs [&_.code-fallback-plain]:leading-6 [&_.code-fallback-plain]:font-mono [&_.blockquote-node]:my-2 [&_.blockquote-node]:border-l-border [&_.blockquote-node]:pl-3 [&_.blockquote-node]:text-muted-foreground'
 const THINK_OPEN_TAG_RE = /<\s*think\s*>/i
 const SPECIAL_TOOLS = new Set([
   'TaskCreate',
@@ -924,15 +927,42 @@ function StreamingMarkdownContent({
   isStreaming: boolean
 }): React.JSX.Element {
   const liveOutputAnimationStyle = useSettingsStore((s) => s.liveOutputAnimationStyle)
+  const handleMarkstreamClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const link = (event.target as HTMLElement | null)?.closest('a[href]')
+    const href = link?.getAttribute('href')
+    if (!href) return
+    const handled = openMarkdownHref(href)
+    if (handled) event.preventDefault()
+  }, [])
+
+  if (!text.trim()) {
+    return <div className="whitespace-pre-wrap break-words leading-relaxed">{text}</div>
+  }
+
   // Fast path: during streaming we render plain text to avoid re-parsing the markdown
-  // AST on every delta. The full MarkdownContent kicks in after the stream ends, and
-  // since it's memoized on `text`, re-renders that don't change content are free.
+  // AST on every delta with react-markdown. Markstream is built for partial LLM output,
+  // so we can still show markdown structure before the stream is complete.
   if (isStreaming) {
     return (
-      <div
-        className={`${getLiveOutputSurfaceClass(liveOutputAnimationStyle)} whitespace-pre-wrap break-words leading-relaxed`}
-      >
-        {text}
+      <div className={`${getLiveOutputSurfaceClass(liveOutputAnimationStyle)} ${MARKSTREAM_CLASS}`}>
+        <MarkstreamRenderer
+          content={text}
+          final={false}
+          isDark={document.documentElement.classList.contains('dark')}
+          indexKey="assistant-message-stream"
+          renderCodeBlocksAsPre
+          codeBlockStream
+          typewriter
+          viewportPriority
+          deferNodesUntilVisible
+          codeBlockProps={{
+            showFontSizeButtons: false,
+            enableFontSizeControl: false,
+            showExpandButton: false,
+            showPreviewButton: false
+          }}
+          onClick={handleMarkstreamClick}
+        />
       </div>
     )
   }

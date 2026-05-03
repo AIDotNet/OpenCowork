@@ -55,6 +55,7 @@
     "immer": "^11.1.3",
     "lucide-react": "^0.563.0",
     "mammoth": "^1.11.0",
+    "markstream-react": "^0.0.45",
     "mermaid": "^11.12.3",
     "monaco-editor": "^0.55.1",
     "motion": "^12.34.0",

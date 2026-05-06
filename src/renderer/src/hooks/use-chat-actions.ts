@@ -4300,10 +4300,17 @@ export function useChatActions(): {
                 case 'request_debug': {
                   streamDeltaBuffer.flushNow()
                   if (event.debugInfo) {
-                    lastRequestDebugInfo = event.debugInfo
-                    currentUsageProviderId = event.debugInfo.providerId ?? currentUsageProviderId
-                    currentUsageModelId = event.debugInfo.model ?? currentUsageModelId
-                    setLastDebugInfo(assistantMsgId, event.debugInfo)
+                    lastRequestDebugInfo = {
+                      ...event.debugInfo,
+                      providerId: event.debugInfo.providerId ?? agentProviderConfig.providerId,
+                      providerBuiltinId:
+                        event.debugInfo.providerBuiltinId ?? agentProviderConfig.providerBuiltinId,
+                      model: event.debugInfo.model ?? agentProviderConfig.model,
+                      executionPath: event.debugInfo.executionPath ?? (useSidecar ? 'sidecar' : 'node')
+                    }
+                    currentUsageProviderId = lastRequestDebugInfo.providerId ?? currentUsageProviderId
+                    currentUsageModelId = lastRequestDebugInfo.model ?? currentUsageModelId
+                    setLastDebugInfo(assistantMsgId, lastRequestDebugInfo)
                     updateRuntimeMessage(sessionId!, assistantMsgId, {
                       debugInfo: lastRequestDebugInfo
                     })

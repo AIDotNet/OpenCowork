@@ -4,7 +4,8 @@ import type {
   StreamEvent,
   ToolDefinition,
   UnifiedMessage,
-  ContentBlock
+  ContentBlock,
+  TokenUsage
 } from './types'
 import { ipcStreamRequest, maskHeaders } from '../ipc/api-stream'
 import { useProviderStore } from '@renderer/stores/provider-store'
@@ -12,6 +13,10 @@ import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { buildMoonshotCommonHeaders, isMoonshotProviderConfig } from '@renderer/lib/auth/oauth'
 import { getGlobalPromptCacheKey, registerProvider } from './provider'
 import { sanitizeMessagesForToolReplay } from '../tools/tool-input-sanitizer'
+import {
+  summarizeOpenAITextAndImages,
+  supportsOpenAIImageParts
+} from '../../../../shared/openai-message-support'
 
 function resolveHeaderTemplate(value: string, config: ProviderConfig): string {
   return value
@@ -52,6 +57,34 @@ function isGoogleOpenAICompatible(config: ProviderConfig): boolean {
   return /generativelanguage\.googleapis\.com/i.test(baseUrl)
 }
 
+function resolveModelContextLength(config: ProviderConfig): number | undefined {
+  if (!config.providerId) return undefined
+  const provider = useProviderStore
+    .getState()
+    .providers.find((item) => item.id === config.providerId)
+  const model = provider?.models.find((item) => item.id === config.model)
+  return typeof model?.contextLength === 'number' && model.contextLength > 0
+    ? model.contextLength
+    : undefined
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildTokenUsage(data: any, config: ProviderConfig): TokenUsage {
+  const inputTokens = data.usage?.prompt_tokens ?? 0
+  const outputTokens = data.usage?.completion_tokens ?? 0
+  const contextLength = resolveModelContextLength(config)
+
+  return {
+    inputTokens,
+    outputTokens,
+    contextTokens: inputTokens,
+    ...(contextLength ? { contextLength } : {}),
+    ...(data.usage?.completion_tokens_details?.reasoning_tokens
+      ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
+      : {})
+  }
+}
+
 function getGoogleThoughtSignature(
   toolCall: { extra_content?: { google?: { thought_signature?: string } } } | null | undefined
 ): string | undefined {
@@ -60,6 +93,37 @@ function getGoogleThoughtSignature(
 }
 
 const OPENAI_COMPAT_TERMINAL_GRACE_MS = 1500
+
+function buildOpenAIChatImagePart(block: Extract<ContentBlock, { type: 'image' }>): unknown | null {
+  const url =
+    block.source.type === 'base64'
+      ? `data:${block.source.mediaType || 'image/png'};base64,${block.source.data}`
+      : block.source.url || ''
+  return url ? { type: 'image_url', image_url: { url } } : null
+}
+
+function formatOpenAIChatToolResultContent(
+  content: Extract<ContentBlock, { type: 'tool_result' }>['content']
+): unknown {
+  if (!Array.isArray(content)) return content
+
+  const textParts = content
+    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+    .map((block) => block.text)
+  const imageBlocks = content.filter(
+    (block): block is Extract<ContentBlock, { type: 'image' }> => block.type === 'image'
+  )
+
+  // Chat-compatible tool messages are text-only on many OpenAI-compatible backends.
+  if (imageBlocks.length > 0 && !supportsOpenAIImageParts('chat-completions', 'tool')) {
+    return summarizeOpenAITextAndImages(textParts, imageBlocks.length)
+  }
+
+  return [
+    ...textParts.map((text) => ({ type: 'text', text })),
+    ...imageBlocks.map((block) => buildOpenAIChatImagePart(block)).filter(Boolean)
+  ]
+}
 
 class OpenAIChatProvider implements APIProvider {
   readonly name = 'OpenAI Chat Completions'
@@ -238,13 +302,7 @@ class OpenAIChatProvider implements APIProvider {
             const requestCompletedAt = Date.now()
             yield {
               type: 'message_end',
-              usage: {
-                inputTokens: data.usage.prompt_tokens ?? 0,
-                outputTokens: data.usage.completion_tokens ?? 0,
-                ...(data.usage.completion_tokens_details?.reasoning_tokens
-                  ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
-                  : {})
-              },
+              usage: buildTokenUsage(data, runtimeConfig),
               timing: {
                 totalMs: requestCompletedAt - requestStartedAt,
                 ttftMs: firstTokenAt ? firstTokenAt - requestStartedAt : undefined,
@@ -415,13 +473,7 @@ class OpenAIChatProvider implements APIProvider {
             stopReason: 'stop',
             ...(data.usage
               ? {
-                  usage: {
-                    inputTokens: data.usage.prompt_tokens ?? 0,
-                    outputTokens: data.usage.completion_tokens ?? 0,
-                    ...(data.usage.completion_tokens_details?.reasoning_tokens
-                      ? { reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens }
-                      : {})
-                  }
+                  usage: buildTokenUsage(data, runtimeConfig)
                 }
               : {}),
             timing: {
@@ -513,24 +565,11 @@ class OpenAIChatProvider implements APIProvider {
           for (const tr of userToolResults) {
             if (tr.type !== 'tool_result') continue
 
-            if (Array.isArray(tr.content)) {
-              const parts: unknown[] = []
-              for (const cb of tr.content) {
-                if (cb.type === 'text') {
-                  parts.push({ type: 'text', text: cb.text })
-                } else if (cb.type === 'image') {
-                  const dataUrl = `data:${cb.source.mediaType || 'image/png'};base64,${cb.source.data}`
-                  parts.push({ type: 'image_url', image_url: { url: dataUrl } })
-                }
-              }
-              formatted.push({ role: 'tool', tool_call_id: tr.toolUseId, content: parts })
-            } else {
-              formatted.push({
-                role: 'tool',
-                tool_call_id: tr.toolUseId,
-                content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content)
-              })
-            }
+            formatted.push({
+              role: 'tool',
+              tool_call_id: tr.toolUseId,
+              content: formatOpenAIChatToolResultContent(tr.content)
+            })
           }
         }
 
@@ -540,11 +579,10 @@ class OpenAIChatProvider implements APIProvider {
           const parts: unknown[] = []
           for (const b of nonToolBlocks) {
             if (b.type === 'image') {
-              const url =
-                b.source.type === 'base64'
-                  ? `data:${b.source.mediaType || 'image/png'};base64,${b.source.data}`
-                  : b.source.url || ''
-              parts.push({ type: 'image_url', image_url: { url } })
+              if (supportsOpenAIImageParts('chat-completions', 'user')) {
+                const imagePart = buildOpenAIChatImagePart(b)
+                if (imagePart) parts.push(imagePart)
+              }
             } else if (b.type === 'text') {
               parts.push({ type: 'text', text: b.text })
             }
@@ -571,24 +609,10 @@ class OpenAIChatProvider implements APIProvider {
         for (const tr of toolResults) {
           if (tr.type !== 'tool_result') continue
 
-          if (Array.isArray(tr.content)) {
-            const parts: unknown[] = []
-            for (const cb of tr.content) {
-              if (cb.type === 'text') {
-                parts.push({ type: 'text', text: cb.text })
-              } else if (cb.type === 'image') {
-                const dataUrl = `data:${cb.source.mediaType || 'image/png'};base64,${cb.source.data}`
-                parts.push({ type: 'image_url', image_url: { url: dataUrl } })
-              }
-            }
-            formatted.push({ role: 'tool', tool_call_id: tr.toolUseId, content: parts })
-            continue
-          }
-
           formatted.push({
             role: 'tool',
             tool_call_id: tr.toolUseId,
-            content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content)
+            content: formatOpenAIChatToolResultContent(tr.content)
           })
         }
         continue

@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.90] - 2026-05-08
+
+### Added
+
+- Added reasoning mode support for Anthropic/OpenAI with thinking/reasoning parameter passthrough, cache control, and prompt caching markers.
+- Added browser plugin capability with IPC for cookie cleanup and tool re-registration on project switch.
+- Added new DAO interfaces for querying user messages only and for reverse-lookup run changes by sessionId and toolUseIds.
+- Added reasoning effort mapping directly supporting `xhigh` without client-side normalization.
+
+### Changed
+
+- Refactored streaming chat and tool chain to be runtime-state-driven: removed legacy `long_running_mode` field, now driven by current runtime state and configuration.
+- Narrowed theme presets to the default only; removed global theme panel, SSH terminal theme panel, and redundant session title display. Settings migration falls back to default theme on old versions.
+- Simplified message list to always load all session messages at once; removed "load earlier messages" button, auto-fill, and scroll anchor recovery. Added session-level deduplication to prevent duplicate tail tool restores.
+- Completed Anthropic SSE/usage handling: unified `message_start/message_delta/message_stop` and `data.type`, aggregated input/output/cache read/cache creation/reasoning token stats, with cache writes billed per 5m/1h buckets. Tool call end events flush at stream end; `message_end` acts as fallback.
+- Rewrote Clarify mode prompt as a strict "clarify first, then plan" flow with enforced `AskUserQuestion`/`EnterPlanMode`/`ExitPlanMode` closure.
+- Enhanced file edit tool to preserve original line-ending style (CRLF/LF), avoiding mixed line endings.
+- Tool output with structured errors is now recognized as failure instead of success.
+- Run change queries expanded from exact runId match to also support sessionId and toolUseIds reverse-lookup.
+- Improved stream rendering with new typing render pool, finer-grained animation classes, and progressive Markdown/table/component reveal.
+- AssistantMessage now binds run changes precisely via tool_use ids, filtering out failed file tool results.
+- Cron recovery marks still-running background runs as aborted on app restart to prevent hanging states.
+- Enhanced request header forwarding security to avoid duplicating body-managed headers.
+
+### Fixed
+
+- Fixed multi-line code block and local path recognition in Markdown rendering.
+- Stopped duplicate tail tool restoration when resuming sessions.
+
 ## [0.9.87] - 2026-05-07
 
 ### Added

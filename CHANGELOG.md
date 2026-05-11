@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.91] - 2026-06-18
+
+### Added
+
+- Refactored backend tools and frontend panels with full search/grep/cache and rich preview capabilities.
+- Added new renderer components for rich content preview caching and search result display.
+- Enhanced IPC tool channel to support grep search, tool cache, and content preview.
+
+### Changed
+
+- Restructured backend tool registration and frontend panel layout for better maintainability.
+- Improved tool execution pipeline with caching layer and optimized data flow.
+
+### Fixed
+
+- N/A
+
 ## [0.9.90] - 2026-05-08
 
 ### Added

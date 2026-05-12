@@ -15,7 +15,22 @@ const CHAT_SESSION_UPDATED = 'chat:session-updated'
 const CHAT_SESSION_DELETED = 'chat:session-deleted'
 const GOAL_UPDATED = 'goal:updated'
 const GOAL_CLEARED = 'goal:cleared'
+const GOAL_EVENT_ADDED = 'goal:event-added'
 const MAX_GOAL_OBJECTIVE_CHARS = 4000
+const GOAL_EVENT_TYPES = new Set<goalsDao.SessionGoalEventType>([
+  'created',
+  'replaced',
+  'objective_updated',
+  'budget_updated',
+  'status_changed',
+  'usage_accounted',
+  'budget_limited',
+  'completion_deferred',
+  'completed',
+  'stall_paused',
+  'auto_continue_blocked',
+  'cleared'
+])
 
 interface RegisterDbHandlersOptions {
   onSessionDeleted?: (sessionId: string) => void
@@ -51,6 +66,10 @@ function emitGoalCleared(sessionId: string, reason: string): void {
   safeSendToAllWindows(GOAL_CLEARED, { reason, sessionId })
 }
 
+function emitGoalEventAdded(event: goalsDao.SessionGoalEventRow, reason: string): void {
+  safeSendToAllWindows(GOAL_EVENT_ADDED, { reason, event })
+}
+
 function normalizeGoalObjective(value: unknown): string {
   const objective = typeof value === 'string' ? value.trim() : ''
   if (!objective) {
@@ -81,6 +100,27 @@ function normalizeGoalTokenBudget(value: unknown): number | null | undefined {
     throw new Error('goal token budget must be a finite number')
   }
   return Math.floor(value)
+}
+
+function normalizeGoalEventType(value: unknown): goalsDao.SessionGoalEventType {
+  if (typeof value === 'string' && GOAL_EVENT_TYPES.has(value as goalsDao.SessionGoalEventType)) {
+    return value as goalsDao.SessionGoalEventType
+  }
+  throw new Error('invalid goal event type')
+}
+
+function normalizeGoalEventMessage(value: unknown): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string') throw new Error('goal event message must be a string')
+  return value.trim() || null
+}
+
+function normalizeGoalEventMetadata(value: unknown): Record<string, unknown> | null {
+  if (value === undefined || value === null) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('goal event metadata must be an object')
+  }
+  return value as Record<string, unknown>
 }
 
 export function registerDbHandlers(options: RegisterDbHandlersOptions = {}): void {
@@ -503,6 +543,37 @@ export function registerDbHandlers(options: RegisterDbHandlersOptions = {}): voi
         emitGoalUpdated(goal, 'goal-accounted')
       }
       return { success: true, goal }
+    }
+  )
+
+  ipcMain.handle(
+    'db:goal-events:list',
+    (_event, args: { sessionId: string; goalId?: string | null; limit?: number }) => {
+      return goalsDao.listGoalEvents(args)
+    }
+  )
+
+  ipcMain.handle(
+    'db:goal-events:add',
+    (
+      _event,
+      args: {
+        sessionId: string
+        goalId?: string | null
+        eventType: unknown
+        message?: unknown
+        metadata?: unknown
+      }
+    ) => {
+      const event = goalsDao.addGoalEvent({
+        sessionId: args.sessionId,
+        goalId: args.goalId,
+        eventType: normalizeGoalEventType(args.eventType),
+        message: normalizeGoalEventMessage(args.message),
+        metadata: normalizeGoalEventMetadata(args.metadata)
+      })
+      emitGoalEventAdded(event, 'goal-event-added')
+      return { success: true, event }
     }
   )
 

@@ -123,6 +123,7 @@ import { cn } from '@renderer/lib/utils'
 import { resolveProjectMemoryTextFile } from '@renderer/lib/agent/memory-files'
 import { isProjectSession, workspaceContextAvailable } from '@renderer/lib/session-scope'
 import { InlineStepsPanel } from '@renderer/components/cowork/StepsPanel'
+import { GoalSessionBar } from '@renderer/components/goal/GoalSessionControls'
 
 interface ContextRingProps {
   onCompressContext?: () => void | Promise<void>
@@ -2266,6 +2267,7 @@ export function InputArea({
       )}
 
       <div className="mx-auto w-full max-w-[820px]">
+        {draftSessionId && <GoalSessionBar sessionId={draftSessionId} />}
         {projectScoped && draftSessionId && <InlineStepsPanel sessionId={draftSessionId} />}
         <div
           ref={containerRef}

@@ -160,9 +160,13 @@ export function coerceAskUserQuestions(value: unknown): AskUserQuestionItem[] {
       const header = coerceStringField(normalized, ['header', 'label', 'title', 'name', 'id'])
       const optionsInput =
         normalized.options ?? normalized.choices ?? normalized.answers ?? normalized.items
+      const fallbackQuestion =
+        question ??
+        coerceStringField(normalized, ['description', 'desc', 'summary']) ??
+        (header ? `${header}?` : undefined)
 
       return {
-        question: question ?? '',
+        question: fallbackQuestion ?? '',
         ...(header ? { header } : {}),
         ...(optionsInput !== undefined ? { options: coerceQuestionOptions(optionsInput) } : {}),
         ...(coerceBooleanField(normalized, ['multiSelect', 'multi_select', 'multiple'])
@@ -492,7 +496,7 @@ const askUserToolExecute: ToolHandler['execute'] = async (input, ctx) => {
     )
   }
 
-  const rawQuestions = coerceAskUserQuestions(input.questions)
+  const rawQuestions = coerceAskUserQuestions(input.questions ?? input)
   if (rawQuestions.length === 0) {
     return encodeToolError('At least one question is required')
   }

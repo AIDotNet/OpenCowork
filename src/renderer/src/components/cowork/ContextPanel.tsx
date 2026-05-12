@@ -16,32 +16,13 @@ import {
   Wrench,
   Brain,
   ShieldCheck,
-  Archive,
-  Target,
-  Pause,
-  Play,
-  Pencil,
-  Plus,
-  Save,
-  Trash2,
-  X
+  Archive
 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@renderer/components/ui/dialog'
 import { Button } from '@renderer/components/ui/button'
-import { confirm } from '@renderer/components/ui/confirm-dialog'
-import { Input } from '@renderer/components/ui/input'
 import { Separator } from '@renderer/components/ui/separator'
-import { Textarea } from '@renderer/components/ui/textarea'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
-import { useGoalStore } from '@renderer/stores/goal-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { useUIStore } from '@renderer/stores/ui-store'
@@ -55,13 +36,7 @@ import {
 } from '@renderer/lib/format-tokens'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
-import { toast } from 'sonner'
-import {
-  formatGoalElapsedSeconds,
-  formatGoalTokens,
-  goalStatusLabel,
-  validateGoalObjective
-} from '@renderer/lib/agent/goal-context'
+import { GoalPanelCard } from '@renderer/components/goal/GoalSessionControls'
 import {
   getCompressionTriggerTokens,
   getEffectiveContextWindow,
@@ -78,12 +53,7 @@ export function ContextPanel(): React.JSX.Element {
   const [compressing, setCompressing] = useState(false)
   const [showCompressPanel, setShowCompressPanel] = useState(false)
   const [focusPrompt, setFocusPrompt] = useState('')
-  const [goalManagerOpen, setGoalManagerOpen] = useState(false)
-  const [goalObjectiveDraft, setGoalObjectiveDraft] = useState('')
-  const [goalTokenBudgetDraft, setGoalTokenBudgetDraft] = useState('')
-  const [goalSaving, setGoalSaving] = useState(false)
-  const [goalClearing, setGoalClearing] = useState(false)
-  const { manualCompressContext, sendMessage } = useChatActions()
+  const { manualCompressContext } = useChatActions()
   const {
     activeSessionId,
     resolvedProjectId,
@@ -173,10 +143,6 @@ export function ContextPanel(): React.JSX.Element {
     activeProjectId,
     workingFolder
   })
-  const goal = useGoalStore((s) =>
-    activeSessionId ? s.goalsBySession[activeSessionId] : undefined
-  )
-
   const handleSelectFolder = async (): Promise<void> => {
     if (!resolvedProjectId) return
     const result = (await ipcClient.invoke('fs:select-folder')) as {
@@ -189,106 +155,6 @@ export function ContextPanel(): React.JSX.Element {
       workingFolder: result.path,
       sshConnectionId: null
     })
-  }
-
-  const openGoalManager = (): void => {
-    setGoalObjectiveDraft(goal?.objective ?? '')
-    setGoalTokenBudgetDraft(
-      goal?.tokenBudget !== undefined && goal.tokenBudget !== null ? String(goal.tokenBudget) : ''
-    )
-    setGoalManagerOpen(true)
-  }
-
-  const parseGoalTokenBudget = (): { tokenBudget: number | null; error?: string } => {
-    const raw = goalTokenBudgetDraft.trim()
-    if (!raw) return { tokenBudget: null }
-    if (!/^\d+$/.test(raw)) {
-      return { tokenBudget: null, error: 'Token budget must be a positive integer.' }
-    }
-    const tokenBudget = Number(raw)
-    if (!Number.isSafeInteger(tokenBudget) || tokenBudget <= 0) {
-      return { tokenBudget: null, error: 'Token budget must be a positive integer.' }
-    }
-    return { tokenBudget }
-  }
-
-  const handleGoalStatus = async (status: 'active' | 'paused'): Promise<void> => {
-    if (!activeSessionId) return
-    const result = await useGoalStore.getState().updateGoal(activeSessionId, { status })
-    if (!result.success) {
-      toast.error('Goal update failed', { description: result.error })
-      return
-    }
-    if (status === 'active' && result.goal?.status === 'budget_limited') {
-      toast.info('Goal budget is still exhausted', {
-        description: 'Increase the token budget before resuming.'
-      })
-      return
-    }
-    if (status === 'active' && result.goal?.status === 'active') {
-      queueMicrotask(() => {
-        void sendMessage('', undefined, 'continue', activeSessionId, null)
-      })
-    }
-  }
-
-  const handleGoalClear = async (): Promise<void> => {
-    if (!activeSessionId || !goal) return
-    const confirmed = await confirm({
-      title: 'Clear this goal?',
-      variant: 'destructive'
-    })
-    if (!confirmed) return
-    setGoalClearing(true)
-    const result = await useGoalStore.getState().clearGoal(activeSessionId)
-    setGoalClearing(false)
-    if (!result.success) {
-      toast.error('Goal clear failed', { description: result.error })
-      return
-    }
-    setGoalManagerOpen(false)
-    setGoalObjectiveDraft('')
-    setGoalTokenBudgetDraft('')
-  }
-
-  const handleGoalSave = async (): Promise<void> => {
-    if (!activeSessionId) return
-    const objective = goalObjectiveDraft.trim()
-    const validation = validateGoalObjective(objective)
-    if (validation) {
-      toast.error('Goal objective invalid', { description: validation })
-      return
-    }
-    const budget = parseGoalTokenBudget()
-    if (budget.error) {
-      toast.error('Goal budget invalid', { description: budget.error })
-      return
-    }
-
-    setGoalSaving(true)
-    const result = goal
-      ? await useGoalStore.getState().updateGoal(activeSessionId, {
-          objective,
-          tokenBudget: budget.tokenBudget
-        })
-      : await useGoalStore.getState().setGoal({
-          sessionId: activeSessionId,
-          objective,
-          tokenBudget: budget.tokenBudget
-        })
-    setGoalSaving(false)
-    if (!result.success) {
-      toast.error(goal ? 'Goal update failed' : 'Goal creation failed', {
-        description: result.error
-      })
-      return
-    }
-    setGoalManagerOpen(false)
-    if (result.goal?.status === 'active') {
-      queueMicrotask(() => {
-        void sendMessage('', undefined, 'continue', activeSessionId, null)
-      })
-    }
   }
 
   return (
@@ -358,197 +224,7 @@ export function ContextPanel(): React.JSX.Element {
       {activeSession && (
         <>
           <Separator />
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <h4 className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                <Target className="size-3.5" />
-                Goal
-              </h4>
-              <span className="rounded border border-border/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                {goal ? goalStatusLabel(goal.status) : 'not set'}
-              </span>
-            </div>
-            {goal ? (
-              <>
-                <p className="line-clamp-4 break-words text-xs leading-relaxed text-foreground/85">
-                  {goal.objective}
-                </p>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                  <span>{formatGoalElapsedSeconds(goal.timeUsedSeconds)}</span>
-                  <span>
-                    {goal.tokenBudget !== undefined && goal.tokenBudget !== null
-                      ? `${formatGoalTokens(goal.tokensUsed)} / ${formatGoalTokens(goal.tokenBudget)} tokens`
-                      : `${formatGoalTokens(goal.tokensUsed)} tokens`}
-                  </span>
-                </div>
-              </>
-            ) : (
-              <p className="text-xs text-muted-foreground">No session goal.</p>
-            )}
-            <div className="flex items-center gap-1">
-              {goal?.status === 'active' ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  title="Pause goal"
-                  onClick={() => void handleGoalStatus('paused')}
-                >
-                  <Pause className="size-3.5" />
-                </Button>
-              ) : goal && goal.status !== 'complete' ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  title="Resume goal"
-                  onClick={() => void handleGoalStatus('active')}
-                >
-                  <Play className="size-3.5" />
-                </Button>
-              ) : null}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-xs"
-                title={goal ? 'Manage goal' : 'Set goal'}
-                onClick={openGoalManager}
-              >
-                {goal ? <Pencil className="size-3.5" /> : <Plus className="size-3.5" />}
-                {goal ? 'Manage' : 'Set'}
-              </Button>
-              {goal && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7 text-destructive/80"
-                  title="Clear goal"
-                  onClick={() => void handleGoalClear()}
-                >
-                  <X className="size-3.5" />
-                </Button>
-              )}
-            </div>
-          </div>
-          <Dialog open={goalManagerOpen} onOpenChange={setGoalManagerOpen}>
-            <DialogContent className="sm:max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Goal Manager</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                  <div className="rounded-md border border-border/70 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      Status
-                    </div>
-                    <div className="mt-1 text-sm font-medium">
-                      {goal ? goalStatusLabel(goal.status) : 'not set'}
-                    </div>
-                  </div>
-                  <div className="rounded-md border border-border/70 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      Tokens
-                    </div>
-                    <div className="mt-1 text-sm font-medium">
-                      {formatGoalTokens(goal?.tokensUsed ?? 0)}
-                    </div>
-                  </div>
-                  <div className="rounded-md border border-border/70 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      Budget
-                    </div>
-                    <div className="mt-1 text-sm font-medium">
-                      {goal?.tokenBudget !== undefined && goal.tokenBudget !== null
-                        ? formatGoalTokens(goal.tokenBudget)
-                        : 'none'}
-                    </div>
-                  </div>
-                  <div className="rounded-md border border-border/70 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      Time
-                    </div>
-                    <div className="mt-1 text-sm font-medium">
-                      {formatGoalElapsedSeconds(goal?.timeUsedSeconds ?? 0)}
-                    </div>
-                  </div>
-                </div>
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">Objective</span>
-                  <Textarea
-                    className="min-h-32 resize-y text-sm"
-                    value={goalObjectiveDraft}
-                    onChange={(event) => setGoalObjectiveDraft(event.target.value)}
-                    placeholder="Finish the current project goal..."
-                  />
-                </label>
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">Token budget</span>
-                  <Input
-                    inputMode="numeric"
-                    value={goalTokenBudgetDraft}
-                    onChange={(event) => setGoalTokenBudgetDraft(event.target.value)}
-                    placeholder="Optional"
-                  />
-                </label>
-              </div>
-              <DialogFooter className="items-center justify-between gap-2 sm:justify-between">
-                <div className="flex items-center gap-1">
-                  {goal?.status === 'active' ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 gap-1.5"
-                      onClick={() => void handleGoalStatus('paused')}
-                    >
-                      <Pause className="size-3.5" />
-                      Pause
-                    </Button>
-                  ) : goal ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 gap-1.5"
-                      onClick={() => void handleGoalStatus('active')}
-                    >
-                      <Play className="size-3.5" />
-                      {goal.status === 'complete' ? 'Start' : 'Resume'}
-                    </Button>
-                  ) : null}
-                  {goal && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 gap-1.5 text-destructive"
-                      disabled={goalClearing}
-                      onClick={() => void handleGoalClear()}
-                    >
-                      <Trash2 className="size-3.5" />
-                      Clear
-                    </Button>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8"
-                    onClick={() => setGoalManagerOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8 gap-1.5"
-                    disabled={goalSaving}
-                    onClick={() => void handleGoalSave()}
-                  >
-                    <Save className="size-3.5" />
-                    Save
-                  </Button>
-                </div>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <GoalPanelCard sessionId={activeSessionId} />
           <Separator />
           <div className="space-y-2">
             <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">

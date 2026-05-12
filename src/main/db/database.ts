@@ -321,6 +321,23 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_session_goals_status
       ON session_goals(status);
+
+    CREATE TABLE IF NOT EXISTS session_goal_events (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      goal_id TEXT,
+      event_type TEXT NOT NULL,
+      message TEXT,
+      metadata_json TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_session_goal_events_session_created
+      ON session_goal_events(session_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_session_goal_events_goal_created
+      ON session_goal_events(goal_id, created_at DESC);
   `)
 
   // Migration: add icon column if missing

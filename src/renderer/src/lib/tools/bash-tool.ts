@@ -31,6 +31,12 @@ interface ShellOutputEvent {
   stream?: ShellStream
 }
 
+interface ShellStartedEvent {
+  execId: string
+  processId?: string
+  terminalId?: string
+}
+
 interface LiveShellPreview {
   stdout: string
   stderr: string
@@ -268,6 +274,16 @@ const bashHandler: ToolHandler = {
       }
     }
 
+    const cleanupStarted = ctx.ipc.on(IPC.SHELL_STARTED, (...args: unknown[]) => {
+      const data = args[0] as ShellStartedEvent
+      if (data.execId !== execId) return
+      foregroundResultMetadata = {
+        processId: data.processId ?? foregroundResultMetadata?.processId,
+        terminalId: data.terminalId ?? foregroundResultMetadata?.terminalId
+      }
+      flushOutput()
+    })
+
     const cleanup = ctx.ipc.on('shell:output', (...args: unknown[]) => {
       const data = args[0] as ShellOutputEvent
       if (data.execId !== execId) return
@@ -319,6 +335,7 @@ const bashHandler: ToolHandler = {
         outputTimer = null
       }
       flushOutput()
+      cleanupStarted()
       cleanup()
     }
   },

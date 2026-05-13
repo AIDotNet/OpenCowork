@@ -156,8 +156,8 @@ const USER_LOCATOR_PREVIEW_LIMIT = 88
 const USER_LOCATOR_SCROLL_OFFSET = 28
 const USER_LOCATOR_HIGHLIGHT_MS = 1400
 const EMPTY_ORCHESTRATION_STATE = { runs: [], byId: new Map(), byMessageId: new Map() }
-const MESSAGE_COLUMN_CLASS = 'mx-auto w-full max-w-[820px] px-5'
-const MESSAGE_COLUMN_COMPACT_CLASS = 'mx-auto w-full max-w-[720px] px-5'
+const MESSAGE_COLUMN_CLASS = 'mx-auto w-full max-w-[1100px] px-5'
+const MESSAGE_COLUMN_COMPACT_CLASS = 'mx-auto w-full max-w-[1000px] px-5'
 const EMPTY_USER_LOCATOR_ROWS: UserMessageIndexRow[] = []
 
 interface MessageListSessionSelection {

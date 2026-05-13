@@ -2296,7 +2296,7 @@ export function InputArea({
         </div>
       )}
 
-      <div className="mx-auto w-full max-w-[820px]">
+      <div className="mx-auto w-full max-w-[1100px]">
         {projectScoped && draftSessionId && <InlineStepsPanel sessionId={draftSessionId} />}
         <div
           ref={containerRef}

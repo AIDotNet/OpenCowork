@@ -1,4 +1,0 @@
-{
-  "title": "核心概念",
-  "pages": ["agent-loop", "tool-system", "providers", "sessions", "context-compression"]
-}

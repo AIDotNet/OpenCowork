@@ -19,9 +19,9 @@ import { randomUUID } from 'crypto'
 import { spawn } from 'child_process'
 
 // Delay import of @electron-toolkit/utils to avoid accessing app before ready
-let electronApp: any
-let optimizer: any
-let is: any
+let electronApp: typeof import('@electron-toolkit/utils').electronApp
+let optimizer: typeof import('@electron-toolkit/utils').optimizer
+let is: typeof import('@electron-toolkit/utils').is
 
 import icon from '../../resources/icon.png?asset'
 import icon_mac from '../../resources/icon-mac.png?asset'
@@ -579,7 +579,7 @@ async function openDetachedSessionWindow(
   }
 }
 
-function getTrayIcon() {
+function getTrayIcon(): Electron.NativeImage {
   if (process.platform === 'darwin') {
     const image = nativeImage.createFromPath(icon_mac)
     const resized = image.resize({ width: 18, height: 18 })
@@ -897,7 +897,7 @@ if (gotSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     // Import @electron-toolkit/utils after app is ready
-    const utils = require('@electron-toolkit/utils')
+    const utils = await import('@electron-toolkit/utils')
     electronApp = utils.electronApp
     optimizer = utils.optimizer
     is = utils.is
@@ -1114,12 +1114,23 @@ if (gotSingleInstanceLock) {
 
     createTray()
 
-    setupAutoUpdater({
-      getMainWindow: () => mainWindow,
-      markAppWillQuit: () => {
-        isQuiting = true
-      }
-    })
+    if (app.isPackaged) {
+      setupAutoUpdater({
+        getMainWindow: () => mainWindow,
+        markAppWillQuit: () => {
+          isQuiting = true
+        }
+      })
+    } else {
+      ipcMain.handle('update:check', () => ({
+        success: true,
+        available: false,
+        currentVersion: 'dev',
+        latestVersion: 'dev',
+        skipped: true
+      }))
+      ipcMain.handle('update:download', () => ({ success: true }))
+    }
 
     app.on('activate', function () {
       // On macOS it's common to re-create a window in the app when the

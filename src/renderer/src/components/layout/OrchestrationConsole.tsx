@@ -80,7 +80,9 @@ export function OrchestrationConsole(): React.JSX.Element {
   if (!run) {
     return (
       <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border/60 bg-background/40 text-sm text-muted-foreground">
-        {t('rightPanel.orchestrationEmpty', { defaultValue: 'No collaboration orchestration records' })}
+        {t('rightPanel.orchestrationEmpty', {
+          defaultValue: 'No collaboration orchestration records'
+        })}
       </div>
     )
   }
@@ -180,7 +182,9 @@ export function OrchestrationConsole(): React.JSX.Element {
                     <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
                       <MessagesSquare className="size-3.5" />
                       <span>
-                        {t('rightPanel.orchestrationTeamMessages', { defaultValue: 'Team messages' })}
+                        {t('rightPanel.orchestrationTeamMessages', {
+                          defaultValue: 'Team messages'
+                        })}
                       </span>
                     </div>
                     <div className="space-y-2">
@@ -204,7 +208,9 @@ export function OrchestrationConsole(): React.JSX.Element {
                   <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
                     <Users className="size-3.5" />
                     <span>
-                      {t('rightPanel.orchestrationMemberSummary', { defaultValue: 'Member summary' })}
+                      {t('rightPanel.orchestrationMemberSummary', {
+                        defaultValue: 'Member summary'
+                      })}
                     </span>
                   </div>
                   <div className="space-y-2">

@@ -86,7 +86,8 @@ const PROJECT_MEMORY_FILE_META: Record<
   soul: {
     id: 'soul',
     title: 'SOUL.md',
-    description: 'Project-specific personality/style supplement, takes priority over global SOUL.md.'
+    description:
+      'Project-specific personality/style supplement, takes priority over global SOUL.md.'
   },
   user: {
     id: 'user',
@@ -101,7 +102,7 @@ const PROJECT_MEMORY_FILE_META: Record<
   daily: {
     id: 'daily',
     title: 'Daily Memory',
-    description: 'Record today\'s project temporary context, can be organized into MEMORY.md later.'
+    description: "Record today's project temporary context, can be organized into MEMORY.md later."
   }
 }
 
@@ -194,7 +195,9 @@ export function ProjectArchivePage(): React.JSX.Element {
   const viewSummary =
     viewMode === 'channels'
       ? (activeProject?.workingFolder ??
-        t('projectArchive.noChannelSummary', { defaultValue: 'View project collaboration channels and connection status.' }))
+        t('projectArchive.noChannelSummary', {
+          defaultValue: 'View project collaboration channels and connection status.'
+        }))
       : memoryRootPath || activeProject?.workingFolder || PROJECT_MEMORY_DIRNAME
 
   const readProjectTextFile = useCallback(
@@ -304,9 +307,12 @@ export function ProjectArchivePage(): React.JSX.Element {
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : String(loadError)
       setError(message)
-      toast.error(t('projectArchive.loadFailed', { defaultValue: 'Failed to load project archive' }), {
-        description: message
-      })
+      toast.error(
+        t('projectArchive.loadFailed', { defaultValue: 'Failed to load project archive' }),
+        {
+          description: message
+        }
+      )
     } finally {
       setLoading(false)
     }
@@ -381,9 +387,12 @@ export function ProjectArchivePage(): React.JSX.Element {
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : String(saveError)
       setError(message)
-      toast.error(t('projectArchive.saveFailed', { defaultValue: 'Failed to save project archive' }), {
-        description: message
-      })
+      toast.error(
+        t('projectArchive.saveFailed', { defaultValue: 'Failed to save project archive' }),
+        {
+          description: message
+        }
+      )
     } finally {
       setSaving(false)
     }
@@ -398,7 +407,8 @@ export function ProjectArchivePage(): React.JSX.Element {
           </div>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t('projectArchive.noProjectDesc', {
-              defaultValue: 'Return to home page to select a project first, then view the project archive.'
+              defaultValue:
+                'Return to home page to select a project first, then view the project archive.'
             })}
           </p>
           <Button
@@ -529,7 +539,9 @@ export function ProjectArchivePage(): React.JSX.Element {
                         <p className="text-sm font-medium">Project Memory Root</p>
                         <p className="break-all text-xs text-muted-foreground">
                           {memoryRootPath ||
-                            t('projectArchive.pathUnavailable', { defaultValue: 'Path unavailable' })}
+                            t('projectArchive.pathUnavailable', {
+                              defaultValue: 'Path unavailable'
+                            })}
                         </p>
                       </div>
                       <Button
@@ -578,7 +590,9 @@ export function ProjectArchivePage(): React.JSX.Element {
                           <p className="text-xs text-muted-foreground">{activeFile.description}</p>
                           <p className="break-all text-[11px] text-muted-foreground">
                             {activeFile.path ||
-                              t('projectArchive.pathUnavailable', { defaultValue: 'Path unavailable' })}
+                              t('projectArchive.pathUnavailable', {
+                                defaultValue: 'Path unavailable'
+                              })}
                           </p>
                         </div>
                         <span className="text-[11px] text-muted-foreground">
@@ -606,7 +620,8 @@ export function ProjectArchivePage(): React.JSX.Element {
                       {!activeFile.missingFile && activeFile.source === 'workspace-root' && (
                         <p className="rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-600 dark:text-blue-400">
                           {t('projectArchive.legacyLocationHint', {
-                            defaultValue: 'Current file is from an old location in the working directory root, save will continue writing back to the original location.'
+                            defaultValue:
+                              'Current file is from an old location in the working directory root, save will continue writing back to the original location.'
                           })}
                         </p>
                       )}

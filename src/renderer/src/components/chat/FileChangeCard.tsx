@@ -757,7 +757,10 @@ function SnapshotSummaryNotice({
     <div className="space-y-3 px-3 py-3 text-[11px] text-muted-foreground dark:text-zinc-400">
       <div className="space-y-1">
         <p>Large file snapshot summarized to avoid storing full before/after text in memory.</p>
-        <p className="font-mono text-[10px] text-muted-foreground/70 dark:text-zinc-600" style={{ fontFamily: MONO_FONT }}>
+        <p
+          className="font-mono text-[10px] text-muted-foreground/70 dark:text-zinc-600"
+          style={{ fontFamily: MONO_FONT }}
+        >
           {details}
         </p>
       </div>
@@ -798,7 +801,10 @@ function PendingEditPreview({ input }: { input: Record<string, unknown> }): Reac
     <div className="space-y-2 px-3 py-3 text-[11px] text-foreground/85 dark:text-zinc-300">
       <div className="flex flex-wrap items-center gap-2">
         {filePath && !hasDiffPreview && (
-          <span className="font-mono text-[10px] text-muted-foreground dark:text-zinc-500" style={{ fontFamily: MONO_FONT }}>
+          <span
+            className="font-mono text-[10px] text-muted-foreground dark:text-zinc-500"
+            style={{ fontFamily: MONO_FONT }}
+          >
             {shortPath(filePath)}
           </span>
         )}
@@ -808,16 +814,16 @@ function PendingEditPreview({ input }: { input: Record<string, unknown> }): Reac
           </span>
         )}
       </div>
-      {explanation && <p className="text-[11px] text-muted-foreground dark:text-zinc-400">{explanation}</p>}
+      {explanation && (
+        <p className="text-[11px] text-muted-foreground dark:text-zinc-400">{explanation}</p>
+      )}
       {showingExcerpt && (
-        <p className="text-[10px] text-muted-foreground/70 dark:text-zinc-600">{t('fileChange.showingExcerpt')}</p>
+        <p className="text-[10px] text-muted-foreground/70 dark:text-zinc-600">
+          {t('fileChange.showingExcerpt')}
+        </p>
       )}
       {hasDiffPreview && (
-        <CompactEditDiff
-          oldStr={oldPreview || ''}
-          newStr={newPreview || ''}
-          filePath={filePath}
-        />
+        <CompactEditDiff oldStr={oldPreview || ''} newStr={newPreview || ''} filePath={filePath} />
       )}
     </div>
   )
@@ -1341,7 +1347,9 @@ export function FileChangeCard({
               <CompactStatusDot status={status} />
             )}
             {elapsed && (
-              <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground/70">{elapsed}</span>
+              <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground/70">
+                {elapsed}
+              </span>
             )}
             {collapsed ? (
               <ChevronRight className="size-3 shrink-0 text-muted-foreground/70" />
@@ -1383,7 +1391,9 @@ export function FileChangeCard({
               </span>
             )}
             {elapsed && (
-              <span className="text-[9px] text-muted-foreground/70 tabular-nums shrink-0">{elapsed}</span>
+              <span className="text-[9px] text-muted-foreground/70 tabular-nums shrink-0">
+                {elapsed}
+              </span>
             )}
             <StatusIndicator status={status} />
           </>

@@ -383,11 +383,14 @@ export function SshKeychainWorkspace(): React.JSX.Element {
                 <KeyRound className="size-7" />
               </div>
               <div className="mt-5 text-[1.1rem] font-semibold text-foreground">
-                {t('workspace.keychain.emptyTitle', { defaultValue: 'No matching credentials yet.' })}
+                {t('workspace.keychain.emptyTitle', {
+                  defaultValue: 'No matching credentials yet.'
+                })}
               </div>
               <div className="mt-2 max-w-sm text-[0.88rem] text-muted-foreground">
                 {t('workspace.keychain.emptyBody', {
-                  defaultValue: 'Create a new key entry, or place existing private/public keys in the local ~/.ssh directory.'
+                  defaultValue:
+                    'Create a new key entry, or place existing private/public keys in the local ~/.ssh directory.'
                 })}
               </div>
               <Button

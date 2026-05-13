@@ -19,6 +19,7 @@ import {
   Pencil,
   Loader2,
   CheckCircle2,
+  ListChecks,
   PanelLeftClose,
   FolderOpen,
   FolderPlus,
@@ -262,6 +263,8 @@ export function SessionListPanel(): React.JSX.Element {
   const [expandedHistoryProjectIds, setExpandedHistoryProjectIds] = useState<Set<string>>(
     () => new Set()
   )
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(() => new Set())
   const [visibleSessionCount, setVisibleSessionCount] = useState(SESSION_LIST_PAGE_SIZE)
   const sessionListScrollRef = useRef<HTMLDivElement>(null)
   const projectIdSet = useMemo(() => new Set(projects.map((project) => project.id)), [projects])
@@ -994,16 +997,27 @@ export function SessionListPanel(): React.JSX.Element {
         <button
           className={cn(
             'group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors',
-            session.id === activeSessionId &&
-              useUIStore.getState().chatView === 'session' &&
-              !useUIStore.getState().settingsPageOpen
-              ? 'bg-accent text-accent-foreground'
-              : 'text-foreground/80 hover:bg-muted/60'
+            selectionMode && selectedSessionIds.has(session.id)
+              ? 'bg-primary/10 text-primary hover:bg-primary/15'
+              : session.id === activeSessionId &&
+                  useUIStore.getState().chatView === 'session' &&
+                  !useUIStore.getState().settingsPageOpen
+                ? 'bg-accent text-accent-foreground'
+                : 'text-foreground/80 hover:bg-muted/60'
           )}
-          onClick={() => {
+          onClick={(e) => {
+            if (selectionMode) {
+              e.preventDefault()
+              const next = new Set(selectedSessionIds)
+              if (next.has(session.id)) next.delete(session.id)
+              else next.add(session.id)
+              setSelectedSessionIds(next)
+              return
+            }
             void openSessionOrFocusDetached(session.id)
           }}
           onDoubleClick={(e) => {
+            if (selectionMode) return
             e.preventDefault()
             setEditingId(session.id)
             setEditTitle(session.title)
@@ -1015,7 +1029,18 @@ export function SessionListPanel(): React.JSX.Element {
           }
         >
           <span className="relative flex size-4 shrink-0 items-center justify-center">
-            {session.pinned ? (
+            {selectionMode ? (
+              <div
+                className={cn(
+                  'flex size-3.5 items-center justify-center rounded-full border transition-colors',
+                  selectedSessionIds.has(session.id)
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-muted-foreground/40 bg-transparent'
+                )}
+              >
+                {selectedSessionIds.has(session.id) && <CheckCircle2 className="size-2.5" />}
+              </div>
+            ) : session.pinned ? (
               <button
                 type="button"
                 className="flex size-4 items-center justify-center text-amber-500/75 transition-all duration-150 hover:-rotate-12 hover:text-amber-500"
@@ -1316,9 +1341,7 @@ export function SessionListPanel(): React.JSX.Element {
             <button
               className={cn(
                 'relative mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition-colors',
-                isActiveProject
-                  ? 'text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
+                isActiveProject ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
               )}
               onClick={() => setActiveProject(group.project.id)}
               title={group.project.name}
@@ -1489,6 +1512,18 @@ export function SessionListPanel(): React.JSX.Element {
               </Button>
             )}
             <Button
+              variant={selectionMode ? 'secondary' : 'ghost'}
+              size="icon"
+              className={cn('size-6', selectionMode && 'text-primary')}
+              onClick={() => {
+                setSelectionMode(!selectionMode)
+                if (selectionMode) setSelectedSessionIds(new Set())
+              }}
+              title={t('sidebar.selectMultiple', { defaultValue: 'Select multiple' })}
+            >
+              <ListChecks className="size-3.5" />
+            </Button>
+            <Button
               variant="ghost"
               size="icon"
               className="size-6"
@@ -1595,44 +1630,95 @@ export function SessionListPanel(): React.JSX.Element {
         />
 
         <div className="border-t px-3 py-2">
-          <p className="text-center text-[10px] text-muted-foreground/25">
-            {sessions.length} {t('sidebar.sessions')} ·{' '}
-            {sessions.reduce((sum, session) => sum + session.messageCount, 0)} {t('sidebar.msgs')}
-            {(() => {
-              const rawSessions = useChatStore.getState().sessions
-              const providerState = useProviderStore.getState()
-              const getSessionRequestType = (
-                session: (typeof rawSessions)[number]
-              ): ProviderType | undefined => {
-                const provider = session.providerId
-                  ? providerState.providers.find((item) => item.id === session.providerId)
-                  : null
-                const model = session.modelId
-                  ? provider?.models.find((item) => item.id === session.modelId)
-                  : null
-                return model?.type ?? provider?.type
-              }
-              let total = rawSessions.reduce(
-                (a, s) =>
-                  a +
-                  s.messages.reduce(
-                    (b, m) =>
-                      b + (m.usage ? getBillableTotalTokens(m.usage, getSessionRequestType(s)) : 0),
-                    0
-                  ),
-                0
-              )
-              const teamState = useTeamStore.getState()
-              const allMembers = [
-                ...(teamState.activeTeam?.members ?? []),
-                ...teamState.teamHistory.flatMap((t) => t.members)
-              ]
-              for (const m of allMembers) {
-                if (m.usage) total += getBillableTotalTokens(m.usage)
-              }
-              return total > 0 ? ` · ${formatTokens(total)} tokens` : ''
-            })()}
-          </p>
+          {selectionMode ? (
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-foreground/80">
+                {selectedSessionIds.size} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => {
+                    setSelectionMode(false)
+                    setSelectedSessionIds(new Set())
+                  }}
+                >
+                  {t('action.cancel', { ns: 'common' })}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  disabled={selectedSessionIds.size === 0}
+                  onClick={() => {
+                    const ids = Array.from(selectedSessionIds)
+                    ids.forEach((id) => {
+                      const session = getSessionSnapshot(id)
+                      if (!session) return
+                      const hasRunning =
+                        runningSessions[id] === 'running' ||
+                        runningSessions[id] === 'retrying' ||
+                        runningSubAgentSessionIds.has(id) ||
+                        runningBackgroundSessionIds.has(id) ||
+                        streamingSessionIds.has(id) ||
+                        activeTeamSessionId === id
+                      if (hasRunning) {
+                        abortSession(id)
+                      }
+                      clearPendingSessionMessages(id)
+                      deleteSession(id)
+                    })
+                    setSelectionMode(false)
+                    setSelectedSessionIds(new Set())
+                    toast.success(t('sidebar_toast.sessionDeleted', { defaultValue: 'Sessions deleted' }))
+                  }}
+                >
+                  <Trash2 className="size-3 mr-1" /> {t('action.delete', { ns: 'common' })}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-center text-[10px] text-muted-foreground/25">
+              {sessions.length} {t('sidebar.sessions')} ·{' '}
+              {sessions.reduce((sum, session) => sum + session.messageCount, 0)} {t('sidebar.msgs')}
+              {(() => {
+                const rawSessions = useChatStore.getState().sessions
+                const providerState = useProviderStore.getState()
+                const getSessionRequestType = (
+                  session: (typeof rawSessions)[number]
+                ): ProviderType | undefined => {
+                  const provider = session.providerId
+                    ? providerState.providers.find((item) => item.id === session.providerId)
+                    : null
+                  const model = session.modelId
+                    ? provider?.models.find((item) => item.id === session.modelId)
+                    : null
+                  return model?.type ?? provider?.type
+                }
+                let total = rawSessions.reduce(
+                  (a, s) =>
+                    a +
+                    s.messages.reduce(
+                      (b, m) =>
+                        b + (m.usage ? getBillableTotalTokens(m.usage, getSessionRequestType(s)) : 0),
+                      0
+                    ),
+                  0
+                )
+                const teamState = useTeamStore.getState()
+                const allMembers = [
+                  ...(teamState.activeTeam?.members ?? []),
+                  ...teamState.teamHistory.flatMap((t) => t.members)
+                ]
+                for (const m of allMembers) {
+                  if (m.usage) total += getBillableTotalTokens(m.usage)
+                }
+                return total > 0 ? ` · ${formatTokens(total)} tokens` : ''
+              })()}
+            </p>
+          )}
         </div>
       </div>
 
@@ -1655,7 +1741,8 @@ export function SessionListPanel(): React.JSX.Element {
                 {deleteTarget?.queueCount ? (
                   <p>
                     {t('sidebar.deleteQueuedMessagesNotice', {
-                      defaultValue: 'This session has {{count}} queued messages that will also be deleted.',
+                      defaultValue:
+                        'This session has {{count}} queued messages that will also be deleted.',
                       count: deleteTarget.queueCount
                     })}
                   </p>
@@ -1663,7 +1750,8 @@ export function SessionListPanel(): React.JSX.Element {
                 {deleteTargetRunningInfo?.hasRunning && (
                   <p className="font-medium text-destructive">
                     {t('sidebar.deleteRunningNotice', {
-                      defaultValue: 'This session has running tasks that will be stopped before deletion.'
+                      defaultValue:
+                        'This session has running tasks that will be stopped before deletion.'
                     })}
                   </p>
                 )}

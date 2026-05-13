@@ -48,7 +48,10 @@ export function AcpPanel(): React.JSX.Element {
         ? t('rightPanel.acpPhaseApproved', { ns: 'layout', defaultValue: 'Pending' })
         : plan
           ? t('rightPanel.acpPhaseReview', { ns: 'layout', defaultValue: 'Plan review' })
-          : t('rightPanel.acpPhaseClarify', { ns: 'layout', defaultValue: 'Requirement clarification' })
+          : t('rightPanel.acpPhaseClarify', {
+              ns: 'layout',
+              defaultValue: 'Requirement clarification'
+            })
 
   return (
     <div className="space-y-4">
@@ -131,11 +134,13 @@ export function AcpPanel(): React.JSX.Element {
               : plan?.status === 'approved' || plan?.status === 'implementing'
                 ? t('rightPanel.acpNextActionExecute', {
                     ns: 'layout',
-                    defaultValue: 'Continue breaking down approved plans into tasks, dispatch sub-agents for execution, and summarize results.'
+                    defaultValue:
+                      'Continue breaking down approved plans into tasks, dispatch sub-agents for execution, and summarize results.'
                   })
                 : t('rightPanel.acpNextActionClarify', {
                     ns: 'layout',
-                    defaultValue: 'Complete objectives, constraints, boundaries and acceptance criteria first.'
+                    defaultValue:
+                      'Complete objectives, constraints, boundaries and acceptance criteria first.'
                   })}
         </p>
       </div>

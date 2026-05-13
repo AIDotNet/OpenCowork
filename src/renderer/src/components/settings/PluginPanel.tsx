@@ -323,7 +323,9 @@ function ChannelConfigPanelContent({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setWeixinLoginMessage(message)
-      toast.error(t('channel.weixin.loginFailed', 'WeChat binding failed'), { description: message })
+      toast.error(t('channel.weixin.loginFailed', 'WeChat binding failed'), {
+        description: message
+      })
     } finally {
       setWeixinLoginPending(false)
     }
@@ -585,7 +587,10 @@ function ChannelConfigPanelContent({
             <div>
               <p className="text-sm font-medium">{t('channel.advanced', 'Advanced settings')}</p>
               <p className="text-xs text-muted-foreground">
-                {t('channel.advancedDesc', 'Expand to configure reply strategy, tool capabilities, and permission boundaries.')}
+                {t(
+                  'channel.advancedDesc',
+                  'Expand to configure reply strategy, tool capabilities, and permission boundaries.'
+                )}
               </p>
             </div>
             <Badge variant="outline">{t('channel.advancedHint', 'Collapsible')}</Badge>
@@ -596,7 +601,10 @@ function ChannelConfigPanelContent({
                 <div>
                   <div className="text-sm font-medium">{t('channel.features', 'Features')}</div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {t('channel.featuresDesc', 'Auto-reply, streaming reply, and auto-start policies.')}
+                    {t(
+                      'channel.featuresDesc',
+                      'Auto-reply, streaming reply, and auto-start policies.'
+                    )}
                   </p>
                 </div>
               </AccordionTrigger>
@@ -660,7 +668,10 @@ function ChannelConfigPanelContent({
                   <div>
                     <div className="text-sm font-medium">{t('channel.tools', 'Tools')}</div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {t('channel.toolsPanelDesc', 'Control the set of exclusive tools available to this channel.')}
+                      {t(
+                        'channel.toolsPanelDesc',
+                        'Control the set of exclusive tools available to this channel.'
+                      )}
                     </p>
                   </div>
                 </AccordionTrigger>
@@ -703,7 +714,10 @@ function ChannelConfigPanelContent({
                       {t('channel.security', 'Security & Permissions')}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {t('channel.securityDesc', 'Restrict channel read/write scope, command execution, and sub-agent capabilities.')}
+                      {t(
+                        'channel.securityDesc',
+                        'Restrict channel read/write scope, command execution, and sub-agent capabilities.'
+                      )}
                     </p>
                   </div>
                 </div>
@@ -915,7 +929,10 @@ function ChannelConfigPanelContent({
 
       <div className="flex items-center justify-between gap-3 border-t border-border/60 px-6 py-4">
         <div className="text-xs text-muted-foreground">
-          {t('channel.autoSaveFooter', 'Channel configuration is auto-saved and takes effect immediately within the project.')}
+          {t(
+            'channel.autoSaveFooter',
+            'Channel configuration is auto-saved and takes effect immediately within the project.'
+          )}
         </div>
         <div className="flex items-center gap-2">
           {!plugin.builtin && (

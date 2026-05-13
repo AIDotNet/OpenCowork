@@ -57,8 +57,7 @@ interface SessionConversationPaneProps {
   windowHeaderOwnsTitle?: boolean
 }
 
-const EXPORT_IMAGE_PLACEHOLDER_DATA_URL =
-  'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
+const EXPORT_IMAGE_PLACEHOLDER_DATA_URL = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
 const TERMINAL_DOCK_TRANSITION = {
   duration: 0.24,
   ease: [0.22, 1, 0.36, 1] as const
@@ -200,8 +199,8 @@ export function SessionConversationPane({
     hasProjectFolderAction || hasTranscriptActions || allowOpenInNewWindow
   const showTerminalDock = Boolean(
     sessionView.projectId &&
-      terminalDockOpen &&
-      (sessionView.workingFolder || sessionView.sshConnectionId)
+    terminalDockOpen &&
+    (sessionView.workingFolder || sessionView.sshConnectionId)
   )
 
   const updateSessionProjectDirectory = useCallback(
@@ -400,13 +399,13 @@ export function SessionConversationPane({
     <div className="relative flex min-w-0 flex-1 flex-col bg-background">
       <div
         className={cn(
-          'flex shrink-0 items-center gap-3 px-4 pt-3',
-          showInlineSessionTitle ? (compactSessionHeader ? 'pb-1' : 'pb-2') : 'pb-2 pt-2'
+          'absolute top-3 right-3 z-20 flex shrink-0 items-center gap-3 pointer-events-none',
+          showInlineSessionTitle ? 'left-4 justify-between' : 'justify-end'
         )}
       >
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 pointer-events-auto">
           {showInlineSessionTitle ? (
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/80 px-2 py-1 shadow-sm backdrop-blur-sm">
               <div
                 className={cn(
                   'min-w-0 flex-1 truncate text-foreground',
@@ -440,91 +439,93 @@ export function SessionConversationPane({
           ) : null}
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1 pointer-events-auto">
           {showSessionActionBar ? (
-            <div className="flex items-center rounded-lg border border-border/60 bg-background/70 p-0.5 shadow-sm backdrop-blur-sm">
-              {hasProjectFolderAction ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                      onClick={() => void handleOpenWorkingFolder()}
-                    >
-                      <ExternalLink className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t('layout.openFolder', { defaultValue: 'Open folder' })}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-
-              {hasProjectFolderAction && hasTranscriptActions ? (
-                <div className="mx-0.5 h-4 w-px bg-border/60" />
-              ) : null}
-
-              {hasTranscriptActions ? (
-                <>
+            <div className="group flex items-center rounded-lg border border-border/60 bg-background/70 p-0.5 shadow-sm backdrop-blur-sm transition-all duration-300">
+              <div className="flex items-center overflow-hidden transition-all duration-300 max-w-0 opacity-0 group-hover:max-w-[200px] group-hover:opacity-100">
+                {hasProjectFolderAction ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                        onClick={handleCopyAll}
-                        disabled={isStreaming}
+                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground shrink-0"
+                        onClick={() => void handleOpenWorkingFolder()}
                       >
-                        {copiedAll ? (
-                          <Check className="size-4 text-foreground" />
-                        ) : (
-                          <ClipboardCopy className="size-4" />
-                        )}
+                        <ExternalLink className="size-4" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {t('layout.copyAll', { defaultValue: 'Copy conversation' })}
+                      {t('layout.openFolder', { defaultValue: 'Open folder' })}
                     </TooltipContent>
                   </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                        onClick={() => void handleExportImage()}
-                        disabled={exporting || isStreaming}
-                      >
-                        {exporting ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          <ImageDown className="size-4" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t('layout.exportImage', { defaultValue: 'Copy as image' })}
-                    </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                        onClick={() => void handleClearConversation()}
-                        disabled={isStreaming}
-                      >
-                        <Eraser className="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{clearConversationLabel}</TooltipContent>
-                  </Tooltip>
-                </>
-              ) : null}
+                ) : null}
 
-              <div className="mx-0.5 h-4 w-px bg-border/60" />
+                {hasProjectFolderAction && hasTranscriptActions ? (
+                  <div className="mx-0.5 h-4 w-px bg-border/60 shrink-0" />
+                ) : null}
+
+                {hasTranscriptActions ? (
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground shrink-0"
+                          onClick={handleCopyAll}
+                          disabled={isStreaming}
+                        >
+                          {copiedAll ? (
+                            <Check className="size-4 text-foreground" />
+                          ) : (
+                            <ClipboardCopy className="size-4" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t('layout.copyAll', { defaultValue: 'Copy conversation' })}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground shrink-0"
+                          onClick={() => void handleExportImage()}
+                          disabled={exporting || isStreaming}
+                        >
+                          {exporting ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <ImageDown className="size-4" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t('layout.exportImage', { defaultValue: 'Copy as image' })}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground shrink-0"
+                          onClick={() => void handleClearConversation()}
+                          disabled={isStreaming}
+                        >
+                          <Eraser className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{clearConversationLabel}</TooltipContent>
+                    </Tooltip>
+                  </>
+                ) : null}
+                
+                <div className="mx-0.5 mr-1 h-4 w-px bg-border/60 shrink-0" />
+              </div>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

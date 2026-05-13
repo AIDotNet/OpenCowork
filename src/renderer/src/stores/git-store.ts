@@ -274,7 +274,8 @@ export const useGitStore = create<GitStore>((set, get) => ({
           error:
             (!statusResult.success && getErrorMessage(statusResult, 'Failed to load status')) ||
             (!historyResult.success && getErrorMessage(historyResult, 'Failed to load history')) ||
-            (!branchesResult.success && getErrorMessage(branchesResult, 'Failed to load branches')) ||
+            (!branchesResult.success &&
+              getErrorMessage(branchesResult, 'Failed to load branches')) ||
             null
         }
       }

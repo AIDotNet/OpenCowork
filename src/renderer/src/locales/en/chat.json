@@ -1,6 +1,6 @@
 {
   "input": {
-    "placeholder": "Type a message...",
+    "placeholder": "Ask anything",
     "placeholderClarify": "Describe your idea and I will keep probing until the requirements are clear...",
     "placeholderCowork": "Ask the assistant to help with your project...",
     "placeholderCode": "Describe what you want to build, like fixing bugs, writing scripts, or using /commit to commit the repository...",

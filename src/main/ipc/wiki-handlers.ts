@@ -383,7 +383,8 @@ async function generateProjectWiki(
   const summaryDocs = [
     {
       name: 'Project Overview',
-      description: 'Help quickly understand project structure, module distribution and code entry points.',
+      description:
+        'Help quickly understand project structure, module distribution and code entry points.',
       files: files.slice(0, Math.min(files.length, 40))
     },
     ...grouped.slice(0, 12)
@@ -432,7 +433,10 @@ async function generateProjectWiki(
     if (sections[0]) {
       wikiDao.replaceWikiSectionSources(
         sections[0].id,
-        doc.files.map((filePath) => ({ filePath, reason: 'Key file associated during auto-generation' }))
+        doc.files.map((filePath) => ({
+          filePath,
+          reason: 'Key file associated during auto-generation'
+        }))
       )
     }
     savedDocuments.push({ id: saved.id, name: saved.name, files: doc.files })

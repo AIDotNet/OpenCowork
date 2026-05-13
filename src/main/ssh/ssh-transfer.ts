@@ -412,10 +412,14 @@ export function previewSshImport(
     const connections = parsed.connections.map((connection, index) => {
       const warnings = [...parsed.warnings]
       if (connection.privateKeyPath) {
-        warnings.push('Private key path is from old machine, please verify it is still valid after import.')
+        warnings.push(
+          'Private key path is from old machine, please verify it is still valid after import.'
+        )
       }
       if (connection.groupId && !groupMap.has(connection.groupId)) {
-        warnings.push('Group ID cannot be matched, will rebuild by name or fallback to ungrouped during import.')
+        warnings.push(
+          'Group ID cannot be matched, will rebuild by name or fallback to ungrouped during import.'
+        )
       }
       return {
         importId: buildImportId(index, connection),
@@ -597,7 +601,9 @@ export function applySshImport(
             proxyJump: connection.proxyJump,
             updatedAt: now
           }
-          result.warnings.push(`Preserved ${existing.name} startup command, default directory, heartbeat and password fields.`)
+          result.warnings.push(
+            `Preserved ${existing.name} startup command, default directory, heartbeat and password fields.`
+          )
         }
         result.replaced += 1
         continue

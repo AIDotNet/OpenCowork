@@ -115,7 +115,8 @@ export function ResourcesPage(): React.JSX.Element {
     toast[result.success ? 'success' : 'error'](
       result.success
         ? t('resourcesPage.commandCreated', { defaultValue: 'Command created' })
-        : result.error || t('resourcesPage.commandCreateFailed', { defaultValue: 'Failed to create command' })
+        : result.error ||
+            t('resourcesPage.commandCreateFailed', { defaultValue: 'Failed to create command' })
     )
 
     if (!result.success) return
@@ -177,10 +178,13 @@ export function ResourcesPage(): React.JSX.Element {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('resourcesPage.addCommand', { defaultValue: 'Add command' })}</DialogTitle>
+            <DialogTitle>
+              {t('resourcesPage.addCommand', { defaultValue: 'Add command' })}
+            </DialogTitle>
             <DialogDescription>
               {t('resourcesPage.addCommandDesc', {
-                defaultValue: 'Please enter a kebab-case command name. After creation, it will be written to the user command directory and enter edit mode.'
+                defaultValue:
+                  'Please enter a kebab-case command name. After creation, it will be written to the user command directory and enter edit mode.'
               })}
             </DialogDescription>
           </DialogHeader>
@@ -204,7 +208,8 @@ export function ResourcesPage(): React.JSX.Element {
             />
             <p className="text-[11px] text-muted-foreground">
               {t('resourcesPage.commandNameHint', {
-                defaultValue: 'Only lowercase letters, numbers and hyphens allowed, e.g. release-note.'
+                defaultValue:
+                  'Only lowercase letters, numbers and hyphens allowed, e.g. release-note.'
               })}
             </p>
           </div>
@@ -265,7 +270,9 @@ export function ResourcesPage(): React.JSX.Element {
                   {t('resourcesPage.empty', { defaultValue: 'No available resources' })}
                 </p>
                 <p className="text-xs text-muted-foreground/70">
-                  {t('resourcesPage.emptyDesc', { defaultValue: 'Try switching type or modifying search term' })}
+                  {t('resourcesPage.emptyDesc', {
+                    defaultValue: 'Try switching type or modifying search term'
+                  })}
                 </p>
               </div>
             ) : (
@@ -359,7 +366,8 @@ export function ResourcesPage(): React.JSX.Element {
               {!selectedResource.editable ? (
                 <div className="border-b bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
                   {t('resourcesPage.readonlyNotice', {
-                    defaultValue: 'This is a built-in resource, current version only supports preview, not direct editing.'
+                    defaultValue:
+                      'This is a built-in resource, current version only supports preview, not direct editing.'
                   })}
                 </div>
               ) : null}
@@ -397,7 +405,8 @@ export function ResourcesPage(): React.JSX.Element {
               </p>
               <p className="text-xs text-muted-foreground/70">
                 {t('resourcesPage.selectDesc', {
-                  defaultValue: 'Switch resource type on the left and select specific entries in the list.'
+                  defaultValue:
+                    'Switch resource type on the left and select specific entries in the list.'
                 })}
               </p>
             </div>

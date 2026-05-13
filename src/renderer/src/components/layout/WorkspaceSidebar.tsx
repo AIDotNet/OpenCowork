@@ -27,6 +27,8 @@ import {
   Pin,
   PinOff,
   Plus,
+  ListChecks,
+  CheckCircle2,
   Search,
   Settings,
   Server,
@@ -423,6 +425,8 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const [folderPickerTarget, setFolderPickerTarget] = useState<FolderPickerTarget | null>(null)
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set())
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set())
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(() => new Set())
   const runningSubAgentSessionIds = useMemo(
     () => new Set(runningSubAgentSessionIdsSig ? runningSubAgentSessionIdsSig.split('\u0000') : []),
     [runningSubAgentSessionIdsSig]
@@ -961,12 +965,37 @@ export function WorkspaceSidebar(): React.JSX.Element {
             className={cn(
               'group/session flex w-full items-center gap-1.5 px-1.5 py-1 text-left transition-colors',
               SIDEBAR_TREE_ROW_CLASS,
-              active ? SIDEBAR_TREE_ACTIVE_CLASS : SIDEBAR_TREE_HOVER_CLASS
+              selectionMode && selectedSessionIds.has(session.id)
+                ? 'bg-primary/10 text-primary'
+                : active
+                  ? SIDEBAR_TREE_ACTIVE_CLASS
+                  : SIDEBAR_TREE_HOVER_CLASS
             )}
-            onClick={() => openSession(session.id)}
+            onClick={(e) => {
+              if (selectionMode) {
+                e.preventDefault()
+                const next = new Set(selectedSessionIds)
+                if (next.has(session.id)) next.delete(session.id)
+                else next.add(session.id)
+                setSelectedSessionIds(next)
+                return
+              }
+              openSession(session.id)
+            }}
           >
             <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
-              {isRunning ? (
+              {selectionMode ? (
+                <div
+                  className={cn(
+                    'flex size-3.5 items-center justify-center rounded-full border transition-colors',
+                    selectedSessionIds.has(session.id)
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-muted-foreground/40 bg-transparent'
+                  )}
+                >
+                  {selectedSessionIds.has(session.id) && <CheckCircle2 className="size-2.5" />}
+                </div>
+              ) : isRunning ? (
                 <Loader2
                   className={`size-3.5 shrink-0 animate-spin ${
                     sessionRunStatus === 'retrying' ? 'text-amber-500' : 'text-primary'
@@ -1767,6 +1796,18 @@ export function WorkspaceSidebar(): React.JSX.Element {
                   </span>
                 </div>
                 <div className="flex items-center gap-0.5">
+                  <Button
+                    variant={selectionMode ? 'secondary' : 'ghost'}
+                    size="icon"
+                    className={cn('size-4 rounded-sm', selectionMode && 'text-primary')}
+                    onClick={() => {
+                      setSelectionMode(!selectionMode)
+                      if (selectionMode) setSelectedSessionIds(new Set())
+                    }}
+                    title={t('sidebar.selectMultiple', { defaultValue: 'Select multiple' })}
+                  >
+                    <ListChecks className="size-2.5" />
+                  </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -1825,43 +1866,113 @@ export function WorkspaceSidebar(): React.JSX.Element {
           </div>
         </div>
         <div className="mt-auto px-2 pb-2 pt-1.5">
-          <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="size-7 shrink-0 rounded-full">
-                  <CircleHelp className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-44">
-                <DropdownMenuItem onSelect={() => deferDropdownAction(handleOpenDocs)}>
-                  <BookOpen className="size-4" />
-                  {t('sidebar.docsTitle')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => deferDropdownAction(handleOpenChangelog)}>
-                  <History className="size-4" />
-                  {t('sidebar.changelogTitle')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          {selectionMode ? (
+            <div className="flex flex-col gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-2 text-destructive">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium">
+                  {selectedSessionIds.size} {t('sidebar.selected', { defaultValue: 'selected' })}
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[10px]"
+                    onClick={() => {
+                      setSelectionMode(false)
+                      setSelectedSessionIds(new Set())
+                    }}
+                  >
+                    {tCommon('action.cancel')}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-6 px-2 text-[10px]"
+                    disabled={selectedSessionIds.size === 0}
+                    onClick={async () => {
+                      const ids = Array.from(selectedSessionIds)
+                      if (ids.length === 0) return
 
-            <Button
-              variant="ghost"
-              className={cn(
-                'h-8 flex-1 justify-between gap-2 px-2 text-[12px]',
-                SIDEBAR_TREE_ROW_CLASS,
-                SIDEBAR_TREE_HOVER_CLASS
-              )}
-              onClick={() => useUIStore.getState().openSettingsPage('general')}
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <Settings className="size-4 shrink-0" />
-                <span className="truncate">{t('sidebar.systemSettings')}</span>
-              </span>
-              <span className="shrink-0 text-[10px] text-muted-foreground/80">
-                v{packageJson.version}
-              </span>
-            </Button>
-          </div>
+                      const ok = await confirm({
+                        title: t('sidebar.deleteSelectedConfirmTitle', {
+                          defaultValue: `Delete ${ids.length} selected chat${ids.length > 1 ? 's' : ''}?`
+                        }),
+                        description: t('sidebar.deleteSelectedConfirmDesc', {
+                          defaultValue:
+                            'This action cannot be undone. All messages in these chats will be permanently removed.'
+                        }),
+                        variant: 'destructive'
+                      })
+
+                      if (!ok) return
+
+                      ids.forEach((id) => {
+                        const session = useChatStore.getState().sessions.find((s) => s.id === id)
+                        if (!session) return
+                        const hasRunning =
+                          runningSessions[id] === 'running' ||
+                          runningSessions[id] === 'retrying' ||
+                          runningSubAgentSessionIds.has(id) ||
+                          runningBackgroundSessionIds.has(id) ||
+                          streamingSessionIds.has(id) ||
+                          activeTeamSessionId === id
+                        if (hasRunning) {
+                          abortSession(id)
+                        }
+                        clearPendingSessionMessages(id)
+                        deleteSession(id)
+                      })
+                      setSelectionMode(false)
+                      setSelectedSessionIds(new Set())
+                      toast.success(
+                        t('sidebar_toast.sessionDeleted', { defaultValue: 'Sessions deleted' })
+                      )
+                    }}
+                  >
+                    <Trash2 className="size-3 mr-1" /> {tCommon('action.delete')}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-7 shrink-0 rounded-full">
+                    <CircleHelp className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="top" align="start" className="w-44">
+                  <DropdownMenuItem onSelect={() => deferDropdownAction(handleOpenDocs)}>
+                    <BookOpen className="size-4" />
+                    {t('sidebar.docsTitle')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => deferDropdownAction(handleOpenChangelog)}>
+                    <History className="size-4" />
+                    {t('sidebar.changelogTitle')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Button
+                variant="ghost"
+                className={cn(
+                  'h-8 flex-1 justify-between gap-2 px-2 text-[12px]',
+                  SIDEBAR_TREE_ROW_CLASS,
+                  SIDEBAR_TREE_HOVER_CLASS
+                )}
+                onClick={() => useUIStore.getState().openSettingsPage('general')}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Settings className="size-4 shrink-0" />
+                  <span className="truncate">{t('sidebar.systemSettings')}</span>
+                </span>
+                <span className="shrink-0 text-[10px] text-muted-foreground/80">
+                  v{packageJson.version}
+                </span>
+              </Button>
+            </div>
+          )}
         </div>
 
         <input

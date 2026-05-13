@@ -644,16 +644,16 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
     const hasContent = document.length > 0 && plainText.length > 0
 
     return (
-      <div className={cn('relative flex min-h-0 min-w-0 flex-col overflow-hidden', className)}>
+      <div className={cn('relative flex min-h-0 min-w-0 flex-col', className)}>
         {!hasContent && placeholder && (
-          <div className="composer-editor-placeholder pointer-events-none absolute inset-0 p-2 pb-12 pr-3 text-base md:text-sm">
+          <div className="composer-editor-placeholder pointer-events-none absolute inset-0 pt-1.5 pl-2.5 pb-1 pr-3 text-base md:text-sm">
             {placeholder}
           </div>
         )}
         {showSuggestion && suggestionText && plainText.length > 0 && (
           <div
             ref={suggestionOverlayRef}
-            className="composer-editor-suggestion pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-2 pb-12 pr-3 text-base md:text-sm"
+            className="composer-editor-suggestion pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-1.5 px-2 pb-1 pr-3 text-base md:text-sm"
           >
             <span className="invisible">{plainText}</span>
             <span>{suggestionText}</span>
@@ -665,7 +665,7 @@ export const FileAwareEditor = React.forwardRef<FileAwareEditorHandle, FileAware
           suppressContentEditableWarning
           spellCheck={false}
           data-gramm="false"
-          className="composer-editor-content block min-h-[60px] min-w-0 max-h-full flex-1 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words p-2 pb-12 pr-3 text-base outline-none md:text-sm"
+          className="composer-editor-content block min-h-[24px] min-w-0 max-h-full flex-1 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words pt-1.5 px-2 pb-1 pr-3 text-base outline-none md:text-sm"
           style={{ scrollbarGutter: 'stable' }}
           onInput={handleInput}
           onKeyDown={onKeyDown}

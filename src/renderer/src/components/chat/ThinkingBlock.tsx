@@ -174,7 +174,11 @@ export const ThinkingBlock = memo(function ThinkingBlock({
                             )
                           }
                           return (
-                            <code className={className} style={{ fontFamily: MONO_FONT }} {...props}>
+                            <code
+                              className={className}
+                              style={{ fontFamily: MONO_FONT }}
+                              {...props}
+                            >
                               {children}
                             </code>
                           )

@@ -685,7 +685,9 @@ export function applyOpenCodeMigration(
       const nextContent = upsertManagedMemorySection(existingContent, payload.managedContent)
       ensureDirForFile(MEMORY_PATH)
       fs.writeFileSync(MEMORY_PATH, nextContent, 'utf-8')
-      results.push(createSuccessResult(item, action, MEMORY_PATH, 'Updated MEMORY.md managed section'))
+      results.push(
+        createSuccessResult(item, action, MEMORY_PATH, 'Updated MEMORY.md managed section')
+      )
     } catch (error) {
       results.push(createFailedResult(item, action, error))
     }

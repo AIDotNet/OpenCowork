@@ -459,7 +459,9 @@ export function ContextPanel(): React.JSX.Element {
                     {pct !== null && (
                       <div className="mt-1 space-y-0.5">
                         <div className="flex items-center justify-between text-[9px] text-muted-foreground/40">
-                          <span>{t('compressionBudget', { defaultValue: 'Compression budget' })}</span>
+                          <span>
+                            {t('compressionBudget', { defaultValue: 'Compression budget' })}
+                          </span>
                           <span>
                             {formatTokens(ctxUsed)} / {formatTokens(ctxGaugeLimit!)} (
                             {pct.toFixed(0)}%)
@@ -508,7 +510,8 @@ export function ContextPanel(): React.JSX.Element {
                         {manualCompressionTrigger && ctxUsed < manualCompressionTrigger ? (
                           <p className="mt-1 text-[10px] text-muted-foreground/60">
                             {t('manualCompressionHint', {
-                              defaultValue: 'Current {{used}}, recommend compressing after reaching {{threshold}}',
+                              defaultValue:
+                                'Current {{used}}, recommend compressing after reaching {{threshold}}',
                               used: formatTokens(ctxUsed),
                               threshold: formatTokens(manualCompressionTrigger)
                             })}

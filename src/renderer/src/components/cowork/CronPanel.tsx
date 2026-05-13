@@ -314,7 +314,9 @@ function CronJobCard({
               </span>
             )}
             {job.deliveryMode !== 'desktop' && (
-              <span className="text-[9px] text-muted-foreground/40">Delivery: {job.deliveryMode}</span>
+              <span className="text-[9px] text-muted-foreground/40">
+                Delivery: {job.deliveryMode}
+              </span>
             )}
             <span className="text-[9px] text-muted-foreground/40">Fired {job.fireCount} times</span>
             {job.lastFiredAt && (
@@ -533,7 +535,8 @@ function EmptyState(): React.JSX.Element {
       <Clock className="mb-3 size-8 text-muted-foreground/30" />
       <p className="text-sm text-muted-foreground">No scheduled tasks</p>
       <p className="mt-1 text-xs text-muted-foreground/50 max-w-[200px]">
-        Have AI use the <span className="font-mono text-blue-400/70">CronAdd</span> tool to create scheduled tasks
+        Have AI use the <span className="font-mono text-blue-400/70">CronAdd</span> tool to create
+        scheduled tasks
       </p>
     </div>
   )
@@ -1064,7 +1067,9 @@ function CronHistoryView({
           <FileText className="mb-3 size-8 text-muted-foreground/30" />
           <p className="text-sm text-muted-foreground">No execution records</p>
           <p className="mt-1 text-xs text-muted-foreground/50">
-            {filterJobId ? 'This task has no execution records yet' : 'Scheduled task executions will appear here'}
+            {filterJobId
+              ? 'This task has no execution records yet'
+              : 'Scheduled task executions will appear here'}
           </p>
         </div>
       )}
@@ -1267,12 +1272,14 @@ export function CronPanel(): React.JSX.Element {
           {/* Hint */}
           <div className="rounded-md bg-muted/30 px-3 py-2 text-[10px] text-muted-foreground/50 space-y-0.5">
             <p className="flex items-center gap-1">
-              <Plus className="size-2.5" />Have AI call{' '}
-              <span className="font-mono text-blue-400/60 mx-0.5">CronAdd</span> to create new tasks
+              <Plus className="size-2.5" />
+              Have AI call <span className="font-mono text-blue-400/60 mx-0.5">CronAdd</span> to
+              create new tasks
             </p>
             <p className="flex items-center gap-1">
               <AlertCircle className="size-2.5" />
-              Supports three scheduling modes: one-time (at), fixed interval (every), and Cron expression
+              Supports three scheduling modes: one-time (at), fixed interval (every), and Cron
+              expression
             </p>
           </div>
         </>

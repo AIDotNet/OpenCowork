@@ -700,7 +700,9 @@ export function TasksPage(): React.JSX.Element {
           <div className="flex items-center justify-between px-4 py-3">
             <div>
               <div className="text-sm font-semibold text-foreground">Task Calendar</div>
-              <div className="text-[11px] text-muted-foreground">View plans and executions by day</div>
+              <div className="text-[11px] text-muted-foreground">
+                View plans and executions by day
+              </div>
             </div>
             <Button size="sm" className="h-7 px-2 text-xs" onClick={openCreateDialog}>
               <Plus className="mr-1 size-3.5" />
@@ -852,7 +854,8 @@ export function TasksPage(): React.JSX.Element {
                             {meta.model && <span>Model: {meta.model}</span>}
                             {item.plannedTimes.length > 0 && (
                               <span>
-                                Planned: {item.plannedTimes
+                                Planned:{' '}
+                                {item.plannedTimes
                                   .slice(0, 3)
                                   .map((time) => formatTimeLabel(time))
                                   .join(', ')}
@@ -901,9 +904,12 @@ export function TasksPage(): React.JSX.Element {
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
                     <div>Source session: {selectedMeta?.title ?? '—'}</div>
                     <div>Model: {selectedMeta?.model ?? '—'}</div>
-                    <div className="truncate">Working directory: {selectedMeta?.workingFolder ?? '—'}</div>
+                    <div className="truncate">
+                      Working directory: {selectedMeta?.workingFolder ?? '—'}
+                    </div>
                     <div>
-                      Scheduled: {selectedItem.plannedTimes.length > 0
+                      Scheduled:{' '}
+                      {selectedItem.plannedTimes.length > 0
                         ? selectedItem.plannedTimes.map((time) => formatTimeLabel(time)).join(', ')
                         : selectedJob
                           ? scheduleSummary(selectedJob)
@@ -1073,7 +1079,8 @@ export function TasksPage(): React.JSX.Element {
                       ) : (
                         <div className="space-y-3">
                           <div className="rounded-xl border border-dashed border-border/60 bg-muted/10 p-4 text-sm text-muted-foreground">
-                            This is an old record with no full playback. Showing basic info, summary, and lightweight logs.
+                            This is an old record with no full playback. Showing basic info,
+                            summary, and lightweight logs.
                           </div>
                           {runDetail.run.outputSummary && (
                             <div className="rounded-xl border border-border/60 p-3">
@@ -1141,8 +1148,13 @@ export function TasksPage(): React.JSX.Element {
           <div className="flex h-full items-center justify-center p-6">
             <div className="flex w-full max-w-md flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/70 bg-muted/10 px-6 py-10 text-center text-muted-foreground">
               <CalendarDays className="size-10 opacity-30" />
-              <div className="text-sm font-medium text-foreground/80">Select a day from the left to view tasks</div>
-              <div className="text-xs">After selecting a task, source session, run records, and full playback will be shown here</div>
+              <div className="text-sm font-medium text-foreground/80">
+                Select a day from the left to view tasks
+              </div>
+              <div className="text-xs">
+                After selecting a task, source session, run records, and full playback will be shown
+                here
+              </div>
             </div>
           </div>
         )}

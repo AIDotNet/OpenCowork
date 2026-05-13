@@ -396,7 +396,9 @@ export function SubAgentExecutionDetailContent({
                   {agent.reportStatus === 'retrying'
                     ? t('subAgentsPanel.reportStatusRetrying', { defaultValue: 'Recovering' })
                     : agent.reportStatus === 'missing'
-                      ? t('subAgentsPanel.reportMissing', { defaultValue: 'No final result captured.' })
+                      ? t('subAgentsPanel.reportMissing', {
+                          defaultValue: 'No final result captured.'
+                        })
                       : t('subAgentsPanel.reportPending', {
                           defaultValue: 'Current SubAgent has not produced final results.'
                         })}

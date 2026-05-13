@@ -265,7 +265,9 @@ function ContextRing({
             <p className="text-muted-foreground">
               {isCompressing
                 ? t('input.compressingContext', { defaultValue: 'Compressing context...' })
-                : t('input.doubleClickCompressContext', { defaultValue: 'Double-click to compress context' })}
+                : t('input.doubleClickCompressContext', {
+                    defaultValue: 'Double-click to compress context'
+                  })}
             </p>
           )}
         </div>
@@ -337,11 +339,11 @@ interface FileSearchItem {
 
 const EMPTY_QUEUED_MESSAGES: PendingSessionMessageItem[] = []
 const INTERNAL_FILE_DRAG_MIME = 'application/x-opencowork-file-paths'
-const MIN_INPUT_HEIGHT = 120
-const DEFAULT_SESSION_INPUT_HEIGHT = 160
+const MIN_INPUT_HEIGHT = 80
+const DEFAULT_SESSION_INPUT_HEIGHT = 80
 const MAX_INPUT_HEIGHT = 500
 const MIN_MESSAGE_LIST_HEIGHT = 120
-const EDITOR_MIN_HEIGHT = 60
+const EDITOR_MIN_HEIGHT = 24
 const FALLBACK_MAX_VIEWPORT_RATIO = 0.6
 const MAX_SLASH_COMMAND_RESULTS = 8
 type ContextCompressionStatus = 'idle' | 'compressing' | ManualCompressionResult
@@ -464,6 +466,8 @@ export function InputArea({
   const [attachedImages, setAttachedImages] = React.useState<ImageAttachment[]>([])
   const [pendingImageReads, setPendingImageReads] = React.useState(0)
   const [isOptimizing, setIsOptimizing] = React.useState(false)
+  const [preEnhanceText, setPreEnhanceText] = React.useState<string | null>(null)
+  const [enhanceDone, setEnhanceDone] = React.useState(false)
   const [contextCompressionStatus, setContextCompressionStatus] =
     React.useState<ContextCompressionStatus>('idle')
   const [, setOptimizingText] = React.useState('')
@@ -1667,6 +1671,16 @@ export function InputArea({
 
   const handleKeyDown = React.useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>): void => {
+      // Ctrl+Z to undo AI enhancement
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && preEnhanceText !== null && !isOptimizing) {
+        e.preventDefault()
+        applyEditorStateFromSerializedText(preEnhanceText, selectedFiles)
+        setPreEnhanceText(null)
+        setEnhanceDone(false)
+        requestAnimationFrame(() => focusInputAtEnd())
+        return
+      }
+
       if (e.nativeEvent.isComposing || isOptimizing) return
 
       if (fileMenuOpen) {
@@ -1752,6 +1766,7 @@ export function InputArea({
     },
     [
       isOptimizing,
+      preEnhanceText,
       fileMenuOpen,
       slashMenuOpen,
       fileSearchResults,
@@ -1882,98 +1897,86 @@ export function InputArea({
     [addFilesToEditor, getDraggedFilePaths, handleDropFiles, setDragging]
   )
 
-  // Optimize prompt handler
+  // Enhance prompt handler — clear input immediately, apply full result when done
   const handleOptimizePrompt = React.useCallback(async () => {
     const trimmed = text.trim()
     if (!trimmed || isOptimizing) return
 
-    console.log('[Optimizer] Starting optimization...')
+    // Save undo snapshot, then immediately clear the input
+    setPreEnhanceText(trimmed)
+    setEnhanceDone(false)
     setIsOptimizing(true)
-    setOptimizingText('')
-    setOptimizationOptions([])
+    applyEditorStateFromSerializedText('', selectedFiles)
 
     try {
-      const { optimizePrompt } = await import('@renderer/lib/prompt-optimizer/optimizer')
+      const { createProvider } = await import('@renderer/lib/api/provider')
 
-      console.log('[Optimizer] Current language:', currentLanguage)
-
-      // Find a fast model (haiku) from available providers
       const providerStore = useProviderStore.getState()
-      const { providers } = providerStore
+      const { providers, activeProviderId, activeModelId } = providerStore
 
-      let fastProvider = providers.find(
-        (p) =>
-          p.enabled &&
-          p.models.some(
-            (m) =>
-              m.enabled &&
-              (m.id.includes('haiku') || m.id.includes('4o-mini') || m.id.includes('gpt-4o-mini'))
-          )
-      )
+      const activeProvider = providers.find((p) => p.id === activeProviderId)
+      const activeModel = activeProvider?.models.find((m) => m.id === activeModelId)
 
-      if (!fastProvider) {
-        fastProvider = providers.find((p) => p.enabled && p.models.some((m) => m.enabled))
-      }
-
-      if (!fastProvider) {
-        console.error('[Optimizer] No enabled provider found')
-        toast.error('No AI provider available', {
-          description: 'Please configure an AI provider in Settings'
+      if (!activeProvider || !activeModel) {
+        toast.error('No AI provider configured', {
+          description: 'Please set up a provider in Settings first.'
         })
+        // Restore original text
+        applyEditorStateFromSerializedText(trimmed, selectedFiles)
+        setPreEnhanceText(null)
         setIsOptimizing(false)
         return
       }
-
-      const fastModel =
-        fastProvider.models.find(
-          (m) =>
-            m.enabled &&
-            (m.id.includes('haiku') || m.id.includes('4o-mini') || m.id.includes('gpt-4o-mini'))
-        ) || fastProvider.models.find((m) => m.enabled)
-
-      if (!fastModel) {
-        console.error('[Optimizer] No enabled model found')
-        toast.error('No AI model available', { description: 'Please enable a model in Settings' })
-        setIsOptimizing(false)
-        return
-      }
-
-      console.log('[Optimizer] Using provider:', fastProvider.type, 'model:', fastModel.id)
 
       const providerConfig = {
-        type: fastProvider.type,
-        apiKey: fastProvider.apiKey,
-        baseUrl: fastProvider.baseUrl,
-        model: fastModel.id,
-        providerId: fastProvider.id,
-        maxTokens: 4096,
-        temperature: 0.7,
-        systemPrompt: ''
+        type: activeProvider.type,
+        apiKey: activeProvider.apiKey,
+        baseUrl: activeProvider.baseUrl,
+        model: activeModel.id,
+        providerId: activeProvider.id,
+        maxTokens: 1024,
+        temperature: 0.5,
+        systemPrompt: `You are a concise prompt enhancer. When given a user prompt, rewrite it to be clearer, more specific, and more actionable. Output ONLY the improved prompt text — no explanations, no markdown headers, no preamble. Preserve the user's original intent exactly. Keep it as short as possible while adding clarity.`
       }
 
-      console.log('[Optimizer] Starting optimization stream...')
-      for await (const event of optimizePrompt(trimmed, providerConfig, currentLanguage)) {
-        console.log('[Optimizer] Event:', event.type)
-        if (event.type === 'text') {
-          setOptimizingText((prev) => prev + event.content)
-        } else if (event.type === 'result' && event.options && event.options.length > 0) {
-          console.log('[Optimizer] Got results:', event.options.length, 'options')
-          setOptimizationOptions(event.options)
-          setSelectedOptionIndex(0)
-          setShowOptimizationDialog(true)
+      const provider = createProvider(providerConfig)
+      const messages = [
+        {
+          id: 'user-input',
+          role: 'user' as const,
+          content: trimmed,
+          createdAt: Date.now()
+        }
+      ]
+
+      // Collect full response silently — no live streaming into the input
+      let enhanced = ''
+      for await (const event of provider.sendMessage(messages, [], providerConfig, undefined)) {
+        if (event.type === 'text_delta' && event.text) {
+          enhanced += event.text
         }
       }
-      console.log('[Optimizer] Stream completed')
+
+      // Apply the complete enhanced text all at once
+      const finalText = enhanced.trim() || trimmed
+      applyEditorStateFromSerializedText(finalText, selectedFiles)
+
+      // Flash done state
+      setEnhanceDone(true)
+      setTimeout(() => setEnhanceDone(false), 1800)
+
+      requestAnimationFrame(() => focusInputAtEnd())
     } catch (error) {
-      console.error('[Optimizer] Error:', error)
-      toast.error('Optimization failed', {
+      // Restore original on error
+      applyEditorStateFromSerializedText(trimmed, selectedFiles)
+      setPreEnhanceText(null)
+      toast.error('Enhancement failed', {
         description: error instanceof Error ? error.message : String(error)
       })
     } finally {
-      console.log('[Optimizer] Cleanup')
       setIsOptimizing(false)
     }
-  }, [text, isOptimizing, currentLanguage])
+  }, [text, isOptimizing, applyEditorStateFromSerializedText, selectedFiles, focusInputAtEnd])
 
   const handleSelectOption = React.useCallback(
     (content: string) => {
@@ -2026,7 +2029,9 @@ export function InputArea({
       case 'skipped':
         return t('input.contextCompressionSkipped', { defaultValue: 'No compression needed' })
       case 'blocked':
-        return t('input.contextCompressionBlocked', { defaultValue: 'Compression temporarily unavailable' })
+        return t('input.contextCompressionBlocked', {
+          defaultValue: 'Compression temporarily unavailable'
+        })
       case 'failed':
         return t('input.contextCompressionFailed', { defaultValue: 'Compression failed' })
       default:
@@ -2079,14 +2084,18 @@ export function InputArea({
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
-          variant="ghost"
+          variant={webSearchEnabled ? 'secondary' : 'ghost'}
           size="icon-sm"
-          className={composerIconControlClass}
-          data-active={webSearchEnabled ? 'true' : 'false'}
+          className={cn(
+            'size-7 rounded-full transition-all duration-200 shrink-0',
+            webSearchEnabled
+              ? 'text-primary bg-primary/15 border border-primary/30 shadow-sm'
+              : 'text-muted-foreground'
+          )}
           onClick={toggleWebSearch}
           disabled={disabled || isStreaming}
         >
-          <Globe className="size-4" />
+          <Globe className="size-3.5" />
         </Button>
       </TooltipTrigger>
       <TooltipContent>
@@ -2158,15 +2167,42 @@ export function InputArea({
         <Button
           variant="ghost"
           size="icon-sm"
-          className={composerIconControlClass}
+          className={cn(
+            composerIconControlClass,
+            'relative overflow-hidden transition-all duration-200',
+            enhanceDone && 'text-emerald-500',
+            isOptimizing && 'text-primary'
+          )}
           onClick={handleOptimizePrompt}
           disabled={!text.trim() || disabled || isOptimizing}
         >
-          {isOptimizing ? <Spinner className="size-4" /> : <Wand2 className="size-4" />}
+          {/* Ripple ring on loading */}
+          {isOptimizing && (
+            <span className="absolute inset-0 rounded-xl animate-ping bg-primary/20 pointer-events-none" />
+          )}
+          {/* Success pulse on done */}
+          {enhanceDone && (
+            <span className="absolute inset-0 rounded-xl animate-ping bg-emerald-500/20 pointer-events-none" />
+          )}
+          {isOptimizing ? (
+            <Sparkles className="size-4 animate-spin" />
+          ) : enhanceDone ? (
+            <Sparkles className="size-4 text-emerald-500" />
+          ) : (
+            <Wand2 className="size-4" />
+          )}
         </Button>
       </TooltipTrigger>
       <TooltipContent>
-        {isOptimizing ? t('input.optimizing') : t('input.optimizePrompt')}
+        {isOptimizing
+          ? 'Enhancing...'
+          : enhanceDone
+            ? preEnhanceText !== null
+              ? 'Enhanced! (Ctrl+Z to undo)'
+              : 'Enhanced!'
+            : preEnhanceText !== null
+              ? t('input.optimizePrompt') + ' · Ctrl+Z to undo'
+              : t('input.optimizePrompt')}
       </TooltipContent>
     </Tooltip>
   )
@@ -2205,7 +2241,7 @@ export function InputArea({
   )
 
   return (
-    <div ref={rootRef} data-tour="composer" className="px-4 py-3 pb-4">
+    <div ref={rootRef} data-tour="composer" className="px-4 py-2 pb-2">
       {/* API key warning */}
       {!hasApiKey && (
         <button
@@ -2279,7 +2315,7 @@ export function InputArea({
           {/* Top drag handle */}
           {isSessionComposer && (
             <div
-              className="composer-drag-handle flex h-3 cursor-row-resize items-center justify-center"
+              className="composer-drag-handle flex h-1.5 cursor-row-resize items-center justify-center"
               onMouseDown={handleDragStart}
             >
               <div className="composer-drag-grip h-1 w-11 rounded-full" />
@@ -2357,7 +2393,9 @@ export function InputArea({
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="text-[10px] font-medium text-muted-foreground">
-                                    {t('input.queueEditing', { defaultValue: 'Edit queued message' })}
+                                    {t('input.queueEditing', {
+                                      defaultValue: 'Edit queued message'
+                                    })}
                                   </span>
                                   <div className="flex items-center gap-1">
                                     <Button
@@ -2498,11 +2536,14 @@ export function InputArea({
                 <AlertDialogContent size="sm">
                   <AlertDialogHeader>
                     <AlertDialogTitle>
-                      {t('input.queueClearConfirmTitle', { defaultValue: 'Clear queued messages?' })}
+                      {t('input.queueClearConfirmTitle', {
+                        defaultValue: 'Clear queued messages?'
+                      })}
                     </AlertDialogTitle>
                     <AlertDialogDescription>
                       {t('input.queueClearConfirmDesc', {
-                        defaultValue: 'This will delete {{count}} pending messages in the current session.',
+                        defaultValue:
+                          'This will delete {{count}} pending messages in the current session.',
                         count: queuedMessages.length
                       })}
                     </AlertDialogDescription>
@@ -2668,8 +2709,7 @@ export function InputArea({
           {/* Text input area */}
           <div
             className={cn(
-              'composer-editor-region relative flex min-h-0 flex-1 flex-col px-3',
-              selectedSkill || attachedImages.length > 0 ? 'pt-1.5' : 'pt-3'
+              'composer-editor-region relative flex min-h-0 flex-1 flex-col px-3 pt-2',
             )}
             onDrop={handleDropWrapped}
             onDragOver={handleDragOver}
@@ -2683,7 +2723,19 @@ export function InputArea({
                 </span>
               </div>
             )}
-            <div className="relative flex-1 min-h-0 overflow-visible">
+            {/* Enhancing overlay — covers editor while AI is working */}
+            {isOptimizing && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-lg pointer-events-none">
+                <div className="relative flex items-center justify-center">
+                  <span className="absolute size-8 rounded-full animate-ping bg-primary/15" />
+                  <Sparkles className="size-5 text-primary animate-pulse" />
+                </div>
+                <span className="text-[11px] font-medium text-primary/70 tracking-wide animate-pulse">
+                  Enhancing...
+                </span>
+              </div>
+            )}
+            <div className={cn('relative flex-1 min-h-0 overflow-visible', isOptimizing && 'opacity-0 pointer-events-none')}>
               {shouldAutoAcceptRecommendation &&
                 autoAcceptCountdown !== null &&
                 suggestionText &&
@@ -2700,7 +2752,8 @@ export function InputArea({
                 placeholder={
                   pendingReviewPlanId
                     ? t('input.placeholderPlanReview', {
-                        defaultValue: 'Enter suggestions for this plan, or click the card above to implement it...'
+                        defaultValue:
+                          'Enter suggestions for this plan, or click the card above to implement it...'
                       })
                     : (effectivePlaceholder ??
                       (shouldRecommendInit
@@ -2752,13 +2805,17 @@ export function InputArea({
                       >
                         <FolderOpen className="size-3.5 shrink-0" />
                         <span>
-                          {t('input.noWorkingFolderSelected', { defaultValue: 'Please select a working directory first' })}
+                          {t('input.noWorkingFolderSelected', {
+                            defaultValue: 'Please select a working directory first'
+                          })}
                         </span>
                       </button>
                     ) : fileSearchLoading ? (
                       <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
                         <Spinner className="size-3.5" />
-                        <span>{t('input.loadingFiles', { defaultValue: 'Searching files...' })}</span>
+                        <span>
+                          {t('input.loadingFiles', { defaultValue: 'Searching files...' })}
+                        </span>
                       </div>
                     ) : fileSearchResults.length === 0 ? (
                       <div className="px-2 py-3 text-xs text-muted-foreground">
@@ -2802,7 +2859,9 @@ export function InputArea({
                 <div className="composer-flyout absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-[18px]">
                   <div className="composer-flyout-header flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
                     <Command className="size-3.5" />
-                    <span>{t('input.commandSuggestions', { defaultValue: 'Command suggestions' })}</span>
+                    <span>
+                      {t('input.commandSuggestions', { defaultValue: 'Command suggestions' })}
+                    </span>
                     <span className="composer-status-pill ml-auto rounded-full px-1.5 py-0.5 text-[10px]">
                       /{slashQuery ?? ''}
                     </span>
@@ -2811,7 +2870,9 @@ export function InputArea({
                     {slashCommandsLoading ? (
                       <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
                         <Spinner className="size-3.5" />
-                        <span>{t('input.loadingCommands', { defaultValue: 'Loading commands...' })}</span>
+                        <span>
+                          {t('input.loadingCommands', { defaultValue: 'Loading commands...' })}
+                        </span>
                       </div>
                     ) : filteredSlashCommands.length === 0 ? (
                       <div className="px-2 py-3 text-xs text-muted-foreground">

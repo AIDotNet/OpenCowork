@@ -292,7 +292,9 @@ function buildGifPrompt(
 
 function buildGifRunSummary(input: DrawGifInputSnapshot): string {
   const parts = [
-    input.inputMode === 'reference' ? 'Reference image mode' : `Character: ${input.characterPrompt}`,
+    input.inputMode === 'reference'
+      ? 'Reference image mode'
+      : `Character: ${input.characterPrompt}`,
     input.inputMode === 'reference' && input.characterPrompt
       ? `Character notes: ${input.characterPrompt}`
       : null,

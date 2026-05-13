@@ -637,7 +637,9 @@ export function SshTerminalStatusPanel({
               style={{ background: palette.panelStrong, color: palette.muted }}
             >
               <span>{t('workspace.terminalStatus.path', { defaultValue: 'Path' })}</span>
-              <span>{t('workspace.terminalStatus.capacity', { defaultValue: 'Available/Size' })}</span>
+              <span>
+                {t('workspace.terminalStatus.capacity', { defaultValue: 'Available/Size' })}
+              </span>
             </div>
             <div className="divide-y" style={{ borderColor: palette.panelBorder }}>
               {(snapshot?.disks ?? []).map((disk) => (

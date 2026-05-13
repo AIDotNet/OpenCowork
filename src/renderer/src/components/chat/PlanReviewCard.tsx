@@ -170,7 +170,9 @@ export function PlanReviewCard({
       <div className="my-3 rounded-xl border border-border/70 bg-background/70 p-4 shadow-sm">
         <div className="flex items-center gap-2 text-sm text-foreground">
           <Loader2 className="size-4 animate-spin text-amber-500" />
-          <span>{t('planReview.processing', { defaultValue: 'Preparing plan review content...' })}</span>
+          <span>
+            {t('planReview.processing', { defaultValue: 'Preparing plan review content...' })}
+          </span>
         </div>
       </div>
     )
@@ -181,7 +183,9 @@ export function PlanReviewCard({
       <div className="my-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 shadow-sm">
         <div className="flex items-center gap-2 text-sm font-medium text-foreground">
           <TriangleAlert className="size-4 text-red-500" />
-          <span>{t('planReview.errorTitle', { defaultValue: 'Plan review card render failed' })}</span>
+          <span>
+            {t('planReview.errorTitle', { defaultValue: 'Plan review card render failed' })}
+          </span>
         </div>
         {outputText && (
           <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg border border-red-500/20 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
@@ -267,7 +271,9 @@ export function PlanReviewCard({
                     defaultValue: 'This plan is running in session “{{title}}”.',
                     title: executionSession.title || 'New Conversation'
                   })
-                : t('planReview.runningHint', { defaultValue: 'The current session is implementing this plan.' })}
+                : t('planReview.runningHint', {
+                    defaultValue: 'The current session is implementing this plan.'
+                  })}
             </span>
             {executionSession && executionSession.id !== activeSessionId && (
               <Button
@@ -287,7 +293,9 @@ export function PlanReviewCard({
         {displayStatus === 'approved' && (
           <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-300">
             <CheckCircle2 className="size-3.5" />
-            <span>{t('planReview.approvedHint', { defaultValue: 'This plan has been approved.' })}</span>
+            <span>
+              {t('planReview.approvedHint', { defaultValue: 'This plan has been approved.' })}
+            </span>
           </div>
         )}
       </div>

@@ -985,7 +985,9 @@ export function FileTreePanel({
             <Input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder={t('fileTree.searchPlaceholder', { defaultValue: 'Search file name or path' })}
+              placeholder={t('fileTree.searchPlaceholder', {
+                defaultValue: 'Search file name or path'
+              })}
               className="workspace-filetree-input h-9 rounded-xl pl-9 pr-9 text-sm"
             />
             {searchQuery && (
@@ -1098,7 +1100,9 @@ export function FileTreePanel({
         {!compactSheetSurface && (
           <div className="workspace-filetree-footer px-3 py-2 text-[10px] text-muted-foreground/80">
             {isSearching
-              ? t('fileTree.searchHint', { defaultValue: 'Click to preview, drag to input to insert file reference' })
+              ? t('fileTree.searchHint', {
+                  defaultValue: 'Click to preview, drag to input to insert file reference'
+                })
               : t('fileTree.stats', {
                   folders: treeStats.folders,
                   files: treeStats.files

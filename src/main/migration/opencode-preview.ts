@@ -452,7 +452,9 @@ function buildProviderPreviewItems(
     const conflict = findConflictingProvider(draft, currentState.providers)
     const warnings: string[] = []
     if (draft.provider.requiresApiKey !== false && !draft.provider.apiKey.trim()) {
-      warnings.push('API Key is empty, manual completion or env var verification needed after migration')
+      warnings.push(
+        'API Key is empty, manual completion or env var verification needed after migration'
+      )
     }
     if (draft.provider.models.length === 0) {
       warnings.push('This Provider has no migratable model definitions')
@@ -481,7 +483,9 @@ function buildProviderPreviewItems(
         {
           label: 'Target type',
           value:
-            draft.strategy === 'builtin' ? `Built-in preset ${draft.matchedBuiltinId}` : 'Custom Provider'
+            draft.strategy === 'builtin'
+              ? `Built-in preset ${draft.matchedBuiltinId}`
+              : 'Custom Provider'
         },
         { label: 'Models', value: String(draft.provider.models.length) }
       ],
@@ -567,7 +571,8 @@ function buildCommandPreviewItems(
   return parsed.commands.map((command) => {
     const targetName = toKebabCase(command.key, 'command')
     const existingPath = existingCommandNames.get(targetName.toLowerCase())
-    const warnings = command.key !== targetName ? [`Command name will be normalized to ${targetName}`] : []
+    const warnings =
+      command.key !== targetName ? [`Command name will be normalized to ${targetName}`] : []
     const payload: CommandPreviewPayload = {
       sourceCommandKey: command.key,
       targetName,

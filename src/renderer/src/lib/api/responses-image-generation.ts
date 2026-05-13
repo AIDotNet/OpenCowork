@@ -242,7 +242,9 @@ export async function createResponsesImageBlock(
       type: 'base64',
       data: typeof persisted?.data === 'string' && persisted.data ? persisted.data : imageBase64,
       mediaType:
-        typeof persisted?.mediaType === 'string' && persisted.mediaType ? persisted.mediaType : mediaType,
+        typeof persisted?.mediaType === 'string' && persisted.mediaType
+          ? persisted.mediaType
+          : mediaType,
       ...(typeof persisted?.filePath === 'string' && persisted.filePath
         ? { filePath: persisted.filePath }
         : {})

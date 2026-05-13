@@ -75,7 +75,12 @@ function readNonEmptyString(value: unknown): string | undefined {
 }
 
 function isUsableRendererWindow(window: BrowserWindow | null | undefined): window is BrowserWindow {
-  return !!window && !window.isDestroyed() && !window.webContents.isDestroyed() && !window.webContents.isCrashed()
+  return (
+    !!window &&
+    !window.isDestroyed() &&
+    !window.webContents.isDestroyed() &&
+    !window.webContents.isCrashed()
+  )
 }
 
 function pickFallbackRendererWindow(): BrowserWindow | null {
@@ -84,9 +89,7 @@ function pickFallbackRendererWindow(): BrowserWindow | null {
     ? [focusedWindow, ...BrowserWindow.getAllWindows().filter((win) => win !== focusedWindow)]
     : BrowserWindow.getAllWindows()
 
-  return (
-    candidateWindows.find((win) => isUsableRendererWindow(win)) ?? null
-  )
+  return candidateWindows.find((win) => isUsableRendererWindow(win)) ?? null
 }
 
 function resolveRendererTargetWindow(

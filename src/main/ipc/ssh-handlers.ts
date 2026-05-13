@@ -1635,9 +1635,12 @@ function formatLayeredError(
       return `Jump host connection failed: ${raw}`
     }
     if (layered.stage === 'target_auth') {
-      if (fallbackAuthType === 'password') return 'Target host password authentication failed, please check your password.'
-      if (fallbackAuthType === 'privateKey') return 'Target host private key authentication failed, please check key or passphrase.'
-      if (fallbackAuthType === 'agent') return 'Target host SSH Agent authentication failed, please check Agent status.'
+      if (fallbackAuthType === 'password')
+        return 'Target host password authentication failed, please check your password.'
+      if (fallbackAuthType === 'privateKey')
+        return 'Target host private key authentication failed, please check key or passphrase.'
+      if (fallbackAuthType === 'agent')
+        return 'Target host SSH Agent authentication failed, please check Agent status.'
       return `Target host authentication failed: ${raw}`
     }
     if (layered.stage === 'target_connect') {
@@ -1653,9 +1656,12 @@ function formatLayeredError(
   if (message.includes('ENOTFOUND') || message.includes('getaddrinfo'))
     return 'Host not resolvable, please check hostname or IP.'
   if (isAuthFailureMessage(message)) {
-    if (fallbackAuthType === 'password') return 'Password authentication failed, please check password.'
-    if (fallbackAuthType === 'privateKey') return 'Private key authentication failed, please check key file and passphrase.'
-    if (fallbackAuthType === 'agent') return 'SSH Agent authentication failed, please check Agent availability.'
+    if (fallbackAuthType === 'password')
+      return 'Password authentication failed, please check password.'
+    if (fallbackAuthType === 'privateKey')
+      return 'Private key authentication failed, please check key file and passphrase.'
+    if (fallbackAuthType === 'agent')
+      return 'SSH Agent authentication failed, please check Agent availability.'
   }
   return message
 }

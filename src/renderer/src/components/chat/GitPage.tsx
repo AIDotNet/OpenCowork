@@ -1347,7 +1347,8 @@ export function GitPage(): React.JSX.Element {
                             canOpenHistory && !busy
                               ? 'cursor-pointer border-border/60 bg-muted/10 hover:bg-muted/40'
                               : 'cursor-not-allowed border-border/40 opacity-60',
-                            isHistorySelected && 'border-primary/50 bg-primary/10 ring-1 ring-primary/20'
+                            isHistorySelected &&
+                              'border-primary/50 bg-primary/10 ring-1 ring-primary/20'
                           )}
                         >
                           <div className="line-clamp-2 font-medium leading-snug">{c.subject}</div>

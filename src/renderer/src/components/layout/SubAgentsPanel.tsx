@@ -736,7 +736,9 @@ function SubAgentRunCard({
                 ? t('subAgentsPanel.summaryStreaming', {
                     defaultValue: 'Generating progress summary...'
                   })
-                : t('subAgentsPanel.summaryEmpty', { defaultValue: 'No summary available to display' })}
+                : t('subAgentsPanel.summaryEmpty', {
+                    defaultValue: 'No summary available to display'
+                  })}
             </div>
           )}
 
@@ -810,7 +812,9 @@ function SubAgentRunCard({
                     {agent.reportStatus === 'retrying'
                       ? t('subAgentsPanel.reportStatusRetrying', { defaultValue: 'Recovering' })
                       : agent.reportStatus === 'missing'
-                        ? t('subAgentsPanel.reportMissing', { defaultValue: 'No final result captured.' })
+                        ? t('subAgentsPanel.reportMissing', {
+                            defaultValue: 'No final result captured.'
+                          })
                         : t('subAgentsPanel.reportPending', {
                             defaultValue: 'Current execution has not produced final results.'
                           })}

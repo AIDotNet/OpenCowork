@@ -724,7 +724,6 @@ export function SshPage(): React.JSX.Element {
             </button>
           ) : null}
 
-
           <Sheet>
             <SheetTrigger asChild>
               <button

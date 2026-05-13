@@ -75,7 +75,8 @@ export function SshConnectionPicker({
             <div className="space-y-1">
               <div className="text-sm font-medium">No SSH connections</div>
               <div className="text-xs text-muted-foreground">
-                Go to the SSH management page to add a connection, then come back to create an SSH terminal.
+                Go to the SSH management page to add a connection, then come back to create an SSH
+                terminal.
               </div>
             </div>
             <Button

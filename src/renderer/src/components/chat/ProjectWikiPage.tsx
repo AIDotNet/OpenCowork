@@ -424,8 +424,8 @@ export function ProjectWikiPage(): React.JSX.Element {
               <div className="rounded-md border px-2 py-2 text-[11px]">
                 <div className="font-medium text-foreground">{generationProgress.message}</div>
                 <div className="mt-1 text-muted-foreground">
-                  Stage: {generationProgress.stage} · Progress: {generationProgress.completedLeafCount}/
-                  {generationProgress.totalLeafCount}
+                  Stage: {generationProgress.stage} · Progress:{' '}
+                  {generationProgress.completedLeafCount}/{generationProgress.totalLeafCount}
                 </div>
                 {generationProgress.currentNodeTitle && (
                   <div className="mt-1 break-all text-muted-foreground">
@@ -464,7 +464,9 @@ export function ProjectWikiPage(): React.JSX.Element {
               {activeDocument?.name ?? 'Project Wiki'}
             </div>
             <div className="truncate text-xs text-muted-foreground">
-              {activeDocument?.description ?? activeProject.workingFolder ?? 'No documents generated yet'}
+              {activeDocument?.description ??
+                activeProject.workingFolder ??
+                'No documents generated yet'}
             </div>
             <div className="text-[11px] text-muted-foreground">
               Document status: {activeDocument?.status ?? '—'}

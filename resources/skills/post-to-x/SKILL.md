@@ -65,11 +65,11 @@ If using for the first time:
 
 ## Troubleshooting
 
-| Issue                          | Solution                                       |
-| ------------------------------ | ---------------------------------------------- |
-| Prompts for login every time   | Close Edge browser before running the script   |
-| Post button click fails        | Script automatically uses JavaScript click     |
-| Page load timeout              | Check network connection, or add `--wait` flag |
+| Issue                        | Solution                                       |
+| ---------------------------- | ---------------------------------------------- |
+| Prompts for login every time | Close Edge browser before running the script   |
+| Post button click fails      | Script automatically uses JavaScript click     |
+| Page load timeout            | Check network connection, or add `--wait` flag |
 
 ## Technical details
 

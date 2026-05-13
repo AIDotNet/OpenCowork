@@ -343,7 +343,9 @@ export function SubAgentExecutionDetail({
                 <section className="rounded-xl border border-border/60 bg-background/70 p-3.5">
                   <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
                     <Bot className="size-3.5" />
-                    <span>{t('subAgentsPanel.executionInfo', { defaultValue: 'Execution info' })}</span>
+                    <span>
+                      {t('subAgentsPanel.executionInfo', { defaultValue: 'Execution info' })}
+                    </span>
                   </div>
                   <div className="space-y-3">
                     {fallbackDescription ? (
@@ -373,7 +375,9 @@ export function SubAgentExecutionDetail({
               <section className="rounded-xl border border-border/60 bg-background/70 p-3.5">
                 <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
                   <ScrollText className="size-3.5" />
-                  <span>{t('subAgentsPanel.execution', { defaultValue: 'Execution process' })}</span>
+                  <span>
+                    {t('subAgentsPanel.execution', { defaultValue: 'Execution process' })}
+                  </span>
                 </div>
                 <div className="min-w-0">
                   <TranscriptMessageList messages={fallbackTranscript} />

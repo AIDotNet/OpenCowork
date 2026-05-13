@@ -180,7 +180,10 @@ export async function waitForWeixinLogin(opts: {
         qrRefreshCount += 1
         if (qrRefreshCount > MAX_QR_REFRESH_COUNT) {
           activeLogins.delete(opts.sessionKey)
-          return { connected: false, message: 'Login timeout: QR code expired multiple times, please restart login flow.' }
+          return {
+            connected: false,
+            message: 'Login timeout: QR code expired multiple times, please restart login flow.'
+          }
         }
 
         const qrResponse = await fetchQRCode(

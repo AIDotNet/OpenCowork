@@ -4998,7 +4998,9 @@ export function useChatActions(): {
     // Limitation 1: agent must not be running
     const sessionStatus = agentStore.runningSessions[sessionId]
     if (sessionStatus === 'running' || sessionStatus === 'retrying') {
-      toast.error('Cannot compress', { description: 'Agent is running, please wait for completion before manual compression' })
+      toast.error('Cannot compress', {
+        description: 'Agent is running, please wait for completion before manual compression'
+      })
       return 'blocked'
     }
 
@@ -5018,7 +5020,9 @@ export function useChatActions(): {
       .slice(0, 3)
       .some((message) => isCompactSummaryLikeMessage(message))
     if (hasRecentSummary && messages.length < MIN_MESSAGES + 4) {
-      toast.error('Cannot compress', { description: 'Too few messages since last compression, please continue the conversation' })
+      toast.error('Cannot compress', {
+        description: 'Too few messages since last compression, please continue the conversation'
+      })
       return 'blocked'
     }
 
@@ -5029,7 +5033,9 @@ export function useChatActions(): {
     if (activeProvider) {
       const ready = await ensureProviderAuthReady(activeProvider.id)
       if (!ready) {
-        toast.error('Authentication missing', { description: 'Please complete provider login in settings first' })
+        toast.error('Authentication missing', {
+          description: 'Please complete provider login in settings first'
+        })
         return 'blocked'
       }
     }
@@ -5069,7 +5075,9 @@ export function useChatActions(): {
     if (compressSession?.providerId && compressSession?.modelId) {
       const ready = await ensureProviderAuthReady(compressSession.providerId)
       if (!ready) {
-        toast.error('Authentication missing', { description: 'Please complete session provider login in settings first' })
+        toast.error('Authentication missing', {
+          description: 'Please complete session provider login in settings first'
+        })
         return 'blocked'
       }
       const sessionProviderConfig = providerStore.getProviderConfigById(
@@ -5093,7 +5101,9 @@ export function useChatActions(): {
         focusPrompt || undefined
       )
       if (!result.compressed) {
-        toast.warning('No compression needed', { description: 'Current message count insufficient for effective compression' })
+        toast.warning('No compression needed', {
+          description: 'Current message count insufficient for effective compression'
+        })
         return 'skipped'
       }
       chatStore.replaceSessionMessages(sessionId, compressed)

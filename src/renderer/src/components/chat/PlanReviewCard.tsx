@@ -1,6 +1,5 @@
 import * as React from 'react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   CheckCircle2,
   ClipboardList,
@@ -24,6 +23,10 @@ import {
 } from '@renderer/lib/tools/tool-result-format'
 import { sendImplementPlan, sendImplementPlanInNewSession } from '@renderer/hooks/use-chat-actions'
 import { cn } from '@renderer/lib/utils'
+import {
+  MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS
+} from '@renderer/lib/preview/viewers/markdown-components'
 
 interface PlanReviewCardProps {
   output?: ToolResultContent
@@ -221,7 +224,12 @@ export function PlanReviewCard({
       {payload.content.trim() ? (
         <div className="mt-4 max-h-[420px] overflow-y-auto rounded-xl border border-border/60 bg-muted/15 px-4 py-3">
           <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:mb-2 prose-headings:mt-4 prose-p:my-2 prose-ul:my-2 prose-li:my-1 prose-pre:bg-muted prose-pre:px-3 prose-pre:py-2 prose-code:before:content-none prose-code:after:content-none">
-            <Markdown remarkPlugins={[remarkGfm]}>{payload.content}</Markdown>
+            <Markdown
+              remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+              rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+            >
+              {payload.content}
+            </Markdown>
           </div>
         </div>
       ) : payload.message ? (

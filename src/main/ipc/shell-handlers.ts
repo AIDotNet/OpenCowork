@@ -59,6 +59,12 @@ interface ShellExecutionTiming {
   aborted?: boolean
 }
 
+interface ShellStartedEvent {
+  execId: string
+  processId: string
+  terminalId: string
+}
+
 function stripAnsi(raw: string): string {
   return raw.replace(ANSI_ESCAPE_RE, '')
 }
@@ -266,6 +272,17 @@ export function registerShellHandlers(): void {
 
       const terminalId = created.id
       const spawnCompletedAt = Date.now()
+      const ownerWindow =
+        BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getAllWindows()[0] ?? null
+
+      if (execId && ownerWindow) {
+        const payload: ShellStartedEvent = {
+          execId,
+          processId: terminalId,
+          terminalId
+        }
+        safeSendToWindow(ownerWindow, 'shell:started', payload)
+      }
 
       return await new Promise((resolve) => {
         let settled = false
@@ -275,11 +292,8 @@ export function registerShellHandlers(): void {
         let exitCleanup: (() => void) | null = null
 
         const sendChunk = (chunk: string, stream: ShellStream): void => {
-          if (!execId) return
-          const win = BrowserWindow.getAllWindows()[0]
-          if (win) {
-            safeSendToWindow(win, 'shell:output', { execId, chunk, stream })
-          }
+          if (!execId || !ownerWindow) return
+          safeSendToWindow(ownerWindow, 'shell:output', { execId, chunk, stream })
         }
 
         const finalize = (): void => {

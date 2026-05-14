@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
 import { Bot, MessagesSquare, ScrollText, Users } from 'lucide-react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { useChatStore } from '@renderer/stores/chat-store'
@@ -13,6 +12,10 @@ import { OrchestrationStagePills } from '@renderer/components/chat/Orchestration
 import { TranscriptMessageList } from '@renderer/components/chat/TranscriptMessageList'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
 import { cn } from '@renderer/lib/utils'
+import {
+  MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS
+} from '@renderer/lib/preview/viewers/markdown-components'
 
 export function OrchestrationConsole(): React.JSX.Element {
   const { t } = useTranslation('layout')
@@ -162,7 +165,12 @@ export function OrchestrationConsole(): React.JSX.Element {
                       ) : null}
                       {task.report ? (
                         <div className="prose prose-sm mt-3 max-w-none dark:prose-invert">
-                          <Markdown remarkPlugins={[remarkGfm]}>{task.report}</Markdown>
+                          <Markdown
+                            remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                            rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+                          >
+                            {task.report}
+                          </Markdown>
                         </div>
                       ) : null}
                     </div>

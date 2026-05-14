@@ -337,6 +337,9 @@ export const PLAN_MODE_ALLOWED_TOOLS = new Set([
   'TaskUpdate',
   'TaskList',
   'Task',
+  'get_goal',
+  'create_goal',
+  'update_goal',
   'visualize_show_widget'
 ])
 
@@ -353,6 +356,9 @@ export const ACP_MODE_ALLOWED_TOOLS = new Set([
   'TaskUpdate',
   'TaskList',
   'Task',
+  'get_goal',
+  'create_goal',
+  'update_goal',
   'visualize_show_widget'
 ])
 

@@ -1,6 +1,5 @@
 import * as React from 'react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { useTranslation } from 'react-i18next'
 import { Archive } from 'lucide-react'
 import type { UnifiedMessage } from '@renderer/lib/api/types'
@@ -10,6 +9,10 @@ import {
   isCompactBoundaryMessage,
   isCompactSummaryLikeMessage
 } from '@renderer/lib/agent/context-compression'
+import {
+  MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS
+} from '@renderer/lib/preview/viewers/markdown-components'
 
 function DetailChip({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
@@ -111,7 +114,9 @@ export function ContextCompressionMessage({
         ) : null}
       </div>
       <div className="mt-3 prose prose-sm max-w-none text-foreground dark:prose-invert [&_p]:my-2 [&_pre]:overflow-x-auto">
-        <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+        <Markdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} rehypePlugins={MARKDOWN_REHYPE_PLUGINS}>
+          {content}
+        </Markdown>
       </div>
     </div>
   )

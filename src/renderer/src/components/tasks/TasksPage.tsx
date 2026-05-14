@@ -11,6 +11,7 @@ import {
   Plus,
   Power,
   PowerOff,
+  StopCircle,
   Trash2,
   XCircle
 } from 'lucide-react'
@@ -171,6 +172,7 @@ function selectTaskPageSessionSummaries(state: {
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const INPUT_CLASS =
   'h-8 w-full rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring'
+const TASKS_RUN_WINDOW_LIMIT = 1000
 
 function toDateTimeLocalValue(timestamp: number | null | undefined): string {
   if (!timestamp) return ''
@@ -347,6 +349,15 @@ export function TasksPage(): React.JSX.Element {
     () => getCalendarDays(calendarCursor.year, calendarCursor.month),
     [calendarCursor.month, calendarCursor.year]
   )
+  const calendarRunWindow = React.useMemo(() => {
+    const firstDay = calendarDays[0]
+    const lastDay = calendarDays[calendarDays.length - 1]
+    if (!firstDay || !lastDay) return { start: 0, end: 0 }
+    return {
+      start: startOfLocalDay(firstDay).getTime(),
+      end: endOfLocalDay(lastDay).getTime()
+    }
+  }, [calendarDays])
   const sessionSummaryById = React.useMemo(() => {
     const map = new Map<string, TaskPageSessionSummary>()
     for (const session of sessionSummaries) {
@@ -354,10 +365,40 @@ export function TasksPage(): React.JSX.Element {
     }
     return map
   }, [sessionSummaries])
+  const jobsById = React.useMemo(() => {
+    const map = new Map<string, CronJobEntry>()
+    for (const job of jobs) {
+      map.set(job.id, job)
+    }
+    return map
+  }, [jobs])
+  const calendarRunsByDayKey = React.useMemo(() => {
+    const map = new Map<string, CronRunEntry[]>()
+    for (const run of runs) {
+      if (run.startedAt < calendarRunWindow.start || run.startedAt > calendarRunWindow.end) {
+        continue
+      }
+      const key = dateKeyFromDate(new Date(run.startedAt))
+      const bucket = map.get(key)
+      if (bucket) {
+        bucket.push(run)
+      } else {
+        map.set(key, [run])
+      }
+    }
+    return map
+  }, [calendarRunWindow.end, calendarRunWindow.start, runs])
 
   const refreshAll = React.useCallback(async (): Promise<void> => {
-    await Promise.all([loadJobs(), loadRuns()])
-  }, [loadJobs, loadRuns])
+    await Promise.all([
+      loadJobs(),
+      loadRuns({
+        start: calendarRunWindow.start,
+        end: calendarRunWindow.end,
+        limit: TASKS_RUN_WINDOW_LIMIT
+      })
+    ])
+  }, [calendarRunWindow.end, calendarRunWindow.start, loadJobs, loadRuns])
 
   React.useEffect(() => {
     void refreshAll()
@@ -433,13 +474,14 @@ export function TasksPage(): React.JSX.Element {
       const dayStart = startOfLocalDay(date).getTime()
       const dayEnd = endOfLocalDay(date).getTime()
       const dayKey = dateKeyFromDate(date)
+      const dayRuns = calendarRunsByDayKey.get(dayKey) ?? []
       const ids = new Set<string>()
 
       for (const job of jobs) {
         const pseudoItem: TimelineItem = {
           jobId: job.id,
           job,
-          runs: runs.filter(
+          runs: dayRuns.filter(
             (run) => run.jobId === job.id && run.startedAt >= dayStart && run.startedAt <= dayEnd
           ),
           plannedTimes: listPlannedTimesForDay(job, dayStart, dayEnd),
@@ -460,9 +502,8 @@ export function TasksPage(): React.JSX.Element {
         ids.add(job.id)
       }
 
-      for (const run of runs) {
-        if (run.startedAt < dayStart || run.startedAt > dayEnd) continue
-        const existingJob = jobs.find((job) => job.id === run.jobId)
+      for (const run of dayRuns) {
+        const existingJob = jobsById.get(run.jobId)
         if (existingJob) continue
         if (sessionFilter !== 'all' && run.sourceSessionIdSnapshot !== sessionFilter) continue
         if (statusFilter !== 'all' && run.status !== statusFilter) continue
@@ -476,7 +517,15 @@ export function TasksPage(): React.JSX.Element {
       map.set(dayKey, ids.size)
     }
     return map
-  }, [calendarDays, jobs, runs, sessionFilter, statusFilter, workingFolderFilter])
+  }, [
+    calendarDays,
+    calendarRunsByDayKey,
+    jobs,
+    jobsById,
+    sessionFilter,
+    statusFilter,
+    workingFolderFilter
+  ])
 
   const handleSelectCalendarDate = React.useCallback((date: Date) => {
     setSelectedDateKey(dateKeyFromDate(date))
@@ -654,6 +703,19 @@ export function TasksPage(): React.JSX.Element {
         return
       }
       toast.success('Immediate execution triggered')
+      await refreshAll()
+    },
+    [refreshAll]
+  )
+
+  const handleAbortRun = React.useCallback(
+    async (jobId: string) => {
+      const result = await ipcClient.invoke(IPC.CRON_ABORT_RUN, { jobId })
+      if (result && typeof result === 'object' && 'error' in (result as Record<string, unknown>)) {
+        toast.error(String((result as { error: string }).error))
+        return
+      }
+      toast.success('已中止运行')
       await refreshAll()
     },
     [refreshAll]
@@ -924,11 +986,23 @@ export function TasksPage(): React.JSX.Element {
                         size="sm"
                         variant="outline"
                         className="h-8 text-xs"
+                        disabled={selectedJob.executing}
                         onClick={() => void handleRunNow(selectedJob.id)}
                       >
                         <Play className="mr-1 size-3.5" />
                         Run now
                       </Button>
+                      {selectedJob.executing && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs text-amber-600"
+                          onClick={() => void handleAbortRun(selectedJob.id)}
+                        >
+                          <StopCircle className="mr-1 size-3.5" />
+                          中止运行
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"

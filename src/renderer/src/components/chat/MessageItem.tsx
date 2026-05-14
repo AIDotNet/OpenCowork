@@ -1,6 +1,5 @@
 import * as React from 'react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Users, ChevronDown } from 'lucide-react'
 import { SlideIn } from '@renderer/components/animate-ui'
 import { UserMessage } from './UserMessage'
@@ -11,6 +10,10 @@ import type { RequestRetryState, ToolCallState } from '@renderer/lib/agent/types
 import type { EditableUserMessageDraft } from '@renderer/lib/image-attachments'
 import type { OrchestrationRun } from '@renderer/lib/orchestration/types'
 import { isCompactSummaryLikeMessage } from '@renderer/lib/agent/context-compression'
+import {
+  MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS
+} from '@renderer/lib/preview/viewers/markdown-components'
 
 type MessageRenderMode = 'default' | 'transcript' | 'static'
 
@@ -77,7 +80,12 @@ function TeamNotification({ content }: { content: string }): React.JSX.Element {
       >
         <div className="overflow-hidden">
           <div className="border-t border-cyan-500/20 px-3 py-2 text-xs text-muted-foreground prose prose-sm dark:prose-invert max-w-none [&_h2]:text-sm [&_h2]:mt-3 [&_h2]:mb-1 [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0">
-            <Markdown remarkPlugins={[remarkGfm]}>{body}</Markdown>
+            <Markdown
+              remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+              rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+            >
+              {body}
+            </Markdown>
           </div>
         </div>
       </div>

@@ -35,6 +35,7 @@ import { ImageEditDialog } from '@renderer/components/chat/ImageEditDialog'
 import { InputArea } from '@renderer/components/chat/InputArea'
 import { ProjectTerminalDock } from '@renderer/components/terminal/ProjectTerminalDock'
 import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
+import { RuntimeStatusPanel } from './RuntimeStatusPanel'
 import {
   abortSession,
   clearPendingSessionMessages,
@@ -397,6 +398,7 @@ export function SessionConversationPane({
 
   return (
     <div className="relative flex min-w-0 flex-1 flex-col bg-background">
+      <RuntimeStatusPanel sessionId={resolvedSessionId} />
       <div
         className={cn(
           'absolute top-3 right-3 z-20 flex shrink-0 items-center gap-3 pointer-events-none',

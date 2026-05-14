@@ -2,7 +2,6 @@ import * as React from 'react'
 import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   Check,
   CheckCircle2,
@@ -32,6 +31,10 @@ import {
   decodeStructuredToolResult,
   isStructuredToolErrorText
 } from '@renderer/lib/tools/tool-result-format'
+import {
+  MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS
+} from '@renderer/lib/preview/viewers/markdown-components'
 
 interface AskUserQuestionCardProps {
   toolUseId: string
@@ -293,7 +296,12 @@ function PreviewPane({ preview }: { preview: string }): React.JSX.Element {
       ) : (
         <div className="max-h-56 overflow-auto rounded-lg border border-border/60 bg-background px-3 py-2 font-mono text-[12px] leading-relaxed text-foreground">
           <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-muted prose-pre:px-3 prose-pre:py-2 prose-code:before:content-none prose-code:after:content-none prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded-sm prose-code:font-mono prose-pre:font-mono">
-            <Markdown remarkPlugins={[remarkGfm]}>{preview}</Markdown>
+            <Markdown
+              remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+              rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+            >
+              {preview}
+            </Markdown>
           </div>
         </div>
       )}

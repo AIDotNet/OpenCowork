@@ -19,7 +19,6 @@ import {
   X
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Button } from '@renderer/components/ui/button'
 import {
   DropdownMenu,
@@ -35,7 +34,11 @@ import { useFileWatcher } from '@renderer/hooks/use-file-watcher'
 import { viewerRegistry } from '@renderer/lib/preview/viewer-registry'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
-import { createMarkdownComponents } from '@renderer/lib/preview/viewers/markdown-components'
+import {
+  createMarkdownComponents,
+  MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS
+} from '@renderer/lib/preview/viewers/markdown-components'
 import { BROWSER_PLUGIN_ID } from '@renderer/lib/app-plugin/types'
 import { cn } from '@renderer/lib/utils'
 import {
@@ -569,7 +572,11 @@ export function PreviewPanel({
         {isMarkdown ? (
           <div className="size-full overflow-y-auto p-6">
             <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={createMarkdownComponents()}>
+              <ReactMarkdown
+                remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+                components={createMarkdownComponents()}
+              >
                 {activeTab.markdownContent || ''}
               </ReactMarkdown>
             </div>

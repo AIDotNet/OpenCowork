@@ -55,6 +55,9 @@ export function TitleBar({
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar)
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen)
   const toggleRightPanel = useUIStore((s) => s.toggleRightPanel)
+  const setRuntimeStatusPanelTriggerHovered = useUIStore(
+    (s) => s.setRuntimeStatusPanelTriggerHovered
+  )
   const workingFolderSheetOpen = useUIStore((s) => s.workingFolderSheetOpen)
   const toggleWorkingFolderSheet = useUIStore((s) => s.toggleWorkingFolderSheet)
   const setBottomTerminalDockOpen = useUIStore((s) => s.setBottomTerminalDockOpen)
@@ -331,6 +334,10 @@ export function TitleBar({
                     aria-pressed={rightPanelOpen}
                     data-active={rightPanelOpen ? 'true' : 'false'}
                     className={projectToolButtonClass}
+                    onMouseEnter={() => setRuntimeStatusPanelTriggerHovered(true)}
+                    onMouseLeave={() => setRuntimeStatusPanelTriggerHovered(false)}
+                    onFocus={() => setRuntimeStatusPanelTriggerHovered(true)}
+                    onBlur={() => setRuntimeStatusPanelTriggerHovered(false)}
                     onClick={toggleRightPanel}
                   >
                     {rightPanelOpen ? (

@@ -16,24 +16,26 @@ import {
   icons
 } from 'lucide-react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
 import { useAgentStore, type SubAgentState } from '@renderer/stores/agent-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
-import { TASK_TOOL_NAME, parseSubAgentMeta } from '@renderer/lib/agent/sub-agents/create-tool'
 import { subAgentRegistry } from '@renderer/lib/agent/sub-agents/registry'
-import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import type { ToolCallState } from '@renderer/lib/agent/types'
-import type { ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
 import { cn } from '@renderer/lib/utils'
+import {
+  MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS
+} from '@renderer/lib/preview/viewers/markdown-components'
+import {
+  EMPTY_SESSION_MESSAGES,
+  mergeSessionSubAgents,
+  type SubAgentPanelFilter
+} from './sub-agent-run-data'
 
 const DAY_MS = 24 * 60 * 60 * 1000
-const EMPTY_SESSION_MESSAGES: UnifiedMessage[] = []
-
-type PanelFilter = 'all' | 'running' | 'completed' | 'today'
 
 function formatElapsed(ms: number): string {
   if (ms < 1000) return `${ms}ms`
@@ -45,12 +47,6 @@ function formatElapsed(ms: number): string {
 function formatDateTime(ts: number | null | undefined): string {
   if (!ts) return '—'
   return new Date(ts).toLocaleString()
-}
-
-function getAgentSortTime(
-  agent: Pick<SubAgentState, 'isRunning' | 'startedAt' | 'completedAt'>
-): number {
-  return agent.isRunning ? agent.startedAt : (agent.completedAt ?? agent.startedAt)
 }
 
 function getHistoryGroupLabel(
@@ -155,143 +151,7 @@ function getToolCallStatusClass(status: ToolCallState['status']): string {
   }
 }
 
-function extractToolResultText(content?: ToolResultContent): string {
-  if (!content) return ''
-  if (typeof content === 'string') return content
-  return content
-    .filter(
-      (block): block is Extract<ToolResultContent[number], { type: 'text' }> =>
-        block.type === 'text'
-    )
-    .map((block) => block.text)
-    .join('\n')
-    .trim()
-}
-
-function normalizeToolCallStatus(status: string): ToolCallState['status'] {
-  const allowed: ToolCallState['status'][] = [
-    'streaming',
-    'pending_approval',
-    'running',
-    'completed',
-    'error',
-    'canceled'
-  ]
-  return allowed.includes(status as ToolCallState['status'])
-    ? (status as ToolCallState['status'])
-    : 'completed'
-}
-
-function parseSubAgentToolResult(
-  content?: ToolResultContent,
-  isError = false
-): {
-  report: string
-  error: string | null
-  meta: ReturnType<typeof parseSubAgentMeta>['meta']
-} {
-  const rawOutput = extractToolResultText(content)
-  if (!rawOutput.trim())
-    return { report: '', error: isError ? 'Tool call failed' : null, meta: null }
-
-  const { meta, text } = parseSubAgentMeta(rawOutput)
-  const payloadText = text.trim() || rawOutput.trim()
-  const decoded = decodeStructuredToolResult(payloadText)
-  const structured = decoded && !Array.isArray(decoded) ? decoded : null
-  const structuredError =
-    structured && typeof structured.error === 'string' ? structured.error.trim() : ''
-  const structuredResult =
-    structured && typeof structured.result === 'string' ? structured.result.trim() : ''
-  const error = structuredError || (isError ? payloadText : '')
-  const report = structuredResult || (!error ? (structured ? '' : payloadText) : '')
-
-  return { report, error: error || null, meta }
-}
-
-function getPromptText(input: Record<string, unknown>): string {
-  return [input.prompt, input.query, input.task, input.target]
-    .map((item) => (typeof item === 'string' ? item.trim() : ''))
-    .filter(Boolean)
-    .join('\n\n')
-}
-
-function buildMessageSubAgents(
-  messages: UnifiedMessage[],
-  sessionId: string | null
-): SubAgentState[] {
-  if (!sessionId) return []
-
-  const toolResults = new Map<
-    string,
-    { content: ToolResultContent; isError: boolean; createdAt: number }
-  >()
-
-  for (const message of messages) {
-    if (!Array.isArray(message.content)) continue
-    for (const block of message.content) {
-      if (block.type !== 'tool_result') continue
-      toolResults.set(block.toolUseId, {
-        content: block.content,
-        isError: !!block.isError,
-        createdAt: message.createdAt
-      })
-    }
-  }
-
-  const agents: SubAgentState[] = []
-  for (const message of messages) {
-    if (message.role !== 'assistant' || !Array.isArray(message.content)) continue
-
-    for (const block of message.content) {
-      if (block.type !== 'tool_use' || block.name !== TASK_TOOL_NAME) continue
-      if (block.input.run_in_background === true) continue
-
-      const result = toolResults.get(block.id)
-      const parsedResult = result
-        ? parseSubAgentToolResult(result.content, result.isError)
-        : { report: '', error: null, meta: null }
-      const displayName = String(block.input.subagent_type ?? block.input.name ?? block.name)
-      const completedAt = result?.createdAt ?? null
-
-      agents.push({
-        name: displayName,
-        displayName,
-        toolUseId: block.id,
-        sessionId,
-        description: block.input.description ? String(block.input.description) : '',
-        prompt: getPromptText(block.input),
-        isRunning: !result,
-        success: result ? !parsedResult.error : null,
-        errorMessage: parsedResult.error,
-        iteration: parsedResult.meta?.iterations ?? 0,
-        toolCalls:
-          parsedResult.meta?.toolCalls.map((toolCall) => ({
-            id: toolCall.id,
-            name: toolCall.name,
-            input: toolCall.input,
-            status: normalizeToolCallStatus(toolCall.status),
-            output: toolCall.output,
-            error: toolCall.error,
-            requiresApproval: false,
-            startedAt: toolCall.startedAt,
-            completedAt: toolCall.completedAt
-          })) ?? [],
-        streamingText: '',
-        transcript: [],
-        currentAssistantMessageId: null,
-        report: parsedResult.report,
-        reportStatus: result ? (parsedResult.report.trim() ? 'submitted' : 'missing') : 'pending',
-        usage: parsedResult.meta?.usage,
-        startedAt: message.createdAt,
-        completedAt
-      })
-    }
-  }
-
-  return agents
-}
-
-function matchesFilter(agent: SubAgentState, filter: PanelFilter): boolean {
+function matchesFilter(agent: SubAgentState, filter: SubAgentPanelFilter): boolean {
   switch (filter) {
     case 'running':
       return agent.isRunning
@@ -319,30 +179,20 @@ export function SubAgentsPanel(): React.JSX.Element {
   const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen)
   const openSubAgentExecutionDetail = useUIStore((s) => s.openSubAgentExecutionDetail)
   const [now, setNow] = React.useState(() => Date.now())
-  const [filter, setFilter] = React.useState<PanelFilter>('all')
+  const [filter, setFilter] = React.useState<SubAgentPanelFilter>('all')
   const [expandedIds, setExpandedIds] = React.useState<Record<string, boolean>>({})
 
-  const allAgents = React.useMemo(() => {
-    const merged = new Map<string, SubAgentState>()
-
-    for (const agent of buildMessageSubAgents(sessionMessages, activeSessionId)) {
-      merged.set(agent.toolUseId, agent)
-    }
-
-    for (const agent of subAgentHistory) {
-      if (agent.sessionId === activeSessionId) merged.set(agent.toolUseId, agent)
-    }
-    for (const agent of Object.values(completedSubAgents)) {
-      if (agent.sessionId === activeSessionId) merged.set(agent.toolUseId, agent)
-    }
-    for (const agent of Object.values(activeSubAgents)) {
-      if (agent.sessionId === activeSessionId) merged.set(agent.toolUseId, agent)
-    }
-
-    return [...merged.values()].sort(
-      (left, right) => getAgentSortTime(right) - getAgentSortTime(left)
-    )
-  }, [activeSessionId, activeSubAgents, completedSubAgents, sessionMessages, subAgentHistory])
+  const allAgents = React.useMemo(
+    () =>
+      mergeSessionSubAgents({
+        sessionId: activeSessionId,
+        messages: sessionMessages,
+        activeSubAgents,
+        completedSubAgents,
+        subAgentHistory
+      }),
+    [activeSessionId, activeSubAgents, completedSubAgents, sessionMessages, subAgentHistory]
+  )
 
   const runningAgents = React.useMemo(
     () => allAgents.filter((agent) => agent.isRunning && matchesFilter(agent, filter)),
@@ -444,7 +294,7 @@ export function SubAgentsPanel(): React.JSX.Element {
               ['running', t('subAgentsPanel.filterRunning', { defaultValue: 'Running' })],
               ['completed', t('subAgentsPanel.filterCompleted', { defaultValue: 'Completed' })],
               ['today', t('subAgentsPanel.filterToday', { defaultValue: 'Today' })]
-            ] as Array<[PanelFilter, string]>
+            ] as Array<[SubAgentPanelFilter, string]>
           ).map(([value, label]) => {
             const active = filter === value
             return (
@@ -805,7 +655,12 @@ function SubAgentRunCard({
                 </div>
                 {summary ? (
                   <div className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/90 prose-strong:text-foreground dark:prose-invert">
-                    <Markdown remarkPlugins={[remarkGfm]}>{summary}</Markdown>
+                    <Markdown
+                      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                      rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+                    >
+                      {summary}
+                    </Markdown>
                   </div>
                 ) : (
                   <div className="text-sm text-muted-foreground/70">

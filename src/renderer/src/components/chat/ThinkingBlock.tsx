@@ -2,7 +2,6 @@ import { memo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight, ChevronDown } from 'lucide-react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { MONO_FONT } from '@renderer/lib/constants'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import {
@@ -15,7 +14,9 @@ import {
 import {
   openMarkdownHref,
   resolveLocalFilePath,
-  openLocalFilePath
+  openLocalFilePath,
+  MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS
 } from '@renderer/lib/preview/viewers/markdown-components'
 import { useStreamingRenderPool } from '@renderer/hooks/use-typewriter'
 import { motion, AnimatePresence } from 'motion/react'
@@ -127,7 +128,8 @@ export const ThinkingBlock = memo(function ThinkingBlock({
                     </div>
                   ) : (
                     <Markdown
-                      remarkPlugins={[remarkGfm]}
+                      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                      rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
                       components={{
                         a: ({ href, children, ...props }) => (
                           <a

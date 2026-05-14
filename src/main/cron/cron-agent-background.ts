@@ -419,6 +419,7 @@ export interface CronAgentRunOptions {
   maxIterations?: number
   pluginId?: string | null
   pluginChatId?: string | null
+  getScheduledState?: () => boolean
 }
 
 interface ExecutionState {
@@ -437,6 +438,7 @@ interface CronRunFinishedPayload {
   deliveryTarget?: string | null
   outputSummary?: string
   error?: string
+  scheduled?: boolean
 }
 
 const activeRuns = new Map<string, AbortController>()
@@ -2334,17 +2336,39 @@ function formatAnthropicMessages(
             }
           case 'tool_use':
             return { type: 'tool_use', id: block.id, name: block.name, input: block.input }
-          case 'tool_result':
+          case 'tool_result': {
+            let formattedContent: unknown = block.content
+            if (Array.isArray(block.content)) {
+              formattedContent = block.content.map((contentBlock) => {
+                if (contentBlock.type === 'image') {
+                  return {
+                    type: 'image',
+                    source: {
+                      type: contentBlock.source.type,
+                      media_type: contentBlock.source.mediaType,
+                      data: contentBlock.source.data
+                    }
+                  }
+                }
+                return contentBlock
+              })
+            }
             return {
               type: 'tool_result',
               tool_use_id: block.toolUseId,
-              content: block.content,
+              content: formattedContent,
               ...(shouldCache ? consumeAnthropicCacheControl(cacheBudget) : {})
             }
+          }
           case 'image':
             return {
               type: 'image',
-              source: block.source,
+              source: {
+                type: block.source.type,
+                media_type: block.source.mediaType,
+                data: block.source.data,
+                ...(block.source.url ? { url: block.source.url } : {})
+              },
               ...(shouldCache ? consumeAnthropicCacheControl(cacheBudget) : {})
             }
         }
@@ -5987,7 +6011,10 @@ function loadRunSnapshot(runId: string): {
   }
 }
 
-function loadJobSnapshot(jobId: string): {
+function loadJobSnapshot(
+  jobId: string,
+  scheduled: boolean
+): {
   id: string
   sessionId: string | null
   name: string
@@ -6068,8 +6095,6 @@ function loadJobSnapshot(jobId: string): {
 
   if (!row) return null
 
-  const runtimeState = executionState.get(jobId)
-
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -6101,16 +6126,16 @@ function loadJobSnapshot(jobId: string): {
     sourceProjectId: row.source_project_id,
     sourceProjectName: row.source_project_name,
     sourceProviderId: row.source_provider_id,
-    scheduled: false,
+    scheduled,
     executing: false,
-    executionStartedAt: runtimeState?.startedAt ?? null,
-    executionProgress: runtimeState?.progress ?? null
+    executionStartedAt: null,
+    executionProgress: null
   }
 }
 
 function emitRunFinished(payload: CronRunFinishedPayload): void {
   const run = loadRunSnapshot(payload.runId)
-  const job = loadJobSnapshot(payload.jobId)
+  const job = loadJobSnapshot(payload.jobId, Boolean(payload.scheduled))
   safeSendToAllWindows('cron:run-finished', {
     ...payload,
     ...(run ? { run } : {}),
@@ -6175,7 +6200,8 @@ async function runCronAgentInternal(
     deliveryTarget,
     maxIterations,
     pluginId,
-    pluginChatId
+    pluginChatId,
+    getScheduledState
   } = options
 
   const runId = `run-${nanoid(8)}`
@@ -6221,7 +6247,8 @@ async function runCronAgentInternal(
       sessionId: sessionId ?? null,
       deliveryMode,
       deliveryTarget: deliveryTarget ?? null,
-      error
+      error,
+      scheduled: getScheduledState?.() ?? false
     })
     return
   }
@@ -6254,7 +6281,8 @@ async function runCronAgentInternal(
       sessionId: sessionId ?? null,
       deliveryMode,
       deliveryTarget: deliveryTarget ?? null,
-      error
+      error,
+      scheduled: getScheduledState?.() ?? false
     })
     return
   }
@@ -6469,6 +6497,7 @@ async function runCronAgentInternal(
     deliveryMode,
     deliveryTarget: deliveryTarget ?? null,
     outputSummary,
+    scheduled: getScheduledState?.() ?? false,
     ...(error ? { error } : {})
   })
 }

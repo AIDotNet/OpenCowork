@@ -267,6 +267,8 @@ interface UIStore {
   setRightPanelWidth: (width: number) => void
   isHoveringRightPanel: boolean
   setIsHoveringRightPanel: (hovering: boolean) => void
+  runtimeStatusPanelTriggerHovered: boolean
+  setRuntimeStatusPanelTriggerHovered: (hovering: boolean) => void
   settingsOpen: boolean
   setSettingsOpen: (open: boolean) => void
   settingsPageOpen: boolean
@@ -1032,6 +1034,9 @@ export const useUIStore = create<UIStore>()(
       setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
       isHoveringRightPanel: false,
       setIsHoveringRightPanel: (hovering) => set({ isHoveringRightPanel: hovering }),
+      runtimeStatusPanelTriggerHovered: false,
+      setRuntimeStatusPanelTriggerHovered: (hovering) =>
+        set({ runtimeStatusPanelTriggerHovered: hovering }),
       settingsOpen: false,
       setSettingsOpen: (open) => set({ settingsOpen: open }),
       settingsPageOpen: false,

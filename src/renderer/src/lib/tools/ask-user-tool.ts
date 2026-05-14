@@ -58,6 +58,30 @@ function tryParseJson(value: string): unknown {
   }
 }
 
+function coerceStringField(
+  value: Record<string, unknown>,
+  keys: readonly string[]
+): string | undefined {
+  for (const key of keys) {
+    const raw = value[key]
+    if (typeof raw === 'string' && raw.trim()) return raw.trim()
+  }
+  return undefined
+}
+
+function coerceBooleanField(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  for (const key of keys) {
+    const raw = value[key]
+    if (typeof raw === 'boolean') return raw
+    if (typeof raw === 'string') {
+      const normalized = raw.trim().toLowerCase()
+      if (normalized === 'true') return true
+      if (normalized === 'false') return false
+    }
+  }
+  return false
+}
+
 function coerceArrayInput(value: unknown): unknown[] {
   if (Array.isArray(value)) return value
 
@@ -73,6 +97,14 @@ function coerceArrayInput(value: unknown): unknown[] {
     if (nested.length > 0) return nested
   }
 
+  if (
+    coerceStringField(value, ['question', 'text', 'prompt', 'query', 'message', 'content']) ||
+    'options' in value ||
+    'choices' in value
+  ) {
+    return [value]
+  }
+
   return Object.entries(value)
     .filter(([key]) => /^\d+$/.test(key))
     .sort(([left], [right]) => Number(left) - Number(right))
@@ -86,14 +118,21 @@ function coerceQuestionOption(value: unknown): AskUserOption | null {
 
   if (!isRecord(value)) return null
 
+  const label = coerceStringField(value, ['label', 'text', 'value', 'title', 'name'])
+  const description = coerceStringField(value, [
+    'description',
+    'desc',
+    'detail',
+    'details',
+    'impact',
+    'rationale'
+  ])
+  const preview = coerceStringField(value, ['preview', 'example', 'snippet'])
+
   return {
-    label: typeof value.label === 'string' ? value.label.trim() : '',
-    ...(typeof value.description === 'string' && value.description.trim()
-      ? { description: value.description.trim() }
-      : {}),
-    ...(typeof value.preview === 'string' && value.preview.trim()
-      ? { preview: value.preview.trim() }
-      : {})
+    label: label ?? '',
+    ...(description ? { description } : {}),
+    ...(preview ? { preview } : {})
   }
 }
 
@@ -110,14 +149,29 @@ export function coerceAskUserQuestions(value: unknown): AskUserQuestionItem[] {
     .map((item) => {
       const normalized = typeof item === 'string' ? tryParseJson(item) : item
       if (!isRecord(normalized)) return null
+      const question = coerceStringField(normalized, [
+        'question',
+        'text',
+        'prompt',
+        'query',
+        'message',
+        'content'
+      ])
+      const header = coerceStringField(normalized, ['header', 'label', 'title', 'name', 'id'])
+      const optionsInput =
+        normalized.options ?? normalized.choices ?? normalized.answers ?? normalized.items
+      const fallbackQuestion =
+        question ??
+        coerceStringField(normalized, ['description', 'desc', 'summary']) ??
+        (header ? `${header}?` : undefined)
 
       return {
-        question: typeof normalized.question === 'string' ? normalized.question.trim() : '',
-        ...(typeof normalized.header === 'string' ? { header: normalized.header.trim() } : {}),
-        ...(normalized.options !== undefined
-          ? { options: coerceQuestionOptions(normalized.options) }
-          : {}),
-        ...(normalized.multiSelect === true ? { multiSelect: true } : {})
+        question: fallbackQuestion ?? '',
+        ...(header ? { header } : {}),
+        ...(optionsInput !== undefined ? { options: coerceQuestionOptions(optionsInput) } : {}),
+        ...(coerceBooleanField(normalized, ['multiSelect', 'multi_select', 'multiple'])
+          ? { multiSelect: true }
+          : {})
       }
     })
     .filter((question): question is AskUserQuestionItem => question !== null)
@@ -442,7 +496,7 @@ const askUserToolExecute: ToolHandler['execute'] = async (input, ctx) => {
     )
   }
 
-  const rawQuestions = coerceAskUserQuestions(input.questions)
+  const rawQuestions = coerceAskUserQuestions(input.questions ?? input)
   if (rawQuestions.length === 0) {
     return encodeToolError('At least one question is required')
   }

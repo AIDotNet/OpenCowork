@@ -185,7 +185,8 @@ function onJobFired(job: CronJobRecord): void {
         deliveryTarget: job.delivery_target,
         maxIterations: job.max_iterations,
         pluginId: job.plugin_id,
-        pluginChatId: job.plugin_chat_id
+        pluginChatId: job.plugin_chat_id,
+        getScheduledState: () => scheduledHandles.has(job.id)
       },
       () => {
         markFinished(job.id)

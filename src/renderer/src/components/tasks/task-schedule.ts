@@ -8,6 +8,9 @@ export interface DayWindowEntry {
   isToday: boolean
 }
 
+const MINUTE_MS = 60_000
+const PLANNED_TIME_LIMIT = 500
+
 export function startOfLocalDay(value: Date | number): Date {
   const date = typeof value === 'number' ? new Date(value) : new Date(value)
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
@@ -143,6 +146,16 @@ function matchesCronField(field: string, value: number): boolean {
   return false
 }
 
+function expandCronFieldValues(field: string, min: number, max: number): number[] {
+  const values: number[] = []
+  for (let value = min; value <= max; value++) {
+    if (matchesCronField(field, value)) {
+      values.push(value)
+    }
+  }
+  return values
+}
+
 function getWeekdayIndex(label: string): number {
   const lower = label.toLowerCase()
   const map: Record<string, number> = {
@@ -169,6 +182,7 @@ function getZonedParts(
   timeZone?: string
 ): {
   minute: number
+  second: number
   hour: number
   day: number
   month: number
@@ -177,6 +191,7 @@ function getZonedParts(
   const date = new Date(timestamp)
   if (!timeZone || timeZone === 'UTC') {
     return {
+      second: date.getUTCSeconds(),
       minute: date.getUTCMinutes(),
       hour: date.getUTCHours(),
       day: date.getUTCDate(),
@@ -191,12 +206,15 @@ function getZonedParts(
     day: 'numeric',
     hour: 'numeric',
     minute: 'numeric',
+    second: 'numeric',
     hour12: false,
+    hourCycle: 'h23',
     weekday: 'short'
   }).formatToParts(date)
 
   const byType = new Map(parts.map((part) => [part.type, part.value]))
   return {
+    second: Number.parseInt(byType.get('second') ?? '0', 10),
     minute: Number.parseInt(byType.get('minute') ?? '0', 10),
     hour: Number.parseInt(byType.get('hour') ?? '0', 10),
     day: Number.parseInt(byType.get('day') ?? '1', 10),
@@ -205,21 +223,50 @@ function getZonedParts(
   }
 }
 
-function matchesCronExpressionAt(expr: string, timestamp: number, timeZone?: string): boolean {
+function parseCronExpression(expr: string): {
+  second: string
+  minute: string
+  hour: string
+  dayOfMonth: string
+  month: string
+  dayOfWeek: string
+} | null {
   const parts = expr.trim().split(/\s+/)
-  if (parts.length < 5) return false
-  const minute = parts[0]
-  const hour = parts[1]
-  const dayOfMonth = parts[2]
-  const month = parts[3]
-  const dayOfWeek = parts[4]
+  if (parts.length === 5) {
+    return {
+      second: '0',
+      minute: parts[0],
+      hour: parts[1],
+      dayOfMonth: parts[2],
+      month: parts[3],
+      dayOfWeek: parts[4]
+    }
+  }
+  if (parts.length === 6) {
+    return {
+      second: parts[0],
+      minute: parts[1],
+      hour: parts[2],
+      dayOfMonth: parts[3],
+      month: parts[4],
+      dayOfWeek: parts[5]
+    }
+  }
+  return null
+}
+
+function matchesCronMinuteWindow(
+  parsed: NonNullable<ReturnType<typeof parseCronExpression>>,
+  timestamp: number,
+  timeZone?: string
+): boolean {
   const zoned = getZonedParts(timestamp, timeZone)
   return (
-    matchesCronField(minute, zoned.minute) &&
-    matchesCronField(hour, zoned.hour) &&
-    matchesCronField(dayOfMonth, zoned.day) &&
-    matchesCronField(month, zoned.month) &&
-    matchesCronField(dayOfWeek, zoned.weekday)
+    matchesCronField(parsed.minute, zoned.minute) &&
+    matchesCronField(parsed.hour, zoned.hour) &&
+    matchesCronField(parsed.dayOfMonth, zoned.day) &&
+    matchesCronField(parsed.month, zoned.month) &&
+    matchesCronField(parsed.dayOfWeek, zoned.weekday)
   )
 }
 
@@ -247,19 +294,29 @@ export function listPlannedTimesForDay(
     const result: number[] = []
     for (let current = next; current <= dayEnd; current += every) {
       if (current >= dayStart) result.push(current)
-      if (result.length > 500) break
+      if (result.length >= PLANNED_TIME_LIMIT) break
     }
     return result
   }
 
   if (schedule.kind === 'cron' && schedule.expr) {
+    const parsed = parseCronExpression(schedule.expr)
+    if (!parsed) return []
+    const seconds = expandCronFieldValues(parsed.second, 0, 59)
+    if (seconds.length === 0) return []
+
     const result: number[] = []
-    const minute = 60_000
-    for (let current = dayStart; current <= dayEnd; current += minute) {
-      if (matchesCronExpressionAt(schedule.expr, current, schedule.tz)) {
-        result.push(current)
+    const firstMinute = Math.floor(dayStart / MINUTE_MS) * MINUTE_MS
+    for (let current = firstMinute; current <= dayEnd; current += MINUTE_MS) {
+      if (matchesCronMinuteWindow(parsed, current, schedule.tz)) {
+        for (const second of seconds) {
+          const plannedAt = current + second * 1000
+          if (plannedAt < dayStart || plannedAt > dayEnd) continue
+          result.push(plannedAt)
+          if (result.length >= PLANNED_TIME_LIMIT) break
+        }
       }
-      if (result.length > 500) break
+      if (result.length >= PLANNED_TIME_LIMIT) break
     }
     return result
   }

@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { nanoid } from 'nanoid'
+import cron from 'node-cron'
 import { getDb } from '../db/database'
 import { safeSendToWindow } from '../window-ipc'
 import {
@@ -131,6 +132,15 @@ function resolveTimestamp(value: number | string | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed
 }
 
+function validateTimeZone(timeZone: string): string | null {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date())
+    return null
+  } catch {
+    return `schedule.tz is not a valid IANA timezone: "${timeZone}"`
+  }
+}
+
 function validateSchedule(schedule: CronAddArgs['schedule']): string | null {
   if (!schedule || !schedule.kind) return 'schedule.kind is required (at | every | cron)'
   if (schedule.kind === 'at') {
@@ -142,9 +152,13 @@ function validateSchedule(schedule: CronAddArgs['schedule']): string | null {
   } else if (schedule.kind === 'every') {
     if (!schedule.every || schedule.every < 1000) return 'schedule.every must be >= 1000 ms'
   } else if (schedule.kind === 'cron') {
-    if (!schedule.expr) return 'schedule.expr is required for kind=cron'
-    const parts = schedule.expr.trim().split(/\s+/)
+    const expr = schedule.expr?.trim()
+    if (!expr) return 'schedule.expr is required for kind=cron'
+    const parts = expr.split(/\s+/)
     if (parts.length < 5 || parts.length > 6) return 'schedule.expr must have 5 or 6 fields'
+    if (!cron.validate(expr)) return `schedule.expr is not a valid cron expression: "${expr}"`
+    const tzErr = validateTimeZone(schedule.tz?.trim() || 'UTC')
+    if (tzErr) return tzErr
   } else {
     return `Unknown schedule.kind: "${schedule.kind}"`
   }
@@ -449,8 +463,9 @@ export function registerCronHandlers(): void {
         updated.schedule_kind = p.schedule.kind
         updated.schedule_at = p.schedule.kind === 'at' ? resolveTimestamp(p.schedule.at) : null
         updated.schedule_every = p.schedule.kind === 'every' ? (p.schedule.every ?? null) : null
-        updated.schedule_expr = p.schedule.kind === 'cron' ? (p.schedule.expr ?? null) : null
-        if (p.schedule.tz) updated.schedule_tz = p.schedule.tz
+        updated.schedule_expr =
+          p.schedule.kind === 'cron' ? (p.schedule.expr?.trim() ?? null) : null
+        updated.schedule_tz = p.schedule.kind === 'cron' ? p.schedule.tz?.trim() || 'UTC' : 'UTC'
       }
 
       updated.updated_at = Date.now()
@@ -493,7 +508,10 @@ export function registerCronHandlers(): void {
 
       cancelJob(updated.id)
       if (updated.enabled && !updated.deleted_at) {
-        scheduleJob(updated)
+        const scheduled = scheduleJob(updated)
+        if (!scheduled) {
+          return { error: `Failed to schedule job (kind=${updated.schedule_kind})` }
+        }
       }
 
       return { success: true, jobId: args.jobId }
@@ -585,6 +603,16 @@ export function registerCronHandlers(): void {
       if (row.deleted_at) return { error: `Job "${args.jobId}" has been deleted` }
 
       const now = Date.now()
+      if (args.enabled) {
+        const schedErr = validateSchedule({
+          kind: row.schedule_kind,
+          at: row.schedule_at ?? undefined,
+          every: row.schedule_every ?? undefined,
+          expr: row.schedule_expr ?? undefined,
+          tz: row.schedule_tz
+        })
+        if (schedErr) return { error: schedErr }
+      }
       db.prepare('UPDATE cron_jobs SET enabled = ?, updated_at = ? WHERE id = ?').run(
         args.enabled ? 1 : 0,
         now,
@@ -592,7 +620,14 @@ export function registerCronHandlers(): void {
       )
 
       if (args.enabled) {
-        scheduleJob({ ...row, enabled: 1, updated_at: now })
+        const scheduled = scheduleJob({ ...row, enabled: 1, updated_at: now })
+        if (!scheduled) {
+          db.prepare('UPDATE cron_jobs SET enabled = 0, updated_at = ? WHERE id = ?').run(
+            Date.now(),
+            args.jobId
+          )
+          return { error: `Failed to schedule job (kind=${row.schedule_kind})` }
+        }
       } else {
         cancelJob(args.jobId)
       }
@@ -660,7 +695,8 @@ export function registerCronHandlers(): void {
           deliveryTarget: row.delivery_target,
           maxIterations: row.max_iterations,
           pluginId: row.plugin_id,
-          pluginChatId: row.plugin_chat_id
+          pluginChatId: row.plugin_chat_id,
+          getScheduledState: () => getScheduledJobIds().includes(row.id)
         },
         () => {
           markFinished(row.id)
@@ -683,39 +719,47 @@ export function registerCronHandlers(): void {
 
   ipcMain.handle(
     'cron:runs',
-    async (_event, args: { jobId?: string; sessionId?: string | null; limit?: number }) => {
+    async (
+      _event,
+      args: {
+        jobId?: string
+        sessionId?: string | null
+        start?: number
+        end?: number
+        limit?: number
+      }
+    ) => {
       try {
         const db = getDb()
-        const limit = Math.min(args?.limit ?? 200, 1000)
+        const limit = Math.max(1, Math.min(args?.limit ?? 200, 1000))
+        const filters: string[] = []
+        const values: unknown[] = []
+        const needsSessionJoin = Boolean(args?.sessionId)
 
         if (args?.jobId) {
-          const rows = args?.sessionId
-            ? db
-                .prepare(
-                  `SELECT r.* FROM cron_runs r
-                 LEFT JOIN cron_jobs j ON j.id = r.job_id
-                 WHERE r.job_id = ? AND COALESCE(r.source_session_id_snapshot, j.session_id) = ?
-                 ORDER BY r.started_at DESC LIMIT ?`
-                )
-                .all(args.jobId, args.sessionId, limit)
-            : db
-                .prepare(
-                  'SELECT * FROM cron_runs WHERE job_id = ? ORDER BY started_at DESC LIMIT ?'
-                )
-                .all(args.jobId, limit)
-          return (rows as CronRunRecord[]).map(runToApi)
+          filters.push('r.job_id = ?')
+          values.push(args.jobId)
+        }
+        if (args?.sessionId) {
+          filters.push('COALESCE(r.source_session_id_snapshot, j.session_id) = ?')
+          values.push(args.sessionId)
+        }
+        if (typeof args?.start === 'number' && Number.isFinite(args.start)) {
+          filters.push('r.started_at >= ?')
+          values.push(args.start)
+        }
+        if (typeof args?.end === 'number' && Number.isFinite(args.end)) {
+          filters.push('r.started_at <= ?')
+          values.push(args.end)
         }
 
-        const rows = args?.sessionId
-          ? db
-              .prepare(
-                `SELECT r.* FROM cron_runs r
-               LEFT JOIN cron_jobs j ON j.id = r.job_id
-               WHERE COALESCE(r.source_session_id_snapshot, j.session_id) = ?
-               ORDER BY r.started_at DESC LIMIT ?`
-              )
-              .all(args.sessionId, limit)
-          : db.prepare('SELECT * FROM cron_runs ORDER BY started_at DESC LIMIT ?').all(limit)
+        const fromClause = needsSessionJoin
+          ? 'FROM cron_runs r LEFT JOIN cron_jobs j ON j.id = r.job_id'
+          : 'FROM cron_runs r'
+        const whereClause = filters.length > 0 ? ` WHERE ${filters.join(' AND ')}` : ''
+        const rows = db
+          .prepare(`SELECT r.* ${fromClause}${whereClause} ORDER BY r.started_at DESC LIMIT ?`)
+          .all(...values, limit)
         return (rows as CronRunRecord[]).map(runToApi)
       } catch (err) {
         return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }

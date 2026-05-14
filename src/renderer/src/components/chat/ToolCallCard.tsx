@@ -30,7 +30,6 @@ import { useAgentStore } from '@renderer/stores/agent-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { Button } from '@renderer/components/ui/button'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
-import { TaskCard } from './TodoCard'
 import { inputSummary } from './tool-call-summary'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
 import { LocalTerminal } from '@renderer/components/terminal/LocalTerminal'
@@ -2436,7 +2435,6 @@ function ToolCallCardInner({
   const { t } = useTranslation('chat')
   const isProcessing = status === 'streaming' || status === 'running'
   const isActive = isProcessing || status === 'pending_approval'
-  const isTaskTool = ['TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList'].includes(name)
   const [open, setOpen] = React.useState(isActive)
   const prevIsActiveRef = React.useRef(isActive)
   React.useEffect(() => {
@@ -2504,7 +2502,7 @@ function ToolCallCardInner({
   const hasFocusedOutput =
     shouldRenderOutputPanels &&
     (hasFocusedExpandedOutput(name, output, outputText) || settledBashHasFocusedOutput)
-  const shouldShowStructuredInput = !(showSettledWriteContent || isTaskTool || hasFocusedOutput)
+  const shouldShowStructuredInput = !(showSettledWriteContent || hasFocusedOutput)
 
   return (
     <div
@@ -2696,9 +2694,6 @@ function ToolCallCardInner({
                   {/* Structured Input — tool-specific rendering */}
                   {shouldShowStructuredInput && (
                     <StructuredInput name={name} input={input} status={status} />
-                  )}
-                  {shouldRenderOutputPanels && isTaskTool && (
-                    <TaskCard name={name} input={input} output={output} embedded />
                   )}
                   {/* Output — tool-specific rendering */}
                   {output && name === 'Read' && hasImageBlocks(output) && (

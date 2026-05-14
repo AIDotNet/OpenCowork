@@ -1,13 +1,16 @@
 import { useCallback, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Languages, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import changelogMd from '../../../../../CHANGELOG.md?raw'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog'
 import { Button } from '../ui/button'
-import { createMarkdownComponents } from '../../lib/preview/viewers/markdown-components'
+import {
+  createMarkdownComponents,
+  MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS
+} from '../../lib/preview/viewers/markdown-components'
 import { streamAiTranslation } from '../../lib/translate-service'
 import { useProviderStore } from '../../stores/provider-store'
 import { useSettingsStore } from '../../stores/settings-store'
@@ -119,7 +122,11 @@ export function ChangelogDialog({ open, onOpenChange }: ChangelogDialogProps): R
 
         <div className="max-h-[min(70vh,42rem)] overflow-y-auto px-6 py-4">
           <div className="prose prose-sm dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={createMarkdownComponents()}>
+            <ReactMarkdown
+              remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+              rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+              components={createMarkdownComponents()}
+            >
               {displayContent}
             </ReactMarkdown>
           </div>

@@ -36,6 +36,7 @@ import {
 } from '@renderer/lib/format-tokens'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
+import { GoalPanelCard } from '@renderer/components/goal/GoalSessionControls'
 import {
   getCompressionTriggerTokens,
   getEffectiveContextWindow,
@@ -142,7 +143,6 @@ export function ContextPanel(): React.JSX.Element {
     activeProjectId,
     workingFolder
   })
-
   const handleSelectFolder = async (): Promise<void> => {
     if (!resolvedProjectId) return
     const result = (await ipcClient.invoke('fs:select-folder')) as {
@@ -223,6 +223,8 @@ export function ContextPanel(): React.JSX.Element {
       {/* Session Info */}
       {activeSession && (
         <>
+          <Separator />
+          <GoalPanelCard sessionId={activeSessionId} />
           <Separator />
           <div className="space-y-2">
             <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">

@@ -5,6 +5,7 @@ import * as projectsDao from '../db/projects-dao'
 import * as messagesDao from '../db/messages-dao'
 import * as plansDao from '../db/plans-dao'
 import * as tasksDao from '../db/tasks-dao'
+import * as goalsDao from '../db/goals-dao'
 import * as drawRunsDao from '../db/draw-runs-dao'
 import * as usageEventsDao from '../db/usage-events-dao'
 import * as wikiDao from '../db/wiki-dao'
@@ -12,6 +13,24 @@ import { safeSendToAllWindows } from '../window-ipc'
 
 const CHAT_SESSION_UPDATED = 'chat:session-updated'
 const CHAT_SESSION_DELETED = 'chat:session-deleted'
+const GOAL_UPDATED = 'goal:updated'
+const GOAL_CLEARED = 'goal:cleared'
+const GOAL_EVENT_ADDED = 'goal:event-added'
+const MAX_GOAL_OBJECTIVE_CHARS = 4000
+const GOAL_EVENT_TYPES = new Set<goalsDao.SessionGoalEventType>([
+  'created',
+  'replaced',
+  'objective_updated',
+  'budget_updated',
+  'status_changed',
+  'usage_accounted',
+  'budget_limited',
+  'completion_deferred',
+  'completed',
+  'stall_paused',
+  'auto_continue_blocked',
+  'cleared'
+])
 
 interface RegisterDbHandlersOptions {
   onSessionDeleted?: (sessionId: string) => void
@@ -37,6 +56,71 @@ function emitSessionDeleted(
     reason,
     sessionId
   })
+}
+
+function emitGoalUpdated(goal: goalsDao.SessionGoalRow, reason: string): void {
+  safeSendToAllWindows(GOAL_UPDATED, { reason, goal })
+}
+
+function emitGoalCleared(sessionId: string, reason: string): void {
+  safeSendToAllWindows(GOAL_CLEARED, { reason, sessionId })
+}
+
+function emitGoalEventAdded(event: goalsDao.SessionGoalEventRow, reason: string): void {
+  safeSendToAllWindows(GOAL_EVENT_ADDED, { reason, event })
+}
+
+function normalizeGoalObjective(value: unknown): string {
+  const objective = typeof value === 'string' ? value.trim() : ''
+  if (!objective) {
+    throw new Error('goal objective must not be empty')
+  }
+  if ([...objective].length > MAX_GOAL_OBJECTIVE_CHARS) {
+    throw new Error(`goal objective must be at most ${MAX_GOAL_OBJECTIVE_CHARS} characters`)
+  }
+  return objective
+}
+
+function normalizeGoalStatus(value: unknown): goalsDao.SessionGoalStatus | undefined {
+  if (
+    value === 'active' ||
+    value === 'paused' ||
+    value === 'budget_limited' ||
+    value === 'complete'
+  ) {
+    return value
+  }
+  return undefined
+}
+
+function normalizeGoalTokenBudget(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null || value === '') return null
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error('goal token budget must be a finite number')
+  }
+  return Math.floor(value)
+}
+
+function normalizeGoalEventType(value: unknown): goalsDao.SessionGoalEventType {
+  if (typeof value === 'string' && GOAL_EVENT_TYPES.has(value as goalsDao.SessionGoalEventType)) {
+    return value as goalsDao.SessionGoalEventType
+  }
+  throw new Error('invalid goal event type')
+}
+
+function normalizeGoalEventMessage(value: unknown): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string') throw new Error('goal event message must be a string')
+  return value.trim() || null
+}
+
+function normalizeGoalEventMetadata(value: unknown): Record<string, unknown> | null {
+  if (value === undefined || value === null) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('goal event metadata must be an object')
+  }
+  return value as Record<string, unknown>
 }
 
 export function registerDbHandlers(options: RegisterDbHandlersOptions = {}): void {
@@ -346,6 +430,152 @@ export function registerDbHandlers(options: RegisterDbHandlersOptions = {}): voi
   ipcMain.handle('db:messages:count', (_event, sessionId: string) => {
     return messagesDao.getMessageCount(sessionId)
   })
+
+  // --- Goals ---
+
+  ipcMain.handle('db:goals:list', () => {
+    return goalsDao.listGoals()
+  })
+
+  ipcMain.handle('db:goals:get', (_event, sessionId: string) => {
+    return goalsDao.getGoal(sessionId) ?? null
+  })
+
+  ipcMain.handle(
+    'db:goals:create',
+    (
+      _event,
+      args: {
+        sessionId: string
+        objective: unknown
+        tokenBudget?: unknown
+      }
+    ) => {
+      const goal = goalsDao.createGoal({
+        sessionId: args.sessionId,
+        objective: normalizeGoalObjective(args.objective),
+        tokenBudget: normalizeGoalTokenBudget(args.tokenBudget) ?? null
+      })
+      if (!goal) {
+        return { success: false, error: 'A goal already exists for this session' }
+      }
+      emitGoalUpdated(goal, 'goal-created')
+      return { success: true, goal }
+    }
+  )
+
+  ipcMain.handle(
+    'db:goals:set',
+    (
+      _event,
+      args: {
+        sessionId: string
+        objective: unknown
+        status?: unknown
+        tokenBudget?: unknown
+      }
+    ) => {
+      const goal = goalsDao.replaceGoal({
+        sessionId: args.sessionId,
+        objective: normalizeGoalObjective(args.objective),
+        status: normalizeGoalStatus(args.status) ?? 'active',
+        tokenBudget: normalizeGoalTokenBudget(args.tokenBudget) ?? null
+      })
+      emitGoalUpdated(goal, 'goal-set')
+      return { success: true, goal }
+    }
+  )
+
+  ipcMain.handle(
+    'db:goals:update',
+    (
+      _event,
+      args: {
+        sessionId: string
+        patch: {
+          objective?: unknown
+          status?: unknown
+          tokenBudget?: unknown
+        }
+      }
+    ) => {
+      const patch: goalsDao.SessionGoalUpdate = {}
+      if (args.patch.objective !== undefined) {
+        patch.objective = normalizeGoalObjective(args.patch.objective)
+      }
+      if (args.patch.status !== undefined) {
+        const status = normalizeGoalStatus(args.patch.status)
+        if (!status) return { success: false, error: 'Invalid goal status' }
+        patch.status = status
+      }
+      if (args.patch.tokenBudget !== undefined) {
+        patch.tokenBudget = normalizeGoalTokenBudget(args.patch.tokenBudget) ?? null
+      }
+
+      const goal = goalsDao.updateGoal(args.sessionId, patch)
+      if (!goal) return { success: false, error: 'No goal exists for this session' }
+      emitGoalUpdated(goal, 'goal-updated')
+      return { success: true, goal }
+    }
+  )
+
+  ipcMain.handle('db:goals:clear', (_event, sessionId: string) => {
+    const cleared = goalsDao.clearGoal(sessionId)
+    if (cleared) {
+      emitGoalCleared(sessionId, 'goal-cleared')
+    }
+    return { success: true, cleared }
+  })
+
+  ipcMain.handle(
+    'db:goals:account',
+    (
+      _event,
+      args: {
+        sessionId: string
+        timeDeltaSeconds: number
+        tokenDelta: number
+        expectedGoalId?: string | null
+      }
+    ) => {
+      const goal = goalsDao.accountGoalUsage(args)
+      if (goal) {
+        emitGoalUpdated(goal, 'goal-accounted')
+      }
+      return { success: true, goal }
+    }
+  )
+
+  ipcMain.handle(
+    'db:goal-events:list',
+    (_event, args: { sessionId: string; goalId?: string | null; limit?: number }) => {
+      return goalsDao.listGoalEvents(args)
+    }
+  )
+
+  ipcMain.handle(
+    'db:goal-events:add',
+    (
+      _event,
+      args: {
+        sessionId: string
+        goalId?: string | null
+        eventType: unknown
+        message?: unknown
+        metadata?: unknown
+      }
+    ) => {
+      const event = goalsDao.addGoalEvent({
+        sessionId: args.sessionId,
+        goalId: args.goalId,
+        eventType: normalizeGoalEventType(args.eventType),
+        message: normalizeGoalEventMessage(args.message),
+        metadata: normalizeGoalEventMetadata(args.metadata)
+      })
+      emitGoalEventAdded(event, 'goal-event-added')
+      return { success: true, event }
+    }
+  )
 
   // --- Usage Events ---
 

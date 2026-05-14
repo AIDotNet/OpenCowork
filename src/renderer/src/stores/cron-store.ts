@@ -78,6 +78,14 @@ export interface CronAgentLogEntry {
   content: string
 }
 
+export interface CronRunsLoadOptions {
+  jobId?: string
+  sessionId?: string | null
+  start?: number
+  end?: number
+  limit?: number
+}
+
 // ── Store ────────────────────────────────────────────────────────
 
 interface CronStore {
@@ -86,7 +94,7 @@ interface CronStore {
   agentLogs: Record<string, CronAgentLogEntry[]>
 
   loadJobs: () => Promise<void>
-  loadRuns: (jobId?: string) => Promise<void>
+  loadRuns: (jobIdOrOptions?: string | CronRunsLoadOptions) => Promise<void>
   addJob: (job: CronJobEntry) => void
   removeJob: (id: string) => void
   deleteJob: (id: string) => Promise<{ success: boolean; error?: string }>
@@ -123,11 +131,13 @@ export const useCronStore = create<CronStore>((set) => ({
     }
   },
 
-  loadRuns: async (jobId?: string) => {
+  loadRuns: async (jobIdOrOptions?: string | CronRunsLoadOptions) => {
     try {
+      const options =
+        typeof jobIdOrOptions === 'string' ? { jobId: jobIdOrOptions } : (jobIdOrOptions ?? {})
       const result = await ipcClient.invoke(IPC.CRON_RUNS, {
-        jobId,
-        limit: MAX_RUNS
+        ...options,
+        limit: options.limit ?? MAX_RUNS
       })
       if (Array.isArray(result)) {
         set({ runs: result as CronRunEntry[] })

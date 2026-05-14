@@ -24,6 +24,7 @@ import { initAppPluginStore, useAppPluginStore } from './stores/app-plugin-store
 import { useAgentStore } from './stores/agent-store'
 import { useChatStore } from './stores/chat-store'
 import { usePlanStore } from './stores/plan-store'
+import { installGoalSyncListener, useGoalStore } from './stores/goal-store'
 import { useSshStore } from './stores/ssh-store'
 import { useTaskStore } from './stores/task-store'
 import { useTeamStore } from './stores/team-store'
@@ -294,6 +295,7 @@ function App(): React.JSX.Element {
 
       await useChatStore.getState().loadFromDb()
       await usePlanStore.getState().loadPlansFromDb()
+      await useGoalStore.getState().loadGoalsFromDb()
       if (sessionWindowView && detachedSessionId) {
         const hasDetachedSession = useChatStore
           .getState()
@@ -359,6 +361,7 @@ function App(): React.JSX.Element {
   }, [sessionWindowView])
 
   useEffect(() => installSessionRuntimeSyncListener(), [])
+  useEffect(() => installGoalSyncListener(), [])
 
   useEffect(
     () =>

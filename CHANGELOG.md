@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.95] - 2026-05-14
+
+### Added
+
+- Added a runtime status panel in the session view that surfaces sub-agent execution summaries from the title-bar control without occupying the input area.
+- Added a standalone runtime todo list with collapse/expand handling and earlier-task indicators for long task histories.
+
+### Changed
+
+- Unified sub-agent run data aggregation for the runtime panel and sub-agent list so both views share filtering, summaries, failure details, and tool-state mapping.
+- Moved in-progress todo presentation out of embedded tool-call rendering and replaced the ping animation with a rotating progress indicator for calmer task updates.
+- Removed duplicated layout-side session workspace derivation so panel state is computed from the shared runtime data source.
+
+## [0.9.94] - 2026-05-13
+
+### Changed
+
+- Unified Markdown rendering across changelog, preview/detail panels, system command cards, team notifications, plan reviews, context compression summaries, AskUserQuestion previews, sub-agent reports, and thinking blocks by reusing the shared preview Markdown plugin set.
+- Moved the session goal bar below the chat input and made it collapsible, with localized show/hide controls to keep the input area calmer while preserving quick goal access.
+
+### Fixed
+
+- Fixed completed team workflows leaving an empty assistant placeholder stuck at the bottom as "thinking" after all team tasks were marked complete.
+
+## [0.9.93] - 2026-05-12
+
+### Added
+
+- Added persistent session goals with database storage, sync events, and goal-aware runtime tools for `get_goal`, `create_goal`, and `update_goal`.
+- Added a built-in `/goal` slash command plus context-panel controls to view, edit, pause, resume, and clear the active session goal.
+- Added goal usage accounting and auto-continue support so active goals can carry across turns with token/time tracking and budget limits.
+- Added task-page controls to abort active runs and render cron plans with second-level precision in the calendar view.
+
+### Changed
+
+- Improved cron schedule validation to use `node-cron`, normalize cron expressions and time zones, and reject invalid schedules before enabling them.
+- Reduced task-run loading to the visible calendar window so the task page scales better with larger run histories.
+- Hardened OpenAI-compatible chat streaming with a pre-stream OAuth refresh retry for 401/403 failures and better handling for providers that delay terminal SSE chunks.
+
+### Fixed
+
+- Fixed Claude base64 image payloads on the cron Anthropic path to send `media_type` instead of `mediaType`.
+- Fixed scheduled-state propagation for cron run completion payloads and broadened OAuth expiry parsing for providers that return nonstandard `expires_at` fields.
+
 ## [0.9.92] - 2026-05-12
 
 ### Added

@@ -182,7 +182,7 @@ interface SessionScopedAgentSelection {
 interface SessionScopedTeamSelection {
   activeTeam: ActiveTeam | null
   teamHistory: ActiveTeam[]
-  hasActiveTeam: boolean
+  isTeamRunning: boolean
   hasOrchestrationData: boolean
   signature: string
 }
@@ -209,7 +209,7 @@ const EMPTY_SESSION_AGENT_SELECTION: SessionScopedAgentSelection = {
 const EMPTY_SESSION_TEAM_SELECTION: SessionScopedTeamSelection = {
   activeTeam: null,
   teamHistory: EMPTY_TEAM_HISTORY,
-  hasActiveTeam: false,
+  isTeamRunning: false,
   hasOrchestrationData: false,
   signature: 'empty'
 }
@@ -343,6 +343,13 @@ function buildTeamRenderSignature(team: ActiveTeam): string {
     buildTeamTaskRenderSignature(team),
     buildTeamMessageRenderSignature(team)
   ].join('::')
+}
+
+function isActiveTeamRunning(team: ActiveTeam): boolean {
+  return (
+    team.tasks.some((task) => task.status !== 'completed') ||
+    team.members.some((member) => member.status === 'working' || member.status === 'waiting')
+  )
 }
 
 function selectMessageListSession(
@@ -482,7 +489,7 @@ function selectSessionScopedTeamState(
   const nextSelection: SessionScopedTeamSelection = {
     activeTeam,
     teamHistory,
-    hasActiveTeam: Boolean(activeTeam),
+    isTeamRunning: activeTeam ? isActiveTeamRunning(activeTeam) : false,
     hasOrchestrationData: Boolean(activeTeam) || teamHistory !== EMPTY_TEAM_HISTORY,
     signature
   }
@@ -856,10 +863,10 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   const {
     activeTeam,
     teamHistory,
-    hasActiveTeam,
+    isTeamRunning,
     hasOrchestrationData: hasTeamOrchestrationData
   } = useTeamStore((s) => selectSessionScopedTeamState(s, activeSessionId))
-  const isSessionRunning = isAgentSessionRunning || hasActiveTeam || hasStreamingMessage
+  const isSessionRunning = isAgentSessionRunning || isTeamRunning || hasStreamingMessage
   const hasSessionOrchestrationData = React.useMemo(
     () => hasAgentOrchestrationData || hasTeamOrchestrationData,
     [hasAgentOrchestrationData, hasTeamOrchestrationData]
@@ -881,16 +888,35 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     tailToolExecutionState,
     orchestrationBindingSignature: orchestrationMessageBindingSignature
   } = transcriptAnalysis
-  const stableMessagesRef = React.useRef(messages)
-  const stableMessagesBindingSignatureRef = React.useRef(orchestrationMessageBindingSignature)
-  if (
+  const [orchestrationMessageSnapshot, setOrchestrationMessageSnapshot] = React.useState<{
+    messages: UnifiedMessage[]
+    bindingSignature: string
+  }>(() => ({
+    messages,
+    bindingSignature: orchestrationMessageBindingSignature
+  }))
+  const useCurrentMessagesForOrchestration =
     (!streamingMessageId && !hasActiveToolCallOutput) ||
-    stableMessagesBindingSignatureRef.current !== orchestrationMessageBindingSignature
-  ) {
-    stableMessagesRef.current = messages
-    stableMessagesBindingSignatureRef.current = orchestrationMessageBindingSignature
-  }
-  const orchestrationMessages = stableMessagesRef.current
+    orchestrationMessageSnapshot.bindingSignature !== orchestrationMessageBindingSignature
+  const orchestrationMessages = useCurrentMessagesForOrchestration
+    ? messages
+    : orchestrationMessageSnapshot.messages
+
+  React.useEffect(() => {
+    if (!useCurrentMessagesForOrchestration) return
+    setOrchestrationMessageSnapshot((previous) => {
+      if (
+        previous.messages === messages &&
+        previous.bindingSignature === orchestrationMessageBindingSignature
+      ) {
+        return previous
+      }
+      return {
+        messages,
+        bindingSignature: orchestrationMessageBindingSignature
+      }
+    })
+  }, [messages, orchestrationMessageBindingSignature, useCurrentMessagesForOrchestration])
 
   const listRef = React.useRef<HTMLDivElement | null>(null)
   const containerRef = React.useRef<HTMLDivElement | null>(null)

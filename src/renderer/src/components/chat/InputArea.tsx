@@ -122,7 +122,7 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { cn } from '@renderer/lib/utils'
 import { resolveProjectMemoryTextFile } from '@renderer/lib/agent/memory-files'
 import { isProjectSession, workspaceContextAvailable } from '@renderer/lib/session-scope'
-import { InlineStepsPanel } from '@renderer/components/cowork/StepsPanel'
+import { GoalSessionBar } from '@renderer/components/goal/GoalSessionControls'
 
 interface ContextRingProps {
   onCompressContext?: () => void | Promise<void>
@@ -346,6 +346,7 @@ const MIN_MESSAGE_LIST_HEIGHT = 120
 const EDITOR_MIN_HEIGHT = 24
 const FALLBACK_MAX_VIEWPORT_RATIO = 0.6
 const MAX_SLASH_COMMAND_RESULTS = 8
+const BUILTIN_SLASH_COMMANDS: CommandCatalogItem[] = []
 type ContextCompressionStatus = 'idle' | 'compressing' | ManualCompressionResult
 
 function getSlashCommandQuery(text: string): string | null {
@@ -1121,7 +1122,11 @@ export function InputArea({
   const slashQuery = React.useMemo(() => getSlashCommandQuery(text), [text])
   const filteredSlashCommands = React.useMemo(() => {
     const query = slashQuery ?? ''
-    return slashCommands
+    const commandsByName = new Map<string, CommandCatalogItem>()
+    for (const command of [...BUILTIN_SLASH_COMMANDS, ...slashCommands]) {
+      commandsByName.set(command.name, command)
+    }
+    return [...commandsByName.values()]
       .map((command) => ({ command, score: scoreSlashCommand(command.name, query) }))
       .filter((item) => Number.isFinite(item.score))
       .sort((left, right) => {
@@ -3041,6 +3046,7 @@ export function InputArea({
             </div>
           </div>
         </div>
+        {draftSessionId && <GoalSessionBar sessionId={draftSessionId} />}
       </div>
     </div>
   )

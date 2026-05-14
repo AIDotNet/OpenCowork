@@ -32,10 +32,13 @@ import {
 } from '@renderer/components/ui/collapsible'
 import { cn } from '@renderer/lib/utils'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { AnimatePresence, motion } from 'motion/react'
 import { FadeIn } from '@renderer/components/animate-ui'
 import { LocalTerminal } from '@renderer/components/terminal/LocalTerminal'
+import {
+  MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS
+} from '@renderer/lib/preview/viewers/markdown-components'
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -385,7 +388,12 @@ export function SubAgentExecutionDetailContent({
               </div>
               {agent.report.trim() ? (
                 <div className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/90 prose-strong:text-foreground dark:prose-invert">
-                  <Markdown remarkPlugins={[remarkGfm]}>{agent.report}</Markdown>
+                  <Markdown
+                    remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                    rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+                  >
+                    {agent.report}
+                  </Markdown>
                 </div>
               ) : summary ? (
                 <div className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground/85">
@@ -745,7 +753,12 @@ export function DetailPanel({ embedded = false }: { embedded?: boolean }): React
           {content?.type === 'document' && (
             <FadeIn key="document" className="h-full">
               <div className="prose prose-sm dark:prose-invert max-w-none">
-                <Markdown remarkPlugins={[remarkGfm]}>{content.content}</Markdown>
+                <Markdown
+                  remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                  rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+                >
+                  {content.content}
+                </Markdown>
               </div>
             </FadeIn>
           )}

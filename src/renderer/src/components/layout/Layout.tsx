@@ -91,9 +91,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const activeSessionView = useChatStore(
     useShallow((s) => {
       const activeSession = s.sessions.find((session) => session.id === s.activeSessionId)
-      const activeSessionProject = activeSession?.projectId
-        ? (s.projects.find((project) => project.id === activeSession.projectId) ?? null)
-        : null
       const explicitActiveProject = s.activeProjectId
         ? (s.projects.find((project) => project.id === s.activeProjectId) ?? null)
         : null
@@ -108,7 +105,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
         activeProjectName: activeProject?.name ?? null,
         activeProjectWorkingFolder: activeProject?.workingFolder ?? null,
         activeSessionProjectId: activeSession?.projectId ?? null,
-        activeSessionProjectWorkingFolder: activeSessionProject?.workingFolder ?? null,
         activeSessionTitle: activeSession?.title ?? null,
         activeSessionMode: activeSession?.mode as SessionMode | undefined
       }
@@ -119,7 +115,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     activeProjectName,
     activeProjectWorkingFolder,
     activeSessionProjectId,
-    activeSessionProjectWorkingFolder,
     activeSessionTitle,
     activeSessionMode
   } = activeSessionView
@@ -325,8 +320,6 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   }, [
     activeProjectName,
     activeProjectWorkingFolder,
-    activeSessionProjectWorkingFolder,
-    activeSessionTitle,
     chatView,
     drawPageOpen,
     mode,

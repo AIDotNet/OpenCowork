@@ -2,11 +2,13 @@ import { useUIStore } from '../../stores/ui-store'
 import { useChatStore } from '../../stores/chat-store'
 import { useTaskStore } from '../../stores/task-store'
 import { usePlanStore } from '../../stores/plan-store'
+import { useGoalStore } from '../../stores/goal-store'
 import { useSettingsStore } from '../../stores/settings-store'
 import { ipcClient } from '../ipc/ipc-client'
 import { estimateTokens } from '../format-tokens'
 import type { AIModelConfig } from '../api/types'
 import type { LayeredMemorySnapshot, SessionMemoryScope } from './memory-files'
+import { buildGoalSessionStateLine } from './goal-context'
 
 const FILE_CONTEXT_BUDGET_RATIO = 0.25
 const FILE_CONTEXT_BUDGET_MAX_TOKENS = 24_000
@@ -68,6 +70,20 @@ function buildSessionStateContext(sessionId: string): string | null {
     parts.push(
       '- Web Search: enabled. Use the WebSearch tool for current external information when useful.'
     )
+  }
+
+  const goal = useGoalStore.getState().getGoalBySession(sessionId)
+  if (goal) {
+    parts.push(buildGoalSessionStateLine(goal))
+    if (goal.status === 'active') {
+      parts.push('  Reminder: Keep working toward the active goal unless the user redirects you.')
+    }
+    if (goal.status === 'paused') {
+      parts.push('  Reminder: The goal is paused. Do not auto-continue it until resumed.')
+    }
+    if (goal.status === 'budget_limited') {
+      parts.push('  Reminder: The goal is budget-limited. Wrap up instead of starting new work.')
+    }
   }
 
   const tasks = useTaskStore.getState().getTasksBySession(sessionId)

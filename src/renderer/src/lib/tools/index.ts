@@ -15,6 +15,7 @@ import { registerAskUserTools } from './ask-user-tool'
 import { registerPlanTools } from './plan-tool'
 import { registerCronTools } from './cron-tool'
 import { registerNotifyTool } from './notify-tool'
+import { registerGoalTools } from './goal-tool'
 import { updateWikiToolRegistration } from './wiki-tool'
 
 let _allToolsRegistered = false
@@ -35,6 +36,7 @@ export async function registerAllTools(): Promise<void> {
   registerPlanTools()
   registerCronTools()
   registerNotifyTool()
+  registerGoalTools()
 
   // SubAgents (dynamically loaded from ~/.open-cowork/agents/*.md via IPC, then registered as unified Task tool)
   await registerSubAgents()

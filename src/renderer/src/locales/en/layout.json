@@ -94,7 +94,17 @@
     "projectGit": "Git",
     "showMoreSessions": "Show more ({{count}})",
     "showLessSessions": "Show less",
-    "openInNewWindow": "Open in new window"
+    "openInNewWindow": "Open in new window",
+    "sshProject": "SSH project",
+    "localLabel": "Local",
+    "searchLabel": "Search",
+    "pluginsLabel": "Plugins",
+    "automationLabel": "Automation",
+    "chats": "Chats",
+    "noChats": "No chats yet",
+    "smartRename": "Smart Rename",
+    "smartRenaming": "Smart renaming",
+    "extensionsLabel": "Extensions"
   },
   "sidebar_toast": {
     "sessionDeleted": "Session deleted",
@@ -116,7 +126,10 @@
     "projectWorkingFolderUpdated": "Project working folder updated",
     "projectDeleted": "Project deleted",
     "projectSessionsCleared": "Cleared {{count}} project sessions",
-    "noProjectSessionsCleared": "No project sessions were cleared"
+    "noProjectSessionsCleared": "No project sessions were cleared",
+    "smartRenameNoContent": "No conversation content available for renaming",
+    "smartRenameFailed": "Smart rename failed",
+    "smartRenameSuccess": "Session renamed intelligently"
   },
   "topbar": {
     "togglePanel": "Toggle Panel",
@@ -189,7 +202,56 @@
     "fileManagerUnavailable": "Select a working folder to open the file manager",
     "openProjectTerminal": "Open project terminal",
     "closeProjectTerminal": "Close project terminal",
-    "projectTerminalUnavailable": "Select a local or SSH workspace to open the project terminal"
+    "projectTerminalUnavailable": "Select a local or SSH workspace to open the project terminal",
+    "closeInspector": "Close inspector",
+    "openInspector": "Open inspector",
+    "help": "Open guide"
+  },
+  "browser": {
+    "back": "Back",
+    "forward": "Forward",
+    "stop": "Stop",
+    "refresh": "Refresh",
+    "urlPlaceholder": "Enter URL...",
+    "go": "Go",
+    "blockedByRules": "Blocked by browser plugin domain rules"
+  },
+  "pendingInbox": {
+    "approval": "Approval",
+    "preview": "Preview",
+    "question": "Question",
+    "desktop": "Desktop",
+    "terminal": "Terminal",
+    "error": "Error",
+    "pending": "Pending",
+    "justNow": "just now",
+    "minutesAgo": "{{count}} minutes ago",
+    "hoursAgo": "{{count}} hours ago",
+    "daysAgo": "{{count}} days ago",
+    "globalPending": "Global pending",
+    "items": "{{count}} items",
+    "backgroundSession": "Background session",
+    "dismiss": "Dismiss",
+    "untitledSession": "Untitled session",
+    "failedToOpen": "Failed to open pending item",
+    "tryAgainLater": "Please try again later"
+  },
+  "tasksPage": {
+    "statusRunning": "Running",
+    "statusSuccess": "Success",
+    "statusFailed": "Failed",
+    "statusAborted": "Aborted",
+    "statusEnabled": "Enabled",
+    "statusDisabled": "Disabled",
+    "statusHistory": "History",
+    "unknownSession": "Unknown session",
+    "weekdaySun": "Sun",
+    "weekdayMon": "Mon",
+    "weekdayTue": "Tue",
+    "weekdayWed": "Wed",
+    "weekdayThu": "Thu",
+    "weekdayFri": "Fri",
+    "weekdaySat": "Sat"
   },
   "commandPalette": {
     "placeholder": "Type a command or search sessions...",

@@ -28,6 +28,7 @@ interface JsAgentRunRequest {
   pluginSenderName?: string
   sshConnectionId?: string
   captureFinalMessages?: boolean
+  compression?: AgentLoopConfig['contextCompression']
 }
 
 type RuntimeMessage = Parameters<typeof runInteractiveAgentLoop>[0][number]
@@ -107,6 +108,26 @@ function normalizeRendererToolResult(value: unknown): RendererToolResult {
     content: typeof result.content === 'undefined' ? '' : JSON.stringify(result.content),
     isError: result.isError === true,
     ...(typeof result.error === 'string' ? { error: result.error } : {})
+  }
+}
+
+function normalizeCompressionConfig(
+  value: JsAgentRunRequest['compression']
+): AgentLoopConfig['contextCompression'] | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const contextLength = Number(value.contextLength)
+  if (!Number.isFinite(contextLength) || contextLength <= 0) return undefined
+  const threshold = Number(value.threshold)
+  return {
+    enabled: value.enabled !== false,
+    contextLength: Math.floor(contextLength),
+    threshold: Number.isFinite(threshold) ? threshold : 0.8,
+    ...(Number.isFinite(Number(value.preCompressThreshold))
+      ? { preCompressThreshold: Number(value.preCompressThreshold) }
+      : {}),
+    ...(Number.isFinite(Number(value.reservedOutputBudget))
+      ? { reservedOutputBudget: Number(value.reservedOutputBudget) }
+      : {})
   }
 }
 
@@ -236,6 +257,7 @@ export class JsAgentRuntimeManager {
       }
     }
 
+    const contextCompression = normalizeCompressionConfig(params.compression)
     const loopConfig: AgentLoopConfig = {
       maxIterations:
         typeof params.maxIterations === 'number' && Number.isFinite(params.maxIterations)
@@ -247,6 +269,7 @@ export class JsAgentRuntimeManager {
       forceApproval: params.forceApproval === true,
       messageQueue,
       captureFinalMessages: params.captureFinalMessages === true,
+      ...(contextCompression ? { contextCompression } : {}),
       onApprovalNeeded: async (toolCall) => {
         return await this.requestUserApproval(runId, params.sessionId, toolCall)
       }

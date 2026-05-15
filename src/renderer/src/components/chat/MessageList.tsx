@@ -14,7 +14,7 @@ import {
 import type { ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
-import { useAgentStore, type SubAgentState } from '@renderer/stores/agent-store'
+import { useAgentStore } from '@renderer/stores/agent-store'
 import { useTeamStore, type ActiveTeam } from '@renderer/stores/team-store'
 import { MessageItem } from './MessageItem'
 import {
@@ -27,6 +27,7 @@ import { type EditableUserMessageDraft } from '@renderer/lib/image-attachments'
 import type { RequestRetryState } from '@renderer/lib/agent/types'
 import { isStreamingPerfEnabled, recordStreamingReactCommit } from '@renderer/lib/streaming-perf'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { selectSessionScopedAgentState } from '@renderer/lib/agent/session-scoped-agent-state'
 
 const modeHints = {
   chat: {
@@ -109,7 +110,6 @@ interface UserMessageIndexRow {
 }
 
 type ChatStoreSnapshot = ReturnType<typeof useChatStore.getState>
-type AgentStoreSnapshot = ReturnType<typeof useAgentStore.getState>
 type TeamStoreSnapshot = ReturnType<typeof useTeamStore.getState>
 
 interface MessageRowProps {
@@ -134,11 +134,6 @@ interface MessageRowProps {
 }
 
 const EMPTY_MESSAGES: UnifiedMessage[] = []
-const EMPTY_SUBAGENT_MAP: Record<string, SubAgentState> = Object.freeze({}) as Record<
-  string,
-  SubAgentState
->
-const EMPTY_SUBAGENT_HISTORY: SubAgentState[] = []
 const EMPTY_TEAM_HISTORY: ActiveTeam[] = []
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 24
 const STREAMING_AUTO_SCROLL_BOTTOM_THRESHOLD = 80
@@ -169,16 +164,6 @@ interface MessageListSessionSelection {
   projectId?: string
 }
 
-interface SessionScopedAgentSelection {
-  activeSubAgents: Record<string, SubAgentState>
-  completedSubAgents: Record<string, SubAgentState>
-  subAgentHistory: SubAgentState[]
-  hasActiveToolCallOutput: boolean
-  isSessionRunning: boolean
-  hasOrchestrationData: boolean
-  signature: string
-}
-
 interface SessionScopedTeamSelection {
   activeTeam: ActiveTeam | null
   teamHistory: ActiveTeam[]
@@ -196,16 +181,6 @@ const EMPTY_MESSAGE_LIST_SESSION_SELECTION: MessageListSessionSelection = {
   workingFolder: undefined
 }
 
-const EMPTY_SESSION_AGENT_SELECTION: SessionScopedAgentSelection = {
-  activeSubAgents: EMPTY_SUBAGENT_MAP,
-  completedSubAgents: EMPTY_SUBAGENT_MAP,
-  subAgentHistory: EMPTY_SUBAGENT_HISTORY,
-  hasActiveToolCallOutput: false,
-  isSessionRunning: false,
-  hasOrchestrationData: false,
-  signature: 'empty'
-}
-
 const EMPTY_SESSION_TEAM_SELECTION: SessionScopedTeamSelection = {
   activeTeam: null,
   teamHistory: EMPTY_TEAM_HISTORY,
@@ -214,7 +189,6 @@ const EMPTY_SESSION_TEAM_SELECTION: SessionScopedTeamSelection = {
   signature: 'empty'
 }
 
-const sessionScopedAgentSelectionCache = new Map<string, SessionScopedAgentSelection>()
 const sessionScopedTeamSelectionCache = new Map<string, SessionScopedTeamSelection>()
 
 function areToolResultsEqual(a?: ToolResultsLookup, b?: ToolResultsLookup): boolean {
@@ -259,32 +233,6 @@ function areRequestRetryStatesEqual(
     a.statusCode === b.statusCode &&
     a.reason === b.reason
   )
-}
-
-function hasSessionSignatureEntry(sig: string, value: string): boolean {
-  if (!sig || !value) return false
-  return sig.split('\u0000').includes(value)
-}
-
-function buildSubAgentRenderSignature(agent: SubAgentState): string {
-  return [
-    agent.toolUseId,
-    agent.sessionId ?? '',
-    agent.displayName ?? '',
-    agent.name,
-    agent.isRunning ? '1' : '0',
-    agent.success === null ? '' : agent.success ? '1' : '0',
-    agent.errorMessage ?? '',
-    String(agent.iteration),
-    String(agent.startedAt),
-    String(agent.completedAt ?? ''),
-    agent.description ?? '',
-    agent.prompt ?? '',
-    agent.report ?? '',
-    agent.streamingText ?? '',
-    String(agent.toolCalls.length),
-    String(agent.transcript.length)
-  ].join('::')
 }
 
 function buildTeamMemberRenderSignature(team: ActiveTeam): string {
@@ -370,95 +318,6 @@ function selectMessageListSession(
     loadedRangeStart: session.loadedRangeStart ?? 0,
     projectId: session.projectId
   }
-}
-
-function selectSessionScopedAgentState(
-  state: AgentStoreSnapshot,
-  sessionId: string | null | undefined
-): SessionScopedAgentSelection {
-  if (!sessionId) return EMPTY_SESSION_AGENT_SELECTION
-
-  let activeSubAgents = EMPTY_SUBAGENT_MAP
-  let completedSubAgents = EMPTY_SUBAGENT_MAP
-  let subAgentHistory = EMPTY_SUBAGENT_HISTORY
-  const signatureParts: string[] = []
-
-  for (const [key, subAgent] of Object.entries(state.activeSubAgents)) {
-    if (subAgent.sessionId !== sessionId) continue
-    if (activeSubAgents === EMPTY_SUBAGENT_MAP) activeSubAgents = {}
-    activeSubAgents[key] = subAgent
-    signatureParts.push(`a:${buildSubAgentRenderSignature(subAgent)}`)
-  }
-
-  for (const [key, subAgent] of Object.entries(state.completedSubAgents)) {
-    if (subAgent.sessionId !== sessionId) continue
-    if (completedSubAgents === EMPTY_SUBAGENT_MAP) completedSubAgents = {}
-    completedSubAgents[key] = subAgent
-    signatureParts.push(`c:${buildSubAgentRenderSignature(subAgent)}`)
-  }
-
-  for (const subAgent of state.subAgentHistory) {
-    if (subAgent.sessionId !== sessionId) continue
-    if (subAgentHistory === EMPTY_SUBAGENT_HISTORY) subAgentHistory = []
-    subAgentHistory.push(subAgent)
-    signatureParts.push(`h:${buildSubAgentRenderSignature(subAgent)}`)
-  }
-
-  let hasActiveToolCallOutput = false
-  for (const toolCall of state.pendingToolCalls) {
-    if (
-      (!toolCall.sessionId || toolCall.sessionId === sessionId) &&
-      (toolCall.status === 'running' || toolCall.status === 'streaming')
-    ) {
-      hasActiveToolCallOutput = true
-      break
-    }
-  }
-  if (!hasActiveToolCallOutput) {
-    for (const toolCall of state.executedToolCalls) {
-      if (
-        (!toolCall.sessionId || toolCall.sessionId === sessionId) &&
-        (toolCall.status === 'running' || toolCall.status === 'streaming')
-      ) {
-        hasActiveToolCallOutput = true
-        break
-      }
-    }
-  }
-
-  const hasRunningBackgroundProcess = Object.values(state.backgroundProcesses).some(
-    (process) => process.sessionId === sessionId && process.status === 'running'
-  )
-
-  const isSessionRunning =
-    state.runningSessions[sessionId] === 'running' ||
-    hasSessionSignatureEntry(state.runningSubAgentSessionIdsSig, sessionId) ||
-    hasRunningBackgroundProcess
-
-  signatureParts.unshift(
-    `run:${isSessionRunning ? '1' : '0'}`,
-    `tool:${hasActiveToolCallOutput ? '1' : '0'}`
-  )
-
-  const signature = signatureParts.join('\u0001')
-  const cached = sessionScopedAgentSelectionCache.get(sessionId)
-  if (cached?.signature === signature) return cached
-
-  const nextSelection: SessionScopedAgentSelection = {
-    activeSubAgents,
-    completedSubAgents,
-    subAgentHistory,
-    hasActiveToolCallOutput,
-    isSessionRunning,
-    hasOrchestrationData:
-      activeSubAgents !== EMPTY_SUBAGENT_MAP ||
-      completedSubAgents !== EMPTY_SUBAGENT_MAP ||
-      subAgentHistory !== EMPTY_SUBAGENT_HISTORY,
-    signature
-  }
-
-  sessionScopedAgentSelectionCache.set(sessionId, nextSelection)
-  return nextSelection
 }
 
 function selectSessionScopedTeamState(
@@ -859,7 +718,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     hasActiveToolCallOutput,
     isSessionRunning: isAgentSessionRunning,
     hasOrchestrationData: hasAgentOrchestrationData
-  } = useAgentStore((s) => selectSessionScopedAgentState(s, activeSessionId))
+  } = useAgentStore((s) => selectSessionScopedAgentState(s, activeSessionId, { mode: 'coarse' }))
   const {
     activeTeam,
     teamHistory,

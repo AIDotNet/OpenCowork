@@ -39,6 +39,11 @@ import {
   MARKDOWN_REHYPE_PLUGINS,
   MARKDOWN_REMARK_PLUGINS
 } from '@renderer/lib/preview/viewers/markdown-components'
+import {
+  findSubAgentInSelection,
+  selectSessionScopedAgentState,
+  type SessionScopedAgentSelection
+} from '@renderer/lib/agent/session-scoped-agent-state'
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -245,25 +250,17 @@ function getSubAgentSummary(agent: SubAgentState, inlineText?: string): string {
 
 function findSubAgentRecord(
   toolUseId: string | undefined,
-  activeSessionId: string | null,
-  activeSubAgents: Record<string, SubAgentState>,
-  completedSubAgents: Record<string, SubAgentState>,
-  subAgentHistory: SubAgentState[]
+  selection: SessionScopedAgentSelection
 ): SubAgentState | null {
   if (toolUseId) {
-    return (
-      activeSubAgents[toolUseId] ??
-      completedSubAgents[toolUseId] ??
-      subAgentHistory.find((item) => item.toolUseId === toolUseId) ??
-      null
-    )
+    return findSubAgentInSelection(selection, toolUseId)
   }
 
   const candidates = [
-    ...Object.values(activeSubAgents),
-    ...Object.values(completedSubAgents),
-    ...subAgentHistory
-  ].filter((item) => !item.sessionId || item.sessionId === activeSessionId)
+    ...Object.values(selection.activeSubAgents),
+    ...Object.values(selection.completedSubAgents),
+    ...selection.subAgentHistory
+  ]
 
   if (!candidates.length) return null
   return candidates.sort((left, right) => {
@@ -284,22 +281,15 @@ export function SubAgentExecutionDetailContent({
 }): React.JSX.Element {
   const { t } = useTranslation('layout')
   const activeSessionId = useChatStore((s) => s.activeSessionId)
-  const activeSubAgents = useAgentStore((s) => s.activeSubAgents)
-  const completedSubAgents = useAgentStore((s) => s.completedSubAgents)
-  const subAgentHistory = useAgentStore((s) => s.subAgentHistory)
+  const sessionAgentSelection = useAgentStore((s) =>
+    selectSessionScopedAgentState(s, activeSessionId)
+  )
   const [toolsOpen, setToolsOpen] = React.useState(false)
   const [now, setNow] = React.useState(() => Date.now())
 
   const agent = React.useMemo(
-    () =>
-      findSubAgentRecord(
-        toolUseId,
-        activeSessionId,
-        activeSubAgents,
-        completedSubAgents,
-        subAgentHistory
-      ),
-    [toolUseId, activeSessionId, activeSubAgents, completedSubAgents, subAgentHistory]
+    () => findSubAgentRecord(toolUseId, sessionAgentSelection),
+    [toolUseId, sessionAgentSelection]
   )
 
   React.useEffect(() => {
@@ -404,7 +394,9 @@ export function SubAgentExecutionDetailContent({
                   {agent.reportStatus === 'retrying'
                     ? t('subAgentsPanel.reportStatusRetrying', { defaultValue: 'Recovering' })
                     : agent.reportStatus === 'missing'
-                      ? t('subAgentsPanel.reportMissing', { defaultValue: 'No final result captured.' })
+                      ? t('subAgentsPanel.reportMissing', {
+                          defaultValue: 'No final result captured.'
+                        })
                       : t('subAgentsPanel.reportPending', {
                           defaultValue: 'Current SubAgent has not produced final results.'
                         })}

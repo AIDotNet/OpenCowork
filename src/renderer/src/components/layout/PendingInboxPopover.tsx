@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { toast } from 'sonner'
+import type { TFunction } from 'i18next'
 import {
   Bell,
   CircleAlert,
@@ -9,6 +10,7 @@ import {
   ShieldAlert,
   TriangleAlert
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@renderer/components/ui/button'
 import { Badge } from '@renderer/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
@@ -35,34 +37,36 @@ function getInboxIcon(item: PendingInboxItem): React.JSX.Element {
   }
 }
 
-function getInboxTypeLabel(item: PendingInboxItem): string {
+function getInboxTypeLabel(item: PendingInboxItem, t: TFunction): string {
   switch (item.type) {
     case 'approval':
-      return 'Approval'
+      return t('pendingInbox.approval')
     case 'preview_ready':
-      return 'Preview'
+      return t('pendingInbox.preview')
     case 'ask_user':
-      return 'Question'
+      return t('pendingInbox.question')
     case 'desktop_control':
-      return 'Desktop'
+      return t('pendingInbox.desktop')
     case 'foreground_bash':
-      return 'Terminal'
+      return t('pendingInbox.terminal')
     case 'error':
-      return 'Error'
+      return t('pendingInbox.error')
     default:
-      return 'Pending'
+      return t('pendingInbox.pending')
   }
 }
 
-function formatCreatedAt(timestamp: number): string {
+function formatCreatedAt(timestamp: number, t: TFunction): string {
   const delta = Date.now() - timestamp
-  if (delta < 60_000) return 'just now'
-  if (delta < 3_600_000) return `${Math.max(1, Math.floor(delta / 60_000))} minutes ago`
-  if (delta < 86_400_000) return `${Math.max(1, Math.floor(delta / 3_600_000))} hours ago`
-  return `${Math.max(1, Math.floor(delta / 86_400_000))} days ago`
+  if (delta < 60_000) return t('pendingInbox.justNow')
+  if (delta < 3_600_000)
+    return t('pendingInbox.minutesAgo', { count: Math.max(1, Math.floor(delta / 60_000)) })
+  if (delta < 86_400_000)
+    return t('pendingInbox.hoursAgo', { count: Math.max(1, Math.floor(delta / 3_600_000)) })
+  return t('pendingInbox.daysAgo', { count: Math.max(1, Math.floor(delta / 86_400_000)) })
 }
 
-async function openInboxItem(item: PendingInboxItem): Promise<void> {
+async function openInboxItem(item: PendingInboxItem, t: TFunction): Promise<void> {
   const chatStore = useChatStore.getState()
   const uiStore = useUIStore.getState()
 
@@ -82,13 +86,14 @@ async function openInboxItem(item: PendingInboxItem): Promise<void> {
     }
   } catch (error) {
     console.error('[PendingInboxPopover] Failed to open inbox item:', error)
-    toast.error('Failed to open pending item', {
-      description: error instanceof Error ? error.message : 'Please try again later'
+    toast.error(t('pendingInbox.failedToOpen'), {
+      description: error instanceof Error ? error.message : t('pendingInbox.tryAgainLater')
     })
   }
 }
 
 export function PendingInboxPopover(): React.JSX.Element | null {
+  const { t } = useTranslation('layout')
   const inboxItems = useBackgroundSessionStore((state) => state.inboxItems)
   const resolveInboxItem = useBackgroundSessionStore((state) => state.resolveInboxItem)
   const sessions = useChatStore((state) => state.sessions)
@@ -98,9 +103,9 @@ export function PendingInboxPopover(): React.JSX.Element | null {
   const sessionTitleById = useMemo(
     () =>
       Object.fromEntries(
-        sessions.map((session) => [session.id, session.title || 'Untitled session'])
+        sessions.map((session) => [session.id, session.title || t('pendingInbox.untitledSession')])
       ) as Record<string, string>,
-    [sessions]
+    [sessions, t]
   )
 
   if (unresolvedItems.length === 0) return null
@@ -114,7 +119,7 @@ export function PendingInboxPopover(): React.JSX.Element | null {
           className="titlebar-no-drag relative h-7 gap-1.5 px-2 text-[10px]"
         >
           <Bell className="size-3.5" />
-          Pending
+          {t('pendingInbox.pending')}
           <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[9px]">
             {unresolvedItems.length > 99 ? '99+' : unresolvedItems.length}
           </Badge>
@@ -122,8 +127,12 @@ export function PendingInboxPopover(): React.JSX.Element | null {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[24rem] p-2">
         <div className="mb-2 flex items-center justify-between px-1">
-          <div className="text-xs font-medium text-foreground/85">Global pending</div>
-          <div className="text-[10px] text-muted-foreground">{unresolvedItems.length} items</div>
+          <div className="text-xs font-medium text-foreground/85">
+            {t('pendingInbox.globalPending')}
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            {t('pendingInbox.items', { count: unresolvedItems.length })}
+          </div>
         </div>
         <div className="max-h-80 space-y-1 overflow-y-auto">
           {unresolvedItems.map((item) => (
@@ -135,17 +144,17 @@ export function PendingInboxPopover(): React.JSX.Element | null {
                 type="button"
                 className="flex w-full items-start gap-2 text-left"
                 onClick={() => {
-                  void openInboxItem(item)
+                  void openInboxItem(item, t)
                 }}
               >
                 <span className="mt-0.5 shrink-0">{getInboxIcon(item)}</span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
                     <span className="truncate text-xs font-medium text-foreground/90">
-                      {sessionTitleById[item.sessionId] ?? 'Background session'}
+                      {sessionTitleById[item.sessionId] ?? t('pendingInbox.backgroundSession')}
                     </span>
                     <Badge variant="outline" className="px-1 py-0 text-[9px]">
-                      {getInboxTypeLabel(item)}
+                      {getInboxTypeLabel(item, t)}
                     </Badge>
                   </span>
                   <span className="mt-1 block truncate text-[11px] text-foreground/80">
@@ -159,7 +168,7 @@ export function PendingInboxPopover(): React.JSX.Element | null {
                 </span>
                 <span className="mt-0.5 flex shrink-0 flex-col items-end gap-1">
                   <span className="text-[9px] text-muted-foreground">
-                    {formatCreatedAt(item.createdAt)}
+                    {formatCreatedAt(item.createdAt, t)}
                   </span>
                   <ExternalLink className="size-3 text-muted-foreground" />
                 </span>
@@ -172,7 +181,7 @@ export function PendingInboxPopover(): React.JSX.Element | null {
                     className="h-6 px-2 text-[10px]"
                     onClick={() => resolveInboxItem(item.id)}
                   >
-                    Dismiss
+                    {t('pendingInbox.dismiss')}
                   </Button>
                 </div>
               ) : null}

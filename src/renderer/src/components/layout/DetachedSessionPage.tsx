@@ -18,6 +18,8 @@ import { SessionConversationPane } from './SessionConversationPane'
 import { WorkingFolderSheet } from './WorkingFolderSheet'
 import { WindowControls } from './WindowControls'
 import { RightPanel } from './RightPanel'
+import { setSessionForegroundVisibility } from '@renderer/lib/agent/session-runtime-router'
+import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
 
 interface DetachedSessionPageProps {
   sessionId: string
@@ -50,6 +52,15 @@ export function DetachedSessionPage({ sessionId }: DetachedSessionPageProps): Re
   useEffect(() => {
     document.title = sessionView.title ? `${sessionView.title} | OpenCoWork` : 'OpenCoWork'
   }, [sessionView.title])
+
+  useEffect(() => {
+    setSessionForegroundVisibility(sessionId, true)
+    agentStream.notifySessionVisibility(sessionId, true)
+    return () => {
+      setSessionForegroundVisibility(sessionId, false)
+      agentStream.notifySessionVisibility(sessionId, false)
+    }
+  }, [sessionId])
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -113,7 +124,7 @@ export function DetachedSessionPage({ sessionId }: DetachedSessionPageProps): Re
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <SessionConversationPane sessionId={sessionId} allowOpenInNewWindow={false} />
           <WorkingFolderSheet sessionId={sessionId} />
-          <RightPanel />
+          <RightPanel sessionId={sessionId} />
         </div>
 
         <PermissionDialog

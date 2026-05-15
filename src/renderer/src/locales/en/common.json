@@ -24,7 +24,8 @@
     "pin": "Pin",
     "unpin": "Unpin",
     "showMore": "Show more",
-    "showLess": "Show less"
+    "showLess": "Show less",
+    "more": "More"
   },
   "status": {
     "running": "running",

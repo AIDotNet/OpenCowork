@@ -1650,6 +1650,7 @@ export function AssistantMessage({
               input={block.input}
               output={result?.content}
               isLive={!!isStreaming}
+              sessionId={sessionId}
             />
           </ScaleIn>
         )

@@ -771,12 +771,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
         const titleInput = buildSmartRenameInput(session)
         if (!titleInput) {
           toast.error(
-            t('sidebar_toast.smartRenameNoContent', {
-              defaultValue:
-                language === 'zh'
-                  ? '会话里还没有可用于重命名的内容'
-                  : 'No conversation content available for renaming'
-            })
+            t('sidebar_toast.smartRenameNoContent')
           )
           return
         }
@@ -786,9 +781,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
         const nextIcon = result?.icon.trim()
         if (!nextTitle) {
           toast.error(
-            t('sidebar_toast.smartRenameFailed', {
-              defaultValue: language === 'zh' ? '智能重命名失败' : 'Smart rename failed'
-            })
+            t('sidebar_toast.smartRenameFailed')
           )
           return
         }
@@ -798,15 +791,11 @@ export function WorkspaceSidebar(): React.JSX.Element {
           updateSessionIcon(sessionId, nextIcon)
         }
         toast.success(
-          t('sidebar_toast.smartRenameSuccess', {
-            defaultValue: language === 'zh' ? '已智能重命名会话' : 'Session renamed intelligently'
-          })
+          t('sidebar_toast.smartRenameSuccess')
         )
       } catch (error) {
         toast.error(
-          t('sidebar_toast.smartRenameFailed', {
-            defaultValue: language === 'zh' ? '智能重命名失败' : 'Smart rename failed'
-          }),
+          t('sidebar_toast.smartRenameFailed'),
           {
             description: error instanceof Error ? error.message : String(error)
           }
@@ -890,28 +879,28 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const navItems = [
     {
       key: 'new-chat',
-      label: t('sidebar.newChat', { defaultValue: 'New Chat' }),
+      label: t('sidebar.newChat'),
       icon: <Pencil className="size-4 shrink-0" />,
       active: false,
       onClick: handleCreateChatSession
     },
     {
       key: 'search',
-      label: t('sidebar.searchLabel', { defaultValue: 'Search' }),
+      label: t('sidebar.searchLabel'),
       icon: <Search className="size-4 shrink-0" />,
       active: false,
       onClick: openCommandPalette
     },
     {
       key: 'plugins',
-      label: t('sidebar.pluginsLabel', { defaultValue: 'Plugins' }),
+      label: t('sidebar.pluginsLabel'),
       icon: <Wand2 className="size-4 shrink-0" />,
       active: settingsPageOpen && useUIStore.getState().settingsTab === 'plugin',
       onClick: () => useUIStore.getState().openSettingsPage('plugin')
     },
     {
       key: 'automation',
-      label: t('sidebar.automationLabel', { defaultValue: 'Automation' }),
+      label: t('sidebar.automationLabel'),
       icon: <CalendarDays className="size-4 shrink-0" />,
       active: tasksPageOpen,
       onClick: () => useUIStore.getState().openTasksPage()
@@ -1010,7 +999,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
           </ContextMenuItem>
           <ContextMenuItem onClick={() => void openDetachedSessionWindow(session.id)}>
             <ExternalLink className="size-4" />
-            {t('sidebar.openInNewWindow', { defaultValue: 'Open in new window' })}
+            {t('sidebar.openInNewWindow')}
           </ContextMenuItem>
           <ContextMenuItem
             onSelect={() =>
@@ -1038,12 +1027,8 @@ export function WorkspaceSidebar(): React.JSX.Element {
               <Wand2 className="size-4" />
             )}
             {autoRenamingSessionId === session.id
-              ? t('sidebar.smartRenaming', {
-                  defaultValue: language === 'zh' ? '智能命名中' : 'Smart renaming'
-                })
-              : t('sidebar.smartRename', {
-                  defaultValue: language === 'zh' ? '智能重命名' : 'Smart Rename'
-                })}
+              ? t('sidebar.smartRenaming')
+              : t('sidebar.smartRename')}
           </ContextMenuItem>
           <ContextMenuItem
             onClick={() => {
@@ -1179,7 +1164,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
             size="icon"
             className="workspace-titlebar-action titlebar-no-drag size-7 shrink-0 rounded-md text-sidebar-foreground/70 hover:text-sidebar-foreground"
             onClick={toggleLeftSidebar}
-            title={t('commandPalette.toggleSidebar', { defaultValue: 'Toggle sidebar' })}
+            title={t('commandPalette.toggleSidebar')}
           >
             <PanelLeftClose className="size-4" />
           </Button>
@@ -1347,7 +1332,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                   const clearableProjectSessionCount =
                     group.sessions.length - runningProjectSessionCount
                   const projectToggleTitle = isCollapsed
-                    ? t('rightPanel.expand', { defaultValue: 'Expand' })
+                    ? t('rightPanel.expand')
                     : t('rightPanel.collapse')
                   const handleProjectRowKeyDown = (
                     event: React.KeyboardEvent<HTMLDivElement>
@@ -1395,10 +1380,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
                               {project.sshConnectionId ? (
                                 <span
                                   className="inline-flex shrink-0 items-center gap-0.5 rounded border border-sky-500/30 bg-sky-500/10 px-1 py-px text-[9px] font-semibold leading-none text-sky-600 dark:text-sky-300"
-                                  title="SSH project"
+                                  title={t('sidebar.sshProject')}
                                 >
                                   <Server className="size-2.5" />
-                                  SSH
+                                  {t('sidebar.sshLabel')}
                                 </span>
                               ) : null}
                             </div>
@@ -1420,7 +1405,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                   <Pin className="size-3.5 text-amber-500" />
                                 ) : null}
                                 <span className="text-muted-foreground/80">
-                                  {project.sshConnectionId ? 'SSH' : 'Local'}
+                                  {project.sshConnectionId ? t('sidebar.sshLabel') : t('sidebar.localLabel')}
                                 </span>
                                 <span>{group.sessions.length}</span>
                                 <ChevronRight
@@ -1470,7 +1455,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                       size="icon"
                                       className={SIDEBAR_TREE_ACTION_BUTTON_CLASS}
                                       onClick={(event) => event.stopPropagation()}
-                                      title={tCommon('action.more', { defaultValue: 'More' })}
+                                      title={tCommon('action.more')}
                                     >
                                       <MoreHorizontal className="size-3.5" />
                                     </Button>
@@ -1760,7 +1745,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
               <div className="flex items-center justify-between gap-2 px-1">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
-                    {t('sidebar.chats', { defaultValue: 'Chats' })}
+                    {t('sidebar.chats')}
                   </span>
                   <span className="rounded-full border border-border/60 bg-muted/45 px-1 py-0.5 text-[9px] text-muted-foreground">
                     {chatSessions.length}
@@ -1773,7 +1758,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                         variant="ghost"
                         size="icon"
                         className="size-4"
-                        title={tCommon('action.more', { defaultValue: 'More' })}
+                        title={tCommon('action.more')}
                       >
                         <MoreHorizontal className="size-2.5" />
                       </Button>
@@ -1799,7 +1784,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                     size="icon"
                     className="size-4"
                     onClick={handleCreateChatSession}
-                    title={t('sidebar.newChat', { defaultValue: 'New Chat' })}
+                    title={t('sidebar.newChat')}
                   >
                     <Plus className="size-2.5" />
                   </Button>
@@ -1817,7 +1802,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                   )
                 ) : (
                   <div className="px-1.5 py-1 text-[10px] text-muted-foreground">
-                    {t('sidebar.noChats', { defaultValue: 'No chats yet' })}
+                    {t('sidebar.noChats')}
                   </div>
                 )}
               </div>

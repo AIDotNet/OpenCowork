@@ -8,6 +8,7 @@ import { useAgentStore } from '@renderer/stores/agent-store'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { buildOrchestrationRuns } from '@renderer/lib/orchestration/build-runs'
+import { selectSessionScopedAgentState } from '@renderer/lib/agent/session-scoped-agent-state'
 import { OrchestrationStagePills } from '@renderer/components/chat/OrchestrationStagePills'
 import { TranscriptMessageList } from '@renderer/components/chat/TranscriptMessageList'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
@@ -23,12 +24,8 @@ export function OrchestrationConsole(): React.JSX.Element {
   const messages = useChatStore((s) =>
     activeSessionId ? s.getSessionMessages(activeSessionId) : []
   )
-  const { activeSubAgents, completedSubAgents, subAgentHistory } = useAgentStore(
-    useShallow((s) => ({
-      activeSubAgents: s.activeSubAgents,
-      completedSubAgents: s.completedSubAgents,
-      subAgentHistory: s.subAgentHistory
-    }))
+  const { activeSubAgents, completedSubAgents, subAgentHistory } = useAgentStore((s) =>
+    selectSessionScopedAgentState(s, activeSessionId)
   )
   const { activeTeam, teamHistory } = useTeamStore(
     useShallow((s) => ({ activeTeam: s.activeTeam, teamHistory: s.teamHistory }))
@@ -83,7 +80,9 @@ export function OrchestrationConsole(): React.JSX.Element {
   if (!run) {
     return (
       <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border/60 bg-background/40 text-sm text-muted-foreground">
-        {t('rightPanel.orchestrationEmpty', { defaultValue: 'No collaboration orchestration records' })}
+        {t('rightPanel.orchestrationEmpty', {
+          defaultValue: 'No collaboration orchestration records'
+        })}
       </div>
     )
   }
@@ -188,7 +187,9 @@ export function OrchestrationConsole(): React.JSX.Element {
                     <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
                       <MessagesSquare className="size-3.5" />
                       <span>
-                        {t('rightPanel.orchestrationTeamMessages', { defaultValue: 'Team messages' })}
+                        {t('rightPanel.orchestrationTeamMessages', {
+                          defaultValue: 'Team messages'
+                        })}
                       </span>
                     </div>
                     <div className="space-y-2">
@@ -212,7 +213,9 @@ export function OrchestrationConsole(): React.JSX.Element {
                   <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
                     <Users className="size-3.5" />
                     <span>
-                      {t('rightPanel.orchestrationMemberSummary', { defaultValue: 'Member summary' })}
+                      {t('rightPanel.orchestrationMemberSummary', {
+                        defaultValue: 'Member summary'
+                      })}
                     </span>
                   </div>
                   <div className="space-y-2">

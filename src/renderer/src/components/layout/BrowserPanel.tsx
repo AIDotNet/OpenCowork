@@ -63,7 +63,7 @@ export function BrowserPanel({
       setBrowserErrorInfo(
         {
           code: -10,
-          desc: reason ?? 'Blocked by browser plugin domain rules',
+          desc: reason ?? t('browser.blockedByRules'),
           url
         },
         sessionId,
@@ -204,7 +204,7 @@ export function BrowserPanel({
           className="size-6"
           onClick={() => webviewRef.current?.goBack()}
           disabled={!canGoBack}
-          title="Back"
+          title={t('browser.back')}
         >
           <ArrowLeft className="size-3.5" />
         </Button>
@@ -214,7 +214,7 @@ export function BrowserPanel({
           className="size-6"
           onClick={() => webviewRef.current?.goForward()}
           disabled={!canGoForward}
-          title="Forward"
+          title={t('browser.forward')}
         >
           <ArrowRight className="size-3.5" />
         </Button>
@@ -224,7 +224,7 @@ export function BrowserPanel({
             size="icon"
             className="size-6"
             onClick={() => webviewRef.current?.stop()}
-            title="Stop"
+            title={t('browser.stop')}
           >
             <Square className="size-3" />
           </Button>
@@ -234,7 +234,7 @@ export function BrowserPanel({
             size="icon"
             className="size-6"
             onClick={() => webviewRef.current?.reload()}
-            title="Refresh"
+            title={t('browser.refresh')}
           >
             <RefreshCw className="size-3.5" />
           </Button>
@@ -247,7 +247,7 @@ export function BrowserPanel({
             value={inputUrl}
             onChange={(e) => setInputUrl(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Enter URL..."
+            placeholder={t('browser.urlPlaceholder')}
             spellCheck={false}
           />
         </div>
@@ -258,7 +258,7 @@ export function BrowserPanel({
           className="h-6 px-2 text-[11px]"
           onClick={() => navigate(inputUrl)}
         >
-          Go
+          {t('browser.go')}
         </Button>
       </div>
 

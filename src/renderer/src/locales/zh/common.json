@@ -24,7 +24,8 @@
     "pin": "置顶",
     "unpin": "取消置顶",
     "showMore": "显示更多",
-    "showLess": "收起"
+    "showLess": "收起",
+    "more": "更多"
   },
   "status": {
     "running": "运行中",

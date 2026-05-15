@@ -40,7 +40,8 @@ export function OrchestrationBlock({ run }: { run: OrchestrationRun }): React.JS
             openSubAgentExecutionDetail(
               member.toolUseId,
               member.report || member.summary || undefined,
-              member.name
+              member.name,
+              run.sessionId
             )
             return
           }

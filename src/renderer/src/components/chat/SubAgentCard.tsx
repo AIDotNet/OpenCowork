@@ -12,6 +12,10 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
 import { cn } from '@renderer/lib/utils'
 import type { ToolResultContent } from '@renderer/lib/api/types'
+import {
+  findSubAgentInSelection,
+  selectSessionScopedAgentState
+} from '@renderer/lib/agent/session-scoped-agent-state'
 
 interface SubAgentCardProps {
   name: string
@@ -19,6 +23,7 @@ interface SubAgentCardProps {
   input: Record<string, unknown>
   output?: ToolResultContent
   isLive?: boolean
+  sessionId?: string | null
 }
 
 function getSubAgentIcon(agentName: string): React.ReactNode {
@@ -155,7 +160,8 @@ function SubAgentCardInner({
   toolUseId,
   input,
   output,
-  isLive = false
+  isLive = false,
+  sessionId
 }: SubAgentCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   void isLive
@@ -163,7 +169,14 @@ function SubAgentCardInner({
   const displayName = String(input.subagent_type ?? name)
   const tracked = useAgentStore(
     useShallow((s) => {
+      const scoped = sessionId
+        ? findSubAgentInSelection(
+            selectSessionScopedAgentState(s, sessionId, { mode: 'coarse' }),
+            toolUseId
+          )
+        : null
       const item =
+        scoped ??
         s.activeSubAgents[toolUseId] ??
         s.completedSubAgents[toolUseId] ??
         s.subAgentHistory.find((entry) => entry.toolUseId === toolUseId) ??
@@ -265,7 +278,9 @@ function SubAgentCardInner({
     .join(' · ')
 
   const handleOpenPanel = (): void => {
-    useUIStore.getState().openSubAgentExecutionDetail(toolUseId, histText || undefined, displayName)
+    useUIStore
+      .getState()
+      .openSubAgentExecutionDetail(toolUseId, histText || undefined, displayName, sessionId)
   }
 
   const card = (

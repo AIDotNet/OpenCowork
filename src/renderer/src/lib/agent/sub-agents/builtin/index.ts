@@ -56,7 +56,7 @@ function getProviderConfig(): ProviderConfig {
   const s = useSettingsStore.getState()
   const store = useProviderStore.getState()
   const fastConfig = store.getFastProviderConfig()
-  if (fastConfig && fastConfig.apiKey) {
+  if (fastConfig && (fastConfig.apiKey || fastConfig.requiresApiKey === false)) {
     return {
       ...fastConfig,
       maxTokens: store.getEffectiveMaxTokens(s.maxTokens, fastConfig.model),

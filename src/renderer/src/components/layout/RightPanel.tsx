@@ -7,10 +7,14 @@ import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { useUIStore, type RightPanelTabInstance } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
-import { useAgentStore, type SubAgentState } from '@renderer/stores/agent-store'
+import { useAgentStore } from '@renderer/stores/agent-store'
 import { useAppPluginStore } from '@renderer/stores/app-plugin-store'
 import { BROWSER_PLUGIN_ID } from '@renderer/lib/app-plugin/types'
 import { cn } from '@renderer/lib/utils'
+import {
+  findSubAgentInSelection,
+  selectSessionScopedAgentState
+} from '@renderer/lib/agent/session-scoped-agent-state'
 import { RightPanelHeader } from './RightPanelHeader'
 import { BrowserPanel } from './BrowserPanel'
 import { PreviewPanel } from './PreviewPanel'
@@ -21,21 +25,6 @@ import { LocalTerminal } from '@renderer/components/terminal/LocalTerminal'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { RIGHT_PANEL_DEFAULT_WIDTH, clampRightPanelWidth } from './right-panel-defs'
-
-function findSubAgent(
-  toolUseId: string | null | undefined,
-  activeSubAgents: Record<string, SubAgentState>,
-  completedSubAgents: Record<string, SubAgentState>,
-  subAgentHistory: SubAgentState[]
-): SubAgentState | null {
-  if (!toolUseId) return null
-  return (
-    activeSubAgents[toolUseId] ??
-    completedSubAgents[toolUseId] ??
-    subAgentHistory.find((item) => item.toolUseId === toolUseId) ??
-    null
-  )
-}
 
 function TerminalTabContent({ processId }: { processId: string }): React.JSX.Element {
   const { t } = useTranslation('layout')
@@ -115,7 +104,12 @@ function TerminalTabContent({ processId }: { processId: string }): React.JSX.Ele
   )
 }
 
-export function RightPanel({ compact = false }: { compact?: boolean }): React.JSX.Element {
+interface RightPanelProps {
+  compact?: boolean
+  sessionId?: string | null
+}
+
+export function RightPanel({ compact = false, sessionId }: RightPanelProps): React.JSX.Element {
   const { t } = useTranslation('layout')
   const rightPanelOpen = useUIStore((state) => state.rightPanelOpen)
   const rightPanelWidth = useUIStore((state) => state.rightPanelWidth)
@@ -129,55 +123,72 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
   const openFilePreview = useUIStore((state) => state.openFilePreview)
   const activeScopedSessionId = useUIStore((state) => state.activeScopedSessionId)
 
-  const activeProjectId = useChatStore((state) => state.activeProjectId)
+  const activeProjectId = useChatStore((state) => {
+    const targetSessionId = sessionId ?? activeScopedSessionId ?? state.activeSessionId
+    const targetSession = targetSessionId
+      ? state.sessions.find((item) => item.id === targetSessionId)
+      : null
+    return targetSession?.projectId ?? state.activeProjectId
+  })
   const activeSessionId = useChatStore((state) => state.activeSessionId)
+  const panelSessionId = sessionId ?? activeScopedSessionId ?? activeSessionId ?? null
   const browserPluginEnabled = useAppPluginStore((state) =>
     Boolean(state.getPlugin(BROWSER_PLUGIN_ID, activeProjectId)?.enabled)
   )
-  const activeSubAgents = useAgentStore((state) => state.activeSubAgents)
-  const completedSubAgents = useAgentStore((state) => state.completedSubAgents)
-  const subAgentHistory = useAgentStore((state) => state.subAgentHistory)
-
-  const tabs = useMemo(
-    () =>
-      rightPanelTabs.map((tab) => {
-        if (tab.kind === 'review') {
-          return { ...tab, title: t('rightPanel.review', { defaultValue: 'Review' }) }
-        }
-        if (tab.kind === 'browser') {
-          return { ...tab, title: t('rightPanel.browser', { defaultValue: 'Browser' }) }
-        }
-        if (tab.kind !== 'subagent') return tab
-        if (!tab.toolUseId) {
-          const title = t('subAgentsPanel.title', { defaultValue: 'Task Runs' })
-          return title === tab.title ? tab : { ...tab, title }
-        }
-        const agent = findSubAgent(
-          tab.toolUseId,
-          activeSubAgents,
-          completedSubAgents,
-          subAgentHistory
-        )
-        const title = agent?.displayName ?? agent?.name ?? tab.title
-        return title === tab.title ? tab : { ...tab, title }
-      }),
-    [activeSubAgents, completedSubAgents, rightPanelTabs, subAgentHistory, t]
+  const needsSubAgentTitleLookup =
+    rightPanelOpen &&
+    rightPanelTabs.some(
+      (tab) =>
+        tab.kind === 'subagent' &&
+        Boolean(tab.toolUseId) &&
+        (tab.sessionId ?? panelSessionId) === panelSessionId
+    )
+  const sessionAgentSelection = useAgentStore((state) =>
+    selectSessionScopedAgentState(state, needsSubAgentTitleLookup ? panelSessionId : null, {
+      mode: 'coarse'
+    })
   )
+
+  const tabs = useMemo(() => {
+    if (!rightPanelOpen) return rightPanelTabs
+    return rightPanelTabs.map((tab) => {
+      if (tab.kind === 'review') {
+        return { ...tab, title: t('rightPanel.review', { defaultValue: 'Review' }) }
+      }
+      if (tab.kind === 'browser') {
+        return { ...tab, title: t('rightPanel.browser', { defaultValue: 'Browser' }) }
+      }
+      if (tab.kind !== 'subagent') return tab
+      if (!tab.toolUseId) {
+        const title = t('subAgentsPanel.title', { defaultValue: 'Task Runs' })
+        return title === tab.title ? tab : { ...tab, title }
+      }
+      const tabSessionId = tab.sessionId ?? panelSessionId
+      const agent =
+        tabSessionId === panelSessionId
+          ? findSubAgentInSelection(sessionAgentSelection, tab.toolUseId)
+          : null
+      const title = agent?.displayName ?? agent?.name ?? tab.title
+      return title === tab.title ? tab : { ...tab, title }
+    })
+  }, [panelSessionId, rightPanelOpen, rightPanelTabs, sessionAgentSelection, t])
   const selectedTab =
     tabs.find((tab) => tab.id === activeTabId) ??
     tabs.find((tab) => tab.kind === 'review') ??
     tabs[0]
-  const hasBrowserTab = tabs.some((tab) => tab.kind === 'browser') && browserPluginEnabled
-  const browserSessionId = activeScopedSessionId ?? activeSessionId ?? null
+  const hasBrowserTab =
+    rightPanelOpen && tabs.some((tab) => tab.kind === 'browser') && browserPluginEnabled
+  const browserSessionId = panelSessionId
   const browserPanelKey = browserSessionId
     ? `session:${browserSessionId}`
     : activeProjectId
       ? `project:${activeProjectId}`
       : 'global'
-  const activeTab =
-    selectedTab?.kind === 'browser' && !browserPluginEnabled
+  const activeTab = rightPanelOpen
+    ? selectedTab?.kind === 'browser' && !browserPluginEnabled
       ? (tabs.find((tab) => tab.kind === 'review') ?? selectedTab)
       : selectedTab
+    : undefined
 
   const draggingRef = useRef(false)
   const startXRef = useRef(0)
@@ -249,10 +260,10 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
           embedded
           toolUseId={tab.toolUseId}
           inlineText={tab.inlineText ?? undefined}
-          sessionId={tab.sessionId ?? undefined}
+          sessionId={tab.sessionId ?? panelSessionId}
         />
       ) : (
-        <SubAgentsPanel />
+        <SubAgentsPanel sessionId={tab.sessionId ?? panelSessionId} />
       )
     }
     if (tab.kind === 'terminal' && tab.processId) {
@@ -282,51 +293,53 @@ export function RightPanel({ compact = false }: { compact?: boolean }): React.JS
             : 'pointer-events-none translate-x-full opacity-0'
         )}
       >
-        <RightPanelHeader
-          tabs={tabs}
-          activeTabId={activeTab?.id ?? 'review'}
-          browserEnabled={browserPluginEnabled}
-          onSelectTab={setRightPanelActiveTab}
-          onCloseTab={closeRightPanelTab}
-          onOpenFiles={() => void handleOpenLocalFiles()}
-          onAddBrowser={() => ensureBrowserTab()}
-          onClosePanel={() => setRightPanelOpen(false)}
-          t={t}
-        />
+        {rightPanelOpen ? (
+          <>
+            <RightPanelHeader
+              tabs={tabs}
+              activeTabId={activeTab?.id ?? 'review'}
+              browserEnabled={browserPluginEnabled}
+              onSelectTab={setRightPanelActiveTab}
+              onCloseTab={closeRightPanelTab}
+              onOpenFiles={() => void handleOpenLocalFiles()}
+              onAddBrowser={() => ensureBrowserTab(undefined, panelSessionId)}
+              onClosePanel={() => setRightPanelOpen(false)}
+              t={t}
+            />
 
-        <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-          <AnimatePresence mode="wait">
-            {activeTab?.kind !== 'browser' ? (
-              <motion.div
-                key={activeTab?.id ?? 'empty'}
-                className="absolute inset-0 min-h-0"
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -6 }}
-                transition={{ duration: 0.16, ease: 'easeOut' }}
-              >
-                {renderActivePanel(activeTab)}
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
+            <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+              <AnimatePresence mode="wait">
+                {activeTab?.kind !== 'browser' ? (
+                  <motion.div
+                    key={activeTab?.id ?? 'empty'}
+                    className="absolute inset-0 min-h-0"
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -6 }}
+                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                  >
+                    {renderActivePanel(activeTab)}
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
 
-          {hasBrowserTab ? (
-            <div className={cn('absolute inset-0', activeTab?.kind !== 'browser' && 'hidden')}>
-              <BrowserPanel
-                key={browserPanelKey}
-                sessionId={browserSessionId}
-                projectId={activeProjectId}
-              />
+              {hasBrowserTab ? (
+                <div className={cn('absolute inset-0', activeTab?.kind !== 'browser' && 'hidden')}>
+                  <BrowserPanel
+                    key={browserPanelKey}
+                    sessionId={browserSessionId}
+                    projectId={activeProjectId}
+                  />
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
 
-        {rightPanelOpen && (
-          <div
-            className="absolute left-0 top-0 bottom-0 z-[60] w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"
-            onMouseDown={startResize}
-          />
-        )}
+            <div
+              className="absolute left-0 top-0 bottom-0 z-[60] w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"
+              onMouseDown={startResize}
+            />
+          </>
+        ) : null}
       </aside>
 
       {isDragging && <div className="fixed inset-0 z-[100] cursor-col-resize" />}

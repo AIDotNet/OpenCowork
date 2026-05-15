@@ -104,9 +104,11 @@ export function ChatHomePage(): React.JSX.Element {
 
   const title =
     mode === 'chat'
-      ? 'What should we talk through?'
+      ? t('messageList.homeTitleChatQuestion')
       : workingFolder
-        ? `What should we build in ${activeProject?.name ?? 'this workspace'}?`
+        ? t('messageList.homeTitleBuildQuestion', {
+            name: activeProject?.name ?? t('messageList.thisWorkspace')
+          })
         : t('messageList.startCoding')
 
   const description =

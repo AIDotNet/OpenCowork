@@ -106,6 +106,13 @@ export type InteractiveAgentEvent =
       reason: string
     }
   | { type: 'request_debug'; debugInfo: RequestDebugInfoWire }
+  | { type: 'context_compression_start' }
+  | {
+      type: 'context_compressed'
+      originalCount: number
+      newCount: number
+      messages?: AgentLoopMessage[]
+    }
   | {
       type: 'iteration_end'
       toolResults: { toolUseId: string; content: AgentToolResultContent; isError?: boolean }[]
@@ -127,12 +134,13 @@ export type InteractiveAgentEvent =
 // Both sides map to their own richer UnifiedMessage type.
 export interface AgentLoopMessage {
   id: string
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string | AgentLoopContentBlock[]
   createdAt: number
   usage?: AgentTokenUsage
   providerResponseId?: string
   source?: string | null
+  meta?: Record<string, unknown>
 }
 
 export type AgentLoopContentBlock =

@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { ipcMain, BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { safeSendToWindow } from '../window-ipc'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -16,6 +16,7 @@ import {
 import { listAgents } from './agents-handlers'
 import { recordLocalTextWriteChange } from './agent-change-handlers'
 import { JsAgentRuntimeManager } from './js-agent-runtime'
+import { compressMessagesForContext } from '../cron/cron-agent-background'
 
 const SIDECAR_RENDERER_REQUEST_TIMEOUT_MS = 10 * 60_000
 
@@ -75,7 +76,12 @@ function readNonEmptyString(value: unknown): string | undefined {
 }
 
 function isUsableRendererWindow(window: BrowserWindow | null | undefined): window is BrowserWindow {
-  return !!window && !window.isDestroyed() && !window.webContents.isDestroyed() && !window.webContents.isCrashed()
+  return (
+    !!window &&
+    !window.isDestroyed() &&
+    !window.webContents.isDestroyed() &&
+    !window.webContents.isCrashed()
+  )
 }
 
 function pickFallbackRendererWindow(): BrowserWindow | null {
@@ -84,15 +90,14 @@ function pickFallbackRendererWindow(): BrowserWindow | null {
     ? [focusedWindow, ...BrowserWindow.getAllWindows().filter((win) => win !== focusedWindow)]
     : BrowserWindow.getAllWindows()
 
-  return (
-    candidateWindows.find((win) => isUsableRendererWindow(win)) ?? null
-  )
+  return candidateWindows.find((win) => isUsableRendererWindow(win)) ?? null
 }
 
 function resolveRendererTargetWindow(
   params: unknown,
   runWindowIds: Map<string, number>,
-  sessionWindowIds: Map<string, number>
+  sessionWindowIds: Map<string, number>,
+  options?: { allowFallback?: boolean }
 ): BrowserWindow | null {
   const record = normalizeRendererRequestRecord(params)
   const agentRunId = readNonEmptyString(record.agentRunId)
@@ -115,6 +120,7 @@ function resolveRendererTargetWindow(
   if (agentRunId) runWindowIds.delete(agentRunId)
   if (runId) runWindowIds.delete(runId)
   if (sessionId) sessionWindowIds.delete(sessionId)
+  if (options?.allowFallback === false && sessionId) return null
   return pickFallbackRendererWindow()
 }
 
@@ -158,11 +164,14 @@ export function registerSidecarHandlers(): void {
 
   // New protocol: typed AgentStreamEnvelope on 'agent:stream'
   manager.setEventHandler((envelope) => {
+    const targetWindow = resolveRendererTargetWindow(envelope, runWindowIds, sessionWindowIds, {
+      allowFallback: false
+    })
+    if (targetWindow) {
+      safeSendToWindow(targetWindow, 'agent:stream', envelope)
+    }
     if (envelope.events.some((event) => event.type === 'loop_end' || event.type === 'error')) {
       runWindowIds.delete(envelope.runId)
-    }
-    for (const win of BrowserWindow.getAllWindows()) {
-      safeSendToWindow(win, 'agent:stream', envelope)
     }
   })
 
@@ -400,12 +409,39 @@ export function registerSidecarHandlers(): void {
     return await manager.request('agent/append-messages', params, 10_000)
   })
 
+  ipcMain.handle('agent:compress-context', async (_event, params: unknown) => {
+    const record = normalizeRendererRequestRecord(params)
+    const messages = Array.isArray(record.messages) ? record.messages : []
+    const provider = normalizeRendererRequestRecord(record.provider)
+    const focusPrompt = typeof record.focusPrompt === 'string' ? record.focusPrompt : undefined
+
+    return await compressMessagesForContext(
+      messages as Parameters<typeof compressMessagesForContext>[0],
+      provider as unknown as Parameters<typeof compressMessagesForContext>[1],
+      undefined,
+      undefined,
+      focusPrompt,
+      'manual',
+      0
+    )
+  })
+
   ipcMain.on(
     'agent:session-visibility',
-    (_event, payload: { sessionId: string; visible: boolean }) => {
-      if (payload?.sessionId) {
-        manager.setSessionVisibility(payload.sessionId, payload.visible === true)
+    (event: IpcMainEvent, payload: { sessionId: string; visible: boolean }) => {
+      const sessionId = readNonEmptyString(payload?.sessionId)
+      if (!sessionId) return
+
+      const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+      if (isUsableRendererWindow(sourceWindow)) {
+        if (payload.visible === true) {
+          sessionWindowIds.set(sessionId, sourceWindow.id)
+        } else if (sessionWindowIds.get(sessionId) === sourceWindow.id) {
+          sessionWindowIds.delete(sessionId)
+        }
       }
+
+      manager.setSessionVisibility(sessionId, payload.visible === true)
     }
   )
 

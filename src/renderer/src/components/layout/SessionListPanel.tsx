@@ -1345,10 +1345,10 @@ export function SessionListPanel(): React.JSX.Element {
               {group.project.sshConnectionId ? (
                 <span
                   className="inline-flex shrink-0 items-center gap-0.5 rounded border border-sky-500/30 bg-sky-500/10 px-1 py-px text-[9px] font-semibold leading-none text-sky-600 dark:text-sky-300"
-                  title="SSH project"
+                  title={t('sidebar.sshProject')}
                 >
                   <Server className="size-2.5" />
-                  SSH
+                  {t('sidebar.sshLabel')}
                 </span>
               ) : null}
               {group.project.pinned && (

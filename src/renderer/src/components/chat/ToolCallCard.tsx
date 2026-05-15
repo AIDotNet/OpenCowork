@@ -1006,6 +1006,7 @@ function HighlightText({ text, pattern }: { text: string; pattern?: string }): R
 }
 
 type SearchOutputMeta = {
+  engine?: string
   truncated: boolean
   timedOut: boolean
   limitReason?: string | null
@@ -1023,7 +1024,10 @@ function normalizeSearchMeta(decoded: unknown): SearchOutputMeta {
   if (!isRecord(decoded)) {
     return { truncated: false, timedOut: false, warnings: [] }
   }
+  const rawMeta = isRecord(decoded.meta) ? decoded.meta : null
+  const rawEngine = decoded.engine ?? rawMeta?.engine
   return {
+    engine: typeof rawEngine === 'string' ? rawEngine : undefined,
     truncated: decoded.truncated === true,
     timedOut: decoded.timedOut === true,
     limitReason: typeof decoded.limitReason === 'string' ? decoded.limitReason : null,
@@ -1036,30 +1040,44 @@ function normalizeSearchMeta(decoded: unknown): SearchOutputMeta {
   }
 }
 
-function parseLegacyGrepMatch(
-  value: unknown
-): { file: string; line: number; text: string; kind?: 'match' | 'context' } | null {
+function formatSearchEngineLabel(engine: string | undefined): string | null {
+  if (!engine) return null
+  if (engine === 'git_grep') return 'git grep'
+  if (engine === 'ripgrep') return 'ripgrep'
+  if (engine === 'sidecar') return 'sidecar'
+  if (engine === 'node' || engine === 'node_fallback') return 'Node fallback'
+  if (engine === 'remote_rg') return 'remote rg'
+  if (engine === 'remote_grep') return 'remote grep'
+  return engine
+}
+
+type ParsedGrepEntry = {
+  file: string
+  line?: number
+  column?: number
+  text: string
+  kind?: 'match' | 'context'
+  count?: number
+}
+
+function parseLegacyGrepMatch(value: unknown): ParsedGrepEntry | null {
   if (typeof value !== 'string') return null
-  const match = value.match(/^(.+?)([:-])(\d+)\2(.*)$/)
+  const match = value.match(/^(.+?)([:-])(\d+)\2(?:(\d+)\2)?(.*)$/)
   if (!match) return null
   return {
     file: match[1],
     line: Number(match[3]),
-    text: match[4] ?? '',
+    column: match[4] ? Number(match[4]) : undefined,
+    text: match[5] ?? '',
     kind: match[2] === '-' ? 'context' : 'match'
   }
 }
 
-function parseGrepTextMatches(
-  text: string
-): Array<{ file: string; line: number; text: string; kind?: 'match' | 'context' }> {
+function parseGrepTextMatches(text: string): ParsedGrepEntry[] {
   return text
     .split(/\r?\n/)
     .map((line) => parseLegacyGrepMatch(line))
-    .filter(
-      (item): item is { file: string; line: number; text: string; kind?: 'match' | 'context' } =>
-        !!item
-    )
+    .filter((item): item is ParsedGrepEntry => !!item)
 }
 
 function getSearchVisualState(meta: SearchOutputMeta, matchCount: number): SearchVisualState {
@@ -1111,7 +1129,7 @@ function SearchEmptyState(): React.JSX.Element {
 }
 
 function parseGrepOutput(output: string): {
-  matches: Array<{ file: string; line: number; text: string; kind?: 'match' | 'context' }>
+  matches: ParsedGrepEntry[]
   meta: SearchOutputMeta
   output?: string
 } | null {
@@ -1140,16 +1158,14 @@ function parseGrepOutput(output: string): {
                 ? item.path
                 : null
           const line = typeof item.line === 'number' ? item.line : null
+          const column = typeof item.column === 'number' ? item.column : undefined
           const text = typeof item.text === 'string' ? item.text : ''
-          if (!file || line == null) return null
-          return { file, line, text }
+          const count = typeof item.count === 'number' ? item.count : undefined
+          if (!file) return null
+          if (line == null && count === undefined) return { file, text }
+          return { file, line: line ?? undefined, column, text, count }
         })
-        .filter(
-          (
-            item
-          ): item is { file: string; line: number; text: string; kind?: 'match' | 'context' } =>
-            !!item
-        ),
+        .filter((item): item is ParsedGrepEntry => !!item),
       meta: { truncated: false, timedOut: false, warnings: [] }
     }
   }
@@ -1170,19 +1186,27 @@ function parseGrepOutput(output: string): {
       const file =
         typeof item.file === 'string' ? item.file : typeof item.path === 'string' ? item.path : null
       const line = typeof item.line === 'number' ? item.line : null
+      const column = typeof item.column === 'number' ? item.column : undefined
       const text = typeof item.text === 'string' ? item.text : ''
-      if (!file || line == null) return null
+      const count = typeof item.count === 'number' ? item.count : undefined
+      if (!file) return null
+      if (line == null && count === undefined) {
+        return {
+          file,
+          text,
+          kind: item.kind === 'context' ? 'context' : 'match'
+        }
+      }
       return {
         file,
-        line,
+        line: line ?? undefined,
+        column,
         text,
+        count,
         kind: item.kind === 'context' ? 'context' : 'match'
       }
     })
-    .filter(
-      (item): item is { file: string; line: number; text: string; kind?: 'match' | 'context' } =>
-        !!item
-    )
+    .filter((item): item is ParsedGrepEntry => !!item)
   const outputMatches =
     parsedMatches.length === 0 && rawOutput ? parseGrepTextMatches(rawOutput) : []
 
@@ -1258,10 +1282,13 @@ function GrepOutputBlock({
   // Group by file - must be called before early return to maintain hook order
   const groups = React.useMemo(() => {
     if (!parsed) return []
-    const map = new Map<string, Array<{ line: number; text: string }>>()
+    const map = new Map<
+      string,
+      Array<{ line?: number; column?: number; text: string; count?: number }>
+    >()
     for (const r of parsed.matches) {
       const list = map.get(r.file) ?? []
-      list.push({ line: r.line, text: r.text })
+      list.push({ line: r.line, column: r.column, text: r.text, count: r.count })
       map.set(r.file, list)
     }
     return Array.from(map.entries())
@@ -1275,6 +1302,7 @@ function GrepOutputBlock({
 
   const matchCount = parsed.matches.length
   const visualState = getSearchVisualState(parsed.meta, matchCount)
+  const engineLabel = formatSearchEngineLabel(parsed.meta.engine)
   const copyText = output
 
   return (
@@ -1283,6 +1311,11 @@ function GrepOutputBlock({
         <Search className="size-3 text-amber-500 dark:text-amber-400" />
         <p className="text-xs font-medium text-muted-foreground">{t('toolCall.grepResults')}</p>
         <SearchStateBadge state={visualState} />
+        {engineLabel && (
+          <span className="rounded border border-border/70 bg-muted/40 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+            {engineLabel}
+          </span>
+        )}
         {pattern && (
           <span className="text-[9px] font-mono text-amber-600/70 dark:text-amber-400/50">
             /{pattern}/
@@ -1317,11 +1350,17 @@ function GrepOutputBlock({
               </div>
               {matches.map((m, i) => (
                 <div key={i} className="flex gap-2 text-foreground/70 dark:text-zinc-400">
-                  <span className="w-5 shrink-0 select-none text-right text-muted-foreground/70 dark:text-zinc-600">
-                    {m.line}
+                  <span className="w-12 shrink-0 select-none text-right text-muted-foreground/70 dark:text-zinc-600">
+                    {typeof m.count === 'number'
+                      ? m.count
+                      : typeof m.line === 'number'
+                        ? m.column
+                          ? `${m.line}:${m.column}`
+                          : m.line
+                        : ''}
                   </span>
                   <span className="truncate">
-                    <HighlightText text={m.text} pattern={pattern} />
+                    {m.text ? <HighlightText text={m.text} pattern={pattern} /> : null}
                   </span>
                 </div>
               ))}

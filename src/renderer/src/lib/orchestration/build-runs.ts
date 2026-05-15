@@ -34,6 +34,12 @@ interface StableEntryCache {
   hiddenSignatures: Map<string, string>
 }
 
+interface ToolUseMessageIndex {
+  messageIdBySubAgentToolUseId: Map<string, string>
+  teamCreateMessageIdByName: Map<string, string>
+  hiddenToolUseIdsByMessage: Map<string, Set<string>>
+}
+
 const stableEntryCacheBySession = new Map<string, StableEntryCache>()
 
 function getStableEntryCache(sessionId: string | null | undefined): StableEntryCache {
@@ -101,6 +107,44 @@ function getToolUseBlocks(
   )
 }
 
+function buildToolUseMessageIndex(messages: UnifiedMessage[]): ToolUseMessageIndex {
+  const messageIdBySubAgentToolUseId = new Map<string, string>()
+  const teamCreateMessageIdByName = new Map<string, string>()
+  const hiddenToolUseIdsByMessage = new Map<string, Set<string>>()
+
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !Array.isArray(message.content)) continue
+
+    for (const block of getToolUseBlocks(message)) {
+      if (block.name === SUBAGENT_TOOL_NAME && !messageIdBySubAgentToolUseId.has(block.id)) {
+        messageIdBySubAgentToolUseId.set(block.id, message.id)
+      }
+
+      if (block.name === 'TeamCreate') {
+        const teamName = String(block.input.team_name ?? '')
+        if (teamName && !teamCreateMessageIdByName.has(teamName)) {
+          teamCreateMessageIdByName.set(teamName, message.id)
+        }
+      }
+
+      if (TEAM_TOOL_NAMES.has(block.name) || block.name === SUBAGENT_TOOL_NAME) {
+        let hidden = hiddenToolUseIdsByMessage.get(message.id)
+        if (!hidden) {
+          hidden = new Set()
+          hiddenToolUseIdsByMessage.set(message.id, hidden)
+        }
+        hidden.add(block.id)
+      }
+    }
+  }
+
+  return {
+    messageIdBySubAgentToolUseId,
+    teamCreateMessageIdByName,
+    hiddenToolUseIdsByMessage
+  }
+}
+
 function getAllSubAgents(input: BuildRunsInput): SubAgentState[] {
   const merged = new Map<string, SubAgentState>()
 
@@ -117,7 +161,7 @@ function getAllSubAgents(input: BuildRunsInput): SubAgentState[] {
   return [...merged.values()]
 }
 
-function getTeamCandidates(input: BuildRunsInput): TeamCandidate[] {
+function getTeamCandidates(input: BuildRunsInput, toolIndex: ToolUseMessageIndex): TeamCandidate[] {
   const teams = [input.activeTeam, ...input.teamHistory].filter(
     (team): team is NonNullable<typeof team> =>
       !!team && (!input.sessionId || team.sessionId === input.sessionId)
@@ -125,20 +169,12 @@ function getTeamCandidates(input: BuildRunsInput): TeamCandidate[] {
 
   return teams
     .map((team) => {
-      const sourceMessage = input.messages.find((message) => {
-        if (message.role !== 'assistant' || !Array.isArray(message.content)) return false
-        return message.content.some(
-          (block) =>
-            block.type === 'tool_use' &&
-            block.name === 'TeamCreate' &&
-            String(block.input.team_name ?? '') === team.name
-        )
-      })
-
       return {
         team,
         runId: `team:${team.name}:${team.createdAt}`,
-        sourceMessageId: sourceMessage?.id ?? `team-snapshot:${team.name}:${team.createdAt}`
+        sourceMessageId:
+          toolIndex.teamCreateMessageIdByName.get(team.name) ??
+          `team-snapshot:${team.name}:${team.createdAt}`
       }
     })
     .sort((left, right) => right.team.createdAt - left.team.createdAt)
@@ -352,22 +388,20 @@ function buildTeamRun(candidate: TeamCandidate): OrchestrationRun {
   return run
 }
 
-function getSourceMessageIdForAgent(agent: SubAgentState, messages: UnifiedMessage[]): string {
-  const sourceMessage = messages.find((message) => {
-    if (message.role !== 'assistant') return false
-    return getToolUseBlocks(message).some(
-      (block) => block.id === agent.toolUseId && block.name === SUBAGENT_TOOL_NAME
-    )
-  })
-  return sourceMessage?.id ?? `single-snapshot:${agent.toolUseId}`
+function getSourceMessageIdForAgent(agent: SubAgentState, toolIndex: ToolUseMessageIndex): string {
+  return (
+    toolIndex.messageIdBySubAgentToolUseId.get(agent.toolUseId) ??
+    `single-snapshot:${agent.toolUseId}`
+  )
 }
 
 export function buildOrchestrationRuns(input: BuildRunsInput): OrchestrationDerivedState {
   const runs: OrchestrationRun[] = []
   const byId = new Map<string, OrchestrationRun>()
   const rawByMessageId = new Map<string, ByMessageEntry>()
+  const toolIndex = buildToolUseMessageIndex(input.messages)
 
-  const teamCandidates = getTeamCandidates(input)
+  const teamCandidates = getTeamCandidates(input, toolIndex)
   for (const candidate of teamCandidates) {
     const run = buildTeamRun(candidate)
     runs.push(run)
@@ -388,7 +422,7 @@ export function buildOrchestrationRuns(input: BuildRunsInput): OrchestrationDeri
   const subAgentsByMessage = new Map<string, SubAgentState[]>()
   for (const agent of getAllSubAgents(input)) {
     if (usedToolUseIds.has(agent.toolUseId)) continue
-    const sourceMessageId = getSourceMessageIdForAgent(agent, input.messages)
+    const sourceMessageId = getSourceMessageIdForAgent(agent, toolIndex)
     const agents = subAgentsByMessage.get(sourceMessageId)
     if (agents) {
       agents.push(agent)
@@ -409,16 +443,14 @@ export function buildOrchestrationRuns(input: BuildRunsInput): OrchestrationDeri
     })
   }
 
-  for (const message of input.messages) {
-    if (message.role !== 'assistant' || !Array.isArray(message.content)) continue
-    const binding = rawByMessageId.get(message.id)
-    const hiddenToolUseIds = new Set(binding?.hiddenToolUseIds ?? [])
-    for (const block of getToolUseBlocks(message)) {
-      if (TEAM_TOOL_NAMES.has(block.name)) hiddenToolUseIds.add(block.id)
-      if (block.name === SUBAGENT_TOOL_NAME) hiddenToolUseIds.add(block.id)
-    }
+  for (const [messageId, indexedHiddenToolUseIds] of toolIndex.hiddenToolUseIdsByMessage) {
+    const binding = rawByMessageId.get(messageId)
+    const hiddenToolUseIds = new Set([
+      ...(binding?.hiddenToolUseIds ?? []),
+      ...indexedHiddenToolUseIds
+    ])
     if (binding || hiddenToolUseIds.size > 0) {
-      rawByMessageId.set(message.id, {
+      rawByMessageId.set(messageId, {
         primaryRun: binding?.primaryRun ?? null,
         hiddenToolUseIds
       })

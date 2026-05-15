@@ -2860,7 +2860,7 @@ export const useChatStore = create<ChatStore>()(
           // Filter out system-reminder blocks from user messages
           const filtered = msg.content.filter((block) => {
             if (block.type === 'text' && typeof block.text === 'string') {
-              return !block.text.trim().startsWith('<system-reminder>')
+              return !/^<system-remind(?:er)?>/i.test(block.text.trim())
             }
             return true
           })

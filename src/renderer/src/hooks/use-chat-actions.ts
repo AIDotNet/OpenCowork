@@ -170,7 +170,11 @@ import {
 } from '@renderer/lib/agent/goal-context'
 import { getTailToolExecutionState } from '@renderer/components/chat/transcript-utils'
 import type { AutoModelSelectionStatus } from '@renderer/stores/ui-store'
-import { agentBridge, canSidecarHandle } from '@renderer/lib/ipc/agent-bridge'
+import {
+  agentBridge,
+  canSidecarHandle,
+  runSidecarContextCompression
+} from '@renderer/lib/ipc/agent-bridge'
 import {
   buildSidecarAgentRunRequest,
   normalizeSidecarApprovalRequest
@@ -2558,7 +2562,7 @@ function createSidecarEventStream(options: {
         const subEvent = toSubAgentEvent(event)
         if (subEvent) {
           markProgress()
-          subAgentEvents.emit(subEvent)
+          subAgentEvents.emit(sessionId ?? null, subEvent)
           return
         }
 
@@ -3643,7 +3647,7 @@ export function useChatActions(): {
 
           // Subscribe to SubAgent events during agent loop
           const subAgentEventBuffer = createSubAgentEventBuffer(sessionId!)
-          const unsubSubAgent = subAgentEvents.on((event) => {
+          const unsubSubAgent = subAgentEvents.on(sessionId, (event) => {
             subAgentEventBuffer.handleEvent(event)
             // Accumulate SubAgent token usage into the parent message
             if (event.type === 'sub_agent_end' && event.result?.usage) {
@@ -5516,16 +5520,19 @@ export function useChatActions(): {
       toast.error('Cannot compress', { description: 'No active session' })
       return 'blocked'
     }
-    await chatStore.loadSessionMessages(sessionId)
-
     // Limitation 1: agent must not be running
     const sessionStatus = agentStore.runningSessions[sessionId]
     if (sessionStatus === 'running' || sessionStatus === 'retrying') {
-      toast.error('Cannot compress', { description: 'Agent is running, please wait for completion before manual compression' })
+      toast.error('Cannot compress', {
+        description: 'Agent is running, please wait for completion before manual compression'
+      })
       return 'blocked'
     }
 
-    const messages = chatStore.getSessionMessages(sessionId)
+    const messages = await chatStore.getSessionMessagesForRequest(sessionId, {
+      requestContextMaxMessages: null,
+      includeTrailingAssistantPlaceholder: false
+    })
     const MIN_MESSAGES = 8
 
     // Limitation 2: minimum message count
@@ -5541,7 +5548,9 @@ export function useChatActions(): {
       .slice(0, 3)
       .some((message) => isCompactSummaryLikeMessage(message))
     if (hasRecentSummary && messages.length < MIN_MESSAGES + 4) {
-      toast.error('Cannot compress', { description: 'Too few messages since last compression, please continue the conversation' })
+      toast.error('Cannot compress', {
+        description: 'Too few messages since last compression, please continue the conversation'
+      })
       return 'blocked'
     }
 
@@ -5552,7 +5561,9 @@ export function useChatActions(): {
     if (activeProvider) {
       const ready = await ensureProviderAuthReady(activeProvider.id)
       if (!ready) {
-        toast.error('Authentication missing', { description: 'Please complete provider login in settings first' })
+        toast.error('Authentication missing', {
+          description: 'Please complete provider login in settings first'
+        })
         return 'blocked'
       }
     }
@@ -5592,7 +5603,9 @@ export function useChatActions(): {
     if (compressSession?.providerId && compressSession?.modelId) {
       const ready = await ensureProviderAuthReady(compressSession.providerId)
       if (!ready) {
-        toast.error('Authentication missing', { description: 'Please complete session provider login in settings first' })
+        toast.error('Authentication missing', {
+          description: 'Please complete session provider login in settings first'
+        })
         return 'blocked'
       }
       const sessionProviderConfig = providerStore.getProviderConfigById(
@@ -5608,15 +5621,15 @@ export function useChatActions(): {
     }
 
     try {
-      const { messages: compressed, result } = await compressMessages(
+      const { messages: compressed, result } = await runSidecarContextCompression({
         messages,
-        config,
-        undefined, // no abort signal for manual
-        undefined, // adaptive preserve count
-        focusPrompt || undefined
-      )
+        provider: config,
+        focusPrompt: focusPrompt || undefined
+      })
       if (!result.compressed) {
-        toast.warning('No compression needed', { description: 'Current message count insufficient for effective compression' })
+        toast.warning('No compression needed', {
+          description: 'Current message count insufficient for effective compression'
+        })
         return 'skipped'
       }
       chatStore.replaceSessionMessages(sessionId, compressed)

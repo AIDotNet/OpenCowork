@@ -1,4 +1,5 @@
 import * as React from 'react'
+import type { TFunction } from 'i18next'
 import {
   CalendarDays,
   CheckCircle2,
@@ -16,6 +17,7 @@ import {
   XCircle
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@renderer/components/ui/button'
 import {
   Dialog,
@@ -169,7 +171,18 @@ function selectTaskPageSessionSummaries(state: {
   return next
 }
 
-const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+function getWeekdayLabels(t: TFunction): string[] {
+  return [
+    t('tasksPage.weekdaySun'),
+    t('tasksPage.weekdayMon'),
+    t('tasksPage.weekdayTue'),
+    t('tasksPage.weekdayWed'),
+    t('tasksPage.weekdayThu'),
+    t('tasksPage.weekdayFri'),
+    t('tasksPage.weekdaySat')
+  ]
+}
+
 const INPUT_CLASS =
   'h-8 w-full rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring'
 const TASKS_RUN_WINDOW_LIMIT = 1000
@@ -274,13 +287,13 @@ function getLatestRunStatus(item: TimelineItem): string | null {
   return latestRun?.status ?? null
 }
 
-function getStatusLabel(status: string | null, job?: CronJobEntry | null): string {
-  if (status === 'running') return 'Running'
-  if (status === 'success') return 'Success'
-  if (status === 'error') return 'Failed'
-  if (status === 'aborted') return 'Aborted'
-  if (job) return job.enabled ? 'Enabled' : 'Disabled'
-  return 'History'
+function getStatusLabel(status: string | null, t: TFunction, job?: CronJobEntry | null): string {
+  if (status === 'running') return t('tasksPage.statusRunning')
+  if (status === 'success') return t('tasksPage.statusSuccess')
+  if (status === 'error') return t('tasksPage.statusFailed')
+  if (status === 'aborted') return t('tasksPage.statusAborted')
+  if (job) return job.enabled ? t('tasksPage.statusEnabled') : t('tasksPage.statusDisabled')
+  return t('tasksPage.statusHistory')
 }
 
 function getStatusClass(status: string | null, job?: CronJobEntry | null): string {
@@ -294,17 +307,19 @@ function getStatusClass(status: string | null, job?: CronJobEntry | null): strin
 
 function getSourceSessionMeta(
   item: TimelineItem,
-  sessionSummaryById: Map<string, TaskPageSessionSummary>
+  sessionSummaryById: Map<string, TaskPageSessionSummary>,
+  t: TFunction
 ): { title: string; model: string | null; workingFolder: string | null } {
   const session = item.sourceSessionId ? sessionSummaryById.get(item.sourceSessionId) : null
   return {
-    title: item.sourceSessionTitle ?? session?.title ?? 'Unknown session',
+    title: item.sourceSessionTitle ?? session?.title ?? t('tasksPage.unknownSession'),
     model: item.model ?? session?.modelId ?? null,
     workingFolder: item.workingFolder ?? session?.workingFolder ?? null
   }
 }
 
 export function TasksPage(): React.JSX.Element {
+  const { t } = useTranslation('layout')
   const jobs = useCronStore((state) => state.jobs)
   const runs = useCronStore((state) => state.runs)
   const loadJobs = useCronStore((state) => state.loadJobs)
@@ -750,7 +765,9 @@ export function TasksPage(): React.JSX.Element {
   )
 
   const selectedJob = selectedItem?.job ?? null
-  const selectedMeta = selectedItem ? getSourceSessionMeta(selectedItem, sessionSummaryById) : null
+  const selectedMeta = selectedItem
+    ? getSourceSessionMeta(selectedItem, sessionSummaryById, t)
+    : null
   const selectedStatus = selectedItem ? getLatestRunStatus(selectedItem) : null
   const monthTitle = `${calendarCursor.year} / ${calendarCursor.month + 1}`
   const todayKey = dateKeyFromDate(new Date())
@@ -762,7 +779,9 @@ export function TasksPage(): React.JSX.Element {
           <div className="flex items-center justify-between px-4 py-3">
             <div>
               <div className="text-sm font-semibold text-foreground">Task Calendar</div>
-              <div className="text-[11px] text-muted-foreground">View plans and executions by day</div>
+              <div className="text-[11px] text-muted-foreground">
+                View plans and executions by day
+              </div>
             </div>
             <Button size="sm" className="h-7 px-2 text-xs" onClick={openCreateDialog}>
               <Plus className="mr-1 size-3.5" />
@@ -784,7 +803,7 @@ export function TasksPage(): React.JSX.Element {
             <span className="text-[11px] text-muted-foreground">Shows local time by default</span>
           </div>
           <div className="grid grid-cols-7 gap-1 px-4 pb-2 text-center text-[10px] text-muted-foreground">
-            {WEEKDAY_LABELS.map((label) => (
+            {getWeekdayLabels(t).map((label) => (
               <div key={label}>{label}</div>
             ))}
           </div>
@@ -872,7 +891,7 @@ export function TasksPage(): React.JSX.Element {
             ) : (
               <div className="space-y-2">
                 {filteredTimelineItems.map((item) => {
-                  const meta = getSourceSessionMeta(item, sessionSummaryById)
+                  const meta = getSourceSessionMeta(item, sessionSummaryById, t)
                   const status = getLatestRunStatus(item)
                   return (
                     <button
@@ -901,7 +920,7 @@ export function TasksPage(): React.JSX.Element {
                                 getStatusClass(status, item.job)
                               )}
                             >
-                              {getStatusLabel(status, item.job)}
+                              {getStatusLabel(status, t, item.job)}
                             </span>
                             {item.job && (
                               <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -914,7 +933,8 @@ export function TasksPage(): React.JSX.Element {
                             {meta.model && <span>Model: {meta.model}</span>}
                             {item.plannedTimes.length > 0 && (
                               <span>
-                                Planned: {item.plannedTimes
+                                Planned:{' '}
+                                {item.plannedTimes
                                   .slice(0, 3)
                                   .map((time) => formatTimeLabel(time))
                                   .join(', ')}
@@ -957,15 +977,18 @@ export function TasksPage(): React.JSX.Element {
                         getStatusClass(selectedStatus, selectedItem.job)
                       )}
                     >
-                      {getStatusLabel(selectedStatus, selectedItem.job)}
+                      {getStatusLabel(selectedStatus, t, selectedItem.job)}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
                     <div>Source session: {selectedMeta?.title ?? '—'}</div>
                     <div>Model: {selectedMeta?.model ?? '—'}</div>
-                    <div className="truncate">Working directory: {selectedMeta?.workingFolder ?? '—'}</div>
+                    <div className="truncate">
+                      Working directory: {selectedMeta?.workingFolder ?? '—'}
+                    </div>
                     <div>
-                      Scheduled: {selectedItem.plannedTimes.length > 0
+                      Scheduled:{' '}
+                      {selectedItem.plannedTimes.length > 0
                         ? selectedItem.plannedTimes.map((time) => formatTimeLabel(time)).join(', ')
                         : selectedJob
                           ? scheduleSummary(selectedJob)
@@ -1070,7 +1093,7 @@ export function TasksPage(): React.JSX.Element {
                                 getStatusClass(run.status)
                               )}
                             >
-                              {getStatusLabel(run.status)}
+                              {getStatusLabel(run.status, t)}
                             </span>
                             <span className="text-xs text-foreground">
                               {formatTimeLabel(run.startedAt)}
@@ -1112,7 +1135,7 @@ export function TasksPage(): React.JSX.Element {
                           <div>
                             <span className="text-muted-foreground">Status: </span>
                             <span className="text-foreground">
-                              {getStatusLabel(runDetail.run.status)}
+                              {getStatusLabel(runDetail.run.status, t)}
                             </span>
                           </div>
                           <div>
@@ -1147,7 +1170,8 @@ export function TasksPage(): React.JSX.Element {
                       ) : (
                         <div className="space-y-3">
                           <div className="rounded-xl border border-dashed border-border/60 bg-muted/10 p-4 text-sm text-muted-foreground">
-                            This is an old record with no full playback. Showing basic info, summary, and lightweight logs.
+                            This is an old record with no full playback. Showing basic info,
+                            summary, and lightweight logs.
                           </div>
                           {runDetail.run.outputSummary && (
                             <div className="rounded-xl border border-border/60 p-3">
@@ -1215,8 +1239,13 @@ export function TasksPage(): React.JSX.Element {
           <div className="flex h-full items-center justify-center p-6">
             <div className="flex w-full max-w-md flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/70 bg-muted/10 px-6 py-10 text-center text-muted-foreground">
               <CalendarDays className="size-10 opacity-30" />
-              <div className="text-sm font-medium text-foreground/80">Select a day from the left to view tasks</div>
-              <div className="text-xs">After selecting a task, source session, run records, and full playback will be shown here</div>
+              <div className="text-sm font-medium text-foreground/80">
+                Select a day from the left to view tasks
+              </div>
+              <div className="text-xs">
+                After selecting a task, source session, run records, and full playback will be shown
+                here
+              </div>
             </div>
           </div>
         )}

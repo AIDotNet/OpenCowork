@@ -46,7 +46,11 @@
     "clearConversation": "清空对话",
     "clearConfirmTitle": "清空所有消息？",
     "clearConfirmDesc": "这将删除此对话中的所有消息，此操作不可撤销。",
-    "sendTooltip": "发送 (Enter)",
+    "compressionBudget": "压缩预算",
+  "remaining": "剩余",
+  "compressionBudget": "压缩预算",
+  "remaining": "剩余",
+  "sendTooltip": "发送 (Enter)",
     "stopTooltip": "停止 (Esc)",
     "optimizePrompt": "优化提示词",
     "optimizing": "优化中...",
@@ -585,7 +589,10 @@
     "imageCopied": "图片已复制到剪贴板",
     "imageCopiedDesc": "可直接粘贴到聊天或文档中",
     "exportImageFailed": "导出图片失败",
-    "homeWorkspaceCaption": "工作区"
+    "homeWorkspaceCaption": "工作区",
+    "homeTitleChatQuestion": "想聊些什么？",
+    "homeTitleBuildQuestion": "想在 {{name}} 里构建什么？",
+    "thisWorkspace": "当前工作区"
   },
   "projectHome": {
     "noProjectSelected": "未选择项目",

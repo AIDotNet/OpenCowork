@@ -1,108 +1,27 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  Bot,
-  CheckCircle2,
-  Clock3,
-  Loader2,
-  ScrollText,
-  TriangleAlert,
-  Wrench,
-  X,
-  icons
-} from 'lucide-react'
-import { Badge } from '@renderer/components/ui/badge'
-import { Button } from '@renderer/components/ui/button'
+import { useShallow } from 'zustand/react/shallow'
+import { Bot } from 'lucide-react'
+import { nanoid } from 'nanoid'
 import { TranscriptMessageList } from '@renderer/components/chat/TranscriptMessageList'
+import { InputArea } from '@renderer/components/chat/InputArea'
 import { useAgentStore, type SubAgentState } from '@renderer/stores/agent-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
+import {
+  imageAttachmentToContentBlock,
+  type ImageAttachment
+} from '@renderer/lib/image-attachments'
 import { cn } from '@renderer/lib/utils'
-import { subAgentRegistry } from '@renderer/lib/agent/sub-agents/registry'
 import { parseSubAgentMeta } from '@renderer/lib/agent/sub-agents/create-tool'
+import { abortSubAgentRun, appendSubAgentUserMessage } from '@renderer/lib/agent/sub-agents/runner'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
+import {
+  findSubAgentInSelection,
+  selectSessionScopedAgentState
+} from '@renderer/lib/agent/session-scoped-agent-state'
 
 const EMPTY_SESSION_MESSAGES: UnifiedMessage[] = []
-
-function formatElapsed(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  const secs = ms / 1000
-  if (secs < 60) return `${secs.toFixed(1)}s`
-  return `${Math.floor(secs / 60)}m${Math.round(secs % 60)}s`
-}
-
-function formatDateTime(ts: number | null | undefined): string {
-  if (!ts) return '—'
-  return new Date(ts).toLocaleString()
-}
-
-function getReportStatusLabel(
-  status: SubAgentState['reportStatus'],
-  t: (key: string, options?: Record<string, unknown>) => string
-): string {
-  switch (status) {
-    case 'submitted':
-      return t('subAgentsPanel.reportStatusSubmitted', { defaultValue: 'Results available' })
-    case 'retrying':
-      return t('subAgentsPanel.reportStatusRetrying', { defaultValue: 'Recovering' })
-    case 'fallback':
-      return t('subAgentsPanel.reportStatusFallback', { defaultValue: 'Fallback generation' })
-    case 'missing':
-      return t('subAgentsPanel.reportStatusMissing', { defaultValue: 'Missing' })
-    case 'pending':
-    default:
-      return t('subAgentsPanel.reportStatusPending', { defaultValue: 'Pending generation' })
-  }
-}
-
-function getAgentIcon(agentName: string): React.ReactNode {
-  const def = subAgentRegistry.get(agentName)
-  if (def?.icon && def.icon in icons) {
-    const IconComp = icons[def.icon as keyof typeof icons]
-    return <IconComp className="size-4" />
-  }
-  return <Bot className="size-4" />
-}
-
-function findTargetAgent(
-  toolUseId: string | null | undefined,
-  activeSessionId: string | null,
-  activeSubAgents: Record<string, SubAgentState>,
-  completedSubAgents: Record<string, SubAgentState>,
-  subAgentHistory: SubAgentState[]
-): SubAgentState | null {
-  if (!toolUseId) return null
-
-  const direct =
-    activeSubAgents[toolUseId] ??
-    completedSubAgents[toolUseId] ??
-    subAgentHistory.find((item) => item.toolUseId === toolUseId)
-  if (!direct) return null
-
-  if (!activeSessionId) return direct
-  if (!direct.sessionId || direct.sessionId === activeSessionId) return direct
-
-  return (
-    subAgentHistory.find(
-      (item) => item.toolUseId === toolUseId && item.sessionId === activeSessionId
-    ) ?? direct
-  )
-}
-
-function getLatestErroredTool(agent: SubAgentState): SubAgentState['toolCalls'][number] | null {
-  for (let index = agent.toolCalls.length - 1; index >= 0; index -= 1) {
-    const toolCall = agent.toolCalls[index]
-    if (toolCall.status === 'error') return toolCall
-  }
-  return null
-}
-
-function getFailurePrimaryText(agent: SubAgentState): string {
-  if (agent.errorMessage?.trim()) return agent.errorMessage.trim()
-  const failedTool = getLatestErroredTool(agent)
-  if (failedTool?.error?.trim()) return failedTool.error.trim()
-  return ''
-}
 
 function extractToolResultText(content?: ToolResultContent): string {
   if (!content) return ''
@@ -223,12 +142,77 @@ function buildFallbackTranscript({
   return messages
 }
 
+function buildUserMessageContent(
+  text: string,
+  images?: ImageAttachment[]
+): UnifiedMessage['content'] {
+  const trimmed = text.trim()
+  const blocks: ContentBlock[] = []
+
+  if (trimmed) {
+    blocks.push({ type: 'text', text: trimmed })
+  }
+  for (const image of images ?? []) {
+    blocks.push(imageAttachmentToContentBlock(image))
+  }
+
+  if (blocks.length === 1 && blocks[0]?.type === 'text') {
+    return blocks[0].text
+  }
+  return blocks
+}
+
+function SubAgentConversationInput({
+  agent,
+  sessionId,
+  workingFolder
+}: {
+  agent: SubAgentState
+  sessionId: string | null
+  workingFolder?: string
+}): React.JSX.Element {
+  const handleSend = React.useCallback(
+    (text: string, images?: ImageAttachment[]): void => {
+      const content = buildUserMessageContent(text, images)
+      if (Array.isArray(content) && content.length === 0) return
+      if (typeof content === 'string' && !content.trim()) return
+
+      appendSubAgentUserMessage(agent.toolUseId, {
+        id: nanoid(),
+        role: 'user',
+        content,
+        createdAt: Date.now()
+      })
+    },
+    [agent.toolUseId]
+  )
+
+  const handleStop = React.useCallback((): void => {
+    abortSubAgentRun(agent.toolUseId)
+  }, [agent.toolUseId])
+
+  return (
+    <InputArea
+      sessionId={sessionId}
+      onSend={handleSend}
+      onStop={handleStop}
+      isStreaming={agent.isRunning}
+      workingFolder={workingFolder}
+      hideWorkingFolderIndicator
+      disabled={!agent.isRunning}
+      draftKeyOverride={`subagent:${agent.toolUseId}`}
+      suppressPendingQueue
+      hideGoalSessionBar
+      hideModeSwitch
+    />
+  )
+}
+
 export function SubAgentExecutionDetail({
   toolUseId,
   inlineText,
   sessionId,
-  embedded = false,
-  onClose
+  embedded = false
 }: {
   toolUseId?: string | null
   inlineText?: string
@@ -242,21 +226,26 @@ export function SubAgentExecutionDetail({
   const sessionMessages = useChatStore((s) =>
     resolvedSessionId ? s.getSessionMessages(resolvedSessionId) : EMPTY_SESSION_MESSAGES
   )
-  const activeSubAgents = useAgentStore((s) => s.activeSubAgents)
-  const completedSubAgents = useAgentStore((s) => s.completedSubAgents)
-  const subAgentHistory = useAgentStore((s) => s.subAgentHistory)
+  const sessionContext = useChatStore(
+    useShallow((s) => {
+      const index = resolvedSessionId ? s.sessionsById[resolvedSessionId] : undefined
+      const session = index !== undefined ? s.sessions[index] : undefined
+      const project = session?.projectId
+        ? s.projects.find((item) => item.id === session.projectId)
+        : null
+      return {
+        workingFolder: session?.workingFolder ?? project?.workingFolder ?? undefined
+      }
+    })
+  )
+  const sessionAgentSelection = useAgentStore((s) =>
+    selectSessionScopedAgentState(s, resolvedSessionId)
+  )
   const executedToolCalls = useAgentStore((s) => s.executedToolCalls)
 
   const agent = React.useMemo(
-    () =>
-      findTargetAgent(
-        toolUseId,
-        resolvedSessionId,
-        activeSubAgents,
-        completedSubAgents,
-        subAgentHistory
-      ),
-    [toolUseId, resolvedSessionId, activeSubAgents, completedSubAgents, subAgentHistory]
+    () => findSubAgentInSelection(sessionAgentSelection, toolUseId),
+    [sessionAgentSelection, toolUseId]
   )
 
   const fallbackReportText = React.useMemo(() => {
@@ -270,23 +259,11 @@ export function SubAgentExecutionDetail({
       : ''
   }, [toolUseId, sessionMessages, executedToolCalls])
 
-  const [now, setNow] = React.useState(() => Date.now())
-
-  React.useEffect(() => {
-    if (!agent?.isRunning) return
-    setNow(Date.now())
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [agent?.isRunning, agent?.startedAt])
-
   const fallbackDetailText = (fallbackReportText.trim() || inlineText?.trim() || '').trim()
   const fallbackInput = React.useMemo(
     () => findToolUseInput(toolUseId, sessionMessages),
     [toolUseId, sessionMessages]
   )
-  const fallbackDisplayName = fallbackInput
-    ? String(fallbackInput.subagent_type ?? fallbackInput.name ?? 'SubAgent')
-    : 'SubAgent'
   const fallbackDescription = fallbackInput?.description ? String(fallbackInput.description) : ''
   const fallbackPrompt = getPromptText(fallbackInput)
   const fallbackTranscript = React.useMemo(
@@ -300,93 +277,17 @@ export function SubAgentExecutionDetail({
     [toolUseId, fallbackDescription, fallbackPrompt, fallbackDetailText]
   )
 
-  if (!agent) {
-    if (fallbackTranscript.length > 0) {
-      return (
-        <div
-          className={cn(
-            'flex h-full min-h-0 flex-col',
-            embedded ? 'bg-transparent' : 'bg-background'
-          )}
-        >
-          <div className="border-b border-border/60 px-4 py-3">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex size-8 items-center justify-center rounded-xl border border-border/60 bg-muted/25 text-foreground/80">
-                {getAgentIcon(fallbackDisplayName)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="min-w-0 truncate text-base font-semibold text-foreground/95">
-                  {fallbackDisplayName}
-                </h2>
-                {fallbackDescription ? (
-                  <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap break-words text-[12px] text-muted-foreground/80">
-                    {fallbackDescription}
-                  </p>
-                ) : null}
-              </div>
-              {onClose ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                  onClick={onClose}
-                >
-                  <X className="size-4" />
-                </Button>
-              ) : null}
-            </div>
-          </div>
+  const transcript = agent?.transcript ?? fallbackTranscript
+  const streamingMessageId = agent?.currentAssistantMessageId ?? null
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-3">
-              {(fallbackDescription || fallbackPrompt) && (
-                <section className="rounded-xl border border-border/60 bg-background/70 p-3.5">
-                  <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
-                    <Bot className="size-3.5" />
-                    <span>{t('subAgentsPanel.executionInfo', { defaultValue: 'Execution info' })}</span>
-                  </div>
-                  <div className="space-y-3">
-                    {fallbackDescription ? (
-                      <div>
-                        <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground/55">
-                          {t('subAgentsPanel.description', { defaultValue: 'Description' })}
-                        </div>
-                        <div className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground/88">
-                          {fallbackDescription}
-                        </div>
-                      </div>
-                    ) : null}
-                    {fallbackPrompt ? (
-                      <div>
-                        <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground/55">
-                          {t('subAgentsPanel.promptLabel', { defaultValue: 'Prompt' })}
-                        </div>
-                        <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5 font-mono text-[12px] leading-5 text-foreground/88 whitespace-pre-wrap break-words">
-                          {fallbackPrompt}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </section>
-              )}
-
-              <section className="rounded-xl border border-border/60 bg-background/70 p-3.5">
-                <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
-                  <ScrollText className="size-3.5" />
-                  <span>{t('subAgentsPanel.execution', { defaultValue: 'Execution process' })}</span>
-                </div>
-                <div className="min-w-0">
-                  <TranscriptMessageList messages={fallbackTranscript} />
-                </div>
-              </section>
-            </div>
-          </div>
-        </div>
-      )
-    }
-
+  if (!agent && transcript.length === 0) {
     return (
-      <div className="flex h-full min-h-0 flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 bg-background/40 px-6 text-center">
+      <div
+        className={cn(
+          'flex h-full min-h-0 flex-col items-center justify-center px-6 text-center',
+          embedded ? 'bg-transparent' : 'bg-background'
+        )}
+      >
         <Bot className="mb-3 size-8 text-muted-foreground/40" />
         <p className="text-sm text-muted-foreground">
           {t('detailPanel.noSubAgentRecords', { defaultValue: 'No sub-agent records' })}
@@ -395,169 +296,22 @@ export function SubAgentExecutionDetail({
     )
   }
 
-  const displayName = agent.displayName ?? agent.name
-  const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
-  const failedTool = getLatestErroredTool(agent)
-  const failureText = getFailurePrimaryText(agent)
-  const failedToolText = failedTool?.error?.trim()
-    ? `${failedTool.name}: ${failedTool.error.trim()}`
-    : ''
-  const icon = getAgentIcon(displayName)
-  const isFailed = agent.success === false || !!agent.errorMessage
-
   return (
     <div
       className={cn('flex h-full min-h-0 flex-col', embedded ? 'bg-transparent' : 'bg-background')}
     >
-      <div className="border-b border-border/60 px-4 py-3">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex size-8 items-center justify-center rounded-xl border border-border/60 bg-muted/25 text-foreground/80">
-            {icon}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="min-w-0 truncate text-base font-semibold text-foreground/95">
-                {displayName}
-              </h2>
-              <Badge
-                variant={isFailed ? 'destructive' : 'secondary'}
-                className={cn(
-                  'h-5 rounded-full border border-border/60 bg-background/70 px-2 text-[10px] font-medium text-foreground/75',
-                  agent.isRunning && 'border-cyan-500/30 bg-cyan-500/10 text-cyan-100',
-                  isFailed && 'border-destructive/40 bg-destructive/10 text-destructive'
-                )}
-              >
-                {agent.isRunning
-                  ? t('subAgentsPanel.running', { defaultValue: 'Running' })
-                  : isFailed
-                    ? t('detailPanel.error', { defaultValue: 'Failed' })
-                    : t('subAgentsPanel.completed', { defaultValue: 'Completed' })}
-              </Badge>
-            </div>
-            {agent.description ? (
-              <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap break-words text-[12px] text-muted-foreground/80">
-                {agent.description}
-              </p>
-            ) : null}
-            <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground/70">
-              <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2.5 py-1">
-                <Clock3 className="size-3.5" />
-                {elapsed}
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2.5 py-1">
-                <CheckCircle2 className="size-3.5" />
-                {t('detailPanel.iterations', {
-                  count: agent.iteration,
-                  defaultValue: `Iteration: ${agent.iteration}`
-                })}
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2.5 py-1">
-                <Wrench className="size-3.5" />
-                {t('detailPanel.toolCalls', {
-                  count: agent.toolCalls.length,
-                  defaultValue: `Tool calls: ${agent.toolCalls.length}`
-                })}
-              </span>
-            </div>
-          </div>
-          {onClose ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-              onClick={onClose}
-            >
-              <X className="size-4" />
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-3">
-          <section className="rounded-xl border border-border/60 bg-background/70 p-3.5">
-            <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
-              <Bot className="size-3.5" />
-              <span>{t('subAgentsPanel.executionInfo', { defaultValue: 'Execution info' })}</span>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground/55">
-                  {t('subAgentsPanel.description', { defaultValue: 'Description' })}
-                </div>
-                <div className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground/88">
-                  {agent.description || '—'}
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground/55">
-                  {t('subAgentsPanel.promptLabel', { defaultValue: 'Prompt' })}
-                </div>
-                <div className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2.5 font-mono text-[12px] leading-5 text-foreground/88 whitespace-pre-wrap break-words">
-                  {agent.prompt || '—'}
-                </div>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <div>
-                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground/55">
-                    {t('subAgentsPanel.startedAt', { defaultValue: 'Start' })}
-                  </div>
-                  <div className="text-sm text-foreground/88">
-                    {formatDateTime(agent.startedAt)}
-                  </div>
-                </div>
-                <div>
-                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground/55">
-                    {t('subAgentsPanel.finishedAt', { defaultValue: 'End' })}
-                  </div>
-                  <div className="text-sm text-foreground/88">
-                    {formatDateTime(agent.completedAt)}
-                  </div>
-                </div>
-                <div>
-                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground/55">
-                    {t('subAgentsPanel.statusLabel', { defaultValue: 'Status' })}
-                  </div>
-                  <div className="text-sm text-foreground/88">
-                    {getReportStatusLabel(agent.reportStatus, t)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {isFailed && failureText ? (
-            <section className="rounded-xl border border-destructive/35 bg-destructive/5 p-3.5">
-              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-destructive/80">
-                <TriangleAlert className="size-3.5" />
-                <span>{t('detailPanel.error', { defaultValue: 'Failure reason' })}</span>
-              </div>
-              <div className="space-y-2 text-sm leading-6 text-foreground/90">
-                <div className="whitespace-pre-wrap break-words">{failureText}</div>
-                {failedToolText && failedToolText !== failureText ? (
-                  <div className="rounded-lg border border-destructive/20 bg-background/50 px-3 py-2 text-xs text-muted-foreground/90">
-                    {failedToolText}
-                  </div>
-                ) : null}
-              </div>
-            </section>
-          ) : null}
-
-          <section className="rounded-xl border border-border/60 bg-background/70 p-3.5">
-            <div className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/65">
-              <ScrollText className="size-3.5" />
-              <span>{t('subAgentsPanel.execution', { defaultValue: 'Execution process' })}</span>
-              {agent.isRunning ? <Loader2 className="size-3 animate-spin" /> : null}
-            </div>
-            <div className="min-w-0">
-              <TranscriptMessageList
-                messages={agent.transcript}
-                streamingMessageId={agent.currentAssistantMessageId}
-              />
-            </div>
-          </section>
-        </div>
-      </div>
+      <TranscriptMessageList
+        messages={transcript}
+        streamingMessageId={streamingMessageId}
+        className="h-full min-h-0 flex-1"
+      />
+      {agent ? (
+        <SubAgentConversationInput
+          agent={agent}
+          sessionId={resolvedSessionId}
+          workingFolder={sessionContext.workingFolder}
+        />
+      ) : null}
     </div>
   )
 }

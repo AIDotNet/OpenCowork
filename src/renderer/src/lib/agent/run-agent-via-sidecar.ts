@@ -51,7 +51,7 @@ export function runAgentViaSidecar(
         const subEvent = toSubAgentEvent(event)
         if (subEvent) {
           if (routeSubAgentEventsToBus) {
-            subAgentEvents.emit(subEvent)
+            subAgentEvents.emit(request.sessionId ?? null, subEvent)
             return
           }
         }

@@ -46,7 +46,11 @@
     "clearConversation": "Clear conversation",
     "clearConfirmTitle": "Clear all messages?",
     "clearConfirmDesc": "This will remove all messages in this conversation. This action cannot be undone.",
-    "sendTooltip": "Send (Enter)",
+    "compressionBudget": "Compression Budget",
+  "remaining": "remaining",
+  "compressionBudget": "Compression Budget",
+  "remaining": "remaining",
+  "sendTooltip": "Send (Enter)",
     "stopTooltip": "Stop (Esc)",
     "optimizePrompt": "Optimize prompt",
     "optimizing": "Optimizing...",
@@ -585,7 +589,10 @@
     "imageCopied": "Image copied to clipboard",
     "imageCopiedDesc": "You can paste it into chat or documents",
     "exportImageFailed": "Export image failed",
-    "homeWorkspaceCaption": "Workspace"
+    "homeWorkspaceCaption": "Workspace",
+    "homeTitleChatQuestion": "What should we talk through?",
+    "homeTitleBuildQuestion": "What should we build in {{name}}?",
+    "thisWorkspace": "this workspace"
   },
   "projectHome": {
     "noProjectSelected": "No project selected",

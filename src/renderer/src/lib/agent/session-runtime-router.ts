@@ -43,6 +43,7 @@ function upsertBufferedToolUse(blocks: ContentBlock[], toolUse: ToolUseBlock): v
 let _cachedVisibleIds: Set<string> | null = null
 let _cachedVisibleIdsTs = 0
 const VISIBLE_IDS_CACHE_TTL_MS = 50
+const _explicitVisibleSessionIds = new Set<string>()
 
 /**
  * Invalidate the visible-session cache. Call this whenever `activeSessionId`
@@ -50,6 +51,18 @@ const VISIBLE_IDS_CACHE_TTL_MS = 50
  */
 export function invalidateVisibleSessionCache(): void {
   _cachedVisibleIds = null
+}
+
+export function setSessionForegroundVisibility(sessionId: string, visible: boolean): void {
+  const normalizedSessionId = sessionId.trim()
+  if (!normalizedSessionId) return
+
+  if (visible) {
+    _explicitVisibleSessionIds.add(normalizedSessionId)
+  } else {
+    _explicitVisibleSessionIds.delete(normalizedSessionId)
+  }
+  invalidateVisibleSessionCache()
 }
 
 // --- Debounced markSessionUpdate ---
@@ -124,6 +137,9 @@ export function getVisibleSessionIds(): Set<string> {
   const { activeSessionId } = useChatStore.getState()
 
   if (activeSessionId) visibleSessionIds.add(activeSessionId)
+  for (const sessionId of _explicitVisibleSessionIds) {
+    visibleSessionIds.add(sessionId)
+  }
 
   _cachedVisibleIds = visibleSessionIds
   _cachedVisibleIdsTs = now
@@ -156,6 +172,15 @@ function flushForegroundMutations(): void {
     thunk()
   }
   recordStreamingForegroundFlush(performance.now() - startedAt, { count: thunks.length })
+}
+
+function flushPendingForegroundMutations(): void {
+  if (_pendingForegroundMutations.length === 0) return
+  if (_foregroundFlushRafId !== null) {
+    cancelAnimationFrame(_foregroundFlushRafId)
+    _foregroundFlushRafId = null
+  }
+  flushForegroundMutations()
 }
 
 function queueForegroundMutation(thunk: ForegroundMutationThunk): void {
@@ -221,6 +246,7 @@ export function appendRuntimeTextDelta(sessionId: string, messageId: string, tex
   emitSessionRuntimeSync({ kind: 'append_text_delta', sessionId, messageId, text })
 
   if (isSessionForeground(sessionId)) {
+    flushPendingForegroundMutations()
     useChatStore.getState().appendTextDelta(sessionId, messageId, text)
     return
   }
@@ -256,6 +282,7 @@ export function appendRuntimeThinkingDelta(
   })
 
   if (isSessionForeground(sessionId)) {
+    flushPendingForegroundMutations()
     useChatStore.getState().appendThinkingDelta(sessionId, messageId, cleanedThinking)
     return
   }

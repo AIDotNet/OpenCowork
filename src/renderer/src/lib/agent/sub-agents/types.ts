@@ -49,7 +49,7 @@ export interface SubAgentDefinition {
 
 export interface SubAgentRunConfig {
   definition: SubAgentDefinition
-  /** Parent's provider config (API key, base URL inherited; model/temp may be overridden) */
+  /** Parent provider config, used as a fallback when no usable fast provider is configured. */
   parentProvider: ProviderConfig
   /** Tool context inherited from parent (working folder, IPC, signal) */
   toolContext: ToolContext

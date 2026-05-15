@@ -63,6 +63,30 @@ const responsesWsManager = new ResponsesWebSocketSessionManager('cron')
 const promptCacheKeyPrefix = 'opencowork'
 const globalPromptCacheKey = createPromptCacheKey()
 const promptCacheKeysBySession = new Map<string, string>()
+const CONTEXT_COMPRESSION_DEFAULT_THRESHOLD = 0.8
+const CONTEXT_COMPRESSION_DEFAULT_PRE_THRESHOLD = 0.65
+const CONTEXT_COMPRESSION_DEFAULT_RESERVED_OUTPUT_TOKENS = 20_000
+const CONTEXT_COMPRESSION_AUTO_BUFFER_TOKENS = 13_000
+const CONTEXT_COMPRESSION_PRE_BUFFER_TOKENS = 20_000
+const CONTEXT_COMPRESSION_PRE_GAP_TOKENS = 8_000
+const CONTEXT_COMPRESSION_PRESERVE_RECENT_COUNT = 4
+const CONTEXT_COMPRESSION_TOOL_RESULT_KEEP_RECENT = 6
+const CONTEXT_COMPRESSION_MAX_RETRIES = 2
+const CONTEXT_COMPRESSION_MAX_CONSECUTIVE_FAILURES = 3
+const CONTEXT_COMPRESSION_SAFE_BOUNDARY_SCAN_LIMIT = 10
+const CONTEXT_COMPRESSION_TOOL_RESULT_CLEAR_CHAR_THRESHOLD = 200
+const CONTEXT_COMPRESSION_SERIALIZED_TOOL_USE_INPUT_LIMIT = 500
+const CONTEXT_COMPRESSION_SERIALIZED_TOOL_RESULT_LIMIT = 800
+const CONTEXT_COMPRESSION_RETRY_DELAY_MS = 1_500
+const CONTEXT_COMPRESSION_SUMMARY_TIMEOUT_MS = 120_000
+const CONTEXT_COMPRESSION_RESPONSES_SCOPE = 'context-compression'
+const CLEARED_CONTEXT_TOOL_RESULT_PLACEHOLDER = '[tool result cleared during context compression]'
+const CLEARED_CONTEXT_THINKING_PLACEHOLDER = '[thinking cleared during context compression]'
+const CONTEXT_COMPRESSION_SYSTEM_PROMPT =
+  'You compress long AI coding-agent conversations into durable working memory. ' +
+  'Preserve exact user intent, constraints, decisions, files touched, errors, test results, ' +
+  'open tasks, and any facts needed to continue safely. Omit filler and obsolete details. ' +
+  'Return only a concise Markdown summary, with no preface.'
 
 function createPromptCacheKey(seed?: string): string {
   const normalizedSeed = seed?.trim()
@@ -156,6 +180,7 @@ interface TokenUsage {
   outputTokens: number
   billableInputTokens?: number
   contextTokens?: number
+  contextLength?: number
   cacheCreationTokens?: number
   cacheCreation5mTokens?: number
   cacheCreation1hTokens?: number
@@ -194,13 +219,31 @@ export type ToolResultContent = AgentToolResultContent
 
 interface UnifiedMessage {
   id: string
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string | ContentBlock[]
   createdAt: number
   usage?: TokenUsage
   providerResponseId?: string
   source?: string | null
+  meta?: Record<string, unknown>
 }
+
+export interface CompressionConfig {
+  enabled: boolean
+  contextLength: number
+  threshold: number
+  preCompressThreshold?: number
+  reservedOutputBudget?: number
+}
+
+interface CompressionResult {
+  compressed: boolean
+  originalCount: number
+  newCount: number
+  messagesSummarized?: number
+}
+
+type CompressionTrigger = 'auto' | 'manual'
 
 interface ToolDefinition {
   name: string
@@ -391,6 +434,7 @@ export interface AgentLoopConfig {
   onApprovalNeeded?: (toolCall: ToolCallState) => Promise<boolean>
   messageQueue?: MessageQueueLike
   captureFinalMessages?: boolean
+  contextCompression?: CompressionConfig
 }
 
 interface AgentDefinition {
@@ -529,10 +573,12 @@ function extractStructuredToolError(output: ToolResultContent): string | undefin
 
 type SearchLimitReason = 'max_results' | 'max_output_bytes' | 'timeout' | 'max_depth' | null
 type GrepMatchKind = 'match' | 'context'
-type GrepOutputMode = 'matches' | 'files_with_matches' | 'count'
+type GrepOutputMode = 'matches' | 'files_with_matches' | 'files_without_matches' | 'count'
 type GrepPathStyle = 'relative' | 'absolute'
+type SearchEngine = 'ripgrep' | 'node_fallback' | 'remote_rg' | 'remote_grep'
 
 type SearchMeta = {
+  engine?: SearchEngine
   truncated: boolean
   timedOut: boolean
   limitReason: SearchLimitReason
@@ -548,7 +594,13 @@ const CRON_GREP_DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024
 const CRON_GREP_MAX_OUTPUT_BYTES = 64 * 1024
 
 function shouldUseCompactSearchPayload(meta: SearchMeta, error?: string): boolean {
-  return !error && !meta.truncated && !meta.timedOut && (meta.warnings?.length ?? 0) === 0
+  return (
+    !error &&
+    !meta.engine &&
+    !meta.truncated &&
+    !meta.timedOut &&
+    (meta.warnings?.length ?? 0) === 0
+  )
 }
 
 function formatGlobToolResult(args: {
@@ -592,6 +644,7 @@ function formatGrepToolResult(args: {
   truncated?: boolean
   timedOut?: boolean
   limitReason?: SearchLimitReason
+  engine?: SearchEngine
   warnings?: string[]
   error?: string
   outputMode?: GrepOutputMode
@@ -619,7 +672,7 @@ function formatGrepToolResult(args: {
     }
 
     const line =
-      outputMode === 'files_with_matches'
+      outputMode === 'files_with_matches' || outputMode === 'files_without_matches'
         ? item.file
         : outputMode === 'count'
           ? `${item.file}:${item.count ?? 0}`
@@ -642,6 +695,7 @@ function formatGrepToolResult(args: {
   const truncated =
     args.truncated === true || args.matches.length > matches.length || outputLimitReason !== null
   const meta: SearchMeta = {
+    engine: args.engine,
     truncated,
     timedOut: args.timedOut === true,
     limitReason: args.limitReason ?? outputLimitReason ?? (truncated ? 'max_results' : null),
@@ -656,6 +710,7 @@ function formatGrepToolResult(args: {
   return encodeStructuredToolResult({
     output,
     matches,
+    engine: meta.engine,
     truncated: meta.truncated,
     timedOut: meta.timedOut,
     limitReason: meta.limitReason,
@@ -745,7 +800,9 @@ function normalizeCronBoolean(value: unknown, fallback: boolean): boolean {
 }
 
 function normalizeCronOutputMode(value: unknown): GrepOutputMode {
-  return value === 'files_with_matches' || value === 'count' ? value : 'matches'
+  return value === 'files_with_matches' || value === 'files_without_matches' || value === 'count'
+    ? value
+    : 'matches'
 }
 
 function normalizeCronPathStyle(value: unknown): GrepPathStyle {
@@ -760,7 +817,7 @@ function normalizeCronGrepOptions(input: Record<string, unknown>): CronGrepOptio
     ? Boolean(input.caseSensitive)
     : smartCase
       ? /[A-Z]/.test(pattern)
-      : false
+      : true
   const context = clampCronGrepContext(input.context)
   const include =
     typeof input.include === 'string' && input.include.trim() ? input.include.trim() : '**/*'
@@ -855,6 +912,8 @@ function appendCronRipgrepSearchFlags(rgArgs: string[], options: CronGrepOptions
     if (options.afterContext > 0) rgArgs.push('--after-context', String(options.afterContext))
   } else if (options.outputMode === 'files_with_matches') {
     rgArgs.push('--files-with-matches')
+  } else if (options.outputMode === 'files_without_matches') {
+    rgArgs.push('--files-without-match')
   } else {
     rgArgs.push('--count')
   }
@@ -928,7 +987,10 @@ async function runCronLocalRipgrepSearch(
     const processLine = (rawLine: string): void => {
       if (!rawLine.trim()) return
 
-      if (options.outputMode === 'files_with_matches') {
+      if (
+        options.outputMode === 'files_with_matches' ||
+        options.outputMode === 'files_without_matches'
+      ) {
         appendMatch({
           file: formatCronGrepPath(searchRoot, rawLine.trimEnd(), options.pathStyle)
         })
@@ -3750,26 +3812,572 @@ class ProviderRequestError extends Error {
   }
 }
 
+function readContextUsage(usage?: TokenUsage): number {
+  return usage?.contextTokens ?? 0
+}
+
+function findRecentContextUsage(messages: UnifiedMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const tokens = readContextUsage(messages[index]?.usage)
+    if (tokens > 0) return tokens
+  }
+  return 0
+}
+
+function getEffectiveCompressionWindow(config: CompressionConfig): number {
+  if (!config.enabled || config.contextLength <= 0) return 0
+  const reserved = Math.max(
+    0,
+    config.reservedOutputBudget ?? CONTEXT_COMPRESSION_DEFAULT_RESERVED_OUTPUT_TOKENS
+  )
+  return Math.max(1, config.contextLength - reserved)
+}
+
+function getCompressionTriggerTokens(config: CompressionConfig): number {
+  const effectiveWindow = getEffectiveCompressionWindow(config)
+  if (effectiveWindow <= 0) return 0
+  const ratioThreshold = Math.floor(
+    effectiveWindow *
+      (Number.isFinite(config.threshold) ? config.threshold : CONTEXT_COMPRESSION_DEFAULT_THRESHOLD)
+  )
+  const bufferedThreshold = effectiveWindow - CONTEXT_COMPRESSION_AUTO_BUFFER_TOKENS
+  return Math.max(
+    1,
+    Math.min(ratioThreshold, bufferedThreshold > 0 ? bufferedThreshold : ratioThreshold)
+  )
+}
+
+function getPreCompressionTriggerTokens(config: CompressionConfig): number {
+  const effectiveWindow = getEffectiveCompressionWindow(config)
+  if (effectiveWindow <= 0) return 0
+  const fullThreshold = getCompressionTriggerTokens(config)
+  const preThreshold = Number.isFinite(config.preCompressThreshold)
+    ? (config.preCompressThreshold as number)
+    : CONTEXT_COMPRESSION_DEFAULT_PRE_THRESHOLD
+  const candidates = [Math.floor(effectiveWindow * preThreshold)]
+  const bufferedThreshold = effectiveWindow - CONTEXT_COMPRESSION_PRE_BUFFER_TOKENS
+  if (bufferedThreshold > 0) candidates.push(bufferedThreshold)
+  const gapThreshold = fullThreshold - CONTEXT_COMPRESSION_PRE_GAP_TOKENS
+  if (gapThreshold > 0) candidates.push(gapThreshold)
+  const threshold = Math.min(...candidates)
+  return Math.max(1, Math.min(threshold, Math.max(1, fullThreshold - 1)))
+}
+
+function shouldCompressContext(
+  inputTokens: number,
+  config: CompressionConfig,
+  consecutiveFailures: number
+): boolean {
+  if (!config.enabled || config.contextLength <= 0) return false
+  if (consecutiveFailures >= CONTEXT_COMPRESSION_MAX_CONSECUTIVE_FAILURES) return false
+  return inputTokens >= getCompressionTriggerTokens(config)
+}
+
+function shouldPreCompressContext(inputTokens: number, config: CompressionConfig): boolean {
+  if (!config.enabled || config.contextLength <= 0) return false
+  const preThreshold = getPreCompressionTriggerTokens(config)
+  const fullThreshold = getCompressionTriggerTokens(config)
+  return inputTokens >= preThreshold && inputTokens < fullThreshold
+}
+
+function preCompressContextMessages(messages: UnifiedMessage[]): UnifiedMessage[] {
+  if (messages.length <= CONTEXT_COMPRESSION_TOOL_RESULT_KEEP_RECENT) return messages
+
+  const cutoff = messages.length - CONTEXT_COMPRESSION_TOOL_RESULT_KEEP_RECENT
+  return messages.map((message, index) => {
+    if (index >= cutoff || typeof message.content === 'string') return message
+
+    let changed = false
+    const content = message.content.map((block) => {
+      if (block.type === 'tool_result') {
+        const result =
+          typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
+        if (result.length > CONTEXT_COMPRESSION_TOOL_RESULT_CLEAR_CHAR_THRESHOLD) {
+          changed = true
+          return { ...block, content: CLEARED_CONTEXT_TOOL_RESULT_PLACEHOLDER }
+        }
+      }
+
+      if (block.type === 'thinking') {
+        changed = true
+        return { ...block, thinking: CLEARED_CONTEXT_THINKING_PLACEHOLDER }
+      }
+
+      if (block.type === 'image') {
+        changed = true
+        return { type: 'text', text: '[image]' } as ContentBlock
+      }
+
+      return block
+    })
+
+    return changed ? { ...message, content } : message
+  })
+}
+
+function findSafeContextCompressionBoundary(
+  messages: UnifiedMessage[],
+  initialBoundary: number
+): number {
+  let boundary = Math.max(1, Math.min(initialBoundary, messages.length - 1))
+
+  for (let attempts = 0; attempts < CONTEXT_COMPRESSION_SAFE_BOUNDARY_SCAN_LIMIT; attempts += 1) {
+    const compressedToolUseIds = new Set<string>()
+    for (let index = 0; index < boundary; index += 1) {
+      const message = messages[index]
+      if (!message || typeof message.content === 'string') continue
+      for (const block of message.content) {
+        if (block.type === 'tool_use' && block.id) {
+          compressedToolUseIds.add(block.id)
+        }
+      }
+    }
+
+    let hasSplit = false
+    for (let index = boundary; index < messages.length && !hasSplit; index += 1) {
+      const message = messages[index]
+      if (!message || typeof message.content === 'string') continue
+      for (const block of message.content) {
+        if (
+          block.type === 'tool_result' &&
+          block.toolUseId &&
+          compressedToolUseIds.has(block.toolUseId)
+        ) {
+          hasSplit = true
+          break
+        }
+      }
+    }
+
+    if (!hasSplit) return boundary
+    boundary = Math.max(1, boundary - 1)
+  }
+
+  return boundary
+}
+
+function truncateOldestContextMessages(
+  messages: UnifiedMessage[],
+  attempt: number
+): UnifiedMessage[] {
+  const dropCount = Math.ceil(messages.length * 0.25 * attempt)
+  const result: UnifiedMessage[] = []
+  let dropped = 0
+  let keptFirstUser = false
+
+  for (const message of messages) {
+    if (message.role === 'system') {
+      result.push(message)
+      continue
+    }
+
+    if (!keptFirstUser && message.role === 'user') {
+      result.push(message)
+      keptFirstUser = true
+      continue
+    }
+
+    if (dropped < dropCount) {
+      dropped += 1
+      continue
+    }
+
+    result.push(message)
+  }
+
+  return result.length >= 2 ? result : messages
+}
+
+function serializeContextContent(content: ContentBlock[]): string {
+  return content
+    .map((block) => {
+      switch (block.type) {
+        case 'text':
+          return block.text
+        case 'thinking':
+          return ''
+        case 'tool_use':
+          return `[Tool call: ${block.name}] ${JSON.stringify(block.input).slice(
+            0,
+            CONTEXT_COMPRESSION_SERIALIZED_TOOL_USE_INPUT_LIMIT
+          )}`
+        case 'tool_result': {
+          const result =
+            typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
+          const preview =
+            result.length > CONTEXT_COMPRESSION_SERIALIZED_TOOL_RESULT_LIMIT
+              ? `${result.slice(
+                  0,
+                  CONTEXT_COMPRESSION_SERIALIZED_TOOL_RESULT_LIMIT
+                )}\n... [truncated, ${result.length} chars total]`
+              : result
+          return `[Tool result${block.isError ? ' error' : ''}] ${preview}`
+        }
+        case 'image':
+          return '[image attachment]'
+        default:
+          return ''
+      }
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function extractContextMessageText(message?: UnifiedMessage | null): string {
+  if (!message) return ''
+  if (typeof message.content === 'string') return message.content.trim()
+  return serializeContextContent(message.content).trim()
+}
+
+function isContextSummaryLikeMessage(message: UnifiedMessage): boolean {
+  if (message.meta?.compactSummary) return true
+  if (message.role !== 'user' || typeof message.content !== 'string') return false
+  return message.content.trim().startsWith('[Context Memory Compressed Summary')
+}
+
+function findOriginalContextTaskMessage(messages: UnifiedMessage[]): UnifiedMessage | null {
+  for (const message of messages) {
+    if (message.role !== 'user') continue
+    if (message.source === 'team') continue
+    if (isContextSummaryLikeMessage(message)) continue
+
+    if (Array.isArray(message.content)) {
+      const hasHumanContent = message.content.some(
+        (block) => block.type === 'text' || block.type === 'image'
+      )
+      if (!hasHumanContent) continue
+    }
+
+    return message
+  }
+
+  return null
+}
+
+function serializeContextMessages(messages: UnifiedMessage[]): string {
+  const parts: string[] = []
+
+  for (const message of messages) {
+    const role = message.role.toUpperCase()
+    const content = extractContextMessageText(message)
+    if (content) {
+      parts.push(`[${role}]: ${content}`)
+    }
+  }
+
+  return parts.join('\n\n')
+}
+
+function serializeContextCompressionInput(
+  messages: UnifiedMessage[],
+  originalTaskContent?: UnifiedMessage['content']
+): string {
+  const parts: string[] = []
+
+  if (originalTaskContent) {
+    parts.push('## Original Task')
+    parts.push(
+      typeof originalTaskContent === 'string'
+        ? originalTaskContent
+        : serializeContextContent(originalTaskContent)
+    )
+  }
+
+  parts.push('## Full Conversation History')
+  parts.push(serializeContextMessages(messages))
+  return parts.join('\n\n')
+}
+
+function formatContextCompressionSummary(rawSummary: string): string {
+  let result = rawSummary.replace(/<think>[\s\S]*?<\/think>/gi, '')
+  result = result.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+  const summaryMatch = result.match(/<summary>([\s\S]*?)<\/summary>/i)
+  if (summaryMatch) {
+    result = summaryMatch[1] ?? ''
+  }
+  return result.replace(/\n\n+/g, '\n\n').trim()
+}
+
+function createContextCompressionBoundaryMessage(args: {
+  trigger: CompressionTrigger
+  preTokens: number
+  messagesSummarized: number
+  preservedMessages: UnifiedMessage[]
+}): UnifiedMessage {
+  const preservedMessages = args.preservedMessages
+  return {
+    id: nanoid(),
+    role: 'system',
+    content: 'Conversation compacted',
+    createdAt: Date.now(),
+    meta: {
+      compactBoundary: {
+        trigger: args.trigger,
+        preTokens: args.preTokens,
+        messagesSummarized: args.messagesSummarized,
+        ...(preservedMessages.length > 0
+          ? {
+              preservedSegment: {
+                headId: preservedMessages[0]!.id,
+                anchorId: '',
+                tailId: preservedMessages[preservedMessages.length - 1]!.id
+              }
+            }
+          : {})
+      }
+    }
+  }
+}
+
+function createContextCompressionSummaryMessage(args: {
+  summary: string
+  messagesSummarized: number
+  recentMessagesPreserved: boolean
+}): UnifiedMessage {
+  return {
+    id: nanoid(),
+    role: 'user',
+    content:
+      `[Context Memory Compressed Summary]\n\n` +
+      `The following summary covers ${args.messagesSummarized} earlier messages. ` +
+      `Recent messages are preserved after this summary.\n\n${args.summary}`,
+    createdAt: Date.now(),
+    meta: {
+      compactSummary: {
+        messagesSummarized: args.messagesSummarized,
+        recentMessagesPreserved: args.recentMessagesPreserved
+      }
+    }
+  }
+}
+
+async function callContextCompressionSummarizer(
+  serializedMessages: string,
+  providerConfig: ProviderConfig,
+  signal?: AbortSignal,
+  focusPrompt?: string
+): Promise<string> {
+  const config: ProviderConfig = {
+    ...providerConfig,
+    systemPrompt: CONTEXT_COMPRESSION_SYSTEM_PROMPT,
+    thinkingEnabled: false,
+    ...(normalizeProviderType(providerConfig.type) === 'openai-responses'
+      ? {
+          responsesSessionScope: CONTEXT_COMPRESSION_RESPONSES_SCOPE,
+          websocketMode: 'disabled' as ResponsesWebsocketMode
+        }
+      : {})
+  }
+
+  const focusInstruction = focusPrompt?.trim()
+    ? `\n\nSpecial focus requested by the user: ${focusPrompt.trim()}`
+    : ''
+  const messages: UnifiedMessage[] = [
+    {
+      id: 'compress-req',
+      role: 'user',
+      content:
+        'Summarize the conversation below so another agent can continue from the current state.' +
+        focusInstruction +
+        '\n\nReturn only the summary.\n\n' +
+        serializedMessages,
+      createdAt: Date.now()
+    }
+  ]
+
+  const abortController = new AbortController()
+  const timeout = setTimeout(() => abortController.abort(), CONTEXT_COMPRESSION_SUMMARY_TIMEOUT_MS)
+  const abortHandler = (): void => abortController.abort()
+  if (signal?.aborted) {
+    abortController.abort()
+  } else {
+    signal?.addEventListener('abort', abortHandler, { once: true })
+  }
+
+  let result = ''
+  try {
+    for await (const event of sendProviderMessage(messages, [], config, abortController.signal)) {
+      if (abortController.signal.aborted) {
+        throw new Error('Context compression aborted')
+      }
+      if (event.type === 'text_delta' && event.text) {
+        result += event.text
+      } else if (event.type === 'error') {
+        throw new Error(event.error?.message ?? 'Context compression request failed')
+      }
+    }
+  } finally {
+    clearTimeout(timeout)
+    signal?.removeEventListener('abort', abortHandler)
+  }
+
+  const formatted = formatContextCompressionSummary(result)
+  if (!formatted) {
+    throw new Error('Context compression returned an empty summary')
+  }
+  return formatted
+}
+
+export async function compressMessagesForContext(
+  messages: UnifiedMessage[],
+  providerConfig: ProviderConfig,
+  signal?: AbortSignal,
+  preserveCount = CONTEXT_COMPRESSION_PRESERVE_RECENT_COUNT,
+  focusPrompt?: string,
+  trigger: CompressionTrigger = 'manual',
+  preTokens = 0
+): Promise<{ messages: UnifiedMessage[]; result: CompressionResult }> {
+  const originalCount = messages.length
+  if (originalCount < preserveCount + 2) {
+    return {
+      messages,
+      result: { compressed: false, originalCount, newCount: originalCount }
+    }
+  }
+
+  const boundaryIndex = findSafeContextCompressionBoundary(
+    messages,
+    messages.length - preserveCount
+  )
+  const messagesToCompress = messages.slice(0, boundaryIndex)
+  const messagesToPreserve = messages.slice(boundaryIndex)
+  if (messagesToCompress.length < 2) {
+    return {
+      messages,
+      result: { compressed: false, originalCount, newCount: originalCount }
+    }
+  }
+
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= CONTEXT_COMPRESSION_MAX_RETRIES; attempt += 1) {
+    try {
+      const inputMessages =
+        attempt === 0
+          ? messagesToCompress
+          : truncateOldestContextMessages(messagesToCompress, attempt)
+      const originalTaskMessage = findOriginalContextTaskMessage(inputMessages)
+      const serialized = serializeContextCompressionInput(
+        inputMessages,
+        originalTaskMessage?.content
+      )
+      const summary = await callContextCompressionSummarizer(
+        serialized,
+        providerConfig,
+        signal,
+        focusPrompt
+      )
+      const boundaryMessage = createContextCompressionBoundaryMessage({
+        trigger,
+        preTokens,
+        messagesSummarized: messagesToCompress.length,
+        preservedMessages: messagesToPreserve
+      })
+      const summaryMessage = createContextCompressionSummaryMessage({
+        summary,
+        messagesSummarized: messagesToCompress.length,
+        recentMessagesPreserved: messagesToPreserve.length > 0
+      })
+
+      const boundaryMeta = boundaryMessage.meta?.compactBoundary as
+        | { preservedSegment?: { anchorId: string } }
+        | undefined
+      if (boundaryMeta?.preservedSegment) {
+        boundaryMeta.preservedSegment.anchorId = summaryMessage.id
+      }
+
+      const compressedMessages = [boundaryMessage, summaryMessage, ...messagesToPreserve]
+      return {
+        messages: compressedMessages,
+        result: {
+          compressed: true,
+          originalCount,
+          newCount: compressedMessages.length,
+          messagesSummarized: messagesToCompress.length
+        }
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+      console.error(`[Context Compression] Attempt ${attempt + 1} failed:`, error)
+      if (attempt < CONTEXT_COMPRESSION_MAX_RETRIES) {
+        await delayWithAbort(CONTEXT_COMPRESSION_RETRY_DELAY_MS * Math.pow(2, attempt), signal)
+      }
+    }
+  }
+
+  console.error('[Context Compression] All attempts failed:', lastError)
+  return {
+    messages,
+    result: { compressed: false, originalCount, newCount: originalCount }
+  }
+}
+
 async function* runAgentLoop(
   messages: UnifiedMessage[],
   config: AgentLoopConfig,
   toolCtx: ToolContext
 ): AsyncGenerator<InteractiveAgentEvent> {
   yield { type: 'loop_start' }
-  const conversationMessages = [...messages]
+  let conversationMessages = [...messages]
   let iteration = 0
+  let fullCompressionApplied = false
+  let consecutiveCompressionFailures = 0
+  let lastInputTokens = config.contextCompression ? findRecentContextUsage(messages) : 0
   const hasIterationLimit = Number.isFinite(config.maxIterations) && config.maxIterations > 0
   const buildLoopEndEvent = (
     reason: 'completed' | 'max_iterations' | 'aborted' | 'error'
   ): InteractiveAgentEvent => ({
     type: 'loop_end',
     reason,
-    ...(config.captureFinalMessages ? { messages: [...conversationMessages] } : {})
+    ...(config.captureFinalMessages || fullCompressionApplied
+      ? { messages: [...conversationMessages] }
+      : {})
   })
   while (!hasIterationLimit || iteration < config.maxIterations) {
     if (config.signal.aborted) {
       yield buildLoopEndEvent('aborted')
       return
+    }
+
+    if (lastInputTokens > 0 && config.contextCompression) {
+      const compression = config.contextCompression
+      if (shouldCompressContext(lastInputTokens, compression, consecutiveCompressionFailures)) {
+        yield { type: 'context_compression_start' }
+        if (config.signal.aborted) {
+          yield buildLoopEndEvent('aborted')
+          return
+        }
+        try {
+          const originalCount = conversationMessages.length
+          const { messages: compressedMessages, result } = await compressMessagesForContext(
+            conversationMessages,
+            config.provider,
+            config.signal,
+            CONTEXT_COMPRESSION_PRESERVE_RECENT_COUNT,
+            undefined,
+            'auto',
+            lastInputTokens
+          )
+          conversationMessages = [...compressedMessages]
+          if (result.compressed) {
+            fullCompressionApplied = true
+            consecutiveCompressionFailures = 0
+            yield {
+              type: 'context_compressed',
+              originalCount,
+              newCount: conversationMessages.length,
+              messages: [...conversationMessages]
+            }
+            lastInputTokens = 0
+          } else {
+            consecutiveCompressionFailures += 1
+          }
+        } catch (error) {
+          consecutiveCompressionFailures += 1
+          console.error('[Agent Loop] Context compression failed:', error)
+        }
+      } else if (shouldPreCompressContext(lastInputTokens, compression)) {
+        conversationMessages = [...preCompressContextMessages(conversationMessages)]
+      }
     }
 
     if (config.messageQueue) {
@@ -3784,6 +4392,7 @@ async function* runAgentLoop(
     let assistantContentBlocks: ContentBlock[] = []
     let toolCalls: ToolCallState[] = []
     let providerResponseId: string | undefined
+    let assistantUsage: TokenUsage | undefined
     let sendAttempt = 0
     while (sendAttempt < MAX_PROVIDER_RETRIES) {
       assistantContentBlocks = []
@@ -4008,6 +4617,10 @@ async function* runAgentLoop(
               break
             case 'message_end':
               providerResponseId = event.providerResponseId
+              assistantUsage = event.usage
+              if (event.usage) {
+                lastInputTokens = readContextUsage(event.usage)
+              }
               yield {
                 type: 'message_end',
                 usage: event.usage,
@@ -4096,6 +4709,7 @@ async function* runAgentLoop(
       role: 'assistant',
       content: assistantContentBlocks.length > 0 ? assistantContentBlocks : '',
       createdAt: Date.now(),
+      ...(assistantUsage ? { usage: assistantUsage } : {}),
       ...(providerResponseId ? { providerResponseId } : {})
     }
     conversationMessages.push(assistantMsg)
@@ -4940,8 +5554,8 @@ function buildToolHandlers(): Record<string, ToolHandler> {
           followSymlinks: { type: 'boolean', description: 'Follow symbolic links' },
           outputMode: {
             type: 'string',
-            enum: ['matches', 'files_with_matches', 'count'],
-            description: 'matches, files_with_matches, or count'
+            enum: ['matches', 'files_with_matches', 'files_without_matches', 'count'],
+            description: 'matches, files_with_matches, files_without_matches, or count'
           },
           pathStyle: {
             type: 'string',
@@ -4986,6 +5600,8 @@ function buildToolHandlers(): Record<string, ToolHandler> {
               if (options.afterContext > 0) cmd += ` --after-context ${options.afterContext}`
             } else if (options.outputMode === 'files_with_matches') {
               cmd += ' --files-with-matches'
+            } else if (options.outputMode === 'files_without_matches') {
+              cmd += ' --files-without-match'
             } else {
               cmd += ' --count'
             }
@@ -5034,7 +5650,10 @@ function buildToolHandlers(): Record<string, ToolHandler> {
               count?: number
             }> = []
             for (const rawLine of result.stdout.split(/\r?\n/).filter(Boolean)) {
-              if (options.outputMode === 'files_with_matches') {
+              if (
+                options.outputMode === 'files_with_matches' ||
+                options.outputMode === 'files_without_matches'
+              ) {
                 matches.push({
                   file: formatCronRemoteGrepPath(searchRoot, rawLine.trim(), options.pathStyle)
                 })
@@ -5088,6 +5707,7 @@ function buildToolHandlers(): Record<string, ToolHandler> {
                     `Cron grep reached the ${options.maxResults} match limit`
                   ])
                 : [],
+              engine: 'remote_rg',
               outputMode: options.outputMode,
               maxResults: options.maxResults,
               maxOutputBytes: options.maxOutputBytes
@@ -5126,7 +5746,7 @@ function buildToolHandlers(): Record<string, ToolHandler> {
             .join('')
           const result = await sshExecForCron(
             ctx.sshConnectionId,
-            `cd ${shellEscape(searchRoot)} && grep -Rsn${options.caseSensitive ? '' : ' -i'}${options.literal ? ' -F' : ''}${options.word ? ' -w' : ''}${options.line ? ' -x' : ''}${options.invertMatch ? ' -v' : ''}${options.outputMode === 'files_with_matches' ? ' -l' : ''}${options.outputMode === 'count' ? ' -c' : ''}${options.beforeContext > 0 ? ` -B ${options.beforeContext}` : ''}${options.afterContext > 0 ? ` -A ${options.afterContext}` : ''}${fallbackIncludeArgs}${fallbackExcludeArgs} ${shellEscape(options.pattern)} . 2>/dev/null | head -${options.maxResults}`,
+            `cd ${shellEscape(searchRoot)} && grep -Rsn${options.caseSensitive ? '' : ' -i'}${options.literal ? ' -F' : ''}${options.word ? ' -w' : ''}${options.line ? ' -x' : ''}${options.invertMatch ? ' -v' : ''}${options.outputMode === 'files_with_matches' ? ' -l' : ''}${options.outputMode === 'files_without_matches' ? ' -L' : ''}${options.outputMode === 'count' ? ' -c' : ''}${options.beforeContext > 0 ? ` -B ${options.beforeContext}` : ''}${options.afterContext > 0 ? ` -A ${options.afterContext}` : ''}${fallbackIncludeArgs}${fallbackExcludeArgs} ${shellEscape(options.pattern)} . 2>/dev/null | head -${options.maxResults}`,
             60_000
           )
           if (result.exitCode !== 0 && result.exitCode !== 1) {
@@ -5147,7 +5767,10 @@ function buildToolHandlers(): Record<string, ToolHandler> {
             count?: number
           }> = []
           for (const line of result.stdout.split(/\r?\n/).filter(Boolean)) {
-            if (options.outputMode === 'files_with_matches') {
+            if (
+              options.outputMode === 'files_with_matches' ||
+              options.outputMode === 'files_without_matches'
+            ) {
               matches.push({
                 file: formatCronRemoteGrepPath(searchRoot, line, options.pathStyle)
               })
@@ -5182,6 +5805,7 @@ function buildToolHandlers(): Record<string, ToolHandler> {
               ...fallbackWarnings,
               truncated ? `Cron grep reached the ${options.maxResults} match limit` : null
             ]),
+            engine: 'remote_grep',
             outputMode: options.outputMode,
             maxResults: options.maxResults,
             maxOutputBytes: options.maxOutputBytes
@@ -5202,6 +5826,7 @@ function buildToolHandlers(): Record<string, ToolHandler> {
                     : `Cron grep reached the ${options.maxResults} match limit`
                 ])
               : [],
+            engine: 'ripgrep',
             outputMode: options.outputMode,
             maxResults: options.maxResults,
             maxOutputBytes: options.maxOutputBytes
@@ -5300,6 +5925,7 @@ function buildToolHandlers(): Record<string, ToolHandler> {
                     ? 'Cron local grep applies default ignores but not full .gitignore semantics'
                     : null
                 ]),
+                engine: 'node_fallback',
                 outputMode: options.outputMode,
                 maxResults: options.maxResults,
                 maxOutputBytes: options.maxOutputBytes
@@ -5311,6 +5937,10 @@ function buildToolHandlers(): Record<string, ToolHandler> {
               file: formatCronGrepPath(searchRoot, file, options.pathStyle),
               count: matchedCount
             })
+          } else if (options.outputMode === 'files_without_matches' && matchedCount === 0) {
+            results.push({
+              file: formatCronGrepPath(searchRoot, file, options.pathStyle)
+            })
           }
         }
         return formatGrepToolResult({
@@ -5318,6 +5948,7 @@ function buildToolHandlers(): Record<string, ToolHandler> {
           warnings: options.respectGitignore
             ? ['Cron local grep applies default ignores but not full .gitignore semantics']
             : [],
+          engine: 'node_fallback',
           outputMode: options.outputMode,
           maxResults: options.maxResults,
           maxOutputBytes: options.maxOutputBytes

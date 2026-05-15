@@ -475,7 +475,7 @@ export function createTaskTool(providerGetter: () => ProviderConfig): ToolHandle
               model: {
                 type: 'string',
                 description:
-                  'Optional model override for this agent. If not specified, inherits from the parent. Prefer a faster/cheaper model for quick, straightforward tasks to minimize cost and latency.'
+                  'Optional model override for this agent. If not specified, uses the configured fast model.'
               }
             },
             required: ['description', 'prompt', 'subagent_type'],
@@ -603,7 +603,7 @@ export function createTaskTool(providerGetter: () => ProviderConfig): ToolHandle
 
       try {
         const onEvent = (event: SubAgentEvent): void => {
-          subAgentEvents.emit(event)
+          subAgentEvents.emit(ctx.sessionId ?? null, event)
         }
 
         const result = await runSubAgent({

@@ -256,11 +256,13 @@ function ContextRing({
       </TooltipTrigger>
       <TooltipContent side="top">
         <div className="text-xs space-y-0.5">
-          <p className="font-medium">Compression Budget</p>
+          <p className="font-medium">{t('input.compressionBudget')}</p>
           <p className="text-muted-foreground">
             {formatTokens(ctxUsed)} / {formatTokens(ctxGaugeLimit)} ({pct.toFixed(1)}%)
           </p>
-          <p className="text-muted-foreground">{formatTokens(remaining)} remaining</p>
+          <p className="text-muted-foreground">
+            {formatTokens(remaining)} {t('input.remaining')}
+          </p>
           {onCompressContext && (
             <p className="text-muted-foreground">
               {isCompressing
@@ -320,17 +322,19 @@ const defaultRecommendationKeys: Record<AppMode, string> = {
   acp: 'input.recommendationDefaultAcp'
 }
 
-const composerModeOptions: Array<{
+function getComposerModeOptions(tCommon: (key: string) => string): Array<{
   value: AppMode
   label: string
   icon: React.JSX.Element
-}> = [
-  { value: 'chat', label: 'Chat', icon: <Send className="size-3.5" /> },
-  { value: 'clarify', label: 'Clarify', icon: <CircleHelp className="size-3.5" /> },
-  { value: 'cowork', label: 'Cowork', icon: <Briefcase className="size-3.5" /> },
-  { value: 'code', label: 'Code', icon: <Code2 className="size-3.5" /> },
-  { value: 'acp', label: 'ACP', icon: <ShieldCheck className="size-3.5" /> }
-]
+}> {
+  return [
+    { value: 'chat', label: tCommon('mode.chat'), icon: <Send className="size-3.5" /> },
+    { value: 'clarify', label: tCommon('mode.clarify'), icon: <CircleHelp className="size-3.5" /> },
+    { value: 'cowork', label: tCommon('mode.cowork'), icon: <Briefcase className="size-3.5" /> },
+    { value: 'code', label: tCommon('mode.code'), icon: <Code2 className="size-3.5" /> },
+    { value: 'acp', label: tCommon('mode.acp'), icon: <ShieldCheck className="size-3.5" /> }
+  ]
+}
 
 interface FileSearchItem {
   name: string
@@ -423,6 +427,10 @@ interface InputAreaProps {
   hideWorkingFolderPicker?: boolean
   onCompressContext?: () => ManualCompressionResult | void | Promise<ManualCompressionResult | void>
   disabled?: boolean
+  draftKeyOverride?: string | null
+  suppressPendingQueue?: boolean
+  hideGoalSessionBar?: boolean
+  hideModeSwitch?: boolean
 }
 
 export function InputArea({
@@ -435,9 +443,14 @@ export function InputArea({
   hideWorkingFolderIndicator = false,
   hideWorkingFolderPicker = false,
   onCompressContext,
-  disabled = false
+  disabled = false,
+  draftKeyOverride,
+  suppressPendingQueue = false,
+  hideGoalSessionBar = false,
+  hideModeSwitch = false
 }: InputAreaProps): React.JSX.Element {
   const { t } = useTranslation('chat')
+  const { t: tCommon } = useTranslation('common')
   const chatView = useUIStore((s) => s.chatView)
   const setMode = useUIStore((s) => s.setMode)
   const isSessionComposer = chatView === 'session' || Boolean(sessionId)
@@ -754,8 +767,8 @@ export function InputArea({
     workingFolder
   })
   const activeDraftKey = React.useMemo(
-    () => (draftSessionId ? getSessionInputDraftKey(draftSessionId) : null),
-    [draftSessionId]
+    () => draftKeyOverride ?? (draftSessionId ? getSessionInputDraftKey(draftSessionId) : null),
+    [draftKeyOverride, draftSessionId]
   )
   const inputDraftHydrated = useInputDraftStore((s) => s.hydrated)
   const persistedDraft = useInputDraftStore(
@@ -769,6 +782,7 @@ export function InputArea({
   const draftReadyKeyRef = React.useRef<string | null>(null)
   const queuedMessagesSnapshotRef = React.useRef<PendingSessionMessageItem[]>(EMPTY_QUEUED_MESSAGES)
   const getQueuedMessagesSnapshot = React.useCallback(() => {
+    if (suppressPendingQueue) return EMPTY_QUEUED_MESSAGES
     const next = activeSessionId
       ? getPendingSessionMessages(activeSessionId)
       : EMPTY_QUEUED_MESSAGES
@@ -778,7 +792,7 @@ export function InputArea({
     }
     queuedMessagesSnapshotRef.current = next
     return next
-  }, [activeSessionId])
+  }, [activeSessionId, suppressPendingQueue])
   const queuedMessages = React.useSyncExternalStore(
     subscribePendingSessionMessages,
     getQueuedMessagesSnapshot,
@@ -786,7 +800,10 @@ export function InputArea({
   )
   const isQueueDispatchPaused = React.useSyncExternalStore(
     subscribePendingSessionMessages,
-    () => (activeSessionId ? isPendingSessionDispatchPaused(activeSessionId) : false),
+    () =>
+      !suppressPendingQueue && activeSessionId
+        ? isPendingSessionDispatchPaused(activeSessionId)
+        : false,
     () => false
   )
   const [editingQueueItemId, setEditingQueueItemId] = React.useState<string | null>(null)
@@ -1587,18 +1604,19 @@ export function InputArea({
 
   const showAllComposerModesForNewSession = !draftSessionId && Boolean(activeProjectId)
   const availableComposerModes = React.useMemo(() => {
+    const options = getComposerModeOptions(tCommon)
     if (showAllComposerModesForNewSession) {
-      return composerModeOptions
+      return options
     }
     return projectScoped
-      ? composerModeOptions.filter((option) => option.value !== 'chat')
-      : composerModeOptions.filter((option) => option.value === 'chat')
-  }, [projectScoped, showAllComposerModesForNewSession])
-  const showModeSwitchControl = availableComposerModes.length > 1
+      ? options.filter((option) => option.value !== 'chat')
+      : options.filter((option) => option.value === 'chat')
+  }, [projectScoped, showAllComposerModesForNewSession, tCommon])
+  const showModeSwitchControl = !hideModeSwitch && availableComposerModes.length > 1
   const activeComposerMode =
     availableComposerModes.find((option) => option.value === mode) ??
     availableComposerModes[0] ??
-    composerModeOptions[0]!
+    getComposerModeOptions(tCommon)[0]!
   const handleModeSwitch = React.useCallback(
     (nextMode: AppMode) => {
       setMode(nextMode)
@@ -3002,7 +3020,7 @@ export function InputArea({
             </div>
           </div>
         </div>
-        {draftSessionId && <GoalSessionBar sessionId={draftSessionId} />}
+        {!hideGoalSessionBar && draftSessionId && <GoalSessionBar sessionId={draftSessionId} />}
       </div>
     </div>
   )

@@ -1,6 +1,8 @@
 import { nanoid } from 'nanoid'
 import { toolRegistry } from '../tool-registry'
 import type { AgentLoopConfig } from '../types'
+import { MessageQueue } from '../types'
+import type { ProviderConfig, UnifiedMessage } from '../../api/types'
 import type { SubAgentRunConfig, SubAgentResult } from './types'
 import { createSubAgentPromptMessage } from './input-message'
 import { buildRuntimeCompression } from '../context-compression-runtime'
@@ -17,6 +19,8 @@ import {
   SUBMIT_REPORT_TOOL_NAME
 } from './submit-report-tool'
 import { resolveSubAgentMaxTurns } from './limits'
+import { useProviderStore } from '../../../stores/provider-store'
+import { useSettingsStore } from '../../../stores/settings-store'
 
 const READ_ONLY_SET = new Set([
   'Read',
@@ -28,6 +32,72 @@ const READ_ONLY_SET = new Set([
   'Skill',
   SUBMIT_REPORT_TOOL_NAME
 ])
+
+const activeSubAgentRuns = new Map<
+  string,
+  {
+    subAgentName: string
+    queue: MessageQueue
+    abortController: AbortController
+    onEvent?: SubAgentRunConfig['onEvent']
+  }
+>()
+
+export function appendSubAgentUserMessage(toolUseId: string, message: UnifiedMessage): boolean {
+  const run = activeSubAgentRuns.get(toolUseId)
+  if (!run || run.abortController.signal.aborted) return false
+
+  run.queue.push(message)
+  run.onEvent?.({
+    type: 'sub_agent_user_message',
+    subAgentName: run.subAgentName,
+    toolUseId,
+    message
+  })
+  return true
+}
+
+export function abortSubAgentRun(toolUseId: string): boolean {
+  const run = activeSubAgentRuns.get(toolUseId)
+  if (!run || run.abortController.signal.aborted) return false
+  run.abortController.abort()
+  return true
+}
+
+function hasUsableProviderConfig(
+  provider: ProviderConfig | null | undefined
+): provider is ProviderConfig {
+  return Boolean(provider && (provider.apiKey || provider.requiresApiKey === false))
+}
+
+function resolveSubAgentProviderConfig(
+  parentProvider: ProviderConfig,
+  definition: SubAgentRunConfig['definition']
+): ProviderConfig {
+  const providerStore = useProviderStore.getState()
+  const settings = useSettingsStore.getState()
+  const fastProvider = providerStore.getFastProviderConfig()
+  const baseProvider = hasUsableProviderConfig(fastProvider) ? fastProvider : parentProvider
+  const modelOverride = definition.model?.trim()
+  const model = modelOverride || baseProvider.model
+
+  return {
+    ...baseProvider,
+    systemPrompt: definition.systemPrompt,
+    model,
+    maxTokens: providerStore.getEffectiveMaxTokens(settings.maxTokens, model),
+    temperature: definition.temperature ?? settings.temperature ?? baseProvider.temperature,
+    ...(baseProvider.sessionId || parentProvider.sessionId
+      ? { sessionId: baseProvider.sessionId ?? parentProvider.sessionId }
+      : {}),
+    ...(baseProvider.responsesSessionScope || parentProvider.responsesSessionScope
+      ? {
+          responsesSessionScope:
+            baseProvider.responsesSessionScope ?? parentProvider.responsesSessionScope
+        }
+      : {})
+  }
+}
 
 /**
  * Run a SubAgent — executes an inner agent loop with a focused system prompt
@@ -41,8 +111,15 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
     config
 
   const innerAbort = new AbortController()
+  const messageQueue = new MessageQueue()
   const onParentAbort = (): void => innerAbort.abort()
   toolContext.signal.addEventListener('abort', onParentAbort, { once: true })
+  activeSubAgentRuns.set(toolUseId, {
+    subAgentName: definition.name,
+    queue: messageQueue,
+    abortController: innerAbort,
+    onEvent
+  })
 
   const promptMessage = createSubAgentPromptMessage(input, Date.now(), definition.initialPrompt)
   onEvent?.({
@@ -71,12 +148,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
   const innerTools =
     resolvedInnerTools.length > 0 ? [...resolvedInnerTools, submitReportTool.definition] : []
 
-  const innerProvider = {
-    ...parentProvider,
-    systemPrompt: definition.systemPrompt,
-    model: definition.model ?? parentProvider.model,
-    temperature: definition.temperature ?? parentProvider.temperature
-  }
+  const innerProvider = resolveSubAgentProviderConfig(parentProvider, definition)
 
   const compression = buildRuntimeCompression(innerProvider, innerAbort.signal)
 
@@ -87,6 +159,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
     systemPrompt: definition.systemPrompt,
     workingFolder: toolContext.workingFolder,
     signal: innerAbort.signal,
+    messageQueue,
     ...(compression ? { contextCompression: compression } : {})
   }
 
@@ -394,6 +467,10 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
     onEvent?.({ type: 'sub_agent_end', subAgentName: definition.name, toolUseId, result })
     return result
   } finally {
+    const activeRun = activeSubAgentRuns.get(toolUseId)
+    if (activeRun?.abortController === innerAbort) {
+      activeSubAgentRuns.delete(toolUseId)
+    }
     unregisterSubmitReportHandler()
     clearSubmittedReportForRun(sidecarRunId)
     innerAbort.abort()

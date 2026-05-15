@@ -25,6 +25,7 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { subAgentRegistry } from '@renderer/lib/agent/sub-agents/registry'
 import type { ToolCallState } from '@renderer/lib/agent/types'
 import { cn } from '@renderer/lib/utils'
+import { selectSessionScopedAgentState } from '@renderer/lib/agent/session-scoped-agent-state'
 import {
   MARKDOWN_REHYPE_PLUGINS,
   MARKDOWN_REMARK_PLUGINS
@@ -165,15 +166,20 @@ function matchesFilter(agent: SubAgentState, filter: SubAgentPanelFilter): boole
   }
 }
 
-export function SubAgentsPanel(): React.JSX.Element {
+export function SubAgentsPanel({
+  sessionId
+}: {
+  sessionId?: string | null
+} = {}): React.JSX.Element {
   const { t } = useTranslation('layout')
-  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const chatActiveSessionId = useChatStore((s) => s.activeSessionId)
+  const activeSessionId = sessionId ?? chatActiveSessionId
   const sessionMessages = useChatStore((s) =>
     activeSessionId ? s.getSessionMessages(activeSessionId) : EMPTY_SESSION_MESSAGES
   )
-  const activeSubAgents = useAgentStore((s) => s.activeSubAgents)
-  const completedSubAgents = useAgentStore((s) => s.completedSubAgents)
-  const subAgentHistory = useAgentStore((s) => s.subAgentHistory)
+  const { activeSubAgents, completedSubAgents, subAgentHistory } = useAgentStore((s) =>
+    selectSessionScopedAgentState(s, activeSessionId)
+  )
   const selectedToolUseId = useUIStore((s) => s.selectedSubAgentToolUseId)
   const setSelectedToolUseId = useUIStore((s) => s.setSelectedSubAgentToolUseId)
   const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen)
@@ -343,7 +349,8 @@ export function SubAgentsPanel(): React.JSX.Element {
                     openSubAgentExecutionDetail(
                       agent.toolUseId,
                       null,
-                      agent.displayName ?? agent.name
+                      agent.displayName ?? agent.name,
+                      activeSessionId
                     )
                   }}
                 />
@@ -378,7 +385,8 @@ export function SubAgentsPanel(): React.JSX.Element {
                     openSubAgentExecutionDetail(
                       agent.toolUseId,
                       null,
-                      agent.displayName ?? agent.name
+                      agent.displayName ?? agent.name,
+                      activeSessionId
                     )
                   }}
                 />

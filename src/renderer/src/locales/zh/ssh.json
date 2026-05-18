@@ -218,8 +218,23 @@
     "createdAt": "创建时间"
   },
   "workspace": {
-    "vaults": "保险库",
-    "allVaults": "全部保险库",
+    "vaults": "主机库",
+    "allVaults": "全部主机",
+    "chrome": {
+      "hostsEyebrow": "SSH 控制台",
+      "hostsTitle": "主机库",
+      "hostsMeta": "主机配置、凭据与隧道",
+      "sftpEyebrow": "SSH 文件",
+      "sftpTitle": "SFTP 文件",
+      "sftpMeta": "远端文件与传输",
+      "terminalEyebrow": "SSH 会话",
+      "connectingTitle": "连接中",
+      "errorTitle": "连接失败",
+      "disconnectedTitle": "已断开",
+      "interfaceTheme": "界面配色",
+      "terminalTheme": "终端配色",
+      "themeBadge": "{{scope}} · {{theme}}"
+    },
     "controlCenter": "控制中心",
     "comingSoon": "即将支持",
     "newHost": "新建主机",
@@ -232,7 +247,8 @@
     "noSearchMatches": "当前搜索没有匹配的主机，换一个主机名、地址或用户名再试试。",
     "showLogs": "显示日志",
     "notifications": "通知",
-    "personalVault": "个人保险库",
+    "currentSession": "终端会话",
+    "personalVault": "主机配置",
     "newHostHint": "创建一个新的 SSH 主机配置。",
     "addressTitle": "地址",
     "addressHint": "填写 SSH 客户端要连接的主机名或公网 IP。",
@@ -318,17 +334,17 @@
       }
     },
     "terminalTheme": {
-      "title": "终端主题",
-      "sheetDescription": "只调整 SSH 终端的配色和高亮，不会改动整个应用的全局主题。",
-      "presetsTitle": "终端配色预设",
-      "description": "选择 SSH 终端的背景、ANSI 颜色和选区高亮风格。",
+      "title": "终端配色",
+      "sheetDescription": "只调整 SSH 终端和连接态标题栏配色，不改动全局界面配色。",
+      "presetsTitle": "配套终端配色",
+      "description": "选择 SSH 终端背景、ANSI 颜色、选区高亮和状态面板风格。",
       "scope": "仅影响 SSH 终端",
-      "active": "当前使用",
-      "globalHint": "应用整体的亮暗模式和全局主题仍在设置页里管理；这里仅负责 SSH 终端自身的色彩表现。"
+      "active": "使用中",
+      "globalHint": "全局亮暗模式和界面配色在设置页管理；SSH 终端可单独选择同系列配套配色。"
     },
     "settings": {
-      "title": "外观",
-      "description": "在 SSH 窗口中切换全局主题和终端配色方案。"
+      "title": "SSH 外观",
+      "description": "切换 SSH 主机库界面配色与终端配套配色。"
     },
     "terminalStatus": {
       "title": "终端状态",

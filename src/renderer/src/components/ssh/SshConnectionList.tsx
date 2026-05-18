@@ -15,8 +15,7 @@ import {
   RefreshCw,
   ScrollText,
   Search,
-  Server,
-  SquareTerminal
+  Server
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -152,7 +151,7 @@ function HostCard({
               {connection.name}
             </div>
             <div className="truncate text-[0.82rem] text-muted-foreground">
-              ssh, {connection.username}
+              SSH · {connection.username}
             </div>
           </div>
         </div>
@@ -296,9 +295,9 @@ function HostsWorkspace({
 
   const activeVaultLabel =
     selectedGroupId == null
-      ? t('workspace.allVaults', { defaultValue: 'All vaults' })
+      ? t('workspace.allVaults', { defaultValue: 'All hosts' })
       : (groups.find((group) => group.id === selectedGroupId)?.name ??
-        t('workspace.allVaults', { defaultValue: 'All vaults' }))
+        t('workspace.allVaults', { defaultValue: 'All hosts' }))
 
   useEffect(() => {
     if (connections.length === 0) {
@@ -427,8 +426,8 @@ function HostsWorkspace({
     <>
       <div className="flex min-w-0 flex-1 overflow-hidden">
         <main className="flex min-w-0 flex-1 flex-col border-r border-border bg-background">
-          <div className="border-b border-border px-4 py-3">
-            <div className="flex flex-wrap items-center gap-3">
+          <div className="border-b border-border bg-background/95 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="relative min-w-[280px] flex-1">
                 <Search className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -440,33 +439,19 @@ function HostsWorkspace({
                   className="h-12 w-full rounded-[18px] border border-input bg-card pl-11 pr-4 text-[0.95rem] text-foreground outline-none transition focus:border-ring focus:ring-4 focus:ring-ring/15"
                 />
               </div>
-              <Button
-                size="sm"
-                className="h-11 rounded-2xl bg-secondary px-5 text-[0.78rem] font-semibold uppercase tracking-[0.12em] text-secondary-foreground shadow-none hover:bg-secondary/80"
-                onClick={() => {
-                  if (selectedConnection) onConnect(selectedConnection.id)
-                }}
-                disabled={!selectedConnection}
-              >
-                {t('connect')}
-              </Button>
-            </div>
-          </div>
 
-          <div className="border-b border-border px-4 py-3">
-            <div className="flex flex-wrap items-center gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     size="sm"
-                    className="h-10 rounded-[14px] bg-secondary px-4 text-[0.8rem] font-semibold text-secondary-foreground hover:bg-secondary/80"
+                    className="h-11 rounded-2xl bg-secondary px-4 text-[0.8rem] font-semibold text-secondary-foreground hover:bg-secondary/80"
                   >
                     <Server className="size-3.5" />
                     {t('workspace.newHost', { defaultValue: 'NEW HOST' })}
                     <ChevronDown className="size-3.5" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
+                <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={startCreateConnection}>
                     {t('newConnection')}
                   </DropdownMenuItem>
@@ -482,41 +467,43 @@ function HostsWorkspace({
               </DropdownMenu>
 
               <Button
-                variant="outline"
                 size="sm"
-                className="h-10 rounded-[14px] border-border bg-secondary px-4 text-[0.8rem] font-semibold text-secondary-foreground hover:bg-secondary/80"
-                disabled
-                title={t('workspace.comingSoon', { defaultValue: 'Coming soon' })}
+                className="h-11 rounded-2xl bg-primary px-5 text-[0.82rem] font-semibold text-primary-foreground shadow-none hover:bg-primary/90 disabled:bg-secondary disabled:text-secondary-foreground"
+                onClick={() => {
+                  if (selectedConnection) onConnect(selectedConnection.id)
+                }}
+                disabled={!selectedConnection}
               >
-                <SquareTerminal className="size-3.5" />
-                {t('workspace.serial', { defaultValue: 'SERIAL' })}
+                {t('connect')}
               </Button>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10 rounded-[14px] border-border bg-card px-4 text-[0.8rem] font-medium text-foreground shadow-none hover:bg-accent"
+                  >
+                    <FolderArchive className="size-3.5" />
+                    {activeVaultLabel}
+                    <ChevronDown className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => setSelectedGroupId(null)}>
+                    {t('workspace.allVaults', { defaultValue: 'All hosts' })}
+                  </DropdownMenuItem>
+                  {groups.map((group) => (
+                    <DropdownMenuItem key={group.id} onClick={() => setSelectedGroupId(group.id)}>
+                      {group.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <div className="ml-auto flex flex-wrap items-center gap-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-10 rounded-[14px] border-border bg-card px-4 text-[0.8rem] font-medium text-foreground shadow-none hover:bg-accent"
-                    >
-                      <FolderArchive className="size-3.5" />
-                      {activeVaultLabel}
-                      <ChevronDown className="size-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setSelectedGroupId(null)}>
-                      {t('workspace.allVaults', { defaultValue: 'All vaults' })}
-                    </DropdownMenuItem>
-                    {groups.map((group) => (
-                      <DropdownMenuItem key={group.id} onClick={() => setSelectedGroupId(group.id)}>
-                        {group.name}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
                 <Button
                   variant="outline"
                   size="icon-sm"
@@ -546,8 +533,8 @@ function HostsWorkspace({
                 </Button>
                 <Avatar className="size-10 rounded-[14px] border border-border bg-card">
                   {userAvatar ? <AvatarImage src={userAvatar} alt={userName || 'SSH'} /> : null}
-                  <AvatarFallback className="rounded-[14px] bg-primary/12 text-[0.78rem] font-semibold text-primary">
-                    {(userName || 'SSH').slice(0, 2).toUpperCase()}
+                  <AvatarFallback className="rounded-[14px] bg-primary/12 text-[0.68rem] font-semibold text-primary">
+                    {userName ? userName.slice(0, 2).toUpperCase() : 'SSH'}
                   </AvatarFallback>
                 </Avatar>
               </div>

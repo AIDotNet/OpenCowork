@@ -2619,7 +2619,9 @@ function ToolCallCardInner({
                   </span>
                 ) : (
                   <span className="text-violet-500/80 text-[10px] animate-pulse dark:text-violet-400/70">
-                    {t('toolCall.receivingArgs')}
+                    {status === 'streaming'
+                      ? t('toolCall.receivingArgs')
+                      : headerSummary || t('toolCall.executing')}
                   </span>
                 )}
               </>

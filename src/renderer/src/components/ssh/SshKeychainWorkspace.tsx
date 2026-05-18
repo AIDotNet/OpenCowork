@@ -466,7 +466,7 @@ export function SshKeychainWorkspace(): React.JSX.Element {
                 : t('workspace.keychain.edit', { defaultValue: 'Edit key' })}
             </div>
             <div className="mt-1 text-[0.8rem] text-muted-foreground">
-              {t('workspace.personalVault', { defaultValue: 'Personal vault' })}
+              {t('workspace.personalVault', { defaultValue: 'Host profile' })}
             </div>
           </div>
           <div className="flex items-center gap-2 text-foreground">

@@ -223,6 +223,9 @@ export function SshConnectionInspector({
   const requirePrivateKey =
     formState.authType === 'privateKey' &&
     (!isEditing || connection?.authType !== 'privateKey' || !connection?.privateKeyPath)
+  const connectionAddress = connection
+    ? `${connection.username}@${connection.host}:${connection.port}`
+    : null
 
   const canSubmit =
     formState.name.trim().length > 0 &&
@@ -395,13 +398,15 @@ export function SshConnectionInspector({
     <div className="flex h-full flex-col bg-muted/35">
       <div className="border-b border-border px-5 py-4">
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-[1.1rem] font-semibold text-foreground">
-              {t('dashboard.serverDetails', { defaultValue: 'Host Details' })}
+          <div className="min-w-0">
+            <div className="truncate text-[1.1rem] font-semibold text-foreground">
+              {isEditing && connection
+                ? connection.name
+                : t('dashboard.serverDetails', { defaultValue: 'Host Details' })}
             </div>
-            <div className="mt-1 text-[0.78rem] text-muted-foreground">
-              {isEditing
-                ? t('workspace.personalVault', { defaultValue: 'Personal vault' })
+            <div className="mt-1 truncate text-[0.78rem] text-muted-foreground">
+              {isEditing && connectionAddress
+                ? connectionAddress
                 : t('workspace.newHostHint', { defaultValue: 'Create a new SSH host profile' })}
             </div>
           </div>

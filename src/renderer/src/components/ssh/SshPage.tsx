@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useTheme } from 'next-themes'
 import {
   Bell,
-  ChevronDown,
   FolderOpen,
   Loader2,
   PanelRightClose,
   PanelRightOpen,
   Plus,
+  Server,
   Terminal,
   Upload,
   X
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { getSshChromePalette, type SshChromePalette } from '@renderer/lib/theme-presets'
+import {
+  getSshChromePalette,
+  getThemePresetDefinition,
+  resolveAppThemeMode,
+  type SshChromePalette
+} from '@renderer/lib/theme-presets'
 import { cn } from '@renderer/lib/utils'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useSshStore, type SshTab } from '@renderer/stores/ssh-store'
@@ -74,7 +80,7 @@ function getChromePillStyle(
       ? {
           background: palette.terminalPillActive,
           color: palette.terminalPillActiveText,
-          boxShadow: `inset 0 0 0 1px ${palette.panelBorder}`
+          boxShadow: `inset 0 0 0 1px ${palette.terminalBorder}`
         }
       : {
           background: palette.terminalPill,
@@ -98,7 +104,7 @@ function getChromePillStyle(
     ? {
         background: palette.libraryPillActive,
         color: palette.libraryPillActiveText,
-        boxShadow: `inset 0 0 0 1px ${palette.panelBorder}`
+        boxShadow: `inset 0 0 0 1px ${palette.libraryBorder}`
       }
     : {
         background: palette.libraryPill,
@@ -114,6 +120,12 @@ function getToneIconButtonStyle(tone: ShellTone, palette: SshChromePalette): Rea
     return { color: palette.connectPillText }
   }
   return { color: palette.libraryPillText }
+}
+
+function getToneBorderColor(tone: ShellTone, palette: SshChromePalette): string {
+  if (tone === 'terminal') return palette.terminalBorder
+  if (tone === 'connect') return palette.connectBorder
+  return palette.libraryBorder
 }
 
 function ChromePill({
@@ -148,6 +160,7 @@ function ChromePill({
 
 function ConnectionStage({
   connectionName,
+  connectionAddress,
   sessionStatus,
   sessionError,
   palette,
@@ -156,6 +169,7 @@ function ConnectionStage({
   onRetry
 }: {
   connectionName: string
+  connectionAddress: string
   sessionStatus: 'connecting' | 'error' | 'disconnected' | null
   sessionError?: string
   palette: SshChromePalette
@@ -203,8 +217,8 @@ function ConnectionStage({
               <div className="truncate text-[1.1rem] font-semibold" style={{ color: palette.text }}>
                 {connectionName}
               </div>
-              <div className="mt-1 text-[0.82rem]" style={{ color: palette.muted }}>
-                SSH {connectionName}:22
+              <div className="mt-1 truncate text-[0.82rem]" style={{ color: palette.muted }}>
+                {connectionAddress}
               </div>
             </div>
           </div>
@@ -349,9 +363,12 @@ function ConnectionStage({
 
 export function SshPage(): React.JSX.Element {
   const { t } = useTranslation('ssh')
+  const { t: tSettings } = useTranslation('settings')
+  const { resolvedTheme } = useTheme()
   const isMac = /Mac/.test(navigator.userAgent)
 
   const theme = useSettingsStore((state) => state.theme)
+  const themePreset = useSettingsStore((state) => state.themePreset)
   const sshTerminalThemePreset = useSettingsStore((state) => state.sshTerminalThemePreset)
   const openTabs = useSshStore((state) => state.openTabs)
   const activeTabId = useSshStore((state) => state.activeTabId)
@@ -364,7 +381,7 @@ export function SshPage(): React.JSX.Element {
   const transferTasks = useSshStore((state) => state.transferTasks)
   const setDetailConnectionId = useSshStore((state) => state.setDetailConnectionId)
   const setInspectorMode = useSshStore((state) => state.setInspectorMode)
-  const [terminalStatusOpen, setTerminalStatusOpen] = useState(false)
+  const [terminalStatusOpen, setTerminalStatusOpen] = useState(true)
 
   const uploadTaskList = Object.values(transferTasks).sort(
     (left, right) => right.updatedAt - left.updatedAt
@@ -505,10 +522,28 @@ export function SshPage(): React.JSX.Element {
     ? (connections.find((connection) => connection.id === activeTab.connectionId) ?? null)
     : null
   const terminalConnected = activeSession?.status === 'connected'
+  const activeConnectionAddress = activeConnection
+    ? `${activeConnection.username}@${activeConnection.host}:${activeConnection.port}`
+    : null
   const shellTone = getShellTone(showTerminalView, terminalConnected)
+  const resolvedThemeMode = useMemo(
+    () => resolveAppThemeMode(theme === 'system' ? resolvedTheme : theme),
+    [resolvedTheme, theme]
+  )
+  const activeChromePreset = shellTone === 'library' ? themePreset : sshTerminalThemePreset
+  const activeChromeThemeTitle = tSettings(getThemePresetDefinition(activeChromePreset).labelKey)
+  const activeChromeThemeScope =
+    shellTone === 'library'
+      ? t('workspace.chrome.interfaceTheme', { defaultValue: 'Interface palette' })
+      : t('workspace.chrome.terminalTheme', { defaultValue: 'Terminal palette' })
+  const activeChromeThemeBadge = t('workspace.chrome.themeBadge', {
+    defaultValue: '{{scope}} · {{theme}}',
+    scope: activeChromeThemeScope,
+    theme: activeChromeThemeTitle
+  })
   const shellPalette = useMemo(
-    () => getSshChromePalette(sshTerminalThemePreset, theme === 'system' ? 'dark' : theme),
-    [sshTerminalThemePreset, theme]
+    () => getSshChromePalette(activeChromePreset, resolvedThemeMode),
+    [activeChromePreset, resolvedThemeMode]
   )
   const stageStatus =
     activeSession?.status === 'connecting' ||
@@ -519,6 +554,28 @@ export function SshPage(): React.JSX.Element {
         ? activeTab.status
         : null
   const effectiveTerminalStatusOpen = showTerminalView && terminalConnected && terminalStatusOpen
+  const chromeEyebrow = showTerminalView
+    ? t('workspace.chrome.terminalEyebrow', { defaultValue: 'SSH Terminal' })
+    : workspaceSection === 'sftp'
+      ? t('workspace.chrome.sftpEyebrow', { defaultValue: 'SSH Files' })
+      : t('workspace.chrome.hostsEyebrow', { defaultValue: 'SSH Workspace' })
+  const chromeTitle = showTerminalView
+    ? stageStatus === 'connecting'
+      ? t('workspace.chrome.connectingTitle', { defaultValue: 'Connecting' })
+      : stageStatus === 'error'
+        ? t('workspace.chrome.errorTitle', { defaultValue: 'Connection failed' })
+        : stageStatus === 'disconnected'
+          ? t('workspace.chrome.disconnectedTitle', { defaultValue: 'Session closed' })
+          : (activeConnection?.name ?? activeTab?.connectionName ?? t('terminalLabel'))
+    : workspaceSection === 'sftp'
+      ? t('workspace.chrome.sftpTitle', { defaultValue: 'SFTP Workspace' })
+      : t('workspace.chrome.hostsTitle', { defaultValue: 'Host Console' })
+  const chromeMeta = showTerminalView
+    ? (activeConnectionAddress ??
+      t('workspace.currentSession', { defaultValue: 'Terminal session' }))
+    : workspaceSection === 'sftp'
+      ? t('workspace.chrome.sftpMeta', { defaultValue: 'Remote files and transfers' })
+      : t('workspace.chrome.hostsMeta', { defaultValue: 'Hosts, credentials, and tunnels' })
 
   const handlePrimaryPlus = useCallback(() => {
     if (showTerminalView) {
@@ -551,6 +608,7 @@ export function SshPage(): React.JSX.Element {
       return (
         <ConnectionStage
           connectionName={activeConnection?.name ?? activeTab?.connectionName ?? 'SSH'}
+          connectionAddress={activeConnectionAddress ?? activeTab?.connectionName ?? 'SSH'}
           sessionStatus={stageStatus}
           sessionError={activeSession?.error ?? activeTab?.error}
           palette={shellPalette}
@@ -606,6 +664,7 @@ export function SshPage(): React.JSX.Element {
     )
   }, [
     activeConnection,
+    activeConnectionAddress,
     activeSession?.error,
     activeTab,
     activeTabId,
@@ -638,68 +697,121 @@ export function SshPage(): React.JSX.Element {
           paddingRight: isMac ? undefined : 'calc(132px + 0.75rem)'
         }}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
-          <ChromePill
-            tone={shellTone}
-            palette={shellPalette}
-            active={!showTerminalView && workspaceSection !== 'sftp'}
-            onClick={() => setWorkspaceSection('hosts')}
+        <div
+          className="min-w-[190px] max-w-[280px] shrink-0 overflow-hidden"
+          title={`${chromeEyebrow} · ${chromeTitle} · ${activeChromeThemeBadge} · ${chromeMeta}`}
+        >
+          <div className="truncate text-[0.62rem] font-semibold uppercase tracking-[0.22em] opacity-65">
+            {chromeEyebrow}
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
+            <span className="truncate text-[0.86rem] font-semibold">{chromeTitle}</span>
+            <span
+              className="max-w-[150px] shrink-0 truncate rounded-full px-1.5 py-0.5 text-[0.56rem] font-semibold uppercase tracking-[0.12em]"
+              style={
+                shellTone === 'terminal'
+                  ? {
+                      background: shellPalette.terminalPillActive,
+                      color: shellPalette.terminalPillActiveText
+                    }
+                  : shellTone === 'connect'
+                    ? {
+                        background: shellPalette.connectPillActive,
+                        color: shellPalette.connectPillActiveText
+                      }
+                    : {
+                        background: shellPalette.libraryPillActive,
+                        color: shellPalette.libraryPillActiveText
+                      }
+              }
+            >
+              {activeChromeThemeBadge}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+          <div
+            className="titlebar-no-drag flex shrink-0 items-center gap-1 rounded-[14px] border p-1"
+            style={{
+              background:
+                shellTone === 'terminal' ? shellPalette.terminalPill : shellPalette.surface,
+              borderColor: getToneBorderColor(shellTone, shellPalette)
+            }}
           >
-            <span>{t('workspace.vaults', { defaultValue: 'Vaults' })}</span>
-            <ChevronDown className="size-3.5" />
-          </ChromePill>
+            <ChromePill
+              tone={shellTone}
+              palette={shellPalette}
+              active={!showTerminalView && workspaceSection !== 'sftp'}
+              className="h-7 rounded-[10px] px-3 text-[0.78rem]"
+              onClick={() => setWorkspaceSection('hosts')}
+            >
+              <Server className="size-3.5" />
+              <span>{t('workspace.vaults', { defaultValue: 'Hosts' })}</span>
+            </ChromePill>
 
-          <ChromePill
-            tone={shellTone}
-            palette={shellPalette}
-            active={!showTerminalView && workspaceSection === 'sftp'}
-            onClick={() => setWorkspaceSection('sftp')}
-          >
-            <FolderOpen className="size-3.5" />
-            <span>SFTP</span>
-          </ChromePill>
+            <ChromePill
+              tone={shellTone}
+              palette={shellPalette}
+              active={!showTerminalView && workspaceSection === 'sftp'}
+              className="h-7 rounded-[10px] px-3 text-[0.78rem]"
+              onClick={() => setWorkspaceSection('sftp')}
+            >
+              <FolderOpen className="size-3.5" />
+              <span>SFTP</span>
+            </ChromePill>
+          </div>
 
-          {openTabs.map((tab) => {
-            const active = showTerminalView && tab.id === activeTabId
-            const session = tab.sessionId ? sessions[tab.sessionId] : null
-            const isConnected = session?.status === 'connected'
-            const isConnecting =
-              tab.type === 'terminal' &&
-              (tab.sessionId ? session?.status === 'connecting' : tab.status === 'connecting')
+          {openTabs.length > 0 ? (
+            <div
+              className="h-6 w-px shrink-0"
+              style={{ background: getToneBorderColor(shellTone, shellPalette) }}
+            />
+          ) : null}
 
-            return (
-              <ChromePill
-                key={tab.id}
-                tone={shellTone}
-                palette={shellPalette}
-                active={active}
-                className="max-w-[240px] pr-2"
-                onClick={() => useSshStore.getState().setActiveTab(tab.id)}
-              >
-                <Terminal className="size-3.5 shrink-0" />
-                <span className="truncate">{tab.title}</span>
-                {isConnecting ? (
-                  <Loader2 className="size-3 animate-spin shrink-0" />
-                ) : isConnected ? (
-                  <span className="size-2 shrink-0 rounded-full bg-current opacity-85" />
-                ) : null}
-                <span
-                  className="rounded-full p-1 transition-opacity hover:opacity-75"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    handleCloseTab(tab.id)
-                  }}
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+            {openTabs.map((tab) => {
+              const active = showTerminalView && tab.id === activeTabId
+              const session = tab.sessionId ? sessions[tab.sessionId] : null
+              const isConnected = session?.status === 'connected'
+              const isConnecting =
+                tab.type === 'terminal' &&
+                (tab.sessionId ? session?.status === 'connecting' : tab.status === 'connecting')
+
+              return (
+                <ChromePill
+                  key={tab.id}
+                  tone={shellTone}
+                  palette={shellPalette}
+                  active={active}
+                  className="max-w-[220px] min-w-[118px] pr-2"
+                  onClick={() => useSshStore.getState().setActiveTab(tab.id)}
                 >
-                  <X className="size-3" />
-                </span>
-              </ChromePill>
-            )
-          })}
+                  <Terminal className="size-3.5 shrink-0" />
+                  <span className="truncate">{tab.title}</span>
+                  {isConnecting ? (
+                    <Loader2 className="size-3 animate-spin shrink-0" />
+                  ) : isConnected ? (
+                    <span className="size-2 shrink-0 rounded-full bg-current opacity-85" />
+                  ) : null}
+                  <span
+                    className="rounded-full p-1 transition-opacity hover:opacity-75"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleCloseTab(tab.id)
+                    }}
+                  >
+                    <X className="size-3" />
+                  </span>
+                </ChromePill>
+              )
+            })}
+          </div>
 
           <button
             type="button"
             onClick={handlePrimaryPlus}
-            className="titlebar-no-drag inline-flex size-8 items-center justify-center rounded-[12px] transition-opacity hover:opacity-80"
+            className="titlebar-no-drag inline-flex size-8 shrink-0 items-center justify-center rounded-[12px] transition-opacity hover:opacity-80"
             style={getToneIconButtonStyle(shellTone, shellPalette)}
             title={showTerminalView ? t('terminal.newTab') : t('newConnection')}
           >
@@ -723,7 +835,6 @@ export function SshPage(): React.JSX.Element {
               )}
             </button>
           ) : null}
-
 
           <Sheet>
             <SheetTrigger asChild>

@@ -218,8 +218,23 @@
     "createdAt": "Created"
   },
   "workspace": {
-    "vaults": "Vaults",
-    "allVaults": "All vaults",
+    "vaults": "Hosts",
+    "allVaults": "All hosts",
+    "chrome": {
+      "hostsEyebrow": "SSH Console",
+      "hostsTitle": "Host Library",
+      "hostsMeta": "Host profiles, credentials, and tunnels",
+      "sftpEyebrow": "SSH Files",
+      "sftpTitle": "SFTP Files",
+      "sftpMeta": "Remote files and transfers",
+      "terminalEyebrow": "SSH Session",
+      "connectingTitle": "Connecting",
+      "errorTitle": "Connection failed",
+      "disconnectedTitle": "Disconnected",
+      "interfaceTheme": "Interface palette",
+      "terminalTheme": "Terminal palette",
+      "themeBadge": "{{scope}} · {{theme}}"
+    },
     "controlCenter": "Control Center",
     "comingSoon": "Coming soon",
     "newHost": "NEW HOST",
@@ -232,7 +247,8 @@
     "noSearchMatches": "No hosts match the current search. Try another hostname or user.",
     "showLogs": "Show logs",
     "notifications": "Notifications",
-    "personalVault": "Personal vault",
+    "currentSession": "Terminal session",
+    "personalVault": "Host profile",
     "newHostHint": "Create a new SSH host profile.",
     "addressTitle": "Address",
     "addressHint": "Use the hostname or public IP that your SSH client should dial.",
@@ -318,17 +334,17 @@
       }
     },
     "terminalTheme": {
-      "title": "Terminal theme",
-      "sheetDescription": "Adjust only the SSH terminal colors and highlights without changing the app-wide theme.",
-      "presetsTitle": "Terminal color presets",
-      "description": "Pick the SSH terminal background, ANSI palette, and selection highlight style.",
+      "title": "Terminal palette",
+      "sheetDescription": "Adjust only the SSH terminal and connection titlebar colors without changing the app-wide interface palette.",
+      "presetsTitle": "Matched terminal palettes",
+      "description": "Pick the SSH terminal background, ANSI palette, selection highlight, and status panel treatment.",
       "scope": "SSH terminal only",
       "active": "Active",
-      "globalHint": "The app's overall light/dark mode and global theme stay in Settings. This panel only controls the SSH terminal color treatment."
+      "globalHint": "Light/dark mode and the interface palette stay in Settings; SSH terminals can use a separate matched palette from the same set."
     },
     "settings": {
-      "title": "Appearance",
-      "description": "Switch global themes and terminal palettes from the SSH window."
+      "title": "SSH Appearance",
+      "description": "Switch the SSH host-library interface palette and matched terminal palette."
     },
     "terminalStatus": {
       "title": "Terminal status",

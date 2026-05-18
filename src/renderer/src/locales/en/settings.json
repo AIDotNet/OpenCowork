@@ -19,34 +19,40 @@
     "dark": "Dark",
     "system": "Follow System",
     "themePreset": {
-      "title": "Theme Preset",
-      "desc": "Choose a built-in palette. It applies globally across the app, SSH workspaces, and terminals.",
-      "globalHint": "Global",
-      "current": "Current",
+      "title": "Interface Palette",
+      "desc": "The main UI, SSH host library, and SFTP follow this palette; SSH terminals can use a matched terminal palette from the same set.",
+      "terminalTitle": "SSH Terminal Palette",
+      "terminalDesc": "Choose the matched palette for the connection titlebar, terminal background, and status panel.",
+      "terminalPreview": "$ ssh user@host",
+      "terminalConnectedPreview": "connected · 22/tcp",
+      "matchApp": "Follow interface palette",
+      "matched": "Following",
+      "globalHint": "Interface",
+      "current": "Active",
       "presets": {
         "mulberry": {
-          "label": "Shadcn Default",
-          "desc": "A neutral black, white, and gray system modeled after the default shadcn/ui look."
+          "label": "Obsidian Gray",
+          "desc": "A high-contrast black, white, and gray palette with a clean host library and restrained terminal surface."
         },
         "studio": {
-          "label": "Studio Blue",
-          "desc": "A calm blue-gray workspace tuned for coding and host management."
+          "label": "Harbor Blue",
+          "desc": "A blue-gray workspace palette for long coding sessions, session management, and host maintenance."
         },
         "graphite": {
-          "label": "Graphite",
-          "desc": "A restrained neutral system with stronger contrast and a more editorial feel."
+          "label": "Graphite Tool",
+          "desc": "A neutral graphite palette that lowers distraction while keeping tool hierarchy and borders clear."
         },
         "ocean": {
-          "label": "Ocean",
-          "desc": "A deeper teal-blue palette that gives terminals and status panes more depth."
+          "label": "Deep Ocean",
+          "desc": "A teal-blue depth palette that gives terminals, status panes, and file areas stronger spatial layering."
         },
         "forest": {
-          "label": "Forest",
-          "desc": "A softer green system that stays easy on the eyes during long terminal sessions."
+          "label": "Forest Green",
+          "desc": "A soft green palette for sustained terminal, log, and remote task work."
         },
         "dawn": {
-          "label": "Dawn",
-          "desc": "A warm copper palette with more glow and texture in light mode."
+          "label": "Warm Dawn",
+          "desc": "A warm copper-orange palette with more temperature in light mode and a grounded dark mode."
         }
       }
     },

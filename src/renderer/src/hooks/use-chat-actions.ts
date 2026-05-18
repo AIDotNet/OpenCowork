@@ -1903,11 +1903,65 @@ function ensureRequestContainsExpectedUserMessage(
   return [...messages, expectedUserMessage]
 }
 
-function extractToolErrorMessage(output: UnifiedMessage['content'] | string): string | undefined {
+function extractToolErrorMessage(output: unknown): string | undefined {
   if (typeof output !== 'string' || !isStructuredToolErrorText(output)) return undefined
   const parsed = decodeStructuredToolResult(output)
   if (!parsed || Array.isArray(parsed)) return undefined
   return typeof parsed.error === 'string' ? parsed.error : undefined
+}
+
+function reconcileIterationToolResults(
+  sessionId: string,
+  toolResults: { toolUseId: string; content: ToolResultContent; isError?: boolean }[]
+): void {
+  if (toolResults.length === 0) return
+
+  const agentStore = useAgentStore.getState()
+  const sessionToolCalls = agentStore.sessionToolCallsCache[sessionId]
+  const candidates = [
+    ...agentStore.pendingToolCalls,
+    ...agentStore.executedToolCalls,
+    ...(sessionToolCalls?.pending ?? []),
+    ...(sessionToolCalls?.executed ?? [])
+  ]
+  const completedAt = Date.now()
+  const seen = new Set<string>()
+
+  for (const result of toolResults) {
+    if (!result.toolUseId || seen.has(result.toolUseId)) continue
+    seen.add(result.toolUseId)
+
+    const existing = candidates.find((toolCall) => toolCall.id === result.toolUseId)
+    if (!existing) continue
+
+    if (
+      (existing.status === 'completed' || existing.status === 'error') &&
+      existing.output !== undefined
+    ) {
+      continue
+    }
+
+    const isError = result.isError === true
+    const errorMessage = isError ? extractToolErrorMessage(result.content) : undefined
+    const patch: Partial<ToolCallState> = {
+      status: isError ? 'error' : 'completed',
+      output: result.content,
+      ...(errorMessage ? { error: errorMessage } : {}),
+      completedAt
+    }
+
+    agentStore.updateToolCall(result.toolUseId, patch, sessionId)
+
+    if (existing.name === TASK_TOOL_NAME && existing.input.run_in_background !== true) {
+      reconcileSubAgentCompletionFromTaskToolCall(sessionId, {
+        ...existing,
+        ...patch,
+        status: patch.status ?? existing.status,
+        output: result.content,
+        completedAt
+      })
+    }
+  }
 }
 
 function getStoredToolCallResult(
@@ -4593,6 +4647,7 @@ export function useChatActions(): {
                   // When an iteration ends with tool results, append tool_result user message.
                   // The next iteration's text/tool_use will continue appending to the same assistant message.
                   if (event.toolResults && event.toolResults.length > 0) {
+                    reconcileIterationToolResults(sessionId!, event.toolResults)
                     const toolResultMsg: UnifiedMessage = {
                       id: nanoid(),
                       role: 'user',

@@ -204,6 +204,13 @@ function rowToConnection(row: SshConnectionRow): SshConnection {
   }
 }
 
+function renameTabTitle(title: string, previousName: string, nextName: string): string {
+  if (!previousName || previousName === nextName) return title
+  if (title === previousName) return nextName
+  if (title.startsWith(`${previousName} (`)) return `${nextName}${title.slice(previousName.length)}`
+  return title
+}
+
 const MAX_CONCURRENT_LIST_DIR = 2
 const SSH_FILE_EXPLORER_PAGE_SIZE = 200
 const SSH_FILE_EXPLORER_STALE_LOAD_MS = 30000
@@ -748,6 +755,15 @@ export const useSshStore = create<SshStore>()((set, get) => ({
         connections,
         sessions,
         _loaded: true,
+        openTabs: state.openTabs.map((tab) => {
+          const connection = connections.find((item) => item.id === tab.connectionId)
+          if (!connection || connection.name === tab.connectionName) return tab
+          return {
+            ...tab,
+            connectionName: connection.name,
+            title: renameTabTitle(tab.title, tab.connectionName, connection.name)
+          }
+        }),
         sftpPaneStates: {
           left: {
             ...state.sftpPaneStates.left,
@@ -1334,25 +1350,43 @@ export const useSshStore = create<SshStore>()((set, get) => ({
 
   updateConnection: async (id, data) => {
     await ipcClient.invoke(IPC.SSH_CONNECTION_UPDATE, { id, ...data })
-    set((s) => ({
-      connections: s.connections.map((c) => {
-        if (c.id !== id) return c
-        const updated = { ...c, updatedAt: Date.now() }
-        if (data.name !== undefined) updated.name = data.name
-        if (data.host !== undefined) updated.host = data.host
-        if (data.port !== undefined) updated.port = data.port
-        if (data.username !== undefined) updated.username = data.username
-        if (data.authType !== undefined)
-          updated.authType = data.authType as SshConnection['authType']
-        if (data.privateKeyPath !== undefined) updated.privateKeyPath = data.privateKeyPath
-        if (data.groupId !== undefined) updated.groupId = data.groupId
-        if (data.startupCommand !== undefined) updated.startupCommand = data.startupCommand
-        if (data.defaultDirectory !== undefined) updated.defaultDirectory = data.defaultDirectory
-        if (data.proxyJump !== undefined) updated.proxyJump = data.proxyJump
-        if (data.keepAliveInterval !== undefined) updated.keepAliveInterval = data.keepAliveInterval
-        return updated
-      })
-    }))
+    set((s) => {
+      const previousConnection = s.connections.find((connection) => connection.id === id)
+      const nextName = typeof data.name === 'string' ? data.name : null
+
+      return {
+        connections: s.connections.map((c) => {
+          if (c.id !== id) return c
+          const updated = { ...c, updatedAt: Date.now() }
+          if (data.name !== undefined) updated.name = data.name
+          if (data.host !== undefined) updated.host = data.host
+          if (data.port !== undefined) updated.port = data.port
+          if (data.username !== undefined) updated.username = data.username
+          if (data.authType !== undefined)
+            updated.authType = data.authType as SshConnection['authType']
+          if (data.privateKeyPath !== undefined) updated.privateKeyPath = data.privateKeyPath
+          if (data.groupId !== undefined) updated.groupId = data.groupId
+          if (data.startupCommand !== undefined) updated.startupCommand = data.startupCommand
+          if (data.defaultDirectory !== undefined) updated.defaultDirectory = data.defaultDirectory
+          if (data.proxyJump !== undefined) updated.proxyJump = data.proxyJump
+          if (data.keepAliveInterval !== undefined) {
+            updated.keepAliveInterval = data.keepAliveInterval
+          }
+          return updated
+        }),
+        openTabs: nextName
+          ? s.openTabs.map((tab) => {
+              if (tab.connectionId !== id) return tab
+              const previousName = tab.connectionName || previousConnection?.name || ''
+              return {
+                ...tab,
+                connectionName: nextName,
+                title: renameTabTitle(tab.title, previousName, nextName)
+              }
+            })
+          : s.openTabs
+      }
+    })
   },
 
   deleteConnection: async (id) => {

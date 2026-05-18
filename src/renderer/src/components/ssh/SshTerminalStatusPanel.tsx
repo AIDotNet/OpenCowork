@@ -194,7 +194,12 @@ function HistoryBars({
   points: RatePoint[]
   palette: SshChromePalette
 }): React.JSX.Element {
-  const maxValue = Math.max(1, ...points.flatMap((point) => [point.rx, point.tx]))
+  const visiblePoints = points.slice(-12)
+  const paddedPoints: Array<RatePoint | null> = [
+    ...Array.from<null>({ length: Math.max(0, 12 - visiblePoints.length) }).fill(null),
+    ...visiblePoints
+  ]
+  const maxValue = Math.max(1, ...visiblePoints.flatMap((point) => [point.rx, point.tx]))
 
   return (
     <div className="mt-3">
@@ -202,26 +207,38 @@ function HistoryBars({
         className="flex h-20 items-end gap-1 rounded-[18px] border px-3 py-2"
         style={{ borderColor: palette.panelBorder, background: palette.panelStrong }}
       >
-        {points.map((point, index) => (
-          <div key={`${point.rx}:${point.tx}:${index}`} className="flex flex-1 items-end gap-0.5">
+        {paddedPoints.map((point, index) => {
+          const tx = point?.tx ?? 0
+          const rx = point?.rx ?? 0
+          const txActive = tx > 0
+          const rxActive = rx > 0
+
+          return (
             <div
-              className="w-1.5 rounded-full"
-              style={{
-                background: palette.warning,
-                height: `${Math.max(6, (point.tx / maxValue) * 100)}%`
-              }}
-              data-slot="tx-bar"
-            />
-            <div
-              className="w-1.5 rounded-full"
-              style={{
-                background: palette.success,
-                height: `${Math.max(6, (point.rx / maxValue) * 100)}%`
-              }}
-              data-slot="rx-bar"
-            />
-          </div>
-        ))}
+              key={`network-rate-slot-${index}`}
+              className="flex h-full flex-1 items-end justify-center gap-0.5"
+            >
+              <div
+                className="w-1.5 rounded-full transition-[height,background-color,opacity] duration-500 ease-out"
+                style={{
+                  background: txActive ? palette.warning : palette.surfaceStrong,
+                  height: `${point ? Math.max(8, (tx / maxValue) * 100) : 14}%`,
+                  opacity: txActive ? 1 : 0.56
+                }}
+                data-slot="tx-bar"
+              />
+              <div
+                className="w-1.5 rounded-full transition-[height,background-color,opacity] duration-500 ease-out"
+                style={{
+                  background: rxActive ? palette.success : palette.surfaceStrong,
+                  height: `${point ? Math.max(8, (rx / maxValue) * 100) : 14}%`,
+                  opacity: rxActive ? 1 : 0.56
+                }}
+                data-slot="rx-bar"
+              />
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -249,8 +266,12 @@ export function SshTerminalStatusPanel({
   const hasLoadedRef = useRef(false)
   const refreshInFlightRef = useRef(false)
   const queuedRefreshRef = useRef(false)
-  const themePreset = useSettingsStore((state) => state.themePreset)
-  const palette = getSshChromePalette(themePreset, resolveAppThemeMode(resolvedTheme))
+  const theme = useSettingsStore((state) => state.theme)
+  const terminalThemePreset = useSettingsStore((state) => state.sshTerminalThemePreset)
+  const palette = getSshChromePalette(
+    terminalThemePreset,
+    resolveAppThemeMode(theme === 'system' ? resolvedTheme : theme)
+  )
 
   const refresh = useCallback(
     async (force = false): Promise<void> => {
@@ -637,7 +658,9 @@ export function SshTerminalStatusPanel({
               style={{ background: palette.panelStrong, color: palette.muted }}
             >
               <span>{t('workspace.terminalStatus.path', { defaultValue: 'Path' })}</span>
-              <span>{t('workspace.terminalStatus.capacity', { defaultValue: 'Available/Size' })}</span>
+              <span>
+                {t('workspace.terminalStatus.capacity', { defaultValue: 'Available/Size' })}
+              </span>
             </div>
             <div className="divide-y" style={{ borderColor: palette.panelBorder }}>
               {(snapshot?.disks ?? []).map((disk) => (

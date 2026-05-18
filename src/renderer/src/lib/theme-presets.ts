@@ -345,10 +345,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
     },
     ssh: {
       light: {
-        libraryFrameStart: '#18181b',
-        libraryFrameEnd: '#2a2a2e',
-        libraryBorder: 'rgba(255,255,255,0.08)',
-        libraryText: '#fafafa',
+        libraryFrameStart: '#ffffff',
+        libraryFrameEnd: '#f7f7f8',
+        libraryBorder: '#e6e6ea',
+        libraryText: '#18181b',
         connectFrame: '#fafafa',
         connectBorder: '#e4e4e7',
         connectText: '#52525b',
@@ -357,7 +357,7 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         terminalText: '#fafafa',
         canvas: '#fafafa',
         canvasSubtle: '#ffffff',
-        terminalCanvas: '#09090b',
+        terminalCanvas: '#ffffff',
         panel: '#18181b',
         panelStrong: '#09090b',
         panelBorder: 'rgba(255,255,255,0.08)',
@@ -375,10 +375,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         danger: '#dc2626',
         dangerSoft: '#fef2f2',
         badge: '#18181b',
-        libraryPill: 'rgba(255,255,255,0.1)',
-        libraryPillActive: 'rgba(255,255,255,0.16)',
-        libraryPillText: '#f4f4f5',
-        libraryPillActiveText: '#ffffff',
+        libraryPill: '#f4f4f5',
+        libraryPillActive: '#e4e4e7',
+        libraryPillText: '#52525b',
+        libraryPillActiveText: '#18181b',
         connectPill: '#f4f4f5',
         connectPillActive: '#e4e4e7',
         connectPillText: '#52525b',
@@ -575,10 +575,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
     },
     ssh: {
       light: {
-        libraryFrameStart: '#304064',
-        libraryFrameEnd: '#4a4568',
-        libraryBorder: 'rgba(255,255,255,0.08)',
-        libraryText: '#eef4ff',
+        libraryFrameStart: '#f8fbff',
+        libraryFrameEnd: '#eef2f6',
+        libraryBorder: '#d6dfec',
+        libraryText: '#172033',
         connectFrame: '#f0f3f6',
         connectBorder: '#d8dee6',
         connectText: '#5b6678',
@@ -587,7 +587,7 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         terminalText: '#dbe6ff',
         canvas: '#eef2f6',
         canvasSubtle: '#f6f8fb',
-        terminalCanvas: '#14192d',
+        terminalCanvas: '#f7faff',
         panel: '#161d33',
         panelStrong: '#11172a',
         panelBorder: 'rgba(255,255,255,0.08)',
@@ -605,10 +605,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         danger: '#d25555',
         dangerSoft: '#fff0f0',
         badge: '#2f8cf3',
-        libraryPill: 'rgba(255,255,255,0.1)',
-        libraryPillActive: 'rgba(255,255,255,0.16)',
-        libraryPillText: '#d3dbef',
-        libraryPillActiveText: '#ffffff',
+        libraryPill: '#e9eef7',
+        libraryPillActive: '#dfe8ff',
+        libraryPillText: '#506078',
+        libraryPillActiveText: '#22315a',
         connectPill: '#dfe5ea',
         connectPillActive: '#cfd5dd',
         connectPillText: '#6a7688',
@@ -846,10 +846,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
     },
     ssh: {
       light: {
-        libraryFrameStart: '#3f4349',
-        libraryFrameEnd: '#59616a',
-        libraryBorder: 'rgba(255,255,255,0.08)',
-        libraryText: '#f7fbfa',
+        libraryFrameStart: '#f7f8f8',
+        libraryFrameEnd: '#eff2f2',
+        libraryBorder: '#d5dbdc',
+        libraryText: '#17191d',
         connectFrame: '#eff2f2',
         connectBorder: '#d7dddd',
         connectText: '#5e6668',
@@ -858,7 +858,7 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         terminalText: '#dbe4e3',
         canvas: '#eff2f2',
         canvasSubtle: '#f6f8f8',
-        terminalCanvas: '#12171a',
+        terminalCanvas: '#f5f7f7',
         panel: '#161d20',
         panelStrong: '#11171a',
         panelBorder: 'rgba(255,255,255,0.08)',
@@ -876,10 +876,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         danger: '#c85656',
         dangerSoft: '#fff1f1',
         badge: '#2a7b73',
-        libraryPill: 'rgba(255,255,255,0.1)',
-        libraryPillActive: 'rgba(255,255,255,0.16)',
-        libraryPillText: '#dbe4e3',
-        libraryPillActiveText: '#ffffff',
+        libraryPill: '#e8ecec',
+        libraryPillActive: '#dcecea',
+        libraryPillText: '#5f6a6d',
+        libraryPillActiveText: '#1c3131',
         connectPill: '#e2e7e7',
         connectPillActive: '#d4dbdb',
         connectPillText: '#657072',
@@ -1076,10 +1076,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
     },
     ssh: {
       light: {
-        libraryFrameStart: '#0f5162',
-        libraryFrameEnd: '#17667a',
-        libraryBorder: 'rgba(255,255,255,0.08)',
-        libraryText: '#eefcff',
+        libraryFrameStart: '#f5fbfc',
+        libraryFrameEnd: '#eef7f8',
+        libraryBorder: '#c9e1e7',
+        libraryText: '#13232a',
         connectFrame: '#eef7f8',
         connectBorder: '#d2e3e7',
         connectText: '#5d747d',
@@ -1088,7 +1088,7 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         terminalText: '#ddf6ff',
         canvas: '#eef7f8',
         canvasSubtle: '#f6fbfc',
-        terminalCanvas: '#0b1a23',
+        terminalCanvas: '#f4fdff',
         panel: '#102431',
         panelStrong: '#0b1a23',
         panelBorder: 'rgba(255,255,255,0.08)',
@@ -1106,10 +1106,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         danger: '#d66166',
         dangerSoft: '#fff1f1',
         badge: '#0f8aa6',
-        libraryPill: 'rgba(255,255,255,0.1)',
-        libraryPillActive: 'rgba(255,255,255,0.16)',
-        libraryPillText: '#d8eef3',
-        libraryPillActiveText: '#ffffff',
+        libraryPill: '#dff0f4',
+        libraryPillActive: '#d7f0f6',
+        libraryPillText: '#5c7580',
+        libraryPillActiveText: '#123844',
         connectPill: '#dfecef',
         connectPillActive: '#cfdee2',
         connectPillText: '#60767d',
@@ -1306,10 +1306,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
     },
     ssh: {
       light: {
-        libraryFrameStart: '#244937',
-        libraryFrameEnd: '#355744',
-        libraryBorder: 'rgba(255,255,255,0.08)',
-        libraryText: '#f5fff7',
+        libraryFrameStart: '#f8fbf8',
+        libraryFrameEnd: '#f2f7f2',
+        libraryBorder: '#d6e3d8',
+        libraryText: '#16221b',
         connectFrame: '#f2f7f2',
         connectBorder: '#d7e3d9',
         connectText: '#607368',
@@ -1318,7 +1318,7 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         terminalText: '#e4f7eb',
         canvas: '#f2f7f2',
         canvasSubtle: '#f8fbf8',
-        terminalCanvas: '#0d1712',
+        terminalCanvas: '#f7fcf8',
         panel: '#12231b',
         panelStrong: '#0d1712',
         panelBorder: 'rgba(255,255,255,0.08)',
@@ -1336,10 +1336,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         danger: '#c86464',
         dangerSoft: '#fff1f1',
         badge: '#2f8b57',
-        libraryPill: 'rgba(255,255,255,0.1)',
-        libraryPillActive: 'rgba(255,255,255,0.16)',
-        libraryPillText: '#dcecdf',
-        libraryPillActiveText: '#ffffff',
+        libraryPill: '#e5efe7',
+        libraryPillActive: '#e1f1e6',
+        libraryPillText: '#67796d',
+        libraryPillActiveText: '#1d3a28',
         connectPill: '#e3ebe5',
         connectPillActive: '#d5dfd7',
         connectPillText: '#63766a',
@@ -1536,10 +1536,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
     },
     ssh: {
       light: {
-        libraryFrameStart: '#6a402f',
-        libraryFrameEnd: '#87563e',
-        libraryBorder: 'rgba(255,255,255,0.08)',
-        libraryText: '#fff6ef',
+        libraryFrameStart: '#fdf9f6',
+        libraryFrameEnd: '#f8f2ed',
+        libraryBorder: '#ead6cb',
+        libraryText: '#2b1d19',
         connectFrame: '#f8f2ed',
         connectBorder: '#ebdbd1',
         connectText: '#7b675e',
@@ -1548,7 +1548,7 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         terminalText: '#ffe8d9',
         canvas: '#f8f2ed',
         canvasSubtle: '#fdf9f5',
-        terminalCanvas: '#26160f',
+        terminalCanvas: '#fffaf6',
         panel: '#2d1d14',
         panelStrong: '#26160f',
         panelBorder: 'rgba(255,255,255,0.08)',
@@ -1566,10 +1566,10 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
         danger: '#cc6258',
         dangerSoft: '#fff1f0',
         badge: '#ca6a33',
-        libraryPill: 'rgba(255,255,255,0.1)',
-        libraryPillActive: 'rgba(255,255,255,0.16)',
-        libraryPillText: '#f0ddd2',
-        libraryPillActiveText: '#ffffff',
+        libraryPill: '#f3e8df',
+        libraryPillActive: '#f9e5da',
+        libraryPillText: '#7f665c',
+        libraryPillActiveText: '#5f3824',
         connectPill: '#efe4dc',
         connectPillActive: '#e0d3c8',
         connectPillText: '#7d675b',
@@ -1627,7 +1627,16 @@ const PRESET_DEFINITIONS: Record<AppThemePreset, ThemePresetDefinition> = {
   }
 }
 
-export const APP_THEME_PRESETS = [PRESET_DEFINITIONS[DEFAULT_APP_THEME_PRESET]]
+const APP_THEME_PRESET_IDS: AppThemePreset[] = [
+  'mulberry',
+  'studio',
+  'graphite',
+  'ocean',
+  'forest',
+  'dawn'
+]
+
+export const APP_THEME_PRESETS = APP_THEME_PRESET_IDS.map((id) => PRESET_DEFINITIONS[id])
 const ALL_THEME_CSS_VAR_KEYS = Array.from(
   new Set(
     APP_THEME_PRESETS.flatMap((preset) =>
@@ -1637,7 +1646,9 @@ const ALL_THEME_CSS_VAR_KEYS = Array.from(
 )
 
 export function isAppThemePreset(value: unknown): value is AppThemePreset {
-  return value === DEFAULT_APP_THEME_PRESET
+  return (
+    typeof value === 'string' && Object.prototype.hasOwnProperty.call(PRESET_DEFINITIONS, value)
+  )
 }
 
 export function resolveAppThemeMode(value?: string | null): AppThemeMode {
@@ -1645,9 +1656,7 @@ export function resolveAppThemeMode(value?: string | null): AppThemeMode {
 }
 
 export function getThemePresetDefinition(preset: AppThemePreset): ThemePresetDefinition {
-  return preset === DEFAULT_APP_THEME_PRESET
-    ? PRESET_DEFINITIONS[preset]
-    : PRESET_DEFINITIONS[DEFAULT_APP_THEME_PRESET]
+  return PRESET_DEFINITIONS[preset] ?? PRESET_DEFINITIONS[DEFAULT_APP_THEME_PRESET]
 }
 
 export function getTerminalTheme(preset: AppThemePreset, mode: AppThemeMode): ITheme {

@@ -3123,7 +3123,23 @@ export const useChatStore = create<ChatStore>()(
             ? [{ type: 'text', text: msg.content }, normalizedToolUse]
             : [normalizedToolUse]
         } else {
-          ;(msg.content as ContentBlock[]).push(normalizedToolUse)
+          const blocks = msg.content as ContentBlock[]
+          const existingIndex = normalizedToolUse.id
+            ? blocks.findIndex(
+                (block): block is ToolUseBlock =>
+                  block.type === 'tool_use' && block.id === normalizedToolUse.id
+              )
+            : -1
+
+          if (existingIndex === -1) {
+            blocks.push(normalizedToolUse)
+          } else {
+            blocks[existingIndex] = {
+              ...(blocks[existingIndex] as ToolUseBlock),
+              ...normalizedToolUse,
+              input: normalizedToolUse.input
+            }
+          }
         }
         bumpMessageRevision(msg)
       })

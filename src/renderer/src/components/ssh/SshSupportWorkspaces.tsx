@@ -624,7 +624,7 @@ export function SshPortForwardingWorkspace(): React.JSX.Element {
                 : t('workspace.forwarding.new', { defaultValue: 'Add rule' })}
             </div>
             <div className="mt-1 text-[0.8rem] text-muted-foreground">
-              {t('workspace.personalVault', { defaultValue: 'Personal vault' })}
+              {t('workspace.personalVault', { defaultValue: 'Host profile' })}
             </div>
           </div>
           <button
@@ -946,7 +946,7 @@ export function SshSnippetsWorkspace(): React.JSX.Element {
                 : t('workspace.snippets.new', { defaultValue: 'Add snippet' })}
             </div>
             <div className="mt-1 text-[0.8rem] text-muted-foreground">
-              {t('workspace.personalVault', { defaultValue: 'Personal vault' })}
+              {t('workspace.personalVault', { defaultValue: 'Host profile' })}
             </div>
           </div>
           <button

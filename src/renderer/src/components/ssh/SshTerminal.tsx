@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useTheme } from 'next-themes'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -8,7 +9,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
-import { getTerminalTheme } from '@renderer/lib/theme-presets'
+import { getTerminalTheme, resolveAppThemeMode } from '@renderer/lib/theme-presets'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
 import { Badge } from '@renderer/components/ui/badge'
@@ -30,8 +31,13 @@ interface SshTerminalProps {
 
 export function SshTerminal({ sessionId }: SshTerminalProps): React.JSX.Element {
   const { t } = useTranslation('ssh')
+  const { resolvedTheme } = useTheme()
+  const theme = useSettingsStore((state) => state.theme)
   const terminalThemePreset = useSettingsStore((state) => state.sshTerminalThemePreset)
-  const terminalTheme = getTerminalTheme(terminalThemePreset, 'dark')
+  const terminalTheme = getTerminalTheme(
+    terminalThemePreset,
+    resolveAppThemeMode(theme === 'system' ? resolvedTheme : theme)
+  )
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)

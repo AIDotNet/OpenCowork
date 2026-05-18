@@ -10,9 +10,9 @@ import {
   ServerCrash,
   Timer,
   WalletCards,
-  WifiOff,
   Wrench
 } from 'lucide-react'
+import WifiOffIcon from '@renderer/components/icons/WifiOffIcon'
 import type { AgentErrorCode } from '@renderer/lib/api/types'
 
 interface AgentErrorCardProps {
@@ -21,6 +21,10 @@ interface AgentErrorCardProps {
   errorType?: string
   details?: string
   stackTrace?: string
+}
+
+function NetworkIcon({ className }: { className?: string }): React.JSX.Element {
+  return <WifiOffIcon size={28} strokeWidth={2.5} className={className} />
 }
 
 type Category =
@@ -75,7 +79,7 @@ const CATEGORY_VIEW: Record<Category, CategoryView> = {
     descKey: 'assistantMessage.agentError.descTemporaryPause'
   },
   network: {
-    icon: WifiOff,
+    icon: NetworkIcon,
     titleKey: 'assistantMessage.agentError.titleNetwork',
     descKey: 'assistantMessage.agentError.descNetwork'
   },

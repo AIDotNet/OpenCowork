@@ -217,6 +217,7 @@ export function registerDbHandlers(options: RegisterDbHandlersOptions = {}): voi
         sshConnectionId?: string
         planId?: string | null
         pinned?: boolean
+        bookmarked?: boolean
         pluginId?: string
         providerId?: string
         modelId?: string
@@ -261,6 +262,7 @@ export function registerDbHandlers(options: RegisterDbHandlersOptions = {}): voi
           sshConnectionId: string | null
           planId: string | null
           pinned: boolean
+          bookmarked: boolean
         }>
       }
     ) => {

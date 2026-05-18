@@ -1604,6 +1604,7 @@ export const useUIStore = create<UIStore>()(
         replaceChatRoute({ chatView: 'git', projectId: resolvedProjectId, sessionId: null })
       },
       navigateToSession: (sessionId) => {
+
         const store = useChatStore.getState()
         const resolvedSessionId = sessionId ?? store.activeSessionId ?? null
         const resolvedSession = resolvedSessionId
@@ -1613,6 +1614,7 @@ export const useUIStore = create<UIStore>()(
           ? (resolvedSession.projectId ?? null)
           : (store.activeProjectId ?? null)
         set({ activeNavItem: 'chat', chatView: 'session', ...CHAT_SURFACE_NAV_RESET })
+
         replaceChatRoute({
           chatView: resolvedSessionId ? 'session' : resolvedProjectId ? 'project' : 'home',
           projectId: resolvedProjectId,

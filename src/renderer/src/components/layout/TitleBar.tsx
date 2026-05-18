@@ -10,6 +10,7 @@ import {
   SquareTerminal,
   ShieldCheck
 } from 'lucide-react'
+import GearIcon from '@renderer/components/icons/GearIcon'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useShallow } from 'zustand/react/shallow'
@@ -356,6 +357,19 @@ export function TitleBar({
             )}
           </div>
         )}
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="workspace-titlebar-action titlebar-no-drag inline-flex size-7 items-center justify-center rounded-md transition-all"
+              onClick={() => useUIStore.getState().openSettingsPage()}
+            >
+              <GearIcon size={16} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t('navRail.settings', { defaultValue: 'Settings' })}</TooltipContent>
+        </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>

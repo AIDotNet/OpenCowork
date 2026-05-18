@@ -3180,9 +3180,15 @@ export function useChatActions(): {
 
         // Auto-title: fire-and-forget AI title + icon generation for the first message (skip for team notifications)
         const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-        if (shouldAppendUserMessage && session && canAutoGenerateSessionTitle(session.title)) {
+        if (
+          shouldAppendUserMessage &&
+          session &&
+          canAutoGenerateSessionTitle(session.title)
+        ) {
           const capturedSessionId = sessionId
-          generateSessionTitle(effectiveResolvedCommand.titleInput)
+          generateSessionTitle(effectiveResolvedCommand.titleInput, {
+            providerConfig: baseProviderConfig
+          })
             .then((result) => {
               if (result) {
                 const store = useChatStore.getState()

@@ -243,12 +243,29 @@ class OpenAIResponsesProvider implements APIProvider {
     const emittedImageGenerationStartIds = new Set<string>()
     const emittedImageOutputItemIds = new Set<string>()
     let emittedThinkingDelta = false
+    let emittedTextDelta = false
     let imageGenerationStarted = false
 
     const extractReasoningSummaryText = (summary: unknown): string => {
       if (typeof summary === 'string') return summary
       if (!Array.isArray(summary)) return ''
       return summary
+        .map((part) => {
+          if (typeof part === 'string') return part
+          if (!part || typeof part !== 'object') return ''
+          const text = (part as { text?: unknown }).text
+          return typeof text === 'string' ? text : ''
+        })
+        .join('')
+    }
+
+    const extractOutputText = (item: unknown): string => {
+      if (!item || typeof item !== 'object') return ''
+      const record = item as { text?: unknown; content?: unknown; output_text?: unknown }
+      if (typeof record.output_text === 'string') return record.output_text
+      if (typeof record.text === 'string') return record.text
+      if (!Array.isArray(record.content)) return ''
+      return record.content
         .map((part) => {
           if (typeof part === 'string') return part
           if (!part || typeof part !== 'object') return ''
@@ -390,6 +407,7 @@ class OpenAIResponsesProvider implements APIProvider {
 
           case 'response.output_text.delta':
             if (firstTokenAt === null) firstTokenAt = Date.now()
+            emittedTextDelta = true
             yield { type: 'text_delta', text: data.delta }
             break
 
@@ -524,6 +542,15 @@ class OpenAIResponsesProvider implements APIProvider {
             const responseOutput = data.response?.output
             if (Array.isArray(responseOutput)) {
               for (const item of responseOutput) {
+                if (!emittedTextDelta) {
+                  const outputText = extractOutputText(item)
+                  if (outputText) {
+                    if (firstTokenAt === null) firstTokenAt = Date.now()
+                    emittedTextDelta = true
+                    yield { type: 'text_delta', text: outputText }
+                  }
+                }
+
                 if (item?.type === 'computer_call') {
                   for (const event of buildComputerUseToolEvents(item, emittedComputerCallIds)) {
                     yield event

@@ -94,7 +94,13 @@
     "projectGit": "Git",
     "showMoreSessions": "Show more ({{count}})",
     "showLessSessions": "Show less",
-    "openInNewWindow": "Open in new window"
+    "openInNewWindow": "Open in new window",
+    "bookmarkChat": "Bookmark chat",
+    "removeBookmark": "Remove bookmark",
+    "bookmarkedChats": "Bookmarked",
+    "showBookmarkedChats": "Show bookmarked chats",
+    "showAllChats": "Show all chats",
+    "noBookmarkedChats": "No bookmarked chats yet"
   },
   "sidebar_toast": {
     "sessionDeleted": "Session deleted",
@@ -116,7 +122,9 @@
     "projectWorkingFolderUpdated": "Project working folder updated",
     "projectDeleted": "Project deleted",
     "projectSessionsCleared": "Cleared {{count}} project sessions",
-    "noProjectSessionsCleared": "No project sessions were cleared"
+    "noProjectSessionsCleared": "No project sessions were cleared",
+    "bookmarked": "Chat bookmarked",
+    "bookmarkRemoved": "Bookmark removed"
   },
   "topbar": {
     "togglePanel": "Toggle Panel",
@@ -727,5 +735,16 @@
     "terminalExited": "Terminal session ended",
     "terminalExitedWithError": "Terminal session exited",
     "exitCode": "Exit code: {{code}}"
+  },
+  "incognito": {
+    "title": "Incognito",
+    "tooltip": "Start incognito chat",
+    "activeTooltip": "Incognito session — messages are not saved",
+    "exitTooltip": "Exit incognito",
+    "sidebarSection": "Incognito",
+    "save": "Save",
+    "saveTooltip": "Save this chat permanently",
+    "close": "Close",
+    "closeTooltip": "Close without saving — messages will be lost"
   }
 }

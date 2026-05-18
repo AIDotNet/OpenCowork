@@ -131,7 +131,10 @@ export async function runSidecarTextRequest(args: {
   let settled = false
   let unsubscribe: (() => void) | null = null
   let runId = ''
-  const pendingEvents: Array<{ type: string; [key: string]: unknown }> = []
+  const pendingEvents: Array<{
+    runId: string
+    event: { type: string; [key: string]: unknown }
+  }> = []
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -181,7 +184,10 @@ export async function runSidecarTextRequest(args: {
         if (!event) return
 
         if (!runId) {
-          pendingEvents.push(event as unknown as { type: string; [key: string]: unknown })
+          pendingEvents.push({
+            runId: eventRunId,
+            event: event as unknown as { type: string; [key: string]: unknown }
+          })
           return
         }
 
@@ -193,8 +199,9 @@ export async function runSidecarTextRequest(args: {
         try {
           const result = await agentBridge.runAgent(sidecarRequest)
           runId = result.runId
-          for (const event of pendingEvents.splice(0, pendingEvents.length)) {
-            handleEvent(event)
+          for (const pending of pendingEvents.splice(0, pendingEvents.length)) {
+            if (pending.runId && pending.runId !== runId) continue
+            handleEvent(pending.event)
             if (settled) break
           }
         } catch (error) {

@@ -304,6 +304,10 @@ function getSourceSessionMeta(
   }
 }
 
+const DEFAULT_LEFT_WIDTH = 380
+const MIN_LEFT_WIDTH = 340
+const DIVIDER_WIDTH = 4
+
 export function TasksPage(): React.JSX.Element {
   const jobs = useCronStore((state) => state.jobs)
   const runs = useCronStore((state) => state.runs)
@@ -311,6 +315,52 @@ export function TasksPage(): React.JSX.Element {
   const loadRuns = useCronStore((state) => state.loadRuns)
   const sessionSummaries = useChatStore(selectTaskPageSessionSummaries)
   const projects = useChatStore((state) => state.projects)
+
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [leftWidth, setLeftWidth] = React.useState(DEFAULT_LEFT_WIDTH)
+  const [isDragging, setIsDragging] = React.useState(false)
+  const isDraggingRef = React.useRef(false)
+  const dragStartX = React.useRef(0)
+  const dragStartWidth = React.useRef(0)
+
+  const handleDividerMouseDown = React.useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault()
+      isDraggingRef.current = true
+      setIsDragging(true)
+      dragStartX.current = event.clientX
+      dragStartWidth.current = leftWidth
+
+      const handleMouseMove = (e: MouseEvent) => {
+        if (!isDraggingRef.current) return
+        const containerEl = containerRef.current
+        if (!containerEl) return
+        const rect = containerEl.getBoundingClientRect()
+        const maxLeft = rect.width * 0.8 - DIVIDER_WIDTH
+        const delta = e.clientX - dragStartX.current
+        const newWidth = Math.min(
+          Math.max(MIN_LEFT_WIDTH, dragStartWidth.current + delta),
+          maxLeft
+        )
+        setLeftWidth(newWidth)
+      }
+
+      const handleMouseUp = () => {
+        isDraggingRef.current = false
+        setIsDragging(false)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+      }
+
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+    },
+    [leftWidth]
+  )
 
   const [selectedDateKey, setSelectedDateKey] = React.useState(() => dateKeyFromDate(new Date()))
   const [calendarCursor, setCalendarCursor] = React.useState(() => {
@@ -756,10 +806,22 @@ export function TasksPage(): React.JSX.Element {
   const todayKey = dateKeyFromDate(new Date())
 
   return (
-    <div className="grid h-full min-w-0 grid-cols-[minmax(340px,380px)_minmax(0,1fr)] gap-4 bg-muted/10 p-4">
-      <div className="grid min-w-0 min-h-0 grid-rows-[360px_minmax(0,1fr)] gap-4">
+    <div
+      ref={containerRef}
+      className={cn(
+        'flex h-full min-w-0 gap-4 bg-muted/10 p-4',
+        isDragging && 'select-none'
+      )}
+    >
+      {isDragging && (
+        <div className="fixed inset-0 z-50 cursor-col-resize" />
+      )}
+      <div
+        className="grid min-w-0 min-h-0 shrink-0 grid-rows-[360px_minmax(0,1fr)] gap-4"
+        style={{ width: leftWidth, minWidth: MIN_LEFT_WIDTH }}
+      >
         <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background shadow-sm">
-          <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center justify-between px-3 py-3 sm:px-4">
             <div>
               <div className="text-sm font-semibold text-foreground">Task Calendar</div>
               <div className="text-[11px] text-muted-foreground">
@@ -771,7 +833,7 @@ export function TasksPage(): React.JSX.Element {
               New
             </Button>
           </div>
-          <div className="flex items-center justify-between px-4 pb-2">
+          <div className="flex items-center justify-between px-2 pb-2 sm:px-4">
             <div className="flex items-center gap-1">
               <Button size="icon" variant="ghost" className="size-7" onClick={goPrevMonth}>
                 <ChevronLeft className="size-4" />
@@ -785,12 +847,12 @@ export function TasksPage(): React.JSX.Element {
             </div>
             <span className="text-[11px] text-muted-foreground">Shows local time by default</span>
           </div>
-          <div className="grid grid-cols-7 gap-1 px-4 pb-2 text-center text-[10px] text-muted-foreground">
+          <div className="grid grid-cols-7 gap-0.5 px-2 pb-2 text-center text-[10px] text-muted-foreground sm:gap-1 sm:px-4">
             {WEEKDAY_LABELS.map((label) => (
               <div key={label}>{label}</div>
             ))}
           </div>
-          <div className="grid flex-1 grid-cols-7 gap-1 px-4 pb-4">
+          <div className="grid flex-1 grid-cols-7 gap-0.5 px-2 pb-3 sm:gap-1 sm:px-4 sm:pb-4">
             {calendarDays.map((date) => {
               const key = dateKeyFromDate(date)
               const active = key === selectedDateKey
@@ -802,7 +864,7 @@ export function TasksPage(): React.JSX.Element {
                   key={key}
                   type="button"
                   className={cn(
-                    'relative flex min-h-[38px] flex-col items-start rounded-lg border px-2 py-1 text-left transition-colors',
+                    'relative flex min-h-[32px] flex-col items-start rounded-lg border px-1.5 py-1 text-left transition-colors sm:min-h-[38px] sm:px-2',
                     active
                       ? 'border-primary/40 bg-primary/10 text-primary'
                       : 'border-transparent hover:bg-muted/60',
@@ -823,7 +885,7 @@ export function TasksPage(): React.JSX.Element {
         </section>
 
         <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background shadow-sm">
-          <div className="border-b border-border/60 px-4 py-3">
+          <div className="border-b border-border/60 px-3 py-3 sm:px-4">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
               <CalendarDays className="size-4 text-primary" />
               {formatDayLabel(selectedDay.date)}
@@ -831,7 +893,7 @@ export function TasksPage(): React.JSX.Element {
                 {selectedDay.date.toLocaleDateString()}
               </span>
             </div>
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <select
                 className={INPUT_CLASS}
                 value={statusFilter}
@@ -944,7 +1006,14 @@ export function TasksPage(): React.JSX.Element {
         </section>
       </div>
 
-      <section className="flex min-w-0 min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background shadow-sm">
+      <div
+        className="w-1 shrink-0 cursor-col-resize rounded-full bg-border/60 transition-all hover:w-1.5 hover:bg-primary/40"
+        onMouseDown={handleDividerMouseDown}
+      />
+
+      <section
+        className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background shadow-sm"
+      >
         {selectedItem ? (
           <>
             <div className="border-b border-border/60 px-4 py-3">

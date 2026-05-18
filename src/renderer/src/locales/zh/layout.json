@@ -94,7 +94,13 @@
     "projectGit": "Git",
     "showMoreSessions": "展开更多（{{count}}）",
     "showLessSessions": "收起",
-    "openInNewWindow": "在新窗口打开"
+    "openInNewWindow": "在新窗口打开",
+    "bookmarkChat": "收藏对话",
+    "removeBookmark": "取消收藏",
+    "bookmarkedChats": "已收藏",
+    "showBookmarkedChats": "仅显示收藏对话",
+    "showAllChats": "显示全部对话",
+    "noBookmarkedChats": "还没有收藏的对话"
   },
   "sidebar_toast": {
     "sessionDeleted": "会话已删除",
@@ -116,7 +122,9 @@
     "projectWorkingFolderUpdated": "项目工作目录已更新",
     "projectDeleted": "项目已删除",
     "projectSessionsCleared": "已清空 {{count}} 个项目会话",
-    "noProjectSessionsCleared": "没有可清空的项目会话"
+    "noProjectSessionsCleared": "没有可清空的项目会话",
+    "bookmarked": "已收藏对话",
+    "bookmarkRemoved": "已取消收藏"
   },
   "topbar": {
     "togglePanel": "切换面板",
@@ -727,5 +735,16 @@
     "terminalExited": "终端会话已结束",
     "terminalExitedWithError": "终端会话已退出",
     "exitCode": "退出码：{{code}}"
+  },
+  "incognito": {
+    "title": "隐身模式",
+    "tooltip": "开始隐身聊天",
+    "activeTooltip": "隐身会话 — 消息不会被保存",
+    "exitTooltip": "退出隐身模式",
+    "sidebarSection": "隐身",
+    "save": "保存",
+    "saveTooltip": "永久保存此聊天",
+    "close": "关闭",
+    "closeTooltip": "不保存关闭 — 消息将丢失"
   }
 }

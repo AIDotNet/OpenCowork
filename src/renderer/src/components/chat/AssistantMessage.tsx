@@ -28,7 +28,8 @@ import {
   Pencil,
   Volume2,
   Share2,
-  GitFork
+  GitFork,
+  MessageSquareQuote
 } from 'lucide-react'
 import { FadeIn, ScaleIn } from '@renderer/components/animate-ui'
 import { ImageGeneratingLoader } from './ImageGeneratingLoader'
@@ -112,6 +113,7 @@ import {
 } from '@renderer/lib/preview/viewers/markdown-components'
 import { imageBlockToAttachment } from '@renderer/lib/image-attachments'
 import { useImageEditStore } from '@renderer/stores/image-edit-store'
+import { useSelectionReferenceStore } from '@renderer/stores/selection-reference-store'
 
 type AssistantRenderMode = 'default' | 'transcript' | 'static'
 
@@ -1188,6 +1190,38 @@ function resolveRunChangeSetForMessage(
   return bestMatch?.changeSet
 }
 
+interface SelectionAddPopoverState {
+  text: string
+  top: number
+  left: number
+}
+
+function getMessageSelection(root: HTMLElement | null): { text: string; rect: DOMRect } | null {
+  if (!root) return null
+
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
+
+  const range = selection.getRangeAt(0)
+  const commonAncestor =
+    range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+      ? range.commonAncestorContainer.parentElement
+      : range.commonAncestorContainer
+
+  if (!commonAncestor || !root.contains(commonAncestor)) return null
+
+  const text = selection.toString().trim()
+  if (!text) return null
+
+  const rects = Array.from(range.getClientRects()).filter(
+    (rect) => rect.width > 0 && rect.height > 0
+  )
+  const rect = rects[0] ?? range.getBoundingClientRect()
+  if (rect.width <= 0 && rect.height <= 0) return null
+
+  return { text, rect }
+}
+
 export function AssistantMessage({
   content,
   isStreaming,
@@ -1226,8 +1260,11 @@ export function AssistantMessage({
   const setTranslateSourceText = useTranslateStore((s) => s.setSourceText)
   const openImageEditor = useImageEditStore((s) => s.openEditor)
   const forkSessionFromMessage = useChatStore((s) => s.forkSessionFromMessage)
+  const addSelectionReference = useSelectionReferenceStore((s) => s.addSelectionReference)
   const [collapsed, setCollapsed] = useState(false)
   const [forking, setForking] = useState(false)
+  const [selectionPopover, setSelectionPopover] = useState<SelectionAddPopoverState | null>(null)
+  const messageRootRef = React.useRef<HTMLDivElement>(null)
   const sessionModelBinding = useChatStore(
     useShallow((state) => {
       const sessionIndex = sessionId ? state.sessionsById[sessionId] : undefined
@@ -1409,6 +1446,42 @@ export function AssistantMessage({
       ...(messageToolUseIds.length > 0 ? { toolUseIds: messageToolUseIds } : {})
     })
   }, [isLiveMode, isStreaming, messageToolUseIds, msgId, refreshRunChanges, sessionId])
+
+  const handleMessageSelection = useCallback((): void => {
+    if (!isLiveMode || isStreaming || collapsed || !sessionId) {
+      setSelectionPopover(null)
+      return
+    }
+
+    window.setTimeout(() => {
+      const selection = getMessageSelection(messageRootRef.current)
+      if (!selection) {
+        setSelectionPopover(null)
+        return
+      }
+
+      setSelectionPopover({
+        text: selection.text,
+        top: Math.max(8, selection.rect.top - 44),
+        left: Math.min(
+          window.innerWidth - 160,
+          Math.max(8, selection.rect.left + selection.rect.width / 2 - 72)
+        )
+      })
+    }, 0)
+  }, [collapsed, isLiveMode, isStreaming, sessionId])
+
+  const handleAddSelectionToChat = useCallback((): void => {
+    if (!sessionId || !selectionPopover?.text) return
+
+    addSelectionReference(sessionId, {
+      text: selectionPopover.text,
+      sourceMessageId: msgId
+    })
+    setSelectionPopover(null)
+    window.getSelection()?.removeAllRanges()
+    toast.success(t('messageActions.selectionAddedToChat', { defaultValue: 'Selection added' }))
+  }, [addSelectionReference, msgId, selectionPopover?.text, sessionId, t])
 
   const renderItems = useMemo(() => {
     if (!normalizedContent) return []
@@ -2088,7 +2161,24 @@ export function AssistantMessage({
   const requestTrace = msgId ? getRequestTraceInfo(msgId) : undefined
 
   return (
-    <div className="group/msg flex flex-col">
+    <div
+      ref={messageRootRef}
+      className="group/msg flex flex-col"
+      onMouseUp={handleMessageSelection}
+      onKeyUp={handleMessageSelection}
+    >
+      {selectionPopover && (
+        <button
+          type="button"
+          className="fixed z-50 inline-flex items-center gap-2 rounded-full border border-border/60 bg-zinc-800 px-3 py-2 text-sm font-medium text-white shadow-lg transition-colors hover:bg-zinc-700 dark:bg-zinc-700 dark:hover:bg-zinc-600"
+          style={{ top: selectionPopover.top, left: selectionPopover.left }}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={handleAddSelectionToChat}
+        >
+          <MessageSquareQuote className="size-4" />
+          {t('messageActions.addSelectionToChat', { defaultValue: 'Add to chat' })}
+        </button>
+      )}
       <div className="min-w-0 overflow-hidden pl-1.5 sm:pl-2">
         {requestRetryState && (
           <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">

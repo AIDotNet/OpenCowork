@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { InputArea } from '@renderer/components/chat/InputArea'
+import GhostIcon from '@renderer/components/icons/GhostIcon'
 import { ProjectTerminalDock } from '@renderer/components/terminal/ProjectTerminalDock'
 import { WorkingFolderSelectorDialog } from './WorkingFolderSelectorDialog'
 import { useUIStore } from '@renderer/stores/ui-store'
@@ -122,6 +123,16 @@ export function ChatHomePage(): React.JSX.Element {
         <div className="flex flex-1 items-start justify-center pt-8 lg:items-center lg:pt-0">
           <div className="w-full max-w-[760px]">
             <div className="mb-6 flex flex-col items-center gap-3 text-center sm:mb-7">
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-full border border-purple-500/25 bg-purple-500/8 px-4 py-2 text-sm font-medium text-purple-400/80 transition-colors hover:bg-purple-500/12 hover:text-purple-400"
+                onClick={() => {
+                  useChatStore.getState().createIncognitoSession()
+                }}
+              >
+                <GhostIcon size={16} />
+                <span>{t('incognito.tooltip', { defaultValue: 'Start incognito chat' })}</span>
+              </button>
               <p className="max-w-[760px] text-[30px] font-semibold tracking-tight text-foreground/92 sm:text-[42px]">
                 {title}
               </p>

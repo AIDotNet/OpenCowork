@@ -39,6 +39,8 @@ import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
 import { openSessionOrFocusDetached } from '@renderer/lib/session-window'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
+import { AnimatedIcon, type AnimationType } from '@renderer/components/icons/AnimatedIcon'
+import { iconAnimationMap } from '@renderer/components/icons/icon-animation-map'
 
 const MODEL_PRESETS: Record<ProviderType, string[]> = {
   anthropic: [
@@ -96,6 +98,13 @@ export function CommandPalette(): React.JSX.Element {
   const setShortcutsOpen = useUIStore((s) => s.setShortcutsOpen)
 
   const { theme, setTheme } = useTheme()
+
+  const anim = (icon: React.ReactElement, override?: AnimationType): React.JSX.Element => {
+    const name = (icon.type as { displayName?: string }).displayName || ''
+    return (
+      <AnimatedIcon animation={override || iconAnimationMap[name] || 'scale'}>{icon}</AnimatedIcon>
+    )
+  }
 
   // Ctrl+K to toggle
   useEffect(() => {
@@ -168,34 +177,36 @@ export function CommandPalette(): React.JSX.Element {
               })
             }
           >
-            <Plus className="size-4" />
+            {anim(<Plus className="size-4" />)}
             <span>{t('commandPalette.newChat')}</span>
             <CommandShortcut>Ctrl+N</CommandShortcut>
           </CommandItem>
           <CommandItem onSelect={() => runAndClose(() => setSettingsOpen(true))}>
-            <Settings className="size-4" />
+            {anim(<Settings className="size-4" />)}
             <span>{t('commandPalette.openSettings')}</span>
             <CommandShortcut>Ctrl+,</CommandShortcut>
           </CommandItem>
           <CommandItem onSelect={() => runAndClose(() => setShortcutsOpen(true))}>
-            <Keyboard className="size-4" />
+            {anim(<Keyboard className="size-4" />)}
             <span>{t('commandPalette.keyboardShortcuts')}</span>
             <CommandShortcut>Ctrl+/</CommandShortcut>
           </CommandItem>
           <CommandItem
             onSelect={() => runAndClose(() => setTheme(theme === 'dark' ? 'light' : 'dark'))}
           >
-            {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            {theme === 'dark'
+              ? anim(<Sun className="size-4" />)
+              : anim(<Moon className="size-4" />)}
             <span>{t('commandPalette.toggleTheme')}</span>
             <CommandShortcut>Ctrl+Shift+D</CommandShortcut>
           </CommandItem>
           <CommandItem onSelect={() => runAndClose(toggleLeftSidebar)}>
-            <PanelLeft className="size-4" />
+            {anim(<PanelLeft className="size-4" />)}
             <span>{t('commandPalette.toggleSidebar')}</span>
             <CommandShortcut>Ctrl+B</CommandShortcut>
           </CommandItem>
           <CommandItem onSelect={() => runAndClose(toggleRightPanel)}>
-            <PanelRight className="size-4" />
+            {anim(<PanelRight className="size-4" />)}
             <span>{t('commandPalette.toggleRightPanel')}</span>
             <CommandShortcut>Ctrl+Shift+B</CommandShortcut>
           </CommandItem>
@@ -208,7 +219,7 @@ export function CommandPalette(): React.JSX.Element {
               })
             }
           >
-            <Upload className="size-4" />
+            {anim(<Upload className="size-4" />)}
             <span>{t('commandPalette.importSessions')}</span>
             <CommandShortcut>Ctrl+Shift+O</CommandShortcut>
           </CommandItem>
@@ -230,7 +241,7 @@ export function CommandPalette(): React.JSX.Element {
                   })
                 }
               >
-                <Cpu className="size-4" />
+                {anim(<Cpu className="size-4" />)}
                 <span>{m.replace(/-\d{8}$/, '')}</span>
               </CommandItem>
             ))}
@@ -271,7 +282,7 @@ export function CommandPalette(): React.JSX.Element {
                 key={m.value}
                 onSelect={() => runAndClose(() => handleModeChange(m.value))}
               >
-                {m.icon}
+                {anim(m.icon as React.ReactElement)}
                 <span>{m.label}</span>
               </CommandItem>
             ))}
@@ -303,12 +314,12 @@ export function CommandPalette(): React.JSX.Element {
                   })
                 }
               >
-                <Download className="size-4" />
+                {anim(<Download className="size-4" />)}
                 <span>{t('commandPalette.exportCurrentChat')}</span>
                 <CommandShortcut>Ctrl+Shift+E</CommandShortcut>
               </CommandItem>
               <CommandItem onSelect={() => runAndClose(() => togglePinSession(activeSessionId!))}>
-                <Pin className="size-4" />
+                {anim(<Pin className="size-4" />)}
                 <span>
                   {activeSession.pinned
                     ? t('commandPalette.unpinSession')
@@ -325,7 +336,7 @@ export function CommandPalette(): React.JSX.Element {
                     })
                   }
                 >
-                  <Trash2 className="size-4 text-destructive" />
+                  {anim(<Trash2 className="size-4 text-destructive" />)}
                   <span className="text-destructive">
                     {t('commandPalette.deleteCurrentSession')}
                   </span>
@@ -373,7 +384,7 @@ export function CommandPalette(): React.JSX.Element {
                 })
               }
             >
-              <Sparkles className="size-4" />
+              {anim(<Sparkles className="size-4" />)}
               <span>{p.label}</span>
             </CommandItem>
           ))}
@@ -394,17 +405,15 @@ export function CommandPalette(): React.JSX.Element {
                   })
                 }
               >
-                {s.mode === 'chat' ? (
-                  <MessageSquare className="size-4" />
-                ) : s.mode === 'clarify' ? (
-                  <CircleHelp className="size-4" />
-                ) : s.mode === 'cowork' ? (
-                  <Briefcase className="size-4" />
-                ) : s.mode === 'acp' ? (
-                  <ShieldCheck className="size-4" />
-                ) : (
-                  <Code2 className="size-4" />
-                )}
+                {s.mode === 'chat'
+                  ? anim(<MessageSquare className="size-4" />)
+                  : s.mode === 'clarify'
+                    ? anim(<CircleHelp className="size-4" />)
+                    : s.mode === 'cowork'
+                      ? anim(<Briefcase className="size-4" />)
+                      : s.mode === 'acp'
+                        ? anim(<ShieldCheck className="size-4" />)
+                        : anim(<Code2 className="size-4" />)}
                 <span className="truncate">{s.title}</span>
                 <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground/40">
                   {s.pinned && <Pin className="size-2.5" />}

@@ -285,7 +285,8 @@ export function getDb(): Database.Database {
       updated_at INTEGER NOT NULL,
       message_count INTEGER NOT NULL DEFAULT 0,
       working_folder TEXT,
-      pinned INTEGER DEFAULT 0
+      pinned INTEGER DEFAULT 0,
+      bookmarked INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -406,6 +407,8 @@ export function getDb(): Database.Database {
       /* exists */
     }
   }
+
+  ensureColumn(db, 'sessions', 'bookmarked', 'INTEGER DEFAULT 0')
 
   ensureColumn(db, 'sessions', 'message_count', 'INTEGER NOT NULL DEFAULT 0')
   ensureColumn(db, 'messages', 'meta', 'TEXT')

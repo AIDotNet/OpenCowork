@@ -12,4 +12,5 @@ export interface AnimatedIconProps {
 export interface AnimatedIconHandle {
   startAnimation: () => void
   stopAnimation: () => void
+  clickAnimation?: () => void
 }

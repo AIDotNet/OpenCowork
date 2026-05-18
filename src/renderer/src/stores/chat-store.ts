@@ -72,6 +72,7 @@ export interface Session {
   sshConnectionId?: string
   planId?: string
   pinned?: boolean
+  bookmarked?: boolean
   /** Plugin ID if this session was created by auto-reply pipeline */
   pluginId?: string
   /** Composite key: plugin:{id}:chat:{chatId} */
@@ -87,6 +88,8 @@ export interface Session {
   modelId?: string
   /** In-memory prompt snapshot reused within the current app session */
   promptSnapshot?: SessionPromptSnapshot
+  /** Ephemeral sessions are never persisted to the database */
+  ephemeral?: boolean
 }
 
 export interface ImageGenerationTiming {
@@ -102,8 +105,10 @@ export interface CreateSessionOptions {
 // --- DB persistence helpers (fire-and-forget) ---
 
 const _pendingSessionCreates = new Map<string, Promise<unknown>>()
+const _ephemeralMessageIds = new Set<string>()
 
 function dbCreateSession(s: Session): void {
+  if (s.ephemeral) return
   const pending = ipcClient
     .invoke('db:sessions:create', {
       id: s.id,
@@ -117,6 +122,7 @@ function dbCreateSession(s: Session): void {
       sshConnectionId: s.sshConnectionId,
       planId: s.planId,
       pinned: s.pinned,
+      bookmarked: s.bookmarked,
       providerId: s.providerId,
       modelId: s.modelId
     })
@@ -131,10 +137,14 @@ function dbCreateSession(s: Session): void {
 }
 
 function dbUpdateSession(id: string, patch: Record<string, unknown>): void {
+  const state = useChatStore.getState()
+  if (state.incognitoSessionIds[id]) return
   ipcClient.invoke('db:sessions:update', { id, patch }).catch(() => {})
 }
 
 function dbDeleteSession(id: string): void {
+  const state = useChatStore.getState()
+  if (state.incognitoSessionIds[id]) return
   ipcClient.invoke('db:sessions:delete', id).catch(() => {})
 }
 
@@ -177,6 +187,7 @@ function sanitizeMessageContentForPersistence(
 }
 
 function dbAddMessage(sessionId: string, msg: UnifiedMessage, sortOrder: number): void {
+  if (useChatStore.getState().incognitoSessionIds[sessionId]) return
   const pendingCreate = _pendingSessionCreates.get(sessionId) ?? Promise.resolve()
 
   void pendingCreate
@@ -201,6 +212,7 @@ function dbAddMessageBatch(
   items: Array<{ msg: UnifiedMessage; sortOrder: number }>
 ): void {
   if (items.length === 0) return
+  if (useChatStore.getState().incognitoSessionIds[sessionId]) return
   const pendingCreate = _pendingSessionCreates.get(sessionId) ?? Promise.resolve()
 
   void pendingCreate
@@ -224,6 +236,7 @@ function dbAddMessageBatch(
 }
 
 function dbUpdateMessage(msgId: string, content: unknown, usage?: unknown, meta?: unknown): void {
+  if (_ephemeralMessageIds.has(msgId)) return
   const normalizedContent =
     typeof content === 'string' || Array.isArray(content)
       ? sanitizeMessageContentForPersistence(content)
@@ -253,10 +266,12 @@ function dbUpdateMessage(msgId: string, content: unknown, usage?: unknown, meta?
 }
 
 function dbClearMessages(sessionId: string): void {
+  if (useChatStore.getState().incognitoSessionIds[sessionId]) return
   ipcClient.invoke('db:messages:clear', sessionId).catch(() => {})
 }
 
 function dbTruncateMessagesFrom(sessionId: string, fromSortOrder: number): void {
+  if (useChatStore.getState().incognitoSessionIds[sessionId]) return
   ipcClient.invoke('db:messages:truncate-from', { sessionId, fromSortOrder }).catch(() => {})
 }
 
@@ -275,6 +290,7 @@ function startStreamingPeriodicFlush(
   getState: () => ChatStore
 ): void {
   stopStreamingPeriodicFlush(sessionId)
+  if (useChatStore.getState().incognitoSessionIds[sessionId]) return
   const intervalId = setInterval(() => {
     const session = getSessionByIdFromState(getState(), sessionId)
     const msg = session?.messages.find((m) => m.id === msgId)
@@ -299,6 +315,7 @@ const _deferredMessageAdds: Array<{
 }> = []
 
 function flushDeferredMessageAdds(sessionId: string): void {
+  if (useChatStore.getState().incognitoSessionIds[sessionId]) return
   const toFlush: typeof _deferredMessageAdds = []
   for (let i = _deferredMessageAdds.length - 1; i >= 0; i--) {
     if (_deferredMessageAdds[i].sessionId === sessionId) {
@@ -457,6 +474,8 @@ interface ChatStore {
   activeProjectId: string | null
   activeSessionId: string | null
   _loaded: boolean
+  /** Session IDs that are ephemeral (incognito) — never persisted to DB */
+  incognitoSessionIds: Record<string, boolean>
 
   // Initialization
   loadFromDb: () => Promise<void>
@@ -495,6 +514,8 @@ interface ChatStore {
     projectId?: string | null,
     options?: CreateSessionOptions
   ) => string
+  createIncognitoSession: () => string
+  saveIncognitoSession: (sessionId: string) => void
   deleteSession: (id: string) => void
   setActiveSession: (id: string | null) => void
   updateSessionTitle: (id: string, title: string) => void
@@ -511,6 +532,7 @@ interface ChatStore {
   duplicateSession: (sessionId: string) => Promise<string | null>
   forkSessionFromMessage: (sessionId: string, messageId: string) => Promise<string | null>
   togglePinSession: (sessionId: string) => void
+  toggleBookmarkSession: (sessionId: string) => void
   restoreSession: (session: Session) => void
   importSession: (session: Session, projectId?: string | null) => string
   importProjectArchive: (payload: { project: Project; sessions: Session[] }) => string
@@ -612,6 +634,7 @@ interface SessionRow {
   ssh_connection_id?: string | null
   plan_id?: string | null
   pinned: number
+  bookmarked?: number
   message_count?: number
   plugin_id?: string | null
   external_chat_id?: string | null
@@ -679,6 +702,7 @@ function rowToSession(row: SessionRow, messages: UnifiedMessage[] = []): Session
     sshConnectionId: row.ssh_connection_id ?? undefined,
     planId: row.plan_id ?? undefined,
     pinned: row.pinned === 1,
+    bookmarked: row.bookmarked === 1,
     pluginId: row.plugin_id ?? undefined,
     externalChatId: row.external_chat_id ?? undefined,
     providerId: row.provider_id ?? undefined,
@@ -704,6 +728,7 @@ function mergeSessionSummary(
   session.sshConnectionId = next.sshConnectionId
   session.planId = next.planId
   session.pinned = next.pinned
+  session.bookmarked = next.bookmarked
   session.pluginId = next.pluginId
   session.externalChatId = next.externalChatId
   session.providerId = next.providerId
@@ -1241,6 +1266,7 @@ export const useChatStore = create<ChatStore>()(
     sessionsById: {},
     activeProjectId: null,
     activeSessionId: null,
+    incognitoSessionIds: {},
     streamingMessageId: null,
     streamingMessages: {},
     generatingImageMessages: {},
@@ -2026,6 +2052,101 @@ export const useChatStore = create<ChatStore>()(
       return id
     },
 
+    createIncognitoSession: () => {
+      const id = nanoid()
+      const now = Date.now()
+      const { activeProviderId, activeModelId } = useProviderStore.getState()
+      const { newSessionDefaultModel } = useSettingsStore.getState()
+
+      const followGlobalModel = newSessionDefaultModel?.useGlobalActiveModel !== false
+      const sessionProviderId = followGlobalModel
+        ? undefined
+        : (newSessionDefaultModel?.providerId ?? activeProviderId ?? undefined)
+      const sessionModelId = followGlobalModel
+        ? undefined
+        : newSessionDefaultModel?.modelId || activeModelId || undefined
+
+      const newSession: Session = {
+        id,
+        title: 'Incognito Chat',
+        mode: 'chat',
+        messages: [],
+        messageCount: 0,
+        messagesLoaded: true,
+        loadedRangeStart: 0,
+        loadedRangeEnd: 0,
+        lastKnownMessageCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        ephemeral: true,
+        providerId: sessionProviderId,
+        modelId: sessionModelId
+      }
+      set((state) => {
+        state.sessions.push(newSession)
+        syncSessionsById(state)
+        state.activeSessionId = id
+        state.activeProjectId = null
+        state.incognitoSessionIds[id] = true
+      })
+      useUIStore.getState().navigateToSession(id)
+      return id
+    },
+
+    saveIncognitoSession: (sessionId) => {
+      const session = get().sessions.find((s) => s.id === sessionId)
+      if (!session || !session.ephemeral) return
+
+      // Persist session row to DB (bypassing ephemeral check by calling IPC directly)
+      ipcClient
+        .invoke('db:sessions:create', {
+          id: session.id,
+          title: session.title,
+          icon: session.icon,
+          mode: session.mode,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+          projectId: session.projectId,
+          workingFolder: session.workingFolder,
+          sshConnectionId: session.sshConnectionId,
+          planId: session.planId,
+          pinned: session.pinned,
+          bookmarked: session.bookmarked,
+          providerId: session.providerId,
+          modelId: session.modelId
+        })
+        .catch(() => {})
+
+      // Persist all messages to DB
+      const items = session.messages.map((msg, idx) => ({
+        id: msg.id,
+        sessionId,
+        role: msg.role,
+        content: JSON.stringify(sanitizeMessageContentForPersistence(msg.content)),
+        meta: msg.meta ? JSON.stringify(msg.meta) : null,
+        createdAt: msg.createdAt,
+        usage: msg.usage ? JSON.stringify(msg.usage) : null,
+        sortOrder: idx
+      }))
+      if (items.length > 0) {
+        ipcClient.invoke('db:messages:add-batch', items).catch(() => {})
+      }
+
+      // Flip ephemeral flag and remove from incognito tracking
+      set((state) => {
+        const s = getSessionByIdFromState(state, sessionId)
+        if (s) {
+          s.ephemeral = false
+        }
+        delete state.incognitoSessionIds[sessionId]
+      })
+
+      // Clean up ephemeral message tracking
+      for (const msg of session.messages) {
+        _ephemeralMessageIds.delete(msg.id)
+      }
+    },
+
     deleteSession: (id) => {
       const deletedSession = get().sessions.find((session) => session.id === id)
       const wasActiveSession = get().activeSessionId === id
@@ -2048,7 +2169,15 @@ export const useChatStore = create<ChatStore>()(
 
         nextActiveId = state.activeSessionId
         delete state.streamingMessages[id]
+        delete state.incognitoSessionIds[id]
       })
+
+      // Clean up ephemeral message tracking
+      if (deletedSession) {
+        for (const msg of deletedSession.messages) {
+          _ephemeralMessageIds.delete(msg.id)
+        }
+      }
 
       // Clean up deferred streaming state for deleted session
       if (deletedStreamingMsgId) {
@@ -2320,6 +2449,18 @@ export const useChatStore = create<ChatStore>()(
         }
       })
       dbUpdateSession(sessionId, { pinned })
+    },
+
+    toggleBookmarkSession: (sessionId) => {
+      let bookmarked = false
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === sessionId)
+        if (session) {
+          session.bookmarked = !session.bookmarked
+          bookmarked = session.bookmarked
+        }
+      })
+      dbUpdateSession(sessionId, { bookmarked })
     },
 
     restoreSession: (session) => {
@@ -2898,6 +3039,7 @@ export const useChatStore = create<ChatStore>()(
         if (!session) return
         shouldPersist = true
         sortOrder = session.messageCount
+        if (session.ephemeral) _ephemeralMessageIds.add(msg.id)
         if (!session.messagesLoaded) {
           session.messagesLoaded = true
           session.messages = []
@@ -2942,6 +3084,7 @@ export const useChatStore = create<ChatStore>()(
           userMsg._revision = (userMsg._revision ?? 0) + 1
           session.messages.push(userMsg)
           session.messageCount += 1
+          if (session.ephemeral) _ephemeralMessageIds.add(userMsg.id)
         }
         if (assistantMsg) {
           shouldPersistAssistant = true
@@ -2949,6 +3092,7 @@ export const useChatStore = create<ChatStore>()(
           assistantMsg._revision = (assistantMsg._revision ?? 0) + 1
           session.messages.push(assistantMsg)
           session.messageCount += 1
+          if (session.ephemeral) _ephemeralMessageIds.add(assistantMsg.id)
         }
         session.loadedRangeEnd = session.messageCount
         session.lastKnownMessageCount = session.messageCount

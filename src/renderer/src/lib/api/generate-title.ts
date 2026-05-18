@@ -1,9 +1,6 @@
-import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
-import { runSidecarTextRequest } from '@renderer/lib/ipc/agent-bridge'
-import { RESPONSES_SESSION_SCOPE_GENERATE_TITLE } from './responses-session-policy'
 import type { ProviderConfig, UnifiedMessage } from './types'
-import { SESSION_ICONS_PROMPT_LIST } from '@renderer/lib/constants/session-icons'
+import { createProvider } from './provider'
 
 export interface SessionTitleResult {
   title: string
@@ -108,16 +105,127 @@ const looksLikeReasoning = (value: string): boolean => {
   return markers.filter((r) => r.test(value)).length >= 2
 }
 
-const TITLE_SYSTEM_PROMPT = `You are a title generator. Given a user message or conversation excerpt, produce:
-1. A concise title (max 30 characters) that summarizes the intent.
-2. Pick ONE icon name from the following Lucide icon list that best represents the topic:
-${SESSION_ICONS_PROMPT_LIST}
+const TITLE_SYSTEM_PROMPT =
+  'You are only a chat-title generator. Never answer or fulfill the user message. Return only JSON.'
 
-Reply with ONLY a JSON object in this exact format (no markdown, no explanation):
-{"title":"your title here","icon":"icon-name"}`
+function buildTitlePrompt(userMessage: string, maxInputChars: number): string {
+  return `Create a concise chat title for this user message. Do not answer the message.
+
+USER_MESSAGE:
+"""
+${userMessage.slice(0, maxInputChars)}
+"""
+
+Return only JSON: {"title":"Short Title"}`
+}
+
+function isUsableProviderConfig(config: ProviderConfig | null): config is ProviderConfig {
+  return Boolean(config && (config.requiresApiKey === false || config.apiKey))
+}
+
+function withTitleRequestDefaults(config: ProviderConfig): ProviderConfig {
+  return {
+    ...config,
+    maxTokens: 500,
+    temperature: 0.2,
+    systemPrompt: TITLE_SYSTEM_PROMPT,
+    thinkingEnabled: false,
+    thinkingConfig: undefined,
+    reasoningEffort: undefined,
+    responseSummary: undefined,
+    websocketMode: 'disabled'
+  }
+}
+
+async function requestOpenAIChatTitle(
+  config: ProviderConfig,
+  userMessage: string,
+  maxInputChars: number
+): Promise<SessionTitleResult | null> {
+  const baseUrl = (config.baseUrl || 'https://api.openai.com/v1').trim().replace(/\/+$/, '')
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${config.apiKey}`
+  }
+  if (config.userAgent) headers['User-Agent'] = config.userAgent
+  if (config.serviceTier) headers.service_tier = config.serviceTier
+
+  const response = (await window.electron.ipcRenderer.invoke('api:request', {
+    url: `${baseUrl}/chat/completions`,
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: config.model,
+      messages: [
+        { role: 'system', content: TITLE_SYSTEM_PROMPT },
+        { role: 'user', content: buildTitlePrompt(userMessage, maxInputChars) }
+      ],
+      stream: false,
+      max_tokens: 500,
+      temperature: 0.2
+    }),
+    useSystemProxy: config.useSystemProxy,
+    allowInsecureTls: config.allowInsecureTls ?? true,
+    providerId: config.providerId,
+    providerBuiltinId: config.providerBuiltinId
+  })) as { statusCode?: number; body?: string; error?: string }
+
+  if (response.error || !response.body || (response.statusCode ?? 0) >= 400) {
+    console.warn('[AutoTitle] title request failed', {
+      statusCode: response.statusCode,
+      error: response.error
+    })
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(response.body) as {
+      choices?: Array<{ message?: { content?: string } }>
+    }
+    return parseSessionTitleResponse(parsed.choices?.[0]?.message?.content ?? '')
+  } catch (error) {
+    console.warn('[AutoTitle] failed to parse title response', error)
+    return null
+  }
+}
+
+function parseSessionTitleResponse(response: string): SessionTitleResult | null {
+  if (looksLikeReasoning(response)) return null
+
+  const cleaned = stripReasoningBlocks(response)
+    .replace(/```(?:json)?\s*([\s\S]*?)```/g, '$1')
+    .trim()
+  if (!cleaned) return null
+
+  try {
+    const jsonMatch =
+      cleaned.match(/\{[^{}]*"title"\s*:\s*"[^"]*"[^{}]*\}/) ?? cleaned.match(/\{[\s\S]*?\}/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0])
+      if (parsed.title) {
+        let title = stripMarkdown(stripReasoningBlocks(String(parsed.title)))
+          .replace(/^["']|["']$/g, '')
+          .replace(/\n+/g, ' ')
+          .trim()
+        if (title.length > 40) title = title.slice(0, 40) + '...'
+        return { title, icon: String(parsed.icon ?? 'message-square').trim() }
+      }
+    }
+  } catch {
+    /* fall through to plain-text fallback */
+  }
+
+  let plainTitle = stripMarkdown(stripReasoningBlocks(cleaned))
+    .replace(/^["']|["']$/g, '')
+    .replace(/[{}]/g, '')
+    .replace(/\n+/g, ' ')
+    .trim()
+  if (plainTitle.length > 40) plainTitle = plainTitle.slice(0, 40) + '...'
+  return plainTitle ? { title: plainTitle, icon: 'message-square' } : null
+}
 
 /**
- * Use the fast model to generate a short session title from a user message or conversation excerpt.
+ * Use the active chat model to generate a short session title.
  * Runs in the background — does not block the main chat flow.
  * Returns { title, icon } or null on failure.
  */
@@ -125,95 +233,53 @@ export async function generateSessionTitle(
   userMessage: string,
   options?: {
     maxInputChars?: number
+    timeoutMs?: number
+    providerConfig?: ProviderConfig | null
   }
 ): Promise<SessionTitleResult | null> {
-  const settings = useSettingsStore.getState()
+  const activeConfig =
+    options?.providerConfig ?? useProviderStore.getState().getActiveProviderConfig()
+  if (!isUsableProviderConfig(activeConfig)) return null
 
-  const fastConfig = useProviderStore.getState().getFastProviderConfig()
-  const config: ProviderConfig | null = fastConfig
-    ? {
-        ...fastConfig,
-        maxTokens: 100,
-        temperature: 0.3,
-        systemPrompt: TITLE_SYSTEM_PROMPT,
-        responseSummary: useProviderStore.getState().getActiveModelConfig()?.responseSummary,
-        enablePromptCache: useProviderStore.getState().getActiveModelConfig()?.enablePromptCache,
-        enableSystemPromptCache: useProviderStore.getState().getActiveModelConfig()
-          ?.enableSystemPromptCache
-      }
-    : settings.apiKey && settings.model
-      ? {
-          type: settings.provider,
-          apiKey: settings.apiKey,
-          baseUrl: settings.baseUrl || undefined,
-          model: settings.model,
-          maxTokens: 100,
-          temperature: 0.3,
-          systemPrompt: TITLE_SYSTEM_PROMPT,
-          responseSummary: useProviderStore.getState().getActiveModelConfig()?.responseSummary,
-          enablePromptCache: useProviderStore.getState().getActiveModelConfig()?.enablePromptCache,
-          enableSystemPromptCache: useProviderStore.getState().getActiveModelConfig()
-            ?.enableSystemPromptCache
-        }
-      : null
+  const config = withTitleRequestDefaults(activeConfig)
+  const maxInputChars = options?.maxInputChars ?? 1000
 
-  if (!config || (config.requiresApiKey !== false && !config.apiKey)) return null
+  if (config.type === 'openai-chat') {
+    return requestOpenAIChatTitle(config, userMessage, maxInputChars)
+  }
 
   const messages: UnifiedMessage[] = [
     {
       id: 'title-req',
       role: 'user',
-      content: userMessage.slice(0, options?.maxInputChars ?? 500),
+      content: buildTitlePrompt(userMessage, maxInputChars),
       createdAt: Date.now()
     }
   ]
 
+  const abortController = new AbortController()
+  const timeout = window.setTimeout(() => abortController.abort(), options?.timeoutMs ?? 8000)
+
   try {
-    const abortController = new AbortController()
-    const timeout = setTimeout(() => abortController.abort(), 15000)
-
-    const title = await runSidecarTextRequest({
-      provider: config,
-      messages,
-      signal: abortController.signal,
-      maxIterations: 1,
-      responsesSessionScope: RESPONSES_SESSION_SCOPE_GENERATE_TITLE
-    })
-    clearTimeout(timeout)
-
-    if (looksLikeReasoning(title)) return null
-
-    const cleaned = stripReasoningBlocks(title)
-      .replace(/```(?:json)?\s*([\s\S]*?)```/g, '$1')
-      .trim()
-    if (!cleaned) return null
-
-    try {
-      const jsonMatch =
-        cleaned.match(/\{[^{}]*"title"\s*:\s*"[^"]*"[^{}]*\}/) ?? cleaned.match(/\{[\s\S]*?\}/)
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0])
-        if (parsed.title && parsed.icon) {
-          let t = stripMarkdown(stripReasoningBlocks(String(parsed.title)))
-            .replace(/^["']|["']$/g, '')
-            .replace(/\n+/g, ' ')
-            .trim()
-          if (t.length > 40) t = t.slice(0, 40) + '...'
-          return { title: t, icon: String(parsed.icon).trim() }
-        }
+    const provider = createProvider(config)
+    let title = ''
+    for await (const event of provider.sendMessage(messages, [], config, abortController.signal)) {
+      if (event.type === 'text_delta' && event.text) {
+        title += event.text
       }
-    } catch {
-      /* fall through to plain-text fallback */
+      if (event.type === 'message_end') {
+        break
+      }
+      if (event.type === 'error') {
+        console.warn('[AutoTitle] title request failed', event.error)
+        return null
+      }
     }
-
-    let plainTitle = stripMarkdown(stripReasoningBlocks(cleaned))
-      .replace(/^["']|["']$/g, '')
-      .replace(/[{}]/g, '')
-      .replace(/\n+/g, ' ')
-      .trim()
-    if (plainTitle.length > 40) plainTitle = plainTitle.slice(0, 40) + '...'
-    return { title: plainTitle, icon: 'message-square' }
-  } catch {
+    return parseSessionTitleResponse(title)
+  } catch (error) {
+    console.warn('[AutoTitle] title request failed', error)
     return null
+  } finally {
+    window.clearTimeout(timeout)
   }
 }

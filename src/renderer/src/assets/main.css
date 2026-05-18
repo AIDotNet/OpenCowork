@@ -602,6 +602,176 @@
   background: oklch(0.6 0 0 / 0.45);
 }
 
+/* Hover.css — hvr-icon-spin (https://itshover.com/icons/world-icon) */
+@keyframes hvr-icon-spin {
+  0% {
+    transform: rotate(0);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+.hvr-icon-spin:hover .hvr-icon,
+.hvr-icon-spin:focus .hvr-icon,
+.hvr-icon-spin:active .hvr-icon {
+  animation-name: hvr-icon-spin;
+  animation-duration: 0.4s;
+  animation-timing-function: linear;
+  animation-iteration-count: 1;
+}
+
+@keyframes sidebar-context-open-bubble {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  42% {
+    transform: translateY(-1px) scale(1.12);
+  }
+  68% {
+    transform: translateY(0) scale(0.96);
+  }
+}
+
+@keyframes sidebar-context-external-launch {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  38% {
+    transform: translate(3px, -3px) scale(1.05);
+  }
+  70% {
+    transform: translate(-1px, 1px) scale(0.98);
+  }
+}
+
+@keyframes sidebar-context-rename-write {
+  0%,
+  100% {
+    transform: rotate(0deg) translateX(0);
+  }
+  30% {
+    transform: rotate(-10deg) translateX(-1px);
+  }
+  62% {
+    transform: rotate(8deg) translateX(2px);
+  }
+}
+
+@keyframes sidebar-context-smart-spark {
+  0% {
+    transform: rotate(0deg) scale(1);
+    filter: brightness(1);
+  }
+  45% {
+    transform: rotate(-18deg) scale(1.14);
+    filter: brightness(1.4);
+  }
+  100% {
+    transform: rotate(0deg) scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes sidebar-context-pin-drop {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  36% {
+    transform: translateY(2px) rotate(-8deg);
+  }
+  68% {
+    transform: translateY(-1px) rotate(6deg);
+  }
+}
+
+@keyframes sidebar-context-bookmark-pop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  44% {
+    transform: translateY(-2px) scale(1.1);
+  }
+}
+
+@keyframes sidebar-context-bookmark-fold {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  42% {
+    transform: translateY(2px) scaleY(0.88);
+  }
+}
+
+@keyframes sidebar-context-duplicate-stack {
+  0%,
+  100% {
+    transform: translateX(0) scale(1);
+  }
+  36% {
+    transform: translateX(2px) scale(1.08);
+  }
+  68% {
+    transform: translateX(-1px) scale(0.98);
+  }
+}
+
+@keyframes sidebar-context-markdown-page {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  45% {
+    transform: translateY(-2px) rotate(-4deg);
+  }
+}
+
+@keyframes sidebar-context-download-drop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  36% {
+    transform: translateY(3px);
+  }
+  70% {
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes sidebar-context-clear-swipe {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  34% {
+    transform: translateX(3px) rotate(10deg);
+  }
+  68% {
+    transform: translateX(-2px) rotate(-6deg);
+  }
+}
+
+@keyframes sidebar-context-delete-shake {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  22% {
+    transform: translateX(-1px) rotate(-8deg);
+  }
+  48% {
+    transform: translateX(2px) rotate(7deg);
+  }
+  74% {
+    transform: translateX(-1px) rotate(-4deg);
+  }
+}
+
 /* Selection */
 ::selection {
   background: oklch(0.65 0.15 250 / 0.3);
@@ -1416,6 +1586,91 @@
     color: var(--sidebar-foreground);
   }
 
+  .sidebar-context-menu-icon {
+    transform-origin: center;
+    will-change: transform, filter;
+  }
+
+  .sidebar-context-menu-icon--bookmark .bookmark-body {
+    transform-origin: 50% 20%;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--open,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--open {
+    animation: sidebar-context-open-bubble 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--external,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--external {
+    animation: sidebar-context-external-launch 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--rename,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--rename {
+    animation: sidebar-context-rename-write 0.52s ease both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--smart,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--smart {
+    animation: sidebar-context-smart-spark 0.56s ease both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--pin,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--pin {
+    animation: sidebar-context-pin-drop 0.5s ease both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--bookmark svg,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--bookmark
+    svg {
+    animation: sidebar-context-bookmark-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover
+    .sidebar-context-menu-icon--bookmark
+    .bookmark-body,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--bookmark
+    .bookmark-body {
+    animation: sidebar-context-bookmark-fold 0.5s ease both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--duplicate,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--duplicate {
+    animation: sidebar-context-duplicate-stack 0.5s ease both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--markdown,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--markdown {
+    animation: sidebar-context-markdown-page 0.5s ease both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--download,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--download {
+    animation: sidebar-context-download-drop 0.52s ease both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--clear,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--clear {
+    animation: sidebar-context-clear-swipe 0.52s ease both;
+  }
+
+  .sidebar-context-menu-item:not([data-disabled]):hover .sidebar-context-menu-icon--delete,
+  .sidebar-context-menu-item:not([data-disabled])[data-highlighted]
+    .sidebar-context-menu-icon--delete {
+    animation: sidebar-context-delete-shake 0.52s ease both;
+  }
+
   .workspace-titlebar-surface {
     background: transparent;
     border-bottom: 0;
@@ -1466,6 +1721,70 @@
 
   .activity-card-header--interactive:hover {
     background: var(--activity-card-header-hover);
+  }
+
+  .incognito-amoled-chat {
+    --background: #000000;
+    --foreground: oklch(0.97 0.004 260);
+    --card: #050505;
+    --card-foreground: oklch(0.97 0.004 260);
+    --popover: #080808;
+    --popover-foreground: oklch(0.97 0.004 260);
+    --primary: oklch(0.78 0.13 285);
+    --primary-foreground: #000000;
+    --secondary: #050505;
+    --secondary-foreground: oklch(0.95 0.004 260);
+    --muted: #070707;
+    --muted-foreground: oklch(0.7 0.012 270);
+    --accent: #101010;
+    --accent-foreground: oklch(0.98 0.004 260);
+    --border: #171717;
+    --input: #171717;
+    --ring: oklch(0.72 0.12 285);
+    --activity-card-bg: #050505;
+    --activity-card-border: #171717;
+    --activity-card-divider: #121212;
+    --activity-card-header-hover: #0d0d0d;
+    --activity-card-shadow: none;
+    --workspace-terminal-bg: #000000;
+    --workspace-terminal-border: #171717;
+    --workspace-terminal-divider: #121212;
+    --workspace-terminal-tab-hover-bg: #0d0d0d;
+    --workspace-terminal-tab-active-bg: #111111;
+    --workspace-terminal-tab-active-border: #242424;
+    --composer-shell-top: #030303;
+    --composer-shell-bottom: #000000;
+    --composer-shell-border: #181818;
+    --composer-shell-border-focus: color-mix(in srgb, var(--primary) 30%, #181818);
+    --composer-shell-shadow: 0 18px 36px -28px rgba(0, 0, 0, 0.9);
+    --composer-shell-shadow-focus:
+      0 20px 40px -28px rgba(0, 0, 0, 0.95),
+      0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
+    --composer-toolbar-border: #111111;
+    --composer-panel-bg: #050505;
+    --composer-panel-border: #181818;
+    --composer-panel-shadow: 0 20px 42px -30px rgba(0, 0, 0, 1);
+    --composer-control-bg-hover: #101010;
+    --composer-send-start: oklch(0.83 0.11 285);
+    --composer-send-end: oklch(0.76 0.13 285);
+    --composer-send-foreground: #000000;
+    --composer-chip-bg: #050505;
+    --composer-chip-border: #1c1c1c;
+    --composer-chip-text: color-mix(in srgb, var(--foreground) 78%, var(--muted-foreground) 22%);
+    --composer-chip-hover: #111111;
+    --composer-drop-bg: #0a0a0a;
+    --composer-placeholder: color-mix(in srgb, var(--muted-foreground) 66%, transparent);
+    --composer-suggestion: color-mix(in srgb, var(--muted-foreground) 42%, transparent);
+    background: #000000;
+    color: var(--foreground);
+  }
+
+  .incognito-amoled-chat [data-message-content] {
+    background: #000000;
+  }
+
+  .incognito-amoled-chat .composer-shell {
+    background: linear-gradient(180deg, #030303 0%, #000000 100%);
   }
 }
 

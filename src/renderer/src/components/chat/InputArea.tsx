@@ -16,13 +16,16 @@ import {
   Trash2,
   ImagePlus,
   ClipboardList,
-  Globe,
   Wand2,
   ChevronDown,
   ChevronRight,
   Pencil,
-  Command
+  Command,
+  MessageSquareQuote
 } from 'lucide-react'
+import WorldIcon from '@renderer/components/icons/WorldIcon'
+import BulbIcon from '@renderer/components/icons/BulbIcon'
+import { InlineStepsPanel } from '@renderer/components/cowork/StepsPanel'
 import { Button } from '@renderer/components/ui/button'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { Spinner } from '@renderer/components/ui/spinner'
@@ -123,6 +126,12 @@ import { cn } from '@renderer/lib/utils'
 import { resolveProjectMemoryTextFile } from '@renderer/lib/agent/memory-files'
 import { isProjectSession, workspaceContextAvailable } from '@renderer/lib/session-scope'
 import { GoalSessionBar } from '@renderer/components/goal/GoalSessionControls'
+import {
+  EMPTY_SELECTION_REFERENCES,
+  formatSelectionReferencesForPrompt,
+  summarizeSelectionReference,
+  useSelectionReferenceStore
+} from '@renderer/stores/selection-reference-store'
 
 interface ContextRingProps {
   onCompressContext?: () => void | Promise<void>
@@ -477,7 +486,6 @@ export function InputArea({
   >([])
   const [showOptimizationDialog, setShowOptimizationDialog] = React.useState(false)
   const [selectedOptionIndex, setSelectedOptionIndex] = React.useState(0)
-  const currentLanguage = useSettingsStore((state) => state.language)
   const clarifyAutoAcceptRecommended = useSettingsStore(
     (state) => state.clarifyAutoAcceptRecommended
   )
@@ -701,9 +709,9 @@ export function InputArea({
       const idx = targetSessionId ? s.sessionsById[targetSessionId] : undefined
       const session = idx !== undefined ? s.sessions[idx] : undefined
       if (!session) return undefined
-      return { projectId: session.projectId } as Pick<
+      return { projectId: session.projectId, ephemeral: session.ephemeral } as Pick<
         import('@renderer/stores/chat-store').Session,
-        'projectId'
+        'projectId' | 'ephemeral'
       >
     })
   )
@@ -768,6 +776,17 @@ export function InputArea({
   )
   const setPersistedDraft = useInputDraftStore((s) => s.setDraft)
   const removePersistedDraft = useInputDraftStore((s) => s.removeDraft)
+  const selectionReferences = useSelectionReferenceStore(
+    React.useCallback(
+      (state) =>
+        draftSessionId
+          ? (state.referencesBySessionId[draftSessionId] ?? EMPTY_SELECTION_REFERENCES)
+          : EMPTY_SELECTION_REFERENCES,
+      [draftSessionId]
+    )
+  )
+  const removeSelectionReference = useSelectionReferenceStore((s) => s.removeSelectionReference)
+  const clearSelectionReferences = useSelectionReferenceStore((s) => s.clearSelectionReferences)
   const draftReadyKeyRef = React.useRef<string | null>(null)
   const queuedMessagesSnapshotRef = React.useRef<PendingSessionMessageItem[]>(EMPTY_QUEUED_MESSAGES)
   const getQueuedMessagesSnapshot = React.useCallback(() => {
@@ -1639,10 +1658,12 @@ export function InputArea({
     cancelPromptRecommendation()
 
     const hasLeadingSlashCommand = liveEditorState.plainText.trimStart().startsWith('/')
-    const message =
+    const messageBody =
       selectedSkill && !hasLeadingSlashCommand
         ? `[Skill: ${selectedSkill}]\n${serialized}`
         : serialized
+    const selectionContext = formatSelectionReferencesForPrompt(selectionReferences)
+    const message = selectionContext ? `${selectionContext}\n\n${messageBody}` : messageBody
 
     onSend(message, attachedImages.length > 0 ? attachedImages : undefined, {
       clearCompletedTasksOnTurnStart: true
@@ -1650,6 +1671,9 @@ export function InputArea({
 
     if (activeDraftKey) {
       removePersistedDraft(activeDraftKey)
+    }
+    if (draftSessionId) {
+      clearSelectionReferences(draftSessionId)
     }
 
     setDocumentNodes([])
@@ -1669,9 +1693,12 @@ export function InputArea({
     pendingImageReads,
     cancelPromptRecommendation,
     selectedSkill,
+    selectionReferences,
     onSend,
     activeDraftKey,
-    removePersistedDraft
+    removePersistedDraft,
+    draftSessionId,
+    clearSelectionReferences
   ])
 
   const handleKeyDown = React.useCallback(
@@ -2088,20 +2115,19 @@ export function InputArea({
   const webSearchToggleControl = canToggleWebSearch && (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button
-          variant={webSearchEnabled ? 'secondary' : 'ghost'}
-          size="icon-sm"
+        <button
+          type="button"
           className={cn(
-            'size-7 rounded-full transition-all duration-200 shrink-0',
+            'inline-flex size-9 items-center justify-center rounded-full transition-all duration-200 shrink-0',
             webSearchEnabled
               ? 'text-primary bg-primary/15 border border-primary/30 shadow-sm'
-              : 'text-muted-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
           )}
           onClick={toggleWebSearch}
           disabled={disabled || isStreaming}
         >
-          <Globe className="size-3.5" />
-        </Button>
+          <WorldIcon size={20} />
+        </button>
       </TooltipTrigger>
       <TooltipContent>
         {webSearchEnabled
@@ -2190,11 +2216,11 @@ export function InputArea({
             <span className="absolute inset-0 rounded-xl animate-ping bg-emerald-500/20 pointer-events-none" />
           )}
           {isOptimizing ? (
-            <Sparkles className="size-4 animate-spin" />
+            <BulbIcon size={16} className="animate-pulse text-primary" />
           ) : enhanceDone ? (
-            <Sparkles className="size-4 text-emerald-500" />
+            <BulbIcon size={16} className="text-emerald-500" />
           ) : (
-            <Wand2 className="size-4" />
+            <BulbIcon size={16} />
           )}
         </Button>
       </TooltipTrigger>
@@ -2308,7 +2334,9 @@ export function InputArea({
           className={cn(
             'composer-shell relative flex flex-col transition-[box-shadow,border-color] duration-200',
             fileMenuOpen || slashMenuOpen ? 'overflow-visible' : 'overflow-hidden',
-            dragging && 'ring-2 ring-primary/50'
+            dragging && 'ring-2 ring-primary/50',
+            targetSession?.ephemeral &&
+              'border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.08)]'
           )}
           data-composer-variant={composerVariant}
           style={
@@ -2587,6 +2615,48 @@ export function InputArea({
             </div>
           )}
 
+          {selectionReferences.length > 0 && draftSessionId && (
+            <div className="shrink-0 px-3 pt-3 pb-0">
+              <div className="flex flex-wrap items-center gap-2">
+                {selectionReferences.map((reference, index) => (
+                  <span
+                    key={reference.id}
+                    className="composer-status-pill inline-flex max-w-full items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+                    title={reference.text}
+                  >
+                    <MessageSquareQuote className="size-3.5 shrink-0" />
+                    <span className="shrink-0">
+                      {t('input.selectionReferenceLabel', {
+                        count: index + 1,
+                        defaultValue: 'Selection {{count}}'
+                      })}
+                    </span>
+                    <span className="max-w-[220px] truncate text-muted-foreground">
+                      {summarizeSelectionReference(reference.text)}
+                    </span>
+                    <button
+                      type="button"
+                      className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+                      aria-label={t('input.removeSelectionReference', {
+                        defaultValue: 'Remove selected text reference'
+                      })}
+                      onClick={() => removeSelectionReference(draftSessionId, reference.id)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  className="rounded-full px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  onClick={() => clearSelectionReferences(draftSessionId)}
+                >
+                  {t('action.clear', { ns: 'common' })}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Image preview strip */}
           {attachedImages.length > 0 && (
             <div
@@ -2713,9 +2783,7 @@ export function InputArea({
 
           {/* Text input area */}
           <div
-            className={cn(
-              'composer-editor-region relative flex min-h-0 flex-1 flex-col px-3 pt-2',
-            )}
+            className={cn('composer-editor-region relative flex min-h-0 flex-1 flex-col px-3 pt-2')}
             onDrop={handleDropWrapped}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -2740,7 +2808,12 @@ export function InputArea({
                 </span>
               </div>
             )}
-            <div className={cn('relative flex-1 min-h-0 overflow-visible', isOptimizing && 'opacity-0 pointer-events-none')}>
+            <div
+              className={cn(
+                'relative flex-1 min-h-0 overflow-visible',
+                isOptimizing && 'opacity-0 pointer-events-none'
+              )}
+            >
               {shouldAutoAcceptRecommendation &&
                 autoAcceptCountdown !== null &&
                 suggestionText &&

@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next'
 import readmeZh from '../../../../../README.zh.md?raw'
 import {
   BookOpen,
-  CalendarDays,
   ChevronDown,
   ChevronRight,
   CircleHelp,
@@ -29,14 +28,22 @@ import {
   Plus,
   ListChecks,
   CheckCircle2,
-  Search,
-  Settings,
   Server,
   Trash2,
   Upload,
   Wand2,
   ExternalLink
 } from 'lucide-react'
+import { SlidersHorizontalIcon } from '@renderer/components/icons/SlidersHorizontalIcon'
+import BookmarkIcon from '@renderer/components/icons/BookmarkIcon'
+import PenIcon from '@renderer/components/icons/PenIcon'
+import GhostIcon from '@renderer/components/icons/GhostIcon'
+import NewChatIcon from '@renderer/components/icons/NewChatIcon'
+import SearchIcon from '@renderer/components/icons/SearchIcon'
+import PlugConnectedIcon from '@renderer/components/icons/PlugConnectedIcon'
+import CalendarIcon from '@renderer/components/icons/CalendarIcon'
+import type { AnimatedIconHandle } from '@renderer/components/icons/types'
+import { AnimatedIcon } from '@renderer/components/icons/AnimatedIcon'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import {
@@ -110,6 +117,8 @@ const SIDEBAR_TREE_HOVER_CLASS =
 const SIDEBAR_TREE_SUBITEM_HOVER_CLASS =
   'workspace-sidebar-row--hover text-foreground/82 hover:text-foreground'
 const SIDEBAR_TREE_ACTION_BUTTON_CLASS = 'workspace-sidebar-row-action size-6 rounded-md'
+const SIDEBAR_CONTEXT_ITEM_CLASS = 'sidebar-context-menu-item'
+const SIDEBAR_CONTEXT_ICON_CLASS = 'sidebar-context-menu-icon'
 const SIDEBAR_TREE_LABEL_CLASS = 'text-[13px] leading-5'
 const SIDEBAR_TREE_META_CLASS = 'text-[10px]'
 
@@ -133,8 +142,10 @@ function mapSession(session: ReturnType<typeof useChatStore.getState>['sessions'
   updatedAt: number
   createdAt: number
   pinned?: boolean
+  bookmarked?: boolean
   messageCount: number
   projectId?: string
+  ephemeral?: boolean
 } {
   return {
     id: session.id,
@@ -144,7 +155,9 @@ function mapSession(session: ReturnType<typeof useChatStore.getState>['sessions'
     updatedAt: session.updatedAt,
     createdAt: session.createdAt,
     pinned: session.pinned,
+    bookmarked: session.bookmarked,
     messageCount: session.messageCount,
+    ephemeral: session.ephemeral,
     projectId: session.projectId
   }
 }
@@ -215,6 +228,7 @@ function areSessionListsEqual(
       a.updatedAt !== b.updatedAt ||
       a.createdAt !== b.createdAt ||
       !!a.pinned !== !!b.pinned ||
+      !!a.bookmarked !== !!b.bookmarked ||
       a.messageCount !== b.messageCount ||
       a.projectId !== b.projectId
     ) {
@@ -381,6 +395,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const clearSessionMessages = useChatStore((state) => state.clearSessionMessages)
   const clearAllSessions = useChatStore((state) => state.clearAllSessions)
   const togglePinSession = useChatStore((state) => state.togglePinSession)
+  const toggleBookmarkSession = useChatStore((state) => state.toggleBookmarkSession)
   const importSession = useChatStore((state) => state.importSession)
   const importProjectArchive = useChatStore((state) => state.importProjectArchive)
   const runningSessions = useAgentStore((state) => state.runningSessions)
@@ -427,6 +442,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set())
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(() => new Set())
+  const [bookmarkedChatsOnly, setBookmarkedChatsOnly] = useState(false)
   const runningSubAgentSessionIds = useMemo(
     () => new Set(runningSubAgentSessionIdsSig ? runningSubAgentSessionIdsSig.split('\u0000') : []),
     [runningSubAgentSessionIdsSig]
@@ -478,6 +494,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
     const next = new Map<string, SessionListItem[]>()
     for (const session of sessions) {
       if (!session.projectId) continue
+      if (session.ephemeral) continue
       const bucket = next.get(session.projectId)
       if (bucket) {
         bucket.push(session)
@@ -493,10 +510,30 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const chatSessions = useMemo(
     () =>
       sessions
-        .filter((session) => !session.projectId)
+        .filter((session) => !session.projectId && !session.ephemeral)
         .slice()
         .sort(sortSessions),
     [sessions]
+  )
+
+  const incognitoSessions = useMemo(
+    () =>
+      sessions
+        .filter((session) => session.ephemeral)
+        .slice()
+        .sort(sortSessions),
+    [sessions]
+  )
+
+  const visibleChatSessions = useMemo(
+    () =>
+      bookmarkedChatsOnly
+        ? sessions
+            .filter((session) => !session.ephemeral && session.bookmarked)
+            .slice()
+            .sort(sortSessions)
+        : chatSessions,
+    [bookmarkedChatsOnly, chatSessions, sessions]
   )
 
   const projectGroups = useMemo<ProjectTreeGroup[]>(() => {
@@ -891,32 +928,70 @@ export function WorkspaceSidebar(): React.JSX.Element {
     })
   }, [])
 
+  const navIconRefs = useMemo(() => new Map<string, AnimatedIconHandle>(), [])
+
   const navItems = [
     {
       key: 'new-chat',
       label: t('sidebar.newChat', { defaultValue: 'New Chat' }),
-      icon: <Pencil className="size-4 shrink-0" />,
+      icon: (
+        <NewChatIcon
+          size={16}
+          className="shrink-0"
+          ref={(el) => {
+            if (el) navIconRefs.set('new-chat', el)
+            else navIconRefs.delete('new-chat')
+          }}
+        />
+      ),
       active: false,
       onClick: handleCreateChatSession
     },
     {
       key: 'search',
       label: t('sidebar.searchLabel', { defaultValue: 'Search' }),
-      icon: <Search className="size-4 shrink-0" />,
+      icon: (
+        <SearchIcon
+          size={16}
+          className="shrink-0"
+          ref={(el) => {
+            if (el) navIconRefs.set('search', el)
+            else navIconRefs.delete('search')
+          }}
+        />
+      ),
       active: false,
       onClick: openCommandPalette
     },
     {
       key: 'plugins',
       label: t('sidebar.pluginsLabel', { defaultValue: 'Plugins' }),
-      icon: <Wand2 className="size-4 shrink-0" />,
+      icon: (
+        <PlugConnectedIcon
+          size={16}
+          className="shrink-0"
+          ref={(el) => {
+            if (el) navIconRefs.set('plugins', el)
+            else navIconRefs.delete('plugins')
+          }}
+        />
+      ),
       active: settingsPageOpen && useUIStore.getState().settingsTab === 'plugin',
       onClick: () => useUIStore.getState().openSettingsPage('plugin')
     },
     {
       key: 'automation',
       label: t('sidebar.automationLabel', { defaultValue: 'Automation' }),
-      icon: <CalendarDays className="size-4 shrink-0" />,
+      icon: (
+        <CalendarIcon
+          size={16}
+          className="shrink-0"
+          ref={(el) => {
+            if (el) navIconRefs.set('automation', el)
+            else navIconRefs.delete('automation')
+          }}
+        />
+      ),
       active: tasksPageOpen,
       onClick: () => useUIStore.getState().openTasksPage()
     }
@@ -926,7 +1001,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
     <button
       key={item.key}
       type="button"
-      onClick={item.onClick}
+      onClick={() => {
+        navIconRefs.get(item.key)?.clickAnimation?.()
+        item.onClick()
+      }}
       className={cn(
         'flex h-8 w-full items-center gap-2 px-2 text-[13px] font-medium transition-colors',
         SIDEBAR_TREE_ROW_CLASS,
@@ -956,6 +1034,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
     const blockedCount = blockedCountsBySession[session.id] ?? 0
     const pendingCount = getPendingSessionMessageCountForSession(session.id)
     const canClearSession = session.messageCount > 0 || pendingCount > 0
+    const hasLeadingStatus = selectionMode || session.ephemeral || isRunning || session.pinned
 
     return (
       <ContextMenu key={session.id}>
@@ -963,7 +1042,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
           <button
             type="button"
             className={cn(
-              'group/session flex w-full items-center gap-1.5 px-1.5 py-1 text-left transition-colors',
+              'group/session flex w-full items-center gap-1 px-1.5 py-1 text-left transition-colors',
               SIDEBAR_TREE_ROW_CLASS,
               selectionMode && selectedSessionIds.has(session.id)
                 ? 'bg-primary/10 text-primary'
@@ -983,33 +1062,69 @@ export function WorkspaceSidebar(): React.JSX.Element {
               openSession(session.id)
             }}
           >
-            <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
-              {selectionMode ? (
-                <div
-                  className={cn(
-                    'flex size-3.5 items-center justify-center rounded-full border transition-colors',
-                    selectedSessionIds.has(session.id)
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-muted-foreground/40 bg-transparent'
-                  )}
-                >
-                  {selectedSessionIds.has(session.id) && <CheckCircle2 className="size-2.5" />}
-                </div>
-              ) : isRunning ? (
-                <Loader2
-                  className={`size-3.5 shrink-0 animate-spin ${
-                    sessionRunStatus === 'retrying' ? 'text-amber-500' : 'text-primary'
-                  }`}
-                />
-              ) : session.pinned ? (
-                <Pin className="size-3.5 text-amber-500" />
-              ) : (
-                <span aria-hidden="true" className="size-3.5 shrink-0" />
-              )}
-            </span>
+            {selectionMode ? null : (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  toggleBookmarkSession(session.id)
+                }}
+                className={cn(
+                  'inline-flex size-4 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors',
+                  session.bookmarked
+                    ? 'text-primary hover:bg-primary/10'
+                    : 'text-muted-foreground/55 hover:bg-muted/50 hover:text-foreground'
+                )}
+                title={
+                  session.bookmarked
+                    ? t('sidebar.removeBookmark', { defaultValue: 'Remove bookmark' })
+                    : t('sidebar.bookmarkChat', { defaultValue: 'Bookmark chat' })
+                }
+                aria-pressed={!!session.bookmarked}
+              >
+                <BookmarkIcon size={13} strokeWidth={4} />
+              </button>
+            )}
+            {hasLeadingStatus ? (
+              <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+                {selectionMode ? (
+                  <div
+                    className={cn(
+                      'flex size-3.5 items-center justify-center rounded-full border transition-colors',
+                      selectedSessionIds.has(session.id)
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-muted-foreground/40 bg-transparent'
+                    )}
+                  >
+                    {selectedSessionIds.has(session.id) && <CheckCircle2 className="size-2.5" />}
+                  </div>
+                ) : session.ephemeral ? (
+                  <GhostIcon size={14} className="text-purple-400/70" />
+                ) : isRunning ? (
+                  <Loader2
+                    className={`size-3.5 shrink-0 animate-spin ${
+                      sessionRunStatus === 'retrying' ? 'text-amber-500' : 'text-primary'
+                    }`}
+                  />
+                ) : session.pinned ? (
+                  <Pin className="size-3.5 text-amber-500" />
+                ) : null}
+              </span>
+            ) : null}
             <span className={cn('min-w-0 flex-1 truncate font-medium', SIDEBAR_TREE_LABEL_CLASS)}>
               {session.title}
             </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                startRename({ type: 'session', id: session.id, currentName: session.title })
+              }}
+              className="flex shrink-0 items-center justify-center rounded-md border border-transparent p-1.5 font-semibold text-muted-foreground opacity-0 transition-all duration-150 hover:border-border hover:bg-muted/50 hover:text-foreground group-hover/session:opacity-100"
+              title={tCommon('action.rename')}
+            >
+              <PenIcon size={16} strokeWidth={3} />
+            </button>
             <span className="ml-auto flex shrink-0 items-center gap-1">
               {blockedCount > 0 && (
                 <span className="rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-400">
@@ -1033,15 +1148,34 @@ export function WorkspaceSidebar(): React.JSX.Element {
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-52">
-          <ContextMenuItem onClick={() => openSession(session.id)}>
-            <MessageSquare className="size-4" />
+          <ContextMenuItem
+            className={SIDEBAR_CONTEXT_ITEM_CLASS}
+            onClick={() => openSession(session.id)}
+          >
+            <MessageSquare
+              className={cn(
+                'size-4',
+                SIDEBAR_CONTEXT_ICON_CLASS,
+                'sidebar-context-menu-icon--open'
+              )}
+            />
             {t('topbar.openSession')}
           </ContextMenuItem>
-          <ContextMenuItem onClick={() => void openDetachedSessionWindow(session.id)}>
-            <ExternalLink className="size-4" />
+          <ContextMenuItem
+            className={SIDEBAR_CONTEXT_ITEM_CLASS}
+            onClick={() => void openDetachedSessionWindow(session.id)}
+          >
+            <ExternalLink
+              className={cn(
+                'size-4',
+                SIDEBAR_CONTEXT_ICON_CLASS,
+                'sidebar-context-menu-icon--external'
+              )}
+            />
             {t('sidebar.openInNewWindow', { defaultValue: 'Open in new window' })}
           </ContextMenuItem>
           <ContextMenuItem
+            className={SIDEBAR_CONTEXT_ITEM_CLASS}
             onSelect={() =>
               deferDropdownAction(() =>
                 startRename({
@@ -1052,19 +1186,38 @@ export function WorkspaceSidebar(): React.JSX.Element {
               )
             }
           >
-            <Pencil className="size-4" />
+            <Pencil
+              className={cn(
+                'size-4',
+                SIDEBAR_CONTEXT_ICON_CLASS,
+                'sidebar-context-menu-icon--rename'
+              )}
+            />
             {tCommon('action.rename')}
           </ContextMenuItem>
           <ContextMenuItem
+            className={SIDEBAR_CONTEXT_ITEM_CLASS}
             disabled={!!autoRenamingSessionId || session.messageCount === 0}
             onClick={() => {
               void handleSmartRenameSession(session.id)
             }}
           >
             {autoRenamingSessionId === session.id ? (
-              <Loader2 className="size-4 animate-spin" />
+              <Loader2
+                className={cn(
+                  'size-4 animate-spin',
+                  SIDEBAR_CONTEXT_ICON_CLASS,
+                  'sidebar-context-menu-icon--smart'
+                )}
+              />
             ) : (
-              <Wand2 className="size-4" />
+              <Wand2
+                className={cn(
+                  'size-4',
+                  SIDEBAR_CONTEXT_ICON_CLASS,
+                  'sidebar-context-menu-icon--smart'
+                )}
+              />
             )}
             {autoRenamingSessionId === session.id
               ? t('sidebar.smartRenaming', {
@@ -1075,6 +1228,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                 })}
           </ContextMenuItem>
           <ContextMenuItem
+            className={SIDEBAR_CONTEXT_ITEM_CLASS}
             onClick={() => {
               togglePinSession(session.id)
               toast.success(
@@ -1082,20 +1236,68 @@ export function WorkspaceSidebar(): React.JSX.Element {
               )
             }}
           >
-            {session.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+            {session.pinned ? (
+              <PinOff
+                className={cn(
+                  'size-4',
+                  SIDEBAR_CONTEXT_ICON_CLASS,
+                  'sidebar-context-menu-icon--pin'
+                )}
+              />
+            ) : (
+              <Pin
+                className={cn(
+                  'size-4',
+                  SIDEBAR_CONTEXT_ICON_CLASS,
+                  'sidebar-context-menu-icon--pin'
+                )}
+              />
+            )}
             {session.pinned ? tCommon('action.unpin') : t('sidebar.pinToTop')}
           </ContextMenuItem>
           <ContextMenuItem
+            className={SIDEBAR_CONTEXT_ITEM_CLASS}
+            onClick={() => {
+              toggleBookmarkSession(session.id)
+              toast.success(
+                session.bookmarked
+                  ? t('sidebar_toast.bookmarkRemoved', { defaultValue: 'Bookmark removed' })
+                  : t('sidebar_toast.bookmarked', { defaultValue: 'Chat bookmarked' })
+              )
+            }}
+          >
+            <BookmarkIcon
+              size={16}
+              strokeWidth={4}
+              className={cn(
+                SIDEBAR_CONTEXT_ICON_CLASS,
+                'sidebar-context-menu-icon--bookmark',
+                session.bookmarked && 'text-primary'
+              )}
+            />
+            {session.bookmarked
+              ? t('sidebar.removeBookmark', { defaultValue: 'Remove bookmark' })
+              : t('sidebar.bookmarkChat', { defaultValue: 'Bookmark chat' })}
+          </ContextMenuItem>
+          <ContextMenuItem
+            className={SIDEBAR_CONTEXT_ITEM_CLASS}
             onClick={async () => {
               await duplicateSession(session.id)
               toast.success(t('sidebar_toast.sessionDuplicated'))
             }}
           >
-            <Copy className="size-4" />
+            <Copy
+              className={cn(
+                'size-4',
+                SIDEBAR_CONTEXT_ICON_CLASS,
+                'sidebar-context-menu-icon--duplicate'
+              )}
+            />
             {tCommon('action.duplicate')}
           </ContextMenuItem>
           {session.messageCount > 0 && (
             <ContextMenuItem
+              className={SIDEBAR_CONTEXT_ITEM_CLASS}
               onClick={async () => {
                 await useChatStore.getState().loadSessionMessages(session.id)
                 const snapshot = useChatStore
@@ -1109,11 +1311,18 @@ export function WorkspaceSidebar(): React.JSX.Element {
                 toast.success(t('sidebar_toast.exportedOne'))
               }}
             >
-              <FileText className="size-4" />
+              <FileText
+                className={cn(
+                  'size-4',
+                  SIDEBAR_CONTEXT_ICON_CLASS,
+                  'sidebar-context-menu-icon--markdown'
+                )}
+              />
               {t('sidebar.exportAsMarkdown')}
             </ContextMenuItem>
           )}
           <ContextMenuItem
+            className={SIDEBAR_CONTEXT_ITEM_CLASS}
             onClick={async () => {
               await useChatStore.getState().loadSessionMessages(session.id)
               const snapshot = useChatStore
@@ -1128,10 +1337,17 @@ export function WorkspaceSidebar(): React.JSX.Element {
               toast.success(t('sidebar.exportedAsJson'))
             }}
           >
-            <Download className="size-4" />
+            <Download
+              className={cn(
+                'size-4',
+                SIDEBAR_CONTEXT_ICON_CLASS,
+                'sidebar-context-menu-icon--download'
+              )}
+            />
             {t('sidebar.exportAsJson')}
           </ContextMenuItem>
           <ContextMenuItem
+            className={SIDEBAR_CONTEXT_ITEM_CLASS}
             disabled={!canClearSession}
             onSelect={() =>
               deferDropdownAction(() =>
@@ -1143,11 +1359,18 @@ export function WorkspaceSidebar(): React.JSX.Element {
               )
             }
           >
-            <Eraser className="size-4" />
+            <Eraser
+              className={cn(
+                'size-4',
+                SIDEBAR_CONTEXT_ICON_CLASS,
+                'sidebar-context-menu-icon--clear'
+              )}
+            />
             {t('sidebar.clearMessages')}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
+            className={SIDEBAR_CONTEXT_ITEM_CLASS}
             variant="destructive"
             onSelect={() =>
               deferDropdownAction(() =>
@@ -1159,7 +1382,13 @@ export function WorkspaceSidebar(): React.JSX.Element {
               )
             }
           >
-            <Trash2 className="size-4" />
+            <Trash2
+              className={cn(
+                'size-4',
+                SIDEBAR_CONTEXT_ICON_CLASS,
+                'sidebar-context-menu-icon--delete'
+              )}
+            />
             {tCommon('action.delete')}
           </ContextMenuItem>
         </ContextMenuContent>
@@ -1230,7 +1459,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
                   featureMenuActive ? SIDEBAR_TREE_ACTIVE_CLASS : SIDEBAR_TREE_HOVER_CLASS
                 )}
               >
-                <FolderOpen className="size-4 shrink-0" />
+                <AnimatedIcon animation="bounce">
+                  <FolderOpen className="size-4 shrink-0" />
+                </AnimatedIcon>
                 <span className="truncate">{t('sidebar.extensionsLabel')}</span>
                 <ChevronRight
                   className={cn(
@@ -1260,7 +1491,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
                         : SIDEBAR_TREE_SUBITEM_HOVER_CLASS
                     )}
                   >
-                    <FolderOpen className="size-3.5 shrink-0" />
+                    <AnimatedIcon animation="bounce">
+                      <FolderOpen className="size-3.5 shrink-0" />
+                    </AnimatedIcon>
                     <span className="truncate">{t('navRail.resources')}</span>
                   </button>
                   <button
@@ -1272,7 +1505,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
                       drawPageOpen ? SIDEBAR_TREE_ACTIVE_CLASS : SIDEBAR_TREE_SUBITEM_HOVER_CLASS
                     )}
                   >
-                    <Image className="size-3.5 shrink-0" />
+                    <AnimatedIcon animation="scale">
+                      <Image className="size-3.5 shrink-0" />
+                    </AnimatedIcon>
                     <span className="truncate">{t('navRail.draw')}</span>
                   </button>
                   <button
@@ -1284,7 +1519,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
                       skillsPageOpen ? SIDEBAR_TREE_ACTIVE_CLASS : SIDEBAR_TREE_SUBITEM_HOVER_CLASS
                     )}
                   >
-                    <Wand2 className="size-3.5 shrink-0" />
+                    <AnimatedIcon animation="rotate">
+                      <Wand2 className="size-3.5 shrink-0" />
+                    </AnimatedIcon>
                     <span className="truncate">{t('navRail.skills')}</span>
                   </button>
                   <button
@@ -1298,7 +1535,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
                       SIDEBAR_TREE_SUBITEM_HOVER_CLASS
                     )}
                   >
-                    <Monitor className="size-3.5 shrink-0" />
+                    <AnimatedIcon animation="pulse">
+                      <Monitor className="size-3.5 shrink-0" />
+                    </AnimatedIcon>
                     <span className="truncate">{t('navRail.ssh')}</span>
                   </button>
                 </div>
@@ -1309,6 +1548,31 @@ export function WorkspaceSidebar(): React.JSX.Element {
           </div>
 
           <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+            {incognitoSessions.length > 0 && (
+              <div className="mb-3 border-t border-purple-500/20 pt-3">
+                <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <GhostIcon size={12} className="text-purple-400/70" />
+                    <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-purple-400/80">
+                      {t('incognito.sidebarSection')}
+                    </span>
+                    <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-1 py-0.5 text-[9px] text-purple-400">
+                      {incognitoSessions.length}
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-0.5">
+                  {incognitoSessions.map((session) =>
+                    renderSessionItem(
+                      session,
+                      relativeTimeLocale,
+                      chatSurfaceActive && chatView === 'session' && session.id === activeSessionId
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="mb-2 flex items-center justify-between gap-2 px-1">
               <div className="flex min-w-0 items-center gap-1.5">
                 <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
@@ -1789,34 +2053,54 @@ export function WorkspaceSidebar(): React.JSX.Element {
               <div className="flex items-center justify-between gap-2 px-1">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
-                    {t('sidebar.chats', { defaultValue: 'Chats' })}
+                    {bookmarkedChatsOnly
+                      ? t('sidebar.bookmarkedChats', { defaultValue: 'Bookmarked' })
+                      : t('sidebar.chats', { defaultValue: 'Chats' })}
                   </span>
                   <span className="rounded-full border border-border/60 bg-muted/45 px-1 py-0.5 text-[9px] text-muted-foreground">
-                    {chatSessions.length}
+                    {visibleChatSessions.length}
                   </span>
                 </div>
                 <div className="flex items-center gap-0.5">
                   <Button
                     variant={selectionMode ? 'secondary' : 'ghost'}
                     size="icon"
-                    className={cn('size-4 rounded-sm', selectionMode && 'text-primary')}
+                    className={cn('size-6 rounded-sm font-bold', selectionMode && 'text-primary')}
                     onClick={() => {
                       setSelectionMode(!selectionMode)
                       if (selectionMode) setSelectedSessionIds(new Set())
                     }}
                     title={t('sidebar.selectMultiple', { defaultValue: 'Select multiple' })}
                   >
-                    <ListChecks className="size-2.5" />
+                    <ListChecks className="size-3.5" />
+                  </Button>
+                  <Button
+                    variant={bookmarkedChatsOnly ? 'secondary' : 'ghost'}
+                    size="icon"
+                    className={cn(
+                      'size-5.5 rounded-sm font-bold',
+                      bookmarkedChatsOnly && 'text-primary'
+                    )}
+                    onClick={() => setBookmarkedChatsOnly((current) => !current)}
+                    title={
+                      bookmarkedChatsOnly
+                        ? t('sidebar.showAllChats', { defaultValue: 'Show all chats' })
+                        : t('sidebar.showBookmarkedChats', {
+                            defaultValue: 'Show bookmarked chats'
+                          })
+                    }
+                  >
+                    <BookmarkIcon size={12.5} strokeWidth={4} />
                   </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-4"
+                        className="size-6 font-bold"
                         title={tCommon('action.more', { defaultValue: 'More' })}
                       >
-                        <MoreHorizontal className="size-2.5" />
+                        <MoreHorizontal className="size-3.5" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-52">
@@ -1838,18 +2122,18 @@ export function WorkspaceSidebar(): React.JSX.Element {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="size-4"
+                    className="size-6 font-bold"
                     onClick={handleCreateChatSession}
                     title={t('sidebar.newChat', { defaultValue: 'New Chat' })}
                   >
-                    <Plus className="size-2.5" />
+                    <Plus className="size-3.5" />
                   </Button>
                 </div>
               </div>
 
               <div className="mt-2 space-y-0.5">
-                {chatSessions.length > 0 ? (
-                  chatSessions.map((session) =>
+                {visibleChatSessions.length > 0 ? (
+                  visibleChatSessions.map((session) =>
                     renderSessionItem(
                       session,
                       relativeTimeLocale,
@@ -1858,7 +2142,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
                   )
                 ) : (
                   <div className="px-1.5 py-1 text-[10px] text-muted-foreground">
-                    {t('sidebar.noChats', { defaultValue: 'No chats yet' })}
+                    {bookmarkedChatsOnly
+                      ? t('sidebar.noBookmarkedChats', { defaultValue: 'No bookmarked chats yet' })
+                      : t('sidebar.noChats', { defaultValue: 'No chats yet' })}
                   </div>
                 )}
               </div>
@@ -1957,14 +2243,14 @@ export function WorkspaceSidebar(): React.JSX.Element {
               <Button
                 variant="ghost"
                 className={cn(
-                  'h-8 flex-1 justify-between gap-2 px-2 text-[12px]',
+                  'hvr-icon-spin h-8 flex-1 justify-between gap-2 px-2 text-[12px]',
                   SIDEBAR_TREE_ROW_CLASS,
                   SIDEBAR_TREE_HOVER_CLASS
                 )}
                 onClick={() => useUIStore.getState().openSettingsPage('general')}
               >
                 <span className="flex min-w-0 items-center gap-2">
-                  <Settings className="size-4 shrink-0" />
+                  <SlidersHorizontalIcon className="hvr-icon size-4 shrink-0" />
                   <span className="truncate">{t('sidebar.systemSettings')}</span>
                 </span>
                 <span className="shrink-0 text-[10px] text-muted-foreground/80">

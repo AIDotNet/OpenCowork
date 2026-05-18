@@ -35,6 +35,7 @@ import { ImageEditDialog } from '@renderer/components/chat/ImageEditDialog'
 import { InputArea } from '@renderer/components/chat/InputArea'
 import { ProjectTerminalDock } from '@renderer/components/terminal/ProjectTerminalDock'
 import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
+import GhostIcon from '@renderer/components/icons/GhostIcon'
 import { RuntimeStatusPanel } from './RuntimeStatusPanel'
 import {
   abortSession,
@@ -160,7 +161,8 @@ export function SessionConversationPane({
         projectName: currentProject?.name ?? null,
         workingFolder: currentSession?.workingFolder ?? currentProject?.workingFolder,
         sshConnectionId: currentSession?.sshConnectionId ?? currentProject?.sshConnectionId ?? null,
-        messageCount: currentSession?.messageCount ?? 0
+        messageCount: currentSession?.messageCount ?? 0,
+        isEphemeral: currentSession?.ephemeral ?? false
       }
     })
   )
@@ -186,6 +188,9 @@ export function SessionConversationPane({
   const updateSessionTitle = useChatStore((state) => state.updateSessionTitle)
   const clearSessionMessages = useChatStore((state) => state.clearSessionMessages)
   const deleteSession = useChatStore((state) => state.deleteSession)
+  const createIncognitoSession = useChatStore((state) => state.createIncognitoSession)
+  const saveIncognitoSession = useChatStore((state) => state.saveIncognitoSession)
+  const isIncognito = sessionView.isEphemeral
   const [copiedAll, setCopiedAll] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportRendering, setExportRendering] = useState(false)
@@ -397,8 +402,90 @@ export function SessionConversationPane({
   }
 
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col bg-background">
+    <div
+      className={cn(
+        'relative flex min-w-0 flex-1 flex-col bg-background',
+        isIncognito && 'incognito-amoled-chat'
+      )}
+    >
       <RuntimeStatusPanel sessionId={resolvedSessionId} />
+      {animationsEnabled ? (
+        <AnimatePresence initial={false}>
+          {isIncognito ? (
+            <motion.div
+              key={`incognito-amoled-enter-${resolvedSessionId}`}
+              className="pointer-events-none absolute inset-0 z-10 bg-black"
+              initial={{ y: '100%', opacity: 0.86 }}
+              animate={{ y: '-100%', opacity: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.62, ease: [0.22, 1, 0.36, 1] }}
+            />
+          ) : null}
+        </AnimatePresence>
+      ) : null}
+
+      {/* Incognito button — top left */}
+      <div className="absolute top-3 left-3 z-20">
+        {isIncognito ? (
+          <div className="flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-1">
+            <GhostIcon size={14} className="text-purple-400/70" />
+            <span className="text-xs font-medium text-purple-400/80">
+              {t('incognito.title', { defaultValue: 'Incognito' })}
+            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="ml-1 rounded-full bg-purple-500/15 px-2.5 py-0.5 text-[11px] font-medium text-purple-300 transition-colors hover:bg-purple-500/25"
+                  onClick={() => {
+                    if (resolvedSessionId) saveIncognitoSession(resolvedSessionId)
+                  }}
+                >
+                  {t('incognito.save', { defaultValue: 'Save' })}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t('incognito.saveTooltip', { defaultValue: 'Save this chat permanently' })}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="rounded-full bg-red-500/15 px-2.5 py-0.5 text-[11px] font-medium text-red-400 transition-colors hover:bg-red-500/25"
+                  onClick={() => {
+                    const sid = resolvedSessionId
+                    useUIStore.getState().navigateToHome()
+                    if (sid) deleteSession(sid)
+                  }}
+                >
+                  {t('incognito.close', { defaultValue: 'Close' })}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t('incognito.closeTooltip', {
+                  defaultValue: 'Close without saving — messages will be lost'
+                })}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground/40 transition-colors hover:bg-accent hover:text-accent-foreground"
+                onClick={() => createIncognitoSession()}
+              >
+                <GhostIcon size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t('incognito.tooltip', { defaultValue: 'Start incognito chat' })}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
       <div
         className={cn(
           'absolute top-3 right-3 z-20 flex shrink-0 items-center gap-3 pointer-events-none',
@@ -525,7 +612,7 @@ export function SessionConversationPane({
                     </Tooltip>
                   </>
                 ) : null}
-                
+
                 <div className="mx-0.5 mr-1 h-4 w-px bg-border/60 shrink-0" />
               </div>
 

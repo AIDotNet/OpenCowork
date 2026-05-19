@@ -23,6 +23,7 @@ import { toast } from 'sonner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { parseBrowserDomainList } from '@renderer/lib/app-plugin/browser-access'
+import { AnimatedIcon } from '@renderer/components/icons/AnimatedIcon'
 import {
   APP_PLUGIN_DESCRIPTORS,
   BROWSER_CLICK_TOOL_NAME,
@@ -235,7 +236,7 @@ export function AppPluginPanel(): React.JSX.Element {
                 }`}
               >
                 <span className="mt-0.5 rounded-md border bg-background p-2 text-muted-foreground">
-                  {getPluginIcon(descriptor.id)}
+                  <AnimatedIcon animation="pop">{getPluginIcon(descriptor.id)}</AnimatedIcon>
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
@@ -268,7 +269,7 @@ export function AppPluginPanel(): React.JSX.Element {
             <div className="space-y-1">
               <div className="flex items-center gap-3">
                 <span className="rounded-lg border bg-muted/40 p-2 text-muted-foreground">
-                  {getPluginIcon(selectedPlugin.id)}
+                  <AnimatedIcon animation="bounce">{getPluginIcon(selectedPlugin.id)}</AnimatedIcon>
                 </span>
                 <div>
                   <h3 className="text-lg font-semibold">

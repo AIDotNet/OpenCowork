@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   Settings,
   BrainCircuit,
@@ -71,6 +71,8 @@ import { AnalyticsOverview } from './AnalyticsOverview'
 import { ModelIcon, ProviderIcon } from './provider-icons'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { AnimatedIcon } from '@renderer/components/icons/AnimatedIcon'
+import { iconAnimationMap } from '@renderer/components/icons/icon-animation-map'
 import {
   joinFsPath,
   readTextFile,
@@ -2963,7 +2965,19 @@ export function SettingsPage(): React.JSX.Element {
                         : 'text-muted-foreground'
                     }`}
                   >
-                    {item.icon}
+                    {React.isValidElement(item.icon) ? (
+                      <AnimatedIcon
+                        animation={
+                          iconAnimationMap[
+                            (item.icon.type as { displayName?: string }).displayName || ''
+                          ] || 'scale'
+                        }
+                      >
+                        {item.icon}
+                      </AnimatedIcon>
+                    ) : (
+                      item.icon
+                    )}
                   </span>
                   <span>{t(item.labelKey)}</span>
                 </button>

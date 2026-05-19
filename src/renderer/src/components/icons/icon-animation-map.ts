@@ -20,5 +20,17 @@ export const iconAnimationMap: Record<string, AnimationType> = {
   Sparkles: 'pulse',
   MessageSquare: 'scale',
   Search: 'scale',
-  Pencil: 'swing'
+  Pencil: 'swing',
+  // Settings sidebar
+  BookOpen: 'swing',
+  BarChart3: 'bounce',
+  ArrowRightLeft: 'spin',
+  Server: 'pulse',
+  Layers: 'scale',
+  BrainCircuit: 'jello',
+  Puzzle: 'pop',
+  Cable: 'bounce',
+  Globe: 'spin',
+  Wand2: 'rotate',
+  Info: 'wiggle'
 }

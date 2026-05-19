@@ -14,6 +14,14 @@ export type AnimationType =
   | 'pop'
   | 'jello'
   | 'rubber'
+  | 'heavyWiggle'
+  | 'heavyBounce'
+  | 'heavySpin'
+  | 'heavyJello'
+  | 'heavyRubber'
+  | 'heavyPop'
+  | 'heavySwing'
+  | 'heavyShake'
   | 'none'
 
 interface AnimatedIconProps {
@@ -21,14 +29,16 @@ interface AnimatedIconProps {
   animation?: AnimationType
   className?: string
   disabled?: boolean
+  /** Externally controlled hover state — when true, icon animates regardless of cursor position */
+  hovered?: boolean
 }
 
-interface AnimConfig {
+interface AnimDef {
   hover: TargetAndTransition
   tap: TargetAndTransition
 }
 
-const animations: Record<AnimationType, AnimConfig> = {
+const animations: Record<AnimationType, AnimDef> = {
   scale: {
     hover: { scale: 1.25, transition: { type: 'spring', stiffness: 400, damping: 15 } },
     tap: { scale: 0.85 }
@@ -104,6 +114,106 @@ const animations: Record<AnimationType, AnimConfig> = {
     },
     tap: { scale: 0.9 }
   },
+  // --- Heavy animations (shortened: 0.5-0.7s) ---
+  heavyWiggle: {
+    hover: {
+      rotate: [0, -15, 15, -10, 8, -4, 0],
+      scale: [1, 1.08, 0.95, 1.04, 0.98, 1],
+      transition: { duration: 0.6, ease: 'easeInOut' }
+    },
+    tap: {
+      rotate: [0, -20, 18, -8, 0],
+      scale: 0.85,
+      transition: { duration: 0.35, ease: 'easeOut' }
+    }
+  },
+  heavyBounce: {
+    hover: {
+      y: [0, -10, 3, -6, 1, 0],
+      scale: [1, 1.12, 0.94, 1.06, 0.98, 1],
+      transition: { duration: 0.6, ease: 'easeOut' }
+    },
+    tap: {
+      y: [0, 5, -2, 0],
+      scale: [1, 0.88, 1.08, 1],
+      transition: { duration: 0.35, ease: 'easeOut' }
+    }
+  },
+  heavySpin: {
+    hover: {
+      rotate: [0, 180, 360, 540, 720],
+      scale: [1, 1.15, 0.92, 1.08, 1],
+      transition: { duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] }
+    },
+    tap: {
+      rotate: [0, -90, 0],
+      scale: [1, 0.82, 1.12, 1],
+      transition: { duration: 0.4, ease: 'easeOut' }
+    }
+  },
+  heavyJello: {
+    hover: {
+      skewX: [0, -10, 8, -6, 4, -2, 0],
+      skewY: [0, -5, 3, -2, 1, 0],
+      scale: [1, 1.04, 0.96, 1.02, 0.99, 1],
+      transition: { duration: 0.65, ease: 'easeInOut' }
+    },
+    tap: {
+      skewX: [0, -12, 10, -4, 0],
+      scale: [1, 0.88, 1.08, 0.94, 1],
+      transition: { duration: 0.4, ease: 'easeOut' }
+    }
+  },
+  heavyRubber: {
+    hover: {
+      scaleX: [1, 1.3, 0.7, 1.2, 0.82, 1.1, 0.94, 1.03, 1],
+      scaleY: [1, 0.7, 1.3, 0.78, 1.18, 0.88, 1.08, 0.96, 1],
+      rotate: [0, -3, 3, -2, 2, 0],
+      transition: { duration: 0.7, ease: 'easeInOut' }
+    },
+    tap: {
+      scaleX: [1, 0.75, 1.25, 0.88, 1],
+      scaleY: [1, 1.25, 0.75, 1.12, 1],
+      transition: { duration: 0.4, ease: 'easeOut' }
+    }
+  },
+  heavyPop: {
+    hover: {
+      scale: [1, 1.4, 0.75, 1.25, 0.88, 1.08, 0.96, 1],
+      rotate: [0, -6, 8, -4, 2, 0],
+      transition: { duration: 0.6, ease: 'easeOut' }
+    },
+    tap: {
+      scale: [1, 0.65, 1.35, 0.82, 1.08, 1],
+      transition: { duration: 0.35, ease: 'easeOut' }
+    }
+  },
+  heavySwing: {
+    hover: {
+      rotate: [0, 22, -18, 12, -8, 4, -2, 0],
+      y: [0, -2, 1, -1, 0],
+      scale: [1, 1.04, 0.98, 1.02, 1],
+      transition: { duration: 0.7, ease: 'easeInOut' }
+    },
+    tap: {
+      rotate: [0, 28, -22, 8, 0],
+      scale: [1, 0.92, 1.08, 0.96, 1],
+      transition: { duration: 0.4, ease: 'easeOut' }
+    }
+  },
+  heavyShake: {
+    hover: {
+      x: [0, -5, 5, -4, 4, -2, 2, 0],
+      y: [0, -2, 1, -1, 1, 0],
+      rotate: [0, -3, 3, -2, 2, 0],
+      transition: { duration: 0.6, ease: 'easeInOut' }
+    },
+    tap: {
+      x: [0, -7, 7, -4, 4, 0],
+      scale: [1, 0.92, 1.04, 0.96, 1],
+      transition: { duration: 0.35, ease: 'easeOut' }
+    }
+  },
   none: {
     hover: {},
     tap: {}
@@ -114,7 +224,8 @@ export function AnimatedIcon({
   children,
   animation = 'scale',
   className = '',
-  disabled = false
+  disabled = false,
+  hovered
 }: AnimatedIconProps): React.JSX.Element {
   const anim = animations[animation] || animations.scale
 
@@ -122,6 +233,22 @@ export function AnimatedIcon({
     return <span className={className}>{children}</span>
   }
 
+  // Externally controlled hover (for parent-driven row hover)
+  if (hovered !== undefined) {
+    return (
+      <motion.span
+        className={`inline-flex items-center justify-center ${className}`}
+        initial={false}
+        animate={hovered ? anim.hover : {}}
+        whileTap={anim.tap}
+        style={{ transformOrigin: 'center center' }}
+      >
+        {children}
+      </motion.span>
+    )
+  }
+
+  // Default: hover on the icon itself
   return (
     <motion.span
       className={`inline-flex items-center justify-center ${className}`}

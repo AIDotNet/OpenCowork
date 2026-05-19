@@ -85,7 +85,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
       : ''
 
   return (
-    <div className={`my-5${liveComponentClassName ? ` ${liveComponentClassName}` : ''}`}>
+    <div data-no-select className={`my-5${liveComponentClassName ? ` ${liveComponentClassName}` : ''}`}>
       <button
         onClick={() => {
           if (isThinking) return

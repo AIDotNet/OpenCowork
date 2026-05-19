@@ -1968,7 +1968,16 @@ export function InputArea({
         providerId: activeProvider.id,
         maxTokens: 1024,
         temperature: 0.5,
-        systemPrompt: `You are a concise prompt enhancer. When given a user prompt, rewrite it to be clearer, more specific, and more actionable. Output ONLY the improved prompt text — no explanations, no markdown headers, no preamble. Preserve the user's original intent exactly. Keep it as short as possible while adding clarity.`
+        systemPrompt: `CRITICAL: You are a prompt rewriter. You MUST NOT answer, explain, or respond to the user's question in any way. Your ONLY job is to rewrite their input into a better, clearer prompt. Never output an answer. Never explain what the topic is. Never provide information about the subject. Just rewrite the prompt text itself.
+
+RULES:
+- Output ONLY the rewritten prompt. Nothing else.
+- Do NOT answer the question.
+- Do NOT explain the topic.
+- Do NOT add commentary, headers, or formatting.
+- Do NOT start with "Here is" or "Improved prompt" or any preamble.
+- Just output the improved version of what the user typed, plain text only.
+- If the input is already clear, return it mostly unchanged.`
       }
 
       const provider = createProvider(providerConfig)
@@ -1989,8 +1998,13 @@ export function InputArea({
         }
       }
 
-      // Apply the complete enhanced text all at once
-      const finalText = enhanced.trim() || trimmed
+      // Safety net: if the model answered instead of rewriting, fall back to original
+      const cleaned = enhanced.trim()
+      const looksLikeAnswer =
+        cleaned.length > trimmed.length * 3 ||
+        /^(here|the following|below|improved|enhanced| rewritten)/i.test(cleaned) ||
+        cleaned.split('\n').length > 5
+      const finalText = looksLikeAnswer ? trimmed : cleaned || trimmed
       applyEditorStateFromSerializedText(finalText, selectedFiles)
 
       // Flash done state

@@ -114,6 +114,7 @@ import {
 import { imageBlockToAttachment } from '@renderer/lib/image-attachments'
 import { useImageEditStore } from '@renderer/stores/image-edit-store'
 import { useSelectionReferenceStore } from '@renderer/stores/selection-reference-store'
+import { AnimatedIcon } from '@renderer/components/icons/AnimatedIcon'
 
 type AssistantRenderMode = 'default' | 'transcript' | 'static'
 
@@ -1210,6 +1211,13 @@ function getMessageSelection(root: HTMLElement | null): { text: string; rect: DO
 
   if (!commonAncestor || !root.contains(commonAncestor)) return null
 
+  // Exclude selections from thinking blocks, metrics, and debug info
+  let el: HTMLElement | null = commonAncestor as HTMLElement
+  while (el && el !== root) {
+    if (el.hasAttribute('data-no-select')) return null
+    el = el.parentElement
+  }
+
   const text = selection.toString().trim()
   if (!text) return null
 
@@ -1220,6 +1228,36 @@ function getMessageSelection(root: HTMLElement | null): { text: string; rect: DO
   if (rect.width <= 0 && rect.height <= 0) return null
 
   return { text, rect }
+}
+
+function AnimatedMenuItem({
+  icon,
+  iconAnimation,
+  children,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuItem> & {
+  icon: React.ReactNode
+  iconAnimation: import('@renderer/components/icons/AnimatedIcon').AnimationType
+}): React.JSX.Element {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <DropdownMenuItem
+      {...props}
+      onMouseEnter={(e) => {
+        setHovered(true)
+        props.onMouseEnter?.(e)
+      }}
+      onMouseLeave={(e) => {
+        setHovered(false)
+        props.onMouseLeave?.(e)
+      }}
+    >
+      <AnimatedIcon animation={iconAnimation} hovered={hovered}>
+        {icon}
+      </AnimatedIcon>
+      {children}
+    </DropdownMenuItem>
+  )
 }
 
 export function AssistantMessage({
@@ -2181,7 +2219,7 @@ export function AssistantMessage({
       )}
       <div className="min-w-0 overflow-hidden pl-1.5 sm:pl-2">
         {requestRetryState && (
-          <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <div data-no-select className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
             <RotateCcw className="mt-0.5 size-3.5 shrink-0 animate-spin" />
             <div className="min-w-0">
               <div className="font-medium">
@@ -2218,7 +2256,7 @@ export function AssistantMessage({
               <RunChangeReviewCard runId={runChangeSet.runId} changeSet={runChangeSet} />
             )}
             {!isStreaming && plainText && (
-              <p className="mt-1 text-[10px] text-muted-foreground/55 tabular-nums">
+              <p data-no-select className="mt-1 text-[10px] text-muted-foreground/55 tabular-nums">
                 {usage
                   ? (() => {
                       const u = usage!
@@ -2261,7 +2299,7 @@ export function AssistantMessage({
               </p>
             )}
             {!isStreaming && timingSummary && (
-              <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground/55 tabular-nums">
+              <div data-no-select className="mt-1 space-y-0.5 text-[10px] text-muted-foreground/55 tabular-nums">
                 {timingSummary.totalDuration && (
                   <div>
                     {t('assistantMessage.totalDuration', { duration: timingSummary.totalDuration })}
@@ -2280,6 +2318,7 @@ export function AssistantMessage({
             (showContinue && onContinue) ||
             (showRetry && onRetry)) && (
             <div
+              data-no-select
               className={`mt-2 flex items-center gap-1 transition-opacity ${showContinue && onContinue ? 'opacity-100' : 'opacity-0 group-hover/msg:opacity-100'}`}
             >
               {plainText && (
@@ -2340,68 +2379,103 @@ export function AssistantMessage({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuItem onSelect={handleCopy} disabled={!plainText.trim()}>
-                    <Copy className="size-4" />
+                  <AnimatedMenuItem
+                    icon={<Copy className="size-4" />}
+                    iconAnimation="heavyPop"
+                    onSelect={handleCopy}
+                    disabled={!plainText.trim()}
+                  >
                     {t('action.copy', { ns: 'common' })}
-                  </DropdownMenuItem>
+                  </AnimatedMenuItem>
                   {isLiveMode && sessionId && msgId ? (
-                    <DropdownMenuItem onSelect={() => void handleFork()} disabled={forking}>
-                      <GitFork className="size-4" />
+                    <AnimatedMenuItem
+                      icon={<GitFork className="size-4" />}
+                      iconAnimation="heavySwing"
+                      onSelect={() => void handleFork()}
+                      disabled={forking}
+                    >
                       {t('messageActions.fork')}
-                    </DropdownMenuItem>
+                    </AnimatedMenuItem>
                   ) : null}
-                  <DropdownMenuItem onSelect={handleTranslate} disabled={!plainText.trim()}>
-                    <Languages className="size-4" />
+                  <AnimatedMenuItem
+                    icon={<Languages className="size-4" />}
+                    iconAnimation="heavySpin"
+                    onSelect={handleTranslate}
+                    disabled={!plainText.trim()}
+                  >
                     {t('messageActions.translate')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={handleSpeak} disabled={!plainText.trim()}>
-                    <Volume2 className="size-4" />
+                  </AnimatedMenuItem>
+                  <AnimatedMenuItem
+                    icon={<Volume2 className="size-4" />}
+                    iconAnimation="heavyWiggle"
+                    onSelect={handleSpeak}
+                    disabled={!plainText.trim()}
+                  >
                     {t('messageActions.readAloud')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
+                  </AnimatedMenuItem>
+                  <AnimatedMenuItem
+                    icon={<Share2 className="size-4" />}
+                    iconAnimation="heavyBounce"
                     onSelect={() => void handleShare()}
                     disabled={!plainText.trim()}
                   >
-                    <Share2 className="size-4" />
                     {t('messageActions.share')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => setCollapsed((value) => !value)}>
-                    {collapsed ? (
-                      <ChevronsDownUp className="size-4" />
-                    ) : (
-                      <ChevronsUpDown className="size-4" />
-                    )}
+                  </AnimatedMenuItem>
+                  <AnimatedMenuItem
+                    icon={
+                      collapsed ? (
+                        <ChevronsDownUp className="size-4" />
+                      ) : (
+                        <ChevronsUpDown className="size-4" />
+                      )
+                    }
+                    iconAnimation="heavyRubber"
+                    onSelect={() => setCollapsed((value) => !value)}
+                  >
                     {collapsed ? t('messageActions.expand') : t('messageActions.collapse')}
-                  </DropdownMenuItem>
+                  </AnimatedMenuItem>
                   {showContinue && onContinue && (
-                    <DropdownMenuItem onSelect={onContinue}>
-                      <Play className="size-4" />
+                    <AnimatedMenuItem
+                      icon={<Play className="size-4" />}
+                      iconAnimation="heavyPop"
+                      onSelect={onContinue}
+                    >
                       {t('assistantMessage.continueToolExecution', {
                         defaultValue: 'Continue execution'
                       })}
-                    </DropdownMenuItem>
+                    </AnimatedMenuItem>
                   )}
                   {showRetry && onRetry && (
-                    <DropdownMenuItem onSelect={() => msgId && onRetry?.(msgId)}>
-                      <RotateCcw className="size-4" />
+                    <AnimatedMenuItem
+                      icon={<RotateCcw className="size-4" />}
+                      iconAnimation="heavySpin"
+                      onSelect={() => msgId && onRetry?.(msgId)}
+                    >
                       {t('assistantMessage.regenerateReference', {
                         defaultValue: 'Regenerate reference'
                       })}
-                    </DropdownMenuItem>
+                    </AnimatedMenuItem>
                   )}
                   {showRetry && onRetry && (
-                    <DropdownMenuItem onSelect={handleDeleteAndRegenerate}>
-                      <RotateCcw className="size-4" />
+                    <AnimatedMenuItem
+                      icon={<RotateCcw className="size-4" />}
+                      iconAnimation="heavySpin"
+                      onSelect={handleDeleteAndRegenerate}
+                    >
                       {t('messageActions.deleteAndRegenerate')}
-                    </DropdownMenuItem>
+                    </AnimatedMenuItem>
                   )}
                   {msgId && onDelete && (
                     <>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem variant="destructive" onSelect={() => onDelete(msgId)}>
-                        <Trash2 className="size-4" />
+                      <AnimatedMenuItem
+                        icon={<Trash2 className="size-4" />}
+                        iconAnimation="heavyShake"
+                        variant="destructive"
+                        onSelect={() => onDelete(msgId)}
+                      >
                         {t('action.delete', { ns: 'common' })}
-                      </DropdownMenuItem>
+                      </AnimatedMenuItem>
                     </>
                   )}
                 </DropdownMenuContent>

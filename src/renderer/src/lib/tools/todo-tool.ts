@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid'
 import { toolRegistry } from '../agent/tool-registry'
 import { useTaskStore, type TaskItem } from '../../stores/task-store'
 import { useTeamStore } from '../../stores/team-store'
+import { useSettingsStore } from '../../stores/settings-store'
 import { teamEvents } from '../agent/teams/events'
 import type { TeamTask } from '../agent/teams/types'
 import { encodeStructuredToolResult } from './tool-result-format'
@@ -10,7 +11,7 @@ import type { ToolHandler } from './tool-types'
 // ── Helpers: dual-mode (standalone vs. team) ──
 
 function hasActiveTeam(): boolean {
-  return !!useTeamStore.getState().activeTeam
+  return useSettingsStore.getState().teamToolsEnabled && !!useTeamStore.getState().activeTeam
 }
 
 function getTeamTasks(): TeamTask[] {

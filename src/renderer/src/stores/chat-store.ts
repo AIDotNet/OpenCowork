@@ -408,11 +408,72 @@ function getSessionByIdFromState(
   sessionId: string
 ): Session | undefined {
   const idx = state.sessionsById[sessionId]
-  if (idx === undefined) return undefined
-  const candidate = state.sessions[idx]
-  // Defensive: if the index is stale (e.g. external mutation slipped through), fall back to a linear scan.
-  if (candidate && candidate.id === sessionId) return candidate
+  if (idx !== undefined) {
+    const candidate = state.sessions[idx]
+    if (candidate && candidate.id === sessionId) return candidate
+  }
+  // Defensive: if the index is stale or missing (e.g. external mutation slipped through),
+  // fall back to a linear scan instead of treating an existing session as absent.
   return state.sessions.find((s) => s.id === sessionId)
+}
+
+function getResidentSessionScore(session: Session): number {
+  return (
+    (session.messagesLoaded ? 1_000_000 : 0) +
+    session.messages.length * 1_000 +
+    Math.max(0, session.loadedRangeEnd - session.loadedRangeStart)
+  )
+}
+
+function chooseResidentSession(left: Session, right: Session): Session {
+  const leftScore = getResidentSessionScore(left)
+  const rightScore = getResidentSessionScore(right)
+  if (rightScore > leftScore) return right
+  if (leftScore > rightScore) return left
+  return right.updatedAt > left.updatedAt ? right : left
+}
+
+function copyResidentSessionState(target: Session, source: Session): void {
+  target.messages = source.messages
+  target.messageCount = source.messageCount
+  target.messagesLoaded = source.messagesLoaded
+  target.loadedRangeStart = source.loadedRangeStart
+  target.loadedRangeEnd = source.loadedRangeEnd
+  target.lastKnownMessageCount = source.lastKnownMessageCount
+  target.promptSnapshot = source.promptSnapshot
+  target.pluginChatType = source.pluginChatType
+  target.pluginSenderId = source.pluginSenderId
+  target.pluginSenderName = source.pluginSenderName
+}
+
+function dedupeSessionsById(
+  state: { sessions: Session[]; sessionsById: Record<string, number> },
+  sessionId: string
+): Session | undefined {
+  const matches = state.sessions.filter((session) => session.id === sessionId)
+  if (matches.length === 0) return undefined
+
+  const keeper = matches.reduce(chooseResidentSession)
+  for (const duplicate of matches) {
+    if (duplicate === keeper) continue
+    if (chooseResidentSession(keeper, duplicate) === duplicate) {
+      copyResidentSessionState(keeper, duplicate)
+    }
+    keeper.updatedAt = Math.max(keeper.updatedAt, duplicate.updatedAt)
+    keeper.createdAt = Math.min(keeper.createdAt, duplicate.createdAt)
+    keeper.pluginChatType = keeper.pluginChatType ?? duplicate.pluginChatType
+    keeper.pluginSenderId = keeper.pluginSenderId ?? duplicate.pluginSenderId
+    keeper.pluginSenderName = keeper.pluginSenderName ?? duplicate.pluginSenderName
+    keeper.promptSnapshot = keeper.promptSnapshot ?? duplicate.promptSnapshot
+  }
+
+  if (matches.length > 1) {
+    state.sessions = state.sessions.filter(
+      (session) => session.id !== sessionId || session === keeper
+    )
+  }
+  syncSessionsById(state)
+  return keeper
 }
 
 const MESSAGE_LOAD_SNAPSHOT_TAIL_SIZE = 8
@@ -2519,7 +2580,7 @@ export const useChatStore = create<ChatStore>()(
       const activeSessionId = get().activeSessionId
 
       set((state) => {
-        const existing = getSessionByIdFromState(state, row.id)
+        const existing = dedupeSessionsById(state, row.id)
         if (existing) {
           mergeSessionSummary(existing, syncedSession, options)
         } else {

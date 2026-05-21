@@ -469,6 +469,7 @@ export function InputArea({
   const [fileSearchLoading, setFileSearchLoading] = React.useState(false)
   const [selectedFileSearchIndex, setSelectedFileSearchIndex] = React.useState(0)
   const [attachedImages, setAttachedImages] = React.useState<ImageAttachment[]>([])
+  const [previewImage, setPreviewImage] = React.useState<ImageAttachment | null>(null)
   const [pendingImageReads, setPendingImageReads] = React.useState(0)
   const [isOptimizing, setIsOptimizing] = React.useState(false)
   const [contextCompressionStatus, setContextCompressionStatus] =
@@ -931,6 +932,7 @@ export function InputArea({
 
   const removeQueuedImage = React.useCallback((id: string) => {
     setEditingQueueImages((prev) => prev.filter((img) => img.id !== id))
+    setPreviewImage((current) => (current?.id === id ? null : current))
   }, [])
 
   const saveQueuedMessage = React.useCallback(
@@ -1403,6 +1405,7 @@ export function InputArea({
       shouldResetHomeReferenceDraft ? [] : persistedSelectedFiles
     )
     setAttachedImages(persistedDraft?.images ? cloneImageAttachments(persistedDraft.images) : [])
+    setPreviewImage(null)
     setSelectedSkill(persistedDraft?.skill ?? null)
     setHighlightedFileId(null)
     setEditorSelection({ start: 0, end: 0 })
@@ -1518,6 +1521,7 @@ export function InputArea({
 
   const removeImage = React.useCallback((id: string) => {
     setAttachedImages((prev) => prev.filter((img) => img.id !== id))
+    setPreviewImage((current) => (current?.id === id ? null : current))
   }, [])
 
   const readImagePathAsAttachment = React.useCallback(
@@ -1757,6 +1761,7 @@ export function InputArea({
     setHighlightedFileId(null)
     setEditorSelection({ start: 0, end: 0 })
     setAttachedImages([])
+    setPreviewImage(null)
     setSelectedSkill(null)
     requestAnimationFrame(() => {
       editorRef.current?.setSelectionOffsets(0, 0)
@@ -2468,14 +2473,24 @@ export function InputArea({
                                   <div className="flex gap-2 overflow-x-auto pb-1">
                                     {editingQueueImages.map((img) => (
                                       <div key={img.id} className="relative group/img shrink-0">
-                                        <img
-                                          src={img.dataUrl}
-                                          alt=""
-                                          className="composer-image-thumb size-12 rounded-lg object-cover"
-                                        />
+                                        <button
+                                          type="button"
+                                          className="block cursor-zoom-in rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                          aria-label={t('userMessage.imagePreview')}
+                                          title={t('userMessage.imagePreview')}
+                                          onClick={() => setPreviewImage(img)}
+                                        >
+                                          <img
+                                            src={img.dataUrl}
+                                            alt=""
+                                            className="composer-image-thumb size-12 rounded-lg object-cover transition-transform group-hover/img:scale-[1.03]"
+                                          />
+                                        </button>
                                         <button
                                           type="button"
                                           className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm opacity-0 transition-opacity group-hover/img:opacity-100"
+                                          aria-label={t('userMessage.removeImage')}
+                                          title={t('userMessage.removeImage')}
                                           onClick={() => removeQueuedImage(img.id)}
                                         >
                                           <X className="size-2.5" />
@@ -2624,14 +2639,24 @@ export function InputArea({
             >
               {attachedImages.map((img) => (
                 <div key={img.id} className="relative group/img shrink-0">
-                  <img
-                    src={img.dataUrl}
-                    alt=""
-                    className="composer-image-thumb size-16 rounded-xl object-cover"
-                  />
+                  <button
+                    type="button"
+                    className="block cursor-zoom-in rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t('userMessage.imagePreview')}
+                    title={t('userMessage.imagePreview')}
+                    onClick={() => setPreviewImage(img)}
+                  >
+                    <img
+                      src={img.dataUrl}
+                      alt=""
+                      className="composer-image-thumb size-16 rounded-xl object-cover transition-transform group-hover/img:scale-[1.03]"
+                    />
+                  </button>
                   <button
                     type="button"
                     className="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-destructive text-destructive-foreground shadow-md opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center"
+                    aria-label={t('userMessage.removeImage')}
+                    title={t('userMessage.removeImage')}
                     onClick={() => removeImage(img.id)}
                   >
                     <X className="size-3" />
@@ -2640,6 +2665,26 @@ export function InputArea({
               ))}
             </div>
           )}
+
+          <Dialog
+            open={Boolean(previewImage)}
+            onOpenChange={(open) => {
+              if (!open) setPreviewImage(null)
+            }}
+          >
+            <DialogContent className="max-h-[90vh] !w-fit !max-w-[min(96vw,1100px)] overflow-hidden p-2 sm:!max-w-[min(96vw,1100px)]">
+              <DialogTitle className="sr-only">{t('userMessage.imagePreview')}</DialogTitle>
+              {previewImage && (
+                <div className="flex max-w-full items-center justify-center overflow-hidden">
+                  <img
+                    src={previewImage.dataUrl}
+                    alt={t('userMessage.imagePreview')}
+                    className="block h-auto max-h-[calc(90vh-1rem)] w-auto max-w-[min(92vw,1068px)] rounded object-contain"
+                  />
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {/* Optimizing indicator - only show spinner, hide text */}
           {isOptimizing && (

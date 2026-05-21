@@ -293,7 +293,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     }
     if (chatView === 'channels') {
       return {
-        title: t('projectHome.openChannels', { defaultValue: 'Channel' }),
+        title: t('sidebar.projectChannels', { defaultValue: 'Channels' }),
         subtitle: null,
         tooltip: activeProjectWorkingFolder
       }

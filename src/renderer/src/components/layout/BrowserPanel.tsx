@@ -46,11 +46,12 @@ export function BrowserPanel({
   const [runtimeBrowserUserDataReuseEnabled, setRuntimeBrowserUserDataReuseEnabled] = useState(
     browserUserDataReuseEnabled
   )
+  const [runtimeBrowserUserAgent, setRuntimeBrowserUserAgent] = useState<string | undefined>(
+    browserUserDataReuseEnabled ? stripElectronFromUserAgent(navigator.userAgent) : undefined
+  )
   const webviewRef = useRef<Electron.WebviewTag | null>(null)
   const initialBrowserUserDataReuseEnabledRef = useRef(browserUserDataReuseEnabled)
-  const webviewUserAgent = runtimeBrowserUserDataReuseEnabled
-    ? stripElectronFromUserAgent(navigator.userAgent)
-    : undefined
+  const webviewUserAgent = runtimeBrowserUserDataReuseEnabled ? runtimeBrowserUserAgent : undefined
   const webviewSessionProps: Pick<
     React.ComponentProps<'webview'>,
     'partition' | 'allowpopups' | 'plugins' | 'useragent'
@@ -67,14 +68,16 @@ export function BrowserPanel({
     async function loadRuntimeBrowserMode(): Promise<void> {
       try {
         const result = (await ipcClient.invoke(IPC.BROWSER_EMULATION_STATUS)) as
-          | { success: true; status: { reuseEnabled: boolean } }
+          | { success: true; status: { reuseEnabled: boolean; userAgent: string } }
           | { success: false; error?: string }
         if (!cancelled && result.success) {
           setRuntimeBrowserUserDataReuseEnabled(result.status.reuseEnabled)
+          setRuntimeBrowserUserAgent(result.status.userAgent)
         }
       } catch {
         if (!cancelled) {
           setRuntimeBrowserUserDataReuseEnabled(initialBrowserUserDataReuseEnabledRef.current)
+          setRuntimeBrowserUserAgent(stripElectronFromUserAgent(navigator.userAgent))
         }
       }
     }

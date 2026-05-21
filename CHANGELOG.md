@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.101] - 2026-05-21
+
+### Changed
+
+- Improved built-in browser emulation so an Edge data-source selection also reports Edge-like user-agent and client hints.
+- Passed the main-process browser emulation status into the webview so the embedded browser uses the resolved runtime browser identity.
+
+### Fixed
+
+- Fixed in-memory Monaco model URIs for absolute local paths so TypeScript diagnostics no longer request decoded double-slash source paths.
+
 ## [0.9.100] - 2026-05-21
 
 ### Changed

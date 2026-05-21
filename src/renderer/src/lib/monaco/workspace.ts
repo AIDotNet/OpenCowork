@@ -80,7 +80,10 @@ export function createModelUri(options: CreateModelUriOptions): string {
 }
 
 function createInMemoryUri(filePath: string, authority?: string): string {
-  return `inmemory://${authority || 'opencowork'}/model/${encodeURIComponent(filePath)}`
+  const modelKey = createModelKey(filePath)
+  const fileName = getFileName(filePath)
+  const fileNameSegment = fileName ? `/${encodeURIComponent(fileName)}` : ''
+  return `inmemory://${authority || 'opencowork'}/model/${modelKey}${fileNameSegment}`
 }
 
 function createFileUri(filePath: string): string {
@@ -100,4 +103,18 @@ function createUri(scheme: string, authority: string, path: string): string {
 function normalizeRemotePath(filePath: string): string {
   const normalized = filePath.replace(/\\/g, '/')
   return normalized.startsWith('/') ? normalized : `/${normalized}`
+}
+
+function getFileName(filePath: string): string {
+  const normalized = filePath.trim()
+  if (!normalized) return ''
+
+  const lastSeparatorIndex = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
+  return lastSeparatorIndex >= 0 ? normalized.slice(lastSeparatorIndex + 1) : normalized
+}
+
+function createModelKey(filePath: string): string {
+  return Array.from(new TextEncoder().encode(filePath), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
 }

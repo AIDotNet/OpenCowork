@@ -25,6 +25,7 @@ interface BrowserProfileCandidate {
 export interface BrowserSessionStorageMode {
   reuseEnabled: boolean
   browserUserDataSource: BrowserUserDataSource
+  browserId: ConcreteBrowserUserDataSource | null
   browserName: string | null
   browserDataRoot: string | null
   browserProfilePath: string | null
@@ -233,6 +234,7 @@ export function resolveBrowserSessionStorageMode(
   cachedStorageMode = {
     reuseEnabled,
     browserUserDataSource,
+    browserId: detectedProfile?.browserId ?? null,
     browserName: detectedProfile?.browserName ?? null,
     browserDataRoot: detectedProfile?.dataRoot ?? null,
     browserProfilePath: detectedProfile?.profilePath ?? null,
@@ -261,8 +263,19 @@ function getPlatformUserAgentToken(): string {
   return 'X11; Linux x86_64'
 }
 
-function getChromeLikeUserAgent(): string {
-  return `Mozilla/5.0 (${getPlatformUserAgentToken()}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`
+function getEffectiveBrowserId(
+  mode: BrowserSessionStorageMode
+): ConcreteBrowserUserDataSource | 'chrome' {
+  if (mode.browserId) return mode.browserId
+  if (mode.browserUserDataSource !== 'auto') return mode.browserUserDataSource
+  return 'chrome'
+}
+
+function getBrowserLikeUserAgent(
+  browserId: ConcreteBrowserUserDataSource | 'chrome' = 'chrome'
+): string {
+  const base = `Mozilla/5.0 (${getPlatformUserAgentToken()}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`
+  return browserId === 'edge' ? `${base} Edg/${process.versions.chrome}` : base
 }
 
 function getAcceptLanguages(): string {
@@ -293,21 +306,32 @@ function getClientHintsPlatform(): string {
   return '"Linux"'
 }
 
-function applyBrowserLikeHeaders(details: Electron.OnBeforeSendHeadersListenerDetails): void {
+function getClientHintBrand(browserId: ConcreteBrowserUserDataSource | 'chrome'): string {
+  if (browserId === 'edge') return 'Microsoft Edge'
+  if (browserId === 'chromium') return 'Chromium'
+  return 'Google Chrome'
+}
+
+function applyBrowserLikeHeaders(
+  details: Electron.OnBeforeSendHeadersListenerDetails,
+  browserId: ConcreteBrowserUserDataSource | 'chrome'
+): void {
   if (details.webContents?.getType() !== 'webview') return
 
   const chromeMajor = getChromeMajorVersion()
-  details.requestHeaders['User-Agent'] = getChromeLikeUserAgent()
+  details.requestHeaders['User-Agent'] = getBrowserLikeUserAgent(browserId)
   details.requestHeaders['Accept-Language'] = getAcceptLanguages()
   details.requestHeaders['sec-ch-ua'] =
-    `"Chromium";v="${chromeMajor}", "Google Chrome";v="${chromeMajor}", "Not.A/Brand";v="99"`
+    `"Chromium";v="${chromeMajor}", "${getClientHintBrand(browserId)}";v="${chromeMajor}", "Not.A/Brand";v="99"`
   details.requestHeaders['sec-ch-ua-mobile'] = '?0'
   details.requestHeaders['sec-ch-ua-platform'] = getClientHintsPlatform()
 }
 
 export function configureBuiltInBrowserSession(): BrowserEmulationStatus {
   const browserSession = getBuiltInBrowserSession()
-  const userAgent = getChromeLikeUserAgent()
+  const mode = cachedStorageMode ?? resolveBrowserSessionStorageMode(app.getPath('userData'))
+  const browserId = getEffectiveBrowserId(mode)
+  const userAgent = getBrowserLikeUserAgent(browserId)
   const acceptLanguages = getAcceptLanguages()
 
   if (readBrowserUserDataReuseEnabled()) {
@@ -316,13 +340,12 @@ export function configureBuiltInBrowserSession(): BrowserEmulationStatus {
     if (!requestHeaderEmulationConfigured) {
       requestHeaderEmulationConfigured = true
       browserSession.webRequest.onBeforeSendHeaders((details, callback) => {
-        applyBrowserLikeHeaders(details)
+        applyBrowserLikeHeaders(details, browserId)
         callback({ requestHeaders: details.requestHeaders })
       })
     }
   }
 
-  const mode = cachedStorageMode ?? resolveBrowserSessionStorageMode(app.getPath('userData'))
   return {
     ...mode,
     userAgent,
@@ -334,10 +357,11 @@ export function configureBuiltInBrowserSession(): BrowserEmulationStatus {
 export function getBrowserEmulationStatus(): BrowserEmulationStatus {
   const browserSession = getBuiltInBrowserSession()
   const mode = cachedStorageMode ?? resolveBrowserSessionStorageMode(app.getPath('userData'))
+  const browserId = getEffectiveBrowserId(mode)
 
   return {
     ...mode,
-    userAgent: getChromeLikeUserAgent(),
+    userAgent: getBrowserLikeUserAgent(browserId),
     acceptLanguages: getAcceptLanguages(),
     browserSessionStoragePath: browserSession.getStoragePath()
   }

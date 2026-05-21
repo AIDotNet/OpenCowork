@@ -61,6 +61,7 @@ import type {
   AIProvider,
   ContentBlock,
   ProviderConfig,
+  ResponsesImageGenerationConfig,
   StreamEvent,
   UnifiedMessage
 } from '@renderer/lib/api/types'
@@ -140,6 +141,25 @@ function normalizeImageSrc(event: StreamEvent): DrawRunImage | null {
   }
 }
 
+function appendPreviewImageFallback(run: DrawRun): DrawRunImage[] {
+  if (!run.previewImage) {
+    return run.images
+  }
+
+  if (run.images.some((image) => image.src === run.previewImage?.src)) {
+    return run.images
+  }
+
+  return [
+    ...run.images,
+    {
+      ...run.previewImage,
+      id: nanoid(),
+      kind: run.previewImage.kind ?? 'generated'
+    }
+  ]
+}
+
 function pickFastTextModel(
   providers: AIProvider[]
 ): { provider: AIProvider; model: AIModelConfig; config: ProviderConfig } | null {
@@ -217,7 +237,10 @@ interface GifPostprocessResult {
 }
 
 function isOpenAiTransparentProvider(config: ProviderConfig): boolean {
-  return config.type === 'openai-images'
+  return (
+    config.type === 'openai-images' ||
+    (config.type === 'openai-responses' && config.responsesImageGeneration?.enabled !== false)
+  )
 }
 
 function supportsImageStreamPreview(config?: ProviderConfig | null): boolean {
@@ -253,7 +276,97 @@ function withImageStreamPreviewConfig(config: ProviderConfig, enabled: boolean):
   }
 }
 
-function buildGifProviderConfig(config: ProviderConfig): ProviderConfig {
+const GIF_RESPONSE_IMAGE_OVERRIDE_BODY_KEYS = new Set([
+  'background',
+  'output_format',
+  'quality',
+  'size',
+  'partial_images'
+])
+
+function isOfficialOpenAIBaseUrl(baseUrl?: string): boolean {
+  const candidate = baseUrl?.trim()
+  if (!candidate) return true
+
+  try {
+    return new URL(candidate).hostname === 'api.openai.com'
+  } catch {
+    return false
+  }
+}
+
+function shouldRouteImageThroughResponses(config: ProviderConfig): boolean {
+  if (config.type !== 'openai-images') return false
+
+  const modelId = config.model.trim().toLowerCase()
+  if (!modelId.startsWith('gpt-image')) return false
+
+  return !isOfficialOpenAIBaseUrl(config.baseUrl)
+}
+
+function buildResponsesImageProviderConfig(
+  config: ProviderConfig,
+  responsesOverrides: Partial<ResponsesImageGenerationConfig>
+): ProviderConfig {
+  const requestOverrides = config.requestOverrides
+  const sanitizedBodyEntries = Object.entries(requestOverrides?.body ?? {}).filter(
+    ([key]) => !GIF_RESPONSE_IMAGE_OVERRIDE_BODY_KEYS.has(key)
+  )
+  const sanitizedOmitBodyKeys = (requestOverrides?.omitBodyKeys ?? []).filter(
+    (key) => !GIF_RESPONSE_IMAGE_OVERRIDE_BODY_KEYS.has(key)
+  )
+
+  return {
+    ...config,
+    type: 'openai-responses',
+    responsesImageGeneration: {
+      ...(config.responsesImageGeneration ?? {}),
+      enabled: true,
+      ...responsesOverrides
+    },
+    requestOverrides:
+      requestOverrides &&
+      (requestOverrides.headers ||
+        sanitizedBodyEntries.length > 0 ||
+        sanitizedOmitBodyKeys.length > 0)
+        ? {
+            ...(requestOverrides.headers ? { headers: requestOverrides.headers } : {}),
+            ...(sanitizedBodyEntries.length > 0
+              ? { body: Object.fromEntries(sanitizedBodyEntries) }
+              : {}),
+            ...(sanitizedOmitBodyKeys.length > 0 ? { omitBodyKeys: sanitizedOmitBodyKeys } : {})
+          }
+        : undefined
+  }
+}
+
+function buildStandardProviderConfig(
+  config: ProviderConfig,
+  options: { hasImageInput: boolean }
+): ProviderConfig {
+  if (!shouldRouteImageThroughResponses(config)) {
+    return config
+  }
+
+  return buildResponsesImageProviderConfig(config, {
+    action: options.hasImageInput ? 'edit' : 'generate',
+    ...(options.hasImageInput ? { inputFidelity: 'high' as const } : {})
+  })
+}
+
+function buildGifProviderConfig(
+  config: ProviderConfig,
+  input: DrawGifInputSnapshot
+): ProviderConfig {
+  if (shouldRouteImageThroughResponses(config)) {
+    return buildResponsesImageProviderConfig(config, {
+      action: input.inputMode === 'reference' ? 'edit' : 'generate',
+      background: 'transparent',
+      outputFormat: 'png',
+      ...(input.inputMode === 'reference' ? { inputFidelity: 'high' as const } : {})
+    })
+  }
+
   if (!isOpenAiTransparentProvider(config)) {
     return config
   }
@@ -611,19 +724,24 @@ export function DrawPage(): React.JSX.Element {
 
   const finishRun = useCallback(
     (runId: string): void => {
-      updateRun(runId, (run) => ({
-        ...run,
-        isGenerating: false,
-        previewImage: undefined,
-        previewImageIndex: undefined,
-        error:
-          run.error || run.images.length > 0
-            ? run.error
-            : {
-                code: 'unknown',
-                message: t('drawPage.noImageOutput')
-              }
-      }))
+      updateRun(runId, (run) => {
+        const images = appendPreviewImageFallback(run)
+
+        return {
+          ...run,
+          isGenerating: false,
+          images,
+          previewImage: undefined,
+          previewImageIndex: undefined,
+          error:
+            run.error || run.images.length > 0
+              ? run.error
+              : {
+                  code: 'unknown',
+                  message: t('drawPage.noImageOutput')
+                }
+        }
+      })
     },
     [t, updateRun]
   )
@@ -870,9 +988,15 @@ export function DrawPage(): React.JSX.Element {
     commitRuns((current) => [newRun, ...current])
     persistRun(newRun)
 
+    const baseProviderConfig = buildStandardProviderConfig(target.config, {
+      hasImageInput: attachedImages.length > 0
+    })
     const streamPreviewEnabledForRun =
-      streamPreviewEnabled && supportsImageStreamPreview(target.config)
-    const providerConfig = withImageStreamPreviewConfig(target.config, streamPreviewEnabledForRun)
+      streamPreviewEnabled && supportsImageStreamPreview(baseProviderConfig)
+    const providerConfig = withImageStreamPreviewConfig(
+      baseProviderConfig,
+      streamPreviewEnabledForRun
+    )
     const provider = createProvider(providerConfig)
     const requestStartedAt = Date.now()
     const content: string | ContentBlock[] =
@@ -930,29 +1054,41 @@ export function DrawPage(): React.JSX.Element {
             break
           }
           case 'image_error': {
+            if (controller.signal.aborted) break
             const imageError = event.imageError
             if (!imageError) break
-            updateRun(runId, (run) => ({
-              ...run,
-              previewImage: undefined,
-              previewImageIndex: undefined,
-              error: {
-                code: imageError.code,
-                message: imageError.message
+            updateRun(runId, (run) => {
+              const images = appendPreviewImageFallback(run)
+
+              return {
+                ...run,
+                images,
+                previewImage: undefined,
+                previewImageIndex: undefined,
+                error: {
+                  code: imageError.code,
+                  message: imageError.message
+                }
               }
-            }))
+            })
             break
           }
           case 'error': {
-            updateRun(runId, (run) => ({
-              ...run,
-              previewImage: undefined,
-              previewImageIndex: undefined,
-              error: {
-                code: 'unknown',
-                message: event.error?.message || t('drawPage.unknownError')
+            if (controller.signal.aborted) break
+            updateRun(runId, (run) => {
+              const images = appendPreviewImageFallback(run)
+
+              return {
+                ...run,
+                images,
+                previewImage: undefined,
+                previewImageIndex: undefined,
+                error: {
+                  code: 'unknown',
+                  message: event.error?.message || t('drawPage.unknownError')
+                }
               }
-            }))
+            })
             break
           }
           case 'message_end': {
@@ -978,15 +1114,20 @@ export function DrawPage(): React.JSX.Element {
       }
     } catch (error) {
       if (!controller.signal.aborted) {
-        updateRun(runId, (run) => ({
-          ...run,
-          previewImage: undefined,
-          previewImageIndex: undefined,
-          error: {
-            code: 'unknown',
-            message: error instanceof Error ? error.message : String(error)
+        updateRun(runId, (run) => {
+          const images = appendPreviewImageFallback(run)
+
+          return {
+            ...run,
+            images,
+            previewImage: undefined,
+            previewImageIndex: undefined,
+            error: {
+              code: 'unknown',
+              message: error instanceof Error ? error.message : String(error)
+            }
           }
-        }))
+        })
       }
     } finally {
       if (controller.signal.aborted) {
@@ -1094,7 +1235,7 @@ export function DrawPage(): React.JSX.Element {
       commitRuns((current) => [newRun, ...current])
       persistRun(newRun)
 
-      const baseProviderConfig = buildGifProviderConfig(target.config)
+      const baseProviderConfig = buildGifProviderConfig(target.config, snapshot)
       const streamPreviewEnabledForRun =
         streamPreviewEnabled && supportsImageStreamPreview(baseProviderConfig)
       const providerConfig = withImageStreamPreviewConfig(
@@ -1207,29 +1348,41 @@ export function DrawPage(): React.JSX.Element {
               }
             }
             case 'image_error': {
+              if (controller.signal.aborted) break
               const imageError = event.imageError
               if (!imageError) break
-              updateRun(runId, (run) => ({
-                ...run,
-                previewImage: undefined,
-                previewImageIndex: undefined,
-                error: {
-                  code: imageError.code,
-                  message: imageError.message
+              updateRun(runId, (run) => {
+                const images = appendPreviewImageFallback(run)
+
+                return {
+                  ...run,
+                  images,
+                  previewImage: undefined,
+                  previewImageIndex: undefined,
+                  error: {
+                    code: imageError.code,
+                    message: imageError.message
+                  }
                 }
-              }))
+              })
               break
             }
             case 'error': {
-              updateRun(runId, (run) => ({
-                ...run,
-                previewImage: undefined,
-                previewImageIndex: undefined,
-                error: {
-                  code: 'unknown',
-                  message: event.error?.message || t('drawPage.unknownError')
+              if (controller.signal.aborted) break
+              updateRun(runId, (run) => {
+                const images = appendPreviewImageFallback(run)
+
+                return {
+                  ...run,
+                  images,
+                  previewImage: undefined,
+                  previewImageIndex: undefined,
+                  error: {
+                    code: 'unknown',
+                    message: event.error?.message || t('drawPage.unknownError')
+                  }
                 }
-              }))
+              })
               break
             }
             case 'message_end': {
@@ -1254,15 +1407,20 @@ export function DrawPage(): React.JSX.Element {
         }
       } catch (error) {
         if (!controller.signal.aborted) {
-          updateRun(runId, (run) => ({
-            ...run,
-            previewImage: undefined,
-            previewImageIndex: undefined,
-            error: {
-              code: 'unknown',
-              message: error instanceof Error ? error.message : String(error)
+          updateRun(runId, (run) => {
+            const images = appendPreviewImageFallback(run)
+
+            return {
+              ...run,
+              images,
+              previewImage: undefined,
+              previewImageIndex: undefined,
+              error: {
+                code: 'unknown',
+                message: error instanceof Error ? error.message : String(error)
+              }
             }
-          }))
+          })
         }
       } finally {
         if (controller.signal.aborted) {
@@ -1919,6 +2077,10 @@ export function DrawPage(): React.JSX.Element {
                     run.mode === 'gif'
                       ? getGifAssets(run)
                       : { grid: null, gif: null, frames: [] as DrawRunImage[] }
+                  const gifFallbackImages =
+                    run.mode === 'gif'
+                      ? run.images.filter((image) => !image.kind || image.kind === 'generated')
+                      : []
 
                   return (
                     <div key={run.id} className="rounded-2xl border bg-background/70 p-4 shadow-sm">
@@ -2096,6 +2258,22 @@ export function DrawPage(): React.JSX.Element {
                               </CollapsibleContent>
                             </Collapsible>
                           )}
+
+                          {gifFallbackImages.length > 0 &&
+                            !gifAssets.gif &&
+                            !gifAssets.grid &&
+                            gifAssets.frames.length === 0 && (
+                              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                                {gifFallbackImages.map((image) => (
+                                  <ImagePreview
+                                    key={image.id}
+                                    src={image.src}
+                                    alt={run.prompt}
+                                    filePath={image.filePath}
+                                  />
+                                ))}
+                              </div>
+                            )}
                         </>
                       ) : (
                         run.images.length > 0 && (

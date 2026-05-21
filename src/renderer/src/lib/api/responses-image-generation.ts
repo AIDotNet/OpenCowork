@@ -55,6 +55,16 @@ export const RESPONSES_IMAGE_GENERATION_SIZES: ResponsesImageGenerationSize[] = 
   '1536x1024'
 ]
 
+function normalizeEnumValue<T extends string>(
+  value: unknown,
+  allowed: readonly T[]
+): T | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim()
+  if (!normalized) return undefined
+  return allowed.includes(normalized as T) ? (normalized as T) : undefined
+}
+
 function clampInteger(value: number, min: number, max?: number): number {
   const normalized = Math.floor(value)
   if (normalized < min) return min
@@ -65,16 +75,60 @@ function clampInteger(value: number, min: number, max?: number): number {
 export function normalizeResponsesImageGenerationConfig(
   config?: ResponsesImageGenerationConfig | null
 ): ResponsesImageGenerationConfig {
-  return {
+  const normalized: ResponsesImageGenerationConfig = {
     ...(config ?? {}),
     enabled: config?.enabled ?? true,
-    ...(normalizeResponsesImageGenerationInputMask(config?.inputImageMask)
-      ? { inputImageMask: normalizeResponsesImageGenerationInputMask(config?.inputImageMask) }
-      : {}),
     partialImages:
       normalizeResponsesImageGenerationPartialImages(config?.partialImages) ??
       RESPONSES_IMAGE_GENERATION_DEFAULT_PARTIAL_IMAGES
   }
+
+  const action = normalizeEnumValue(config?.action, RESPONSES_IMAGE_GENERATION_ACTIONS)
+  const background = normalizeEnumValue(config?.background, RESPONSES_IMAGE_GENERATION_BACKGROUNDS)
+  const inputFidelity = normalizeEnumValue(
+    config?.inputFidelity,
+    RESPONSES_IMAGE_GENERATION_INPUT_FIDELITIES
+  )
+  const moderation = normalizeEnumValue(config?.moderation, RESPONSES_IMAGE_GENERATION_MODERATIONS)
+  const outputFormat = normalizeEnumValue(
+    config?.outputFormat,
+    RESPONSES_IMAGE_GENERATION_OUTPUT_FORMATS
+  )
+  const quality = normalizeEnumValue(config?.quality, RESPONSES_IMAGE_GENERATION_QUALITIES)
+  const size = normalizeEnumValue(config?.size, RESPONSES_IMAGE_GENERATION_SIZES)
+  const inputImageMask = normalizeResponsesImageGenerationInputMask(config?.inputImageMask)
+  const outputCompression = normalizeResponsesImageGenerationOutputCompression(
+    config?.outputCompression
+  )
+
+  if (action) normalized.action = action
+  else delete normalized.action
+
+  if (background) normalized.background = background
+  else delete normalized.background
+
+  if (inputFidelity) normalized.inputFidelity = inputFidelity
+  else delete normalized.inputFidelity
+
+  if (moderation) normalized.moderation = moderation
+  else delete normalized.moderation
+
+  if (outputFormat) normalized.outputFormat = outputFormat
+  else delete normalized.outputFormat
+
+  if (quality) normalized.quality = quality
+  else delete normalized.quality
+
+  if (size) normalized.size = size
+  else delete normalized.size
+
+  if (inputImageMask) normalized.inputImageMask = inputImageMask
+  else delete normalized.inputImageMask
+
+  if (outputCompression !== undefined) normalized.outputCompression = outputCompression
+  else delete normalized.outputCompression
+
+  return normalized
 }
 
 export function isResponsesImageGenerationEnabled(

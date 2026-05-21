@@ -106,6 +106,9 @@ class OpenAIImagesProvider implements APIProvider {
     signal?: AbortSignal
   ): AsyncIterable<StreamEvent> {
     const requestStartedAt = Date.now()
+    let firstImageAt: number | null = null
+    let lastPartialImage: GeneratedImage | null = null
+    let emittedFinalImage = false
 
     console.log('[OpenAI Images Provider] sendMessage called with config:', {
       type: config.type,
@@ -168,10 +171,10 @@ class OpenAIImagesProvider implements APIProvider {
               signal
             })
 
-        let firstImageAt: number | null = null
         for await (const event of stream) {
           if (firstImageAt === null) firstImageAt = Date.now()
           if (event.kind === 'partial') {
+            lastPartialImage = event.image
             yield {
               type: 'image_generation_partial',
               imageBlock: createTransientImageBlock(event.image),
@@ -182,6 +185,7 @@ class OpenAIImagesProvider implements APIProvider {
             continue
           }
 
+          emittedFinalImage = true
           const imageBlock = await persistGeneratedImage(event.image)
           yield { type: 'image_generated', imageBlock }
         }
@@ -232,6 +236,12 @@ class OpenAIImagesProvider implements APIProvider {
       const normalizedError = normalizeImageProviderError(error)
       console.error('[OpenAI Images Provider] Error:', normalizedError.message, error)
 
+      if (lastPartialImage && !emittedFinalImage && !signal?.aborted) {
+        console.warn('[OpenAI Images Provider] Preserving last streamed preview after failure.')
+        const imageBlock = await persistGeneratedImage(lastPartialImage)
+        yield { type: 'image_generated', imageBlock }
+      }
+
       // Yield a structured image error so UI can render a friendly card
       yield {
         type: 'image_error',
@@ -247,7 +257,9 @@ class OpenAIImagesProvider implements APIProvider {
         stopReason: 'error',
         timing: {
           totalMs: requestCompletedAt - requestStartedAt,
-          ttftMs: requestCompletedAt - requestStartedAt
+          ttftMs: firstImageAt
+            ? firstImageAt - requestStartedAt
+            : requestCompletedAt - requestStartedAt
         }
       }
 

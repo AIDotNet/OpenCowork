@@ -83,6 +83,35 @@ function applyRequestOverridesToJsonBody(
   return next
 }
 
+const OPENAI_IMAGE_STRING_OVERRIDE_KEYS = [
+  'size',
+  'quality',
+  'background',
+  'output_format'
+] as const
+
+function normalizeOptionalRequestString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim()
+  return normalized || undefined
+}
+
+function sanitizeImageRequestJsonBody(body: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...body }
+
+  for (const key of OPENAI_IMAGE_STRING_OVERRIDE_KEYS) {
+    if (typeof next[key] !== 'string') continue
+    const normalized = normalizeOptionalRequestString(next[key])
+    if (normalized) {
+      next[key] = normalized
+    } else {
+      delete next[key]
+    }
+  }
+
+  return next
+}
+
 function appendFormDataValue(formData: FormData, key: string, value: unknown): void {
   if (value === undefined || value === null) return
   if (value instanceof Blob) {
@@ -105,6 +134,19 @@ function applyRequestOverridesToFormData(formData: FormData, config: ProviderCon
     for (const [key, value] of Object.entries(overrides.body)) {
       formData.delete(key)
       appendFormDataValue(formData, key, value)
+    }
+  }
+}
+
+function sanitizeImageRequestFormData(formData: FormData): void {
+  for (const key of OPENAI_IMAGE_STRING_OVERRIDE_KEYS) {
+    const value = formData.get(key)
+    if (typeof value !== 'string') continue
+
+    const normalized = normalizeOptionalRequestString(value)
+    formData.delete(key)
+    if (normalized) {
+      formData.append(key, normalized)
     }
   }
 }
@@ -352,15 +394,20 @@ export async function generateImagesFromText(params: {
   quality?: 'standard' | 'hd'
   signal?: AbortSignal
 }): Promise<GeneratedImage[]> {
-  const { config, prompt, signal } = params
+  const { config, prompt, signal, size, quality } = params
   ensureApiKey(config)
   const url = `${getBaseUrl(config)}/images/generations`
-  const body = applyRequestOverridesToJsonBody(
-    {
-      model: config.model,
-      prompt
-    },
-    config
+  const normalizedSize = normalizeOptionalRequestString(size)
+  const body = sanitizeImageRequestJsonBody(
+    applyRequestOverridesToJsonBody(
+      {
+        model: config.model,
+        prompt,
+        ...(normalizedSize ? { size: normalizedSize } : {}),
+        ...(quality ? { quality } : {})
+      },
+      config
+    )
   )
 
   const requestSignal = createRequestSignal(signal)
@@ -418,14 +465,16 @@ export async function* streamImagesFromText(params: {
   const partialImages = normalizeImageStreamPartialImages(
     config.imageGenerationStream?.partialImages
   )
-  const body = applyRequestOverridesToJsonBody(
-    {
-      model: config.model,
-      prompt,
-      stream: true,
-      partial_images: partialImages
-    },
-    config
+  const body = sanitizeImageRequestJsonBody(
+    applyRequestOverridesToJsonBody(
+      {
+        model: config.model,
+        prompt,
+        stream: true,
+        partial_images: partialImages
+      },
+      config
+    )
   )
 
   const requestSignal = createRequestSignal(signal)
@@ -480,15 +529,20 @@ export async function editImageWithPrompt(params: {
   size?: string
   signal?: AbortSignal
 }): Promise<GeneratedImage[]> {
-  const { config, prompt, image, signal } = params
+  const { config, prompt, image, signal, size } = params
   ensureApiKey(config)
   const url = `${getBaseUrl(config)}/images/edits`
+  const normalizedSize = normalizeOptionalRequestString(size)
 
   const formData = new FormData()
   formData.append('model', config.model)
   formData.append('prompt', prompt)
+  if (normalizedSize) {
+    formData.append('size', normalizedSize)
+  }
   formData.append('image', dataUrlToBlob(image), 'image.png')
   applyRequestOverridesToFormData(formData, config)
+  sanitizeImageRequestFormData(formData)
 
   const requestSignal = createRequestSignal(signal)
   let response: Response
@@ -553,6 +607,7 @@ export async function* streamImageEditWithPrompt(params: {
   formData.append('stream', 'true')
   formData.append('partial_images', String(partialImages))
   applyRequestOverridesToFormData(formData, config)
+  sanitizeImageRequestFormData(formData)
 
   const requestSignal = createRequestSignal(signal)
   let response: Response

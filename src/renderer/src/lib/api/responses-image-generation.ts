@@ -174,7 +174,6 @@ export function buildResponsesImageGenerationTool(
   const tool: Record<string, unknown> = { type: 'image_generation' }
 
   if (normalized.action) tool.action = normalized.action
-  if (normalized.background) tool.background = normalized.background
   if (normalized.inputFidelity) tool.input_fidelity = normalized.inputFidelity
   if (normalized.inputImageMask) {
     tool.input_image_mask = {

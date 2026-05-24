@@ -127,7 +127,7 @@ class OpenAIImagesProvider implements APIProvider {
 
       // Extract text prompt and check for images
       let textPrompt = ''
-      let imageInput: Base64ImageInput | null = null
+      const imageInputs: Base64ImageInput[] = []
 
       if (typeof lastUserMessage.content === 'string') {
         textPrompt = lastUserMessage.content
@@ -136,14 +136,13 @@ class OpenAIImagesProvider implements APIProvider {
         for (const block of contentBlocks) {
           if (block.type === 'text') {
             textPrompt += block.text
-          } else if (block.type === 'image' && !imageInput) {
-            // Use the first image for editing
+          } else if (block.type === 'image') {
             const imgBlock = block as ImageBlock
             if (imgBlock.source.type === 'base64') {
-              imageInput = {
+              imageInputs.push({
                 dataUrl: `data:${imgBlock.source.mediaType || 'image/png'};base64,${imgBlock.source.data}`,
                 mediaType: imgBlock.source.mediaType
-              }
+              })
             } else if (imgBlock.source.type === 'url' && imgBlock.source.url) {
               // For URL images, we'd need to fetch and convert to base64
               // For now, skip URL images
@@ -158,18 +157,19 @@ class OpenAIImagesProvider implements APIProvider {
       }
 
       if (config.imageGenerationStream?.enabled === true) {
-        const stream = imageInput
-          ? streamImageEditWithPrompt({
-              config,
-              prompt: textPrompt,
-              image: imageInput,
-              signal
-            })
-          : streamImagesFromText({
-              config,
-              prompt: textPrompt,
-              signal
-            })
+        const stream =
+          imageInputs.length > 0
+            ? streamImageEditWithPrompt({
+                config,
+                prompt: textPrompt,
+                images: imageInputs,
+                signal
+              })
+            : streamImagesFromText({
+                config,
+                prompt: textPrompt,
+                signal
+              })
 
         for await (const event of stream) {
           if (firstImageAt === null) firstImageAt = Date.now()
@@ -204,18 +204,19 @@ class OpenAIImagesProvider implements APIProvider {
         return
       }
 
-      const results = imageInput
-        ? await editImageWithPrompt({
-            config,
-            prompt: textPrompt,
-            image: imageInput,
-            signal
-          })
-        : await generateImagesFromText({
-            config,
-            prompt: textPrompt,
-            signal
-          })
+      const results =
+        imageInputs.length > 0
+          ? await editImageWithPrompt({
+              config,
+              prompt: textPrompt,
+              images: imageInputs,
+              signal
+            })
+          : await generateImagesFromText({
+              config,
+              prompt: textPrompt,
+              signal
+            })
 
       for (const img of results) {
         const imageBlock = await persistGeneratedImage(img)

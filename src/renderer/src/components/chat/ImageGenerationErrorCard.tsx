@@ -5,6 +5,7 @@ import type { ImageErrorCode } from '@renderer/lib/api/types'
 interface ImageGenerationErrorCardProps {
   code: ImageErrorCode
   message: string
+  details?: string
 }
 
 interface ErrorViewModel {
@@ -50,7 +51,8 @@ function getErrorViewModel(code: ImageErrorCode): ErrorViewModel {
 
 export function ImageGenerationErrorCard({
   code,
-  message
+  message,
+  details
 }: ImageGenerationErrorCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const viewModel = getErrorViewModel(code)
@@ -71,9 +73,16 @@ export function ImageGenerationErrorCard({
             <summary className="cursor-pointer text-xs text-muted-foreground/80 hover:text-foreground">
               {t('assistantMessage.imageError.details')}
             </summary>
-            <p className="mt-1 break-all rounded-md bg-background/80 px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
-              {message}
-            </p>
+            <div className="mt-1 space-y-2">
+              <p className="break-all rounded-md bg-background/80 px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
+                {message}
+              </p>
+              {details && (
+                <p className="break-all rounded-md bg-background/80 px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
+                  {details}
+                </p>
+              )}
+            </div>
           </details>
         </div>
       </div>

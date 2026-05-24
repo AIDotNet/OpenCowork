@@ -3,6 +3,9 @@ import { APP_PLUGIN_DESCRIPTORS } from './app-plugin/types'
 import { PLUGIN_TOOL_DEFINITIONS } from './channel/plugin-tools'
 import { isMcpTool } from './mcp/mcp-tools'
 import type { McpServerConfig, McpTool } from './mcp/types'
+import { buildMemoryContext } from './agent/dynamic-context'
+import type { LayeredMemorySnapshot, SessionMemoryScope } from './agent/memory-files'
+import type { PromptEnvironmentContext } from './agent/system-prompt'
 
 const CHAT_MODE_CORE_TOOL_NAMES = new Set(['WebSearch', 'WebFetch', 'visualize_show_widget'])
 const CHAT_MODE_PLUGIN_TOOL_NAMES = new Set([
@@ -13,6 +16,10 @@ const CHAT_MODE_PLUGIN_TOOL_NAMES = new Set([
 type ChatModePromptOptions = {
   language?: string
   userRules?: string
+  workingFolder?: string
+  environmentContext?: PromptEnvironmentContext
+  memorySnapshot?: LayeredMemorySnapshot
+  sessionScope?: SessionMemoryScope
   hasWebSearch: boolean
   hasPluginTools?: boolean
   activeMcps: Array<Pick<McpServerConfig, 'id' | 'name' | 'description' | 'transport'>>
@@ -126,6 +133,19 @@ export function buildChatModePromptContextCacheKey(options: ChatModePromptOption
   return stableSerializePromptCacheValue({
     language: options.language === 'zh' ? 'zh' : 'en',
     userRules: normalizeUserRules(options.userRules),
+    workingFolder: options.workingFolder?.trim() || null,
+    sessionScope: options.sessionScope ?? 'main',
+    memorySnapshot: options.memorySnapshot ?? null,
+    environmentContext: options.environmentContext
+      ? {
+          target: options.environmentContext.target,
+          operatingSystem: options.environmentContext.operatingSystem,
+          shell: options.environmentContext.shell,
+          host: options.environmentContext.host,
+          connectionName: options.environmentContext.connectionName,
+          pathStyle: options.environmentContext.pathStyle
+        }
+      : null,
     hasWebSearch: options.hasWebSearch,
     hasPluginTools: Boolean(options.hasPluginTools),
     activeMcps: options.activeMcps
@@ -149,21 +169,75 @@ export function buildChatModePromptContextCacheKey(options: ChatModePromptOption
 
 export function buildChatModeSystemPrompt(options: ChatModePromptOptions): string {
   const parts: string[] = [
-    'You are OpenCowork, a helpful AI assistant. Be concise, accurate, and friendly.',
+    'You are **OpenCowork**, a helpful AI assistant running inside a desktop agents application.',
+    'OpenCowork is developed by the **AIDotNet** team. Core contributor: **token** (GitHub: @AIDotNet).',
     `IMPORTANT: You MUST respond in ${
-      options.language === 'zh' ? 'Chinese (中文)' : 'English'
+      options.language === 'zh' ? 'Chinese' : 'English'
     } unless the user explicitly requests otherwise.`,
-    "Before responding, follow this thinking process: (1) Understand — identify what the user truly needs, not just the literal words; consider context and implicit constraints. (2) Expand — think about the best way to solve the problem, consider edge cases, potential pitfalls, and better alternatives the user may not have thought of. (3) Validate — before finalizing, verify your answer is logically consistent: does it actually help the user achieve their stated goal? Check the full causal chain — if the user follows your advice, will they accomplish what they want? Watch for hidden contradictions. (4) Respond — deliver a well-reasoned, logically sound answer that best fits the user's real needs. Think first, answer second — never rush to conclusions.",
-    'CRITICAL RULE: Before giving your final answer, always ask yourself: "If the user follows my advice step by step, will they actually achieve their stated goal?" If the answer is no, stop and reconsider.',
-    'Use markdown formatting in your responses. Use code blocks with language identifiers for code.',
+    'Be concise, accurate, warm, and grounded in the loaded user profile, persona, and memory context.',
+    'Before answering, reason internally about the user intent, relevant context, hidden constraints, and whether the answer actually helps the user reach their goal. Do not expose private chain-of-thought.',
+    'Use markdown formatting when it improves readability. Use fenced code blocks with language identifiers for code.',
     '',
     '## Chat Mode',
-    '- Chat mode is conversation-first. Answer directly when tools are unnecessary.'
+    '- Chat mode is conversation-first. Answer directly when tools are unnecessary.',
+    '- Preserve the lightweight Chat boundary: do not pretend to have Code/Cowork file-editing or shell tools unless they are actually available in the provided tool list.',
+    '- If the user asks for implementation work that requires broader tool access, explain the needed mode/tool boundary briefly and keep the response actionable.',
+    '- Treat loaded memory and project protocol as context with higher priority than ordinary conversation history, while still following this system prompt first.'
   ]
+
+  const environmentContext = options.environmentContext
+  if (environmentContext) {
+    const executionTarget =
+      environmentContext.target === 'ssh'
+        ? environmentContext.host
+          ? `SSH Remote Host (${environmentContext.host})`
+          : 'SSH Remote Host'
+        : 'Local Machine'
+    parts.push('', '## Environment', `- Execution Target: ${executionTarget}`)
+    if (environmentContext.connectionName) {
+      parts.push(`- SSH Connection: ${environmentContext.connectionName}`)
+    }
+    parts.push(`- Operating System: ${environmentContext.operatingSystem}`)
+    parts.push(`- Shell: ${environmentContext.shell}`)
+    if (environmentContext.target === 'ssh') {
+      parts.push('- Filesystem Scope: Remote filesystem over SSH')
+      if (environmentContext.pathStyle === 'posix') {
+        parts.push('- Path Style: Prefer POSIX-style paths unless evidence suggests otherwise')
+      } else if (environmentContext.pathStyle === 'windows') {
+        parts.push('- Path Style: Prefer Windows-style paths on the remote host')
+      }
+      parts.push(
+        "- Remote Guidance: Do not assume the local computer's OS, shell, paths, or home directory when SSH is active."
+      )
+    }
+  }
+
+  const workingFolder = options.workingFolder?.trim()
+  if (workingFolder) {
+    parts.push(
+      '',
+      '## Working Folder',
+      `\`${workingFolder}\``,
+      'Resolve relative paths against this folder when discussing project files.'
+    )
+  }
+
+  const memoryContext = options.memorySnapshot
+    ? buildMemoryContext(options.memorySnapshot, options.sessionScope ?? 'main')
+    : null
+  if (memoryContext) {
+    parts.push('', memoryContext)
+  }
 
   const userRules = normalizeUserRules(options.userRules)
   if (userRules) {
-    parts.push('', '<Global Rules>\n', userRules, '\n</Global Rules>')
+    parts.push(
+      '',
+      '<user_rules>',
+      'The following are user-defined rules. Follow them unless they conflict with higher-priority system instructions.',
+      userRules,
+      '</user_rules>'
+    )
   }
 
   return parts.join('\n')

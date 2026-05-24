@@ -3423,6 +3423,24 @@ export function useChatActions(): {
                 )
               ]
             : baseChatModeToolDefs
+        const sessionScope: SessionMemoryScope = session?.pluginId ? 'channel' : 'main'
+        const sessionWorkingFolder = resolveSessionWorkingFolder(session)
+        const memorySnapshot = await loadLayeredMemorySnapshot(ipcClient, {
+          workingFolder: sessionWorkingFolder,
+          sshConnectionId: session?.sshConnectionId,
+          scope: sessionScope
+        })
+        const sshConnection = session?.sshConnectionId
+          ? useSshStore
+              .getState()
+              .connections.find((connection) => connection.id === session.sshConnectionId)
+          : undefined
+        const environmentContext = resolvePromptEnvironmentContext({
+          sshConnectionId: session?.sshConnectionId,
+          workingFolder: sessionWorkingFolder,
+          sshConnection
+        })
+        const activeTeam = useTeamStore.getState().activeTeam
 
         if (mode === 'chat' && chatModeToolDefs.length === 0) {
           // Chat mode without enabled chat-mode tools: single API call, no tools
@@ -3430,6 +3448,10 @@ export function useChatActions(): {
           const chatPromptContextCacheKey = buildChatModePromptContextCacheKey({
             language: settings.language,
             userRules: settings.systemPrompt || undefined,
+            workingFolder: sessionWorkingFolder,
+            environmentContext,
+            memorySnapshot,
+            sessionScope,
             hasWebSearch: false,
             hasPluginTools: false,
             activeMcps: [],
@@ -3439,6 +3461,9 @@ export function useChatActions(): {
             !!cachedPromptSnapshot &&
             cachedPromptSnapshot.mode === 'chat' &&
             cachedPromptSnapshot.planMode === false &&
+            (cachedPromptSnapshot.projectId ?? null) === (session?.projectId ?? null) &&
+            (cachedPromptSnapshot.workingFolder ?? null) === (sessionWorkingFolder ?? null) &&
+            (cachedPromptSnapshot.sshConnectionId ?? null) === (session?.sshConnectionId ?? null) &&
             cachedPromptSnapshot.contextCacheKey === chatPromptContextCacheKey
 
           let chatSystemPrompt = cachedPromptSnapshot?.systemPrompt ?? ''
@@ -3446,6 +3471,10 @@ export function useChatActions(): {
             chatSystemPrompt = buildChatModeSystemPrompt({
               language: settings.language,
               userRules: settings.systemPrompt || undefined,
+              workingFolder: sessionWorkingFolder,
+              environmentContext,
+              memorySnapshot,
+              sessionScope,
               hasWebSearch: false,
               hasPluginTools: false,
               activeMcps: [],
@@ -3457,6 +3486,9 @@ export function useChatActions(): {
               planMode: false,
               systemPrompt: chatSystemPrompt,
               toolDefs: [],
+              projectId: session?.projectId,
+              workingFolder: sessionWorkingFolder,
+              sshConnectionId: session?.sshConnectionId ?? null,
               contextCacheKey: chatPromptContextCacheKey
             })
           }
@@ -3642,29 +3674,15 @@ export function useChatActions(): {
             userPrompt = userPrompt ? `${userPrompt}\n${channelCtx}` : channelCtx
           }
 
-          const sessionScope: SessionMemoryScope = session?.pluginId ? 'channel' : 'main'
-          const sessionWorkingFolder = resolveSessionWorkingFolder(session)
-          const memorySnapshot = await loadLayeredMemorySnapshot(ipcClient, {
-            workingFolder: sessionWorkingFolder,
-            sshConnectionId: session?.sshConnectionId,
-            scope: sessionScope
-          })
-          const sshConnection = session?.sshConnectionId
-            ? useSshStore
-                .getState()
-                .connections.find((connection) => connection.id === session.sshConnectionId)
-            : undefined
-          const environmentContext = resolvePromptEnvironmentContext({
-            sshConnectionId: session?.sshConnectionId,
-            workingFolder: sessionWorkingFolder,
-            sshConnection
-          })
-          const activeTeam = useTeamStore.getState().activeTeam
           const promptContextCacheKey =
             mode === 'chat'
               ? buildChatModePromptContextCacheKey({
                   language: settings.language,
                   userRules: userPrompt || undefined,
+                  workingFolder: sessionWorkingFolder,
+                  environmentContext,
+                  memorySnapshot,
+                  sessionScope,
                   hasWebSearch: finalEffectiveToolDefs.some(
                     (tool) => tool.name === 'WebSearch' || tool.name === 'WebFetch'
                   ),
@@ -3717,6 +3735,10 @@ export function useChatActions(): {
                 ? buildChatModeSystemPrompt({
                     language: settings.language,
                     userRules: userPrompt || undefined,
+                    workingFolder: sessionWorkingFolder,
+                    environmentContext,
+                    memorySnapshot,
+                    sessionScope,
                     hasWebSearch: finalEffectiveToolDefs.some(
                       (tool) => tool.name === 'WebSearch' || tool.name === 'WebFetch'
                     ),

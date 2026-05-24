@@ -2090,7 +2090,6 @@ function buildImageGenerationTool(
   if (!config || config.enabled === false) return null
   const tool: Record<string, unknown> = { type: 'image_generation' }
   if (config.action) tool.action = config.action
-  if (config.background) tool.background = config.background
   if (config.inputFidelity) tool.input_fidelity = config.inputFidelity
   if (config.inputImageMask) {
     tool.input_image_mask = {

@@ -2,7 +2,6 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ChevronDown,
-  ChevronRight,
   CheckCircle2,
   XCircle,
   Copy,
@@ -11,6 +10,28 @@ import {
   FileCode,
   Search,
   FolderTree,
+  SquareTerminal,
+  Pencil,
+  Trash2,
+  ListTodo,
+  CalendarClock,
+  Bell,
+  Globe2,
+  MousePointerClick,
+  Keyboard,
+  ScrollText,
+  Camera,
+  Monitor,
+  Box,
+  Database,
+  Brain,
+  Target,
+  LogIn,
+  LogOut,
+  HelpCircle,
+  Code2,
+  BookOpen,
+  Wrench,
   Folder,
   File,
   Clock,
@@ -36,6 +57,11 @@ import { inputSummary } from './tool-call-summary'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
 import { LocalTerminal } from '@renderer/components/terminal/LocalTerminal'
 import { ImagePreview } from './ImagePreview'
+import {
+  CompactToolCallHeader,
+  type CompactToolHeaderBadge,
+  type CompactToolHeaderModel
+} from './CompactToolCallHeader'
 
 interface ToolCallCardProps {
   toolUseId?: string
@@ -2074,11 +2100,19 @@ function StructuredInput({
     return <></>
   }
 
-  // Bash: command in terminal-style block + description/timeout as fields
-  if (name === 'Bash') {
-    const command = String(input.command ?? '')
+  // Shell-like tools: command in terminal-style block + compact execution metadata.
+  if (COMMAND_TOOL_NAMES.has(name)) {
+    const command =
+      typeof input.command === 'string'
+        ? input.command
+        : typeof input.command_preview === 'string'
+          ? input.command_preview
+          : ''
     const description = input.description ? String(input.description) : null
     const timeout = input.timeout ? String(input.timeout) : null
+    const commandChars = typeof input.command_chars === 'number' ? input.command_chars : null
+    const commandLines = typeof input.command_lines === 'number' ? input.command_lines : null
+    const commandTruncated = input.command_truncated === true
     return (
       <div className="space-y-0.5">
         <div className="flex items-start gap-1.5 text-xs">
@@ -2090,9 +2124,28 @@ function StructuredInput({
             {command}
           </span>
         </div>
-        {(description || timeout) && (
+        {(description ||
+          timeout ||
+          commandChars !== null ||
+          commandLines !== null ||
+          commandTruncated) && (
           <div className="flex flex-wrap items-center gap-2 pl-[18px]">
             {description && <p className="text-[10px] text-muted-foreground/60">{description}</p>}
+            {commandLines !== null && (
+              <span className="text-[10px] text-muted-foreground/55">
+                {t('toolCall.lineCount', { count: commandLines })}
+              </span>
+            )}
+            {commandChars !== null && (
+              <span className="text-[10px] text-muted-foreground/55">
+                {t('toolCall.charCount', { count: commandChars })}
+              </span>
+            )}
+            {commandTruncated && (
+              <span className="rounded border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-300">
+                {t('toolCall.preview')}
+              </span>
+            )}
             {timeout && (
               <span className="text-[10px] text-muted-foreground/55">
                 {t('toolCall.timeoutMs', { value: timeout })}
@@ -2592,48 +2645,62 @@ export function ToolStatusDot({
   }
 }
 
-const COMPACT_BUILTIN_TOOL_NAMES = new Set(['Bash', 'Read', 'Grep', 'Glob', 'LS'])
-
-type CompactBadgeTone = 'default' | 'blue' | 'amber' | 'green' | 'red'
-
-interface CompactToolHeaderBadge {
-  label: string
-  tone?: CompactBadgeTone
-}
-
-interface CompactToolHeaderModel {
-  icon: React.ReactNode
-  accentClassName: string
-  label: string
-  primary: string
-  secondary?: string
-  badges: CompactToolHeaderBadge[]
-  searchState?: SearchVisualState
-  title: string
-}
-
-function compactBadgeClassName(tone: CompactBadgeTone = 'default'): string {
-  switch (tone) {
-    case 'blue':
-      return 'border-sky-500/20 bg-sky-500/10 text-sky-600 dark:text-sky-300'
-    case 'amber':
-      return 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-300'
-    case 'green':
-      return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
-    case 'red':
-      return 'border-destructive/25 bg-destructive/10 text-destructive'
-    default:
-      return 'border-border/60 bg-muted/45 text-muted-foreground'
-  }
-}
-
-function compactStatusBadgeClassName(status: ToolCallCardProps['status']): string {
-  if (status === 'error') return compactBadgeClassName('red')
-  if (status === 'pending_approval') return compactBadgeClassName('amber')
-  if (status === 'running') return compactBadgeClassName('blue')
-  if (status === 'streaming') return compactBadgeClassName('default')
-  return compactBadgeClassName('green')
-}
+const COMMAND_TOOL_NAMES = new Set(['Bash', 'PowerShell'])
+const COMPACT_BUILTIN_TOOL_NAMES = new Set([
+  'Agent',
+  'AskUserQuestion',
+  'Bash',
+  'BrowserClick',
+  'BrowserGetContent',
+  'BrowserNavigate',
+  'BrowserScreenshot',
+  'BrowserScroll',
+  'BrowserSnapshot',
+  'BrowserType',
+  'CronAdd',
+  'CronCreate',
+  'CronDelete',
+  'CronList',
+  'CronRemove',
+  'CronUpdate',
+  'Delete',
+  'Edit',
+  'EnterPlanMode',
+  'EnterWorktree',
+  'ExitPlanMode',
+  'ExitWorktree',
+  'Glob',
+  'Grep',
+  'LS',
+  'LSP',
+  'ListMcpResourcesTool',
+  'MemoryList',
+  'MemoryRead',
+  'MemorySearch',
+  'Monitor',
+  'MultiEdit',
+  'NotebookEdit',
+  'Notify',
+  'PowerShell',
+  'Read',
+  'ReadMcpResourceTool',
+  'SavePlan',
+  'TaskCreate',
+  'TaskGet',
+  'TaskList',
+  'TaskUpdate',
+  'TodoWrite',
+  'ToolSearch',
+  'WebFetch',
+  'WebSearch',
+  'WikiGetDocumentByName',
+  'WikiListDocuments',
+  'Write',
+  'create_goal',
+  'get_goal',
+  'update_goal',
+  'visualize_show_widget'
+])
 
 function compactStatusLabel(
   status: ToolCallCardProps['status'],
@@ -2698,6 +2765,85 @@ function bashOutputStats(outputText: string | undefined): {
   return { lines: lineCount(outputText), exitCode: null }
 }
 
+function firstStringInput(input: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = input[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  }
+  return ''
+}
+
+function fileToolPath(input: Record<string, unknown>): string {
+  return firstStringInput(input, [
+    'file_path',
+    'path',
+    'notebook_path',
+    'notebook',
+    'targetPath',
+    'target_path'
+  ])
+}
+
+function compactToolPathSummary(value: string): {
+  primary: string
+  secondary?: string
+} {
+  return {
+    primary: pathFileName(value),
+    secondary: value ? pathParent(value) || compactPath(value, 2) : undefined
+  }
+}
+
+function genericCompactToolHeaderModel({
+  icon,
+  primary,
+  secondary,
+  displayName
+}: {
+  icon: React.ReactNode
+  primary?: string
+  secondary?: string
+  displayName: string
+}): CompactToolHeaderModel {
+  return {
+    icon,
+    primary: primary || displayName,
+    secondary,
+    badges: [],
+    title: [primary, secondary].filter(Boolean).join('\n') || displayName
+  }
+}
+
+function getBuiltinToolIcon(name: string): React.ReactNode {
+  if (['Write', 'SavePlan'].includes(name)) return <FileCode className="size-3.5" />
+  if (['Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) return <Pencil className="size-3.5" />
+  if (name === 'Delete') return <Trash2 className="size-3.5" />
+  if (name.startsWith('Task') || name === 'TodoWrite') return <ListTodo className="size-3.5" />
+  if (name.startsWith('Cron')) return <CalendarClock className="size-3.5" />
+  if (name === 'Notify') return <Bell className="size-3.5" />
+  if (name === 'AskUserQuestion') return <HelpCircle className="size-3.5" />
+  if (name === 'visualize_show_widget') return <Code2 className="size-3.5" />
+  if (name === 'WebSearch' || name === 'WebFetch' || name.startsWith('Browser')) {
+    if (name === 'BrowserClick') return <MousePointerClick className="size-3.5" />
+    if (name === 'BrowserType') return <Keyboard className="size-3.5" />
+    if (name === 'BrowserScroll') return <ScrollText className="size-3.5" />
+    if (name === 'BrowserScreenshot') return <Camera className="size-3.5" />
+    if (name === 'BrowserSnapshot') return <Monitor className="size-3.5" />
+    return <Globe2 className="size-3.5" />
+  }
+  if (name.includes('McpResource')) return <Database className="size-3.5" />
+  if (name === 'ToolSearch' || name === 'LSP') return <Wrench className="size-3.5" />
+  if (name === 'Agent') return <Brain className="size-3.5" />
+  if (name === 'Monitor') return <SquareTerminal className="size-3.5" />
+  if (name === 'EnterWorktree' || name === 'EnterPlanMode') return <LogIn className="size-3.5" />
+  if (name === 'ExitWorktree' || name === 'ExitPlanMode') return <LogOut className="size-3.5" />
+  if (name.endsWith('goal')) return <Target className="size-3.5" />
+  if (name.startsWith('Memory')) return <Database className="size-3.5" />
+  if (name.startsWith('Wiki')) return <BookOpen className="size-3.5" />
+  return <Box className="size-3.5" />
+}
+
 function buildCompactToolHeaderModel({
   name,
   input,
@@ -2715,8 +2861,8 @@ function buildCompactToolHeaderModel({
   summary?: string | null
   t: (key: string, options?: Record<string, unknown>) => string
 }): CompactToolHeaderModel {
-  if (name === 'Bash') {
-    const command = compactWhitespace(getStringInput(input, ['command']))
+  if (COMMAND_TOOL_NAMES.has(name)) {
+    const command = compactWhitespace(getStringInput(input, ['command', 'command_preview']))
     const description = getStringInput(input, ['description'])
     const stats = bashOutputStats(outputText)
     const badges: CompactToolHeaderBadge[] = []
@@ -2725,10 +2871,12 @@ function buildCompactToolHeaderModel({
     if (stats.lines !== null) {
       badges.push({ label: t('toolCall.outputLineCount', { count: stats.lines }), tone: 'blue' })
     }
+    const commandLines = typeof input.command_lines === 'number' ? input.command_lines : null
+    if (commandLines !== null && stats.lines === null) {
+      badges.push({ label: t('toolCall.lineCount', { count: commandLines }), tone: 'blue' })
+    }
     return {
-      icon: <span className="font-mono text-[12px] leading-none">$</span>,
-      accentClassName: 'border-sky-500/20 bg-sky-500/10 text-sky-600 dark:text-sky-300',
-      label: displayName,
+      icon: <SquareTerminal className="size-3.5" />,
       primary: command || summary || t('toolCall.receivingArgs'),
       secondary: description || undefined,
       badges,
@@ -2747,12 +2895,44 @@ function buildCompactToolHeaderModel({
     if (hasImageBlocks(output)) badges.push({ label: t('toolCall.imageFile'), tone: 'blue' })
     return {
       icon: <FileCode className="size-3.5" />,
-      accentClassName: 'border-blue-500/20 bg-blue-500/10 text-blue-600 dark:text-blue-300',
-      label: displayName,
       primary: pathFileName(filePath) || summary || t('toolCall.receivingArgs'),
       secondary: filePath ? pathParent(filePath) || compactPath(filePath, 2) : undefined,
       badges,
       title: filePath || summary || displayName
+    }
+  }
+
+  if (['Write', 'Edit', 'Delete', 'MultiEdit', 'NotebookEdit', 'SavePlan'].includes(name)) {
+    const targetPath = fileToolPath(input)
+    const pathSummary = compactToolPathSummary(targetPath)
+    const badges: CompactToolHeaderBadge[] = []
+    const lineTotal =
+      typeof input.content_lines === 'number'
+        ? input.content_lines
+        : typeof input.old_string_lines === 'number' || typeof input.new_string_lines === 'number'
+          ? Math.max(
+              typeof input.old_string_lines === 'number' ? input.old_string_lines : 0,
+              typeof input.new_string_lines === 'number' ? input.new_string_lines : 0
+            )
+          : null
+    const editCount = Array.isArray(input.edits) ? input.edits.length : null
+    if (editCount !== null) badges.push({ label: t('toolCall.pathCount', { count: editCount }) })
+    if (lineTotal !== null) {
+      badges.push({ label: t('toolCall.lineCount', { count: lineTotal }), tone: 'blue' })
+    }
+    if (
+      input.content_truncated === true ||
+      input.old_string_truncated === true ||
+      input.new_string_truncated === true
+    ) {
+      badges.push({ label: t('toolCall.preview'), tone: 'amber' })
+    }
+    return {
+      icon: getBuiltinToolIcon(name),
+      primary: pathSummary.primary || summary || displayName,
+      secondary: pathSummary.secondary,
+      badges,
+      title: targetPath || summary || displayName
     }
   }
 
@@ -2770,12 +2950,12 @@ function buildCompactToolHeaderModel({
     }
     return {
       icon: <Search className="size-3.5" />,
-      accentClassName: 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-300',
-      label: displayName,
       primary: pattern ? `/${pattern}/` : summary || t('toolCall.receivingArgs'),
       secondary: searchScopeText(input, t) || undefined,
       badges,
-      searchState: parsed ? getSearchVisualState(parsed.meta, parsed.matches.length) : undefined,
+      statusBadge: parsed ? (
+        <SearchStateBadge state={getSearchVisualState(parsed.meta, parsed.matches.length)} />
+      ) : undefined,
       title: [pattern ? `/${pattern}/` : '', searchScopeText(input, t)].filter(Boolean).join('\n')
     }
   }
@@ -2793,13 +2973,12 @@ function buildCompactToolHeaderModel({
     }
     return {
       icon: <Search className="size-3.5" />,
-      accentClassName:
-        'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300',
-      label: displayName,
       primary: pattern || summary || t('toolCall.receivingArgs'),
       secondary: path ? t('toolCall.searchInPath', { path: compactPath(path, 3) }) : undefined,
       badges,
-      searchState: parsed ? getSearchVisualState(parsed.meta, parsed.matches.length) : undefined,
+      statusBadge: parsed ? (
+        <SearchStateBadge state={getSearchVisualState(parsed.meta, parsed.matches.length)} />
+      ) : undefined,
       title: [pattern, path].filter(Boolean).join('\n') || summary || displayName
     }
   }
@@ -2815,8 +2994,6 @@ function buildCompactToolHeaderModel({
     }
     return {
       icon: <FolderTree className="size-3.5" />,
-      accentClassName: 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-300',
-      label: displayName,
       primary: compactPath(path, 3) || summary || t('toolCall.receivingArgs'),
       secondary: path && compactPath(path, 3) !== path ? path : undefined,
       badges,
@@ -2824,10 +3001,108 @@ function buildCompactToolHeaderModel({
     }
   }
 
+  if (name.startsWith('Task') || name === 'TodoWrite') {
+    const taskTitle = firstStringInput(input, ['title', 'subject', 'name', 'content'])
+    const taskId = firstStringInput(input, ['taskId', 'task_id', 'id'])
+    const taskStatus = firstStringInput(input, ['status', 'state'])
+    return genericCompactToolHeaderModel({
+      icon: getBuiltinToolIcon(name),
+      primary: taskTitle || (taskId ? `#${taskId}` : summary || displayName),
+      secondary: taskStatus || undefined,
+      displayName
+    })
+  }
+
+  if (name.startsWith('Cron')) {
+    const cronName = firstStringInput(input, ['name', 'title', 'id', 'cronId'])
+    const schedule = firstStringInput(input, ['expr', 'cron', 'schedule', 'rrule'])
+    return genericCompactToolHeaderModel({
+      icon: getBuiltinToolIcon(name),
+      primary: cronName || summary || displayName,
+      secondary: schedule || undefined,
+      displayName
+    })
+  }
+
+  if (name === 'AskUserQuestion') {
+    const questions = Array.isArray(input.questions) ? input.questions.length : null
+    return {
+      icon: getBuiltinToolIcon(name),
+      primary: summary || displayName,
+      secondary: questions ? t('toolCall.pathCount', { count: questions }) : undefined,
+      badges: [],
+      title: summary || displayName
+    }
+  }
+
+  if (name === 'visualize_show_widget') {
+    const title = firstStringInput(input, ['title', 'name'])
+    const chars =
+      typeof input.widget_code_chars === 'number'
+        ? input.widget_code_chars
+        : typeof input.widget_code === 'string'
+          ? input.widget_code.length
+          : null
+    return {
+      icon: getBuiltinToolIcon(name),
+      primary: title || summary || displayName,
+      badges:
+        chars !== null ? [{ label: t('toolCall.charCount', { count: chars }), tone: 'blue' }] : [],
+      title: title || summary || displayName
+    }
+  }
+
+  if (name.startsWith('Browser') || name === 'WebFetch' || name === 'WebSearch') {
+    const target = firstStringInput(input, ['url', 'query', 'selector', 'text'])
+    return genericCompactToolHeaderModel({
+      icon: getBuiltinToolIcon(name),
+      primary: target || summary || displayName,
+      displayName
+    })
+  }
+
+  if (
+    [
+      'Notify',
+      'Agent',
+      'ListMcpResourcesTool',
+      'ReadMcpResourceTool',
+      'ToolSearch',
+      'LSP',
+      'Monitor',
+      'EnterWorktree',
+      'ExitWorktree',
+      'EnterPlanMode',
+      'ExitPlanMode',
+      'get_goal',
+      'create_goal',
+      'update_goal',
+      'MemoryList',
+      'MemoryRead',
+      'MemorySearch',
+      'WikiListDocuments',
+      'WikiGetDocumentByName'
+    ].includes(name)
+  ) {
+    const primary = firstStringInput(input, [
+      'message',
+      'objective',
+      'query',
+      'name',
+      'uri',
+      'path',
+      'command',
+      'reason'
+    ])
+    return genericCompactToolHeaderModel({
+      icon: getBuiltinToolIcon(name),
+      primary: primary || summary || displayName,
+      displayName
+    })
+  }
+
   return {
-    icon: <FileText className="size-3.5" />,
-    accentClassName: 'border-border/60 bg-muted text-muted-foreground',
-    label: displayName,
+    icon: getBuiltinToolIcon(name),
     primary: summary || displayName,
     badges: [],
     title: summary || displayName
@@ -2985,73 +3260,15 @@ function ToolCallCardInner({
         )}
       >
         {useCompactToolHeader ? (
-          <div
-            className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-muted-foreground transition-colors group-hover:text-foreground"
-            title={compactHeader.title}
-          >
-            <ToolStatusDot status={status} />
-            <span
-              className={cn(
-                'flex size-6 shrink-0 items-center justify-center rounded-md border',
-                compactHeader.accentClassName
-              )}
-            >
-              {compactHeader.icon}
-            </span>
-            <span className="shrink-0 text-[10px] font-medium text-muted-foreground/75">
-              {compactHeader.label}
-            </span>
-            <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-              <span className="min-w-0 truncate text-[12px] font-semibold text-foreground/85 transition-colors group-hover:text-foreground">
-                {compactHeader.primary}
-              </span>
-              {compactHeader.secondary ? (
-                <span className="hidden min-w-0 truncate text-[10px] text-muted-foreground/60 sm:inline">
-                  {compactHeader.secondary}
-                </span>
-              ) : null}
-            </span>
-            {compactStatus ? (
-              <span
-                className={cn(
-                  'shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium',
-                  compactStatusBadgeClassName(status)
-                )}
-              >
-                {compactStatus}
-              </span>
-            ) : null}
-            {compactHeader.searchState ? (
-              <SearchStateBadge state={compactHeader.searchState} />
-            ) : null}
-            {compactHeader.badges.slice(0, 2).map((badge) => (
-              <span
-                key={badge.label}
-                className={cn(
-                  'hidden shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium md:inline-flex',
-                  compactBadgeClassName(badge.tone)
-                )}
-              >
-                {badge.label}
-              </span>
-            ))}
-            {compactHeaderError ? (
-              <span
-                className="size-1.5 shrink-0 rounded-full bg-red-500 dark:bg-red-400"
-                title={displayError ?? outputError ?? t('error.label')}
-              />
-            ) : null}
-            {elapsed && (
-              <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground/60">
-                {elapsed}
-              </span>
-            )}
-            {open ? (
-              <ChevronDown className="size-3 shrink-0 text-muted-foreground/60" />
-            ) : (
-              <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />
-            )}
-          </div>
+          <CompactToolCallHeader
+            model={compactHeader}
+            status={status}
+            statusLabel={compactStatus}
+            hasError={compactHeaderError}
+            errorTitle={displayError ?? outputError ?? t('error.label')}
+            elapsed={elapsed}
+            open={open}
+          />
         ) : (
           <>
             <ToolStatusDot status={status} />

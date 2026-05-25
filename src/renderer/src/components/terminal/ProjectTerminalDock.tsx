@@ -307,17 +307,17 @@ export function ProjectTerminalDock({
     async (tab: UnifiedTerminalTab): Promise<void> => {
       if (tab.type === 'local') {
         await closeLocalTab(tab.localTabId)
-        return
-      }
-
-      if (tab.sessionId) {
+      } else if (tab.sessionId) {
         await closeSshSession(tab.sessionId)
-        return
+      } else {
+        closeSshTab(tab.sshTabId)
       }
 
-      closeSshTab(tab.sshTabId)
+      if (tabs.length <= 1) {
+        setBottomTerminalDockOpen(projectId, false)
+      }
     },
-    [closeLocalTab, closeSshSession, closeSshTab]
+    [closeLocalTab, closeSshSession, closeSshTab, projectId, setBottomTerminalDockOpen, tabs.length]
   )
 
   const startResize = useCallback(

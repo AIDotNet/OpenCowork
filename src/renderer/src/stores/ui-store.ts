@@ -16,7 +16,15 @@ import { useChatStore } from '@renderer/stores/chat-store'
 
 export type AppMode = 'chat' | 'clarify' | 'cowork' | 'code' | 'acp'
 
-export type NavItem = 'chat' | 'channels' | 'resources' | 'skills' | 'draw' | 'translate' | 'tasks'
+export type NavItem =
+  | 'chat'
+  | 'channels'
+  | 'resources'
+  | 'skills'
+  | 'souls'
+  | 'draw'
+  | 'translate'
+  | 'tasks'
 
 export type ChatView = 'home' | 'project' | 'archive' | 'channels' | 'git' | 'session'
 
@@ -312,6 +320,9 @@ interface UIStore {
   skillsPageOpen: boolean
   openSkillsPage: () => void
   closeSkillsPage: () => void
+  soulsPageOpen: boolean
+  openSoulsPage: () => void
+  closeSoulsPage: () => void
   resourcesPageOpen: boolean
   openResourcesPage: () => void
   closeResourcesPage: () => void
@@ -594,6 +605,7 @@ function updateBrowserStateForSession(
 const CHAT_SURFACE_NAV_RESET = {
   settingsPageOpen: false,
   skillsPageOpen: false,
+  soulsPageOpen: false,
   resourcesPageOpen: false,
   translatePageOpen: false,
   drawPageOpen: false,
@@ -1101,6 +1113,7 @@ export const useUIStore = create<UIStore>()(
           settingsPageOpen: true,
           settingsTab: tab ?? 'general',
           skillsPageOpen: false,
+          soulsPageOpen: false,
           resourcesPageOpen: false,
           translatePageOpen: false,
           drawPageOpen: false,
@@ -1114,12 +1127,26 @@ export const useUIStore = create<UIStore>()(
           activeNavItem: 'skills',
           skillsPageOpen: true,
           settingsPageOpen: false,
+          soulsPageOpen: false,
           resourcesPageOpen: false,
           translatePageOpen: false,
           drawPageOpen: false,
           tasksPageOpen: false
         }),
       closeSkillsPage: () => set({ skillsPageOpen: false }),
+      soulsPageOpen: false,
+      openSoulsPage: () =>
+        set({
+          activeNavItem: 'souls',
+          soulsPageOpen: true,
+          settingsPageOpen: false,
+          skillsPageOpen: false,
+          resourcesPageOpen: false,
+          translatePageOpen: false,
+          drawPageOpen: false,
+          tasksPageOpen: false
+        }),
+      closeSoulsPage: () => set({ soulsPageOpen: false }),
       resourcesPageOpen: false,
       openResourcesPage: () =>
         set({
@@ -1127,6 +1154,7 @@ export const useUIStore = create<UIStore>()(
           resourcesPageOpen: true,
           settingsPageOpen: false,
           skillsPageOpen: false,
+          soulsPageOpen: false,
           translatePageOpen: false,
           drawPageOpen: false,
           tasksPageOpen: false
@@ -1139,6 +1167,7 @@ export const useUIStore = create<UIStore>()(
           translatePageOpen: true,
           settingsPageOpen: false,
           skillsPageOpen: false,
+          soulsPageOpen: false,
           resourcesPageOpen: false,
           drawPageOpen: false,
           tasksPageOpen: false
@@ -1151,6 +1180,7 @@ export const useUIStore = create<UIStore>()(
           drawPageOpen: true,
           settingsPageOpen: false,
           skillsPageOpen: false,
+          soulsPageOpen: false,
           resourcesPageOpen: false,
           translatePageOpen: false,
           tasksPageOpen: false
@@ -1163,6 +1193,7 @@ export const useUIStore = create<UIStore>()(
           tasksPageOpen: true,
           settingsPageOpen: false,
           skillsPageOpen: false,
+          soulsPageOpen: false,
           resourcesPageOpen: false,
           translatePageOpen: false,
           drawPageOpen: false

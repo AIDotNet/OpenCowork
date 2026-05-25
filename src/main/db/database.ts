@@ -386,8 +386,6 @@ export function getDb(): Database.Database {
       ON memory_automation_entries(fingerprint, target, target_path, status);
     CREATE INDEX IF NOT EXISTS idx_memory_automation_session
       ON memory_automation_entries(source_session_id, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_memory_automation_root
-      ON memory_automation_entries(memory_root_id, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS memory_automation_rollups (
       scope TEXT NOT NULL,
@@ -497,6 +495,11 @@ export function getDb(): Database.Database {
   for (const column of memoryAutomationColumns) {
     ensureColumn(db, 'memory_automation_entries', column.name, column.type)
   }
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_memory_automation_root
+      ON memory_automation_entries(memory_root_id, created_at DESC);
+  `)
 
   // --- Session Goals table ---
   db.exec(`

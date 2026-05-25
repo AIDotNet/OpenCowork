@@ -11,6 +11,10 @@ import type { ToolHandler, ToolContext } from './tool-types'
 
 const PLAN_DIRECTORY_NAME = '.plan'
 
+function isDraftPlanStatus(status: string | undefined): boolean {
+  return status === 'drafting' || status === 'rejected'
+}
+
 function getSessionId(ctx: ToolContext): string | null {
   return ctx.sessionId ?? useChatStore.getState().activeSessionId ?? null
 }
@@ -258,7 +262,11 @@ const exitPlanModeHandler: ToolHandler = {
     const existingPlan = planStore.getPlanBySession(sessionId)
     const isPlanModeEnabled = uiStore.isPlanModeEnabled(sessionId)
 
-    if (!isPlanModeEnabled) {
+    const canFinalizeExistingDraft = Boolean(
+      existingPlan?.filePath && isDraftPlanStatus(existingPlan.status)
+    )
+
+    if (!isPlanModeEnabled && !canFinalizeExistingDraft) {
       if (existingPlan?.status === 'awaiting_review' && existingPlan.filePath) {
         return encodeStructuredToolResult(
           {

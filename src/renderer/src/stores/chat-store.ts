@@ -1334,16 +1334,21 @@ function mergeLoadedMessagesWithResident(
   session.messages.forEach((resident, index) => {
     if (seen.has(resident.id)) return
     const logicalIndex = Math.max(0, residentStart + index)
+    const isResidentPrefixOutsideFetchedWindow =
+      logicalIndex < windowStart && logicalIndex >= residentStart && logicalIndex < knownCount
     const isLocalTailNotInDbYet =
       logicalIndex >= windowStart &&
       logicalIndex >= fetchedWindowEnd &&
+      logicalIndex < knownCount &&
       residentEnd > fetchedWindowEnd
     const isMissingFromShortDbSnapshot =
       logicalIndex >= windowStart &&
+      logicalIndex < knownCount &&
       session.messageCount > fetchedMessages.length &&
       residentEnd > fetchedWindowEnd
     if (
       !hasPendingLocalMessageWrite(resident.id) &&
+      !isResidentPrefixOutsideFetchedWindow &&
       !isLocalTailNotInDbYet &&
       !isMissingFromShortDbSnapshot
     ) {

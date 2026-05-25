@@ -37,6 +37,7 @@ import { registerApiProxyHandlers } from './ipc/api-proxy'
 import { registerSettingsHandlers, flushSettingsSync } from './ipc/settings-handlers'
 
 import { registerSkillsHandlers } from './ipc/skills-handlers'
+import { registerSoulsHandlers } from './ipc/souls-handlers'
 import { registerAgentsHandlers } from './ipc/agents-handlers'
 import { registerPromptsHandlers } from './ipc/prompts-handlers'
 import { registerCommandsHandlers } from './ipc/commands-handlers'
@@ -1093,6 +1094,7 @@ if (gotSingleInstanceLock) {
     registerSettingsHandlers()
 
     registerSkillsHandlers()
+    registerSoulsHandlers()
     registerAgentsHandlers()
     registerPromptsHandlers()
     registerCommandsHandlers()

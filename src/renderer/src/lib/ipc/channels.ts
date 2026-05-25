@@ -82,6 +82,13 @@ export const IPC = {
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
 
+  // SOUL Market
+  SOULS_MARKET_LIST: 'souls:market-list',
+  SOULS_CATEGORIES: 'souls:categories',
+  SOULS_DOWNLOAD_REMOTE: 'souls:download-remote',
+  SOULS_GET_TARGET_PATHS: 'souls:get-target-paths',
+  SOULS_INSTALL: 'souls:install',
+
   // Migration
   MIGRATION_PREVIEW: 'migration:preview',
   MIGRATION_APPLY: 'migration:apply',

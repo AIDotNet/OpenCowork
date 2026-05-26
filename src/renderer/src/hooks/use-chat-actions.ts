@@ -112,6 +112,7 @@ import {
   appendRuntimeThinkingDelta,
   appendRuntimeToolUse,
   completeRuntimeThinking,
+  flushRuntimeForegroundMutations,
   flushBackgroundSessionToForeground,
   isSessionForeground,
   mergeRuntimeMessageUsage,
@@ -292,6 +293,9 @@ function addMessageWithSync(sessionId: string, message: UnifiedMessage): void {
 void addMessageWithSync
 
 function setStreamingMessageIdWithSync(sessionId: string, messageId: string | null): void {
+  if (messageId === null) {
+    flushRuntimeForegroundMutations()
+  }
   useChatStore.getState().setStreamingMessageId(sessionId, messageId)
   emitSessionRuntimeSync({ kind: 'set_streaming_message', sessionId, messageId })
 }

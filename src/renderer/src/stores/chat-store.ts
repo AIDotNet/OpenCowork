@@ -104,6 +104,7 @@ export interface CreateSessionOptions {
 const _pendingSessionCreates = new Map<string, Promise<unknown>>()
 const _sessionMessageWriteQueues = new Map<string, Promise<void>>()
 const _messageWriteGenerations = new Map<string, number>()
+const _pendingMessageWriteCounts = new Map<string, number>()
 
 function getMessageWriteGeneration(sessionId: string): number {
   return _messageWriteGenerations.get(sessionId) ?? 0
@@ -113,11 +114,27 @@ function bumpMessageWriteGeneration(sessionId: string): void {
   _messageWriteGenerations.set(sessionId, getMessageWriteGeneration(sessionId) + 1)
 }
 
+function trackPendingMessageWrite(messageIds: string[], pending: Promise<void>): void {
+  for (const messageId of messageIds) {
+    _pendingMessageWriteCounts.set(messageId, (_pendingMessageWriteCounts.get(messageId) ?? 0) + 1)
+  }
+  void pending.finally(() => {
+    for (const messageId of messageIds) {
+      const nextCount = (_pendingMessageWriteCounts.get(messageId) ?? 1) - 1
+      if (nextCount > 0) {
+        _pendingMessageWriteCounts.set(messageId, nextCount)
+      } else {
+        _pendingMessageWriteCounts.delete(messageId)
+      }
+    }
+  })
+}
+
 function enqueueSessionMessageWrite(
   sessionId: string,
   write: () => Promise<unknown>,
   expectedGeneration?: number
-): void {
+): Promise<void> {
   const previous = _sessionMessageWriteQueues.get(sessionId) ?? Promise.resolve()
   const next = previous
     .catch(() => {})
@@ -148,6 +165,7 @@ function enqueueSessionMessageWrite(
       _sessionMessageWriteQueues.delete(sessionId)
     }
   })
+  return next
 }
 
 function dbCreateSession(s: Session): void {
@@ -232,7 +250,7 @@ function sanitizeMessageContentForPersistence(
 
 function dbAddMessage(sessionId: string, msg: UnifiedMessage, sortOrder: number): void {
   const generation = getMessageWriteGeneration(sessionId)
-  enqueueSessionMessageWrite(
+  const pending = enqueueSessionMessageWrite(
     sessionId,
     () =>
       ipcClient.invoke('db:messages:add', {
@@ -247,6 +265,7 @@ function dbAddMessage(sessionId: string, msg: UnifiedMessage, sortOrder: number)
       }),
     generation
   )
+  trackPendingMessageWrite([msg.id], pending)
 }
 
 function dbAddMessageBatch(
@@ -255,7 +274,7 @@ function dbAddMessageBatch(
 ): void {
   if (items.length === 0) return
   const generation = getMessageWriteGeneration(sessionId)
-  enqueueSessionMessageWrite(
+  const pending = enqueueSessionMessageWrite(
     sessionId,
     () =>
       ipcClient.invoke(
@@ -272,6 +291,10 @@ function dbAddMessageBatch(
         }))
       ),
     generation
+  )
+  trackPendingMessageWrite(
+    items.map(({ msg }) => msg.id),
+    pending
   )
 }
 
@@ -314,7 +337,7 @@ function dbUpsertMessage(
       }
     }
   }
-  enqueueSessionMessageWrite(
+  const pending = enqueueSessionMessageWrite(
     sessionId,
     () =>
       ipcClient.invoke('db:messages:upsert', {
@@ -329,6 +352,7 @@ function dbUpsertMessage(
       }),
     expectedGeneration
   )
+  trackPendingMessageWrite([msg.id], pending)
 }
 
 function dbClearMessages(sessionId: string): void {
@@ -1271,7 +1295,8 @@ function hasPendingLocalMessageWrite(messageId: string): boolean {
   return (
     _activeStreamingMessageIds.has(messageId) ||
     _streamingDirtyMessageIds.has(messageId) ||
-    _pendingFlush.has(messageId)
+    _pendingFlush.has(messageId) ||
+    _pendingMessageWriteCounts.has(messageId)
   )
 }
 
@@ -3275,7 +3300,14 @@ export const useChatStore = create<ChatStore>()(
       })
       if (!shouldPersist) return
       if (get().streamingMessages[sessionId]) {
-        _deferredMessageAdds.push({ sessionId, msg, sortOrder })
+        if (isToolResultOnlyUserMessage(msg)) {
+          // Tool-result messages are appended while the assistant bubble is still
+          // streaming. Persist them silently so DB-backed reloads and queued turns
+          // can still reconstruct the tool chain without broadcasting a reload.
+          dbUpsertMessage(sessionId, msg, sortOrder)
+        } else {
+          _deferredMessageAdds.push({ sessionId, msg, sortOrder })
+        }
         return
       }
       dbAddMessage(sessionId, msg, sortOrder)

@@ -183,6 +183,10 @@ function flushPendingForegroundMutations(): void {
   flushForegroundMutations()
 }
 
+export function flushRuntimeForegroundMutations(): void {
+  flushPendingForegroundMutations()
+}
+
 function queueForegroundMutation(thunk: ForegroundMutationThunk): void {
   _pendingForegroundMutations.push(thunk)
   scheduleForegroundFlush()

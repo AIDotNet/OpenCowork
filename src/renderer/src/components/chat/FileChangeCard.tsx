@@ -584,11 +584,11 @@ function FileIcon({ name }: { name: string }): React.JSX.Element {
 function CompactFileIcon({ op }: { op: CompactActionOp }): React.JSX.Element {
   switch (op) {
     case 'create':
-      return <FilePlus2 className="size-3.5 text-emerald-500 dark:text-emerald-300" />
+      return <FilePlus2 className="size-3.5" />
     case 'delete':
-      return <FileX2 className="size-3.5 text-red-500 dark:text-red-300" />
+      return <FileX2 className="size-3.5" />
     case 'modify':
-      return <FileEdit className="size-3.5 text-amber-500 dark:text-amber-300" />
+      return <FileEdit className="size-3.5" />
   }
 }
 
@@ -1385,16 +1385,7 @@ export function FileChangeCard({
             )}
             title={filePath || undefined}
           >
-            <span
-              className={cn(
-                'flex size-7 shrink-0 items-center justify-center rounded-md border',
-                compactActionOp === 'create'
-                  ? 'border-emerald-500/20 bg-emerald-500/10'
-                  : compactActionOp === 'delete'
-                    ? 'border-red-500/20 bg-red-500/10'
-                    : 'border-amber-500/20 bg-amber-500/10'
-              )}
-            >
+            <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground/70">
               <CompactFileIcon op={compactActionOp} />
             </span>
             <span className="min-w-0 flex-1">
@@ -1412,14 +1403,6 @@ export function FileChangeCard({
                   )}
                 </span>
               </span>
-              {filePath && (
-                <span
-                  className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground/55"
-                  title={filePath}
-                >
-                  {shortPath(filePath)}
-                </span>
-              )}
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
               {compactEditDiff ? (

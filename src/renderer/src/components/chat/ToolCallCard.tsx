@@ -11,7 +11,6 @@ import {
   Search,
   FolderTree,
   SquareTerminal,
-  Pencil,
   Trash2,
   ListTodo,
   CalendarClock,
@@ -2817,7 +2816,7 @@ function genericCompactToolHeaderModel({
 
 function getBuiltinToolIcon(name: string): React.ReactNode {
   if (['Write', 'SavePlan'].includes(name)) return <FileCode className="size-3.5" />
-  if (['Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) return <Pencil className="size-3.5" />
+  if (['Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) return <FileCode className="size-3.5" />
   if (name === 'Delete') return <Trash2 className="size-3.5" />
   if (name.startsWith('Task') || name === 'TodoWrite') return <ListTodo className="size-3.5" />
   if (name.startsWith('Cron')) return <CalendarClock className="size-3.5" />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import {
   ArrowLeft,
   AlertTriangle,
@@ -33,6 +34,22 @@ import { SoulInstallDialog, type SoulInstallProjectOption } from './SoulInstallD
 
 const SOULS_MARKET_DOCS_URL = 'https://skills.open-cowork.shop/docs'
 const SOULS_MARKET_DASHBOARD_URL = 'https://skills.open-cowork.shop/dashboard'
+
+function areInstallProjectOptionsEqual(
+  left: SoulInstallProjectOption[],
+  right: SoulInstallProjectOption[]
+): boolean {
+  if (left === right) return true
+  if (left.length !== right.length) return false
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index]
+    const b = right[index]
+    if (a.id !== b.id || a.name !== b.name || a.workingFolder !== b.workingFolder) {
+      return false
+    }
+  }
+  return true
+}
 
 function formatDate(value?: string): string | null {
   if (!value) return null
@@ -173,15 +190,17 @@ export function SoulsPage(): React.JSX.Element {
   const setSortBy = useSoulsStore((s) => s.setSortBy)
   const loadCategories = useSoulsStore((s) => s.loadCategories)
   const downloadSoul = useSoulsStore((s) => s.downloadSoul)
-
-  const installProjects = useChatStore((s) =>
-    s.projects
-      .filter((project) => !project.pluginId)
-      .flatMap((project): SoulInstallProjectOption[] => {
-        const workingFolder = project.workingFolder?.trim()
-        if (!workingFolder) return []
-        return [{ id: project.id, name: project.name, workingFolder }]
-      })
+  const installProjects = useStoreWithEqualityFn(
+    useChatStore,
+    (s) =>
+      s.projects
+        .filter((project) => !project.pluginId)
+        .flatMap((project): SoulInstallProjectOption[] => {
+          const workingFolder = project.workingFolder?.trim()
+          if (!workingFolder) return []
+          return [{ id: project.id, name: project.name, workingFolder }]
+        }),
+    areInstallProjectOptionsEqual
   )
 
   useEffect(() => {

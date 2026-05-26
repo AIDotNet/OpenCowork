@@ -1781,6 +1781,8 @@ export function SessionListPanel(): React.JSX.Element {
         }}
         workingFolder={folderPickerProject?.workingFolder ?? undefined}
         sshConnectionId={folderPickerProject?.sshConnectionId ?? null}
+        projectName={folderPickerTarget?.type === 'create' ? t('sidebar.newProject') : undefined}
+        createMode={folderPickerTarget?.type === 'create'}
         onSelectLocalFolder={async (folderPath) => {
           if (folderPickerTarget?.type === 'create') {
             await handleCreateProjectWithDirectory(folderPath, null)

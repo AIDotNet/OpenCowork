@@ -982,6 +982,10 @@ export function AgentFilesPanel({
       ),
     [branchDialog, repoDetails?.branches]
   )
+  const canUseCommitComposer = Boolean(
+    selectedRepoPath && visibleRows.length > 0 && busyAction === null && !aiCommitLoading
+  )
+  const canCommitInline = canUseCommitComposer && commitMessage.trim().length > 0
 
   return (
     <div className="agent-files-panel flex h-full min-h-0 flex-col">
@@ -1113,13 +1117,48 @@ export function AgentFilesPanel({
       {activeTab === 'changes' ? (
         <>
           <div className="shrink-0 border-b border-agent-files-border bg-agent-files-panel px-2 pb-2 pt-1">
-            <div className="flex items-center gap-1">
+            <div className="relative">
+              <Textarea
+                value={commitMessage}
+                onChange={(event) => setCommitMessage(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                    event.preventDefault()
+                    if (canCommitInline) void handleCommit()
+                  }
+                }}
+                placeholder={t('agentFiles.commitPlaceholder', {
+                  defaultValue: 'Commit message'
+                })}
+                disabled={busyAction !== null || aiCommitLoading}
+                className="min-h-[54px] resize-none rounded-[2px] border-agent-files-border bg-agent-files-panel px-2 py-1.5 pr-9 text-xs shadow-none focus-visible:ring-1"
+                rows={2}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="agent-files-icon-button absolute right-1 top-1 size-6"
+                disabled={!canUseCommitComposer}
+                onClick={() => void handleGenerateCommitMessage()}
+                title={t('agentFiles.generateCommitMessage', {
+                  defaultValue: 'Generate commit message'
+                })}
+              >
+                {aiCommitLoading ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Wand2 className="size-3.5" />
+                )}
+              </Button>
+            </div>
+            <div className="mt-1 flex items-center gap-1">
               <Button
                 type="button"
                 size="sm"
                 className="agent-files-primary-button h-6 min-w-0 flex-1 px-2 text-xs"
-                disabled={!git.selectedRepoPath || busyAction !== null}
-                onClick={() => setCommitOpen(true)}
+                disabled={!canCommitInline}
+                onClick={() => void handleCommit()}
               >
                 {busyAction === 'commit' ? (
                   <Loader2 className="size-3.5 animate-spin" />

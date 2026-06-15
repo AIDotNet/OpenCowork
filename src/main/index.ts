@@ -66,6 +66,7 @@ import { registerSyncHandlers } from './ipc/sync-handlers'
 import { registerSidecarHandlers, getSidecarManager } from './ipc/sidecar-manager'
 import { registerTeamRuntimeHandlers } from './ipc/team-runtime-handlers'
 import { registerTeamWorkerHandlers, stopAllIsolatedTeamWorkers } from './ipc/team-worker-handlers'
+import { registerSessionReportHandlers } from './ipc/session-report-handlers'
 import { loadPersistedJobs, cancelAllJobs } from './cron/cron-scheduler'
 import { McpManager } from './mcp/mcp-manager'
 import { closeDb } from './db/database'
@@ -75,6 +76,7 @@ import { writeCrashLog, getCrashLogDir } from './crash-logger'
 import { setupAutoUpdater } from './updater'
 import { safeSendToWindow } from './window-ipc'
 import * as sessionsDao from './db/sessions-dao'
+import { registerUserSystemHandlers } from './ipc/user-system-handlers'
 import {
   configureBuiltInBrowserSession,
   flushBuiltInBrowserStorage,
@@ -100,9 +102,9 @@ import { setPluginManager } from './channels/auto-reply'
 const channelManager = new ChannelManager()
 setPluginManager(channelManager)
 channelManager.registerFactory('feishu-bot', createFeishuService)
-// Feishu uses official SDK WSClient — no generic parser needed
+// Feishu uses official SDK WSClient 鈥?no generic parser needed
 channelManager.registerFactory('dingtalk-bot', createDingTalkService)
-// DingTalk uses built-in Stream protocol handling — no generic parser needed
+// DingTalk uses built-in Stream protocol handling 鈥?no generic parser needed
 channelManager.registerFactory('telegram-bot', createTelegramService)
 channelManager.registerParser('telegram-bot', parseTelegramWsMessage)
 channelManager.registerFactory('discord-bot', createDiscordService)
@@ -167,7 +169,7 @@ async function configureSystemProxy(): Promise<void> {
 
 function parseShellEnvironmentOutput(output: string): Record<string, string> {
   const nextEnv: Record<string, string> = {}
-  const lines = output.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  const lines = output.replace(/\\r\n/g, '\n').replace(/\\r/g, '\n').split('\n')
 
   for (const line of lines) {
     if (!SHELL_ENV_LINE_RE.test(line)) continue
@@ -1042,7 +1044,7 @@ app.on('before-quit', () => {
 configureChromiumCachePaths()
 configureRendererHeapLimit()
 
-// 防止dev环境和生产环境冲突，导致无法启动
+// 闃叉�dev鐜��鍜岀敓浜х幆澧冨啿绐侊紝瀵艰嚧鏃犳硶鍚�姩
 if (!app.isPackaged) {
   app.setName('OpenCoWork-dev')
 } else {
@@ -1155,6 +1157,7 @@ if (gotSingleInstanceLock) {
     registerSidecarHandlers()
     registerTeamRuntimeHandlers()
     registerTeamWorkerHandlers()
+    registerSessionReportHandlers()
 
     try {
       const sidecarReady = await getSidecarManager().ensureStarted()
@@ -1286,6 +1289,9 @@ if (gotSingleInstanceLock) {
     void autoStartChannels(channelManager)
     void autoConnectMcpServers(mcpManager)
 
+    // Register user system handlers
+    registerUserSystemHandlers()
+
     setMacDockIcon()
     createWindow()
     scheduleUsageEventsStartupCleanup()
@@ -1336,3 +1342,4 @@ app.on('window-all-closed', () => {
 // In this file you can include the rest of your app's specific main process
 
 // code. You can also put them in separate files and require them here.
+

@@ -18,6 +18,7 @@ import {
   GitBranch,
   Image,
   Loader2,
+  LogOut,
   MessageSquare,
   Monitor,
   MoreHorizontal,
@@ -32,6 +33,7 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  User,
   Wand2
 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
@@ -78,6 +80,9 @@ import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { useBackgroundSessionStore } from '@renderer/stores/background-session-store'
+import { useAuthStore } from '@renderer/stores/auth-store'
+import { UserManagementDialog } from '@renderer/components/auth/user-management-dialog'
+import { Avatar, AvatarFallback, AvatarImage } from '@renderer/components/ui/avatar'
 import {
   abortSession,
   clearPendingSessionMessages,
@@ -430,6 +435,8 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const [chatsSectionCollapsed, setChatsSectionCollapsed] = useState(false)
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set())
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set())
+  const [showUserManagement, setShowUserManagement] = useState(false)
+  const user = useAuthStore((s) => s.user)
   const featureMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const runningSubAgentSessionIds = useMemo(
     () => new Set(runningSubAgentSessionIdsSig ? runningSubAgentSessionIdsSig.split('\u0000') : []),
@@ -1888,7 +1895,56 @@ export function WorkspaceSidebar(): React.JSX.Element {
             </div>
           </div>
         </div>
-        <div className="mt-auto px-2 pb-2 pt-1.5">
+        <div className="mt-auto px-2 pb-2 pt-1.5 space-y-1.5">
+          {/* User Menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className={cn(
+                  'h-9 w-full justify-between gap-2 px-2 text-[12px]',
+                  SIDEBAR_TREE_ROW_CLASS,
+                  SIDEBAR_TREE_HOVER_CLASS
+                )}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Avatar className="size-5">
+                    <AvatarImage src={user?.avatarUrl} alt={user?.displayName || user?.username} />
+                    <AvatarFallback className="text-xs font-semibold">
+                      {(user?.displayName || user?.username || 'U').slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="truncate font-medium">
+                    {user?.displayName || user?.username || '用户'}
+                  </span>
+                </span>
+                <ChevronDown className="size-3 shrink-0 text-muted-foreground/80" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <div className="flex flex-col space-y-1 p-2">
+                <p className="text-sm font-medium">{user?.displayName || user?.username}</p>
+                <p className="text-xs text-muted-foreground">@{user?.username}</p>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowUserManagement(true)}>
+                <User className="mr-2 size-4" />
+                <span>用户管理</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={async () => {
+                  await useAuthStore.getState().logout();
+                }}
+                className="text-destructive focus:text-destructive"
+              >
+                <LogOut className="mr-2 size-4" />
+                <span>注销登录</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* System Settings Button */}
           <Button
             variant="ghost"
             className={cn(
@@ -2080,6 +2136,11 @@ export function WorkspaceSidebar(): React.JSX.Element {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <UserManagementDialog 
+        open={showUserManagement} 
+        onOpenChange={setShowUserManagement} 
+      />
     </>
   )
 }

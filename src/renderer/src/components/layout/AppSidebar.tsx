@@ -20,7 +20,9 @@ import {
   Pencil,
   Settings,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  User,
+  LogOut
 } from 'lucide-react'
 import { DynamicIcon } from 'lucide-react/dynamic'
 import {
@@ -66,10 +68,22 @@ import { useProviderStore } from '@renderer/stores/provider-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useTeamStore } from '@renderer/stores/team-store'
+import { useAuthStore } from '@renderer/stores/auth-store'
 import { abortSession } from '@renderer/hooks/use-chat-actions'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
 import type { ProviderType } from '@renderer/lib/api/types'
 import packageJson from '../../../../../package.json'
+import { Avatar, AvatarFallback, AvatarImage } from '@renderer/components/ui/avatar'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@renderer/components/ui/dropdown-menu'
+import { UserManagementDialog } from '@renderer/components/auth/user-management-dialog'
+import { UserDebugDialog } from '@renderer/components/auth/user-debug-dialog'
 
 const modeIcons: Record<SessionMode, React.ReactNode> = {
   chat: <MessageSquare className="size-4" />,
@@ -182,7 +196,13 @@ export function AppSidebar(): React.JSX.Element {
     title: string
     msgCount: number
   } | null>(null)
+  const [showUserManagement, setShowUserManagement] = useState(false)
+  const [showUserDebug, setShowUserDebug] = useState(false)
   const appVersion = packageJson.version ?? '0.0.0'
+  const user = useAuthStore((s) => s.user)
+  
+  // Debug log
+  console.log('[AppSidebar] user:', user?.username, 'isAuthenticated:', !!user);
   const getSessionSnapshot = useCallback(
     (sessionId: string) =>
       useChatStore.getState().sessions.find((session) => session.id === sessionId),
@@ -400,9 +420,17 @@ export function AppSidebar(): React.JSX.Element {
               alt="OpenCoWork"
               className="size-8 rounded-xl object-cover shadow-sm"
             />
-            <span className="text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+            <span className="flex-1 text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
               OpenCoWork
             </span>
+            {/* Debug button - REMOVE AFTER TESTING */}
+            <button
+              onClick={() => setShowUserDebug(true)}
+              className="size-5 rounded bg-yellow-500 text-xs font-bold text-white hover:bg-yellow-600 group-data-[collapsible=icon]:hidden"
+              title="调试用户状态"
+            >
+              D
+            </button>
           </div>
         </SidebarHeader>
 
@@ -800,7 +828,55 @@ export function AppSidebar(): React.JSX.Element {
         </SidebarContent>
 
         <SidebarFooter>
+          {/* User Menu */}
           <div className="flex flex-col gap-1.5 group-data-[collapsible=icon]:items-center">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 w-full justify-start gap-2 rounded-lg px-2 text-xs transition-all duration-200 hover:bg-muted/50 group-data-[collapsible=icon]:h-9 group-data-[collapsible=icon]:w-9 group-data-[collapsible=icon]:justify-center"
+                >
+                  <Avatar className="size-6">
+                    <AvatarImage src={user?.avatarUrl} alt={user?.displayName || user?.username} />
+                    <AvatarFallback className="text-xs font-semibold">
+                      {(user?.displayName || user?.username || 'U').slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="flex-1 truncate text-left font-medium text-foreground group-data-[collapsible=icon]:hidden">
+                    {user?.displayName || user?.username || '用户'}
+                  </span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium">{user?.displayName || user?.username}</p>
+                    <p className="text-xs text-muted-foreground">@{user?.username}</p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setShowUserManagement(true)}>
+                  <User className="mr-2 size-4" />
+                  <span>用户管理</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => useUIStore.getState().openSettingsPage()}>
+                  <Settings className="mr-2 size-4" />
+                  <span>系统设置</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem 
+                  onClick={async () => {
+                    await useAuthStore.getState().logout();
+                  }}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <LogOut className="mr-2 size-4" />
+                  <span>注销登录</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <Button
               variant="ghost"
               size="sm"
@@ -898,6 +974,18 @@ export function AppSidebar(): React.JSX.Element {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* User Management Dialog */}
+      <UserManagementDialog 
+        open={showUserManagement} 
+        onOpenChange={setShowUserManagement} 
+      />
+
+      {/* User Debug Dialog */}
+      <UserDebugDialog
+        open={showUserDebug}
+        onOpenChange={setShowUserDebug}
+      />
     </>
   )
 }

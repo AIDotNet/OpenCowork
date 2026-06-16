@@ -30,12 +30,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose, onSwitchToRegis
         setPassword(passwordRef.current.value);
       }
     };
-    
+
     // Check multiple times to catch autofill
     const timer1 = setTimeout(checkAutofill, 100);
     const timer2 = setTimeout(checkAutofill, 500);
     const timer3 = setTimeout(checkAutofill, 1000);
-    
+
     return () => {
       clearTimeout(timer1);
       clearTimeout(timer2);
@@ -57,27 +57,27 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose, onSwitchToRegis
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    
+
     // Clear previous error
     setError('');
-    
+
     // Method 1: Try FormData first (most reliable for autofill)
     const formData = new FormData(e.currentTarget);
     const formUsername = formData.get('username') as string;
     const formPassword = formData.get('password') as string;
-    
+
     // Method 2: Fallback to refs
     const refUsername = usernameRef.current?.value || '';
     const refPassword = passwordRef.current?.value || '';
-    
+
     // Use whichever has values
     const currentUsername = formUsername || refUsername || username;
     const currentPassword = formPassword || refPassword || password;
-    
+
     // Update state for UI consistency
     if (currentUsername && currentUsername !== username) setUsername(currentUsername);
     if (currentPassword && currentPassword !== password) setPassword(currentPassword);
-    
+
     // Validate inputs
     if (!currentUsername.trim() || !currentPassword.trim()) {
       setError('用户名和密码为必填项');
@@ -98,7 +98,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose, onSwitchToRegis
         {/* Header */}
         <div className="space-y-2 text-center">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">欢迎登录</h1>
-          <p className="text-sm text-muted-foreground">OpenCowork 多智能体协作平台</p>
+          <p className="text-sm text-muted-foreground">企业多智能体协作平台</p>
         </div>
 
         {/* Form */}

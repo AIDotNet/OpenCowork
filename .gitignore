@@ -10,3 +10,6 @@ obj/
 resources/sidecar/
 .claude\worktrees/
 /.idea/
+.env
+.env.local
+.env.*.local

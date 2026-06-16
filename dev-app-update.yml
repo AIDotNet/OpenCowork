@@ -1,5 +1,5 @@
 provider: github
-owner: AIDotNet
+owner: smawatch
 repo: OpenCowork
 releaseType: release
 updaterCacheDirName: open-cowork-updater

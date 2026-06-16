@@ -7,9 +7,16 @@ interface ApiResponse<T = any> {
   error?: string;
 }
 
+function getServerUrl(): string {
+  const envUrl = process.env.MAIN_VITE_SERVER_URL?.trim()
+  if (envUrl) return envUrl
+  const settings = readSettings()
+  return (settings.serverUrl as string) || 'http://localhost:3002'
+}
+
 async function apiRequest(endpoint: string, options?: RequestInit): Promise<ApiResponse> {
   const settings = readSettings();
-  const serverUrl = settings.serverUrl || 'http://localhost:3000';
+  const serverUrl = getServerUrl();
   const token = settings.authToken;
 
   try {
@@ -204,7 +211,7 @@ export function registerUserSystemHandlers(): void {
   // 下载导入模板
   ipcMain.handle('import:downloadTemplate', async () => {
     const settings = readSettings();
-    const serverUrl = settings.serverUrl || 'http://localhost:3000';
+    const serverUrl = getServerUrl();
     const token = settings.authToken;
 
     try {
@@ -231,7 +238,7 @@ export function registerUserSystemHandlers(): void {
   // 导入用户
   ipcMain.handle('import:users', async (_event, fileBuffer: Buffer) => {
     const settings = readSettings();
-    const serverUrl = settings.serverUrl || 'http://localhost:3000';
+    const serverUrl = getServerUrl();
     const token = settings.authToken;
 
     try {

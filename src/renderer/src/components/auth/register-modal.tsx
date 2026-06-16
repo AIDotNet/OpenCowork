@@ -68,7 +68,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({ onClose, onSwitchT
         {/* Header */}
         <div className="space-y-2 text-center">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">创建账号</h1>
-          <p className="text-sm text-muted-foreground">加入 OpenCowork 多智能体协作平台</p>
+          <p className="text-sm text-muted-foreground">加入企业多智能体协作平台</p>
         </div>
 
         {/* Form */}

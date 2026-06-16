@@ -14,7 +14,7 @@ export default defineConfig({
   preload: {},
   renderer: {
     server: {
-      port: 5173,
+      port: 3003,
       strictPort: true
     },
     optimizeDeps: {

@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import { getMessages, getSession } from '../db/messages-dao'
+import { getMessages } from '../db/messages-dao'
 import { getSession as getSessionInfo } from '../db/sessions-dao'
 
 interface ReportPayload {

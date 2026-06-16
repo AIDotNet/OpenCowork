@@ -1,4 +1,4 @@
-appId: com.opencowork.app
+appId: com.smawatch.opencowork.app
 productName: OpenCoWork
 directories:
   buildResources: build
@@ -142,7 +142,7 @@ appImage:
 npmRebuild: true
 publish:
   provider: github
-  owner: AIDotNet
+  owner: smawatch
   repo: OpenCowork
   releaseType: release
 electronDownload:

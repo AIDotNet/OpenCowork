@@ -22,6 +22,8 @@ import {
   Trash2,
   RotateCcw,
   Play,
+  Loader2,
+  CheckCircle2,
   Ellipsis,
   Eraser,
   Languages,
@@ -31,6 +33,7 @@ import {
   GitFork
 } from 'lucide-react'
 import { FadeIn, ScaleIn } from '@renderer/components/animate-ui'
+import { cn } from '@renderer/lib/utils'
 import { ImageGeneratingLoader } from './ImageGeneratingLoader'
 import { ImageGenerationErrorCard } from './ImageGenerationErrorCard'
 import { AgentErrorCard } from './AgentErrorCard'
@@ -44,6 +47,7 @@ import type { AgentRunChangeSet, AgentRunFileChange } from '@renderer/stores/age
 import { useShallow } from 'zustand/react/shallow'
 import type {
   ContentBlock,
+  UnifiedMessage,
   TokenUsage,
   ToolResultContent,
   RequestDebugInfo
@@ -58,6 +62,7 @@ import { TeamEventCard } from './TeamEventCard'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { OrchestrationBlock } from './OrchestrationBlock'
 import { PlanReviewCard } from './PlanReviewCard'
+import { ContextCompressionMessage } from './ContextCompressionMessage'
 import type { OrchestrationRun } from '@renderer/lib/orchestration/types'
 import { TASK_TOOL_NAME } from '@renderer/lib/agent/sub-agents/create-tool'
 import { TEAM_TOOL_NAMES } from '@renderer/lib/agent/teams/register'
@@ -75,8 +80,7 @@ import { getLastDebugInfo, getRequestTraceInfo } from '@renderer/lib/debug-store
 import { MONO_FONT } from '@renderer/lib/constants'
 import {
   getLiveOutputComponentClass,
-  getLiveOutputCursorClass,
-  getLiveOutputDotClass
+  getLiveOutputCursorClass
 } from '@renderer/lib/live-output-animation'
 import type { RequestRetryState, ToolCallState, ToolCallStatus } from '@renderer/lib/agent/types'
 import {
@@ -122,6 +126,7 @@ interface AssistantMessageProps {
   usage?: TokenUsage
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
   liveToolCallMap?: Map<string, ToolCallState> | null
+  inlineCompactSummaries?: readonly UnifiedMessage[]
   msgId?: string
   sessionId?: string | null
   sessionAssistantMessageIds?: readonly string[]
@@ -137,6 +142,20 @@ interface AssistantMessageProps {
   hiddenToolUseIds?: Set<string>
   requestRetryState?: RequestRetryState | null
   requestDebugInfo?: RequestDebugInfo
+}
+
+type AssistantRenderItem =
+  | { kind: 'block'; index: number }
+  | { kind: 'group'; toolName: string; indices: number[] }
+
+type AssistantRenderItemWithInlineSummary =
+  | AssistantRenderItem
+  | { kind: 'compact-summary'; message: UnifiedMessage }
+
+interface InlineCompactSummaryEntry {
+  message: UnifiedMessage
+  afterContentBlockCount: number
+  afterToolUseId?: string
 }
 
 const MARKDOWN_WRAPPER_CLASS = 'text-sm leading-relaxed text-foreground break-words'
@@ -452,6 +471,47 @@ function toFiniteNumber(value: unknown): number | null {
   return null
 }
 
+interface CompletionMetricItem {
+  key: string
+  label: string
+  value: string
+  tone?: 'default' | 'success'
+}
+
+function CompletionSummaryBar({ items }: { items: CompletionMetricItem[] }): React.JSX.Element {
+  const { t } = useTranslation('chat')
+
+  return (
+    <div className="mt-2 flex max-w-full flex-wrap items-center gap-1.5 text-[10px] tabular-nums text-muted-foreground/70">
+      <span className="inline-flex h-6 items-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/[0.07] px-1.5 font-medium text-emerald-700 dark:text-emerald-300">
+        <CheckCircle2 className="size-3" />
+        {t('assistantMessage.completionFinished')}
+      </span>
+      {items.map((item) => (
+        <span
+          key={item.key}
+          className={cn(
+            'inline-flex h-6 min-w-0 max-w-full items-center gap-1 rounded-md border border-border/45 bg-background/65 px-1.5 dark:border-white/[0.08] dark:bg-white/[0.025]',
+            item.tone === 'success' &&
+              'border-emerald-500/18 text-emerald-700 dark:text-emerald-300'
+          )}
+          title={`${item.label}: ${item.value}`}
+        >
+          <span className="shrink-0 text-muted-foreground/55">{item.label}</span>
+          <span
+            className={cn(
+              'min-w-0 truncate font-medium text-foreground/78',
+              item.tone === 'success' && 'text-emerald-700 dark:text-emerald-300'
+            )}
+          >
+            {item.value}
+          </span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function DebugToggleButton({ debugInfo }: { debugInfo: RequestDebugInfo }): React.JSX.Element {
   const [show, setShow] = useState(false)
   const bodyFormatted = (() => {
@@ -584,6 +644,65 @@ function ActionIconButton({
       <TooltipContent side="top">{label}</TooltipContent>
     </Tooltip>
   )
+}
+
+function GenerationProcessLine({
+  active,
+  label,
+  detail,
+  expanded,
+  collapsible = false,
+  onClick
+}: {
+  active: boolean
+  label: string
+  detail?: string | null
+  expanded?: boolean
+  collapsible?: boolean
+  onClick?: () => void
+}): React.JSX.Element {
+  const content = (
+    <>
+      <span
+        className={cn(
+          'flex size-5 shrink-0 items-center justify-center rounded-full border bg-transparent',
+          active
+            ? 'border-sky-500/25 text-sky-600 dark:text-sky-300'
+            : 'border-lime-500/25 text-lime-600 dark:text-lime-400'
+        )}
+      >
+        {active ? <Loader2 className="size-3 animate-spin" /> : <CheckCircle2 className="size-3" />}
+      </span>
+      <span className="shrink-0 text-muted-foreground/55">assistant</span>
+      <span className="shrink-0 text-muted-foreground/40">&gt;</span>
+      <span className="shrink-0 font-mono font-medium text-foreground/82">{label}</span>
+      {detail ? (
+        <span className="min-w-0 flex-1 truncate text-muted-foreground/60">({detail})</span>
+      ) : (
+        <span className="min-w-0 flex-1" />
+      )}
+      {collapsible ? (
+        expanded ? (
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
+        ) : (
+          <ChevronRight className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
+        )
+      ) : null}
+    </>
+  )
+
+  const className =
+    'group flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground dark:hover:bg-white/[0.035]'
+
+  if (collapsible) {
+    return (
+      <button type="button" onClick={onClick} aria-expanded={expanded} className={className}>
+        {content}
+      </button>
+    )
+  }
+
+  return <div className={className}>{content}</div>
 }
 
 function MermaidImageCopyButton({ svg }: { svg: string }): React.JSX.Element {
@@ -1243,6 +1362,7 @@ export function AssistantMessage({
   usage,
   toolResults,
   liveToolCallMap,
+  inlineCompactSummaries = [],
   msgId,
   sessionId,
   sessionAssistantMessageIds = [],
@@ -1498,11 +1618,8 @@ export function AssistantMessage({
 
   const renderItems = useMemo(() => {
     if (!normalizedContent) return []
-    type RenderItem =
-      | { kind: 'block'; index: number }
-      | { kind: 'group'; toolName: string; indices: number[] }
 
-    const items: RenderItem[] = []
+    const items: AssistantRenderItem[] = []
     for (let i = 0; i < normalizedContent.length; i++) {
       const block = normalizedContent[i]
       if (block.type === 'tool_use' && !shouldShowToolInMessageList(block.name)) {
@@ -1526,6 +1643,86 @@ export function AssistantMessage({
     }
     return items
   }, [normalizedContent])
+  const inlineCompactSummaryEntries = useMemo(() => {
+    if (!msgId || inlineCompactSummaries.length === 0) return []
+
+    const entries: InlineCompactSummaryEntry[] = []
+    for (const message of inlineCompactSummaries) {
+      const anchor = message.meta?.compactSummary?.displayAnchor
+      if (!anchor || anchor.assistantMessageId !== msgId) continue
+
+      entries.push({
+        message,
+        afterContentBlockCount: Number.isFinite(anchor.afterContentBlockCount)
+          ? Math.max(0, Math.floor(anchor.afterContentBlockCount))
+          : 0,
+        ...(anchor.afterToolUseId ? { afterToolUseId: anchor.afterToolUseId } : {})
+      })
+    }
+
+    return entries.sort((a, b) => a.afterContentBlockCount - b.afterContentBlockCount)
+  }, [inlineCompactSummaries, msgId])
+  const renderItemsWithInlineSummaries = useMemo<AssistantRenderItemWithInlineSummary[]>(() => {
+    if (!normalizedContent || inlineCompactSummaryEntries.length === 0) return renderItems
+
+    const summariesByInsertIndex = new Map<number, UnifiedMessage[]>()
+
+    const getItemIndices = (item: AssistantRenderItem): number[] =>
+      item.kind === 'block' ? [item.index] : item.indices
+
+    const itemContainsToolUseId = (item: AssistantRenderItem, toolUseId: string): boolean =>
+      getItemIndices(item).some((index) => {
+        const block = normalizedContent[index]
+        return block?.type === 'tool_use' && block.id === toolUseId
+      })
+
+    const findLastItemBeforeContentBlockCount = (afterContentBlockCount: number): number => {
+      let insertAfterIndex = -1
+      for (let index = 0; index < renderItems.length; index += 1) {
+        const itemIndices = getItemIndices(renderItems[index])
+        const maxItemIndex = Math.max(...itemIndices)
+        if (maxItemIndex < afterContentBlockCount) {
+          insertAfterIndex = index
+        }
+      }
+      return insertAfterIndex
+    }
+
+    for (const entry of inlineCompactSummaryEntries) {
+      let insertAfterIndex = -1
+      const afterToolUseId = entry.afterToolUseId
+      if (afterToolUseId) {
+        insertAfterIndex = renderItems.findIndex((item) =>
+          itemContainsToolUseId(item, afterToolUseId)
+        )
+      }
+      if (insertAfterIndex < 0) {
+        insertAfterIndex = findLastItemBeforeContentBlockCount(entry.afterContentBlockCount)
+      }
+
+      const existing = summariesByInsertIndex.get(insertAfterIndex)
+      if (existing) {
+        existing.push(entry.message)
+      } else {
+        summariesByInsertIndex.set(insertAfterIndex, [entry.message])
+      }
+    }
+
+    const items: AssistantRenderItemWithInlineSummary[] = []
+    const pushSummaries = (insertAfterIndex: number): void => {
+      for (const message of summariesByInsertIndex.get(insertAfterIndex) ?? []) {
+        items.push({ kind: 'compact-summary', message })
+      }
+    }
+
+    pushSummaries(-1)
+    for (let index = 0; index < renderItems.length; index += 1) {
+      items.push(renderItems[index])
+      pushSummaries(index)
+    }
+
+    return items
+  }, [inlineCompactSummaryEntries, normalizedContent, renderItems])
   const renderContent = (): React.JSX.Element => {
     const shouldShowImageGeneratingLoader = isGeneratingImage && isStreaming
     const hasEmptyContent =
@@ -1563,22 +1760,12 @@ export function AssistantMessage({
     // Show thinking indicator when streaming starts with no displayable content yet.
     if (isStreaming && hasEmptyContent) {
       return (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="flex gap-1">
-            <span
-              className={getLiveOutputDotClass(liveOutputAnimationStyle)}
-              style={{ animationDelay: '0ms' }}
-            />
-            <span
-              className={getLiveOutputDotClass(liveOutputAnimationStyle)}
-              style={{ animationDelay: '150ms' }}
-            />
-            <span
-              className={getLiveOutputDotClass(liveOutputAnimationStyle)}
-              style={{ animationDelay: '300ms' }}
-            />
-          </span>
-          <span className="text-xs text-muted-foreground/60">{t('thinking.thinkingEllipsis')}</span>
+        <div className={liveComponentClassName || undefined}>
+          <GenerationProcessLine
+            active
+            label={t('assistantMessage.generatingResponse')}
+            detail={t('thinking.thinkingEllipsis')}
+          />
         </div>
       )
     }
@@ -1593,9 +1780,20 @@ export function AssistantMessage({
 
       if (!hasThink) {
         return (
-          <div className={MARKDOWN_WRAPPER_CLASS}>
-            <StreamingMarkdownContent text={content} isStreaming={!!isStreaming} />
-            {isStreaming && <span className={getLiveOutputCursorClass(liveOutputAnimationStyle)} />}
+          <div className="space-y-2">
+            {isStreaming ? (
+              <GenerationProcessLine
+                active
+                label={t('assistantMessage.generatingResponse')}
+                detail={t('assistantMessage.streamingText')}
+              />
+            ) : null}
+            <div className={MARKDOWN_WRAPPER_CLASS}>
+              <StreamingMarkdownContent text={content} isStreaming={!!isStreaming} />
+              {isStreaming && (
+                <span className={getLiveOutputCursorClass(liveOutputAnimationStyle)} />
+              )}
+            </div>
           </div>
         )
       }
@@ -1609,6 +1807,13 @@ export function AssistantMessage({
 
       return (
         <div className="space-y-2">
+          {isStreaming ? (
+            <GenerationProcessLine
+              active
+              label={t('assistantMessage.generatingResponse')}
+              detail={t('assistantMessage.streamingText')}
+            />
+          ) : null}
           {segments.map((seg, idx) => {
             if (seg.type === 'think') {
               return (
@@ -1867,35 +2072,59 @@ export function AssistantMessage({
       )
     }
 
+    const activeWorkspaceToolCount = normalizedContent.filter((block) => {
+      if (block.type !== 'tool_use') return false
+      const liveStatus = effectiveLiveToolCallMap?.get(block.id)?.status
+      return (
+        liveStatus === 'streaming' || liveStatus === 'running' || liveStatus === 'pending_approval'
+      )
+    }).length
+    const showProcessLine = showWorkspaceToggle || isStreaming
+    const processDetail =
+      workspaceSummary ||
+      (activeWorkspaceToolCount > 0
+        ? t('assistantMessage.activeTools', { count: activeWorkspaceToolCount })
+        : workspaceToolCount > 0
+          ? t('assistantMessage.toolExecutions', { count: workspaceToolCount })
+          : isStreaming
+            ? t('assistantMessage.streamingText')
+            : null)
+
     return (
       <div className="space-y-2">
         {orchestrationRun && orchestrationAnchorIndex < 0 ? (
           <OrchestrationBlock run={orchestrationRun} />
         ) : null}
-        {showWorkspaceToggle && (
-          <button
-            onClick={() =>
+        {showProcessLine && (
+          <GenerationProcessLine
+            active={!!isStreaming}
+            label={
+              workspaceToolCount > 0
+                ? t('assistantMessage.processTools')
+                : t('assistantMessage.processResponse')
+            }
+            detail={processDetail}
+            collapsible={showWorkspaceToggle}
+            expanded={!toolsCollapsed}
+            onClick={() => {
+              if (!showWorkspaceToggle) return
               setToolCollapseState({
                 msgId,
                 collapsed: !toolsCollapsed
               })
-            }
-            className="group flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[12px] text-muted-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground"
-          >
-            <span className="min-w-0 truncate font-medium text-foreground/80 transition-colors group-hover:text-accent-foreground">
-              {workspaceSummary ||
-                (toolsCollapsed
-                  ? t('assistantMessage.showWorkspace', { count: workspaceToolCount })
-                  : t('assistantMessage.collapseWorkspace', { count: workspaceToolCount }))}
-            </span>
-            {toolsCollapsed ? (
-              <ChevronRight className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-accent-foreground" />
-            ) : (
-              <ChevronDown className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-accent-foreground" />
-            )}
-          </button>
+            }}
+          />
         )}
-        {renderItems.map((item) => {
+        {renderItemsWithInlineSummaries.map((item) => {
+          if (item.kind === 'compact-summary') {
+            return (
+              <ContextCompressionMessage
+                key={`compact-summary-${item.message.id}`}
+                message={item.message}
+              />
+            )
+          }
+
           if (item.kind === 'block') {
             const block = normalizedContent[item.index]
             switch (block.type) {
@@ -2189,7 +2418,69 @@ export function AssistantMessage({
     onRetry(msgId)
   }, [msgId, onRetry, showRetry])
 
-  const timingSummary = useMemo(() => {
+  const requestTrace = msgId ? getRequestTraceInfo(msgId) : undefined
+  const completionSummaryItems = useMemo(() => {
+    const items: CompletionMetricItem[] = []
+
+    if (usage) {
+      const provider = requestTrace?.providerId
+        ? useProviderStore.getState().providers.find((item) => item.id === requestTrace.providerId)
+        : null
+      const modelCfg = provider?.models.find((item) => item.id === requestTrace?.model) ?? null
+      const total = getBillableTotalTokens(usage, modelCfg?.type)
+      const billableInput = getBillableInputTokens(usage, modelCfg?.type)
+      const cost = calculateCost(usage, modelCfg)
+      const tokenParts = [
+        `${formatTokens(total)} ${t('unit.tokens', { ns: 'common' })}`,
+        `${formatTokens(billableInput)}↓`,
+        `${formatTokens(usage.outputTokens)}↑`
+      ]
+
+      items.push({
+        key: 'tokens',
+        label: t('assistantMessage.metricTokens'),
+        value: tokenParts.join(' · ')
+      })
+      if (usage.cacheReadTokens) {
+        items.push({
+          key: 'cache-read',
+          label: t('unit.cached', { ns: 'common' }),
+          value: formatTokens(usage.cacheReadTokens)
+        })
+      }
+      if (usage.reasoningTokens) {
+        items.push({
+          key: 'reasoning',
+          label: t('unit.reasoning', { ns: 'common' }),
+          value: formatTokens(usage.reasoningTokens)
+        })
+      }
+      if (usage.cacheCreationTokens) {
+        items.push({
+          key: 'cache-write',
+          label: t('analytics.cacheCreationTokens', {
+            ns: 'settings',
+            defaultValue: 'cache write'
+          }),
+          value: formatTokens(usage.cacheCreationTokens)
+        })
+      }
+      if (cost !== null) {
+        items.push({
+          key: 'cost',
+          label: t('assistantMessage.metricCost'),
+          value: formatCost(cost),
+          tone: 'success'
+        })
+      }
+    } else if (fallbackTokens > 0) {
+      items.push({
+        key: 'tokens',
+        label: t('assistantMessage.metricTokens'),
+        value: `~${formatTokens(fallbackTokens)} ${t('unit.tokens', { ns: 'common' })}`
+      })
+    }
+
     const imageGenerationDuration =
       imageGenerationTiming?.startedAt && imageGenerationTiming.completedAt
         ? formatDurationMs(imageGenerationTiming.completedAt - imageGenerationTiming.startedAt)
@@ -2197,38 +2488,55 @@ export function AssistantMessage({
     const totalDuration =
       imageGenerationDuration ??
       (usage?.totalDurationMs ? formatDurationMs(usage.totalDurationMs) : null)
+
+    if (totalDuration) {
+      items.push({
+        key: 'total-duration',
+        label: t('assistantMessage.metricTotalDuration'),
+        value: totalDuration
+      })
+    }
+
     const perRequest = usage?.requestTimings ?? []
     const lastTiming = perRequest.length > 0 ? perRequest[perRequest.length - 1] : null
-    if (!totalDuration && !lastTiming) return null
 
-    let lastDetail: string | null = null
     if (lastTiming) {
-      const parts: string[] = []
       const totalMs = toFiniteNumber(lastTiming.totalMs)
       const ttftMs = toFiniteNumber(lastTiming.ttftMs)
       const tps = toFiniteNumber(lastTiming.tps)
 
       if (totalMs !== null) {
-        parts.push(
-          `${t('assistantMessage.req', { count: perRequest.length })} ${formatDurationMs(totalMs)}`
-        )
+        items.push({
+          key: 'request-duration',
+          label: t('assistantMessage.req', { count: perRequest.length }),
+          value: formatDurationMs(totalMs)
+        })
       }
       if (ttftMs !== null) {
-        parts.push(`${t('assistantMessage.ttft')} ${formatDurationMs(ttftMs)}`)
+        items.push({
+          key: 'ttft',
+          label: t('assistantMessage.ttft'),
+          value: formatDurationMs(ttftMs)
+        })
       }
       if (tps !== null) {
-        parts.push(`${t('assistantMessage.tps')} ${tps.toFixed(1)}`)
+        items.push({
+          key: 'tps',
+          label: t('assistantMessage.tps'),
+          value: tps.toFixed(1)
+        })
       }
-      lastDetail = parts.length > 0 ? parts.join(' · ') : null
     }
 
-    return {
-      totalDuration,
-      lastDetail
-    }
-  }, [imageGenerationTiming, t, usage])
-
-  const requestTrace = msgId ? getRequestTraceInfo(msgId) : undefined
+    return items.length > 0 ? items : null
+  }, [
+    fallbackTokens,
+    imageGenerationTiming,
+    requestTrace?.model,
+    requestTrace?.providerId,
+    t,
+    usage
+  ])
 
   return (
     <div className="group/msg flex flex-col">
@@ -2267,58 +2575,8 @@ export function AssistantMessage({
         ) : (
           <>
             {renderContent()}
-            {!isStreaming && plainText && (
-              <p className="mt-1 text-[10px] text-muted-foreground/55 tabular-nums">
-                {usage
-                  ? (() => {
-                      const u = usage!
-                      const provider = requestTrace?.providerId
-                        ? useProviderStore
-                            .getState()
-                            .providers.find((item) => item.id === requestTrace.providerId)
-                        : null
-                      const modelCfg =
-                        provider?.models.find((item) => item.id === requestTrace?.model) ?? null
-                      const total = getBillableTotalTokens(u, modelCfg?.type)
-                      const billableInput = getBillableInputTokens(u, modelCfg?.type)
-                      const cost = calculateCost(u, modelCfg)
-                      return (
-                        <>
-                          {`${formatTokens(total)} ${t('unit.tokens', { ns: 'common' })} (${formatTokens(billableInput)}↓ ${formatTokens(u.outputTokens)}↑`}
-                          {u.cacheReadTokens
-                            ? ` · ${formatTokens(u.cacheReadTokens)} ${t('unit.cached', { ns: 'common' })}`
-                            : ''}
-                          {u.reasoningTokens
-                            ? ` · ${formatTokens(u.reasoningTokens)} ${t('unit.reasoning', { ns: 'common' })}`
-                            : ''}
-                          {u.cacheCreationTokens
-                            ? ` · ${formatTokens(u.cacheCreationTokens)} ${t(
-                                'analytics.cacheCreationTokens',
-                                {
-                                  ns: 'settings',
-                                  defaultValue: 'cache write'
-                                }
-                              )}`
-                            : ''}
-                          {')'}
-                          {cost !== null && (
-                            <span className="text-emerald-500/70"> · {formatCost(cost)}</span>
-                          )}
-                        </>
-                      )
-                    })()
-                  : `~${formatTokens(fallbackTokens)} ${t('unit.tokens', { ns: 'common' })}`}
-              </p>
-            )}
-            {!isStreaming && timingSummary && (
-              <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground/55 tabular-nums">
-                {timingSummary.totalDuration && (
-                  <div>
-                    {t('assistantMessage.totalDuration', { duration: timingSummary.totalDuration })}
-                  </div>
-                )}
-                {timingSummary.lastDetail && <div>{timingSummary.lastDetail}</div>}
-              </div>
+            {!isStreaming && completionSummaryItems && (
+              <CompletionSummaryBar items={completionSummaryItems} />
             )}
           </>
         )}

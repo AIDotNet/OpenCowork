@@ -21,6 +21,8 @@ interface CodeDiffViewerProps {
   mode?: 'split' | 'inline'
   showModeToggle?: boolean
   toolbarEnd?: React.ReactNode
+  /** Fill the parent's height instead of capping the diff at a fixed max height. */
+  fillHeight?: boolean
 }
 
 function buildSplitRows(
@@ -70,7 +72,8 @@ export function CodeDiffViewer({
   defaultMode = 'split',
   mode,
   showModeToggle = true,
-  toolbarEnd
+  toolbarEnd,
+  fillHeight = false
 }: CodeDiffViewerProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const persistedViewMode = useSettingsStore((state) => state.fileDiffViewMode)
@@ -159,7 +162,7 @@ export function CodeDiffViewer({
   }
 
   return (
-    <div className="space-y-2">
+    <div className={cn(fillHeight ? 'flex h-full min-h-0 flex-col gap-2' : 'space-y-2')}>
       {showModeToggle || toolbarEnd ? (
         <div className="flex items-center justify-between gap-3">
           {showModeToggle ? (
@@ -201,11 +204,16 @@ export function CodeDiffViewer({
       ) : null}
 
       <div
-        className="overflow-hidden rounded-lg border border-border/60 bg-background/80 shadow-[0_0_0_1px_rgba(255,255,255,0.02)] dark:border-zinc-800/80 dark:bg-[#111214]"
+        className={cn(
+          'overflow-hidden rounded-lg border border-border/60 bg-background/80 shadow-[0_0_0_1px_rgba(255,255,255,0.02)] dark:border-zinc-800/80 dark:bg-[#111214]',
+          fillHeight && 'flex min-h-0 flex-1 flex-col'
+        )}
         style={{ fontFamily: MONO_FONT }}
       >
         {viewMode === 'split' ? (
-          <div className="max-h-80 overflow-auto">
+          <div
+            className={cn(fillHeight ? 'min-h-0 flex-1 overflow-auto' : 'max-h-80 overflow-auto')}
+          >
             <div className="sticky top-0 z-10 grid grid-cols-2 border-b border-border/60 bg-muted/70 text-[10px] uppercase tracking-[0.14em] text-muted-foreground dark:border-zinc-800/80 dark:bg-[#15171a] dark:text-zinc-500">
               <div className="border-r border-border/60 px-3 py-2 dark:border-zinc-800/80">
                 {t('diffViewer.before', { defaultValue: 'Before' })}
@@ -238,7 +246,9 @@ export function CodeDiffViewer({
             })}
           </div>
         ) : (
-          <div className="max-h-80 overflow-auto">
+          <div
+            className={cn(fillHeight ? 'min-h-0 flex-1 overflow-auto' : 'max-h-80 overflow-auto')}
+          >
             {chunks.map((chunk, ci) => {
               if (chunk.type === 'lines' || expandedChunks.has(ci)) {
                 return chunk.lines.map((line, li) => renderInlineLine(line, ci * 1000 + li))

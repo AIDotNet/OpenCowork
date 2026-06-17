@@ -163,6 +163,8 @@
     "maxParallelToolCalls": "Max parallel tool calls per turn",
     "maxParallelToolCallsDesc": "Control how many independent tool calls from the same model turn can run at once. Higher values can speed up Bash-heavy workflows, but increase local load.",
     "maxParallelToolCallsHint": "Set to 1 for serial execution.",
+    "maxConcurrentSubAgents": "Max concurrent sub-agents",
+    "maxConcurrentSubAgentsDesc": "How many Task sub-agents (and background teammates per team) may run at once. Extra launches queue until a slot frees.",
     "clarifyAutoAcceptRecommended": "Clarify auto-accept recommended answers",
     "clarifyAutoAcceptRecommendedDesc": "Off by default. Only applies in Clarify mode; when enabled, inline prompt recommendations start an 8-second countdown and automatically accept the current suggestion.",
     "autoApprove": "Auto-approve tool calls",

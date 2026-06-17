@@ -66,7 +66,7 @@ function DotMatrix({
   tone
 }: {
   filled: number
-  tone: 'active' | 'complete' | 'failed' | 'idle'
+  tone: 'active' | 'complete' | 'failed' | 'idle' | 'queued'
 }): React.JSX.Element {
   const total = 24
   const clampedFilled = Math.max(0, Math.min(total, filled))
@@ -89,7 +89,11 @@ function DotMatrix({
                 tone === 'failed' &&
                 'bg-destructive/80 shadow-[0_0_5px_rgba(248,113,113,0.35)]',
               isFilled &&
+                tone === 'queued' &&
+                'bg-amber-400/80 shadow-[0_0_5px_rgba(251,191,36,0.35)]',
+              isFilled &&
                 tone !== 'failed' &&
+                tone !== 'queued' &&
                 'bg-[#8cff72] shadow-[0_0_5px_rgba(140,255,114,0.45)]'
             )}
           />
@@ -186,6 +190,8 @@ function SubAgentCardInner({
 
       return {
         isRunning: item.isRunning,
+        isQueued: item.isQueued ?? false,
+        reportStatus: item.reportStatus,
         success: item.success,
         errorMessage: item.errorMessage,
         iteration: item.iteration,
@@ -207,8 +213,10 @@ function SubAgentCardInner({
   const histMeta = parsed.meta
   const histText = parsed.text || outputStr || ''
   const usage = tracked?.usage ?? histMeta?.usage ?? null
-  const isRunning = tracked?.isRunning ?? false
-  const isCompleted = !isRunning && (!!output || !!tracked)
+  const isQueued = tracked?.isQueued ?? false
+  const reportStatus = tracked?.reportStatus
+  const isRunning = (tracked?.isRunning ?? false) && !isQueued
+  const isCompleted = !isRunning && !isQueued && (!!output || !!tracked)
   const historicalError = outputStr
     ? (() => {
         const parsedOutput = decodeStructuredToolResult(outputStr)
@@ -251,22 +259,38 @@ function SubAgentCardInner({
   const iterationCount = tracked?.iteration ?? histMeta?.iterations ?? 0
   const callCount = tracked?.toolCallCount ?? histMeta?.toolCalls.length ?? 0
   const totalTokens = usage ? formatTokens(getBillableTotalTokens(usage)) : null
-  const statusText = isRunning
-    ? t('subAgent.working')
-    : isError
-      ? t('subAgent.failed')
-      : t('subAgent.done')
+  const statusText = isQueued
+    ? t('subAgent.queued', { defaultValue: 'Queued' })
+    : isRunning
+      ? reportStatus === 'retrying'
+        ? t('subAgent.synthesizing', { defaultValue: 'Synthesizing report…' })
+        : t('subAgent.working')
+      : isError
+        ? t('subAgent.failed')
+        : reportStatus === 'fallback'
+          ? t('subAgent.doneSynthesized', { defaultValue: 'Done (synthesized)' })
+          : t('subAgent.done')
   const previewText = descriptionText || promptText.replace(/\s+/g, ' ').trim() || statusText
   const orderLabel = formatOrderLabel(toolUseId)
   const icon = getSubAgentIcon(displayName)
-  const meterFill = isError
-    ? 18
-    : isRunning
-      ? Math.max(8, Math.min(22, (callCount || iterationCount || 8) + 8))
-      : isCompleted
-        ? 24
-        : 6
-  const meterTone = isError ? 'failed' : isRunning ? 'active' : isCompleted ? 'complete' : 'idle'
+  const meterFill = isQueued
+    ? 4
+    : isError
+      ? 18
+      : isRunning
+        ? Math.max(8, Math.min(22, (callCount || iterationCount || 8) + 8))
+        : isCompleted
+          ? 24
+          : 6
+  const meterTone = isQueued
+    ? 'queued'
+    : isError
+      ? 'failed'
+      : isRunning
+        ? 'active'
+        : isCompleted
+          ? 'complete'
+          : 'idle'
   const metaText = [
     statusText,
     elapsed != null ? formatElapsed(elapsed) : '',

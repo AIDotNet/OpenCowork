@@ -612,6 +612,9 @@
     }
   },
   "subAgent": {
+    "queued": "อยู่ในคิว",
+    "synthesizing": "กำลังสร้างรายงาน…",
+    "doneSynthesized": "เสร็จสิ้น (สร้างแล้ว)",
     "working": "ทํางาน",
     "failed": "ล้มเหลว",
     "done": "เรียบร้อยแล้ว",

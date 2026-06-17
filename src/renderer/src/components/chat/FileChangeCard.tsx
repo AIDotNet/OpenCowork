@@ -144,8 +144,8 @@ function FilePreviewShell({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="overflow-hidden rounded-md bg-background/85 dark:bg-[#111214]">
-      <div className="flex min-h-7 items-center justify-between gap-3 border-b border-border/50 bg-muted/35 px-3 py-1 dark:border-zinc-800/80 dark:bg-[#15171a]">
+    <div className="overflow-hidden rounded-lg border border-border/50 bg-background/85 dark:border-white/[0.08] dark:bg-[#111214]">
+      <div className="flex min-h-7 items-center justify-between gap-3 border-b border-border/50 bg-muted/30 px-3 py-1 dark:border-white/[0.08] dark:bg-white/[0.035]">
         <div className="flex min-w-0 items-center gap-2">
           <span
             className="truncate text-[11px] font-medium text-muted-foreground"
@@ -164,7 +164,7 @@ function FilePreviewShell({
         <CompactDiffCopyButton text={copyText} />
       </div>
       <div
-        className="overflow-auto rounded-b-md bg-background dark:bg-[#111214]"
+        className="overflow-auto bg-background dark:bg-[#111214]"
         data-tone={tone}
         style={{ maxHeight, fontFamily: MONO_FONT }}
       >
@@ -386,10 +386,29 @@ function CompactDiffCopyButton({ text }: { text: string }): React.JSX.Element {
   )
 }
 
-function diffLineBackground(line: DiffLine | undefined): string | undefined {
-  if (line?.type === 'add') return 'rgba(16, 185, 129, 0.14)'
-  if (line?.type === 'del') return 'rgba(239, 68, 68, 0.14)'
-  return undefined
+function diffLineStyle(line: DiffLine | undefined): React.CSSProperties {
+  if (line?.type === 'add') {
+    return {
+      display: 'block',
+      backgroundColor: 'rgba(46, 160, 67, 0.17)',
+      borderLeft: '2px solid rgb(46, 160, 67)',
+      paddingLeft: '0.5rem'
+    }
+  }
+  if (line?.type === 'del') {
+    return {
+      display: 'block',
+      backgroundColor: 'rgba(248, 81, 73, 0.16)',
+      borderLeft: '2px solid rgb(248, 81, 73)',
+      paddingLeft: '0.5rem'
+    }
+  }
+  // keep: transparent bar to preserve horizontal alignment with changed lines
+  return {
+    display: 'block',
+    borderLeft: '2px solid transparent',
+    paddingLeft: '0.5rem'
+  }
 }
 
 function DiffCodeChunk({
@@ -411,12 +430,7 @@ function DiffCodeChunk({
       startingLineNumber={firstLineNumber}
       lineProps={(lineNumber: number) => {
         const index = Math.max(0, Math.min(lines.length - 1, lineNumber - firstLineNumber))
-        return {
-          style: {
-            display: 'block',
-            backgroundColor: diffLineBackground(lines[index])
-          }
-        }
+        return { style: diffLineStyle(lines[index]) }
       }}
       lineNumberStyle={{
         minWidth: '2.75em',
@@ -584,17 +598,6 @@ function FileIcon({ name }: { name: string }): React.JSX.Element {
       return <FileEdit className="size-4 text-amber-500" />
     default:
       return <FileCode className="size-4 text-muted-foreground" />
-  }
-}
-
-function CompactFileIcon({ op }: { op: CompactActionOp }): React.JSX.Element {
-  switch (op) {
-    case 'create':
-      return <FilePlus2 className="size-3.5" />
-    case 'delete':
-      return <FileX2 className="size-3.5" />
-    case 'modify':
-      return <FileEdit className="size-3.5" />
   }
 }
 
@@ -1267,7 +1270,7 @@ export function FileChangeCard({
     [resolvedEdit, trackedChange]
   )
   const useCompactChangeLayout = name === 'Edit' || name === 'Delete' || name === 'Write'
-  const compactActiveShellClass = 'bg-transparent'
+  const compactActiveShellClass = 'bg-background/75 dark:bg-white/[0.035]'
   const canRenderTrackedWriteDiff =
     !!trackedChange &&
     trackedChange.op === 'modify' &&
@@ -1368,7 +1371,7 @@ export function FileChangeCard({
       className={cn(
         useCompactChangeLayout
           ? cn(
-              'my-0 overflow-hidden text-foreground transition-all duration-200',
+              'my-1 overflow-hidden text-foreground transition-all duration-200',
               isActive ? compactActiveShellClass : 'bg-transparent'
             )
           : 'activity-card-shell my-3 overflow-hidden rounded-[18px] text-foreground transition-all duration-200',
@@ -1382,10 +1385,10 @@ export function FileChangeCard({
         className={cn(
           useCompactChangeLayout
             ? cn(
-                'group w-full rounded-md px-1.5 py-0.5 text-left transition-colors',
+                'group w-full rounded-md px-1.5 py-1 text-left transition-colors',
                 isActive
-                  ? 'hover:bg-background/50 dark:hover:bg-white/[0.04]'
-                  : 'hover:bg-zinc-50 dark:hover:bg-white/[0.03]'
+                  ? 'hover:bg-muted/35 dark:hover:bg-white/[0.04]'
+                  : 'hover:bg-muted/35 dark:hover:bg-white/[0.03]'
               )
             : 'activity-card-header activity-card-header--interactive flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors',
           !useCompactChangeLayout && status === 'running' && 'bg-blue-500/[0.05]'
@@ -1394,29 +1397,35 @@ export function FileChangeCard({
         {useCompactChangeLayout ? (
           <div
             className={cn(
-              'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground transition-colors group-hover:text-foreground',
-              isActive && 'min-h-10'
+              'flex w-full items-center gap-1.5 text-[12px] text-muted-foreground transition-colors group-hover:text-foreground'
             )}
             title={filePath || undefined}
           >
-            <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground/70">
-              <CompactFileIcon op={compactActionOp} />
+            <span
+              className={cn(
+                'flex size-5 shrink-0 items-center justify-center rounded-full border bg-transparent',
+                compactActionOp === 'create'
+                  ? 'border-lime-500/25 text-lime-600 dark:text-lime-400'
+                  : compactActionOp === 'delete'
+                    ? 'border-destructive/25 text-destructive'
+                    : 'border-lime-500/25 text-lime-600 dark:text-lime-400'
+              )}
+            >
+              <CheckCircle2 className="size-3" />
             </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
-                  {compactActionLabel}
-                </span>
-                <span className="min-w-0 truncate text-[12px] font-semibold text-sky-600 transition-colors group-hover:text-sky-700 dark:text-sky-200 dark:group-hover:text-sky-100">
-                  {filePath ? (
-                    fileName(filePath)
-                  ) : (
-                    <span className="text-zinc-500 italic animate-pulse">
-                      {t('toolCall.receivingArgs')}
-                    </span>
-                  )}
-                </span>
-              </span>
+            <span className="shrink-0 text-muted-foreground/55">files</span>
+            <span className="shrink-0 text-muted-foreground/40">&gt;</span>
+            <span className="shrink-0 font-mono font-medium text-foreground/82">{name}</span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground/60">
+              (
+              {filePath ? (
+                <>
+                  {compactActionLabel}: {shortPath(filePath)}
+                </>
+              ) : (
+                t('toolCall.receivingArgs')
+              )}
+              )
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
               {compactEditDiff ? (
@@ -1518,7 +1527,7 @@ export function FileChangeCard({
             className={cn(
               'overflow-hidden',
               useCompactChangeLayout
-                ? 'bg-transparent px-0 pb-3 pt-0.5'
+                ? 'ml-3 border-l border-border/45 pl-5 pt-1 dark:border-white/[0.08]'
                 : 'activity-card-divider border-t bg-background/40'
             )}
           >

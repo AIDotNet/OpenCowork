@@ -612,6 +612,9 @@
     }
   },
   "subAgent": {
+    "queued": "Đang chờ",
+    "synthesizing": "Đang tổng hợp báo cáo…",
+    "doneSynthesized": "Hoàn tất (đã tổng hợp)",
     "working": "làm việc",
     "failed": "bị lỗi",
     "done": "xong",

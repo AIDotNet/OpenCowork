@@ -612,6 +612,9 @@
     }
   },
   "subAgent": {
+    "queued": "Dalam antrean",
+    "synthesizing": "Menyusun laporan…",
+    "doneSynthesized": "Selesai (disusun)",
     "working": "bekerja",
     "failed": "gagal",
     "done": "selesai",

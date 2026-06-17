@@ -161,6 +161,8 @@
     "builtinBrowserDesc": "Abilitare il pannello del browser incorporato e gli strumenti di automazione del browser, permettendo all'agente di navigare siti web, estrarre il contenuto, prendere screenshot, fare clic sugli elementi e compilare i moduli",
     "builtinBrowserEnabled": "Abilitato: Agente può utilizzare BrowserNavigate, BrowserGetContent, BrowserScreenshot, BrowserSnapshot, BrowserClick, BrowserType, BrowserScroll",
     "maxParallelToolCalls": "Max chiamate parallele per turno",
+    "maxConcurrentSubAgents": "Max sub-agenti simultanei",
+    "maxConcurrentSubAgentsDesc": "Quanti sub-agenti Task (e compagni di squadra in background per team) possono essere eseguiti contemporaneamente. Gli avvii aggiuntivi vengono messi in coda finché non si libera uno slot.",
     "maxParallelToolCallsDesc": "Controllare quante chiamate indipendenti dello stesso modello girare può funzionare contemporaneamente. I valori più elevati possono accelerare i flussi di lavoro Bash-heavy, ma aumentare il carico locale.",
     "maxParallelToolCallsHint": "Set a 1 per l'esecuzione seriale.",
     "clarifyAutoAcceptRecommended": "Clarify auto-accetta risposte consigliate",

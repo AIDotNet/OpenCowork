@@ -35,12 +35,8 @@ import { useChannelStore } from '@renderer/stores/channel-store'
 import { useMcpStore } from '@renderer/stores/mcp-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { listCommands, type CommandCatalogItem } from '@renderer/lib/commands/command-loader'
-import { useAppPluginStore } from '@renderer/stores/app-plugin-store'
-import {
-  APP_PLUGIN_DESCRIPTORS,
-  isAppPluginEnabledByDefault,
-  type AppPluginId
-} from '@renderer/lib/app-plugin/types'
+import { resolvePluginsForProject, useAppPluginStore } from '@renderer/stores/app-plugin-store'
+import { APP_PLUGIN_DESCRIPTORS, type AppPluginId } from '@renderer/lib/app-plugin/types'
 
 interface SkillsMenuProps {
   onSelectSkill: (skillName: string) => void
@@ -109,13 +105,12 @@ export function SkillsMenu({
   const mcpTools = useMcpStore((s) => s.serverTools)
   const pluginsByProject = useAppPluginStore((s) => s.pluginsByProject)
   const availablePlugins = React.useMemo(() => {
-    const projectPlugins = pluginsByProject[projectId ?? '__global__'] ?? []
+    const projectPlugins = resolvePluginsForProject(pluginsByProject, projectId)
 
     return APP_PLUGIN_DESCRIPTORS.filter((descriptor) => !descriptor.hidden)
       .map((descriptor) => {
         const plugin = projectPlugins.find((item) => item.id === descriptor.id)
-        const enabled = plugin?.enabled ?? isAppPluginEnabledByDefault(descriptor.id)
-        if (!enabled) return null
+        if (!plugin?.enabled) return null
 
         return {
           id: descriptor.id,

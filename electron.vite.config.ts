@@ -41,7 +41,7 @@ export default defineConfig({
         'motion',
         'framer-motion'
       ],
-      exclude: ['@monaco-editor/react', '@monaco-editor/loader', 'monaco-editor']
+      exclude: ['@monaco-editor/react', '@monaco-editor/loader', 'html-to-image', 'monaco-editor']
     },
     resolve: {
       alias: {

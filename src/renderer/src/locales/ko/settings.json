@@ -161,6 +161,8 @@
     "builtinBrowserDesc": "내장형 브라우저 패널 및 브라우저 자동화 도구를 사용하여 웹 사이트를 탐색하고 콘텐츠를 추출하고 스크린 샷을 찍고 요소를 클릭하고 양식을 작성할 수 있습니다.",
     "builtinBrowserEnabled": "활성화: 에이전트는 BrowserNavigate, BrowserGetContent, BrowserScreenshot, BrowserSnapshot, BrowserClick, BrowserType, BrowserScroll을 사용할 수 있습니다",
     "maxParallelToolCalls": "턴 당 최대 병렬 도구 호출",
+    "maxConcurrentSubAgents": "최대 동시 서브 에이전트 수",
+    "maxConcurrentSubAgentsDesc": "동시에 실행할 수 있는 Task 서브 에이전트(및 팀당 백그라운드 팀원) 수입니다. 초과된 실행은 슬롯이 비워질 때까지 대기열에 들어갑니다.",
     "maxParallelToolCallsDesc": "동일한 모델 턴에서 여러 독립적 인 도구 통화를 한 번에 실행할 수 있는지 제어하십시오. 높은 값은 Bash-heavy 작업 흐름을 가속화 할 수 있지만 로컬 부하를 증가시킵니다.",
     "maxParallelToolCallsHint": "직렬 실행을 위해 1로 설정합니다.",
     "clarifyAutoAcceptRecommended": "Clarify Auto-accept 권장된 답변",

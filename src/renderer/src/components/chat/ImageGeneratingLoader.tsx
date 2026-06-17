@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2 } from 'lucide-react'
+import { ImageIcon, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatDurationMs } from '@renderer/lib/format-duration'
 import {
@@ -24,55 +24,33 @@ interface PlaceholderBarProps {
 
 const GRID_STYLE = {
   backgroundImage:
-    'linear-gradient(color-mix(in srgb, var(--border) 56%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--border) 56%, transparent) 1px, transparent 1px)',
+    'linear-gradient(color-mix(in srgb, var(--border) 48%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--border) 48%, transparent) 1px, transparent 1px)',
   backgroundSize: '24px 24px'
 } satisfies CSSProperties
 
-const CARD_STYLE = {
-  borderColor: 'color-mix(in srgb, var(--border) 84%, transparent)',
-  background:
-    'linear-gradient(180deg, color-mix(in srgb, var(--card) 97%, var(--background) 3%), color-mix(in srgb, var(--card) 88%, var(--muted) 12%))',
-  boxShadow: '0 24px 64px color-mix(in srgb, var(--foreground) 14%, transparent)'
-} satisfies CSSProperties
-
-const CARD_SHEEN_STYLE = {
-  background:
-    'linear-gradient(180deg, color-mix(in srgb, var(--foreground) 4%, transparent), transparent 30%, color-mix(in srgb, var(--foreground) 8%, transparent))'
-} satisfies CSSProperties
-
 const PREVIEW_FRAME_STYLE = {
-  borderColor: 'color-mix(in srgb, var(--border) 82%, transparent)',
-  background: 'color-mix(in srgb, var(--muted) 58%, var(--background) 42%)'
+  borderColor: 'color-mix(in srgb, var(--border) 62%, transparent)',
+  background: 'color-mix(in srgb, var(--background) 88%, var(--muted) 12%)'
 } satisfies CSSProperties
 
 const PREVIEW_FALLBACK_STYLE = {
   background:
-    'linear-gradient(180deg, color-mix(in srgb, var(--foreground) 2%, transparent), color-mix(in srgb, var(--foreground) 7%, transparent))'
+    'linear-gradient(180deg, color-mix(in srgb, var(--foreground) 2%, transparent), color-mix(in srgb, var(--foreground) 6%, transparent))'
 } satisfies CSSProperties
 
 const PREVIEW_IMAGE_OVERLAY_STYLE = {
   background:
-    'linear-gradient(180deg, color-mix(in srgb, var(--card) 16%, transparent), color-mix(in srgb, var(--card) 48%, transparent) 52%, color-mix(in srgb, var(--card) 86%, transparent))'
+    'linear-gradient(180deg, color-mix(in srgb, var(--background) 18%, transparent), color-mix(in srgb, var(--background) 70%, transparent))'
 } satisfies CSSProperties
 
 const SWEEP_STYLE = {
   background:
-    'linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 4%, transparent) 20%, color-mix(in srgb, var(--primary) 18%, transparent) 48%, color-mix(in srgb, var(--foreground) 9%, transparent) 54%, color-mix(in srgb, var(--foreground) 4%, transparent) 82%, transparent)'
+    'linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 5%, transparent) 24%, color-mix(in srgb, var(--primary) 18%, transparent) 48%, color-mix(in srgb, var(--foreground) 7%, transparent) 58%, transparent)'
 } satisfies CSSProperties
 
 const SCAN_LINE_STYLE = {
-  backgroundColor: 'color-mix(in srgb, var(--primary) 72%, var(--foreground) 28%)',
-  boxShadow: '0 0 22px color-mix(in srgb, var(--primary) 28%, transparent)'
-} satisfies CSSProperties
-
-const TOP_GLOW_STYLE = {
-  background:
-    'linear-gradient(180deg, color-mix(in srgb, var(--foreground) 5%, transparent), transparent)'
-} satisfies CSSProperties
-
-const BOTTOM_SHADE_STYLE = {
-  background:
-    'linear-gradient(180deg, transparent, color-mix(in srgb, var(--card) 70%, transparent) 72%, color-mix(in srgb, var(--card) 92%, transparent))'
+  backgroundColor: 'color-mix(in srgb, var(--primary) 68%, var(--foreground) 32%)',
+  boxShadow: '0 0 20px color-mix(in srgb, var(--primary) 30%, transparent)'
 } satisfies CSSProperties
 
 const SHIMMER_BAR_STYLE = {
@@ -81,7 +59,7 @@ const SHIMMER_BAR_STYLE = {
 
 const SHIMMER_BAR_SWEEP_STYLE = {
   background:
-    'linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 36%, transparent), transparent)'
+    'linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 34%, transparent), transparent)'
 } satisfies CSSProperties
 
 const PROGRESS_TRACK_STYLE = {
@@ -90,12 +68,7 @@ const PROGRESS_TRACK_STYLE = {
 
 const PROGRESS_FILL_STYLE = {
   background:
-    'linear-gradient(90deg, color-mix(in srgb, var(--primary) 28%, transparent), color-mix(in srgb, var(--primary) 52%, transparent), transparent)'
-} satisfies CSSProperties
-
-const PROGRESS_SWEEP_STYLE = {
-  background:
-    'linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 48%, transparent), transparent)'
+    'linear-gradient(90deg, color-mix(in srgb, var(--primary) 32%, transparent), color-mix(in srgb, var(--primary) 52%, transparent), transparent)'
 } satisfies CSSProperties
 
 const SWEEP_TRANSITION = {
@@ -113,7 +86,7 @@ const SHIMMER_TRANSITION = {
 function PlaceholderBar({ widthClass, delay = 0 }: PlaceholderBarProps): React.JSX.Element {
   return (
     <div
-      className={`relative h-2.5 overflow-hidden rounded-full ${widthClass}`}
+      className={`relative h-2 overflow-hidden rounded-full ${widthClass}`}
       style={SHIMMER_BAR_STYLE}
     >
       <motion.div
@@ -160,8 +133,8 @@ export function ImageGeneratingLoader({
 
     return () => window.clearInterval(interval)
   }, [startedAt])
-  const liveElapsedMs = startedAt ? Math.max(0, now - startedAt) : 0
 
+  const liveElapsedMs = startedAt ? Math.max(0, now - startedAt) : 0
   const elapsedLabel =
     startedAt && liveElapsedMs > 0
       ? t('toolCall.imagePlugin.elapsed', { duration: formatDurationMs(liveElapsedMs) })
@@ -200,56 +173,56 @@ export function ImageGeneratingLoader({
       layout
       role="status"
       aria-live="polite"
-      className="w-full max-w-[560px]"
-      initial={{ opacity: 0, y: 10, scale: 0.985 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.22, ease: 'easeOut' }}
+      className="my-2 w-full max-w-[560px]"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: 'easeOut' }}
     >
-      <div className="relative overflow-hidden rounded-[24px] border p-5 sm:p-6" style={CARD_STYLE}>
-        <div className="pointer-events-none absolute inset-0" style={CARD_SHEEN_STYLE} />
+      <div className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] text-sky-600 transition-colors dark:text-sky-300">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-sky-500/25 bg-transparent">
+          <Loader2 className="size-3 animate-spin" />
+        </span>
+        <span className="shrink-0 text-muted-foreground/55">gpt-image</span>
+        <span className="shrink-0 text-muted-foreground/40">&gt;</span>
+        <span className="shrink-0 font-mono font-medium text-foreground/82">image_generation</span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground/60">
+          ({t('toolCall.imagePlugin.generating')})
+        </span>
+        {elapsedLabel ? (
+          <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground/60">
+            {elapsedLabel}
+          </span>
+        ) : null}
+      </div>
 
-        <div className="relative flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-2">
-            <motion.p
-              className="max-w-[76%] text-base font-semibold text-foreground sm:text-lg"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.24, ease: 'easeOut' }}
-            >
-              {t('toolCall.imagePlugin.generating')}
-            </motion.p>
-
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <motion.span
-                className="h-1.5 w-1.5 rounded-full bg-primary/80"
-                animate={{ opacity: [0.38, 1, 0.38], scale: [0.88, 1.18, 0.88] }}
-                transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-              />
-              <span>{t('thinking.pending')}</span>
-              {elapsedLabel && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="tabular-nums text-white/60">{elapsedLabel}</span>
-                </>
-              )}
+      <div className="ml-3 mt-1.5 overflow-hidden border-l border-border/45 pl-5 dark:border-white/[0.08]">
+        <div
+          className="overflow-hidden rounded-lg border bg-background/55 dark:bg-[#0d0d0e]"
+          style={PREVIEW_FRAME_STYLE}
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-border/45 px-3 py-2 dark:border-white/[0.08]">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-sky-500/20 bg-sky-500/[0.08] text-sky-600 dark:text-sky-300">
+                <ImageIcon className="size-3.5" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-[12px] font-semibold text-foreground/88">
+                  {t('toolCall.imagePlugin.builtinTitle')}
+                </p>
+                <p className="mt-0.5 truncate text-[10px] text-muted-foreground/65">
+                  {t('toolCall.imagePlugin.running')}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border/80 bg-background/60 text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-          </div>
-        </div>
-
-        <div
-          className="relative mt-5 overflow-hidden rounded-[20px] border"
-          style={PREVIEW_FRAME_STYLE}
-        >
           <div
-            className="relative min-h-[320px]"
+            className="relative overflow-hidden"
             style={{
               aspectRatio: previewDimensions
                 ? `${previewDimensions.width} / ${previewDimensions.height}`
-                : '4 / 3'
+                : '4 / 3',
+              minHeight: 240
             }}
           >
             {previewDisplaySrc ? (
@@ -257,7 +230,7 @@ export function ImageGeneratingLoader({
                 <img
                   src={previewDisplaySrc}
                   alt="Generating image preview"
-                  className="absolute inset-0 h-full w-full scale-[1.03] object-cover opacity-30"
+                  className="absolute inset-0 h-full w-full scale-[1.03] object-cover opacity-35"
                   onLoad={handlePreviewLoad}
                 />
                 <div className="absolute inset-0" style={PREVIEW_IMAGE_OVERLAY_STYLE} />
@@ -266,7 +239,7 @@ export function ImageGeneratingLoader({
               <div className="absolute inset-0" style={PREVIEW_FALLBACK_STYLE} />
             )}
 
-            <div className="absolute inset-0 opacity-55" style={GRID_STYLE} />
+            <div className="absolute inset-0 opacity-50" style={GRID_STYLE} />
 
             <motion.div
               className="absolute inset-y-0 left-[-42%] w-[46%] -skew-x-12 blur-2xl"
@@ -285,17 +258,14 @@ export function ImageGeneratingLoader({
               transition={SWEEP_TRANSITION}
             />
 
-            <div className="absolute inset-x-0 top-0 h-24" style={TOP_GLOW_STYLE} />
-            <div className="absolute inset-x-0 bottom-0 h-40" style={BOTTOM_SHADE_STYLE} />
-
-            <div className="relative flex h-full flex-col justify-between p-5 sm:p-6">
-              <div className="space-y-3">
+            <div className="relative flex h-full flex-col justify-between p-4">
+              <div className="space-y-2.5">
                 <PlaceholderBar widthClass="w-[42%]" />
                 <PlaceholderBar widthClass="w-[58%]" delay={0.12} />
                 <PlaceholderBar widthClass="w-[34%]" delay={0.24} />
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <div
                   className="relative h-1.5 overflow-hidden rounded-full"
                   style={PROGRESS_TRACK_STYLE}
@@ -306,15 +276,8 @@ export function ImageGeneratingLoader({
                     animate={{ scaleX: [0.2, 0.66, 0.4, 0.86, 0.52] }}
                     transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
                   />
-                  <motion.div
-                    className="absolute inset-y-0 left-[-28%] w-[28%] rounded-full"
-                    style={PROGRESS_SWEEP_STYLE}
-                    animate={{ x: ['0%', '450%'] }}
-                    transition={{ duration: 2.25, repeat: Infinity, ease: 'linear' }}
-                  />
                 </div>
-
-                <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.16em] text-muted-foreground/75">
+                <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
                   <span>{t('thinking.pending')}</span>
                   <span>{t('toolCall.imagePlugin.generating')}</span>
                 </div>

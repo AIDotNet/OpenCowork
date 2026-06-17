@@ -261,6 +261,13 @@ interface CompressionResult {
   originalCount: number
   newCount: number
   messagesSummarized?: number
+  /**
+   * True when the LLM summarizer failed and the messages were reduced via the
+   * non-LLM local truncation fallback instead. The loop uses this to keep
+   * counting summarizer failures (so the circuit-breaker still trips) even
+   * though the context was successfully reduced.
+   */
+  summarizerFailed?: boolean
 }
 
 type CompressionTrigger = 'auto' | 'manual'
@@ -3997,13 +4004,12 @@ function getPreCompressionTriggerTokens(config: CompressionConfig): number {
   return Math.max(1, Math.min(threshold, Math.max(1, fullThreshold - 1)))
 }
 
-function shouldCompressContext(
-  inputTokens: number,
-  config: CompressionConfig,
-  consecutiveFailures: number
-): boolean {
+function shouldCompressContext(inputTokens: number, config: CompressionConfig): boolean {
   if (!config.enabled || config.contextLength <= 0) return false
-  if (consecutiveFailures >= CONTEXT_COMPRESSION_MAX_CONSECUTIVE_FAILURES) return false
+  // The summarizer circuit-breaker is intentionally NOT checked here. Once the LLM
+  // summarizer keeps failing, compressMessagesForContext() falls back to a local,
+  // non-LLM truncation instead of doing nothing — so we keep triggering above the
+  // token threshold to guarantee the context stays bounded.
   return inputTokens >= getCompressionTriggerTokens(config)
 }
 
@@ -4359,7 +4365,8 @@ export async function compressMessagesForContext(
   preserveCount = CONTEXT_COMPRESSION_PRESERVE_RECENT_COUNT,
   focusPrompt?: string,
   trigger: CompressionTrigger = 'manual',
-  preTokens = 0
+  preTokens = 0,
+  consecutiveFailures = 0
 ): Promise<{ messages: UnifiedMessage[]; result: CompressionResult }> {
   const originalCount = messages.length
   const minMessagesToCompress = trigger === 'manual' ? 1 : 2
@@ -4386,6 +4393,19 @@ export async function compressMessagesForContext(
       messages,
       result: { compressed: false, originalCount, newCount: originalCount }
     }
+  }
+
+  // Summarizer circuit-breaker is open (the LLM summarizer has failed repeatedly).
+  // Skip the network call and reduce the context locally so it stays bounded.
+  if (consecutiveFailures >= CONTEXT_COMPRESSION_MAX_CONSECUTIVE_FAILURES) {
+    console.warn('[Context Compression] Summarizer circuit open — using local truncation fallback.')
+    return buildLocalContextTruncationResult(
+      messagesToCompress,
+      messagesToPreserve,
+      originalCount,
+      preTokens,
+      false
+    )
   }
 
   let lastError: Error | null = null
@@ -4444,10 +4464,75 @@ export async function compressMessagesForContext(
     }
   }
 
-  console.error('[Context Compression] All attempts failed:', lastError)
+  console.error(
+    '[Context Compression] All attempts failed, falling back to local truncation:',
+    lastError
+  )
+  // The summarizer failed for this attempt. Rather than leaving the context
+  // unbounded, drop the oldest messages locally at a tool-pair-safe boundary and
+  // flag the summarizer failure so the loop's circuit-breaker still trips.
+  return buildLocalContextTruncationResult(
+    messagesToCompress,
+    messagesToPreserve,
+    originalCount,
+    preTokens,
+    true
+  )
+}
+
+/**
+ * Non-LLM fallback used when the summarizer is unavailable or its circuit-breaker
+ * is open. Produces the SAME boundary + summary artifact shape as a successful
+ * compression (so downstream merge/render logic treats it identically), but the
+ * "summary" is a placeholder noting the older messages were dropped without an
+ * LLM-generated summary. The original task message is appended verbatim when
+ * available so the model retains the overall goal.
+ */
+function buildLocalContextTruncationResult(
+  messagesToCompress: UnifiedMessage[],
+  messagesToPreserve: UnifiedMessage[],
+  originalCount: number,
+  preTokens: number,
+  summarizerFailed: boolean
+): { messages: UnifiedMessage[]; result: CompressionResult } {
+  const originalTask = findOriginalContextTaskMessage(messagesToCompress)
+  const taskText = originalTask ? extractContextMessageText(originalTask) : ''
+  let summaryBody =
+    `Automatic summarization was unavailable, so ${messagesToCompress.length} earlier messages ` +
+    `were dropped to keep the conversation within the model's context window. ` +
+    `Their detailed content could not be preserved.`
+  if (taskText) {
+    summaryBody = `${summaryBody}\n\n${taskText}`
+  }
+
+  const boundaryMessage = createContextCompressionBoundaryMessage({
+    trigger: 'auto',
+    preTokens,
+    messagesSummarized: messagesToCompress.length,
+    preservedMessages: messagesToPreserve
+  })
+  const summaryMessage = createContextCompressionSummaryMessage({
+    summary: summaryBody,
+    messagesSummarized: messagesToCompress.length,
+    recentMessagesPreserved: messagesToPreserve.length > 0
+  })
+  const boundaryMeta = boundaryMessage.meta?.compactBoundary as
+    | { preservedSegment?: { anchorId: string } }
+    | undefined
+  if (boundaryMeta?.preservedSegment) {
+    boundaryMeta.preservedSegment.anchorId = summaryMessage.id
+  }
+
+  const compressedMessages = [boundaryMessage, summaryMessage, ...messagesToPreserve]
   return {
-    messages,
-    result: { compressed: false, originalCount, newCount: originalCount }
+    messages: compressedMessages,
+    result: {
+      compressed: true,
+      originalCount,
+      newCount: compressedMessages.length,
+      messagesSummarized: messagesToCompress.length,
+      summarizerFailed
+    }
   }
 }
 
@@ -4480,7 +4565,7 @@ async function* runAgentLoop(
 
     if (lastInputTokens > 0 && config.contextCompression) {
       const compression = config.contextCompression
-      if (shouldCompressContext(lastInputTokens, compression, consecutiveCompressionFailures)) {
+      if (shouldCompressContext(lastInputTokens, compression)) {
         yield { type: 'context_compression_start' }
         if (config.signal.aborted) {
           yield buildLoopEndEvent('aborted')
@@ -4497,12 +4582,18 @@ async function* runAgentLoop(
               : CONTEXT_COMPRESSION_PRESERVE_RECENT_COUNT,
             undefined,
             'auto',
-            lastInputTokens
+            lastInputTokens,
+            consecutiveCompressionFailures
           )
           conversationMessages = [...compressedMessages]
           if (result.compressed) {
             fullCompressionApplied = true
-            consecutiveCompressionFailures = 0
+            // Keep counting summarizer failures even though the local fallback
+            // reduced the context, so the circuit-breaker still trips and we stop
+            // hammering a broken summarizer. A real LLM compression resets it.
+            consecutiveCompressionFailures = result.summarizerFailed
+              ? consecutiveCompressionFailures + 1
+              : 0
             const boundaryMessage = conversationMessages.find(
               (message) => message.role === 'system' && message.meta?.compactBoundary
             )

@@ -45,6 +45,7 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { openDetachedSessionWindow } from '@renderer/lib/session-window'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
+import { loadHtmlToImage } from '@renderer/lib/utils/html-to-image-loader'
 import { cn } from '@renderer/lib/utils'
 import { dataUrlToBlob, writeImageBlobToClipboard } from '@renderer/lib/utils/image-clipboard'
 import { useChatStore } from '@renderer/stores/chat-store'
@@ -301,7 +302,7 @@ export function SessionConversationPane({
           .getPropertyValue('--background')
           .trim()
         const bgColor = bgRaw ? `hsl(${bgRaw})` : '#ffffff'
-        const { toPng } = await import('html-to-image')
+        const { toPng } = await loadHtmlToImage()
         const captureWidth = node.clientWidth
         const captureHeight = Math.max(
           exportNode.scrollHeight,

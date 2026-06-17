@@ -85,6 +85,17 @@ export interface SubAgentResult {
 
 export type SubAgentEvent =
   | {
+      type: 'sub_agent_queued'
+      subAgentName: string
+      toolUseId: string
+      input: Record<string, unknown>
+    }
+  | {
+      type: 'sub_agent_dequeued'
+      subAgentName: string
+      toolUseId: string
+    }
+  | {
       type: 'sub_agent_start'
       subAgentName: string
       toolUseId: string
@@ -164,7 +175,7 @@ export type SubAgentEvent =
       subAgentName: string
       toolUseId: string
       report: string
-      status: 'pending' | 'submitted' | 'retrying' | 'fallback' | 'missing'
+      status: 'pending' | 'queued' | 'submitted' | 'retrying' | 'fallback' | 'missing'
     }
   | {
       type: 'sub_agent_tool_call'

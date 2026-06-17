@@ -139,7 +139,8 @@ linux:
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
-npmRebuild: true
+# Native modules are rebuilt by scripts/postinstall.mjs during npm ci.
+npmRebuild: false
 publish:
   provider: github
   owner: AIDotNet

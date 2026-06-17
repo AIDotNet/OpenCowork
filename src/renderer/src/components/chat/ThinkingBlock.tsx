@@ -1,6 +1,6 @@
 import { memo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, ChevronDown } from 'lucide-react'
+import { BrainCircuit, ChevronRight, ChevronDown } from 'lucide-react'
 import Markdown from 'react-markdown'
 import { MONO_FONT } from '@renderer/lib/constants'
 import { useSettingsStore } from '@renderer/stores/settings-store'
@@ -82,6 +82,9 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         : isThinking
           ? t('thinking.thinkingEllipsis')
           : t('thinking.thoughts')
+  const headerLabel = isThinking
+    ? t('thinking.deepThinking', { defaultValue: 'Thinking deeply' })
+    : t('thinking.deepThought', { defaultValue: 'Thought deeply' })
 
   const compactElapsedLabel =
     liveElapsed > 0
@@ -93,19 +96,29 @@ export const ThinkingBlock = memo(function ThinkingBlock({
       : ''
 
   return (
-    <div className={`my-5${liveComponentClassName ? ` ${liveComponentClassName}` : ''}`}>
+    <div className={`my-4 min-w-0${liveComponentClassName ? ` ${liveComponentClassName}` : ''}`}>
       <button
         onClick={() => {
           if (isThinking) return
           setCollapsed((v) => !v)
         }}
-        className="flex items-center gap-1 text-sm text-muted-foreground/60 hover:text-muted-foreground transition-colors group"
+        title={durationLabel}
+        className="group inline-flex max-w-full items-center gap-1.5 rounded-md px-0.5 py-1 text-left text-[13px] text-muted-foreground/70 transition-colors hover:text-foreground"
       >
-        <span className="group-hover:text-primary/80 transition-colors">{durationLabel}</span>
+        <span
+          className={`flex size-5 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/20 text-violet-600 transition-colors group-hover:border-violet-500/30 group-hover:text-violet-500 dark:border-white/[0.08] dark:bg-white/[0.025] dark:text-violet-400 ${
+            isThinking
+              ? 'shadow-[0_0_0_1px_rgba(139,92,246,0.08)] animate-pulse'
+              : 'shadow-[0_0_0_1px_rgba(139,92,246,0.04)]'
+          }`}
+        >
+          <BrainCircuit className="size-3" />
+        </span>
+        <span className="min-w-0 truncate font-medium">{headerLabel}</span>
         {expanded ? (
-          <ChevronDown className="size-3.5 transition-transform duration-200" />
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground/55 transition-colors group-hover:text-foreground" />
         ) : (
-          <ChevronRight className="size-3.5 transition-transform duration-200" />
+          <ChevronRight className="size-3 shrink-0 text-muted-foreground/55 transition-colors group-hover:text-foreground" />
         )}
       </button>
 
@@ -116,14 +129,11 @@ export const ThinkingBlock = memo(function ThinkingBlock({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            className="overflow-hidden"
+            className="mt-2 overflow-hidden"
           >
-            <div className="mt-1.5 text-sm text-muted-foreground/80 leading-relaxed">
+            <div className="max-w-full px-0.5 pb-1 text-sm leading-7 text-muted-foreground/75">
               {hasThinkingContent ? (
-                <div
-                  ref={contentRef}
-                  className="max-h-80 overflow-y-auto border-l border-border/45 pl-2.5"
-                >
+                <div ref={contentRef} className="max-h-80 overflow-y-auto">
                   {isThinking ? (
                     <div
                       className={`${getLiveOutputSurfaceClass(liveOutputAnimationStyle)} whitespace-pre-wrap break-words leading-relaxed`}
@@ -135,47 +145,58 @@ export const ThinkingBlock = memo(function ThinkingBlock({
                       <span className={getLiveOutputCursorClass(liveOutputAnimationStyle)} />
                     </div>
                   ) : (
-                    <Markdown
-                      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-                      rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
-                      components={{
-                        a: ({ href, children, ...props }) => (
-                          <a
-                            {...props}
-                            href={href}
-                            className="text-primary underline underline-offset-2 hover:text-primary/80 break-all"
-                            onClick={(event) => {
-                              if (!href) return
-                              const handled = openMarkdownHref(href)
-                              if (handled) event.preventDefault()
-                            }}
-                          >
-                            {children}
-                          </a>
-                        ),
-                        code: ({ children, className, ...props }) => {
-                          const isInline = !className
-                          if (isInline) {
-                            const code = String(children ?? '').replace(/\n$/, '')
-                            const resolvedPath = resolveLocalFilePath(code)
-                            if (resolvedPath) {
+                    <div className="[&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1">
+                      <Markdown
+                        remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                        rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+                        components={{
+                          a: ({ href, children, ...props }) => (
+                            <a
+                              {...props}
+                              href={href}
+                              className="text-primary underline underline-offset-2 hover:text-primary/80 break-all"
+                              onClick={(event) => {
+                                if (!href) return
+                                const handled = openMarkdownHref(href)
+                                if (handled) event.preventDefault()
+                              }}
+                            >
+                              {children}
+                            </a>
+                          ),
+                          code: ({ children, className, ...props }) => {
+                            const isInline = !className
+                            if (isInline) {
+                              const code = String(children ?? '').replace(/\n$/, '')
+                              const resolvedPath = resolveLocalFilePath(code)
+                              if (resolvedPath) {
+                                return (
+                                  <button
+                                    type="button"
+                                    className="cursor-pointer rounded bg-muted px-1 py-0.5 text-xs font-mono text-primary underline-offset-2 hover:underline"
+                                    style={{ fontFamily: MONO_FONT }}
+                                    title={resolvedPath}
+                                    onClick={() => {
+                                      void openLocalFilePath(code)
+                                    }}
+                                  >
+                                    {children}
+                                  </button>
+                                )
+                              }
                               return (
-                                <button
-                                  type="button"
-                                  className="cursor-pointer rounded bg-muted px-1 py-0.5 text-xs font-mono text-primary underline-offset-2 hover:underline"
+                                <code
+                                  className="rounded bg-muted px-1 py-0.5 text-xs font-mono"
                                   style={{ fontFamily: MONO_FONT }}
-                                  title={resolvedPath}
-                                  onClick={() => {
-                                    void openLocalFilePath(code)
-                                  }}
+                                  {...props}
                                 >
                                   {children}
-                                </button>
+                                </code>
                               )
                             }
                             return (
                               <code
-                                className="rounded bg-muted px-1 py-0.5 text-xs font-mono"
+                                className={className}
                                 style={{ fontFamily: MONO_FONT }}
                                 {...props}
                               >
@@ -183,20 +204,11 @@ export const ThinkingBlock = memo(function ThinkingBlock({
                               </code>
                             )
                           }
-                          return (
-                            <code
-                              className={className}
-                              style={{ fontFamily: MONO_FONT }}
-                              {...props}
-                            >
-                              {children}
-                            </code>
-                          )
-                        }
-                      }}
-                    >
-                      {thinking}
-                    </Markdown>
+                        }}
+                      >
+                        {thinking}
+                      </Markdown>
+                    </div>
                   )}
                 </div>
               ) : (

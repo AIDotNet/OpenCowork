@@ -73,6 +73,10 @@ export const DEFAULT_MAX_PARALLEL_TOOL_CALLS = 8
 export const MIN_MAX_PARALLEL_TOOL_CALLS = 1
 export const MAX_MAX_PARALLEL_TOOL_CALLS = 16
 
+export const DEFAULT_MAX_CONCURRENT_SUB_AGENTS = 2
+export const MIN_MAX_CONCURRENT_SUB_AGENTS = 1
+export const MAX_MAX_CONCURRENT_SUB_AGENTS = 8
+
 export interface RecentWorkingTarget {
   workingFolder: string
   sshConnectionId: string | null
@@ -139,6 +143,14 @@ export function clampMaxParallelToolCalls(value: number): number {
   return Math.min(
     MAX_MAX_PARALLEL_TOOL_CALLS,
     Math.max(MIN_MAX_PARALLEL_TOOL_CALLS, Math.floor(value))
+  )
+}
+
+export function clampMaxConcurrentSubAgents(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_MAX_CONCURRENT_SUB_AGENTS
+  return Math.min(
+    MAX_MAX_CONCURRENT_SUB_AGENTS,
+    Math.max(MIN_MAX_CONCURRENT_SUB_AGENTS, Math.floor(value))
   )
 }
 
@@ -250,6 +262,7 @@ interface SettingsStore {
   editorWorkspaceEnabled: boolean
   editorRemoteLanguageServiceEnabled: boolean
   maxParallelToolCalls: number
+  maxConcurrentSubAgents: number
   toolResultFormat: 'toon' | 'json'
   fileDiffViewMode: FileDiffViewMode
   shellExecutionEndpoint: ShellExecutionEndpoint
@@ -364,6 +377,7 @@ export const useSettingsStore = create<SettingsStore>()(
       editorWorkspaceEnabled: false,
       editorRemoteLanguageServiceEnabled: false,
       maxParallelToolCalls: DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+      maxConcurrentSubAgents: DEFAULT_MAX_CONCURRENT_SUB_AGENTS,
       toolResultFormat: 'toon',
       fileDiffViewMode: 'split',
       shellExecutionEndpoint: DEFAULT_SHELL_EXECUTION_ENDPOINT,
@@ -436,7 +450,12 @@ export const useSettingsStore = create<SettingsStore>()(
             ...patch,
             ...(patch.maxParallelToolCalls === undefined
               ? {}
-              : { maxParallelToolCalls: clampMaxParallelToolCalls(patch.maxParallelToolCalls) })
+              : { maxParallelToolCalls: clampMaxParallelToolCalls(patch.maxParallelToolCalls) }),
+            ...(patch.maxConcurrentSubAgents === undefined
+              ? {}
+              : {
+                  maxConcurrentSubAgents: clampMaxConcurrentSubAgents(patch.maxConcurrentSubAgents)
+                })
           }
 
           const hasChanges = (Object.keys(nextPatch) as Array<keyof SettingsStoreData>).some(
@@ -459,7 +478,7 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'opencowork-settings',
-      version: 24,
+      version: 25,
       storage: createJSONStorage(() => ipcStorage),
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Record<string, unknown>
@@ -610,6 +629,14 @@ export const useSettingsStore = create<SettingsStore>()(
         } else {
           state.maxParallelToolCalls = clampMaxParallelToolCalls(state.maxParallelToolCalls)
         }
+        if (
+          state.maxConcurrentSubAgents === undefined ||
+          typeof state.maxConcurrentSubAgents !== 'number'
+        ) {
+          state.maxConcurrentSubAgents = DEFAULT_MAX_CONCURRENT_SUB_AGENTS
+        } else {
+          state.maxConcurrentSubAgents = clampMaxConcurrentSubAgents(state.maxConcurrentSubAgents)
+        }
         if (state.reasoningEffortByModel === undefined) {
           state.reasoningEffortByModel = {}
         }
@@ -736,6 +763,7 @@ export const useSettingsStore = create<SettingsStore>()(
         editorWorkspaceEnabled: state.editorWorkspaceEnabled,
         editorRemoteLanguageServiceEnabled: state.editorRemoteLanguageServiceEnabled,
         maxParallelToolCalls: clampMaxParallelToolCalls(state.maxParallelToolCalls),
+        maxConcurrentSubAgents: clampMaxConcurrentSubAgents(state.maxConcurrentSubAgents),
         toolResultFormat: state.toolResultFormat,
         fileDiffViewMode: state.fileDiffViewMode,
         shellExecutionEndpoint: normalizeShellExecutionEndpoint(state.shellExecutionEndpoint),

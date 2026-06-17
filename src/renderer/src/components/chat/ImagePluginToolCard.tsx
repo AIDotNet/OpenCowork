@@ -1,7 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ChevronDown, ImageIcon, Loader2, TriangleAlert } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ImageIcon,
+  Loader2,
+  TriangleAlert,
+  X
+} from 'lucide-react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ImageBlock, TextBlock, ToolResultContent } from '@renderer/lib/api/types'
 import {
@@ -11,6 +19,7 @@ import {
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import { Button } from '@renderer/components/ui/button'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
+import { cn } from '@renderer/lib/utils'
 import { ImagePreview } from './ImagePreview'
 
 interface ImagePluginToolCardProps {
@@ -69,6 +78,38 @@ function parseRetryState(input: Record<string, unknown>): ImageGenerateRetryStat
   }
 }
 
+function lifecycleIcon({
+  isRunning,
+  hasError
+}: {
+  isRunning: boolean
+  hasError: boolean
+}): React.JSX.Element {
+  if (isRunning) return <Loader2 className="size-3 animate-spin" />
+  if (hasError) return <X className="size-3" />
+  return <Check className="size-3" />
+}
+
+function lifecycleShellClassName({
+  isRunning,
+  hasError
+}: {
+  isRunning: boolean
+  hasError: boolean
+}): string {
+  if (hasError) return 'border-destructive/25 text-destructive'
+  if (isRunning) return 'border-sky-500/25 text-sky-600 dark:text-sky-300'
+  return 'border-lime-500/25 text-lime-600 dark:text-lime-400'
+}
+
+function SectionHeader({ label }: { label: string }): React.JSX.Element {
+  return (
+    <div className="border-b border-border/45 pb-2 pt-0.5 text-[12px] font-semibold text-foreground/88 dark:border-white/[0.08]">
+      {label}
+    </div>
+  )
+}
+
 export function ImagePluginToolCard({
   toolUseId,
   input,
@@ -100,9 +141,22 @@ export function ImagePluginToolCard({
     status === 'pending_approval' ||
     status === 'running' ||
     isAwaitingRetry
-  const [collapsed, setCollapsed] = useState(!isRunning)
   const hasError =
     !isAwaitingRetry && (status === 'error' || (!!parsedError && images.length === 0))
+  const [collapsed, setCollapsed] = useState(!isRunning)
+
+  useEffect(() => {
+    if (isRunning) setCollapsed(false)
+  }, [isRunning])
+
+  const statusLabel = isAwaitingRetry
+    ? t('toolCall.imagePlugin.waitingRetry')
+    : isRunning
+      ? t('toolCall.imagePlugin.running')
+      : hasError
+        ? t('toolCall.imagePlugin.failed')
+        : t('toolCall.imagePlugin.completed')
+  const promptSummary = prompt.trim() || t('toolCall.receivingArgs')
 
   const handleRetry = async (): Promise<void> => {
     if (!toolUseId || !retryState) return
@@ -122,79 +176,41 @@ export function ImagePluginToolCard({
   }
 
   return (
-    <motion.div
-      layout
-      className="overflow-hidden rounded-xl border bg-background shadow-sm transition-shadow hover:shadow-md"
-      transition={CONTENT_TRANSITION}
-    >
-      <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <motion.span
-            className="rounded-lg bg-primary/10 p-2 text-primary"
-            animate={
-              isRunning
-                ? {
-                    scale: [1, 1.06, 1],
-                    rotate: [0, -4, 4, 0]
-                  }
-                : {
-                    scale: 1,
-                    rotate: 0
-                  }
-            }
-            transition={
-              isRunning
-                ? {
-                    duration: 1.8,
-                    repeat: Infinity,
-                    ease: 'easeInOut'
-                  }
-                : ITEM_TRANSITION
-            }
-          >
-            <ImageIcon className="size-4" />
-          </motion.span>
-          <div>
-            <p className="text-sm font-medium">{t('toolCall.imagePlugin.title')}</p>
-            <motion.p
-              key={`${status}-${images.length}-${hasError ? 'error' : 'ok'}`}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={ITEM_TRANSITION}
-              className="text-[11px] text-muted-foreground"
-            >
-              {isAwaitingRetry
-                ? t('toolCall.imagePlugin.waitingRetry')
-                : isRunning
-                  ? t('toolCall.imagePlugin.running')
-                  : hasError
-                    ? t('toolCall.imagePlugin.failed')
-                    : t('toolCall.imagePlugin.completed')}
-            </motion.p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <motion.span
-            layout
-            className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
-          >
-            {t('toolCall.imagePlugin.countValue', { count: requestedCount })}
-          </motion.span>
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.96 }}
-            onClick={() => setCollapsed((value) => !value)}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <span>
-              {collapsed ? t('showMore', { ns: 'common' }) : t('showLess', { ns: 'common' })}
-            </span>
-            <motion.span animate={{ rotate: collapsed ? 0 : 180 }} transition={ITEM_TRANSITION}>
-              <ChevronDown className="size-3" />
-            </motion.span>
-          </motion.button>
-        </div>
-      </div>
+    <motion.div layout className="my-1 min-w-0 overflow-hidden" transition={CONTENT_TRANSITION}>
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        onClick={() => setCollapsed((value) => !value)}
+        className={cn(
+          'group flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] transition-colors hover:bg-muted/35 hover:text-foreground dark:hover:bg-white/[0.035]',
+          hasError
+            ? 'text-destructive/85'
+            : isRunning
+              ? 'text-sky-600 dark:text-sky-300'
+              : 'text-muted-foreground'
+        )}
+      >
+        <span
+          className={cn(
+            'flex size-5 shrink-0 items-center justify-center rounded-full border bg-transparent',
+            lifecycleShellClassName({ isRunning, hasError })
+          )}
+        >
+          {lifecycleIcon({ isRunning, hasError })}
+        </span>
+        <span className="shrink-0 text-muted-foreground/55">image</span>
+        <span className="shrink-0 text-muted-foreground/40">&gt;</span>
+        <span className="shrink-0 font-mono font-medium text-foreground/82">ImageGenerate</span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground/60">({promptSummary})</span>
+        <span className="hidden shrink-0 rounded-full border border-border/55 bg-background/70 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground sm:inline-flex dark:bg-white/[0.035]">
+          {t('toolCall.imagePlugin.countValue', { count: requestedCount })}
+        </span>
+        {collapsed ? (
+          <ChevronRight className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
+        ) : (
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
+        )}
+      </button>
 
       <AnimatePresence initial={false}>
         {!collapsed ? (
@@ -205,16 +221,20 @@ export function ImagePluginToolCard({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={CONTENT_TRANSITION}
-            className="overflow-hidden"
+            className="ml-3 mt-1.5 overflow-hidden border-l border-border/45 pl-5 dark:border-white/[0.08]"
           >
-            <div className="space-y-4 px-4 py-4">
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t('toolCall.imagePlugin.prompt')}
-                </p>
-                <p className="rounded-lg bg-muted/20 px-3 py-2 text-sm leading-relaxed text-foreground whitespace-pre-wrap break-words">
-                  {prompt || '-'}
-                </p>
+            <div className="space-y-3 rounded-lg border border-border/55 bg-background/55 px-3 py-3 dark:border-white/[0.08] dark:bg-[#0d0d0e]">
+              <div className="space-y-2">
+                <SectionHeader label={t('toolCall.parameters')} />
+                <div className="space-y-1.5 rounded-md bg-muted/20 px-3 py-2 text-xs">
+                  <div className="flex items-center gap-2 text-muted-foreground/70">
+                    <ImageIcon className="size-3.5 shrink-0" />
+                    <span>{statusLabel}</span>
+                  </div>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/85">
+                    {prompt || '-'}
+                  </p>
+                </div>
               </div>
 
               {isAwaitingRetry ? (
@@ -222,9 +242,9 @@ export function ImagePluginToolCard({
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={ITEM_TRANSITION}
-                  className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm"
+                  className="space-y-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.045] px-3 py-3 text-sm"
                 >
-                  <div className="flex items-start gap-2 text-amber-600 dark:text-amber-300">
+                  <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
                     <TriangleAlert className="mt-0.5 size-4 shrink-0" />
                     <div className="space-y-1">
                       <p className="font-medium">{t('toolCall.imagePlugin.retryRequired')}</p>
@@ -255,9 +275,9 @@ export function ImagePluginToolCard({
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={ITEM_TRANSITION}
-                  className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground"
+                  className="flex items-center gap-2 rounded-lg border border-dashed border-sky-500/20 bg-sky-500/[0.035] px-3 py-3 text-sm text-muted-foreground"
                 >
-                  <Loader2 className="size-4 animate-spin" />
+                  <Loader2 className="size-4 animate-spin text-sky-500" />
                   <span>{t('toolCall.imagePlugin.generating')}</span>
                 </motion.div>
               ) : null}
@@ -267,73 +287,79 @@ export function ImagePluginToolCard({
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={ITEM_TRANSITION}
-                  className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm text-destructive"
+                  className="rounded-lg border border-destructive/30 bg-destructive/[0.035] px-3 py-3 text-sm text-destructive"
                 >
                   <div className="flex items-center gap-2">
-                    <TriangleAlert className="size-4" />
-                    <span>{parsedError}</span>
+                    <TriangleAlert className="size-4 shrink-0" />
+                    <span className="min-w-0 break-words">{parsedError}</span>
                   </div>
                 </motion.div>
               ) : null}
 
-              {images.length > 0 ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={ITEM_TRANSITION}
-                  className="space-y-3"
-                >
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t('toolCall.imagePlugin.result', { count: images.length })}
-                  </p>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {images.map((image, index) => {
-                      const src =
-                        image.source.type === 'base64' && image.source.data
-                          ? `data:${image.source.mediaType || 'image/png'};base64,${image.source.data}`
-                          : (image.source.url ?? '')
-                      if (!src && !image.source.filePath) return null
-                      return (
-                        <motion.div
-                          key={`${image.source.filePath ?? src}-${index}`}
-                          initial={{ opacity: 0, y: 10, scale: 0.98 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          transition={{ ...ITEM_TRANSITION, delay: index * 0.06 }}
-                        >
-                          <ImagePreview
-                            src={src}
-                            alt={`Generated image ${index + 1}`}
-                            filePath={image.source.filePath}
-                          />
-                        </motion.div>
-                      )
-                    })}
-                  </div>
-                </motion.div>
-              ) : null}
-
-              {notes.length > 0 ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={ITEM_TRANSITION}
-                  className="space-y-2"
-                >
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t('toolCall.imagePlugin.notes')}
-                  </p>
-                  {notes.map((note, index) => (
-                    <motion.p
-                      key={`${note.text}-${index}`}
-                      initial={{ opacity: 0, y: 6 }}
+              {images.length > 0 || notes.length > 0 ? (
+                <div className="space-y-3">
+                  <SectionHeader
+                    label={
+                      images.length > 0
+                        ? t('toolCall.imagePlugin.result', { count: images.length })
+                        : t('toolCall.result')
+                    }
+                  />
+                  {images.length > 0 ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ ...ITEM_TRANSITION, delay: index * 0.04 }}
-                      className="rounded-lg bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words"
+                      transition={ITEM_TRANSITION}
+                      className="grid gap-3 md:grid-cols-2"
                     >
-                      {note.text}
-                    </motion.p>
-                  ))}
-                </motion.div>
+                      {images.map((image, index) => {
+                        const src =
+                          image.source.type === 'base64' && image.source.data
+                            ? `data:${image.source.mediaType || 'image/png'};base64,${image.source.data}`
+                            : (image.source.url ?? '')
+                        if (!src && !image.source.filePath) return null
+                        return (
+                          <motion.div
+                            key={`${image.source.filePath ?? src}-${index}`}
+                            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            transition={{ ...ITEM_TRANSITION, delay: index * 0.06 }}
+                          >
+                            <ImagePreview
+                              src={src}
+                              alt={`Generated image ${index + 1}`}
+                              filePath={image.source.filePath}
+                            />
+                          </motion.div>
+                        )
+                      })}
+                    </motion.div>
+                  ) : null}
+
+                  {notes.length > 0 ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={ITEM_TRANSITION}
+                      className="space-y-2"
+                    >
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {t('toolCall.imagePlugin.notes')}
+                      </p>
+                      {notes.map((note, index) => (
+                        <motion.p
+                          key={`${note.text}-${index}`}
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ ...ITEM_TRANSITION, delay: index * 0.04 }}
+                          className="whitespace-pre-wrap break-words rounded-lg bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground"
+                        >
+                          {note.text}
+                        </motion.p>
+                      ))}
+                    </motion.div>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </motion.div>

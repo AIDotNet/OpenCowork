@@ -5,21 +5,36 @@ import type { IPCClient } from '../tools/tool-types'
  * Wraps Electron's ipcRenderer with typed interface.
  */
 class ElectronIPCClient implements IPCClient {
+  private get ipcRenderer(): typeof window.electron.ipcRenderer | null {
+    return window.electron?.ipcRenderer ?? null
+  }
+
   async invoke(channel: string, ...args: unknown[]): Promise<unknown> {
-    return window.electron.ipcRenderer.invoke(channel, ...args)
+    const ipcRenderer = this.ipcRenderer
+    if (!ipcRenderer) {
+      throw new Error(`IPC channel "${channel}" is unavailable: Electron preload bridge is missing`)
+    }
+
+    return ipcRenderer.invoke(channel, ...args)
   }
 
   send(channel: string, ...args: unknown[]): void {
-    window.electron.ipcRenderer.send(channel, ...args)
+    const ipcRenderer = this.ipcRenderer
+    if (!ipcRenderer) return
+
+    ipcRenderer.send(channel, ...args)
   }
 
   on(channel: string, callback: (...args: unknown[]) => void): () => void {
+    const ipcRenderer = this.ipcRenderer
+    if (!ipcRenderer) return () => {}
+
     const handler = (_event: unknown, ...args: unknown[]): void => {
       callback(...args)
     }
-    window.electron.ipcRenderer.on(channel, handler)
+    ipcRenderer.on(channel, handler)
     return () => {
-      window.electron.ipcRenderer.removeListener(channel, handler)
+      ipcRenderer.removeListener(channel, handler)
     }
   }
 }

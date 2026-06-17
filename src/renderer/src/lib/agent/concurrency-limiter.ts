@@ -6,12 +6,34 @@
 export class ConcurrencyLimiter {
   private running = 0
   private queue: Array<() => void> = []
+  private _maxConcurrent: number
 
-  constructor(private maxConcurrent: number) {}
+  constructor(maxConcurrent: number) {
+    this._maxConcurrent = maxConcurrent
+  }
 
   /** Current number of running tasks. */
   get activeCount(): number {
     return this.running
+  }
+
+  /** Configured maximum number of concurrent tasks. */
+  get maxConcurrent(): number {
+    return this._maxConcurrent
+  }
+
+  /**
+   * Update the concurrency cap at runtime. Raising it drains any queued tasks
+   * that now fit under the new cap. Each dequeued task's `enqueue` closure
+   * increments `running` itself (see {@link acquire}), so we must NOT
+   * pre-increment here — just invoke under the recomputed guard.
+   */
+  setMax(n: number): void {
+    this._maxConcurrent = Math.max(1, Math.floor(n))
+    while (this.running < this._maxConcurrent && this.queue.length > 0) {
+      const next = this.queue.shift()!
+      next()
+    }
   }
 
   /** Current number of queued (waiting) tasks. */
@@ -29,7 +51,7 @@ export class ConcurrencyLimiter {
       return Promise.reject(new DOMException('Aborted', 'AbortError'))
     }
 
-    if (this.running < this.maxConcurrent) {
+    if (this.running < this._maxConcurrent) {
       this.running++
       return Promise.resolve()
     }

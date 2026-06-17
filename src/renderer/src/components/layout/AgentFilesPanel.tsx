@@ -113,6 +113,8 @@ type ChangeRow = GitChangeRow | AgentChangeRow
 
 const EMPTY_SESSION_MESSAGES: UnifiedMessage[] = []
 const EMPTY_DIFF_BY_KEY: Record<string, string> = {}
+const MAX_PRELOAD_DIFFS = 160
+const DIFF_PRELOAD_BATCH_SIZE = 8
 
 function dirname(input: string): string {
   const normalized = input.replace(/\\/g, '/')
@@ -420,8 +422,10 @@ function ChangeDiffDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          'agent-files-diff-dialog gap-0 overflow-hidden p-0',
-          fullscreen ? 'h-[92vh] max-w-[96vw]' : 'h-[72vh] max-w-[920px]'
+          'agent-files-diff-dialog grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0',
+          fullscreen
+            ? 'h-[92vh] w-[96vw] max-w-[96vw] sm:max-w-[96vw]'
+            : 'h-[72vh] w-[92vw] max-w-[1100px] sm:max-w-[1100px]'
         )}
       >
         <div className="flex h-9 items-center gap-2 border-b border-agent-files-border bg-agent-files-panel px-2">
@@ -491,7 +495,7 @@ function ChangeDiffDialog({
               />
             ))}
           </div>
-          <div className="min-h-0 overflow-auto p-3">
+          <div className="flex min-h-0 flex-col overflow-hidden p-3">
             {loading ? (
               <div className="flex h-full items-center justify-center text-sm text-agent-files-muted">
                 <Loader2 className="mr-2 size-4 animate-spin" />
@@ -514,6 +518,7 @@ function ChangeDiffDialog({
                 defaultMode="inline"
                 showModeToggle
                 toolbarEnd={null}
+                fillHeight
               />
             )}
           </div>
@@ -596,6 +601,7 @@ export function AgentFilesPanel({
   const [fileSearchOpen, setFileSearchOpen] = React.useState(false)
   const [fileTreeCommand, setFileTreeCommand] = React.useState<AgentFileTreeCommand | null>(null)
   const requestedRefreshRef = React.useRef<string | null>(null)
+  const preloadingDiffKeysRef = React.useRef(new Set<string>())
   const selectedRepoPath = git.selectedRepoPath
   const scanRepositories = git.scanRepositories
   const loadFileDiff = git.loadFileDiff
@@ -708,16 +714,36 @@ export function AgentFilesPanel({
 
   React.useEffect(() => {
     if (!selectedRepoPath || gitRowsBase.length === 0) return
-    const missing = gitRowsBase.filter(
-      (row) => row.section !== 'untracked' && diffByKey[gitDiffKey(row)] === undefined
-    )
+    const cachedDiffs =
+      useGitStore.getState().repoDetailsByPath[selectedRepoPath]?.diffByKey ?? EMPTY_DIFF_BY_KEY
+    const preloadingDiffKeys = preloadingDiffKeysRef.current
+    const missing = gitRowsBase.filter((row) => {
+      if (row.section === 'untracked') return false
+      const key = gitDiffKey(row)
+      return cachedDiffs[key] === undefined && !preloadingDiffKeys.has(`${selectedRepoPath}:${key}`)
+    })
     if (missing.length === 0) return
-    void Promise.all(
-      missing
-        .slice(0, 160)
-        .map((row) => loadFileDiff(selectedRepoPath, row.filePath, row.section === 'staged'))
-    )
-  }, [diffByKey, gitRowsBase, loadFileDiff, selectedRepoPath])
+    const rowsToLoad = missing.slice(0, MAX_PRELOAD_DIFFS)
+    for (const row of rowsToLoad) {
+      preloadingDiffKeys.add(`${selectedRepoPath}:${gitDiffKey(row)}`)
+    }
+    const preload = async (): Promise<void> => {
+      for (let index = 0; index < rowsToLoad.length; index += DIFF_PRELOAD_BATCH_SIZE) {
+        await Promise.all(
+          rowsToLoad.slice(index, index + DIFF_PRELOAD_BATCH_SIZE).map(async (row) => {
+            const key = `${selectedRepoPath}:${gitDiffKey(row)}`
+            try {
+              await loadFileDiff(selectedRepoPath, row.filePath, row.section === 'staged')
+            } finally {
+              preloadingDiffKeysRef.current.delete(key)
+            }
+          })
+        )
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+      }
+    }
+    void preload()
+  }, [gitRowsBase, loadFileDiff, selectedRepoPath])
 
   const gitRows: GitChangeRow[] = React.useMemo(
     () =>

@@ -161,6 +161,8 @@
     "builtinBrowserDesc": "Aktivieren Sie das integrierte Browser-Panel und die Browser-Automatisierungs-Tools, so dass der Agent Websites navigieren, Inhalte extrahieren, Screenshots erstellen, auf Elemente klicken und Formulare ausfüllen kann",
     "builtinBrowserEnabled": "Aktiviert: Agent kann BrowserNavigate, BrowserGetContent, BrowserScreenshot, BrowserSnapshot, BrowserClick, BrowserType, BrowserScroll verwenden",
     "maxParallelToolCalls": "Max. parallele Werkzeuganrufe pro Runde",
+    "maxConcurrentSubAgents": "Max. gleichzeitige Sub-Agenten",
+    "maxConcurrentSubAgentsDesc": "Wie viele Task-Sub-Agenten (und Hintergrund-Teammitglieder pro Team) gleichzeitig laufen dürfen. Weitere Starts warten in der Warteschlange, bis ein Platz frei wird.",
     "maxParallelToolCallsDesc": "Kontrollieren Sie, wie viele unabhängige Tool-Aufrufe vom gleichen Modellwechsel gleichzeitig ausgeführt werden können. Höhere Werte können Bash-lastige Workflows beschleunigen, aber die lokale Belastung erhöhen.",
     "maxParallelToolCallsHint": "Setzen Sie auf 1 für die serielle Ausführung.",
     "clarifyAutoAcceptRecommended": "Klarstellung der Autoakzeptanz empfohlener Antworten",

@@ -578,6 +578,31 @@ export function registerGitHandlers(): void {
     }
   )
 
+  // Full file content at a git ref, for feeding the Monaco diff editor's
+  // original/modified sides. ref is the object prefix before the colon:
+  // 'HEAD' for the last commit, '' for the staged index (`git show :path`).
+  ipcMain.handle(
+    'git:get-file-content-at-ref',
+    async (_event, args: GitTarget & { filePath: string; ref: string }) => {
+      const ref = (args.ref ?? '').trim()
+      const objectExpr = `${ref}:${args.filePath}`
+      const result = await execGit(['show', objectExpr], args)
+      if (!result.success) {
+        // A path absent from the ref (new/untracked file) is not an error here.
+        const stderr = result.stderr.toLowerCase()
+        const missing =
+          stderr.includes('does not exist') ||
+          stderr.includes('exists on disk, but not in') ||
+          stderr.includes('invalid object name')
+        if (missing) return ok({ content: '', exists: false, isBinary: false })
+        return fail(result, 'Failed to read file content at ref')
+      }
+      const content = result.stdout
+      const isBinary = content.includes(String.fromCharCode(0))
+      return ok({ content, exists: true, isBinary })
+    }
+  )
+
   ipcMain.handle(
     'git:get-staged-diff-bundle',
     async (_event, args: GitTarget & { maxPatchChars?: number }) => {

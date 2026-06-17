@@ -161,6 +161,8 @@
     "builtinBrowserDesc": "Schakel het ingebouwde browserpaneel en de browserautomatiseringstools in, zodat de agent websites kan navigeren, inhoud kan uitpakken, screenshots kan maken, elementen kan klikken en formulieren kan invullen",
     "builtinBrowserEnabled": "Ingeschakeld: Agent kan BrowserNavigeren, BrowserGetContent, BrowserScreenshot, BrowserSnapshot, BrowserClick, BrowserType, BrowserScroll gebruiken",
     "maxParallelToolCalls": "Max. parallelle tool aanroepen per beurt",
+    "maxConcurrentSubAgents": "Max. gelijktijdige sub-agents",
+    "maxConcurrentSubAgentsDesc": "Hoeveel Task-sub-agents (en achtergrond-teamleden per team) tegelijk mogen draaien. Extra starts komen in de wachtrij totdat er een plek vrijkomt.",
     "maxParallelToolCallsDesc": "Controleer hoeveel onafhankelijke tool calls van hetzelfde model turn kan draaien in een keer. Hogere waarden kunnen versnellen Bash-zware workflows, maar verhogen lokale belasting.",
     "maxParallelToolCallsHint": "Stel 1 in voor seriele executie.",
     "clarifyAutoAcceptRecommended": "Autoaccepteren aanbevolen antwoorden verduidelijken",

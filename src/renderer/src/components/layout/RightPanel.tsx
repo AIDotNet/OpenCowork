@@ -21,7 +21,7 @@ import { PreviewPanel } from './PreviewPanel'
 import { SubAgentsPanel } from './SubAgentsPanel'
 import { SubAgentExecutionDetail } from './SubAgentExecutionDetail'
 import { LocalTerminal } from '@renderer/components/terminal/LocalTerminal'
-import { ContextPanel } from '@renderer/components/cowork/ContextPanel'
+import { SessionChangeReviewPanel } from '@renderer/components/layout/SessionChangeReviewPanel'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { RIGHT_PANEL_DEFAULT_WIDTH, clampRightPanelWidth } from './right-panel-defs'
@@ -150,11 +150,11 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
   )
 
   const tabs = useMemo(() => {
-    const visibleTabs = rightPanelTabs.filter((tab) => tab.kind !== 'review')
+    const visibleTabs = rightPanelTabs
     if (!rightPanelOpen) return visibleTabs
     return visibleTabs.map((tab) => {
-      if (tab.kind === 'context') {
-        return { ...tab, title: t('rightPanel.context', { defaultValue: 'Context' }) }
+      if (tab.kind === 'review') {
+        return { ...tab, title: t('rightPanel.review', { defaultValue: 'Review' }) }
       }
       if (tab.kind === 'browser') {
         return { ...tab, title: t('rightPanel.browser', { defaultValue: 'Browser' }) }
@@ -175,7 +175,7 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
   }, [panelSessionId, rightPanelOpen, rightPanelTabs, sessionAgentSelection, t])
   const selectedTab =
     tabs.find((tab) => tab.id === activeTabId) ??
-    tabs.find((tab) => tab.kind === 'context') ??
+    tabs.find((tab) => tab.kind === 'review') ??
     tabs[0]
   const hasBrowserTab =
     rightPanelOpen && tabs.some((tab) => tab.kind === 'browser') && browserPluginEnabled
@@ -187,7 +187,7 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
       : 'global'
   const activeTab = rightPanelOpen
     ? selectedTab?.kind === 'browser' && !browserPluginEnabled
-      ? (tabs.find((tab) => tab.kind === 'context') ?? selectedTab)
+      ? (tabs.find((tab) => tab.kind === 'review') ?? selectedTab)
       : selectedTab
     : undefined
 
@@ -249,12 +249,8 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
 
   const renderActivePanel = (tab: RightPanelTabInstance | undefined): React.ReactNode => {
     if (!tab) return null
-    if (tab.kind === 'context') {
-      return (
-        <div className="h-full overflow-y-auto px-4 py-4">
-          <ContextPanel />
-        </div>
-      )
+    if (tab.kind === 'review') {
+      return <SessionChangeReviewPanel />
     }
     if (tab.kind === 'preview') {
       return <PreviewPanel embedded showTabStrip={false} />
@@ -302,7 +298,7 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
           <>
             <RightPanelHeader
               tabs={tabs}
-              activeTabId={activeTab?.id ?? 'context'}
+              activeTabId={activeTab?.id ?? 'review'}
               browserEnabled={browserPluginEnabled}
               onSelectTab={setRightPanelActiveTab}
               onCloseTab={closeRightPanelTab}

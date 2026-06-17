@@ -232,6 +232,17 @@ export type AgentStreamEvent =
     }
   // Sub-agent events
   | {
+      type: 'sub_agent_queued'
+      subAgentName: string
+      toolUseId: string
+      input: Record<string, unknown>
+    }
+  | {
+      type: 'sub_agent_dequeued'
+      subAgentName: string
+      toolUseId: string
+    }
+  | {
       type: 'sub_agent_start'
       subAgentName: string
       toolUseId: string

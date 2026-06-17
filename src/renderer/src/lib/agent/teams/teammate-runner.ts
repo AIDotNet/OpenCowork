@@ -432,11 +432,28 @@ async function runSingleTaskLoop(opts: {
     })
 
     const planText = planRuntime.finalOutput.trim()
-    const approval = await requestPlanApproval({
-      memberName,
-      plan: planText,
-      taskId
+    // Live-only "awaiting approval" status while the lead reviews the plan.
+    teamEvents.emit({
+      type: 'team_member_update',
+      sessionId,
+      memberId,
+      patch: { status: 'awaiting_approval' }
     })
+    let approval: Awaited<ReturnType<typeof requestPlanApproval>>
+    try {
+      approval = await requestPlanApproval({
+        memberName,
+        plan: planText,
+        taskId
+      })
+    } finally {
+      teamEvents.emit({
+        type: 'team_member_update',
+        sessionId,
+        memberId,
+        patch: { status: 'working' }
+      })
+    }
 
     if (!approval.approved) {
       const rejectedOutput = approval.feedback
@@ -512,16 +529,34 @@ async function runSingleTaskLoop(opts: {
       if (autoApprove) return true
       const approved = useAgentStore.getState().approvedToolNames
       if (approved.includes(toolCall.name)) return true
-      const result = await requestTeammatePermission({
-        memberName,
-        toolCall: {
-          ...toolCall,
-          status: 'pending_approval',
-          requiresApproval: true
-        }
+      // Surface a live "awaiting approval" status while blocked on the lead's
+      // decision. This is renderer-only — do NOT persist it via
+      // syncRuntimeMemberState (TeamRuntimeMemberStatus has no such value).
+      teamEvents.emit({
+        type: 'team_member_update',
+        sessionId,
+        memberId,
+        patch: { status: 'awaiting_approval' }
       })
-      if (result) useAgentStore.getState().addApprovedTool(toolCall.name)
-      return result
+      try {
+        const result = await requestTeammatePermission({
+          memberName,
+          toolCall: {
+            ...toolCall,
+            status: 'pending_approval',
+            requiresApproval: true
+          }
+        })
+        if (result) useAgentStore.getState().addApprovedTool(toolCall.name)
+        return result
+      } finally {
+        teamEvents.emit({
+          type: 'team_member_update',
+          sessionId,
+          memberId,
+          patch: { status: 'working' }
+        })
+      }
     },
     hooks: {
       beforeHandleEvent: ({ event }) => {

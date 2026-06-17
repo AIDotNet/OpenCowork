@@ -31,11 +31,15 @@ import { useUIStore, type SettingsTab } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import {
   clampMaxParallelToolCalls,
+  clampMaxConcurrentSubAgents,
   DEFAULT_THEME_MODE,
   DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+  DEFAULT_MAX_CONCURRENT_SUB_AGENTS,
   DEFAULT_SHELL_EXECUTION_ENDPOINT,
   MAX_MAX_PARALLEL_TOOL_CALLS,
   MIN_MAX_PARALLEL_TOOL_CALLS,
+  MAX_MAX_CONCURRENT_SUB_AGENTS,
+  MIN_MAX_CONCURRENT_SUB_AGENTS,
   resolveShellExecutable,
   type ShellExecutionEndpoint,
   useSettingsStore
@@ -1173,6 +1177,60 @@ function GeneralPanel(): React.JSX.Element {
 
       <Separator />
 
+      {/* Sub-Agent Concurrency */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between max-w-lg">
+          <div>
+            <label className="text-sm font-medium">
+              {t('general.maxConcurrentSubAgents', { defaultValue: 'Max Concurrent Sub-Agents' })}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t('general.maxConcurrentSubAgentsDesc', {
+                defaultValue:
+                  'How many Task sub-agents (and background teammates per team) may run at once. Extra launches queue until a slot frees.'
+              })}
+            </p>
+          </div>
+          <span className="text-sm font-mono text-muted-foreground">
+            {settings.maxConcurrentSubAgents}
+          </span>
+        </div>
+        <Slider
+          value={[settings.maxConcurrentSubAgents]}
+          onValueChange={([value]) =>
+            settings.updateSettings({
+              maxConcurrentSubAgents: clampMaxConcurrentSubAgents(value)
+            })
+          }
+          min={MIN_MAX_CONCURRENT_SUB_AGENTS}
+          max={MAX_MAX_CONCURRENT_SUB_AGENTS}
+          step={1}
+          className="max-w-lg"
+        />
+        <div className="flex items-center justify-between max-w-lg text-[10px] text-muted-foreground/60">
+          <span>{MIN_MAX_CONCURRENT_SUB_AGENTS}</span>
+          <span>{DEFAULT_MAX_CONCURRENT_SUB_AGENTS}</span>
+          <span>{MAX_MAX_CONCURRENT_SUB_AGENTS}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {[1, 2, 4, 6, 8].map((value) => (
+            <button
+              key={value}
+              onClick={() => settings.updateSettings({ maxConcurrentSubAgents: value })}
+              className={`rounded px-2 py-0.5 text-[10px] transition-colors ${
+                settings.maxConcurrentSubAgents === value
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <Separator />
+
       {/* Context Compression */}
       <section className="space-y-3">
         <div className="flex items-center justify-between max-w-lg">
@@ -1397,6 +1455,7 @@ function GeneralPanel(): React.JSX.Element {
               liveOutputAnimationStyle: 'agile',
               toolbarCollapsedByDefault: false,
               maxParallelToolCalls: DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+              maxConcurrentSubAgents: DEFAULT_MAX_CONCURRENT_SUB_AGENTS,
               autoUpdateEnabled: true,
               apiKey: currentKey
             })
@@ -3496,51 +3555,43 @@ export function SettingsPage(): React.JSX.Element {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex w-[244px] shrink-0 flex-col border-r bg-background/80">
-          <div className="px-5 pb-4 pt-5">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/55">
-              {t('page.subtitle')}
-            </p>
-          </div>
-
-          <nav className="flex-1 space-y-4 overflow-y-auto px-3">
+        <div className="flex w-[236px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+          <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 pb-2 pt-4">
             {menuGroupDefs.map((group) => (
-              <div key={group.labelKey} className="space-y-1.5">
-                <p className="px-3 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/55">
+              <div key={group.labelKey} className="space-y-0.5">
+                <p className="mb-1 px-3 text-[11px] font-medium text-muted-foreground/70">
                   {t(group.labelKey)}
                 </p>
-                {group.items.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setSettingsTab(item.id)}
-                    className={`relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-all duration-150 ${
-                      effectiveSettingsTab === item.id
-                        ? 'bg-primary/10 font-medium text-foreground ring-1 ring-primary/15'
-                        : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
-                    }`}
-                  >
-                    <span
-                      className={`absolute bottom-2 left-0 top-2 w-0.5 rounded-full ${
-                        effectiveSettingsTab === item.id ? 'bg-primary' : 'bg-transparent'
-                      }`}
-                    />
-                    <span
-                      className={`flex size-7 shrink-0 items-center justify-center rounded-lg ${
-                        effectiveSettingsTab === item.id
-                          ? 'bg-background text-primary shadow-xs'
-                          : 'bg-muted/60 text-muted-foreground'
+                {group.items.map((item) => {
+                  const active = effectiveSettingsTab === item.id
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setSettingsTab(item.id)}
+                      className={`group flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors duration-150 ${
+                        active
+                          ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
+                          : 'text-muted-foreground hover:bg-sidebar-accent/55 hover:text-foreground'
                       }`}
                     >
-                      {item.icon}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
-                  </button>
-                ))}
+                      <span
+                        className={`flex shrink-0 items-center justify-center transition-colors ${
+                          active
+                            ? 'text-foreground'
+                            : 'text-muted-foreground group-hover:text-foreground'
+                        }`}
+                      >
+                        {item.icon}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
+                    </button>
+                  )
+                })}
               </div>
             ))}
           </nav>
 
-          <div className="px-5 py-4 text-[11px] text-muted-foreground/50">
+          <div className="border-t border-sidebar-border/60 px-4 py-3 text-[11px] text-muted-foreground/55">
             {t('page.poweredBy')}
           </div>
         </div>

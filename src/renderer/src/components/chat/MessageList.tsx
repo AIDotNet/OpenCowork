@@ -30,6 +30,7 @@ import type { RequestRetryState } from '@renderer/lib/agent/types'
 import { isStreamingPerfEnabled, recordStreamingReactCommit } from '@renderer/lib/streaming-perf'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { selectSessionScopedAgentState } from '@renderer/lib/agent/session-scoped-agent-state'
+import { resolveActiveCompactArtifacts } from '@renderer/lib/agent/context-compression'
 
 const modeHints = {
   chat: {
@@ -141,6 +142,7 @@ interface MessageRowProps {
   showContinue: boolean
   disableAnimation: boolean
   toolResults?: ToolResultsLookup
+  inlineCompactSummaries?: readonly UnifiedMessage[]
   orchestrationRun?: import('@renderer/lib/orchestration/types').OrchestrationRun | null
   hiddenToolUseIds?: Set<string>
   anchorMessageId?: string | null
@@ -430,6 +432,7 @@ function areMessageRowPropsEqual(prev: MessageRowProps, next: MessageRowProps): 
     prev.disableAnimation === next.disableAnimation &&
     (prev.toolResults === next.toolResults ||
       areToolResultsEqual(prev.toolResults, next.toolResults)) &&
+    prev.inlineCompactSummaries === next.inlineCompactSummaries &&
     prev.orchestrationRun === next.orchestrationRun &&
     prev.hiddenToolUseIds === next.hiddenToolUseIds &&
     prev.anchorMessageId === next.anchorMessageId &&
@@ -666,6 +669,7 @@ const MessageRow = React.memo(function MessageRow({
   showContinue,
   disableAnimation,
   toolResults,
+  inlineCompactSummaries,
   orchestrationRun,
   hiddenToolUseIds,
   anchorMessageId,
@@ -706,6 +710,7 @@ const MessageRow = React.memo(function MessageRow({
         onEditUserMessage={onEditUserMessage}
         onDeleteMessage={onDeleteMessage}
         toolResults={toolResults}
+        inlineCompactSummaries={inlineCompactSummaries}
         orchestrationRun={orchestrationRun}
         hiddenToolUseIds={hiddenToolUseIds}
         requestRetryState={requestRetryState}
@@ -909,6 +914,26 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       ),
     [continueAssistantMessageId, streamingMessageId, transcriptAnalysis]
   )
+  const inlineCompactSummaryState = React.useMemo(() => {
+    const byAssistantId = new Map<string, UnifiedMessage[]>()
+    const summaryIds = new Set<string>()
+    const activeCompact = resolveActiveCompactArtifacts(messages)
+    const activeSummaryId = activeCompact?.summaryId ?? null
+    if (!activeSummaryId) return { byAssistantId, summaryIds }
+
+    const summary = messages.find((message) => message.id === activeSummaryId)
+    const anchor = summary?.meta?.compactSummary?.displayAnchor
+    if (!summary || !anchor?.assistantMessageId) return { byAssistantId, summaryIds }
+
+    const assistantExists = messages.some(
+      (message) => message.id === anchor.assistantMessageId && message.role === 'assistant'
+    )
+    if (!assistantExists) return { byAssistantId, summaryIds }
+
+    byAssistantId.set(anchor.assistantMessageId, [summary])
+    summaryIds.add(summary.id)
+    return { byAssistantId, summaryIds }
+  }, [messages])
   const assistantChangeTargets = React.useMemo(
     () =>
       messages
@@ -998,16 +1023,23 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   }, [activeSessionId, activeSessionMessageCount])
 
   const rows = React.useMemo(() => {
-    const nextRows: MessageListRow[] = renderableMessages.map((message) => ({
-      type: 'message',
-      key: message.messageId,
-      data: message
-    }))
+    const nextRows: MessageListRow[] = renderableMessages
+      .filter((message) => !inlineCompactSummaryState.summaryIds.has(message.messageId))
+      .map((message) => ({
+        type: 'message',
+        key: message.messageId,
+        data: message
+      }))
     if (showPendingAssistantRow) {
       nextRows.push({ type: 'pending-assistant', key: pendingAssistantRowKey })
     }
     return nextRows
-  }, [pendingAssistantRowKey, renderableMessages, showPendingAssistantRow])
+  }, [
+    inlineCompactSummaryState.summaryIds,
+    pendingAssistantRowKey,
+    renderableMessages,
+    showPendingAssistantRow
+  ])
   const pendingAskUserQuestion = React.useMemo(
     () => findPendingAskUserQuestion(rows, toolResultsLookup, messageLookup),
     [messageLookup, rows, toolResultsLookup]
@@ -1485,6 +1517,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                 showContinue={row.showContinue}
                 disableAnimation
                 toolResults={toolResultsLookup.get(row.messageId)}
+                inlineCompactSummaries={inlineCompactSummaryState.byAssistantId.get(row.messageId)}
                 orchestrationRun={
                   orchestrationState.byMessageId.get(row.messageId)?.primaryRun ?? null
                 }
@@ -1554,6 +1587,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                   showContinue={false}
                   disableAnimation={disableAnimation}
                   toolResults={undefined}
+                  inlineCompactSummaries={undefined}
                   orchestrationRun={null}
                   hiddenToolUseIds={undefined}
                   anchorMessageId={null}
@@ -1587,6 +1621,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                 showContinue={showContinue}
                 disableAnimation={disableAnimation}
                 toolResults={toolResultsLookup.get(messageId)}
+                inlineCompactSummaries={inlineCompactSummaryState.byAssistantId.get(messageId)}
                 orchestrationRun={orchestrationState.byMessageId.get(messageId)?.primaryRun ?? null}
                 hiddenToolUseIds={orchestrationState.byMessageId.get(messageId)?.hiddenToolUseIds}
                 anchorMessageId={null}

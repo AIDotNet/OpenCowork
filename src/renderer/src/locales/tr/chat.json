@@ -612,6 +612,9 @@
     }
   },
   "subAgent": {
+    "queued": "Sırada",
+    "synthesizing": "Rapor oluşturuluyor…",
+    "doneSynthesized": "Tamamlandı (oluşturuldu)",
     "working": "Çalışma çalışması",
     "failed": "Başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız oldu",
     "done": "done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done",

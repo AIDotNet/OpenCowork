@@ -161,6 +161,8 @@
     "builtinBrowserDesc": "yerleşik tarayıcı paneli ve tarayıcı otomasyon araçları kullanılabilir, ajanın web siteleri, ekstra içerik almasına izin verin, ekran görüntüleri alın, tık elementleri doldurun ve formları doldurunuz.",
     "builtinBrowserEnabled": "Enabled: Agent BrowserNavigate, BrowserGetContent, BrowserScreenshot, BrowserSnapshot, BrowserClick, BrowserType, BrowserScrollll",
     "maxParallelToolCalls": "Max paralel araç dönüş başına çağrılar",
+    "maxConcurrentSubAgents": "Maks. eşzamanlı alt aracı",
+    "maxConcurrentSubAgentsDesc": "Aynı anda kaç Task alt aracısının (ve takım başına arka plan takım arkadaşının) çalışabileceği. Fazladan başlatmalar bir yuva boşalana kadar sıraya alınır.",
     "maxParallelToolCallsDesc": "Aynı modelden kaç bağımsız araç çağrısını kontrol edin, bir kez çalıştırılabilir. Yüksek değerler Bash-heavy iş akışlarını hızlandırabilir, ancak yerel yükleri artırmak.",
     "maxParallelToolCallsHint": "Seri infaz için 1'e ayarlayın.",
     "clarifyAutoAcceptRecommended": "Clarify auto-accept önerilen cevaplar",

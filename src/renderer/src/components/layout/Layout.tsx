@@ -20,6 +20,7 @@ import { SettingsPage } from '@renderer/components/settings/SettingsPage'
 import { CommandPalette } from './CommandPalette'
 import { SessionConversationPane } from './SessionConversationPane'
 import { WorkingFolderSheet } from './WorkingFolderSheet'
+import { WorkspaceView } from '@renderer/components/workspace/WorkspaceView'
 import { ErrorBoundary } from '@renderer/components/error-boundary'
 import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
 import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
@@ -878,11 +879,15 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
                     </div>
                   )}
                 >
-                  <div className="flex flex-1 overflow-hidden">
-                    <SessionConversationPane windowHeaderOwnsTitle />
-                    <WorkingFolderSheet />
-                    <RightPanel />
-                  </div>
+                  {mode === 'code' ? (
+                    <WorkspaceView />
+                  ) : (
+                    <div className="flex flex-1 overflow-hidden">
+                      <SessionConversationPane windowHeaderOwnsTitle />
+                      <WorkingFolderSheet />
+                      <RightPanel />
+                    </div>
+                  )}
                 </ErrorBoundary>
               </PageTransition>
             )}

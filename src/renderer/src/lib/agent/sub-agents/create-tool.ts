@@ -10,7 +10,7 @@ import type { ProviderConfig, TokenUsage, ToolResultContent } from '../../api/ty
 import type { TeamRuntimeTaskStatus } from '../../../../../shared/team-runtime-types'
 import { encodeStructuredToolResult, encodeToolError } from '../../tools/tool-result-format'
 import { useAgentStore } from '../../../stores/agent-store'
-import { useSettingsStore } from '../../../stores/settings-store'
+import { useSettingsStore, clampMaxConcurrentSubAgents } from '../../../stores/settings-store'
 import { ConcurrencyLimiter } from '../concurrency-limiter'
 import { teamEvents } from '../teams/events'
 import { useTeamStore } from '../../../stores/team-store'
@@ -21,7 +21,20 @@ import type { TeamMember } from '../teams/types'
 import { DEFAULT_SUB_AGENT_MAX_TURNS } from './limits'
 import { getEffectiveSubAgentDisallowedTools } from './resolve-tools'
 
-const subAgentLimiter = new ConcurrencyLimiter(2)
+const subAgentLimiter = new ConcurrencyLimiter(
+  clampMaxConcurrentSubAgents(useSettingsStore.getState().maxConcurrentSubAgents)
+)
+
+// Keep the synchronous and per-team limiter caps in sync with the user setting,
+// applying changes (including raises that drain queued runs) at runtime.
+useSettingsStore.subscribe((state, prev) => {
+  if (state.maxConcurrentSubAgents === prev.maxConcurrentSubAgents) return
+  const next = clampMaxConcurrentSubAgents(state.maxConcurrentSubAgents)
+  subAgentLimiter.setMax(next)
+  for (const ctx of teamContexts.values()) {
+    ctx.limiter.setMax(next)
+  }
+})
 
 /**
  * Tracks the immediately-previous synchronous Task invocation per session so
@@ -105,7 +118,11 @@ const teamContexts = new Map<string, TeamContext>()
 function getTeamContext(teamName: string): TeamContext {
   let ctx = teamContexts.get(teamName)
   if (!ctx) {
-    ctx = { limiter: new ConcurrencyLimiter(2) }
+    ctx = {
+      limiter: new ConcurrencyLimiter(
+        clampMaxConcurrentSubAgents(useSettingsStore.getState().maxConcurrentSubAgents)
+      )
+    }
     teamContexts.set(teamName, ctx)
   }
   return ctx
@@ -156,7 +173,7 @@ function scheduleNextTask(teamName: string): void {
   const ctx = teamContexts.get(teamName)
   if (!ctx) return
   const limiter = ctx.limiter
-  if (limiter.activeCount >= 2) return
+  if (limiter.activeCount >= limiter.maxConcurrent) return
 
   const nextTask = findNextClaimableTask()
   if (!nextTask) return
@@ -317,7 +334,7 @@ async function executeBackgroundTeammate(
     input.backend_type === 'isolated-renderer' || input.backend_type === 'in-process'
       ? (input.backend_type as 'in-process' | 'isolated-renderer')
       : (team.defaultBackend ?? 'in-process')
-  const willQueue = limiter.activeCount >= 2
+  const willQueue = limiter.activeCount >= limiter.maxConcurrent
 
   const assignedTaskId = input.task_id ? String(input.task_id) : null
   if (assignedTaskId) {
@@ -601,19 +618,36 @@ export function createTaskTool(providerGetter: () => ProviderConfig): ToolHandle
         })
       }
 
-      await subAgentLimiter.acquire(ctx.signal)
+      const toolUseId = ctx.currentToolUseId ?? ''
+      const onEvent = (event: SubAgentEvent): void => {
+        subAgentEvents.emit(ctx.sessionId ?? null, event)
+      }
+
+      // If no limiter slot is free, surface a "queued" state to the UI before
+      // blocking on acquire — otherwise the sub-agent is invisible until a slot
+      // frees. The store upgrades this record to "running" on sub_agent_start.
+      const willQueue = subAgentLimiter.activeCount >= subAgentLimiter.maxConcurrent
+      if (willQueue) {
+        onEvent({ type: 'sub_agent_queued', subAgentName: def.name, toolUseId, input })
+      }
 
       try {
-        const onEvent = (event: SubAgentEvent): void => {
-          subAgentEvents.emit(ctx.sessionId ?? null, event)
+        await subAgentLimiter.acquire(ctx.signal)
+      } catch (err) {
+        // Aborted while queued — drop the ghost queued card.
+        if (willQueue) {
+          onEvent({ type: 'sub_agent_dequeued', subAgentName: def.name, toolUseId })
         }
+        throw err
+      }
 
+      try {
         const result = await runSubAgent({
           definition: def,
           parentProvider: providerGetter(),
           toolContext: ctx,
           input,
-          toolUseId: ctx.currentToolUseId ?? '',
+          toolUseId,
           onEvent,
           onApprovalNeeded: async (tc: ToolCallState) => {
             // Custom sub-agents are defined by the parent agent and run with all
@@ -644,7 +678,7 @@ export function createTaskTool(providerGetter: () => ProviderConfig): ToolHandle
           lastTaskInvocationBySession.set(sessionId, {
             key: dedupKey,
             output: result.output,
-            toolUseId: ctx.currentToolUseId ?? ''
+            toolUseId
           })
         }
 

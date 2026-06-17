@@ -66,7 +66,21 @@ export const moonshotPreset: BuiltinProviderPreset = {
   defaultBaseUrl: 'https://api.moonshot.cn/v1',
   homepage: 'https://platform.moonshot.cn',
   apiKeyUrl: 'https://platform.moonshot.cn/console/api-keys',
+  defaultModel: 'kimi-k2.6',
   defaultModels: [
+    {
+      id: 'kimi-k2.7-code',
+      name: 'Kimi K2.7 Code',
+      icon: 'kimi',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 32_768,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 6.5,
+      outputPrice: 27,
+      cacheHitPrice: 1.3
+    },
     // Kimi K2.6 (latest)
     {
       id: 'kimi-k2.6',

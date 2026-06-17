@@ -1,9 +1,9 @@
 import {
   Bot,
   FileCode,
+  FileDiff,
   FolderOpen,
   Globe,
-  Info,
   PanelRightClose,
   Plus,
   Terminal,
@@ -32,7 +32,7 @@ interface RightPanelHeaderProps {
 }
 
 function TabIcon({ tab }: { tab: RightPanelTabInstance }): React.JSX.Element {
-  if (tab.kind === 'context') return <Info className="size-3.5" />
+  if (tab.kind === 'review') return <FileDiff className="size-3.5" />
   if (tab.kind === 'browser') return <Globe className="size-3.5" />
   if (tab.kind === 'subagent') return <Bot className="size-3.5" />
   if (tab.kind === 'terminal') return <Terminal className="size-3.5" />

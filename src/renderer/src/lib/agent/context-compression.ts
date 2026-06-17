@@ -63,6 +63,19 @@ const COMPRESSION_SYSTEM_PROMPT = i18n.t('contextCompression.systemPrompt', { ns
 
 let consecutiveFailures = 0
 
+function serializeImageAttachmentForContext(
+  block: Extract<ContentBlock, { type: 'image' }>
+): string {
+  const label = i18n.t('contextCompression.imageAttachment', { ns: 'agent' })
+  const filePath = block.source.filePath?.trim()
+  if (filePath) return `${label} file path: ${filePath}`
+
+  const url = block.source.type === 'url' ? block.source.url?.trim() : ''
+  if (url) return `${label} URL: ${url}`
+
+  return label
+}
+
 export function resetCompressionFailures(): void {
   consecutiveFailures = 0
 }
@@ -150,7 +163,10 @@ export function getPreCompressionTriggerTokens(config: CompressionConfig): numbe
 
 export function shouldCompress(inputTokens: number, config: CompressionConfig): boolean {
   if (!config.enabled || config.contextLength <= 0) return false
-  if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) return false
+  // The summarizer circuit-breaker (consecutiveFailures) is intentionally NOT checked
+  // here. Once the LLM summarizer keeps failing, compressMessages() falls back to a
+  // local, non-LLM truncation instead of doing nothing — so we must keep triggering
+  // above the token threshold to guarantee the context stays bounded.
   return inputTokens >= getCompressionTriggerTokens(config)
 }
 
@@ -633,7 +649,7 @@ export function preCompressMessages(messages: UnifiedMessage[]): UnifiedMessage[
 
       if (block.type === 'image') {
         changed = true
-        return { type: 'text', text: '[image]' } as ContentBlock
+        return { type: 'text', text: serializeImageAttachmentForContext(block) } as ContentBlock
       }
 
       return block
@@ -676,6 +692,18 @@ export async function compressMessages(
       messages,
       result: { compressed: false, originalCount, newCount: originalCount }
     }
+  }
+
+  // Summarizer circuit-breaker is open (the LLM summarizer has failed repeatedly).
+  // Skip the network call and reduce the context locally so it stays bounded.
+  if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+    console.warn('[Context Compression] Summarizer circuit open — using local truncation fallback.')
+    return buildLocalTruncationResult(
+      messagesToCompress,
+      messagesToPreserve,
+      originalCount,
+      preTokens
+    )
   }
 
   let lastError: Error | null = null
@@ -736,13 +764,68 @@ export async function compressMessages(
 
   consecutiveFailures += 1
   console.error(
-    `[Context Compression] All retries failed (consecutive: ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}):`,
+    `[Context Compression] All retries failed (consecutive: ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}), falling back to local truncation:`,
     lastError
   )
 
+  // The summarizer failed for this attempt. Rather than leaving the context
+  // unbounded, drop the oldest messages locally at a tool-pair-safe boundary.
+  return buildLocalTruncationResult(
+    messagesToCompress,
+    messagesToPreserve,
+    originalCount,
+    preTokens
+  )
+}
+
+/**
+ * Non-LLM fallback used when the summarizer is unavailable or its circuit-breaker
+ * is open. Produces the SAME boundary + summary artifact shape as a successful
+ * compression (so the UI merge/render logic treats it identically), but the
+ * "summary" is a localized placeholder noting that the older messages were dropped
+ * without an LLM-generated summary. The original task message is appended verbatim
+ * when available so the model retains the overall goal.
+ */
+function buildLocalTruncationResult(
+  messagesToCompress: UnifiedMessage[],
+  messagesToPreserve: UnifiedMessage[],
+  originalCount: number,
+  preTokens: number
+): { messages: UnifiedMessage[]; result: CompressionResult } {
+  const originalTask = findOriginalTaskMessage(messagesToCompress)
+  const taskText = originalTask ? extractUnifiedMessageText(originalTask) : ''
+  let summaryBody = i18n.t('contextCompression.localTruncationSummary', {
+    ns: 'agent',
+    count: messagesToCompress.length
+  })
+  if (taskText) {
+    summaryBody = `${summaryBody}\n\n${taskText}`
+  }
+
+  const boundaryMessage = createCompactBoundaryMessage({
+    trigger: 'auto',
+    preTokens,
+    messagesSummarized: messagesToCompress.length,
+    preservedMessages: messagesToPreserve
+  })
+  const summaryMessage = createCompactSummaryMessage({
+    summary: summaryBody,
+    messagesSummarized: messagesToCompress.length,
+    recentMessagesPreserved: messagesToPreserve.length > 0
+  })
+  if (boundaryMessage.meta?.compactBoundary?.preservedSegment) {
+    boundaryMessage.meta.compactBoundary.preservedSegment.anchorId = summaryMessage.id
+  }
+
+  const compressedMessages = [boundaryMessage, summaryMessage, ...messagesToPreserve]
   return {
-    messages,
-    result: { compressed: false, originalCount, newCount: originalCount }
+    messages: compressedMessages,
+    result: {
+      compressed: true,
+      originalCount,
+      newCount: compressedMessages.length,
+      messagesSummarized: messagesToCompress.length
+    }
   }
 }
 
@@ -878,7 +961,7 @@ function serializeMessageContent(content: ContentBlock[]): string {
           })
         }
         case 'image':
-          return i18n.t('contextCompression.imageAttachment', { ns: 'agent' })
+          return serializeImageAttachmentForContext(block)
         case 'image_error':
           return `[Image error: ${block.message}]`
         case 'agent_error':

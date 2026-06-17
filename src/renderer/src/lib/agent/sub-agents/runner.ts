@@ -185,7 +185,8 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
       iterations: number
       usage: SubAgentResult['usage']
     },
-    error?: string
+    error?: string,
+    usedFallback = false
   ): SubAgentResult => {
     const baseOutput = success
       ? runtime.finalOutput
@@ -208,7 +209,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
       subAgentName: definition.name,
       toolUseId,
       report: output,
-      status: hasOutput ? 'submitted' : 'missing'
+      status: hasOutput ? (usedFallback ? 'fallback' : 'submitted') : 'missing'
     })
 
     return {
@@ -426,6 +427,7 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
     const submittedReport =
       submitReportTool.getReport() ?? readSubmittedReportFromToolCalls(runtime.toolCalls)
     let effectiveRuntime = runtime
+    let usedFallback = false
     if (submittedReport && submittedReport.trim()) {
       effectiveRuntime = { ...runtime, finalOutput: submittedReport.trim() }
     } else if (
@@ -437,6 +439,13 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
       // assistant text. Replay the transcript with a synthetic "generate a
       // detailed report" user message so the caller always gets a usable
       // summary instead of an empty string.
+      onEvent?.({
+        type: 'sub_agent_report_update',
+        subAgentName: definition.name,
+        toolUseId,
+        report: '',
+        status: 'retrying'
+      })
       const fallback = await requestFallbackReport({
         capturedMessages: runtime.finalMessages,
         loopConfig,
@@ -444,10 +453,11 @@ export async function runSubAgent(config: SubAgentRunConfig): Promise<SubAgentRe
       })
       if (fallback) {
         effectiveRuntime = { ...runtime, finalOutput: fallback }
+        usedFallback = true
       }
     }
 
-    const result = buildResult(success, effectiveRuntime, error)
+    const result = buildResult(success, effectiveRuntime, error, usedFallback)
     onEvent?.({ type: 'sub_agent_end', subAgentName: definition.name, toolUseId, result })
     return result
   } catch (err) {

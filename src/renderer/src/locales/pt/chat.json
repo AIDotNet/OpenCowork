@@ -612,6 +612,9 @@
     }
   },
   "subAgent": {
+    "queued": "Na fila",
+    "synthesizing": "Sintetizando relatório…",
+    "doneSynthesized": "Concluído (sintetizado)",
     "working": "trabalhando",
     "failed": "falhou",
     "done": "feito",

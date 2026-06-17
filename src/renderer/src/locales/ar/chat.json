@@ -612,6 +612,9 @@
     }
   },
   "subAgent": {
+    "queued": "في الطابور",
+    "synthesizing": "جارٍ تجميع التقرير…",
+    "doneSynthesized": "اكتمل (مُجمَّع)",
     "working": "العمل",
     "failed": "فشل",
     "done": "القيام به",

@@ -161,6 +161,8 @@
     "builtinBrowserDesc": "組み込みのブラウザパネルとブラウザの自動化ツールを有効にし、エージェントがウェブサイトをナビゲートしたり、コンテンツを抽出したり、スクリーンショットを撮ったり、要素をクリックし、フォームを埋めることを可能にします",
     "builtinBrowserEnabled": "有効: エージェントは BrowserNavigate, BrowserGetContent, BrowserScreenshot, BrowserSnapshot, BrowserClick, BrowserType, BrowserScroll を使うことができます。",
     "maxParallelToolCalls": "ターン毎の最大並列ツールコール",
+    "maxConcurrentSubAgents": "サブエージェントの最大同時実行数",
+    "maxConcurrentSubAgentsDesc": "同時に実行できる Task サブエージェント（およびチームごとのバックグラウンドメンバー）の数。超過した起動は空きが出るまでキューに入ります。",
     "maxParallelToolCallsDesc": "同じモデルの回転から多くの独立したツールが一度に実行できるかを制御します。 Bash-heavyのワークフローを高速化できますが、ローカルの負荷を増加させます。",
     "maxParallelToolCallsHint": "シリアル実行のために1に設定します。",
     "clarifyAutoAcceptRecommended": "自動受容推奨回答を明確化",

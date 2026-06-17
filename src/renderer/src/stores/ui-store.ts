@@ -74,7 +74,9 @@ export interface RightPanelTabInstance {
   createdAt: number
 }
 
-export type PreviewSource = 'file' | 'dev-server' | 'markdown'
+export type PreviewSource = 'file' | 'dev-server' | 'markdown' | 'diff'
+export type DiffSource = 'git' | 'agent'
+export type GitChangeSection = 'staged' | 'unstaged' | 'untracked' | 'conflicted'
 export type AutoModelRoute = 'main' | 'fast'
 export type AutoModelTaskType =
   | 'rewrite'
@@ -141,6 +143,38 @@ export interface PreviewPanelState {
   targetLine?: number
   targetColumn?: number
   targetPositionKey?: number
+  // Diff tabs (source === 'diff')
+  diffSource?: DiffSource
+  diffOriginal?: string
+  diffModified?: string
+  diffLanguage?: string
+  diffModifiedEditable?: boolean
+  diffIsBinary?: boolean
+  /** git object prefix the original side was read from: 'HEAD' or '' (index). */
+  diffOriginalRef?: string
+  gitRepoPath?: string
+  gitSection?: GitChangeSection
+  agentRunId?: string
+  agentChangeId?: string
+}
+
+export interface OpenDiffParams {
+  filePath: string
+  diffSource: DiffSource
+  original: string
+  modified: string
+  modifiedEditable?: boolean
+  isBinary?: boolean
+  language?: string
+  sshConnectionId?: string
+  sessionId?: string | null
+  projectId?: string | null
+  diffOriginalRef?: string
+  gitRepoPath?: string
+  gitSection?: GitChangeSection
+  agentRunId?: string
+  agentChangeId?: string
+  mirrorToRightPanel?: boolean
 }
 
 export interface PreviewPanelTab extends PreviewPanelState {
@@ -198,39 +232,48 @@ export type DetailPanelContent =
   | { type: 'document'; title: string; content: string }
   | { type: 'report'; title: string; data: unknown }
 
-const RIGHT_PANEL_CONTEXT_TAB_ID = 'context'
+const RIGHT_PANEL_REVIEW_TAB_ID = 'review'
 
-function createContextTab(): RightPanelTabInstance {
+function createReviewTab(): RightPanelTabInstance {
   return {
-    id: RIGHT_PANEL_CONTEXT_TAB_ID,
-    kind: 'context',
-    title: 'Context',
-    closable: false,
+    id: RIGHT_PANEL_REVIEW_TAB_ID,
+    kind: 'review',
+    title: 'Review',
+    closable: true,
     createdAt: 0
   }
 }
 
+// Sanitize the tab list. Tabs can be closed freely; this never re-injects the
+// built-in Review tab. It only normalizes a present Review tab to be closable.
 function ensureRightPanelTabs(
   tabs: RightPanelTabInstance[] | null | undefined
 ): RightPanelTabInstance[] {
-  const safeTabs = (tabs ?? []).filter((tab) => tab.kind !== 'review')
-  const withContext = safeTabs.some((tab) => tab.id === RIGHT_PANEL_CONTEXT_TAB_ID)
-    ? safeTabs
-    : [createContextTab(), ...safeTabs]
-  return withContext.map((tab) =>
-    tab.id === RIGHT_PANEL_CONTEXT_TAB_ID ? { ...tab, closable: false } : tab
+  return (tabs ?? []).map((tab) =>
+    tab.id === RIGHT_PANEL_REVIEW_TAB_ID ? { ...tab, closable: true } : tab
   )
 }
 
+// Guarantee the Review tab exists. Used by the default/built-in entry points
+// and when opening an otherwise-empty panel.
+function ensureReviewTab(
+  tabs: RightPanelTabInstance[] | null | undefined
+): RightPanelTabInstance[] {
+  const safeTabs = ensureRightPanelTabs(tabs)
+  return safeTabs.some((tab) => tab.id === RIGHT_PANEL_REVIEW_TAB_ID)
+    ? safeTabs
+    : [createReviewTab(), ...safeTabs]
+}
+
 function getDefaultRightPanelTabs(): RightPanelTabInstance[] {
-  return [createContextTab()]
+  return [createReviewTab()]
 }
 
 function keepGlobalRightPanelTabs(
   tabs: RightPanelTabInstance[] | null | undefined
 ): RightPanelTabInstance[] {
-  return ensureRightPanelTabs(
-    (tabs ?? []).filter((tab) => tab.kind === 'context' || tab.kind === 'browser')
+  return ensureReviewTab(
+    (tabs ?? []).filter((tab) => tab.kind === 'review' || tab.kind === 'browser')
   )
 }
 
@@ -242,7 +285,7 @@ function nextRightPanelActiveTab(
   const index = safeTabs.findIndex((tab) => tab.id === closedTabId)
   const nextTabs = safeTabs.filter((tab) => tab.id !== closedTabId)
   return (
-    nextTabs[Math.min(Math.max(index, 0), nextTabs.length - 1)]?.id ?? RIGHT_PANEL_CONTEXT_TAB_ID
+    nextTabs[Math.min(Math.max(index, 0), nextTabs.length - 1)]?.id ?? RIGHT_PANEL_REVIEW_TAB_ID
   )
 }
 
@@ -372,7 +415,12 @@ interface UIStore {
   ) => void
   openDevServerPreview: (projectDir: string, port: number, sessionId?: string | null) => void
   openMarkdownPreview: (title: string, content: string, sessionId?: string | null) => void
-  openPreviewTab: (state: PreviewPanelState, preserveExistingViewMode?: boolean) => void
+  openPreviewTab: (
+    state: PreviewPanelState,
+    preserveExistingViewMode?: boolean,
+    mirrorToRightPanel?: boolean
+  ) => void
+  openDiff: (params: OpenDiffParams) => void
   closePreviewTab: (tabId: string) => void
   setActivePreviewTab: (tabId: string | null) => void
   updatePreviewTab: (tabId: string, patch: Partial<PreviewPanelTab>) => void
@@ -824,13 +872,19 @@ function previewTabId(state: PreviewPanelState): string {
   if (state.source === 'dev-server') {
     return `dev-server:${scopeKey}:${state.projectDir ?? ''}:${state.port ?? ''}`
   }
+  if (state.source === 'diff') {
+    const variant = state.gitSection ?? state.agentRunId ?? state.diffSource ?? 'git'
+    return `diff:${scopeKey}:${variant}:${state.filePath}`
+  }
   return `markdown:${scopeKey}:${state.markdownTitle ?? ''}`
 }
 
 function previewTabTitle(state: PreviewPanelState): string {
   if (state.source === 'markdown') return state.markdownTitle || 'Markdown Preview'
   if (state.source === 'dev-server') return state.port ? `localhost:${state.port}` : 'Dev Server'
-  return state.filePath.split(/[\\/]/).pop() || state.filePath
+  const name = state.filePath.split(/[\\/]/).pop() || state.filePath
+  if (state.source === 'diff') return `${name} ⇄`
+  return name
 }
 
 function withPreviewTab(state: PreviewPanelState): PreviewPanelTab {
@@ -886,12 +940,13 @@ export const useUIStore = create<UIStore>()(
         set((state) => {
           const nextOpen = !state.rightPanelOpen
           if (!nextOpen) return { rightPanelOpen: false }
-          const rightPanelTabs = ensureRightPanelTabs(state.rightPanelTabs)
+          const sanitized = ensureRightPanelTabs(state.rightPanelTabs)
+          const rightPanelTabs = sanitized.length > 0 ? sanitized : [createReviewTab()]
           const rightPanelActiveTabId = rightPanelTabs.some(
             (tab) => tab.id === state.rightPanelActiveTabId
           )
             ? state.rightPanelActiveTabId
-            : RIGHT_PANEL_CONTEXT_TAB_ID
+            : (rightPanelTabs[0]?.id ?? RIGHT_PANEL_REVIEW_TAB_ID)
           return {
             rightPanelOpen: true,
             rightPanelTabs,
@@ -901,12 +956,13 @@ export const useUIStore = create<UIStore>()(
       setRightPanelOpen: (open) =>
         set((state) => {
           if (!open) return { rightPanelOpen: false }
-          const rightPanelTabs = ensureRightPanelTabs(state.rightPanelTabs)
+          const sanitized = ensureRightPanelTabs(state.rightPanelTabs)
+          const rightPanelTabs = sanitized.length > 0 ? sanitized : [createReviewTab()]
           const rightPanelActiveTabId = rightPanelTabs.some(
             (tab) => tab.id === state.rightPanelActiveTabId
           )
             ? state.rightPanelActiveTabId
-            : RIGHT_PANEL_CONTEXT_TAB_ID
+            : (rightPanelTabs[0]?.id ?? RIGHT_PANEL_REVIEW_TAB_ID)
           return {
             rightPanelOpen: true,
             rightPanelTabs,
@@ -950,15 +1006,6 @@ export const useUIStore = create<UIStore>()(
           get().ensureBrowserTab()
           return
         }
-        if (tab === 'context') {
-          set((state) => ({
-            rightPanelTabs: ensureRightPanelTabs(state.rightPanelTabs),
-            rightPanelActiveTabId: RIGHT_PANEL_CONTEXT_TAB_ID,
-            rightPanelTab: 'context',
-            rightPanelOpen: true
-          }))
-          return
-        }
         if (tab === 'files') {
           set((state) => ({
             workingFolderSheetOpen: true,
@@ -979,8 +1026,8 @@ export const useUIStore = create<UIStore>()(
           return
         }
         set((state) => ({
-          rightPanelTabs: ensureRightPanelTabs(state.rightPanelTabs),
-          rightPanelActiveTabId: RIGHT_PANEL_CONTEXT_TAB_ID,
+          rightPanelTabs: ensureReviewTab(state.rightPanelTabs),
+          rightPanelActiveTabId: RIGHT_PANEL_REVIEW_TAB_ID,
           rightPanelTab: tab,
           rightPanelOpen: true
         }))
@@ -988,18 +1035,19 @@ export const useUIStore = create<UIStore>()(
       rightPanelSection: 'execution',
       setRightPanelSection: (section) => set({ rightPanelSection: section }),
       rightPanelTabs: getDefaultRightPanelTabs(),
-      rightPanelActiveTabId: RIGHT_PANEL_CONTEXT_TAB_ID,
+      rightPanelActiveTabId: RIGHT_PANEL_REVIEW_TAB_ID,
       setRightPanelActiveTab: (tabId) =>
         set((state) => {
-          const rightPanelTabs = ensureRightPanelTabs(state.rightPanelTabs)
-          const targetTab = rightPanelTabs.find((tab) => tab.id === tabId)
+          const sanitized = ensureRightPanelTabs(state.rightPanelTabs)
+          const targetTab = sanitized.find((tab) => tab.id === tabId)
           if (!targetTab) {
             return {
-              rightPanelTabs,
-              rightPanelActiveTabId: RIGHT_PANEL_CONTEXT_TAB_ID,
+              rightPanelTabs: ensureReviewTab(sanitized),
+              rightPanelActiveTabId: RIGHT_PANEL_REVIEW_TAB_ID,
               rightPanelOpen: true
             }
           }
+          const rightPanelTabs = sanitized
           return {
             rightPanelTabs,
             rightPanelActiveTabId: tabId,
@@ -1143,12 +1191,14 @@ export const useUIStore = create<UIStore>()(
           const nextRightPanelTabs = ensureRightPanelTabs(
             state.rightPanelTabs.filter((tab) => tab.id !== tabId)
           )
+          // Closing the last tab collapses the right panel entirely.
+          const panelEmpty = nextRightPanelTabs.length === 0
           const rightPanelActiveTabId =
             state.rightPanelActiveTabId === tabId
               ? nextRightPanelActiveTab(state.rightPanelTabs, tabId)
               : nextRightPanelTabs.some((tab) => tab.id === state.rightPanelActiveTabId)
                 ? state.rightPanelActiveTabId
-                : RIGHT_PANEL_CONTEXT_TAB_ID
+                : (nextRightPanelTabs[0]?.id ?? RIGHT_PANEL_REVIEW_TAB_ID)
           const nextActiveRightPanelTab = nextRightPanelTabs.find(
             (tab) => tab.id === rightPanelActiveTabId
           )
@@ -1161,6 +1211,7 @@ export const useUIStore = create<UIStore>()(
           return {
             rightPanelTabs: nextRightPanelTabs,
             rightPanelActiveTabId,
+            ...(panelEmpty ? { rightPanelOpen: false } : {}),
             ...(target?.kind === 'preview'
               ? {
                   previewPanelTabs: nextPreviewTabs,
@@ -1377,7 +1428,7 @@ export const useUIStore = create<UIStore>()(
       previewPanelState: null,
       previewPanelTabs: [],
       activePreviewPanelTabId: null,
-      openPreviewTab: (previewState, preserveExistingViewMode = false) =>
+      openPreviewTab: (previewState, preserveExistingViewMode = false, mirrorToRightPanel = true) =>
         set((state) => {
           const scope = resolvePanelScope(state, previewState.sessionId, previewState.projectId)
           const scopedPreviewState = withPreviewScope(previewState, scope)
@@ -1397,6 +1448,18 @@ export const useUIStore = create<UIStore>()(
               )
             : [...state.previewPanelTabs, nextTab]
           const activePreviewPanelTabId = nextTab.id
+          const previewBase = {
+            previewPanelOpen: true,
+            previewPanelTabs: nextTabs,
+            activePreviewPanelTabId,
+            previewPanelState: activatePreviewTab(nextTabs, activePreviewPanelTabId),
+            detailPanelOpen: false,
+            detailPanelContent: null
+          }
+          // The WorkspaceView opens tabs in its own central editor and must NOT
+          // force the right panel open; chat-driven previews still mirror.
+          if (!mirrorToRightPanel) return previewBase
+
           const previewRightPanelTabId = rightPanelPreviewTabId(nextTab.id)
           const existingRightPanelTab = state.rightPanelTabs.find(
             (tab) => tab.id === previewRightPanelTabId
@@ -1422,17 +1485,37 @@ export const useUIStore = create<UIStore>()(
               : [...state.rightPanelTabs, rightPanelTab]
           )
           return {
-            previewPanelOpen: true,
-            previewPanelTabs: nextTabs,
-            activePreviewPanelTabId,
-            previewPanelState: activatePreviewTab(nextTabs, activePreviewPanelTabId),
-            detailPanelOpen: false,
-            detailPanelContent: null,
+            ...previewBase,
             rightPanelTabs,
             rightPanelActiveTabId: previewRightPanelTabId,
             rightPanelOpen: true
           }
         }),
+      openDiff: (params) =>
+        get().openPreviewTab(
+          {
+            source: 'diff',
+            filePath: params.filePath,
+            viewMode: 'code',
+            viewerType: 'diff',
+            sshConnectionId: params.sshConnectionId || undefined,
+            sessionId: params.sessionId,
+            projectId: params.projectId,
+            diffSource: params.diffSource,
+            diffOriginal: params.original,
+            diffModified: params.modified,
+            diffLanguage: params.language,
+            diffModifiedEditable: params.modifiedEditable ?? false,
+            diffIsBinary: params.isBinary ?? false,
+            diffOriginalRef: params.diffOriginalRef,
+            gitRepoPath: params.gitRepoPath,
+            gitSection: params.gitSection,
+            agentRunId: params.agentRunId,
+            agentChangeId: params.agentChangeId
+          },
+          false,
+          params.mirrorToRightPanel ?? true
+        ),
       closePreviewTab: (tabId) =>
         set((state) => {
           const index = state.previewPanelTabs.findIndex((tab) => tab.id === tabId)
@@ -1456,7 +1539,7 @@ export const useUIStore = create<UIStore>()(
               state.rightPanelActiveTabId === rightPanelTabId
                 ? (nextRightPanelTabs.find(
                     (tab) => tab.id === rightPanelPreviewTabId(nextActiveId ?? '')
-                  )?.id ?? RIGHT_PANEL_CONTEXT_TAB_ID)
+                  )?.id ?? RIGHT_PANEL_REVIEW_TAB_ID)
                 : state.rightPanelActiveTabId
           }
         }),
@@ -1562,7 +1645,7 @@ export const useUIStore = create<UIStore>()(
           const scopedPanelState = scopeChanged
             ? {
                 rightPanelTabs: keepGlobalRightPanelTabs(state.rightPanelTabs),
-                rightPanelActiveTabId: RIGHT_PANEL_CONTEXT_TAB_ID,
+                rightPanelActiveTabId: RIGHT_PANEL_REVIEW_TAB_ID,
                 previewPanelOpen: false,
                 previewPanelState: null,
                 activePreviewPanelTabId: null,
@@ -1949,7 +2032,7 @@ export const useUIStore = create<UIStore>()(
               ? state.runtimeStatusPanelOpen
               : current.runtimeStatusPanelOpen,
           rightPanelTabs: getDefaultRightPanelTabs(),
-          rightPanelActiveTabId: RIGHT_PANEL_CONTEXT_TAB_ID,
+          rightPanelActiveTabId: RIGHT_PANEL_REVIEW_TAB_ID,
           rightPanelTab: 'preview',
           rightPanelSection: 'execution',
           agentFilesActiveTabBySurface:

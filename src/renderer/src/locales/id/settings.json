@@ -161,6 +161,8 @@
     "builtinBrowserDesc": "Aktifkan panel built-in peramban dan alat otomatisasi peramban, memungkinkan agen menavigasi situs, mengekstrak konten, mengambil cuplikan layar, klik elemen, dan mengisi formulir",
     "builtinBrowserEnabled": "Diaktifkan: Agen dapat menggunakan BrowserNavigate, BrowserGetContent, BrowserScreenshot, BrowserSnapshot, BrowserClick, BrowserType, Browserscroll",
     "maxParallelToolCalls": "Max panggilan alat paralel per putaran",
+    "maxConcurrentSubAgents": "Maks. sub-agen bersamaan",
+    "maxConcurrentSubAgentsDesc": "Berapa banyak sub-agen Task (dan rekan tim latar belakang per tim) yang dapat berjalan sekaligus. Peluncuran tambahan akan mengantre hingga ada slot kosong.",
     "maxParallelToolCallsDesc": "Kontrol berapa banyak perangkat independen yang panggilan dari model yang sama dapat dijalankan sekaligus. Nilai yang lebih tinggi dapat mempercepat arus kerja berat Bash, tapi meningkatkan beban lokal.",
     "maxParallelToolCallsHint": "Set ke 1 untuk eksekusi serial.",
     "clarifyAutoAcceptRecommended": "Clarify auto- terima jawaban yang disarankan",

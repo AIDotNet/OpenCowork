@@ -39,6 +39,41 @@ function resolveProjectId(projectId?: string | null): string {
   return projectId ?? useChatStore.getState().activeProjectId ?? GLOBAL_PROJECT_ID
 }
 
+function clonePlugin(plugin: AppPluginInstance): AppPluginInstance {
+  return {
+    ...plugin,
+    browserAllowedDomains: plugin.browserAllowedDomains
+      ? [...plugin.browserAllowedDomains]
+      : undefined,
+    browserBlockedDomains: plugin.browserBlockedDomains
+      ? [...plugin.browserBlockedDomains]
+      : undefined
+  }
+}
+
+function normalizePluginOverride(plugin: AppPluginInstance): AppPluginInstance {
+  const next = clonePlugin(plugin)
+
+  if (next.id === DESKTOP_CONTROL_PLUGIN_ID) {
+    next.enabled = false
+  }
+  if (next.id === BROWSER_PLUGIN_ID) {
+    next.browserAllowedDomains = sanitizeStringList(next.browserAllowedDomains)
+    next.browserBlockedDomains = sanitizeStringList(next.browserBlockedDomains)
+  }
+  if (typeof next.useGlobalModel !== 'boolean') {
+    next.useGlobalModel = true
+  }
+  if (next.providerId === undefined) {
+    next.providerId = null
+  }
+  if (next.modelId === undefined) {
+    next.modelId = null
+  }
+
+  return next
+}
+
 function provisionBuiltinPlugins(plugins: AppPluginInstance[]): AppPluginInstance[] {
   const next = plugins.map((plugin) => ({ ...plugin }))
 
@@ -68,6 +103,29 @@ function provisionBuiltinPlugins(plugins: AppPluginInstance[]): AppPluginInstanc
   }
 
   return next
+}
+
+export function resolvePluginsForProject(
+  pluginsByProject: Record<string, AppPluginInstance[]>,
+  projectId?: string | null
+): AppPluginInstance[] {
+  const globalPlugins = provisionBuiltinPlugins(pluginsByProject[GLOBAL_PROJECT_ID] ?? []).map(
+    clonePlugin
+  )
+  const resolvedProjectId = resolveProjectId(projectId)
+
+  if (resolvedProjectId === GLOBAL_PROJECT_ID) {
+    return globalPlugins
+  }
+
+  const projectOverrides = Array.isArray(pluginsByProject[resolvedProjectId])
+    ? pluginsByProject[resolvedProjectId].map(normalizePluginOverride)
+    : []
+
+  return globalPlugins.map((plugin) => {
+    const override = projectOverrides.find((item) => item.id === plugin.id)
+    return override ? { ...plugin, ...override } : plugin
+  })
 }
 
 function migrateProjectPlugins(
@@ -106,6 +164,7 @@ function isImageModelEnabled(providerId: string, modelId: string): boolean {
 
 interface AppPluginStore {
   pluginsByProject: Record<string, AppPluginInstance[]>
+  getPlugins: (projectId?: string | null) => AppPluginInstance[]
   getDescriptors: () => AppPluginDescriptor[]
   getPlugin: (id: AppPluginId, projectId?: string | null) => AppPluginInstance | null
   updatePlugin: (
@@ -128,18 +187,19 @@ export const useAppPluginStore = create<AppPluginStore>()(
         [GLOBAL_PROJECT_ID]: provisionBuiltinPlugins([])
       },
 
+      getPlugins: (projectId) => resolvePluginsForProject(get().pluginsByProject, projectId),
+
       getDescriptors: () => APP_PLUGIN_DESCRIPTORS,
 
-      getPlugin: (id, projectId) => {
-        const resolvedProjectId = resolveProjectId(projectId)
-        const plugins = get().pluginsByProject[resolvedProjectId] ?? provisionBuiltinPlugins([])
-        return plugins.find((plugin) => plugin.id === id) ?? null
-      },
+      getPlugin: (id, projectId) =>
+        get()
+          .getPlugins(projectId)
+          .find((plugin) => plugin.id === id) ?? null,
 
       updatePlugin: (id, patch, projectId) => {
         const resolvedProjectId = resolveProjectId(projectId)
         set((state) => {
-          const current = state.pluginsByProject[resolvedProjectId] ?? provisionBuiltinPlugins([])
+          const current = resolvePluginsForProject(state.pluginsByProject, resolvedProjectId)
           const next = current.map((plugin) =>
             plugin.id === id ? { ...plugin, ...patch } : plugin
           )
@@ -150,7 +210,7 @@ export const useAppPluginStore = create<AppPluginStore>()(
       togglePluginEnabled: (id, projectId) => {
         const resolvedProjectId = resolveProjectId(projectId)
         set((state) => {
-          const current = state.pluginsByProject[resolvedProjectId] ?? provisionBuiltinPlugins([])
+          const current = resolvePluginsForProject(state.pluginsByProject, resolvedProjectId)
           const next = current.map((plugin) =>
             plugin.id === id ? { ...plugin, enabled: !plugin.enabled } : plugin
           )
@@ -159,9 +219,9 @@ export const useAppPluginStore = create<AppPluginStore>()(
       },
 
       getEnabledPlugins: (projectId) =>
-        (get().pluginsByProject[resolveProjectId(projectId)] ?? []).filter(
-          (plugin) => plugin.enabled
-        ),
+        get()
+          .getPlugins(projectId)
+          .filter((plugin) => plugin.enabled),
 
       getResolvedImagePluginConfig: (projectId) => {
         const plugin = get().getPlugin(IMAGE_PLUGIN_ID, projectId)

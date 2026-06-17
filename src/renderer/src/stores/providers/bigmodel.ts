@@ -89,6 +89,18 @@ export const bigmodelPreset: BuiltinProviderPreset = {
       cacheHitPrice: 0.3
     },
     {
+      id: 'glm-5.2',
+      name: 'GLM-5.2',
+      icon: 'bigmodel',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      supportsThinking: true,
+      thinkingConfig: glmThinkingConfig()
+    },
+    {
       id: 'glm-5',
       name: 'GLM-5',
       icon: 'bigmodel',

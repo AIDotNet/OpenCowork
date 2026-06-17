@@ -6,7 +6,16 @@ import type {
   TeamRuntimePermissionMode
 } from '../../../../../shared/team-runtime-types'
 
-export type TeamMemberStatus = 'working' | 'idle' | 'waiting' | 'stopped' | 'completed' | 'failed'
+// 'awaiting_approval' is a renderer-only live status — it MUST NOT be persisted
+// to the team file runtime (TeamRuntimeMemberStatus has no such value).
+export type TeamMemberStatus =
+  | 'working'
+  | 'idle'
+  | 'waiting'
+  | 'stopped'
+  | 'completed'
+  | 'failed'
+  | 'awaiting_approval'
 
 export interface TeamMember {
   id: string

@@ -7,6 +7,13 @@ Product Design option after the design brief is confirmed.
 
 1. Verify there is a visual target. A written brief alone is not enough.
 2. Inspect the target image directly with `Read`.
+   - If the current request includes a `Recent visual artifacts` context block with attached
+     images, file paths, or URLs, treat those artifacts as the selected visual target and inspect
+     them before asking the user to re-upload.
+   - If the target is described as a previously generated image, first resolve it to an actual
+     readable file path, uploaded attachment, URL, or saved Product Design asset.
+   - If only chat text refers to the generated image and no readable image artifact is available,
+     stop and ask the user to save, upload, or attach that exact image before building.
 3. Catalog visible image assets: hero images, thumbnails, textures, illustrations, logos, product
    images, avatars, and decorative imagery.
 4. Generate missing image assets with `ImageGenerate`, passing the target image in

@@ -127,6 +127,12 @@ interface GitStore {
     | { success: true; stat: string; patch: string; empty: boolean }
     | { success: false; error: string }
   >
+  getFileContentAtRef: (
+    repoPath: string,
+    filePath: string,
+    ref: string
+  ) => Promise<{ content: string; exists: boolean; isBinary: boolean }>
+  invalidateFileDiff: (repoPath: string, filePath: string) => void
   startPolling: () => void
   stopPolling: () => void
   reset: () => void
@@ -342,6 +348,10 @@ export const useGitStore = create<GitStore>((set, get) => ({
   },
 
   loadFileDiff: async (repoPath, filePath, staged = false) => {
+    const key = fileDiffCacheKey(filePath, staged)
+    const cached = ensureRepoDetails(get().repoDetailsByPath, repoPath).diffByKey[key]
+    if (cached !== undefined) return
+
     const requestKey = fileDiffRequestKey(repoPath, filePath, staged)
     const pending = pendingFileDiffRequests.get(requestKey)
     if (pending) return pending
@@ -354,7 +364,6 @@ export const useGitStore = create<GitStore>((set, get) => ({
       })
       if (!result.success) return
 
-      const key = fileDiffCacheKey(filePath, staged)
       const diff = result.diff ?? ''
       set((state) => {
         const details = ensureRepoDetails(state.repoDetailsByPath, repoPath)
@@ -438,6 +447,43 @@ export const useGitStore = create<GitStore>((set, get) => ({
       patch: result.patch ?? '',
       empty: Boolean(result.empty)
     }
+  },
+
+  getFileContentAtRef: async (repoPath, filePath, ref) => {
+    const result = await invokeGit<
+      GitResultBase & { content?: string; exists?: boolean; isBinary?: boolean }
+    >(IPC.GIT_GET_FILE_CONTENT_AT_REF, {
+      ...getGitTarget(repoPath),
+      filePath,
+      ref
+    })
+    if (!result.success) {
+      return { content: '', exists: false, isBinary: false }
+    }
+    return {
+      content: result.content ?? '',
+      exists: result.exists ?? true,
+      isBinary: Boolean(result.isBinary)
+    }
+  },
+
+  invalidateFileDiff: (repoPath, filePath) => {
+    for (const staged of [true, false]) {
+      pendingFileDiffRequests.delete(fileDiffRequestKey(repoPath, filePath, staged))
+    }
+    set((state) => {
+      const details = state.repoDetailsByPath[repoPath]
+      if (!details) return state
+      const nextDiffByKey = { ...details.diffByKey }
+      delete nextDiffByKey[fileDiffCacheKey(filePath, true)]
+      delete nextDiffByKey[fileDiffCacheKey(filePath, false)]
+      return {
+        repoDetailsByPath: {
+          ...state.repoDetailsByPath,
+          [repoPath]: { ...details, diffByKey: nextDiffByKey }
+        }
+      }
+    })
   },
 
   fetchRepository: async (repoPath) => {

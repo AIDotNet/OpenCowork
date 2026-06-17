@@ -35,6 +35,7 @@ interface MessageItemProps {
   onDeleteMessage?: (messageId: string) => void
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
   liveToolCallMap?: Map<string, ToolCallState> | null
+  inlineCompactSummaries?: readonly UnifiedMessage[]
   renderMode?: MessageRenderMode
   orchestrationRun?: OrchestrationRun | null
   hiddenToolUseIds?: Set<string>
@@ -113,6 +114,7 @@ function MessageItemInner({
   onDeleteMessage,
   toolResults,
   liveToolCallMap,
+  inlineCompactSummaries,
   renderMode = 'default',
   orchestrationRun,
   hiddenToolUseIds,
@@ -155,6 +157,7 @@ function MessageItemInner({
             isStreaming={isStreaming}
             usage={message.usage}
             toolResults={toolResults}
+            inlineCompactSummaries={inlineCompactSummaries}
             msgId={message.id}
             sessionId={sessionId}
             sessionAssistantMessageIds={sessionAssistantMessageIds}
@@ -282,6 +285,7 @@ function areEqual(prev: MessageItemProps, next: MessageItemProps): boolean {
       prev.onDeleteMessage === next.onDeleteMessage &&
       areToolResultsEqual(prev.toolResults, next.toolResults) &&
       prev.liveToolCallMap === next.liveToolCallMap &&
+      prev.inlineCompactSummaries === next.inlineCompactSummaries &&
       prev.renderMode === next.renderMode &&
       prev.orchestrationRun === next.orchestrationRun &&
       areStringSetsEqual(prev.hiddenToolUseIds, next.hiddenToolUseIds) &&
@@ -330,6 +334,7 @@ function areEqual(prev: MessageItemProps, next: MessageItemProps): boolean {
     prevUsageSignal === nextUsageSignal &&
     areToolResultsEqual(prev.toolResults, next.toolResults) &&
     prev.liveToolCallMap === next.liveToolCallMap &&
+    prev.inlineCompactSummaries === next.inlineCompactSummaries &&
     prev.renderMode === next.renderMode &&
     prev.orchestrationRun === next.orchestrationRun &&
     areStringSetsEqual(prev.hiddenToolUseIds, next.hiddenToolUseIds) &&

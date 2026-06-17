@@ -205,7 +205,7 @@ function trimToolCallArray(toolCalls: ToolCallState[]): void {
   toolCalls.splice(0, toolCalls.length - MAX_TRACKED_TOOL_CALLS)
 }
 
-type SubAgentReportStatus = 'pending' | 'submitted' | 'retrying' | 'fallback' | 'missing'
+type SubAgentReportStatus = 'pending' | 'queued' | 'submitted' | 'retrying' | 'fallback' | 'missing'
 
 export interface SubAgentState {
   name: string
@@ -215,6 +215,8 @@ export interface SubAgentState {
   description: string
   prompt: string
   isRunning: boolean
+  /** True while waiting on the sub-agent concurrency limiter, before the inner loop starts. */
+  isQueued?: boolean
   success: boolean | null
   errorMessage: string | null
   iteration: number
@@ -1807,7 +1809,86 @@ export const useAgentStore = create<AgentStore>()(
           const id = event.toolUseId
           const existing = findSubAgentState(state, id, sessionId)
           switch (event.type) {
+            case 'sub_agent_queued': {
+              if (existing) return
+              state.activeSubAgents[id] = {
+                name: event.subAgentName,
+                displayName: String(event.input.subagent_type ?? event.subAgentName),
+                toolUseId: id,
+                sessionId,
+                description: String(event.input.description ?? ''),
+                prompt: String(
+                  event.input.prompt ??
+                    event.input.query ??
+                    event.input.task ??
+                    event.input.target ??
+                    ''
+                ),
+                isRunning: false,
+                isQueued: true,
+                success: null,
+                errorMessage: null,
+                iteration: 0,
+                toolCalls: [],
+                streamingText: '',
+                transcript: [],
+                currentAssistantMessageId: null,
+                report: '',
+                reportStatus: 'queued',
+                usage: undefined,
+                startedAt: Date.now(),
+                completedAt: null
+              }
+              if (sessionId) {
+                syncSessionSubAgentState(state, sessionId, id, state.activeSubAgents[id])
+                const previous = state.sessionSubAgentSummaries[sessionId] ?? []
+                state.sessionSubAgentSummaries[sessionId] = [
+                  buildSubAgentSummary(state.activeSubAgents[id]),
+                  ...previous.filter((item) => item.toolUseId !== id)
+                ].slice(0, MAX_SUBAGENT_HISTORY)
+                shouldPersistSubAgentHistory = true
+              }
+              // A queued sub-agent is not "running" — derived running state is
+              // keyed off isRunning, so this intentionally does not flip the
+              // session into a running indicator.
+              rebuildRunningSubAgentDerived(state)
+              break
+            }
+            case 'sub_agent_dequeued': {
+              const sa = findSubAgentState(state, id, sessionId)
+              if (sa?.isQueued) {
+                delete state.activeSubAgents[id]
+                if (sessionId) {
+                  const previous = state.sessionSubAgentSummaries[sessionId] ?? []
+                  state.sessionSubAgentSummaries[sessionId] = previous.filter(
+                    (item) => item.toolUseId !== id
+                  )
+                  shouldPersistSubAgentHistory = true
+                }
+                rebuildRunningSubAgentDerived(state)
+              }
+              break
+            }
             case 'sub_agent_start': {
+              // Upgrade an existing queued record in place rather than recreating.
+              if (existing?.isQueued) {
+                existing.isRunning = true
+                existing.isQueued = false
+                existing.reportStatus = 'pending'
+                existing.transcript = [event.promptMessage]
+                existing.startedAt = Date.now()
+                if (sessionId) {
+                  syncSessionSubAgentState(state, sessionId, id, existing)
+                  const previous = state.sessionSubAgentSummaries[sessionId] ?? []
+                  state.sessionSubAgentSummaries[sessionId] = [
+                    buildSubAgentSummary(existing),
+                    ...previous.filter((item) => item.toolUseId !== id)
+                  ].slice(0, MAX_SUBAGENT_HISTORY)
+                  shouldPersistSubAgentHistory = true
+                }
+                rebuildRunningSubAgentDerived(state)
+                break
+              }
               if (existing?.isRunning) return
               state.activeSubAgents[id] = {
                 name: event.subAgentName,
@@ -1823,6 +1904,7 @@ export const useAgentStore = create<AgentStore>()(
                     ''
                 ),
                 isRunning: true,
+                isQueued: false,
                 success: null,
                 errorMessage: null,
                 iteration: 0,
@@ -2008,7 +2090,11 @@ export const useAgentStore = create<AgentStore>()(
                   sa.report = event.result.output
                 }
                 sa.usage = event.result.usage
-                sa.reportStatus = sa.report.trim() ? 'submitted' : 'missing'
+                sa.reportStatus = sa.report.trim()
+                  ? sa.reportStatus === 'fallback'
+                    ? 'fallback'
+                    : 'submitted'
+                  : 'missing'
                 state.completedSubAgents[id] = sa
                 const targetSessionId = sa.sessionId ?? sessionId
                 if (targetSessionId) {

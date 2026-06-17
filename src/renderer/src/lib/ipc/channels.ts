@@ -261,6 +261,7 @@ export const IPC = {
   GIT_GET_STATUS_DETAILED: 'git:get-status-detailed',
   GIT_GET_FILE_DIFF: 'git:get-file-diff',
   GIT_GET_FILE_DIFF_AT_COMMIT: 'git:get-file-diff-at-commit',
+  GIT_GET_FILE_CONTENT_AT_REF: 'git:get-file-content-at-ref',
   GIT_GET_STAGED_DIFF_BUNDLE: 'git:get-staged-diff-bundle',
   GIT_GET_COMMIT_HISTORY: 'git:get-commit-history',
   GIT_LIST_BRANCHES: 'git:list-branches',

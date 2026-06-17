@@ -22,6 +22,8 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/compone
 import { useAgentStore, type SubAgentState } from '@renderer/stores/agent-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
+import { formatTokens, getBillableTotalTokens } from '@renderer/lib/format-tokens'
 import { subAgentRegistry } from '@renderer/lib/agent/sub-agents/registry'
 import type { ToolCallState } from '@renderer/lib/agent/types'
 import { cn } from '@renderer/lib/utils'
@@ -152,12 +154,17 @@ function getToolCallStatusClass(status: ToolCallState['status']): string {
   }
 }
 
+// Queued sub-agents are not yet running but should be grouped with active ones.
+function isActiveAgent(agent: SubAgentState): boolean {
+  return agent.isRunning || !!agent.isQueued
+}
+
 function matchesFilter(agent: SubAgentState, filter: SubAgentPanelFilter): boolean {
   switch (filter) {
     case 'running':
-      return agent.isRunning
+      return isActiveAgent(agent)
     case 'completed':
-      return !agent.isRunning
+      return !isActiveAgent(agent)
     case 'today':
       return isSameDay(agent.completedAt ?? agent.startedAt)
     case 'all':
@@ -201,7 +208,7 @@ export function SubAgentsPanel({
   )
 
   const runningAgents = React.useMemo(
-    () => allAgents.filter((agent) => agent.isRunning && matchesFilter(agent, filter)),
+    () => allAgents.filter((agent) => isActiveAgent(agent) && matchesFilter(agent, filter)),
     [allAgents, filter]
   )
 
@@ -209,7 +216,7 @@ export function SubAgentsPanel({
     const groups = new Map<string, { label: string; items: SubAgentState[] }>()
 
     for (const agent of allAgents) {
-      if (agent.isRunning || !matchesFilter(agent, filter)) continue
+      if (isActiveAgent(agent) || !matchesFilter(agent, filter)) continue
       const groupTs = agent.completedAt ?? agent.startedAt
       const label = getHistoryGroupLabel(groupTs, t)
       const group = groups.get(label)
@@ -224,7 +231,7 @@ export function SubAgentsPanel({
   }, [allAgents, filter, t])
 
   React.useEffect(() => {
-    const hasRunning = allAgents.some((agent) => agent.isRunning)
+    const hasRunning = allAgents.some((agent) => isActiveAgent(agent))
     if (!hasRunning) return
     setNow(Date.now())
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
@@ -251,6 +258,14 @@ export function SubAgentsPanel({
 
   const visibleCount =
     runningAgents.length + completedGroups.reduce((sum, group) => sum + group.items.length, 0)
+
+  const maxConcurrentSubAgents = useSettingsStore((s) => s.maxConcurrentSubAgents)
+  const activeCount = allAgents.filter((agent) => agent.isRunning).length
+  const queuedCount = allAgents.filter((agent) => agent.isQueued).length
+  const totalTokens = allAgents.reduce(
+    (sum, agent) => sum + (agent.usage ? getBillableTotalTokens(agent.usage) : 0),
+    0
+  )
 
   if (!activeSessionId || allAgents.length === 0) {
     return (
@@ -280,6 +295,20 @@ export function SubAgentsPanel({
               {t('subAgentsPanel.subtitle', {
                 defaultValue: 'Running pinned to top, history grouped by date, results shown first'
               })}
+            </p>
+            <p className="mt-1 text-[11px] font-medium tabular-nums text-muted-foreground/80">
+              {t('subAgentsPanel.summaryRunning', {
+                defaultValue: 'Running {{active}}/{{max}}',
+                active: activeCount,
+                max: maxConcurrentSubAgents
+              })}
+              {queuedCount > 0
+                ? ` · ${t('subAgentsPanel.summaryQueued', {
+                    defaultValue: 'Queued {{count}}',
+                    count: queuedCount
+                  })}`
+                : ''}
+              {totalTokens > 0 ? ` · ${formatTokens(totalTokens)} tok` : ''}
             </p>
           </div>
           <Button
@@ -435,7 +464,15 @@ function SubAgentRunHoverContent({
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium text-white/88">{displayName}</div>
             <div className="mt-0.5 text-[11px] text-white/45">
-              {agent.isRunning ? 'Running' : isFailed ? 'Failed' : 'Completed'}
+              {agent.isQueued
+                ? 'Queued'
+                : agent.isRunning
+                  ? 'Running'
+                  : isFailed
+                    ? 'Failed'
+                    : agent.reportStatus === 'fallback'
+                      ? 'Synthesized'
+                      : 'Completed'}
             </div>
           </div>
           <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/60">
@@ -556,15 +593,20 @@ function SubAgentRunCard({
               variant={isFailed ? 'destructive' : 'secondary'}
               className={cn(
                 'h-4.5 rounded-full border border-border/60 bg-background/70 px-1.5 text-[9px] font-medium text-foreground/70',
+                agent.isQueued && 'border-amber-500/30 bg-amber-500/10 text-amber-200',
                 agent.isRunning && 'border-cyan-500/30 bg-cyan-500/10 text-cyan-100',
                 isFailed && 'border-destructive/40 bg-destructive/10 text-destructive'
               )}
             >
-              {agent.isRunning
-                ? t('subAgentsPanel.running', { defaultValue: 'Running' })
-                : isFailed
-                  ? t('detailPanel.error', { defaultValue: 'Failed' })
-                  : t('subAgentsPanel.completed', { defaultValue: 'Completed' })}
+              {agent.isQueued
+                ? t('subAgentsPanel.queued', { defaultValue: 'Queued' })
+                : agent.isRunning
+                  ? t('subAgentsPanel.running', { defaultValue: 'Running' })
+                  : isFailed
+                    ? t('detailPanel.error', { defaultValue: 'Failed' })
+                    : agent.reportStatus === 'fallback'
+                      ? t('subAgentsPanel.synthesized', { defaultValue: 'Synthesized' })
+                      : t('subAgentsPanel.completed', { defaultValue: 'Completed' })}
             </Badge>
           </div>
 

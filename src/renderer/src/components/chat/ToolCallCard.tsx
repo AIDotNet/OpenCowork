@@ -6,6 +6,7 @@ import {
   XCircle,
   Copy,
   Check,
+  Loader2,
   Square,
   FileCode,
   Search,
@@ -657,11 +658,51 @@ export function WidgetOutputBlock({
 
   const isPending = isExecuting && !loaded && !payload.widgetCode
   const loadingMessage = loadingMessages[loadingIndex] ?? defaultLoadingMessage
+  const widgetChars =
+    typeof input.widget_code_chars === 'number'
+      ? input.widget_code_chars
+      : payload.widgetCode
+        ? payload.widgetCode.length
+        : null
+  const stageLabel = isExecuting
+    ? payload.widgetCode
+      ? t('toolCall.widget.rendering')
+      : t('toolCall.receivingArgs')
+    : t('toolCall.widget.rendered')
 
   return (
-    <div className="my-2 space-y-2">
+    <div className="my-2 overflow-hidden rounded-xl border border-border/50 bg-background/60 shadow-[0_10px_30px_rgba(15,23,42,0.04)] dark:border-white/[0.08] dark:bg-white/[0.025] dark:shadow-none">
+      <div className="flex items-center justify-between gap-3 border-b border-border/50 px-3 py-2 dark:border-white/[0.08]">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-violet-500/20 bg-violet-500/10 text-violet-600 dark:text-violet-300">
+            {isExecuting ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Code2 className="size-3.5" />
+            )}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-[12px] font-semibold text-foreground/88">
+              {payload.title}
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground/65">
+              <span>{stageLabel}</span>
+              <span>{payload.kind.toUpperCase()}</span>
+              {widgetChars !== null ? (
+                <span>{t('toolCall.charCount', { count: widgetChars })}</span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        {!isExecuting ? (
+          <span className="hidden items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 sm:inline-flex dark:text-emerald-300">
+            <Check className="size-3" />
+            {t('toolCall.widget.renderComplete')}
+          </span>
+        ) : null}
+      </div>
       <div
-        className="relative overflow-hidden rounded-xl bg-transparent shadow-sm"
+        className="relative overflow-hidden bg-transparent"
         style={{ width: '100%', border: 'none', backgroundColor: 'transparent' }}
       >
         {payload.widgetCode ? (
@@ -2036,6 +2077,14 @@ function InputField({
   )
 }
 
+function ToolDetailSectionHeader({ label }: { label: string }): React.JSX.Element {
+  return (
+    <div className="flex items-center justify-between border-b border-border/45 pb-2 pt-0.5 text-[12px] font-semibold text-foreground/88 dark:border-white/[0.08]">
+      <span>{label}</span>
+    </div>
+  )
+}
+
 const STRUCTURED_INPUT_VALUE_CHARS = 300
 const STRUCTURED_INPUT_OBJECT_KEY_LIMIT = 12
 const STRUCTURED_INPUT_ARRAY_ITEM_LIMIT = 6
@@ -2111,7 +2160,13 @@ function StructuredInput({
   const { t } = useTranslation('chat')
 
   if (name === 'Skill') {
-    return <></>
+    const skillName = getSkillNameFromInput(input)
+    return (
+      <div className="flex items-center gap-2 rounded-md bg-muted/20 px-3 py-2 text-xs">
+        <span className="shrink-0 text-muted-foreground/65">{t('toolCall.skillName')}</span>
+        <span className="min-w-0 truncate font-mono text-foreground/85">{skillName || '-'}</span>
+      </div>
+    )
   }
 
   // Shell-like tools: command in terminal-style block + compact execution metadata.
@@ -2696,6 +2751,7 @@ const COMPACT_BUILTIN_TOOL_NAMES = new Set([
   'Read',
   'ReadMcpResourceTool',
   'SavePlan',
+  'Skill',
   'TaskCreate',
   'TaskGet',
   'TaskList',
@@ -2848,10 +2904,28 @@ function getBuiltinToolIcon(name: string): React.ReactNode {
   if (name === 'Monitor') return <SquareTerminal className="size-3.5" />
   if (name === 'EnterPlanMode') return <LogIn className="size-3.5" />
   if (name === 'ExitPlanMode') return <LogOut className="size-3.5" />
+  if (name === 'Skill') return <FileText className="size-3.5" />
   if (name.endsWith('goal')) return <Target className="size-3.5" />
   if (name.startsWith('Memory')) return <Database className="size-3.5" />
   if (name.startsWith('Wiki')) return <BookOpen className="size-3.5" />
   return <Box className="size-3.5" />
+}
+
+function getToolNamespace(name: string): string {
+  if (['Read', 'Write', 'Edit', 'NotebookEdit', 'LS', 'Delete'].includes(name)) return 'files'
+  if (['Glob', 'Grep', 'ToolSearch'].includes(name)) return 'search'
+  if (COMMAND_TOOL_NAMES.has(name) || name === 'Monitor') return 'shell'
+  if (name.startsWith('Browser') || name === 'WebSearch' || name === 'WebFetch') return 'web'
+  if (name.startsWith('Task') || name === 'TodoWrite') return 'tasks'
+  if (name.startsWith('Cron')) return 'cron'
+  if (name.startsWith('Memory')) return 'memory'
+  if (name.startsWith('Wiki')) return 'wiki'
+  if (name.includes('McpResource')) return 'mcp'
+  if (name.endsWith('goal')) return 'goal'
+  if (name === 'visualize_show_widget') return 'widget'
+  if (name === 'Notify') return 'notify'
+  if (name === 'Skill') return 'skill'
+  return 'open-cowork'
 }
 
 function buildCompactToolHeaderModel({
@@ -3045,6 +3119,16 @@ function buildCompactToolHeaderModel({
     }
   }
 
+  if (name === 'Skill') {
+    const skillName = getSkillNameFromInput(input)
+    return {
+      icon: getBuiltinToolIcon(name),
+      primary: skillName || summary || displayName,
+      badges: [],
+      title: skillName || summary || displayName
+    }
+  }
+
   if (name === 'visualize_show_widget') {
     const title = firstStringInput(input, ['title', 'name'])
     const chars =
@@ -3194,19 +3278,22 @@ function ToolCallCardInner({
   const elapsed =
     startedAt && completedAt ? ((completedAt - startedAt) / 1000).toFixed(1) + 's' : null
   const useCompactToolHeader = COMPACT_BUILTIN_TOOL_NAMES.has(name)
-  const compactHeader = React.useMemo(
-    () =>
-      buildCompactToolHeaderModel({
-        name,
-        input,
-        output,
-        outputText,
-        displayName,
-        summary,
-        t
-      }),
-    [displayName, input, name, output, outputText, summary, t]
-  )
+  const compactHeader = React.useMemo(() => {
+    const model = buildCompactToolHeaderModel({
+      name,
+      input,
+      output,
+      outputText,
+      displayName,
+      summary,
+      t
+    })
+    return {
+      ...model,
+      toolLabel: displayName,
+      namespace: getToolNamespace(name)
+    }
+  }, [displayName, input, name, output, outputText, summary, t])
   const compactStatus = compactStatusLabel(status, t)
   const compactHeaderError = Boolean(displayError) || (status === 'error' && !!outputError)
   const bashHasFocusedOutput =
@@ -3216,45 +3303,18 @@ function ToolCallCardInner({
   const hasFocusedOutput =
     shouldRenderOutputPanels &&
     (hasFocusedExpandedOutput(name, output, outputText) || bashHasFocusedOutput)
+  const suppressSkillOutput = name === 'Skill'
   const shouldShowStructuredInput = !(showSettledWriteContent || hasFocusedOutput)
-
-  if (name === 'Skill') {
-    const skillName = getSkillNameFromInput(input)
-    return (
-      <div className="my-2 min-w-0 overflow-hidden">
-        <div className="inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground">
-          <ToolStatusDot status={status} />
-          <FileText className="size-3 shrink-0 text-emerald-500 dark:text-emerald-400" />
-          <span className="shrink-0 font-medium text-foreground/80">
-            {isProcessing ? t('toolCall.skillLoading') : t('toolCall.skillUsed')}
-          </span>
-          {skillName ? (
-            <span
-              className="min-w-0 truncate rounded-md border border-emerald-500/15 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[11px] text-emerald-700 dark:text-emerald-300"
-              title={skillName}
-            >
-              {skillName}
-            </span>
-          ) : null}
-          {elapsed ? (
-            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/55">
-              {elapsed}
-            </span>
-          ) : null}
-        </div>
-        {displayError ? (
-          <div className="mt-1.5 max-w-xl rounded-md border border-destructive/20 bg-destructive/[0.035] px-3 py-2 text-xs text-destructive">
-            {displayError}
-          </div>
-        ) : null}
-      </div>
-    )
-  }
+  const shouldShowResultHeader =
+    !suppressSkillOutput &&
+    shouldRenderOutputPanels &&
+    (Boolean(output) ||
+      (name === 'Bash' && (status === 'running' || Boolean(getBashInputTerminalId(input)))))
 
   return (
     <div
       className={cn(
-        useCompactToolHeader ? 'my-0 min-w-0 overflow-hidden' : 'my-5 min-w-0 overflow-hidden'
+        useCompactToolHeader ? 'my-1 min-w-0 overflow-hidden' : 'my-5 min-w-0 overflow-hidden'
       )}
     >
       {/* Header — click to toggle */}
@@ -3262,7 +3322,7 @@ function ToolCallCardInner({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           useCompactToolHeader
-            ? 'group w-full rounded-md px-2 py-0.5 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-accent/50'
+            ? 'group w-full rounded-lg p-0 text-left transition-colors'
             : 'flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground'
         )}
       >
@@ -3343,10 +3403,18 @@ function ToolCallCardInner({
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className={cn(
               'min-w-0 overflow-hidden',
-              useCompactToolHeader ? 'mt-0.5 pl-4' : 'mt-1.5 pl-5'
+              useCompactToolHeader
+                ? 'ml-3 mt-1.5 border-l border-border/45 pl-5 dark:border-white/[0.08]'
+                : 'mt-1.5 pl-5'
             )}
           >
-            <div className="space-y-2 pb-0.5">
+            <div
+              className={cn(
+                'space-y-2 pb-0.5',
+                useCompactToolHeader &&
+                  'rounded-lg border border-border/55 bg-background/55 px-3 py-3 dark:border-white/[0.08] dark:bg-[#0d0d0e]'
+              )}
+            >
               {hideLivePayload ? (
                 <div className="space-y-2">
                   <StructuredInput name={name} input={input} status={status} />
@@ -3420,7 +3488,13 @@ function ToolCallCardInner({
                     })()}
                   {/* Structured Input — tool-specific rendering */}
                   {shouldShowStructuredInput && (
-                    <StructuredInput name={name} input={input} status={status} />
+                    <div className="space-y-2">
+                      <ToolDetailSectionHeader label={t('toolCall.parameters')} />
+                      <StructuredInput name={name} input={input} status={status} />
+                    </div>
+                  )}
+                  {shouldShowResultHeader && (
+                    <ToolDetailSectionHeader label={t('toolCall.result')} />
                   )}
                   {/* Output — tool-specific rendering */}
                   {output && name === 'Read' && hasImageBlocks(output) && (
@@ -3506,6 +3580,7 @@ function ToolCallCardInner({
                       'Write',
                       'Delete',
                       'AskUserQuestion',
+                      'Skill',
                       'visualize_show_widget'
                     ].includes(name) &&
                     (hasImageBlocks(output) ? (

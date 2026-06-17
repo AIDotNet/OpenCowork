@@ -612,6 +612,9 @@
     }
   },
   "subAgent": {
+    "queued": "In Warteschlange",
+    "synthesizing": "Bericht wird erstellt…",
+    "doneSynthesized": "Fertig (erstellt)",
     "working": "Arbeiten",
     "failed": "gescheitert",
     "done": "fertig",

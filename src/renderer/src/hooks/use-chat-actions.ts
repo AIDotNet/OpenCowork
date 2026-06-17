@@ -8,7 +8,7 @@ import {
   resolveReasoningEffortForModel,
   useSettingsStore
 } from '@renderer/stores/settings-store'
-import { useProviderStore } from '@renderer/stores/provider-store'
+import { modelSupportsVision, useProviderStore } from '@renderer/stores/provider-store'
 import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useBackgroundSessionStore } from '@renderer/stores/background-session-store'
@@ -95,12 +95,14 @@ import { ApiStreamError } from '@renderer/lib/ipc/api-stream'
 import { recordUsageEvent } from '@renderer/lib/usage-analytics'
 import {
   compressMessages,
+  isCompactSummaryMessage,
   mergeCompressedMessagesKeepHistory,
   mergeLoopEndMessagesKeepHistory,
   resolveCompressionContextLength,
   resolveCompressionReservedOutputBudget,
   resolveCompressionThreshold
 } from '@renderer/lib/agent/context-compression'
+import { applyRecentVisualContext } from '@renderer/lib/agent/visual-context'
 import { runAgentLoop } from '@renderer/lib/agent/agent-loop'
 import {
   liveToolInputSignature,
@@ -222,72 +224,70 @@ useChatStore.subscribe((state) => {
   }
   knownSessionIds = currentIds
 })
-window.electron.ipcRenderer.on(
-  'sidecar:approval-request',
-  async (_event: unknown, payload: { requestId: string; method: string; params: unknown }) => {
-    if (payload?.method !== 'approval/request' || !payload.requestId) return
+ipcClient.on('sidecar:approval-request', async (data: unknown) => {
+  const payload = data as { requestId: string; method: string; params: unknown }
+  if (payload?.method !== 'approval/request' || !payload.requestId) return
 
-    const request = normalizeSidecarApprovalRequest(payload.params)
-    if (!request) {
-      await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
-        requestId: payload.requestId,
-        approved: false,
-        reason: 'Invalid approval request payload'
-      })
-      return
-    }
+  const request = normalizeSidecarApprovalRequest(payload.params)
+  if (!request) {
+    await ipcClient.invoke('sidecar:approval-response', {
+      requestId: payload.requestId,
+      approved: false,
+      reason: 'Invalid approval request payload'
+    })
+    return
+  }
 
-    const registeredDecision = await resolveSidecarApprovalRequest(request)
-    if (registeredDecision) {
-      await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
-        requestId: payload.requestId,
-        approved: registeredDecision.approved,
-        ...(registeredDecision.reason ? { reason: registeredDecision.reason } : {})
-      })
-      return
-    }
+  const registeredDecision = await resolveSidecarApprovalRequest(request)
+  if (registeredDecision) {
+    await ipcClient.invoke('sidecar:approval-response', {
+      requestId: payload.requestId,
+      approved: registeredDecision.approved,
+      ...(registeredDecision.reason ? { reason: registeredDecision.reason } : {})
+    })
+    return
+  }
 
-    const agentStore = useAgentStore.getState()
-    const autoApprove = useSettingsStore.getState().autoApprove
-    if (autoApprove || agentStore.approvedToolNames.includes(request.toolCall.name)) {
-      if (!autoApprove) {
-        agentStore.addApprovedTool(request.toolCall.name)
-      }
-      await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
-        requestId: payload.requestId,
-        approved: true
-      })
-      return
-    }
-
-    agentStore.addToolCall(request.toolCall, request.sessionId)
-    if (request.sessionId && !isSessionForeground(request.sessionId)) {
-      const sessionTitle =
-        useChatStore.getState().sessions.find((session) => session.id === request.sessionId)
-          ?.title ?? 'Background session'
-      useBackgroundSessionStore.getState().addInboxItem({
-        sessionId: request.sessionId,
-        type: 'approval',
-        title: request.toolCall.name,
-        description: `${sessionTitle} waiting for tool approval`,
-        toolUseId: request.toolCall.id
-      })
-      toast.warning('Background session awaiting approval', {
-        description: `${sessionTitle} · ${request.toolCall.name}`
-      })
-    }
-    const approved = await agentStore.requestApproval(request.toolCall.id)
-    useBackgroundSessionStore.getState().resolveInboxItemByToolUseId(request.toolCall.id)
-    if (approved) {
+  const agentStore = useAgentStore.getState()
+  const autoApprove = useSettingsStore.getState().autoApprove
+  if (autoApprove || agentStore.approvedToolNames.includes(request.toolCall.name)) {
+    if (!autoApprove) {
       agentStore.addApprovedTool(request.toolCall.name)
     }
-    await window.electron.ipcRenderer.invoke('sidecar:approval-response', {
+    await ipcClient.invoke('sidecar:approval-response', {
       requestId: payload.requestId,
-      approved,
-      ...(approved ? {} : { reason: 'User denied permission' })
+      approved: true
+    })
+    return
+  }
+
+  agentStore.addToolCall(request.toolCall, request.sessionId)
+  if (request.sessionId && !isSessionForeground(request.sessionId)) {
+    const sessionTitle =
+      useChatStore.getState().sessions.find((session) => session.id === request.sessionId)?.title ??
+      'Background session'
+    useBackgroundSessionStore.getState().addInboxItem({
+      sessionId: request.sessionId,
+      type: 'approval',
+      title: request.toolCall.name,
+      description: `${sessionTitle} waiting for tool approval`,
+      toolUseId: request.toolCall.id
+    })
+    toast.warning('Background session awaiting approval', {
+      description: `${sessionTitle} · ${request.toolCall.name}`
     })
   }
-)
+  const approved = await agentStore.requestApproval(request.toolCall.id)
+  useBackgroundSessionStore.getState().resolveInboxItemByToolUseId(request.toolCall.id)
+  if (approved) {
+    agentStore.addApprovedTool(request.toolCall.name)
+  }
+  await ipcClient.invoke('sidecar:approval-response', {
+    requestId: payload.requestId,
+    approved,
+    ...(approved ? {} : { reason: 'User denied permission' })
+  })
+})
 
 function addMessageWithSync(sessionId: string, message: UnifiedMessage): void {
   useChatStore.getState().addMessage(sessionId, message)
@@ -698,6 +698,65 @@ function shouldInsertCompressedMessagesBeforeAssistant(
   }
 
   return true
+}
+
+function getAssistantContentBlockCount(message: UnifiedMessage | undefined): number {
+  if (!message || message.role !== 'assistant') return 0
+  if (typeof message.content === 'string') return message.content.trim().length > 0 ? 1 : 0
+  if (!Array.isArray(message.content)) return 0
+  return message.content.length
+}
+
+function getLastToolUseId(message: UnifiedMessage | undefined): string | undefined {
+  if (!message || !Array.isArray(message.content)) return undefined
+
+  for (let index = message.content.length - 1; index >= 0; index -= 1) {
+    const block = message.content[index]
+    if (block.type === 'tool_use' && block.id) return block.id
+  }
+
+  return undefined
+}
+
+function attachLiveCompactSummaryDisplayAnchor(
+  compressedMessages: UnifiedMessage[],
+  assistantMessage: UnifiedMessage | undefined,
+  assistantMsgId: string
+): { messages: UnifiedMessage[]; anchored: boolean } {
+  if (!assistantMessage || !Array.isArray(assistantMessage.content)) {
+    return { messages: compressedMessages, anchored: false }
+  }
+
+  const afterContentBlockCount = getAssistantContentBlockCount(assistantMessage)
+  if (afterContentBlockCount <= 0) {
+    return { messages: compressedMessages, anchored: false }
+  }
+
+  const afterToolUseId = getLastToolUseId(assistantMessage)
+  let anchored = false
+  const messages = compressedMessages.map((message) => {
+    if (!isCompactSummaryMessage(message)) return message
+    const compactSummary = message.meta?.compactSummary
+    if (!compactSummary) return message
+
+    anchored = true
+    return {
+      ...message,
+      meta: {
+        ...(message.meta ?? {}),
+        compactSummary: {
+          ...compactSummary,
+          displayAnchor: {
+            assistantMessageId: assistantMsgId,
+            afterContentBlockCount,
+            ...(afterToolUseId ? { afterToolUseId } : {})
+          }
+        }
+      }
+    }
+  })
+
+  return { messages, anchored }
 }
 
 function getTaskProgressSnapshot(sessionId: string): string {
@@ -4219,6 +4278,10 @@ export function useChatActions(): {
               messagesToSend,
               expectedUserRequestMessage
             )
+            messagesToSend = await applyRecentVisualContext(messagesToSend, {
+              ipc: ipcClient,
+              supportsVision: modelSupportsVision(resolvedModelConfig, baseProviderConfig.type)
+            })
 
             if (compressionContextLength <= 0) {
               compressionContextLength = findPersistedContextLength(messagesToSend)
@@ -5329,23 +5392,32 @@ export function useChatActions(): {
                     const currentMessages = await useChatStore
                       .getState()
                       .getFullSessionMessagesForMutation(sessionId)
+                    const assistantMessage = currentMessages.find(
+                      (message) => message.id === assistantMsgId
+                    )
+                    const anchored = attachLiveCompactSummaryDisplayAnchor(
+                      compressedMessages,
+                      assistantMessage,
+                      assistantMsgId
+                    )
                     const insertBeforeAssistant = shouldInsertCompressedMessagesBeforeAssistant(
                       currentMessages,
                       assistantMsgId
                     )
 
                     // Display compression where it happened in wall-clock time.
-                    // When this run is still streaming into an empty assistant
-                    // placeholder, anchor the summary before that placeholder so
-                    // it renders after the triggering turn instead of at the
-                    // transcript bottom. Once the assistant already has visible
-                    // content, we keep tail insertion because we cannot split a
-                    // single assistant bubble mid-message.
+                    // During multi-iteration runs, the renderer appends every
+                    // iteration to one live assistant message while the loop-local
+                    // transcript has separate assistant turns. Insert the compact
+                    // artifacts before the live assistant so request reconstruction
+                    // keeps the continuing output after the summary, and store a
+                    // display anchor so MessageList can render the card inline at
+                    // the content boundary instead of as a sticky tail row.
                     const merged = await mergeCompressedMessagesIntoSession({
                       sessionId,
-                      compressedMessages,
+                      compressedMessages: anchored.messages,
                       currentMessages,
-                      ...(insertBeforeAssistant
+                      ...(insertBeforeAssistant || anchored.anchored
                         ? { insertBeforeIds: [assistantMsgId] }
                         : { insertAtEnd: true })
                     })
@@ -6161,13 +6233,17 @@ async function runSimpleChat(
     useSettingsStore.getState().contextCompressionEnabled && chatModelConfig?.contextLength
       ? null
       : undefined
-  const requestMessages = ensureRequestContainsExpectedUserMessage(
+  let requestMessages = ensureRequestContainsExpectedUserMessage(
     await chatStore.getSessionMessagesForRequest(sessionId, {
       includeTrailingAssistantPlaceholder: options?.includeTrailingAssistantPlaceholder ?? false,
       requestContextMaxMessages
     }),
     options?.expectedUserMessage
   )
+  requestMessages = await applyRecentVisualContext(requestMessages, {
+    ipc: ipcClient,
+    supportsVision: modelSupportsVision(chatModelConfig, config.type)
+  })
   const streamDeltaBuffer = createStreamDeltaBuffer(sessionId, assistantMsgId)
   const requestHasImages = requestMessages.some(messageContainsImage)
   const preferRendererProvider = useSettingsStore.getState().devMode || requestHasImages

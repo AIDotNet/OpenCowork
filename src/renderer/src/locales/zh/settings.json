@@ -163,6 +163,8 @@
     "maxParallelToolCalls": "同一轮工具最大并行数",
     "maxParallelToolCallsDesc": "控制同一轮中可同时执行的独立工具调用数量。提高后可加快 Bash/文件类任务，但会增加本机负载。",
     "maxParallelToolCallsHint": "设为 1 时按串行执行。",
+    "maxConcurrentSubAgents": "子智能体最大并发数",
+    "maxConcurrentSubAgentsDesc": "控制可同时运行的 Task 子智能体（以及每个团队的后台 teammate）数量。超出的调用会排队，直到有空闲槽位。",
     "clarifyAutoAcceptRecommended": "澄清模式自动接受推荐项",
     "clarifyAutoAcceptRecommendedDesc": "默认关闭。仅在澄清模式下生效；开启后会对输入框推荐提问启动 8 秒倒计时，并自动接受当前推荐内容。",
     "autoApprove": "自动批准工具调用",

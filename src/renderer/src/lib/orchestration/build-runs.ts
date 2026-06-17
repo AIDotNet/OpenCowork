@@ -255,7 +255,9 @@ function mapTeamMember(
     role: teamMember.role,
     agentName: teamMember.agentName,
     model: teamMember.model,
-    status: teamMember.status,
+    // The cluster view treats "awaiting approval" as an active/working member;
+    // the precise live status is shown in the detailed TeamPanel.
+    status: teamMember.status === 'awaiting_approval' ? 'working' : teamMember.status,
     isRunning: teamMember.status === 'working',
     iteration: teamMember.iteration,
     startedAt: teamMember.startedAt,

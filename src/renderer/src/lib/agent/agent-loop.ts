@@ -770,7 +770,23 @@ export async function* runAgentLoop(
         }
       }
 
-      // 4. Append tool results as user message and loop
+      // 4. Append tool results as user message and loop.
+      // Defensive: every tool_use MUST have a matching tool_result, otherwise the
+      // next provider request contains a dangling tool_use and the API rejects it.
+      // Filling missing slots (rather than silently dropping them) keeps the
+      // request valid and surfaces the regression in logs instead of hiding it.
+      for (const [index, tc] of toolCalls.entries()) {
+        if (toolResults[index]) continue
+        console.error(
+          `[Agent Loop] Missing tool_result for tool_use ${tc.id} (${tc.name}); filling with error placeholder.`
+        )
+        toolResults[index] = {
+          type: 'tool_result',
+          toolUseId: tc.id,
+          content: encodeToolError('Tool produced no result'),
+          isError: true
+        }
+      }
       const toolResultMsg: UnifiedMessage = {
         id: nanoid(),
         role: 'user',

@@ -4,17 +4,19 @@ import {
   Bot,
   Check,
   Code2,
+  Columns2,
   Copy,
-  Database,
   ExternalLink,
   Eye,
   File,
+  FileDiff,
   FileOutput,
   FolderOpen,
   Globe,
   PanelRightClose,
   Plus,
   RefreshCw,
+  Rows2,
   Save,
   X
 } from 'lucide-react'
@@ -29,6 +31,9 @@ import {
 } from '@renderer/components/ui/dropdown-menu'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useAppPluginStore } from '@renderer/stores/app-plugin-store'
+import { useGitStore } from '@renderer/stores/git-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
+import { MonacoDiffEditor } from '@renderer/components/editor/MonacoDiffEditor'
 import { useUIStore, type PreviewPanelTab } from '@renderer/stores/ui-store'
 import { useFileWatcher } from '@renderer/hooks/use-file-watcher'
 import { viewerRegistry } from '@renderer/lib/preview/viewer-registry'
@@ -108,6 +113,7 @@ function tabPathTitle(tab: PreviewPanelTab): string {
 function TabIcon({ tab }: { tab: PreviewPanelTab }): React.JSX.Element {
   if (tab.source === 'markdown') return <Bot className="size-3.5 text-violet-500" />
   if (tab.source === 'dev-server') return <Globe className="size-3.5 text-sky-500" />
+  if (tab.source === 'diff') return <FileDiff className="size-3.5 text-amber-500" />
   return <File className="size-3.5 text-muted-foreground" />
 }
 
@@ -157,6 +163,11 @@ export function PreviewPanel({
       ? activeTab.draftContent
       : fileContent
   const isMarkdown = activeTab?.source === 'markdown'
+  const isDiff = activeTab?.source === 'diff'
+  const diffViewMode = useSettingsStore((s) => s.fileDiffViewMode)
+  const updateSettings = useSettingsStore((s) => s.updateSettings)
+  const diffModifiedValue =
+    activeTab && isDiff ? (activeTab.draftContent ?? activeTab.diffModified ?? '') : ''
   const viewerDef = activeTab ? viewerRegistry.getByType(activeTab.viewerType) : undefined
   const ViewerComponent = viewerDef?.component
   const [copied, setCopied] = useState(false)
@@ -220,7 +231,7 @@ export function PreviewPanel({
 
   const handleContentChange = (newContent: string): void => {
     if (!activeTab) return
-    setContent(newContent)
+    if (activeTab.source === 'file') setContent(newContent)
     updatePreviewTab(activeTab.id, {
       draftContent: newContent,
       modified: true
@@ -228,9 +239,14 @@ export function PreviewPanel({
   }
 
   const saveTab = async (tab: PreviewPanelTab): Promise<boolean> => {
-    if (tab.source !== 'file' || !tab.filePath) return false
+    const isEditableDiff = tab.source === 'diff' && Boolean(tab.diffModifiedEditable)
+    if ((tab.source !== 'file' && !isEditableDiff) || !tab.filePath) return false
 
-    const tabContent = tab.id === activeTab?.id ? content : tab.draftContent
+    const tabContent = isEditableDiff
+      ? (tab.draftContent ?? tab.diffModified ?? '')
+      : tab.id === activeTab?.id
+        ? content
+        : tab.draftContent
     if (tabContent === undefined) return false
 
     try {
@@ -239,11 +255,25 @@ export function PreviewPanel({
         ? { connectionId: tab.sshConnectionId, path: tab.filePath, content: tabContent }
         : { path: tab.filePath, content: tabContent }
       await ipcClient.invoke(channel, args)
-      if (tab.id === activeTab?.id) setContent(tabContent)
-      updatePreviewTab(tab.id, {
-        draftContent: undefined,
-        modified: false
-      })
+      if (isEditableDiff) {
+        // The on-disk file now matches the modified side; refresh git state so
+        // the SCM list and any cached diff reflect the save.
+        updatePreviewTab(tab.id, {
+          draftContent: undefined,
+          modified: false,
+          diffModified: tabContent
+        })
+        if (tab.gitRepoPath) {
+          useGitStore.getState().invalidateFileDiff(tab.gitRepoPath, tab.filePath)
+          void useGitStore.getState().refreshRepository(tab.gitRepoPath)
+        }
+      } else {
+        if (tab.id === activeTab?.id) setContent(tabContent)
+        updatePreviewTab(tab.id, {
+          draftContent: undefined,
+          modified: false
+        })
+      }
       return true
     } catch (err) {
       console.error('[PreviewPanel] Save failed:', err)
@@ -459,10 +489,6 @@ export function PreviewPanel({
                 <FileOutput className="size-4" />
                 {t('rightPanel.artifacts')}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setRightPanelTab('context')}>
-                <Database className="size-4" />
-                {t('rightPanel.context')}
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -539,6 +565,42 @@ export function PreviewPanel({
           </Button>
         )}
 
+        {isDiff && (
+          <div className="flex shrink-0 items-center rounded-md border border-border/60 bg-background p-0.5">
+            <Button
+              variant={diffViewMode !== 'inline' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-5 gap-1 px-2 text-[10px]"
+              onClick={() => updateSettings({ fileDiffViewMode: 'split' })}
+              title={t('preview.diffSplit', { defaultValue: 'Split' })}
+            >
+              <Columns2 className="size-3" />
+            </Button>
+            <Button
+              variant={diffViewMode === 'inline' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-5 gap-1 px-2 text-[10px]"
+              onClick={() => updateSettings({ fileDiffViewMode: 'inline' })}
+              title={t('preview.diffInline', { defaultValue: 'Inline' })}
+            >
+              <Rows2 className="size-3" />
+            </Button>
+          </div>
+        )}
+
+        {isDiff && activeTab.diffModifiedEditable && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 shrink-0"
+            onClick={() => void handleSave()}
+            disabled={!activeTab.modified}
+            title={t('action.save', { ns: 'common' })}
+          >
+            <Save className="size-3.5" />
+          </Button>
+        )}
+
         {activeTab.source === 'file' && (
           <>
             <Button
@@ -577,7 +639,19 @@ export function PreviewPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        {isMarkdown ? (
+        {isDiff ? (
+          <MonacoDiffEditor
+            filePath={activeTab.filePath}
+            original={activeTab.diffOriginal ?? ''}
+            modified={diffModifiedValue}
+            language={activeTab.diffLanguage}
+            modifiedEditable={Boolean(activeTab.diffModifiedEditable)}
+            renderSideBySide={diffViewMode !== 'inline'}
+            isBinary={Boolean(activeTab.diffIsBinary)}
+            onModifiedChange={handleContentChange}
+            onSave={handleSave}
+          />
+        ) : isMarkdown ? (
           <div className="size-full overflow-y-auto p-6">
             <div className="prose prose-sm dark:prose-invert max-w-none">
               <ReactMarkdown

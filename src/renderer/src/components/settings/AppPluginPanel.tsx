@@ -28,7 +28,7 @@ import {
   useProviderStore
 } from '@renderer/stores/provider-store'
 import { useChatStore } from '@renderer/stores/chat-store'
-import { useAppPluginStore } from '@renderer/stores/app-plugin-store'
+import { resolvePluginsForProject, useAppPluginStore } from '@renderer/stores/app-plugin-store'
 import { useMcpStore } from '@renderer/stores/mcp-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { toast } from 'sonner'
@@ -237,8 +237,8 @@ export function AppPluginPanel(): React.JSX.Element {
   )
 
   const projectPlugins = useMemo(
-    () => pluginsByProject[activeProjectId ?? '__global__'] ?? [],
-    [pluginsByProject, activeProjectId]
+    () => resolvePluginsForProject(pluginsByProject, activeProjectId),
+    [activeProjectId, pluginsByProject]
   )
   const visibleDescriptors = useMemo(() => APP_PLUGIN_DESCRIPTORS.filter((d) => !d.hidden), [])
   const selectedPlugin = useMemo(

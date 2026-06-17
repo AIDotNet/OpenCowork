@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
+import { ChevronRight, ChevronDown, Loader2, Check, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ToolResultContent } from '@renderer/lib/api/types'
@@ -111,24 +111,39 @@ export function ToolCallGroup({
 
   const summaryLabel = groupSummaryLabel(toolName, items, t)
   const contentVisible = !collapsible || expanded
+  const statusTone =
+    status === 'error'
+      ? 'text-destructive/85'
+      : isActive
+        ? 'text-sky-600 dark:text-sky-300'
+        : 'text-muted-foreground'
 
   return (
-    <div className="my-0.5">
+    <div className="my-1.5">
       {collapsible ? (
         <button
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
-          className="group flex items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground dark:hover:bg-accent/70 dark:hover:text-accent-foreground"
+          className={`group flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] transition-colors hover:bg-muted/35 hover:text-foreground dark:hover:bg-white/[0.035] ${statusTone}`}
         >
-          <span className="font-medium text-foreground/82 transition-colors group-hover:text-foreground dark:group-hover:text-accent-foreground">
-            {summaryLabel}
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-lime-500/25 text-lime-600 dark:text-lime-400">
+            {isActive ? (
+              <Loader2 className="size-3 animate-spin text-sky-500" />
+            ) : status === 'error' ? (
+              <X className="size-3 text-destructive" />
+            ) : (
+              <Check className="size-3 text-emerald-500" />
+            )}
           </span>
-          {isActive && <Loader2 className="size-3 animate-spin text-blue-400/70" />}
+          <span className="shrink-0 text-muted-foreground/55">{toolName}</span>
+          <span className="shrink-0 text-muted-foreground/40">&gt;</span>
+          <span className="shrink-0 font-mono font-medium text-foreground/82">x{items.length}</span>
+          <span className="min-w-0 flex-1 truncate text-muted-foreground/60">({summaryLabel})</span>
           {expanded ? (
-            <ChevronDown className="size-3 text-muted-foreground/60 transition-colors group-hover:text-accent-foreground" />
+            <ChevronDown className="size-3 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
           ) : (
-            <ChevronRight className="size-3 text-muted-foreground/60 transition-colors group-hover:text-accent-foreground" />
+            <ChevronRight className="size-3 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
           )}
         </button>
       ) : null}
@@ -140,7 +155,11 @@ export function ToolCallGroup({
             animate={{ height: 'auto', opacity: 1 }}
             exit={collapsible ? { height: 0, opacity: 0 } : undefined}
             transition={{ duration: collapsible ? 0.2 : 0 }}
-            className={collapsible ? 'mt-1 overflow-hidden pl-3' : 'overflow-visible'}
+            className={
+              collapsible
+                ? 'ml-3 mt-1.5 overflow-hidden border-l border-border/50 pl-5 dark:border-white/[0.08]'
+                : 'overflow-visible'
+            }
           >
             {children}
           </motion.div>

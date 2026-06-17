@@ -612,6 +612,9 @@
     }
   },
   "subAgent": {
+    "queued": "In wachtrij",
+    "synthesizing": "Rapport samenstellen…",
+    "doneSynthesized": "Klaar (samengesteld)",
     "working": "werken",
     "failed": "mislukt",
     "done": "klaar",

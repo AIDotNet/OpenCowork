@@ -190,6 +190,12 @@ export interface CompactBoundaryMeta {
 export interface CompactSummaryMeta {
   messagesSummarized: number
   recentMessagesPreserved: boolean
+  /** UI hint for summaries created while an assistant message is still streaming. */
+  displayAnchor?: {
+    assistantMessageId: string
+    afterContentBlockCount: number
+    afterToolUseId?: string
+  }
 }
 
 export interface CompressionStatusMeta {

@@ -27,6 +27,10 @@ import {
   getResponsesImageGenerationErrorMessage
 } from './responses-image-generation'
 import { sanitizeMessagesForToolReplay } from '../tools/tool-input-sanitizer'
+import {
+  summarizeOpenAITextAndImages,
+  type OpenAIImageReference
+} from '../../../../shared/openai-message-support'
 
 function resolveHeaderTemplate(value: string, config: ProviderConfig): string {
   return value
@@ -89,6 +93,15 @@ function applyBodyOverrides(body: Record<string, unknown>, config: ProviderConfi
     for (const key of overrides.omitBodyKeys) {
       delete body[key]
     }
+  }
+}
+
+function getOpenAIImageReference(
+  block: Extract<ContentBlock, { type: 'image' }>
+): OpenAIImageReference {
+  return {
+    ...(block.source.filePath ? { filePath: block.source.filePath } : {}),
+    ...(block.source.type === 'url' && block.source.url ? { url: block.source.url } : {})
   }
 }
 
@@ -682,8 +695,14 @@ class OpenAIResponsesProvider implements APIProvider {
           case 'text':
             input.push({ type: 'message', role: m.role, content: block.text })
             break
-          case 'image':
+          case 'image': {
+            input.push({
+              type: 'message',
+              role: m.role,
+              content: summarizeOpenAITextAndImages([], 1, [getOpenAIImageReference(block)])
+            })
             break
+          }
           case 'thinking':
             if (
               includeEncryptedReasoning &&
@@ -720,9 +739,15 @@ class OpenAIResponsesProvider implements APIProvider {
               const textParts = block.content
                 .filter((cb) => cb.type === 'text')
                 .map((cb) => (cb.type === 'text' ? cb.text : ''))
-              const imageParts = block.content.filter((cb) => cb.type === 'image')
+              const imageParts = block.content.filter(
+                (cb): cb is Extract<ContentBlock, { type: 'image' }> => cb.type === 'image'
+              )
               output =
-                [...textParts, ...imageParts.map(() => '[Image attached]')].join('\n') || '[Image]'
+                summarizeOpenAITextAndImages(
+                  textParts,
+                  imageParts.length,
+                  imageParts.map(getOpenAIImageReference)
+                ) || '[Image]'
             } else {
               output = block.content
             }
@@ -747,10 +772,14 @@ class OpenAIResponsesProvider implements APIProvider {
       const textParts = content
         .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
         .map((block) => block.text)
-      const imageCount = content.filter((block) => block.type === 'image').length
+      const imageBlocks = content.filter(
+        (block): block is Extract<ContentBlock, { type: 'image' }> => block.type === 'image'
+      )
       return (
-        [...textParts, ...Array.from({ length: imageCount }, () => '[Image attached]')].join(
-          '\n'
+        summarizeOpenAITextAndImages(
+          textParts,
+          imageBlocks.length,
+          imageBlocks.map(getOpenAIImageReference)
         ) || '[Image]'
       )
     }

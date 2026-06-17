@@ -161,6 +161,8 @@
     "builtinBrowserDesc": "Bật tùy chọn này để hiển thị kiểu của trình duyệt.",
     "builtinBrowserEnabled": "Bật: Đặc vụ có thể sử dụng máy duyệtNavigate, trò chơi kết nối đến trình duyệt, ảnh chụp màn hình duyệt, ảnh nền trình duyệt, trình duyệt Click, kiểu MIME, trình duyệt",
     "maxParallelToolCalls": "Công cụ song song tối đa gọi mỗi lần chuyển",
+    "maxConcurrentSubAgents": "Số tác nhân phụ đồng thời tối đa",
+    "maxConcurrentSubAgentsDesc": "Số lượng tác nhân phụ Task (và đồng đội nền mỗi nhóm) có thể chạy cùng lúc. Các lần khởi chạy thêm sẽ xếp hàng cho đến khi có chỗ trống.",
     "maxParallelToolCallsDesc": "Điều khiển bao nhiêu cuộc gọi độc lập từ cùng một mô hình có thể chạy cùng một lúc. nhưng tăng tải địa phương.",
     "maxParallelToolCallsHint": "Đặt thành 1 để thực hiện hàng loạt.",
     "clarifyAutoAcceptRecommended": "Phân tích tự động chấp nhận câu trả lời khuyến khích",

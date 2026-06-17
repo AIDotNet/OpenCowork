@@ -612,6 +612,9 @@
     }
   },
   "subAgent": {
+    "queued": "대기 중",
+    "synthesizing": "보고서 생성 중…",
+    "doneSynthesized": "완료(생성됨)",
     "working": "작업 일",
     "failed": "실패한",
     "done": "이름 *",

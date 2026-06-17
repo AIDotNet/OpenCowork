@@ -62,6 +62,7 @@ function formatTokenCount(n: number): string {
 const statusDots: Record<string, string> = {
   working: 'bg-green-500 animate-pulse',
   idle: 'bg-cyan-400',
+  awaiting_approval: 'bg-amber-400 animate-pulse',
   completed: 'bg-green-500',
   stopped: 'bg-amber-500',
   failed: 'bg-red-500'
@@ -165,7 +166,9 @@ const MemberDetailRow = React.memo(function MemberDetailRow({
       : member.streamingText
         ? 'thinking...'
         : 'working...'
-    : member.status
+    : member.status === 'awaiting_approval'
+      ? 'awaiting approval'
+      : member.status
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>

@@ -84,7 +84,14 @@
     "clarify": "Clarify",
     "cowork": "Cowork",
     "code": "Code",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "chat": "Quick conversation, no project tools",
+      "clarify": "Turn ambiguity into a reviewable plan",
+      "cowork": "Plan, act, and verify alongside you",
+      "code": "Focused hands-on implementation",
+      "acp": "Architect and delegate to sub-agents"
+    }
   },
   "onboarding": {
     "start": "Start",

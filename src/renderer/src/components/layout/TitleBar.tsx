@@ -1,5 +1,6 @@
 import {
   Briefcase,
+  Check,
   ChevronDown,
   CircleHelp,
   Code2,
@@ -54,14 +55,40 @@ interface TitleBarProps {
 function getTitlebarModeOptions(tCommon: (key: string) => string): Array<{
   value: AppMode
   label: string
+  description: string
   icon: React.JSX.Element
 }> {
   return [
-    { value: 'chat', label: tCommon('mode.chat'), icon: <Send className="size-3.5" /> },
-    { value: 'clarify', label: tCommon('mode.clarify'), icon: <CircleHelp className="size-3.5" /> },
-    { value: 'cowork', label: tCommon('mode.cowork'), icon: <Briefcase className="size-3.5" /> },
-    { value: 'code', label: tCommon('mode.code'), icon: <Code2 className="size-3.5" /> },
-    { value: 'acp', label: tCommon('mode.acp'), icon: <ShieldCheck className="size-3.5" /> }
+    {
+      value: 'chat',
+      label: tCommon('mode.chat'),
+      description: tCommon('mode.descriptions.chat'),
+      icon: <Send className="size-3.5 text-inherit" />
+    },
+    {
+      value: 'clarify',
+      label: tCommon('mode.clarify'),
+      description: tCommon('mode.descriptions.clarify'),
+      icon: <CircleHelp className="size-3.5 text-inherit" />
+    },
+    {
+      value: 'cowork',
+      label: tCommon('mode.cowork'),
+      description: tCommon('mode.descriptions.cowork'),
+      icon: <Briefcase className="size-3.5 text-inherit" />
+    },
+    {
+      value: 'code',
+      label: tCommon('mode.code'),
+      description: tCommon('mode.descriptions.code'),
+      icon: <Code2 className="size-3.5 text-inherit" />
+    },
+    {
+      value: 'acp',
+      label: tCommon('mode.acp'),
+      description: tCommon('mode.descriptions.acp'),
+      icon: <ShieldCheck className="size-3.5 text-inherit" />
+    }
   ]
 }
 
@@ -258,29 +285,47 @@ export function TitleBar({
                 variant="ghost"
                 size="sm"
                 data-tour="mode-switch"
-                className="workspace-titlebar-action titlebar-no-drag h-7 gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                className="workspace-titlebar-action titlebar-no-drag group h-7 gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
                 disabled={activeSessionIsStreaming}
               >
-                {activeTitlebarMode.icon}
-                <span>{activeTitlebarMode.label}</span>
-                <ChevronDown className="size-3.5 text-muted-foreground" />
+                <span className="text-primary">{activeTitlebarMode.icon}</span>
+                <span className="font-medium">{activeTitlebarMode.label}</span>
+                <ChevronDown className="size-3.5 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-180" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40">
+            <DropdownMenuContent align="start" className="w-64 p-1.5">
               {availableModeOptions.map((option) => {
                 const active = mode === option.value
                 return (
                   <DropdownMenuItem
                     key={option.value}
                     className={cn(
-                      'gap-2',
-                      active &&
-                        'bg-accent text-accent-foreground focus:bg-accent focus:text-accent-foreground'
+                      'group items-start gap-2.5 rounded-lg px-2 py-2',
+                      active && 'bg-accent/50 focus:bg-accent'
                     )}
                     onSelect={() => handleTitlebarModeSwitch(option.value)}
                   >
-                    {option.icon}
-                    <span>{option.label}</span>
+                    <span
+                      className={cn(
+                        'mt-px flex size-7 shrink-0 items-center justify-center rounded-md border transition-colors',
+                        active
+                          ? 'border-primary/30 bg-primary/10 text-primary'
+                          : 'border-border/60 bg-muted/40 text-muted-foreground group-focus:text-foreground'
+                      )}
+                    >
+                      {option.icon}
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="flex items-center gap-1.5 text-[13px] font-medium leading-none text-foreground">
+                        {option.label}
+                        {active ? (
+                          <Check className="size-3.5 text-primary" strokeWidth={2.5} />
+                        ) : null}
+                      </span>
+                      <span className="text-[11px] leading-snug text-muted-foreground">
+                        {option.description}
+                      </span>
+                    </span>
                   </DropdownMenuItem>
                 )
               })}

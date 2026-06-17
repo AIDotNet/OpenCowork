@@ -45,7 +45,6 @@ import type {
 } from '@renderer/lib/api/types'
 import {
   ACCEPTED_IMAGE_TYPES,
-  areEditableUserMessageDraftsEqual,
   cloneImageAttachments,
   extractEditableUserMessageDraft,
   fileToImageAttachment,
@@ -492,9 +491,7 @@ export function UserMessage({
       command
     }
   }, [command, editImages, editSkillName, editText])
-  const canSave =
-    hasEditableDraftContent(nextDraft) &&
-    !areEditableUserMessageDraftsEqual(nextDraft, currentDraft)
+  const canSave = hasEditableDraftContent(nextDraft)
 
   const handleStartEdit = (): void => {
     setEditText(displayText)

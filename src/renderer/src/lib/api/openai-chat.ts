@@ -15,7 +15,8 @@ import { getGlobalPromptCacheKey, registerProvider } from './provider'
 import { sanitizeMessagesForToolReplay } from '../tools/tool-input-sanitizer'
 import {
   summarizeOpenAITextAndImages,
-  supportsOpenAIImageParts
+  supportsOpenAIImageParts,
+  type OpenAIImageReference
 } from '../../../../shared/openai-message-support'
 import {
   extractOpenAIChatToolCallFragments,
@@ -154,6 +155,15 @@ function buildOpenAIChatImagePart(block: Extract<ContentBlock, { type: 'image' }
   return url ? { type: 'image_url', image_url: { url } } : null
 }
 
+function getOpenAIImageReference(
+  block: Extract<ContentBlock, { type: 'image' }>
+): OpenAIImageReference {
+  return {
+    ...(block.source.filePath ? { filePath: block.source.filePath } : {}),
+    ...(block.source.type === 'url' && block.source.url ? { url: block.source.url } : {})
+  }
+}
+
 function formatOpenAIChatToolResultContent(
   content: Extract<ContentBlock, { type: 'tool_result' }>['content']
 ): unknown {
@@ -168,7 +178,11 @@ function formatOpenAIChatToolResultContent(
 
   // Chat-compatible tool messages are text-only on many OpenAI-compatible backends.
   if (imageBlocks.length > 0 && !supportsOpenAIImageParts('chat-completions', 'tool')) {
-    return summarizeOpenAITextAndImages(textParts, imageBlocks.length)
+    return summarizeOpenAITextAndImages(
+      textParts,
+      imageBlocks.length,
+      imageBlocks.map(getOpenAIImageReference)
+    )
   }
 
   return [
@@ -717,8 +731,23 @@ class OpenAIChatProvider implements APIProvider {
       // Handle assistant with tool_use blocks
       const toolUses = blocks.filter((b) => b.type === 'tool_use')
       const textBlocks = blocks.filter((b) => b.type === 'text')
+      const imageBlocks = blocks.filter(
+        (b): b is Extract<ContentBlock, { type: 'image' }> => b.type === 'image'
+      )
       const thinkingBlocks = blocks.filter((b) => b.type === 'thinking')
       const textContent = textBlocks.map((b) => (b.type === 'text' ? b.text : '')).join('')
+      const imageReferenceText =
+        imageBlocks.length > 0
+          ? summarizeOpenAITextAndImages(
+              [],
+              imageBlocks.length,
+              imageBlocks.map(getOpenAIImageReference)
+            )
+          : ''
+      const assistantTextContent = [textContent, imageReferenceText]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join('\n\n')
       const reasoningContent = thinkingBlocks
         .map((b) => (b.type === 'thinking' ? b.thinking : ''))
         .join('')
@@ -734,7 +763,7 @@ class OpenAIChatProvider implements APIProvider {
         : undefined
 
       const hasAssistantPayload =
-        textContent.length > 0 ||
+        assistantTextContent.length > 0 ||
         reasoningContent.length > 0 ||
         !!googleThinkingSignature ||
         toolUses.length > 0
@@ -743,7 +772,7 @@ class OpenAIChatProvider implements APIProvider {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const msg: any = {
         role: 'assistant',
-        content: textContent.length > 0 ? textContent : null
+        content: assistantTextContent.length > 0 ? assistantTextContent : null
       }
       if (reasoningContent) msg.reasoning_content = reasoningContent
       if (googleThinkingSignature) {

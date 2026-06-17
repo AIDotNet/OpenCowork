@@ -84,7 +84,14 @@
     "clarify": "澄清",
     "cowork": "协作",
     "code": "编程",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "chat": "快速对话，不调用项目工具",
+      "clarify": "厘清需求，先产出可评审计划",
+      "cowork": "边规划边执行，与你协同验证",
+      "code": "专注动手编码实现",
+      "acp": "负责架构设计并委派子代理"
+    }
   },
   "onboarding": {
     "start": "开始",

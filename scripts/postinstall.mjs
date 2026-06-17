@@ -20,7 +20,13 @@ async function readInstalledElectronVersion(projectDir) {
 async function main() {
   const projectDir = process.cwd()
   const electronVersion = await readInstalledElectronVersion(projectDir)
-  const ignoreModules = process.platform === 'win32' ? ['node-pty'] : []
+  // These packages ship prebuilt binaries; forcing node-gyp rebuilds makes CI require compilers.
+  const prebuiltNativeModules = ['@jitsi/robotjs']
+  const windowsPrebuiltNativeModules = ['node-pty']
+  const ignoreModules = [
+    ...prebuiltNativeModules,
+    ...(process.platform === 'win32' ? windowsPrebuiltNativeModules : [])
+  ]
 
   console.log(`> Rebuilding native dependencies for Electron ${electronVersion}`)
 

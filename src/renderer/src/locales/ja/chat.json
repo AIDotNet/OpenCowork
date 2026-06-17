@@ -612,6 +612,9 @@
     }
   },
   "subAgent": {
+    "queued": "待機中",
+    "synthesizing": "レポートを生成中…",
+    "doneSynthesized": "完了（生成済み）",
     "working": "スタッフ",
     "failed": "失敗",
     "done": "行程",

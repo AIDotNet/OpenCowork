@@ -704,6 +704,19 @@ function mapToStreamEvent(raw: Record<string, unknown>): AgentStreamEvent | null
     }
 
     // Sub-agent events
+    case 'sub_agent_queued':
+      return {
+        type: 'sub_agent_queued',
+        subAgentName: str(raw.subAgentName),
+        toolUseId: str(raw.toolUseId),
+        input: rec(raw.input)
+      }
+    case 'sub_agent_dequeued':
+      return {
+        type: 'sub_agent_dequeued',
+        subAgentName: str(raw.subAgentName),
+        toolUseId: str(raw.toolUseId)
+      }
     case 'sub_agent_start': {
       const promptMessage = mapMessage(raw.promptMessage)
       if (!promptMessage) return null

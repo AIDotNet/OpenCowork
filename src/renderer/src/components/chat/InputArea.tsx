@@ -88,14 +88,13 @@ import { useMcpStore } from '@renderer/stores/mcp-store'
 import { usePlanStore } from '@renderer/stores/plan-store'
 import { useGoalStore } from '@renderer/stores/goal-store'
 import { useSkillsStore } from '@renderer/stores/skills-store'
-import { useAppPluginStore } from '@renderer/stores/app-plugin-store'
+import { resolvePluginsForProject, useAppPluginStore } from '@renderer/stores/app-plugin-store'
 import { validateGoalObjective } from '@renderer/lib/agent/goal-context'
 import {
   APP_PLUGIN_DESCRIPTORS,
   BROWSER_PLUGIN_ID,
   IMAGE_PLUGIN_ID,
   PRODUCT_DESIGN_PLUGIN_ID,
-  isAppPluginEnabledByDefault,
   type AppPluginId
 } from '@renderer/lib/app-plugin/types'
 import {
@@ -1208,13 +1207,12 @@ export function InputArea({
   const fileMenuOpen = projectScoped && Boolean(activeFileMention)
   const slashQuery = React.useMemo(() => getSlashCommandQuery(text), [text])
   const availableAppPlugins = React.useMemo<AppPluginPromptItem[]>(() => {
-    const projectPlugins = pluginsByProject[activeProjectId ?? '__global__'] ?? []
+    const projectPlugins = resolvePluginsForProject(pluginsByProject, activeProjectId)
 
     return APP_PLUGIN_DESCRIPTORS.filter((descriptor) => !descriptor.hidden)
       .map((descriptor) => {
         const plugin = projectPlugins.find((item) => item.id === descriptor.id)
-        const enabled = plugin?.enabled ?? isAppPluginEnabledByDefault(descriptor.id)
-        if (!enabled) return null
+        if (!plugin?.enabled) return null
 
         return {
           id: descriptor.id,

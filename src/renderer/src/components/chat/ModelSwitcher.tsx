@@ -296,6 +296,7 @@ function ModelSettingsPopover({
   providerId,
   providerType,
   providerWebsocketMode,
+  side = 'top',
   t,
   tChat,
   tSettings
@@ -304,6 +305,7 @@ function ModelSettingsPopover({
   providerId?: string | null
   providerType?: AIProvider['type']
   providerWebsocketMode?: AIProvider['websocketMode']
+  side?: 'top' | 'bottom'
   t: (key: string) => string
   tChat: (key: string, opts?: Record<string, unknown>) => string
   tSettings: (key: string, opts?: Record<string, unknown>) => string
@@ -494,12 +496,16 @@ function ModelSettingsPopover({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[388px] overflow-hidden rounded-xl border-border/70 bg-popover/95 p-0 shadow-2xl backdrop-blur"
+        className="w-[388px] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border-border/70 bg-popover/95 p-0 shadow-2xl backdrop-blur"
         align="start"
-        side="top"
+        side={side}
         sideOffset={8}
+        collisionPadding={12}
       >
-        <div className="space-y-4 p-4">
+        <div
+          className="space-y-4 overflow-y-auto p-4"
+          style={{ maxHeight: 'min(32rem, var(--radix-popover-content-available-height))' }}
+        >
           {!model && (
             <div className="px-2 py-3 text-center text-xs text-muted-foreground">
               {tChat('input.noModelSettings')}
@@ -850,6 +856,7 @@ export function ModelSwitcher({
   )
   const settingsProviderId = isAutoModeActive ? autoResolvedProvider?.id : displayProvider?.id
   const settingsModel = isAutoModeActive ? (autoResolvedModel ?? undefined) : displayModel
+  const settingsPopoverSide = activeSession ? 'top' : 'bottom'
   const triggerLabel = isAutoModeActive
     ? autoRoutingState === 'routing'
       ? t('topbar.autoModel')
@@ -1481,6 +1488,7 @@ export function ModelSwitcher({
         providerWebsocketMode={
           isAutoModeActive ? autoResolvedProvider?.websocketMode : displayProvider?.websocketMode
         }
+        side={settingsPopoverSide}
         t={t}
         tChat={tChat}
         tSettings={tSettings}

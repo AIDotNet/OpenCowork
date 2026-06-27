@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   Check,
@@ -193,6 +193,7 @@ export function SessionConversationPane({
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
+  const conversationPaneRef = useRef<HTMLDivElement | null>(null)
 
   const compactSessionHeader = sessionView.messageCount === 0
   const hasProjectFolderAction = Boolean(sessionView.projectId && sessionView.workingFolder)
@@ -270,7 +271,9 @@ export function SessionConversationPane({
         })
       })
 
-      const node = document.querySelector('[data-message-content]') as HTMLElement | null
+      const node = conversationPaneRef.current?.querySelector(
+        '[data-message-content]'
+      ) as HTMLElement | null
       if (!node) {
         throw new Error('Export target not found')
       }
@@ -298,10 +301,13 @@ export function SessionConversationPane({
           })
         })
 
-        const bgRaw = getComputedStyle(document.documentElement)
-          .getPropertyValue('--background')
-          .trim()
-        const bgColor = bgRaw ? `hsl(${bgRaw})` : '#ffffff'
+        const bodyBackgroundColor = getComputedStyle(document.body).backgroundColor.trim()
+        const bgColor =
+          bodyBackgroundColor && bodyBackgroundColor !== 'rgba(0, 0, 0, 0)'
+            ? bodyBackgroundColor
+            : '#ffffff'
+        exportStage.style.backgroundColor = bgColor
+        exportNode.style.backgroundColor = bgColor
         const { toPng } = await loadHtmlToImage()
         const captureWidth = node.clientWidth
         const captureHeight = Math.max(
@@ -319,6 +325,7 @@ export function SessionConversationPane({
           canvasHeight: captureHeight * 2,
           style: {
             overflow: 'visible',
+            backgroundColor: bgColor,
             maxWidth: `${captureWidth}px`,
             width: `${captureWidth}px`,
             height: `${captureHeight}px`
@@ -598,7 +605,7 @@ export function SessionConversationPane({
         </div>
       </div>
 
-      <div key={conversationRoot} className="flex min-h-0 flex-1 flex-col">
+      <div ref={conversationPaneRef} key={conversationRoot} className="flex min-h-0 flex-1 flex-col">
         <MessageList
           sessionId={resolvedSessionId}
           onRetry={retryLastMessage}

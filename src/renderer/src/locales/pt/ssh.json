@@ -118,7 +118,6 @@
     "loadFailed": "Falha ao carregar",
     "saveFailed": "Falha ao salvar",
     "downloadFailed": "A transferência falhou",
-    "zipFailed": "Falha ao arquivar o diretório",
     "uploadFailed": "O envio falhou",
     "deleteFailed": "A remoção falhou",
     "renameFailed": "A mudança de nome falhou",
@@ -291,9 +290,7 @@
       "cancel": "Cancelar",
       "clear": "Limpar",
       "stages": {
-        "compress": "Compressão",
         "upload": "Enviando",
-        "remote_unzip": "Descompactar remotamente",
         "cleanup": "Limpeza",
         "done": "Concluído",
         "error": "Falha",

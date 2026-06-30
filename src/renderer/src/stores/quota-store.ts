@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { markAccountRateLimited } from '@renderer/lib/auth/provider-auth'
 import type { AccountRateLimit } from '@renderer/lib/api/types'
+import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 
 export interface CodexQuotaWindow {
   usedPercent?: number
@@ -77,28 +79,27 @@ interface AccountRateLimitedPayload {
   message?: string
 }
 
-if (typeof window !== 'undefined' && window.electron?.ipcRenderer && !listenerRegistered) {
+if (typeof window !== 'undefined' && !listenerRegistered) {
   listenerRegistered = true
-  window.electron.ipcRenderer.on('api:quota-update', (_event, payload: QuotaUpdatePayload) => {
-    if (!payload?.quota) return
-    const key = resolveQuotaKey(payload)
+  ipcClient.on(IPC.API_QUOTA_UPDATE, (payload: unknown) => {
+    const quotaPayload = payload as QuotaUpdatePayload
+    if (!quotaPayload?.quota) return
+    const key = resolveQuotaKey(quotaPayload)
     if (!key) return
-    useQuotaStore.getState().updateQuota(key, payload.quota)
+    useQuotaStore.getState().updateQuota(key, quotaPayload.quota)
   })
 
-  window.electron.ipcRenderer.on(
-    'api:account-rate-limited',
-    (_event, payload: AccountRateLimitedPayload) => {
-      if (!payload || !payload.accountId) return
-      const providerId = payload.providerId || payload.providerBuiltinId
-      if (!providerId) return
-      const info: Omit<AccountRateLimit, 'limitedAt'> = {
-        resetAt: payload.resetAt,
-        reason: payload.reason,
-        windowType: payload.windowType,
-        message: payload.message
-      }
-      markAccountRateLimited(providerId, payload.accountId, info)
+  ipcClient.on(IPC.API_ACCOUNT_RATE_LIMITED, (payload: unknown) => {
+    const rateLimitPayload = payload as AccountRateLimitedPayload
+    if (!rateLimitPayload || !rateLimitPayload.accountId) return
+    const providerId = rateLimitPayload.providerId || rateLimitPayload.providerBuiltinId
+    if (!providerId) return
+    const info: Omit<AccountRateLimit, 'limitedAt'> = {
+      resetAt: rateLimitPayload.resetAt,
+      reason: rateLimitPayload.reason,
+      windowType: rateLimitPayload.windowType,
+      message: rateLimitPayload.message
     }
-  )
+    markAccountRateLimited(providerId, rateLimitPayload.accountId, info)
+  })
 }

@@ -118,7 +118,6 @@
     "loadFailed": "Не удалось загрузить",
     "saveFailed": "Не удалось спасти",
     "downloadFailed": "Скачать Не удалось",
-    "zipFailed": "Не удалось архивировать каталог",
     "uploadFailed": "Загрузить не удалось",
     "deleteFailed": "Исключить не удалось",
     "renameFailed": "Имя провалилось",
@@ -291,9 +290,7 @@
       "cancel": "отменить",
       "clear": "Чисто.",
       "stages": {
-        "compress": "сжатие",
         "upload": "Загрузка",
-        "remote_unzip": "Удаленный Unzip",
         "cleanup": "Уборка",
         "done": "завершенный",
         "error": "неудачник",

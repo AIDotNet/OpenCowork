@@ -7,11 +7,14 @@ interface HtmlToImageOptions {
   height?: number
   canvasWidth?: number
   canvasHeight?: number
+  fontEmbedCSS?: string
+  skipAutoScale?: boolean
   style?: Partial<CSSStyleDeclaration>
 }
 
 interface HtmlToImageApi {
   toPng(node: HTMLElement, options?: HtmlToImageOptions): Promise<string>
+  getFontEmbedCSS(node: HTMLElement, options?: HtmlToImageOptions): Promise<string>
 }
 
 type HtmlToImageWindow = Window & {
@@ -22,7 +25,7 @@ let htmlToImagePromise: Promise<HtmlToImageApi> | null = null
 
 function getHtmlToImageApi(): HtmlToImageApi | null {
   const api = (window as HtmlToImageWindow).htmlToImage
-  return typeof api?.toPng === 'function' ? api : null
+  return typeof api?.toPng === 'function' && typeof api.getFontEmbedCSS === 'function' ? api : null
 }
 
 export function loadHtmlToImage(): Promise<HtmlToImageApi> {

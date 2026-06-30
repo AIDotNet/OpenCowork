@@ -92,6 +92,10 @@ import {
 import packageJson from '../../../../../package.json'
 import {
   clearUsageEvents,
+  getUsageActivityByModel,
+  getUsageActivityByProvider,
+  getUsageActivityDaily,
+  getUsageActivityOverview,
   getUsageByModel,
   getUsageByProvider,
   getUsageDaily,
@@ -551,7 +555,7 @@ function GeneralPanel(): React.JSX.Element {
     setUpdateError(null)
     setDownloadedVersion(null)
     try {
-      const result = (await window.electron.ipcRenderer.invoke(IPC.UPDATE_CHECK)) as
+      const result = (await ipcClient.invoke(IPC.UPDATE_CHECK)) as
         | {
             success: true
             available: boolean
@@ -625,7 +629,7 @@ function GeneralPanel(): React.JSX.Element {
     setDownloadProgress(null)
     setDownloadedVersion(null)
 
-    const result = (await window.electron.ipcRenderer.invoke(IPC.UPDATE_DOWNLOAD)) as
+    const result = (await ipcClient.invoke(IPC.UPDATE_DOWNLOAD)) as
       | { success: true }
       | { success: false; error: string }
 
@@ -2187,6 +2191,11 @@ function AnalyticsPanel(): React.JSX.Element {
   )
   const sourceOptions = ['chat', 'agent', 'cron', 'plugin', 'draw', 'translate', 'team']
   const timelineBucket: UsageTimelineBucket = rangeDays === 1 ? 'hour' : 'day'
+  const hasAnalyticsFilter =
+    selectedProviderId !== '__all__' ||
+    selectedModelId !== '__all__' ||
+    selectedSourceKind !== '__all__'
+  const useActivityAnalytics = rangeDays !== 1 && !hasAnalyticsFilter
 
   const query = useMemo(() => {
     const to = Date.now()
@@ -2215,6 +2224,25 @@ function AnalyticsPanel(): React.JSX.Element {
     async (signal?: { cancelled: boolean }): Promise<void> => {
       setLoading(true)
       try {
+        if (useActivityAnalytics) {
+          const [nextOverview, nextDaily, nextModels, nextProviders, nextDetails] =
+            await Promise.all([
+              getUsageActivityOverview(query),
+              getUsageActivityDaily(query),
+              getUsageActivityByModel(query),
+              getUsageActivityByProvider(query),
+              listUsageEvents(query)
+            ])
+          if (signal?.cancelled) return
+          setOverview(nextOverview)
+          setTimeline(nextDaily.map((row) => ({ ...row, bucket_label: row.day })))
+          setDaily(nextDaily)
+          setModels(nextModels)
+          setProviders(nextProviders)
+          setDetails(nextDetails)
+          return
+        }
+
         const [nextOverview, nextTimeline, nextDaily, nextModels, nextProviders, nextDetails] =
           await Promise.all([
             getUsageOverview(query),
@@ -2235,7 +2263,7 @@ function AnalyticsPanel(): React.JSX.Element {
         if (!signal?.cancelled) setLoading(false)
       }
     },
-    [query, timelineBucket]
+    [query, timelineBucket, useActivityAnalytics]
   )
 
   useEffect(() => {

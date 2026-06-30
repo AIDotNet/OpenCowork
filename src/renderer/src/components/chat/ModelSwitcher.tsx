@@ -21,7 +21,7 @@ import {
   getReasoningEffortKey,
   resolveReasoningEffortForModel
 } from '@renderer/stores/settings-store'
-import { useChatStore } from '@renderer/stores/chat-store'
+import { useChatStore, type SessionModelSelectionMode } from '@renderer/stores/chat-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { useQuotaStore } from '@renderer/stores/quota-store'
 import { useUIStore } from '@renderer/stores/ui-store'
@@ -212,6 +212,14 @@ function ModelCapabilityTags({
 interface ProviderGroup {
   provider: AIProvider
   models: AIModelConfig[]
+}
+
+interface ModelSwitcherSessionSnapshot {
+  id: string
+  pluginId?: string
+  providerId?: string
+  modelId?: string
+  modelSelectionMode?: SessionModelSelectionMode
 }
 
 function supportsPriorityServiceTier(model: AIModelConfig | undefined): boolean {
@@ -797,34 +805,58 @@ export function ModelSwitcher({
   const quotaByKey = useQuotaStore((s) => s.quotaByKey)
   const fallbackActiveSessionId = useChatStore((s) => s.activeSessionId)
   const activeSessionId = sessionId !== undefined ? sessionId : fallbackActiveSessionId
-  const sessions = useChatStore((s) => s.sessions)
-  const channels = useChannelStore((s) => s.channels)
+  const activeSession = useChatStore(
+    useShallow((s): ModelSwitcherSessionSnapshot | null => {
+      if (!activeSessionId) return null
+      const indexed = s.sessionsById[activeSessionId]
+      const session =
+        indexed !== undefined && s.sessions[indexed]?.id === activeSessionId
+          ? s.sessions[indexed]
+          : s.sessions.find((item) => item.id === activeSessionId)
+      if (!session) return null
+      return {
+        id: session.id,
+        pluginId: session.pluginId,
+        providerId: session.providerId,
+        modelId: session.modelId,
+        modelSelectionMode: session.modelSelectionMode
+      }
+    })
+  )
+  const activeChannelModelBinding = useChannelStore(
+    useShallow((s) => {
+      if (!activeSession?.pluginId) return { providerId: null, modelId: null }
+      const channel = s.channels.find((item) => item.id === activeSession.pluginId)
+      return {
+        providerId: channel?.providerId ?? null,
+        modelId: channel?.model ?? null
+      }
+    })
+  )
   const mainModelSelectionMode = useSettingsStore((s) => s.mainModelSelectionMode)
-  const autoModelSelectionsBySession = useUIStore((s) => s.autoModelSelectionsBySession)
-  const autoModelRoutingStatesBySession = useUIStore((s) => s.autoModelRoutingStatesBySession)
-  const autoSelection = activeSessionId
-    ? (autoModelSelectionsBySession[activeSessionId] ?? null)
-    : null
-  const autoRoutingState = activeSessionId
-    ? (autoModelRoutingStatesBySession[activeSessionId] ?? 'idle')
-    : 'idle'
+  const { autoSelection, autoRoutingState } = useUIStore(
+    useShallow((s) => ({
+      autoSelection: activeSessionId
+        ? (s.autoModelSelectionsBySession[activeSessionId] ?? null)
+        : null,
+      autoRoutingState: activeSessionId
+        ? (s.autoModelRoutingStatesBySession[activeSessionId] ?? 'idle')
+        : 'idle'
+    }))
+  )
 
   const enabledProviders = useMemo(
-    () => providers.filter((p) => isProviderAvailableForModelSelection(p)),
-    [providers]
+    () => (open ? providers.filter((p) => isProviderAvailableForModelSelection(p)) : []),
+    [open, providers]
   )
-  const activeSession = sessions.find((item) => item.id === activeSessionId)
-  const activeChannel = activeSession?.pluginId
-    ? (channels.find((item) => item.id === activeSession.pluginId) ?? null)
-    : null
   const sessionModelSelection = resolveSessionModelSelection({
     session: activeSession,
     providers,
     activeProviderId,
     activeModelId,
     globalMode: mainModelSelectionMode,
-    channelProviderId: activeChannel?.providerId,
-    channelModelId: activeChannel?.model
+    channelProviderId: activeChannelModelBinding.providerId,
+    channelModelId: activeChannelModelBinding.modelId
   })
   const displayProviderId = isFastRoute
     ? (fastSelection.providerId ?? activeFastProviderId ?? activeProviderId)
@@ -961,6 +993,7 @@ export function ModelSwitcher({
   }
 
   const groups = useMemo<ProviderGroup[]>(() => {
+    if (!open) return []
     const q = search.toLowerCase().trim()
     return enabledProviders
       .map((provider) => {
@@ -974,7 +1007,7 @@ export function ModelSwitcher({
         return { provider, models }
       })
       .filter((g) => g.models.length > 0)
-  }, [enabledProviders, isFastRoute, search])
+  }, [enabledProviders, isFastRoute, open, search])
   const selectedGroup = useMemo(
     () =>
       selectedProviderId

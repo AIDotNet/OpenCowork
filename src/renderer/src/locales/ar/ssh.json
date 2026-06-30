@@ -118,7 +118,6 @@
     "loadFailed": "فشل في التحميل",
     "saveFailed": "فشل في الإنقاذ",
     "downloadFailed": "الحمولة فشلت",
-    "zipFailed": "فشل في دليل المحفوظات",
     "uploadFailed": "تم تفريغها",
     "deleteFailed": "تُحذف النفقة",
     "renameFailed": "الإسم فشل",
@@ -291,9 +290,7 @@
       "cancel": "إلغاء",
       "clear": "آمن",
       "stages": {
-        "compress": "الضغط",
         "upload": "تحميل",
-        "remote_unzip": "Remote unzip",
         "cleanup": "تنظيف",
         "done": "مكتمل",
         "error": "فشل",

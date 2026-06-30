@@ -1,0 +1,1 @@
+export const OPENAI_RESPONSES_SUB_AGENT_SCOPE_PREFIX = 'sub-agent'

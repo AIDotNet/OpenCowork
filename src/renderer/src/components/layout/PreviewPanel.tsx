@@ -270,7 +270,7 @@ export function PreviewPanel({
         })
         if (tab.gitRepoPath) {
           useGitStore.getState().invalidateFileDiff(tab.gitRepoPath, tab.filePath)
-          void useGitStore.getState().refreshRepository(tab.gitRepoPath)
+          void useGitStore.getState().refreshRepository(tab.gitRepoPath, { force: true })
         }
       } else {
         if (tab.id === activeTab?.id) setContent(tabContent)

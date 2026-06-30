@@ -10,6 +10,8 @@ import { useChatStore } from '@renderer/stores/chat-store'
 import { summarizeToolInputForHistory } from '@renderer/lib/tools/tool-input-sanitizer'
 import { useBackgroundSessionStore } from '@renderer/stores/background-session-store'
 import { recordStreamingForegroundFlush } from '@renderer/lib/streaming-perf'
+import { createResidentRequestDebugInfo } from '@renderer/lib/debug-store'
+import { mergeUsageSnapshot } from './usage-merge'
 
 /**
  * Strip any <think>...</think> markers streamed by providers that wrap thinking in pseudo-tags.
@@ -192,22 +194,36 @@ function queueForegroundMutation(thunk: ForegroundMutationThunk): void {
   scheduleForegroundFlush()
 }
 
+function sanitizeRuntimeMessagePatch(patch: Partial<UnifiedMessage>): Partial<UnifiedMessage> {
+  if (!patch.debugInfo) return patch
+  return {
+    ...patch,
+    debugInfo: createResidentRequestDebugInfo(patch.debugInfo)
+  }
+}
+
 export function updateRuntimeMessage(
   sessionId: string,
   messageId: string,
   patch: Partial<UnifiedMessage>
 ): void {
-  emitSessionRuntimeSync({ kind: 'update_message', sessionId, messageId, patch })
+  const residentPatch = sanitizeRuntimeMessagePatch(patch)
+
+  emitSessionRuntimeSync({ kind: 'update_message', sessionId, messageId, patch: residentPatch })
 
   if (isSessionForeground(sessionId)) {
     queueForegroundMutation(() =>
-      useChatStore.getState().updateMessage(sessionId, messageId, patch)
+      useChatStore.getState().updateMessage(sessionId, messageId, residentPatch)
     )
     return
   }
 
   mutateBufferedMessage(sessionId, messageId, (message) => {
-    Object.assign(message, patch)
+    const { usage, ...messagePatch } = residentPatch
+    Object.assign(message, messagePatch)
+    if (usage) {
+      message.usage = mergeUsageSnapshot(message.usage, usage)
+    }
   })
 }
 
@@ -215,12 +231,7 @@ function buildMergedRuntimeUsage(
   currentUsage: UnifiedMessage['usage'],
   patch: Partial<TokenUsage>
 ): TokenUsage {
-  return {
-    inputTokens: currentUsage?.inputTokens ?? 0,
-    outputTokens: currentUsage?.outputTokens ?? 0,
-    ...(currentUsage ?? {}),
-    ...patch
-  }
+  return mergeUsageSnapshot(currentUsage, patch) ?? { inputTokens: 0, outputTokens: 0 }
 }
 
 export function mergeRuntimeMessageUsage(

@@ -15,6 +15,7 @@ import {
 } from '@renderer/components/ui/select'
 import { toast } from 'sonner'
 import { IPC } from '@renderer/lib/ipc/channels'
+import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import type { WebSearchProvider } from '@renderer/lib/tools/web-search-tool'
 
 export function WebSearchPanel(): React.JSX.Element {
@@ -52,16 +53,16 @@ export function WebSearchPanel(): React.JSX.Element {
     try {
       // Call the actual search API via IPC
       // Provider is determined by user's settings, not passed from AI
-      const result = await window.electron.ipcRenderer.invoke(IPC.WEB_SEARCH, {
+      const result = (await ipcClient.invoke(IPC.WEB_SEARCH, {
         query: 'test search query',
         provider: settings.webSearchProvider,
         maxResults: settings.webSearchMaxResults,
         searchMode: 'web',
         apiKey: settings.webSearchApiKey,
         timeout: settings.webSearchTimeout
-      })
+      })) as { error?: string; totalResults?: number }
 
-      if ('error' in result) {
+      if (result.error) {
         toast.error(t('websearch.testFailed', { error: result.error }))
       } else {
         toast.success(t('websearch.testSuccess', { count: result.totalResults || 0 }))

@@ -115,7 +115,7 @@ export interface RequestDebugInfoWire {
   websocketRequestKind?: 'warmup' | 'full' | 'incremental'
   websocketIncrementalReason?: string
   previousResponseId?: string
-  executionPath?: 'node' | 'sidecar'
+  executionPath?: 'sidecar'
   systemHash?: string
   toolsHash?: string
   messagePrefixHash?: string
@@ -189,6 +189,7 @@ export type AgentStreamEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; thinking: string }
   | { type: 'thinking_encrypted'; content: string; provider: ThinkingProviderWire }
+  | { type: 'translation_buffer_update'; content: string }
   // Image generation
   | { type: 'image_generation_started' }
   | { type: 'image_generation_partial'; imageBlock: ImageBlockWire; partialImageIndex?: number }

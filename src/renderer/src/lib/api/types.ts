@@ -167,7 +167,7 @@ export interface RequestDebugInfo {
   providerId?: string
   providerBuiltinId?: string
   model?: string
-  executionPath?: 'node' | 'sidecar'
+  executionPath?: 'sidecar'
   transport?: 'http' | 'websocket'
   fallbackReason?: string
   reusedConnection?: boolean
@@ -682,6 +682,8 @@ export interface ProviderConfig {
   imageGenerationStream?: ImageGenerationStreamConfig
   /** OpenAI Responses: enable prompt caching with session-based key */
   enablePromptCache?: boolean
+  /** OpenAI Responses: explicit prompt cache key for this request */
+  promptCacheKey?: string
   /** Whether OpenAI Computer Use should be enabled for this request */
   computerUseEnabled?: boolean
   /** Anthropic: enable system prompt caching */
@@ -704,21 +706,4 @@ export interface ProviderConfig {
   websocketUrl?: string
   /** OpenAI Responses transport mode resolved for this request */
   websocketMode?: 'auto' | 'disabled'
-}
-
-// --- Provider Interface ---
-
-export interface APIProvider {
-  readonly name: string
-  readonly type: ProviderType
-
-  sendMessage(
-    messages: UnifiedMessage[],
-    tools: ToolDefinition[],
-    config: ProviderConfig,
-    signal?: AbortSignal
-  ): AsyncIterable<StreamEvent>
-
-  formatMessages(messages: UnifiedMessage[]): unknown
-  formatTools(tools: ToolDefinition[]): unknown
 }

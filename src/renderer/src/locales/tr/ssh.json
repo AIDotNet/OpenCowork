@@ -118,7 +118,6 @@
     "loadFailed": "Yüklemek için başarısız oldu",
     "saveFailed": "kurtarmak için başarısız oldu",
     "downloadFailed": "Download başarısız",
-    "zipFailed": "Arşiv rehberine Başarısız Oldu",
     "uploadFailed": "Kod başarısız oldu",
     "deleteFailed": "Delete başarısız oldu",
     "renameFailed": "Rename başarısız oldu",
@@ -291,9 +290,7 @@
       "cancel": "Cancel Cancel Cancel Cancel",
       "clear": "Clear Clear Clear Clear",
       "stages": {
-        "compress": "Tartışma:",
         "upload": "Yüklemek",
-        "remote_unzip": "Uzak posta",
         "cleanup": "Temizlik temizliği",
         "done": "Tamamlandı",
         "error": "Başarısızlık",

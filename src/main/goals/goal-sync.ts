@@ -1,5 +1,5 @@
 import * as goalsDao from '../db/goals-dao'
-import { safeSendToAllWindows } from '../window-ipc'
+import { safeSendMessagePackToAllWindows } from '../window-ipc'
 
 export const GOAL_UPDATED_CHANNEL = 'goal:updated'
 export const GOAL_CLEARED_CHANNEL = 'goal:cleared'
@@ -7,16 +7,20 @@ export const GOAL_EVENT_ADDED_CHANNEL = 'goal:event-added'
 export const GOAL_RUN_STATE_CHANNEL = 'goal:run-state'
 export const GOAL_CONTINUE_REQUESTED_CHANNEL = 'goal:continue-requested'
 
+function emitGoalEvent(channel: string, payload: unknown): void {
+  safeSendMessagePackToAllWindows(channel, payload)
+}
+
 export function emitGoalUpdated(goal: goalsDao.SessionGoalRow, reason: string): void {
-  safeSendToAllWindows(GOAL_UPDATED_CHANNEL, { reason, goal })
+  emitGoalEvent(GOAL_UPDATED_CHANNEL, { reason, goal })
 }
 
 export function emitGoalCleared(sessionId: string, reason: string): void {
-  safeSendToAllWindows(GOAL_CLEARED_CHANNEL, { reason, sessionId })
+  emitGoalEvent(GOAL_CLEARED_CHANNEL, { reason, sessionId })
 }
 
 export function emitGoalEventAdded(event: goalsDao.SessionGoalEventRow, reason: string): void {
-  safeSendToAllWindows(GOAL_EVENT_ADDED_CHANNEL, { reason, event })
+  emitGoalEvent(GOAL_EVENT_ADDED_CHANNEL, { reason, event })
 }
 
 export function emitGoalRunState(args: {
@@ -26,7 +30,7 @@ export function emitGoalRunState(args: {
   startedAt?: number
   reason: string
 }): void {
-  safeSendToAllWindows(GOAL_RUN_STATE_CHANNEL, args)
+  emitGoalEvent(GOAL_RUN_STATE_CHANNEL, args)
 }
 
 export function emitGoalContinueRequested(args: {
@@ -34,5 +38,5 @@ export function emitGoalContinueRequested(args: {
   goalId?: string | null
   reason: string
 }): void {
-  safeSendToAllWindows(GOAL_CONTINUE_REQUESTED_CHANNEL, args)
+  emitGoalEvent(GOAL_CONTINUE_REQUESTED_CHANNEL, args)
 }

@@ -31,6 +31,12 @@ interface TerminalListEntry {
   buffer?: TerminalOutputChunk[]
 }
 
+interface TerminalSnapshotResult {
+  success?: boolean
+  session?: TerminalListEntry | null
+  error?: string
+}
+
 export function LocalTerminal({
   terminalId,
   readOnly = false
@@ -43,12 +49,15 @@ export function LocalTerminal({
   const themePreset = useSettingsStore((state) => state.themePreset)
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
+  const fitAddonRef = useRef<FitAddon | null>(null)
+  const lastSeqRef = useRef(0)
   const initialThemeRef = useRef(getTerminalTheme(themePreset, resolveAppThemeMode(resolvedTheme)))
   const [hasSelection, setHasSelection] = useState(false)
   const terminalTheme = getTerminalTheme(themePreset, resolveAppThemeMode(resolvedTheme))
 
   useEffect(() => {
     if (!containerRef.current) return
+    lastSeqRef.current = 0
 
     const term = new XTerm({
       cursorBlink: true,
@@ -73,19 +82,44 @@ export function LocalTerminal({
     term.loadAddon(unicodeAddon)
     term.unicode.activeVersion = '11'
     term.open(containerRef.current)
-    fitAddon.fit()
-    term.focus()
     termRef.current = term
+    fitAddonRef.current = fitAddon
+    term.focus()
+
+    const notifyResize = (): void => {
+      void ipcClient.invoke(IPC.TERMINAL_RESIZE, {
+        id: terminalId,
+        cols: term.cols,
+        rows: term.rows
+      })
+    }
+
+    const fitTerminal = (): void => {
+      fitAddon.fit()
+      notifyResize()
+    }
+
+    const scheduleFit = (): void => {
+      requestAnimationFrame(() => {
+        try {
+          fitTerminal()
+        } catch {
+          // ignore
+        }
+      })
+    }
+
+    scheduleFit()
+
     let disposed = false
     let snapshotLoaded = false
-    let latestSeq = 0
     const pendingChunks: Array<{ seq: number; data: string }> = []
 
     const writeChunk = (chunk: TerminalOutputChunk): void => {
       if (!chunk.data) return
-      const seq = typeof chunk.seq === 'number' ? chunk.seq : latestSeq + 1
-      if (seq <= latestSeq) return
-      latestSeq = seq
+      const seq = typeof chunk.seq === 'number' ? chunk.seq : lastSeqRef.current + 1
+      if (seq <= lastSeqRef.current) return
+      lastSeqRef.current = seq
       term.write(chunk.data)
     }
 
@@ -108,7 +142,10 @@ export function LocalTerminal({
       if (data.id !== terminalId || !data.data) return
       if (!snapshotLoaded) {
         pendingChunks.push({
-          seq: typeof data.seq === 'number' ? data.seq : latestSeq + pendingChunks.length + 1,
+          seq:
+            typeof data.seq === 'number'
+              ? data.seq
+              : lastSeqRef.current + pendingChunks.length + 1,
           data: data.data
         })
         return
@@ -116,53 +153,68 @@ export function LocalTerminal({
       writeChunk(data)
     })
 
-    void ipcClient
-      .invoke(IPC.TERMINAL_LIST)
-      .then((result) => {
+    const loadSnapshot = async (): Promise<void> => {
+      try {
+        const result = (await ipcClient.invoke(IPC.TERMINAL_GET, {
+          id: terminalId
+        })) as TerminalSnapshotResult | undefined
         if (disposed) return
-        const sessions = Array.isArray(result) ? (result as TerminalListEntry[]) : []
-        const matched = sessions.find((item) => item.id === terminalId)
-        const snapshot = Array.isArray(matched?.buffer) ? matched.buffer : []
-
+        const snapshot = Array.isArray(result?.session?.buffer) ? result.session.buffer : []
         snapshot
           .slice()
           .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
           .forEach((chunk) => writeChunk(chunk))
-      })
-      .catch(() => {
+      } catch {
         // ignore terminal snapshot failures; live output listener remains active
-      })
-      .finally(() => {
+      } finally {
         if (disposed) return
         snapshotLoaded = true
         pendingChunks.sort((a, b) => a.seq - b.seq).forEach((chunk) => writeChunk(chunk))
         pendingChunks.length = 0
-      })
+        scheduleFit()
+      }
+    }
+
+    void loadSnapshot()
+
+    const handleWindowResize = (): void => {
+      scheduleFit()
+    }
+    window.addEventListener('resize', handleWindowResize)
+
+    const visualViewport = window.visualViewport
+    const handleViewportResize = (): void => {
+      scheduleFit()
+    }
+    visualViewport?.addEventListener('resize', handleViewportResize)
 
     const resizeObserver = new ResizeObserver(() => {
-      requestAnimationFrame(() => {
-        try {
-          fitAddon.fit()
-          void ipcClient.invoke(IPC.TERMINAL_RESIZE, {
-            id: terminalId,
-            cols: term.cols,
-            rows: term.rows
-          })
-        } catch {
-          // ignore
-        }
-      })
+      scheduleFit()
     })
     resizeObserver.observe(containerRef.current)
 
-    requestAnimationFrame(() => {
-      fitAddon.fit()
-      void ipcClient.invoke(IPC.TERMINAL_RESIZE, {
-        id: terminalId,
-        cols: term.cols,
-        rows: term.rows
-      })
+    const intersectionObserver = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) {
+        scheduleFit()
+      }
     })
+    intersectionObserver.observe(containerRef.current)
+
+    let fontsReadyDisposed = false
+    const fontReady = document.fonts?.ready
+    if (fontReady) {
+      void fontReady.then(() => {
+        if (fontsReadyDisposed) return
+        scheduleFit()
+      })
+    }
+
+    const initialFitTimer = window.setTimeout(() => {
+      scheduleFit()
+    }, 100)
+    const delayedFitTimer = window.setTimeout(() => {
+      scheduleFit()
+    }, 350)
 
     return () => {
       disposed = true
@@ -170,9 +222,16 @@ export function LocalTerminal({
       dataDisposable.dispose()
       resizeDisposable.dispose()
       outputCleanup()
+      window.removeEventListener('resize', handleWindowResize)
+      visualViewport?.removeEventListener('resize', handleViewportResize)
       resizeObserver.disconnect()
+      intersectionObserver.disconnect()
+      window.clearTimeout(initialFitTimer)
+      window.clearTimeout(delayedFitTimer)
+      fontsReadyDisposed = true
       term.dispose()
       termRef.current = null
+      fitAddonRef.current = null
     }
   }, [readOnly, terminalId])
 

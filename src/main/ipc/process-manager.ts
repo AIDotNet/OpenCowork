@@ -1,5 +1,6 @@
-import { ipcMain, BrowserWindow, type WebContents } from 'electron'
-import { safeSendToWindow } from '../window-ipc'
+import { BrowserWindow, type WebContents } from 'electron'
+import { safeSendMessagePackToWindow } from '../window-ipc'
+import { registerMessagePackHandler } from './messagepack-handler'
 import {
   createTerminalSession,
   getTerminalSessionSnapshot,
@@ -73,14 +74,15 @@ function sendProcessOutput(
 ): void {
   const win = getManagedWindow(managed)
   if (!win) return
-  safeSendToWindow(win, 'process:output', {
+  const eventPayload = {
     id: managed.id,
     data: payload.data,
     port: managed.port,
     exited: payload.exited,
     exitCode: payload.exitCode,
     metadata: getManagedMetadata(managed)
-  })
+  }
+  safeSendMessagePackToWindow(win, 'process:output', eventPayload)
 }
 
 function appendManagedOutput(managed: ManagedProcess, chunk: string): void {
@@ -115,91 +117,90 @@ function finalizeManagedProcess(
 }
 
 export function registerProcessManagerHandlers(): void {
-  ipcMain.handle(
-    'process:spawn',
-    async (
-      event,
-      args: { command: string; cwd?: string; shell?: string; metadata?: ProcessMetadata }
-    ) => {
-      const id = `proc-${nextId++}`
-      const configuredShell = args.shell?.trim() || undefined
-      const cwd = args.cwd || process.cwd()
-      const created = await createTerminalSession(
-        {
-          cwd,
-          command: args.command,
-          shell: configuredShell,
-          title: args.metadata?.description?.trim() || 'Background Shell'
-        },
-        event.sender
-      )
-
-      if (!created.id) {
-        return { error: created.error ?? 'Failed to create terminal session' }
-      }
-
-      const managed: ManagedProcess = {
-        id,
-        terminalId: created.id,
-        windowId: resolveOwnerWindowId(event.sender),
-        cwd: created.cwd ?? cwd,
+  registerMessagePackHandler<{
+    command: string
+    cwd?: string
+    shell?: string
+    metadata?: ProcessMetadata
+  }>('process:spawn', async (args, event) => {
+    const id = `proc-${nextId++}`
+    const configuredShell = args.shell?.trim() || undefined
+    const cwd = args.cwd || process.cwd()
+    const created = await createTerminalSession(
+      {
+        cwd,
         command: args.command,
         shell: configuredShell,
-        createdAt: Date.now(),
-        metadata: {
-          ...(args.metadata ?? {}),
-          terminalId: created.id
-        },
-        output: []
-      }
-      processes.set(id, managed)
+        title: args.metadata?.description?.trim() || 'Background Shell'
+      },
+      event.sender
+    )
 
-      const cleanupOutput = onTerminalSessionOutput((payload) => {
-        if (payload.id !== managed.terminalId || !payload.data) return
-        appendManagedOutput(managed, payload.data)
-        sendProcessOutput(managed, { data: payload.data })
-      })
-
-      const cleanupExit = onTerminalSessionExit((payload) => {
-        if (payload.id !== managed.terminalId) return
-        finalizeManagedProcess(
-          managed,
-          payload.exitCode,
-          managed.stopping
-            ? '\n[Process stopped by user]\n'
-            : `\n[Process exited with code ${payload.exitCode}]\n`
-        )
-      })
-
-      managed.cleanup = () => {
-        cleanupOutput()
-        cleanupExit()
-      }
-
-      const snapshot = getTerminalSessionSnapshot(managed.terminalId)
-      const replay = snapshot?.outputBuffer.map((chunk) => chunk.data).join('') ?? ''
-      if (replay) {
-        appendManagedOutput(managed, replay)
-        sendProcessOutput(managed, { data: replay })
-      }
-      if (snapshot?.exitCode !== undefined) {
-        finalizeManagedProcess(
-          managed,
-          snapshot.exitCode,
-          `\n[Process exited with code ${snapshot.exitCode}]\n`
-        )
-      }
-
-      return { id, terminalId: managed.terminalId }
+    if (!created.id) {
+      return { error: created.error ?? 'Failed to create terminal session' }
     }
-  )
 
-  ipcMain.handle('process:kill', async (_event, args: { id: string }) => {
+    const managed: ManagedProcess = {
+      id,
+      terminalId: created.id,
+      windowId: resolveOwnerWindowId(event.sender),
+      cwd: created.cwd ?? cwd,
+      command: args.command,
+      shell: configuredShell,
+      createdAt: Date.now(),
+      metadata: {
+        ...(args.metadata ?? {}),
+        terminalId: created.id
+      },
+      output: []
+    }
+    processes.set(id, managed)
+
+    const cleanupOutput = onTerminalSessionOutput((payload) => {
+      if (payload.id !== managed.terminalId || !payload.data) return
+      appendManagedOutput(managed, payload.data)
+      sendProcessOutput(managed, { data: payload.data })
+    })
+
+    const cleanupExit = onTerminalSessionExit((payload) => {
+      if (payload.id !== managed.terminalId) return
+      finalizeManagedProcess(
+        managed,
+        payload.exitCode,
+        managed.stopping
+          ? '\n[Process stopped by user]\n'
+          : `\n[Process exited with code ${payload.exitCode}]\n`
+      )
+    })
+
+    managed.cleanup = () => {
+      cleanupOutput()
+      cleanupExit()
+    }
+
+    const snapshot = await getTerminalSessionSnapshot(managed.terminalId)
+    const replay = snapshot?.buffer?.map((chunk) => chunk.data).join('') ?? ''
+    if (replay) {
+      appendManagedOutput(managed, replay)
+      sendProcessOutput(managed, { data: replay })
+    }
+    if (snapshot?.exitCode !== undefined) {
+      finalizeManagedProcess(
+        managed,
+        snapshot.exitCode,
+        `\n[Process exited with code ${snapshot.exitCode}]\n`
+      )
+    }
+
+    return { id, terminalId: managed.terminalId }
+  })
+
+  registerMessagePackHandler<{ id: string }>('process:kill', async (args) => {
     const managed = processes.get(args.id)
     if (!managed) return { error: 'Process not found' }
     try {
       managed.stopping = true
-      const result = killTerminalSession(managed.terminalId)
+      const result = await killTerminalSession(managed.terminalId)
       if (result.error) {
         managed.stopping = false
         return { error: result.error }
@@ -211,26 +212,26 @@ export function registerProcessManagerHandlers(): void {
     }
   })
 
-  ipcMain.handle(
+  registerMessagePackHandler<{ id: string; input: string; appendNewline?: boolean }>(
     'process:write',
-    async (_event, args: { id: string; input: string; appendNewline?: boolean }) => {
+    async (args) => {
       const managed = processes.get(args.id)
       if (!managed) return { error: 'Process not found' }
       if (managed.exited || managed.exitCode !== undefined) {
         return { error: 'Process already exited' }
       }
-      const session = getTerminalSessionSnapshot(managed.terminalId)
+      const session = await getTerminalSessionSnapshot(managed.terminalId)
       if (!session || session.exitCode !== undefined) return { error: 'Process already exited' }
       try {
         const payload = args.appendNewline === false ? args.input : `${args.input}\r`
-        return writeTerminalSession(managed.terminalId, payload)
+        return await writeTerminalSession(managed.terminalId, payload)
       } catch (err) {
         return { error: String(err) }
       }
     }
   )
 
-  ipcMain.handle('process:status', async (_event, args: { id: string }) => {
+  registerMessagePackHandler<{ id: string }>('process:status', async (args) => {
     const managed = processes.get(args.id)
     if (!managed) return { running: false }
     return {
@@ -242,7 +243,7 @@ export function registerProcessManagerHandlers(): void {
     }
   })
 
-  ipcMain.handle('process:list', async () => {
+  registerMessagePackHandler<undefined>('process:list', async () => {
     const list: {
       id: string
       command: string
@@ -272,7 +273,7 @@ export function registerProcessManagerHandlers(): void {
 export function killAllManagedProcesses(): void {
   processes.forEach((managed) => {
     try {
-      killTerminalSession(managed.terminalId)
+      void killTerminalSession(managed.terminalId)
       managed.cleanup?.()
     } catch {
       // ignore

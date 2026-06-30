@@ -34,7 +34,11 @@ import { registerShellHandlers } from './ipc/shell-handlers'
 
 import { registerApiProxyHandlers } from './ipc/api-proxy'
 
-import { registerSettingsHandlers, flushSettingsSync } from './ipc/settings-handlers'
+import {
+  registerSettingsHandlers,
+  flushSettingsSync,
+  initializeSettingsCache
+} from './ipc/settings-handlers'
 
 import { registerSkillsHandlers } from './ipc/skills-handlers'
 import { registerSoulsHandlers } from './ipc/souls-handlers'
@@ -63,8 +67,8 @@ import { registerGitHandlers } from './ipc/git-handlers'
 import { registerMigrationHandlers } from './ipc/migration-handlers'
 import { registerSyncHandlers } from './ipc/sync-handlers'
 import { registerSidecarHandlers, getSidecarManager } from './ipc/sidecar-manager'
+import { getNativeWorker, stopNativeWorker } from './lib/native-worker'
 import { registerTeamRuntimeHandlers } from './ipc/team-runtime-handlers'
-import { registerTeamWorkerHandlers, stopAllIsolatedTeamWorkers } from './ipc/team-worker-handlers'
 import { loadPersistedJobs, cancelAllJobs } from './cron/cron-scheduler'
 import { McpManager } from './mcp/mcp-manager'
 import { closeDb } from './db/database'
@@ -72,7 +76,13 @@ import { cleanupExpiredUsageEvents } from './db/usage-events-dao'
 import { registerSshHandlers, closeAllSshSessions } from './ipc/ssh-handlers'
 import { writeCrashLog, getCrashLogDir } from './crash-logger'
 import { setupAutoUpdater } from './updater'
-import { safeSendToWindow } from './window-ipc'
+import { safeSendMessagePackToWindow } from './window-ipc'
+import { registerMessagePackHandler } from './ipc/messagepack-handler'
+import {
+  decodeMessagePackPayload,
+  encodeMessagePackPayload,
+  toMessagePackChannel
+} from '../shared/messagepack/binary-ipc'
 import * as sessionsDao from './db/sessions-dao'
 import {
   configureBuiltInBrowserSession,
@@ -127,6 +137,11 @@ const GENERATED_IMAGES_DIR = 'open-cowork'
 const GENERATED_IMAGES_SUBDIR = 'image'
 const MACOS_SHELL_ENV_TIMEOUT_MS = 4000
 const USAGE_EVENTS_STARTUP_CLEANUP_DELAY_MS = 5000
+const USAGE_EVENTS_CLEANUP_INTERVAL_MS = 30 * 60 * 1000
+const DEFAULT_RENDERER_HEAP_FRACTION = 0.2
+const MIN_RENDERER_HEAP_MB = 1024
+const MAX_DEFAULT_RENDERER_HEAP_MB = 4096
+const MAX_RENDERER_HEAP_FRACTION = 0.75
 const SHELL_ENV_LINE_RE = /^[A-Za-z_][A-Za-z0-9_]*=/
 const SHELL_ENV_SKIP_KEYS = new Set(['PWD', 'OLDPWD', 'SHLVL', '_'])
 const SYSTEM_PROXY_ENV_KEYS = [
@@ -319,6 +334,78 @@ function persistGeneratedImageFile(args: {
   }
 }
 
+type ClipboardWriteImageArgs = { data: string }
+type ImagePersistGeneratedArgs = { data?: string; mediaType?: string; url?: string }
+type ImageFetchBase64Args = { url: string }
+
+function registerBinaryInvokeHandler<TArgs>(
+  channel: string,
+  handler: (args: TArgs) => Promise<unknown> | unknown
+): void {
+  ipcMain.handle(toMessagePackChannel(channel), async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<TArgs>(bytes)
+    return encodeMessagePackPayload(await handler(args))
+  })
+}
+
+function handleClipboardWriteImage(args: ClipboardWriteImageArgs): {
+  success?: boolean
+  error?: string
+} {
+  try {
+    const buffer = Buffer.from(args.data, 'base64')
+    const image = nativeImage.createFromBuffer(buffer)
+    if (image.isEmpty()) return { error: 'Failed to create image from data' }
+    clipboard.writeImage(image)
+    return { success: true }
+  } catch (err) {
+    return { error: String(err) }
+  }
+}
+
+async function handleImagePersistGenerated(
+  args: ImagePersistGeneratedArgs
+): Promise<{ filePath?: string; mediaType?: string; data?: string; error?: string }> {
+  try {
+    let buffer: Buffer
+    if (typeof args.data === 'string' && args.data.trim()) {
+      buffer = Buffer.from(args.data, 'base64')
+    } else if (typeof args.url === 'string' && args.url.trim()) {
+      buffer = await FeishuApi.downloadUrl(args.url)
+    } else {
+      return { error: 'Missing image data or url' }
+    }
+
+    return persistGeneratedImageFile({
+      buffer,
+      mediaType: args.mediaType,
+      sourceUrl: args.url
+    })
+  } catch (err) {
+    return { error: String(err) }
+  }
+}
+
+async function handleImageFetchBase64(
+  args: ImageFetchBase64Args
+): Promise<{ data?: string; mimeType?: string; error?: string }> {
+  try {
+    const buffer = await FeishuApi.downloadUrl(args.url)
+    const fileExt = extname(args.url.split('?')[0]).toLowerCase()
+    const mimeType =
+      fileExt === '.jpg' || fileExt === '.jpeg'
+        ? 'image/jpeg'
+        : fileExt === '.webp'
+          ? 'image/webp'
+          : fileExt === '.gif'
+            ? 'image/gif'
+            : 'image/png'
+    return { data: buffer.toString('base64'), mimeType }
+  } catch (err) {
+    return { error: String(err) }
+  }
+}
+
 function recordCrash(event: string, details: unknown): void {
   writeCrashLog(event, details)
 }
@@ -439,20 +526,43 @@ function configureChromiumCachePaths(): void {
   }
 }
 
-/** Remove V8 old-space cap and disable Chromium memory-pressure OOM kills. */
+function parsePositiveInteger(value: string | undefined): number | null {
+  if (!value) return null
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function resolveRendererHeapLimitMb(systemMemMb: number): number {
+  const maxAllowed = Math.max(
+    MIN_RENDERER_HEAP_MB,
+    Math.floor(systemMemMb * MAX_RENDERER_HEAP_FRACTION)
+  )
+  const envOverride = parsePositiveInteger(process.env.OPEN_COWORK_RENDERER_HEAP_MB)
+  if (envOverride) {
+    return Math.min(Math.max(envOverride, MIN_RENDERER_HEAP_MB), maxAllowed)
+  }
+
+  const defaultLimit = Math.floor(systemMemMb * DEFAULT_RENDERER_HEAP_FRACTION)
+  return Math.min(Math.max(defaultLimit, MIN_RENDERER_HEAP_MB), MAX_DEFAULT_RENDERER_HEAP_MB)
+}
+
+/** Keep renderer V8 headroom bounded while allowing explicit overrides for large local runs. */
 function configureRendererHeapLimit(): void {
   try {
     const systemMemMb = Math.floor(totalmem() / (1024 * 1024))
-    app.commandLine.appendSwitch('js-flags', `--max-old-space-size=${systemMemMb}`)
-    app.commandLine.appendSwitch('disable-features', 'MemoryPressureBasedSourceBufferGC')
-    app.commandLine.appendSwitch('memory-pressure-off')
+    const rendererHeapMb = resolveRendererHeapLimitMb(systemMemMb)
+    app.commandLine.appendSwitch('js-flags', `--max-old-space-size=${rendererHeapMb}`)
+    if (process.env.OPEN_COWORK_DISABLE_MEMORY_PRESSURE === '1') {
+      app.commandLine.appendSwitch('disable-features', 'MemoryPressureBasedSourceBufferGC')
+      app.commandLine.appendSwitch('memory-pressure-off')
+    }
   } catch (error) {
     console.warn('[Main] Failed to set renderer heap limit:', error)
   }
 }
 
 function scheduleUsageEventsStartupCleanup(): void {
-  setTimeout(() => {
+  const runCleanup = (): void => {
     if (isQuiting) return
 
     void cleanupExpiredUsageEvents()
@@ -460,7 +570,7 @@ function scheduleUsageEventsStartupCleanup(): void {
         if (result.deleted <= 0) return
 
         console.log(
-          `[UsageEvents] Cleaned ${result.deleted} analytics log entries older than ${new Date(
+          `[UsageEvents] Aggregated and deleted ${result.deleted} raw analytics log entries older than ${new Date(
             result.cutoff
           ).toISOString()}`
         )
@@ -468,7 +578,11 @@ function scheduleUsageEventsStartupCleanup(): void {
       .catch((error) => {
         console.warn('[UsageEvents] Failed to clean expired analytics logs:', error)
       })
-  }, USAGE_EVENTS_STARTUP_CLEANUP_DELAY_MS)
+  }
+
+  setTimeout(runCleanup, USAGE_EVENTS_STARTUP_CLEANUP_DELAY_MS)
+  const interval = setInterval(runCleanup, USAGE_EVENTS_CLEANUP_INTERVAL_MS)
+  interval.unref?.()
 }
 
 function showMainWindow(): void {
@@ -662,7 +776,7 @@ function routeRuntimeSync(event: IpcMainEvent, channel: string, payload: unknown
 
   for (const window of targets) {
     if (window.webContents.id === event.sender.id) continue
-    safeSendToWindow(window, channel, payload)
+    safeSendMessagePackToWindow(window, channel, payload)
   }
 }
 
@@ -699,7 +813,7 @@ async function openDetachedSessionWindow(
     return { handled: true, created: false }
   }
 
-  const session = sessionsDao.getSession(sessionId)
+  const session = await sessionsDao.getSession(sessionId)
   if (!session) {
     return { handled: false, error: 'session-not-found' }
   }
@@ -808,53 +922,58 @@ function createTray(): void {
 }
 
 function registerWindowControlHandlers(): void {
-  ipcMain.handle('window:minimize', (event) => {
+  registerMessagePackHandler<void>('window:minimize', (_args, event) => {
     const targetWindow = BrowserWindow.fromWebContents(event.sender)
     targetWindow?.minimize()
   })
 
-  ipcMain.handle('window:maximize', (event) => {
+  registerMessagePackHandler<void>('window:maximize', (_args, event) => {
     const targetWindow = BrowserWindow.fromWebContents(event.sender)
     if (!targetWindow) return
     if (targetWindow.isMaximized()) targetWindow.unmaximize()
     else targetWindow.maximize()
   })
 
-  ipcMain.handle('window:close', (event) => {
+  registerMessagePackHandler<void>('window:close', (_args, event) => {
     const targetWindow = BrowserWindow.fromWebContents(event.sender)
     targetWindow?.close()
   })
 
-  ipcMain.handle('window:isMaximized', (event) => {
+  registerMessagePackHandler<void>('window:isMaximized', (_args, event) => {
     const targetWindow = BrowserWindow.fromWebContents(event.sender)
     return targetWindow?.isMaximized() ?? false
   })
 
-  ipcMain.handle('ssh-window:open', () => {
+  registerMessagePackHandler<void>('ssh-window:open', () => {
     showSshWindow()
     return { success: true }
   })
 
-  ipcMain.handle('session-window:open', async (_event, sessionId: string) => {
+  registerMessagePackHandler<string>('session-window:open', async (sessionId) => {
     return openDetachedSessionWindow(sessionId)
   })
 
-  ipcMain.handle('session-window:focus-if-open', (_event, sessionId: string) => {
+  registerMessagePackHandler<string>('session-window:focus-if-open', (sessionId) => {
     return { handled: focusDetachedSessionWindow(sessionId) }
   })
 
-  ipcMain.on('agent:session-visibility', rememberVisibleSessionWindow)
-
-  ipcMain.on('session-runtime:sync', (event, payload: unknown) => {
-    routeRuntimeSync(event, 'session-runtime:sync', payload)
+  ipcMain.on(toMessagePackChannel('agent:session-visibility'), (event, bytes: Uint8Array) => {
+    rememberVisibleSessionWindow(
+      event,
+      decodeMessagePackPayload<{ sessionId?: string; visible?: boolean }>(bytes)
+    )
   })
 
-  ipcMain.on('session-control:sync', (event, payload: unknown) => {
-    routeRuntimeSync(event, 'session-control:sync', payload)
+  ipcMain.on(toMessagePackChannel('session-runtime:sync'), (event, bytes: Uint8Array) => {
+    routeRuntimeSync(event, 'session-runtime:sync', decodeMessagePackPayload(bytes))
   })
 
-  ipcMain.on('agent-runtime:sync', (event, payload: unknown) => {
-    routeRuntimeSync(event, 'agent-runtime:sync', payload)
+  ipcMain.on(toMessagePackChannel('session-control:sync'), (event, bytes: Uint8Array) => {
+    routeRuntimeSync(event, 'session-control:sync', decodeMessagePackPayload(bytes))
+  })
+
+  ipcMain.on(toMessagePackChannel('agent-runtime:sync'), (event, bytes: Uint8Array) => {
+    routeRuntimeSync(event, 'agent-runtime:sync', decodeMessagePackPayload(bytes))
   })
 }
 
@@ -862,9 +981,13 @@ function configureAppWindow(
   window: BrowserWindow,
   options?: { hideOnClose?: boolean; onClosed?: () => void }
 ): void {
-  window.on('maximize', () => safeSendToWindow(window, 'window:maximized', true))
+  window.on('maximize', () => {
+    safeSendMessagePackToWindow(window, 'window:maximized', true)
+  })
 
-  window.on('unmaximize', () => safeSendToWindow(window, 'window:maximized', false))
+  window.on('unmaximize', () => {
+    safeSendMessagePackToWindow(window, 'window:maximized', false)
+  })
 
   window.on('ready-to-show', () => {
     window.show()
@@ -1027,7 +1150,8 @@ app.on('child-process-gone', (_event, details) => {
 app.on('before-quit', () => {
   isQuiting = true
   flushBuiltInBrowserStorage()
-  flushSettingsSync()
+  void flushSettingsSync()
+  void stopNativeWorker()
 })
 
 configureChromiumCachePaths()
@@ -1063,6 +1187,17 @@ if (gotSingleInstanceLock) {
     is = utils.is
 
     await syncMacOSShellEnvironment()
+    try {
+      await getNativeWorker().ensureStarted()
+      await initializeSettingsCache()
+      console.log('[NativeWorker] settings startup ready')
+    } catch (error) {
+      console.warn(
+        `[NativeWorker] settings startup failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    }
     await configureSystemProxy()
     const browserEmulationStatus = configureBuiltInBrowserSession()
 
@@ -1087,12 +1222,8 @@ if (gotSingleInstanceLock) {
       attachWindowCrashLogging(window)
     })
 
-    // IPC test
-
-    ipcMain.on('ping', () => console.log('pong'))
-
-    ipcMain.handle('app:homedir', () => homedir())
-    ipcMain.handle('app:system-info', () => ({
+    registerMessagePackHandler<void>('app:homedir', () => homedir())
+    registerMessagePackHandler<void>('app:system-info', () => ({
       machineName: hostname(),
       platform: process.platform,
       arch: process.arch,
@@ -1118,7 +1249,17 @@ if (gotSingleInstanceLock) {
     registerCommandsHandlers()
     registerProcessManagerHandlers()
     registerTerminalHandlers()
-    registerDbHandlers({
+
+    try {
+      await getNativeWorker().ensureStarted()
+      console.log('[NativeWorker] startup ready')
+    } catch (error) {
+      console.warn(
+        `[NativeWorker] startup failed: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+
+    await registerDbHandlers({
       onSessionDeleted: (sessionId) => {
         closeDetachedSessionWindow(sessionId)
       }
@@ -1127,24 +1268,15 @@ if (gotSingleInstanceLock) {
     registerMemoryAutomationHandlers()
     registerConfigHandlers()
     registerExtensionHandlers()
-    registerSshHandlers()
+    await registerSshHandlers()
     registerChannelHandlers(channelManager)
     registerMcpHandlers(mcpManager)
     registerCronHandlers()
     registerScreenshotHandlers()
     registerInputHandlers()
-    loadPersistedJobs()
-    registerNotifyHandlers()
-    registerWebSearchHandlers()
-    registerBrowserHandlers()
-    registerOauthHandlers()
-    registerImageGifHandlers()
-    registerGitHandlers()
-    registerMigrationHandlers()
-    registerSyncHandlers()
+
     registerSidecarHandlers()
     registerTeamRuntimeHandlers()
-    registerTeamWorkerHandlers()
 
     try {
       const sidecarReady = await getSidecarManager().ensureStarted()
@@ -1155,103 +1287,69 @@ if (gotSingleInstanceLock) {
       )
     }
 
-    // Clipboard: write PNG image from base64 data
-    ipcMain.handle('clipboard:write-image', (_event, args: { data: string }) => {
+    await loadPersistedJobs()
+    registerNotifyHandlers()
+    registerWebSearchHandlers()
+    registerBrowserHandlers()
+    registerOauthHandlers()
+    registerImageGifHandlers()
+    registerGitHandlers()
+    registerMigrationHandlers()
+    registerSyncHandlers()
+
+    // Clipboard/image payloads can be large; renderer callers use MessagePack where possible.
+    registerBinaryInvokeHandler<ClipboardWriteImageArgs>(
+      'clipboard:write-image',
+      handleClipboardWriteImage
+    )
+
+    registerMessagePackHandler<{
+      x: number
+      y: number
+      width: number
+      height: number
+    }>('window:capture-region', async (args, event) => {
       try {
-        const buffer = Buffer.from(args.data, 'base64')
-        const image = nativeImage.createFromBuffer(buffer)
-        if (image.isEmpty()) return { error: 'Failed to create image from data' }
-        clipboard.writeImage(image)
-        return { success: true }
+        const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+        if (!win) return { error: 'No active window found' }
+
+        const [contentWidth, contentHeight] = win.getContentSize()
+        const x = Math.max(0, Math.min(Math.floor(args.x), Math.max(0, contentWidth - 1)))
+        const y = Math.max(0, Math.min(Math.floor(args.y), Math.max(0, contentHeight - 1)))
+        const width = Math.max(1, Math.min(Math.ceil(args.width), contentWidth - x))
+        const height = Math.max(1, Math.min(Math.ceil(args.height), contentHeight - y))
+
+        if (
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          !Number.isFinite(width) ||
+          !Number.isFinite(height)
+        ) {
+          return { error: 'Invalid capture bounds' }
+        }
+
+        const image = await win.webContents.capturePage({ x, y, width, height })
+        if (image.isEmpty()) return { error: 'Failed to capture window region' }
+
+        return {
+          data: image.toPNG().toString('base64'),
+          mediaType: 'image/png'
+        }
       } catch (err) {
         return { error: String(err) }
       }
     })
 
-    ipcMain.handle(
-      'window:capture-region',
-      async (event, args: { x: number; y: number; width: number; height: number }) => {
-        try {
-          const win =
-            BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
-          if (!win) return { error: 'No active window found' }
-
-          const [contentWidth, contentHeight] = win.getContentSize()
-          const x = Math.max(0, Math.min(Math.floor(args.x), Math.max(0, contentWidth - 1)))
-          const y = Math.max(0, Math.min(Math.floor(args.y), Math.max(0, contentHeight - 1)))
-          const width = Math.max(1, Math.min(Math.ceil(args.width), contentWidth - x))
-          const height = Math.max(1, Math.min(Math.ceil(args.height), contentHeight - y))
-
-          if (
-            !Number.isFinite(x) ||
-            !Number.isFinite(y) ||
-            !Number.isFinite(width) ||
-            !Number.isFinite(height)
-          ) {
-            return { error: 'Invalid capture bounds' }
-          }
-
-          const image = await win.webContents.capturePage({ x, y, width, height })
-          if (image.isEmpty()) return { error: 'Failed to capture window region' }
-
-          return {
-            data: image.toPNG().toString('base64'),
-            mediaType: 'image/png'
-          }
-        } catch (err) {
-          return { error: String(err) }
-        }
-      }
-    )
-
-    ipcMain.handle(
+    registerBinaryInvokeHandler<ImagePersistGeneratedArgs>(
       'image:persist-generated',
-      async (
-        _event,
-        args: { data?: string; mediaType?: string; url?: string }
-      ): Promise<{ filePath?: string; mediaType?: string; data?: string; error?: string }> => {
-        try {
-          let buffer: Buffer
-          if (typeof args.data === 'string' && args.data.trim()) {
-            buffer = Buffer.from(args.data, 'base64')
-          } else if (typeof args.url === 'string' && args.url.trim()) {
-            buffer = await FeishuApi.downloadUrl(args.url)
-          } else {
-            return { error: 'Missing image data or url' }
-          }
-
-          return persistGeneratedImageFile({
-            buffer,
-            mediaType: args.mediaType,
-            sourceUrl: args.url
-          })
-        } catch (err) {
-          return { error: String(err) }
-        }
-      }
+      handleImagePersistGenerated
     )
 
-    ipcMain.handle('image:fetch-base64', async (_event, args: { url: string }) => {
-      try {
-        const buffer = await FeishuApi.downloadUrl(args.url)
-        const fileExt = extname(args.url.split('?')[0]).toLowerCase()
-        const mimeType =
-          fileExt === '.jpg' || fileExt === '.jpeg'
-            ? 'image/jpeg'
-            : fileExt === '.webp'
-              ? 'image/webp'
-              : fileExt === '.gif'
-                ? 'image/gif'
-                : 'image/png'
-        return { data: buffer.toString('base64'), mimeType }
-      } catch (err) {
-        return { error: String(err) }
-      }
-    })
+    registerBinaryInvokeHandler<ImageFetchBase64Args>('image:fetch-base64', handleImageFetchBase64)
 
-    ipcMain.handle(
+    registerMessagePackHandler<{ url: string; defaultName?: string }>(
       'image:download',
-      async (_event, args: { url: string; defaultName?: string }) => {
+      async (args) => {
         const win = BrowserWindow.getFocusedWindow()
         if (!win) return { canceled: true }
         try {
@@ -1313,7 +1411,7 @@ app.on('window-all-closed', () => {
   killAllTerminalSessions()
   closeAllSshSessions()
   cancelAllJobs()
-  stopAllIsolatedTeamWorkers()
+  void stopNativeWorker()
   getSidecarManager()
     .stop()
     .catch(() => {})

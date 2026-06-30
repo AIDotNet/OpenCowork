@@ -37,15 +37,20 @@ import {
   TASK_TOOL_NAME
 } from '@renderer/lib/agent/sub-agents/create-tool'
 import type { SubAgentEvent } from '@renderer/lib/agent/sub-agents/types'
-import { abortAllTeammates } from '@renderer/lib/agent/teams/teammate-runner'
+import { abortAllTeammates } from '@renderer/lib/agent/teams/team-native-control'
 import { filterTeamToolDefinitions } from '@renderer/lib/agent/teams/register'
 import { teamEvents } from '@renderer/lib/agent/teams/events'
 import { useTeamStore, type ActiveTeam } from '@renderer/stores/team-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { decodeIpcMessagePack, invokeMessagePack } from '@renderer/lib/ipc/messagepack-ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { resolveSidecarApprovalRequest } from '@renderer/lib/ipc/sidecar-approval-registry'
+import {
+  DB_MESSAGES_TRUNCATE_FROM_MSGPACK_CHANNEL,
+  SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL,
+  SIDECAR_APPROVAL_RESPONSE_MSGPACK_CHANNEL
+} from '../../../shared/messagepack/binary-ipc'
 import { clearPendingQuestions } from '@renderer/lib/tools/ask-user-tool'
-import type { ToolContext } from '@renderer/lib/tools/tool-types'
 
 import { ACP_MODE_ALLOWED_TOOLS, PLAN_MODE_ALLOWED_TOOLS } from '@renderer/lib/tools/plan-tool'
 import { usePlanStore, type Plan } from '@renderer/stores/plan-store'
@@ -57,7 +62,6 @@ import {
   withResponsesSessionScope
 } from '@renderer/lib/api/responses-session-policy'
 import { resolveSessionModelSelection } from '@renderer/lib/session-model-resolution'
-import { createProvider } from '@renderer/lib/api/provider'
 import type {
   UnifiedMessage,
   ProviderConfig,
@@ -93,15 +97,9 @@ import {
   type SystemCommandSnapshot
 } from '@renderer/lib/commands/system-command'
 import { parseSelectFileText } from '@renderer/lib/select-file-tags'
-import {
-  type AgentEvent,
-  type AgentLoopConfig,
-  type ToolCallState
-} from '@renderer/lib/agent/types'
-import { ApiStreamError } from '@renderer/lib/ipc/api-stream'
+import { type AgentEvent, type ToolCallState } from '@renderer/lib/agent/types'
 import { recordUsageEvent } from '@renderer/lib/usage-analytics'
 import {
-  compressMessages,
   isCompactSummaryMessage,
   mergeCompressedMessagesKeepHistory,
   mergeLoopEndMessagesKeepHistory,
@@ -110,7 +108,6 @@ import {
   resolveCompressionThreshold
 } from '@renderer/lib/agent/context-compression'
 import { applyRecentVisualContext } from '@renderer/lib/agent/visual-context'
-import { runAgentLoop } from '@renderer/lib/agent/agent-loop'
 import {
   liveToolInputSignature,
   type LiveLineCountCache,
@@ -185,7 +182,6 @@ import { ensureRequestToolCatalogFresh } from '@renderer/lib/tools/dynamic-tool-
 import {
   escapeGoalXmlText,
   goalStatusLabel,
-  shouldIgnoreGoalRuntimeForMode,
   validateGoalObjective
 } from '@renderer/lib/agent/goal-context'
 import {
@@ -196,10 +192,12 @@ import type { AutoModelSelectionStatus } from '@renderer/stores/ui-store'
 import {
   agentBridge,
   canSidecarHandle,
-  runSidecarContextCompression
+  runSidecarContextCompression,
+  streamSidecarProviderTurn
 } from '@renderer/lib/ipc/agent-bridge'
 import {
   buildSidecarAgentRunRequest,
+  isNativeSidecarProviderConfig,
   normalizeSidecarApprovalRequest
 } from '@renderer/lib/ipc/sidecar-protocol'
 import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
@@ -232,13 +230,19 @@ useChatStore.subscribe((state) => {
   }
   knownSessionIds = currentIds
 })
-ipcClient.on('sidecar:approval-request', async (data: unknown) => {
-  const payload = data as { requestId: string; method: string; params: unknown }
+type SidecarApprovalIpcPayload = { requestId: string; method: string; params: unknown }
+type SidecarApprovalIpcResponse = { requestId: string; approved: boolean; reason?: string }
+
+async function sendSidecarApprovalResponse(response: SidecarApprovalIpcResponse): Promise<void> {
+  await invokeMessagePack(SIDECAR_APPROVAL_RESPONSE_MSGPACK_CHANNEL, response)
+}
+
+async function handleSidecarApprovalRequest(payload: SidecarApprovalIpcPayload): Promise<void> {
   if (payload?.method !== 'approval/request' || !payload.requestId) return
 
   const request = normalizeSidecarApprovalRequest(payload.params)
   if (!request) {
-    await ipcClient.invoke('sidecar:approval-response', {
+    await sendSidecarApprovalResponse({
       requestId: payload.requestId,
       approved: false,
       reason: 'Invalid approval request payload'
@@ -248,7 +252,7 @@ ipcClient.on('sidecar:approval-request', async (data: unknown) => {
 
   const registeredDecision = await resolveSidecarApprovalRequest(request)
   if (registeredDecision) {
-    await ipcClient.invoke('sidecar:approval-response', {
+    await sendSidecarApprovalResponse({
       requestId: payload.requestId,
       approved: registeredDecision.approved,
       ...(registeredDecision.reason ? { reason: registeredDecision.reason } : {})
@@ -262,7 +266,7 @@ ipcClient.on('sidecar:approval-request', async (data: unknown) => {
     if (!autoApprove) {
       agentStore.addApprovedTool(request.toolCall.name)
     }
-    await ipcClient.invoke('sidecar:approval-response', {
+    await sendSidecarApprovalResponse({
       requestId: payload.requestId,
       approved: true
     })
@@ -290,11 +294,17 @@ ipcClient.on('sidecar:approval-request', async (data: unknown) => {
   if (approved) {
     agentStore.addApprovedTool(request.toolCall.name)
   }
-  await ipcClient.invoke('sidecar:approval-response', {
+  await sendSidecarApprovalResponse({
     requestId: payload.requestId,
     approved,
     ...(approved ? {} : { reason: 'User denied permission' })
   })
+}
+
+ipcClient.on(SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL, async (data: unknown) => {
+  await handleSidecarApprovalRequest(
+    decodeIpcMessagePack<SidecarApprovalIpcPayload>(data as ArrayBuffer | ArrayBufferView)
+  )
 })
 
 function addMessageWithSync(sessionId: string, message: UnifiedMessage): void {
@@ -325,6 +335,50 @@ function setGeneratingImagePreviewWithSync(messageId: string, preview: ContentBl
     messageId,
     preview
   })
+}
+
+type SshRequestPreflightFailure = {
+  title: string
+  description: string
+  code: string
+}
+
+async function ensureSshSessionReadyForRequest(
+  sessionId: string
+): Promise<SshRequestPreflightFailure | null> {
+  const session = useChatStore.getState().sessions.find((item) => item.id === sessionId)
+  const connectionId = session?.sshConnectionId?.trim()
+  if (!connectionId) return null
+
+  const sshStore = useSshStore.getState()
+  const connectionName =
+    sshStore.connections.find((connection) => connection.id === connectionId)?.name ?? connectionId
+
+  const connectResult = await sshStore.connectSftpConnection(connectionId)
+  if (connectResult.error) {
+    return {
+      title: 'SSH connection unavailable',
+      description: connectResult.error || connectionName,
+      code: 'ssh_connection_unavailable'
+    }
+  }
+
+  const workingFolder = session?.workingFolder?.trim()
+  if (!workingFolder) return null
+
+  const mkdirResult = (await ipcClient.invoke(IPC.SSH_FS_MKDIR, {
+    connectionId,
+    path: workingFolder
+  })) as { error?: string }
+  if (mkdirResult?.error) {
+    return {
+      title: 'SSH working directory unavailable',
+      description: mkdirResult.error,
+      code: 'ssh_working_directory_unavailable'
+    }
+  }
+
+  return null
 }
 
 function extractPluginChatId(externalChatId?: string): string | undefined {
@@ -1243,11 +1297,10 @@ function estimateContextTokensForRequest(args: {
   if (args.messages.length === 0) return 0
 
   try {
-    const provider = createProvider(args.providerConfig)
     const payload = {
       systemPrompt: args.providerConfig.systemPrompt ?? '',
-      messages: provider.formatMessages(args.messages),
-      ...(args.tools.length > 0 ? { tools: provider.formatTools(args.tools) } : {})
+      messages: args.messages,
+      ...(args.tools.length > 0 ? { tools: args.tools } : {})
     }
     return estimateTokens(serializeContextEstimatePayload(payload).serialized)
   } catch (error) {
@@ -2703,15 +2756,17 @@ export function abortSession(sessionId: string): void {
   emitSessionControlSync({ kind: 'abort_session', sessionId })
 }
 
-// Keep foreground response streaming visibly real-time while still batching tiny chunks.
-const STREAM_DELTA_FLUSH_MS = 16
-const BACKGROUND_STREAM_DELTA_FLUSH_MS = 200
+// Keep streaming visibly real-time while preventing high-frequency UI churn.
+const STREAM_DELTA_FLUSH_MS = 300
+const BACKGROUND_STREAM_DELTA_FLUSH_MS = 300
 const TOOL_INPUT_FLUSH_MS = 300
-const AGENT_TOOL_INPUT_FLUSH_MS = 60
-const BACKGROUND_TOOL_INPUT_FLUSH_MS = 600
+const AGENT_TOOL_INPUT_FLUSH_MS = 300
+const BACKGROUND_TOOL_INPUT_FLUSH_MS = 300
+const NATIVE_TASK_TOOL_NAMES = new Set(['TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList'])
+const NATIVE_GOAL_TOOL_NAMES = new Set(['get_goal', 'create_goal', 'update_goal'])
 // SubAgent text can arrive from multiple inner loops at high frequency.
 // Buffering it separately avoids waking large parts of the UI on every tiny delta.
-const SUB_AGENT_TEXT_FLUSH_MS = 66
+const SUB_AGENT_TEXT_FLUSH_MS = 300
 
 interface StreamDeltaBuffer {
   pushThinking: (chunk: string) => void
@@ -2865,11 +2920,6 @@ function clearRequestRetryState(sessionId: string): void {
   useAgentStore.getState().setSessionRequestRetryState(sessionId, null)
 }
 
-// Stage 1: the sidecar ToolRegistry dynamically bridges any unknown tool to
-// the renderer. Every tool the renderer's toolRegistry can handle — including
-// MCP, plugin/channel tools, WebFetch/WebSearch — is considered sidecar
-// supported. A static whitelist is no longer authoritative.
-
 async function canUseSidecarForAgentRun(args: {
   messages: UnifiedMessage[]
   provider: ProviderConfig
@@ -2885,6 +2935,9 @@ async function canUseSidecarForAgentRun(args: {
   desktopControlMode: string
   hasChannels: boolean
   hasMcps: boolean
+  teamToolsActive: boolean
+  activeTeamName?: string
+  imagePluginProvider?: ProviderConfig | null
 }): Promise<boolean> {
   const maxParallelTools = getConfiguredMaxParallelTools()
   const sidecarRequest = buildSidecarAgentRunRequest({
@@ -2900,28 +2953,34 @@ async function canUseSidecarForAgentRun(args: {
     compression: args.compression,
     sessionMode: 'agent',
     planMode: args.isPlanMode,
-    planModeAllowedTools: args.isPlanMode ? [...PLAN_MODE_ALLOWED_TOOLS] : undefined
+    planModeAllowedTools: args.isPlanMode ? [...PLAN_MODE_ALLOWED_TOOLS] : undefined,
+    teamToolsActive: args.teamToolsActive,
+    activeTeamName: args.activeTeamName,
+    imagePluginProvider: args.imagePluginProvider
   })
   if (!sidecarRequest) return false
 
   const requestedToolNames = [...new Set(sidecarRequest.tools.map((tool) => tool.name))]
+  const nativeProvider = isNativeSidecarProviderConfig(args.provider)
 
-  // Stages 1-3: tool-level and provider-level capability probes are gone.
-  // - Unknown tools are auto-bridged back to the renderer by the sidecar's
-  //   ToolRegistry.Execute fallback.
-  // - Non-native provider types (or providers using features the native
-  //   sidecar provider doesn't support) are flagged mode=bridged in
-  //   mapSidecarProvider, and the sidecar spins up a BridgedProvider that
-  //   delegates streaming back to renderer-provider-bridge.
-  // The only remaining hard requirement is that the sidecar is running and
-  // exposes agent.run, plus the desktop-input bridge when the session needs
-  // computer-use tools.
+  if (!nativeProvider) {
+    console.log('[ChatActions] Sidecar agent skipped: provider is not native-migrated', {
+      sessionId: args.sessionId,
+      providerType: args.provider.type
+    })
+    return false
+  }
+
+  // Only route runtime work through sidecar when the capability exists in the
+  // native worker. The agent loop stays in .NET; tool execution crosses the
+  // renderer bridge only for UI/plugin boundaries that are not native modules yet.
   const needsDesktopCapability =
     args.desktopControlMode === 'computer-use' ||
     requestedToolNames.some((toolName) => toolName.startsWith('Desktop'))
 
   const capabilityChecks = await Promise.all([
     canSidecarHandle('agent.run'),
+    canSidecarHandle(`provider.${args.provider.type}`),
     ...(needsDesktopCapability ? [canSidecarHandle('desktop.input')] : [])
   ])
   const ok = capabilityChecks.every(Boolean)
@@ -2929,7 +2988,6 @@ async function canUseSidecarForAgentRun(args: {
     console.warn('[ChatActions] Sidecar agent gating failed', {
       sessionId: args.sessionId,
       providerType: sidecarRequest.provider.type,
-      providerMode: sidecarRequest.provider.mode ?? 'native',
       requestedToolNames,
       needsDesktopCapability,
       hasChannels: args.hasChannels,
@@ -3356,40 +3414,6 @@ export function useChatActions(): {
         return
       }
 
-      const sessionForSsh = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-      if (sessionForSsh?.sshConnectionId) {
-        const sshStore = useSshStore.getState()
-        const connectionId = sessionForSsh.sshConnectionId
-        const connectionName =
-          sshStore.connections.find((c) => c.id === connectionId)?.name ?? connectionId
-        const existing = Object.values(sshStore.sessions).find(
-          (s) => s.connectionId === connectionId && s.status === 'connected'
-        )
-        if (!existing) {
-          const connectedId = await sshStore.connect(connectionId)
-          if (!connectedId) {
-            toast.error('SSH connection unavailable', {
-              description: connectionName
-            })
-            return
-          }
-        }
-
-        const workingFolder = sessionForSsh.workingFolder?.trim()
-        if (workingFolder) {
-          const mkdirResult = (await ipcClient.invoke(IPC.SSH_FS_MKDIR, {
-            connectionId,
-            path: workingFolder
-          })) as { error?: string }
-          if (mkdirResult?.error) {
-            toast.error('SSH working directory unavailable', {
-              description: mkdirResult.error
-            })
-            return
-          }
-        }
-      }
-
       const hasActiveRun = hasActiveSessionRun(sessionId)
       const sessionRunStatus = useAgentStore.getState().runningSessions[sessionId]
       const statusIsRunning = sessionRunStatus === 'running' || sessionRunStatus === 'retrying'
@@ -3779,6 +3803,23 @@ export function useChatActions(): {
           setStreamingMessageIdWithSync(sessionId, assistantMsgId)
         }
         setGeneratingImagePreviewWithSync(assistantMsgId, null)
+
+        const sshPreflightFailure = await ensureSshSessionReadyForRequest(sessionId)
+        if (sshPreflightFailure) {
+          toast.error(sshPreflightFailure.title, {
+            description: sshPreflightFailure.description
+          })
+          appendRuntimeContentBlock(sessionId, assistantMsgId, {
+            type: 'agent_error',
+            code: 'runtime_error',
+            message: sshPreflightFailure.description,
+            errorType: sshPreflightFailure.code
+          })
+          clearPreflightIndicator()
+          setStreamingMessageIdWithSync(sessionId, null)
+          dispatchNextQueuedMessage(sessionId)
+          return
+        }
 
         const isImageRequest = baseProviderConfig.type === 'openai-images'
         if (isImageRequest) {
@@ -4265,12 +4306,6 @@ export function useChatActions(): {
 
           // Tool input throttling state — defined before try block so finally can safely dispose
           const liveToolInputThrottle = new Map<string, LiveToolInputThrottleEntry>()
-          const unthrottledLiveToolInputs = new Set([
-            'TaskCreate',
-            'TaskUpdate',
-            'visualize_show_widget'
-          ])
-
           const disposeToolInputQueues = (): void => {
             for (const entry of liveToolInputThrottle.values()) {
               if (entry.chatTimer) clearTimeout(entry.chatTimer)
@@ -4410,10 +4445,13 @@ export function useChatActions(): {
               forceApproval: false,
               maxParallelTools,
               compression: compressionConfig,
+              imagePluginProvider: imagePluginConfig,
               sessionMode: 'agent',
               planMode: isPlanMode,
               planModeAllowedTools: isPlanMode ? [...PLAN_MODE_ALLOWED_TOOLS] : undefined,
               goalRunSource: source === 'continue' ? 'continue' : 'user_turn',
+              teamToolsActive: settings.teamToolsEnabled && !!activeTeam,
+              activeTeamName: activeTeam?.name,
               pluginId: session?.pluginId,
               pluginChatId: session?.externalChatId
                 ? extractPluginChatId(session.externalChatId)
@@ -4421,33 +4459,34 @@ export function useChatActions(): {
               pluginChatType: session?.pluginChatType,
               pluginSenderId: session?.pluginSenderId,
               pluginSenderName: session?.pluginSenderName,
-              sshConnectionId: session?.sshConnectionId
+              sshConnectionId: session?.sshConnectionId,
+              includeFullDebugBody: settings.devMode
             })
 
-            const useSidecar =
-              hasGoalContextForRun && !shouldIgnoreGoalRuntimeForMode(isPlanMode)
-                ? true
-                : await canUseSidecarForAgentRun({
-                    messages: messagesToSend,
-                    provider: agentProviderConfig,
-                    tools: effectiveToolDefs,
-                    sessionId,
-                    workingFolder: sessionWorkingFolder,
-                    sshConnectionId: session?.sshConnectionId,
-                    maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
-                    forceApproval: false,
-                    compression: compressionConfig,
-                    isPlanMode,
-                    sessionMode: mode,
-                    desktopControlMode: promptAllowsToolContext ? desktopControlMode : 'disabled',
-                    hasChannels: promptAllowsToolContext && scopedActiveChannels.length > 0,
-                    hasMcps: promptAllowsToolContext && activeMcps.length > 0
-                  })
+            const useSidecar = await canUseSidecarForAgentRun({
+              messages: messagesToSend,
+              provider: agentProviderConfig,
+              tools: effectiveToolDefs,
+              sessionId,
+              workingFolder: sessionWorkingFolder,
+              sshConnectionId: session?.sshConnectionId,
+              maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
+              forceApproval: false,
+              compression: compressionConfig,
+              isPlanMode,
+              sessionMode: mode,
+              desktopControlMode: promptAllowsToolContext ? desktopControlMode : 'disabled',
+              hasChannels: promptAllowsToolContext && scopedActiveChannels.length > 0,
+              hasMcps: promptAllowsToolContext && activeMcps.length > 0,
+              teamToolsActive: settings.teamToolsEnabled && !!activeTeam,
+              activeTeamName: activeTeam?.name,
+              imagePluginProvider: imagePluginConfig
+            })
 
             console.log('[ChatActions] Agent execution path', {
               sessionId,
               useSidecar,
-              executionPath: useSidecar ? 'sidecar' : 'node',
+              executionPath: 'sidecar',
               providerType: agentProviderConfig.type,
               toolNames: effectiveToolDefs.map((tool) => tool.name),
               hasSidecarRequest: !!sidecarRequest,
@@ -4457,96 +4496,31 @@ export function useChatActions(): {
               hasMcps: promptAllowsToolContext && activeMcps.length > 0
             })
 
-            let loop: AsyncIterable<AgentEvent>
-
-            if (useSidecar) {
-              if (!sidecarRequest) {
-                throw new Error('Main-process agent request build failed')
-              }
-
-              setRequestTraceInfo(assistantMsgId, {
-                executionPath: 'sidecar'
-              })
-
-              const initialized = await agentBridge.initialize()
-              if (!initialized) {
-                throw new Error('Sidecar unavailable')
-              }
-
-              loop = createSidecarEventStream({
-                sessionId,
-                sidecarRequest,
-                signal: abortController.signal,
-                logLabel: 'agent'
-              })
-            } else {
-              setRequestTraceInfo(assistantMsgId, {
-                executionPath: 'node'
-              })
-
-              const loopConfig: AgentLoopConfig = {
-                maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
-                provider: agentProviderConfig,
-                tools: effectiveToolDefs,
-                systemPrompt: agentSystemPrompt,
-                workingFolder: sessionWorkingFolder,
-                signal: abortController.signal,
-                enableParallelToolExecution: true,
-                maxParallelTools,
-                forceApproval: false,
-                ...(compressionConfig && compressionContextLength > 0
-                  ? {
-                      contextCompression: {
-                        config: compressionConfig,
-                        compressFn: async (msgs: UnifiedMessage[], compressionOptions) => {
-                          const { messages: compressed } = await compressMessages(
-                            msgs,
-                            agentProviderConfig,
-                            abortController.signal,
-                            compressionOptions?.preserveCount
-                          )
-                          return compressed
-                        }
-                      }
-                    }
-                  : {})
-              }
-
-              const toolCtx: ToolContext = {
-                sessionId,
-                workingFolder: sessionWorkingFolder,
-                sshConnectionId: session?.sshConnectionId,
-                signal: abortController.signal,
-                ipc: ipcClient,
-                agentRunId: assistantMsgId,
-                readFileHistory: new Map(),
-                pluginId: session?.pluginId,
-                pluginChatId: session?.externalChatId
-                  ? extractPluginChatId(session.externalChatId)
-                  : undefined,
-                pluginChatType: session?.pluginChatType,
-                pluginSenderId: session?.pluginSenderId,
-                pluginSenderName: session?.pluginSenderName,
-                sharedState: {}
-              }
-
-              const handleApproval = async (tc: ToolCallState): Promise<boolean> => {
-                const autoApprove =
-                  useSettingsStore.getState().autoApprove ||
-                  useAgentStore.getState().approvedToolNames.includes(tc.name)
-                if (autoApprove) {
-                  useAgentStore.getState().addApprovedTool(tc.name)
-                  return true
-                }
-                const approved = await useAgentStore.getState().requestApproval(tc.id)
-                if (approved) {
-                  useAgentStore.getState().addApprovedTool(tc.name)
-                }
-                return approved
-              }
-
-              loop = runAgentLoop(messagesToSend, loopConfig, toolCtx, handleApproval)
+            if (!useSidecar) {
+              throw new Error(
+                'Native sidecar agent runtime is required for this provider, but its capability check failed.'
+              )
             }
+
+            if (!sidecarRequest) {
+              throw new Error('Main-process agent request build failed')
+            }
+
+            setRequestTraceInfo(assistantMsgId, {
+              executionPath: 'sidecar'
+            })
+
+            const initialized = await agentBridge.initialize()
+            if (!initialized) {
+              throw new Error('Sidecar unavailable')
+            }
+
+            const loop: AsyncIterable<AgentEvent> = createSidecarEventStream({
+              sessionId,
+              sidecarRequest,
+              signal: abortController.signal,
+              logLabel: 'agent'
+            })
 
             let thinkingDone = false
             let hasThinkingDelta = false
@@ -4728,20 +4702,6 @@ export function useChatActions(): {
                   : partialInput
               entry.pendingSummary = undefined
               entry.pendingSignature = undefined
-
-              if (unthrottledLiveToolInputs.has(toolName)) {
-                if (entry.chatTimer) {
-                  clearTimeout(entry.chatTimer)
-                  entry.chatTimer = undefined
-                }
-                if (entry.agentTimer) {
-                  clearTimeout(entry.agentTimer)
-                  entry.agentTimer = undefined
-                }
-                flushChatToolInput(toolCallId, toolName)
-                flushAgentToolInput(toolCallId, toolName)
-                return
-              }
 
               const chatDelay = Math.max(0, TOOL_INPUT_FLUSH_MS - (now - entry.lastChatFlush))
               if (chatDelay === 0) {
@@ -5112,6 +5072,24 @@ export function useChatActions(): {
                       })
                     }
                   }
+                  if (
+                    event.toolCall.status === 'completed' &&
+                    NATIVE_TASK_TOOL_NAMES.has(event.toolCall.name) &&
+                    !useTeamStore.getState().activeTeam &&
+                    isSessionForeground(sessionId!)
+                  ) {
+                    void useTaskStore.getState().loadTasksForSession(sessionId!)
+                    useChatStore.getState().clearSessionPromptSnapshot(sessionId!)
+                  }
+                  if (
+                    event.toolCall.status === 'completed' &&
+                    NATIVE_GOAL_TOOL_NAMES.has(event.toolCall.name)
+                  ) {
+                    void useGoalStore.getState().loadGoalForSession(sessionId!, true)
+                    void useGoalStore.getState().loadGoalEventsForSession(sessionId!, {
+                      force: true
+                    })
+                  }
                   if (event.toolCall.status === 'completed' || event.toolCall.status === 'error') {
                     liveToolNames.delete(event.toolCall.id)
                   }
@@ -5339,8 +5317,7 @@ export function useChatActions(): {
                           event.debugInfo.providerBuiltinId ??
                           agentProviderConfig.providerBuiltinId,
                         model: event.debugInfo.model ?? agentProviderConfig.model,
-                        executionPath:
-                          event.debugInfo.executionPath ?? (useSidecar ? 'sidecar' : 'node')
+                        executionPath: event.debugInfo.executionPath ?? 'sidecar'
                       },
                       agentRequestCacheShape
                     )
@@ -5487,11 +5464,6 @@ export function useChatActions(): {
                 }
                 appendRuntimeTextDelta(sessionId!, assistantMsgId, `\n\n> **Error:** ${errMsg}`)
               }
-              if (err instanceof ApiStreamError) {
-                const debugInfo = err.debugInfo as RequestDebugInfo
-                setLastDebugInfo(assistantMsgId, debugInfo)
-                updateRuntimeMessage(sessionId!, assistantMsgId, { debugInfo })
-              }
             }
           } finally {
             streamDeltaBuffer?.flushNow()
@@ -5623,7 +5595,7 @@ export function useChatActions(): {
   // IPC listeners (session-control, sidecar tools/approval) are registered
   // at module level above — no useEffect needed here.
 
-  // Cron session delivery is now handled by cron-agent-runner.ts (deliveryMode='session')
+  // Cron session delivery is handled by the main-process CronAgent background runtime.
   // No cron event subscription needed here.
 
   // Keep module-level ref updated for team lead auto-trigger + plugin auto-reply
@@ -5784,12 +5756,10 @@ export function useChatActions(): {
       // same IPC call so sendMessage's loadRecentSessionMessages reads the
       // updated DB state instead of reloading the old (possibly empty)
       // assistant message that was just removed from the in-memory store.
-      await ipcClient
-        .invoke('db:messages:truncate-from', {
-          sessionId,
-          fromSortOrder: target.userIndex
-        })
-        .catch(() => {})
+      await invokeMessagePack(DB_MESSAGES_TRUNCATE_FROM_MSGPACK_CHANNEL, {
+        sessionId,
+        fromSortOrder: target.userIndex
+      }).catch(() => {})
       await sendMessage(
         target.draft.text,
         target.draft.images.length > 0 ? cloneImageAttachments(target.draft.images) : undefined,
@@ -5822,12 +5792,10 @@ export function useChatActions(): {
       if (!hasEditableDraftContent(nextDraft)) return
 
       chatStore.truncateMessagesFrom(sessionId, target.index)
-      await ipcClient
-        .invoke('db:messages:truncate-from', {
-          sessionId,
-          fromSortOrder: target.index
-        })
-        .catch(() => {})
+      await invokeMessagePack(DB_MESSAGES_TRUNCATE_FROM_MSGPACK_CHANNEL, {
+        sessionId,
+        fromSortOrder: target.index
+      }).catch(() => {})
       await sendMessage(
         nextDraft.text,
         nextDraft.images.length > 0 ? nextDraft.images : undefined,
@@ -6220,7 +6188,7 @@ export function sendPlanRevision(planId: string, feedback: string): void {
 }
 
 /**
- * Chat fallback path: single API call with streaming text and no tool loop.
+ * Simple chat path: native provider turn with streaming text and no tool loop.
  */
 async function runSimpleChat(
   sessionId: string,
@@ -6260,7 +6228,7 @@ async function runSimpleChat(
   })
   const streamDeltaBuffer = createStreamDeltaBuffer(sessionId, assistantMsgId)
   const requestHasImages = requestMessages.some(messageContainsImage)
-  const preferRendererProvider = useSettingsStore.getState().devMode || requestHasImages
+  const useProviderTurnOnlyPath = useSettingsStore.getState().devMode || requestHasImages
   const sidecarRequest = buildSidecarAgentRunRequest({
     messages: requestMessages,
     provider: config,
@@ -6286,37 +6254,44 @@ async function runSimpleChat(
     })
   }
 
-  // Stage 3: provider.<type> capability probing is gone — unsupported
-  // provider types are flagged mode=bridged by mapSidecarProvider and the
-  // sidecar's BridgedProvider handles streaming via the renderer bridge.
+  const nativeProvider = isNativeSidecarProviderConfig(config)
   const supportsAgentRun =
-    !preferRendererProvider && sidecarRequest ? await canSidecarHandle('agent.run') : false
+    nativeProvider && !useProviderTurnOnlyPath && sidecarRequest
+      ? await canSidecarHandle('agent.run')
+      : false
   const supportsProvider = sidecarRequest
-    ? !preferRendererProvider && (await canSidecarHandle(`provider.${config.type}`))
+    ? nativeProvider &&
+      !useProviderTurnOnlyPath &&
+      (await canSidecarHandle(`provider.${config.type}`))
     : false
   const useSidecar =
-    !preferRendererProvider && !!sidecarRequest && supportsAgentRun && supportsProvider
+    nativeProvider &&
+    !useProviderTurnOnlyPath &&
+    !!sidecarRequest &&
+    supportsAgentRun &&
+    supportsProvider
 
   console.log('[ChatActions] Simple chat sidecar decision', {
     sessionId,
     assistantMsgId,
     providerType: config.type,
     mappedProviderType: sidecarRequest?.provider.type,
-    providerMode: sidecarRequest?.provider.mode ?? 'native',
+    nativeProvider,
     hasSidecarRequest: !!sidecarRequest,
     supportsAgentRun,
     supportsProvider,
     requestHasImages,
     devMode: useSettingsStore.getState().devMode,
+    useProviderTurnOnlyPath,
     useSidecar
   })
 
-  if (!sidecarRequest && !preferRendererProvider) {
+  if (!sidecarRequest && !useProviderTurnOnlyPath) {
     throw new Error('Sidecar chat request build failed')
   }
 
   setRequestTraceInfo(assistantMsgId, {
-    executionPath: useSidecar ? 'sidecar' : 'node'
+    executionPath: 'sidecar'
   })
 
   try {
@@ -6333,8 +6308,12 @@ async function runSimpleChat(
         logLabel: 'chat'
       })
     } else {
-      const provider = createProvider(config)
-      stream = provider.sendMessage(requestMessages, [], config, signal)
+      stream = streamSidecarProviderTurn({
+        messages: requestMessages,
+        tools: [],
+        provider: config,
+        signal
+      })
     }
 
     let thinkingDone = false
@@ -6575,19 +6554,6 @@ async function runSimpleChat(
           })
         }
         appendRuntimeTextDelta(sessionId, assistantMsgId, `\n\n> **Error:** ${errMsg}`)
-      }
-      if (err instanceof ApiStreamError) {
-        const debugInfo = withCacheShapeDebugInfo(
-          {
-            ...(err.debugInfo as RequestDebugInfo),
-            providerId: config.providerId,
-            providerBuiltinId: config.providerBuiltinId,
-            model: config.model
-          },
-          simpleRequestCacheShape
-        )
-        setLastDebugInfo(assistantMsgId, debugInfo)
-        updateRuntimeMessage(sessionId, assistantMsgId, { debugInfo })
       }
     }
   } finally {

@@ -27,6 +27,7 @@ import {
   ImageIcon,
   RefreshCcw,
   ShieldAlert,
+  Shapes,
   Users,
   Wrench,
   type LucideIcon
@@ -117,6 +118,10 @@ import { FileAwareEditor, type FileAwareEditorHandle } from './FileAwareEditor'
 import { TokenCounter } from './TokenCounter'
 import { listCommands, type CommandCatalogItem } from '@renderer/lib/commands/command-loader'
 import { resolveEffectiveActiveMcpIds, useMcpStore } from '@renderer/stores/mcp-store'
+import {
+  resolveEffectiveActiveExtensionIds,
+  useExtensionStore
+} from '@renderer/stores/extension-store'
 import { usePlanStore } from '@renderer/stores/plan-store'
 import { useGoalStore } from '@renderer/stores/goal-store'
 import { useSkillsStore } from '@renderer/stores/skills-store'
@@ -170,17 +175,20 @@ import { isProjectSession, workspaceContextAvailable } from '@renderer/lib/sessi
 import { GoalSessionBar } from '@renderer/components/goal/GoalSessionControls'
 
 interface ContextRingProps {
+  sessionId?: string | null
   onCompressContext?: () => void | Promise<void>
   isCompressing?: boolean
 }
 
 function ContextRing({
+  sessionId,
   onCompressContext,
   isCompressing = false
 }: ContextRingProps): React.JSX.Element | null {
   const { t } = useTranslation('chat')
   const activeSession = useChatStore((s) => {
-    const idx = s.activeSessionId ? s.sessionsById[s.activeSessionId] : undefined
+    if (!sessionId) return null
+    const idx = s.sessionsById[sessionId]
     return idx !== undefined ? (s.sessions[idx] ?? null) : null
   })
   const mainModelSelectionMode = useSettingsStore((s) => s.mainModelSelectionMode)
@@ -226,23 +234,29 @@ function ContextRing({
 
   const [ctxUsedRaw, ctxLimitRaw] = useStoreWithEqualityFn(
     useChatStore,
-    React.useCallback((s): [number, number | null] => {
-      const idx = s.activeSessionId ? s.sessionsById[s.activeSessionId] : undefined
-      const activeSession = idx !== undefined ? s.sessions[idx] : undefined
-      if (!activeSession) return [0, null]
-      const messages = activeSession.messages
-      for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const message = messages[index]
-        const usage = message?.usage
-        if (!usage) continue
-        const contextTokens = usage.contextTokens ?? 0
-        if (contextTokens <= 0) continue
-        return [contextTokens, usage.contextLength ?? null]
-      }
-      return [0, null]
-    }, []),
+    React.useCallback(
+      (s): [number, number | null] => {
+        if (!sessionId) return [0, null]
+        const idx = s.sessionsById[sessionId]
+        const activeSession = idx !== undefined ? s.sessions[idx] : undefined
+        if (!activeSession) return [0, null]
+        const messages = activeSession.messages
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const message = messages[index]
+          const usage = message?.usage
+          if (!usage) continue
+          const contextTokens = usage.contextTokens ?? 0
+          if (contextTokens <= 0) continue
+          return [contextTokens, usage.contextLength ?? null]
+        }
+        return [0, null]
+      },
+      [sessionId]
+    ),
     (a, b) => a[0] === b[0] && a[1] === b[1]
   )
+
+  if (!sessionId || !activeSession) return null
 
   const ctxUsed = ctxUsedRaw
   const ctxLimit = ctxLimitRaw ?? compressionConfig?.contextLength ?? null
@@ -371,6 +385,49 @@ function ActiveMcpsBadge({ projectId }: { projectId?: string | null }): React.JS
         {activeServers.map((s) => (
           <p key={s.id} className="text-xs text-muted-foreground">
             {s.name} ({t('skills.mcpToolCount', { count: serverTools[s.id]?.length ?? 0 })})
+          </p>
+        ))}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function ActiveExtensionsBadge({
+  projectId
+}: {
+  projectId?: string | null
+}): React.JSX.Element | null {
+  const { t } = useTranslation('chat')
+  const activeExtensionIdsByProject = useExtensionStore((s) => s.activeExtensionIdsByProject)
+  const extensions = useExtensionStore((s) => s.extensions)
+  const activeExtensionIds = React.useMemo(
+    () =>
+      resolveEffectiveActiveExtensionIds({
+        projectId,
+        activeExtensionIdsByProject,
+        extensions
+      }),
+    [activeExtensionIdsByProject, extensions, projectId]
+  )
+  if (activeExtensionIds.length === 0) return null
+
+  const activeExtensions = extensions.filter((extension) =>
+    activeExtensionIds.includes(extension.id)
+  )
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="composer-status-pill flex cursor-default items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px]">
+          <Shapes className="size-3" />
+          <span>{t('skills.extensionCount', { count: activeExtensionIds.length })}</span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <p className="text-xs font-medium">{t('skills.activeCustomExtensions')}</p>
+        {activeExtensions.map((extension) => (
+          <p key={extension.id} className="text-xs text-muted-foreground">
+            {extension.manifest.name} (
+            {t('skills.extensionToolCount', { count: extension.manifest.tools.length })})
           </p>
         ))}
       </TooltipContent>
@@ -1369,6 +1426,7 @@ interface InputAreaProps {
   hideGoalSessionBar?: boolean
   hideModeSwitch?: boolean
   modelRoute?: 'main' | 'fast'
+  attachedFooter?: boolean
 }
 
 export function InputArea({
@@ -1386,7 +1444,8 @@ export function InputArea({
   suppressPendingQueue = false,
   hideGoalSessionBar = false,
   hideModeSwitch = false,
-  modelRoute = 'main'
+  modelRoute = 'main',
+  attachedFooter = false
 }: InputAreaProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const chatView = useUIStore((s) => s.chatView)
@@ -2526,6 +2585,7 @@ export function InputArea({
   React.useEffect(() => {
     if (!inputDraftHydrated) return
 
+    clearTimeout(draftSaveTimerRef.current)
     const persistedText = persistedDraft?.text ?? ''
     const persistedSelectedFiles = persistedDraft?.selectedFiles ?? []
     const shouldResetHomeReferenceDraft =
@@ -3433,6 +3493,7 @@ export function InputArea({
   )
 
   const activeMcpBadge = <ActiveMcpsBadge projectId={activeProjectId} />
+  const activeExtensionBadge = <ActiveExtensionsBadge projectId={activeProjectId} />
 
   const folderControl = onSelectFolder && !hideWorkingFolderPicker && (
     <Tooltip>
@@ -3778,7 +3839,11 @@ export function InputArea({
     ) : null
 
   return (
-    <div ref={rootRef} data-tour="composer" className="px-4 py-3 pb-4">
+    <div
+      ref={rootRef}
+      data-tour="composer"
+      className={cn('px-4 py-3', attachedFooter ? 'pb-0' : 'pb-4')}
+    >
       {/* API key warning */}
       {!hasApiKey && (
         <button
@@ -3857,6 +3922,7 @@ export function InputArea({
           className={cn(
             'composer-shell relative flex flex-col transition-[box-shadow,border-color] duration-200',
             fileMenuOpen || slashMenuOpen ? 'overflow-visible' : 'overflow-hidden',
+            attachedFooter && 'composer-shell--attached-footer',
             dragging && 'ring-2 ring-primary/50'
           )}
           data-composer-variant={composerVariant}
@@ -4298,11 +4364,13 @@ export function InputArea({
                 {webSearchToggleControl}
                 {skillsMenuControl}
                 {activeMcpBadge}
+                {activeExtensionBadge}
                 {folderControl}
               </div>
 
               <div className="flex shrink-0 items-center gap-1.5">
                 <ContextRing
+                  sessionId={draftSessionId}
                   onCompressContext={onCompressContext ? handleCompressContext : undefined}
                   isCompressing={isContextCompressing}
                 />

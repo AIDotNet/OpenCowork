@@ -5,11 +5,26 @@ import { InputArea } from '@renderer/components/chat/InputArea'
 import { ProjectTerminalDock } from '@renderer/components/terminal/ProjectTerminalDock'
 import { WorkingFolderSelectorDialog } from './WorkingFolderSelectorDialog'
 import { useUIStore } from '@renderer/stores/ui-store'
-import { useChatStore } from '@renderer/stores/chat-store'
+import { useChatStore, type Project } from '@renderer/stores/chat-store'
 import { useChatActions, type SendMessageOptions } from '@renderer/hooks/use-chat-actions'
 import type { ImageAttachment } from '@renderer/lib/image-attachments'
 import { ensureDefaultChatWorkingFolder } from '@renderer/lib/chat-working-folder'
-import { NewSessionProjectSelector } from './NewSessionProjectSelector'
+import {
+  NewSessionProjectSelector,
+  type NewSessionProjectOption
+} from './NewSessionProjectSelector'
+
+type HomeProjectSnapshot = NewSessionProjectOption
+
+function toHomeProjectSnapshot(project: Project): HomeProjectSnapshot {
+  return {
+    id: project.id,
+    name: project.name,
+    pluginId: project.pluginId,
+    workingFolder: project.workingFolder,
+    sshConnectionId: project.sshConnectionId
+  }
+}
 
 function sanitizeProjectName(rawName: string, fallbackName: string): string {
   const cleaned = rawName
@@ -50,23 +65,46 @@ function applySuggestedPrompt(prompt: string): void {
 export function ChatHomePage(): React.JSX.Element {
   const { t } = useTranslation('chat')
   const mode = useUIStore((s) => s.mode)
-  const activeProjectId = useChatStore((s) => s.activeProjectId)
-  const { projects, activeProject, workingFolder, sshConnectionId } = useChatStore(
+  const {
+    activeProjectId,
+    projects,
+    activeProjectHomeId,
+    activeProjectName,
+    workingFolder,
+    sshConnectionId
+  } = useChatStore(
     useShallow((s) => {
       const project = s.activeProjectId
         ? (s.projects.find((item) => item.id === s.activeProjectId) ?? null)
         : null
       return {
+        activeProjectId: s.activeProjectId,
         projects: s.projects,
-        activeProject: project,
+        activeProjectHomeId: project?.id ?? null,
+        activeProjectName: project?.name ?? null,
         workingFolder: project?.workingFolder,
         sshConnectionId: project?.sshConnectionId ?? null
       }
     })
   )
   const selectableProjects = React.useMemo(
-    () => projects.filter((project) => !project.pluginId),
+    () =>
+      projects
+        .filter((project) => !project.pluginId)
+        .map((project) => toHomeProjectSnapshot(project)),
     [projects]
+  )
+  const activeProject = React.useMemo<HomeProjectSnapshot | null>(
+    () =>
+      activeProjectHomeId
+        ? {
+            id: activeProjectHomeId,
+            name: activeProjectName ?? '',
+            workingFolder,
+            sshConnectionId: sshConnectionId ?? undefined
+          }
+        : null,
+    [activeProjectHomeId, activeProjectName, sshConnectionId, workingFolder]
   )
   const defaultSelectedProjectId =
     activeProjectId && selectableProjects.some((project) => project.id === activeProjectId)
@@ -102,12 +140,12 @@ export function ChatHomePage(): React.JSX.Element {
     if (mode === 'chat' || selectedProjectId || selectableProjects.length === 0) return
     const nextProjectId = activeProjectId ?? selectableProjects[0].id
     setSelectedProjectId(nextProjectId)
-    useChatStore.getState().setActiveProject(nextProjectId)
+    useChatStore.getState().setActiveProjectHome(nextProjectId)
   }, [activeProjectId, mode, selectableProjects, selectedProjectId])
 
   const handleSelectHomeProject = React.useCallback((projectId: string | null): void => {
     setSelectedProjectId(projectId)
-    useChatStore.getState().setActiveProject(projectId)
+    useChatStore.getState().setActiveProjectHome(projectId)
     const uiStore = useUIStore.getState()
     if (projectId && uiStore.mode === 'chat') {
       uiStore.setMode('cowork')
@@ -128,7 +166,7 @@ export function ChatHomePage(): React.JSX.Element {
         sshConnectionId: connectionId ?? undefined
       })
       setSelectedProjectId(projectId)
-      chatStore.setActiveProject(projectId)
+      chatStore.setActiveProjectHome(projectId)
       if (useUIStore.getState().mode === 'chat') {
         useUIStore.getState().setMode('cowork')
       }
@@ -175,7 +213,7 @@ export function ChatHomePage(): React.JSX.Element {
         projectId = ensured?.id ?? null
       }
       if (!projectId) return
-      chatStore.setActiveProject(projectId)
+      chatStore.setActiveProjectHome(projectId)
       setSelectedProjectId(projectId)
       chatStore.updateProjectDirectory(projectId, patch)
     },
@@ -250,6 +288,7 @@ export function ChatHomePage(): React.JSX.Element {
               workingFolder={homeWorkingFolder}
               hideWorkingFolderIndicator
               isStreaming={false}
+              attachedFooter
             />
 
             <NewSessionProjectSelector

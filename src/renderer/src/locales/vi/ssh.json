@@ -118,7 +118,6 @@
     "loadFailed": "Lỗi tải",
     "saveFailed": "Lỗi lưu",
     "downloadFailed": "Tải về thất bại",
-    "zipFailed": "Lỗi cất giữ thư mục",
     "uploadFailed": "Tải lên thất bại",
     "deleteFailed": "Xoá lỗi",
     "renameFailed": "Lỗi thay tên",
@@ -291,9 +290,7 @@
       "cancel": "Thôi",
       "clear": "& Xoá",
       "stages": {
-        "compress": "Đang nén",
         "upload": "Tải lên",
-        "remote_unzip": "Bỏ sương từ xa",
         "cleanup": "Đang dọn dẹp",
         "done": "Hoàn tất",
         "error": "Thất bại",

@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
-import { createProvider } from '../api/provider'
 import type { ProviderConfig, UnifiedMessage } from '../api/types'
+import { streamSidecarProviderTurn } from '../ipc/agent-bridge'
 import type { RiskItem } from '@renderer/stores/skills-store'
 
 /**
@@ -15,8 +15,6 @@ export async function runSkillSecurityReview(
   onProgress?: (text: string) => void
 ): Promise<RiskItem[]> {
   try {
-    const provider = createProvider(providerConfig)
-
     // Build file content summary for the prompt
     const filesSummary = files
       .map((f) => `\n## File: ${f.path}\n\`\`\`\n${f.content.slice(0, 5000)}\n\`\`\``)
@@ -55,12 +53,12 @@ Be thorough but avoid false positives. Network calls and subprocess usage are wa
     let fullResponse = ''
 
     // Stream the response
-    for await (const event of provider.sendMessage(
+    for await (const event of streamSidecarProviderTurn({
       messages,
-      [],
-      { ...providerConfig, systemPrompt },
+      tools: [],
+      provider: { ...providerConfig, systemPrompt },
       signal
-    )) {
+    })) {
       if (signal.aborted) break
 
       if (event.type === 'text_delta' && event.text) {

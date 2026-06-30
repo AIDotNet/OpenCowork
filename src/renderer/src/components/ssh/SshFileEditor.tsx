@@ -123,6 +123,17 @@ export function SshFileEditor({
     }
   }, [modified, saving, connectionId, filePath, content, t])
 
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 's') return
+      event.preventDefault()
+      void handleSave()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleSave])
+
   const handleChange = React.useCallback((value: string) => {
     if (suppressChangeRef.current) {
       suppressChangeRef.current = false

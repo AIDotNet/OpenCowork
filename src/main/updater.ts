@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process'
 import { dirname } from 'node:path'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { writeCrashLog } from './crash-logger'
-import { safeSendToWindow } from './window-ipc'
+import { safeSendMessagePackToWindow } from './window-ipc'
 import { readSettings } from './ipc/settings-handlers'
+import { registerMessagePackHandler } from './ipc/messagepack-handler'
 
 type WindowGetter = () => BrowserWindow | null
 type QuitMarker = () => void
@@ -357,11 +358,12 @@ async function handleUpdateAvailable(
 
   const releaseNotes = getReleaseNotesText(info.releaseNotes)
 
-  safeSendToWindow(win, 'update:available', {
+  const payload = {
     currentVersion,
     newVersion,
     releaseNotes
-  })
+  }
+  safeSendMessagePackToWindow(win, 'update:available', payload)
 
   notifiedAvailableVersions.add(newVersion)
   writeCrashLog('updater_update_available', { version: newVersion, currentVersion })
@@ -376,9 +378,10 @@ function handleDownloadProgress(progress: { percent: number }, getMainWindow: Wi
   win.setProgressBar(progressValue, { mode: 'normal' })
 
   // Send progress to renderer
-  safeSendToWindow(win, 'update:download-progress', {
+  const payload = {
     percent: progress.percent
-  })
+  }
+  safeSendMessagePackToWindow(win, 'update:download-progress', payload)
 }
 
 function clearWindowProgress(getMainWindow: WindowGetter): void {
@@ -394,7 +397,8 @@ function handleUpdateDownloaded(info: { version: string }, options: AutoUpdateOp
 
   const win = getValidWindow(options.getMainWindow)
   if (win) {
-    safeSendToWindow(win, 'update:downloaded', { version: info.version })
+    const payload = { version: info.version }
+    safeSendMessagePackToWindow(win, 'update:downloaded', payload)
   }
 
   options.markAppWillQuit()
@@ -422,8 +426,7 @@ export function setupAutoUpdater(options: AutoUpdateOptions): void {
     autoUpdater.forceDevUpdateConfig = true
   }
 
-  // Register IPC handler for manual update check (Settings > General)
-  ipcMain.handle('update:check', async () => {
+  registerMessagePackHandler<void>('update:check', async () => {
     try {
       console.log('[Updater] User requested update check')
       const unsupportedReason = getUpdaterUnsupportedReason()
@@ -456,8 +459,7 @@ export function setupAutoUpdater(options: AutoUpdateOptions): void {
     }
   })
 
-  // Register IPC handler for download trigger
-  ipcMain.handle('update:download', async () => {
+  registerMessagePackHandler<void>('update:download', async () => {
     try {
       console.log('[Updater] User requested download')
       const unsupportedReason = getUpdaterUnsupportedReason()
@@ -555,7 +557,8 @@ export function setupAutoUpdater(options: AutoUpdateOptions): void {
 
     const win = getValidWindow(options.getMainWindow)
     if (win) {
-      safeSendToWindow(win, 'update:error', { error: message })
+      const payload = { error: message }
+      safeSendMessagePackToWindow(win, 'update:error', payload)
     }
   })
 

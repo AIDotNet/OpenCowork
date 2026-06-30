@@ -118,7 +118,6 @@
     "loadFailed": "Failed to load",
     "saveFailed": "Failed to save",
     "downloadFailed": "Descarga fallido",
-    "zipFailed": "Failed to archive directory",
     "uploadFailed": "Carga fallada",
     "deleteFailed": "Eliminar falló",
     "renameFailed": "Rename falló",
@@ -291,9 +290,7 @@
       "cancel": "Cancelar",
       "clear": "Despejado",
       "stages": {
-        "compress": "Compresora",
         "upload": "Subir",
-        "remote_unzip": "Desplazamiento remoto",
         "cleanup": "Limpieza",
         "done": "Completado",
         "error": "Failed",

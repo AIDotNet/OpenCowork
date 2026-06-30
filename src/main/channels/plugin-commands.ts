@@ -18,11 +18,11 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { app } from 'electron'
-import { getDb } from '../db/database'
+import { getNativeWorker } from '../lib/native-worker'
+import { readChannelPlugins } from './channel-config-store'
 import type { ChannelManager } from './channel-manager'
 import type { ChannelIncomingMessageData, ChannelInstance } from './channel-types'
 
-const PLUGINS_FILE = path.join(os.homedir(), '.open-cowork', 'plugins.json')
 const WORKSPACE_MEMORY_TEMPLATE_FILES = ['AGENTS.md', 'SOUL.md', 'USER.md', 'MEMORY.md'] as const
 
 type WorkspaceMemoryTemplateFile = (typeof WORKSPACE_MEMORY_TEMPLATE_FILES)[number]
@@ -48,7 +48,47 @@ interface CommandResult {
   rewriteContent?: string
 }
 
-type CommandHandler = (ctx: CommandContext, args: string) => CommandResult
+type CommandHandler = (ctx: CommandContext, args: string) => CommandResult | Promise<CommandResult>
+
+interface NativeMessageCompactResult {
+  success: boolean
+  totalMessages: number
+  compacted: number
+  error?: string | null
+}
+
+interface NativeSessionResetResult {
+  success: boolean
+  deletedMessages: number
+  updatedAt: number
+  error?: string | null
+}
+
+interface NativeSessionStatusResult {
+  success: boolean
+  found: boolean
+  title?: string | null
+  createdAt?: number | null
+  updatedAt?: number | null
+  messageCount: number
+  error?: string | null
+}
+
+interface NativeMessageUsageStatsResult {
+  success: boolean
+  hasUsage: boolean
+  totalInput: number
+  totalOutput: number
+  totalCacheCreation: number
+  totalCacheRead: number
+  totalReasoning: number
+  totalDurationMs: number
+  requestCount: number
+  assistantReplies: number
+  firstCreatedAt?: number | null
+  lastCreatedAt?: number | null
+  error?: string | null
+}
 
 function tokenizeSlashCommandArguments(text: string): string[] {
   const normalized = text.trim()
@@ -162,7 +202,7 @@ function stripAtMention(content: string): string {
  *   - `string`  — command rewrote the message content; pass this string
  *                  to the agent loop instead of the original message
  */
-export function tryHandleCommand(ctx: CommandContext): boolean | string {
+export async function tryHandleCommand(ctx: CommandContext): Promise<boolean | string> {
   const raw = ctx.data.content?.trim()
   if (!raw) return false
 
@@ -182,7 +222,7 @@ export function tryHandleCommand(ctx: CommandContext): boolean | string {
   const handler = commands.get(cmd)
   if (!handler) return false
 
-  const result = handler(ctx, args)
+  const result = await handler(ctx, args)
 
   // Command wants to delegate to the agent loop with rewritten content
   if (result.rewriteContent) {
@@ -249,25 +289,25 @@ function handleHelp(ctx: CommandContext, args: string): CommandResult {
   return { handled: true, reply: helpText }
 }
 
-function handleNew(ctx: CommandContext, args: string): CommandResult {
+async function handleNew(ctx: CommandContext, args: string): Promise<CommandResult> {
   void args
   if (!ctx.sessionId) {
     return { handled: true, reply: 'No active session found.' }
   }
 
   try {
-    const db = getDb()
-    // Delete all messages for this session
-    db.prepare('DELETE FROM messages WHERE session_id = ?').run(ctx.sessionId)
-    // Update session title and timestamp
-    const now = Date.now()
-    db.prepare('UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?').run(
-      'New Conversation',
-      now,
-      ctx.sessionId
+    const result = await getNativeWorker().request<NativeSessionResetResult>(
+      'db/session-reset-conversation',
+      { sessionId: ctx.sessionId },
+      120_000
     )
+    if (!result.success) {
+      throw new Error(result.error || 'Native session reset failed')
+    }
 
-    console.log(`[PluginCommand] Cleared session ${ctx.sessionId}`)
+    console.log(
+      `[PluginCommand] Cleared session ${ctx.sessionId}, removed ${result.deletedMessages} messages`
+    )
     return {
       handled: true,
       reply: '✅ Session cleared. Starting fresh.'
@@ -318,17 +358,15 @@ function handleInit(ctx: CommandContext, args: string): CommandResult {
   }
 }
 
-function handleStatus(ctx: CommandContext, args: string): CommandResult {
+async function handleStatus(ctx: CommandContext, args: string): Promise<CommandResult> {
   void args
   const lines: string[] = ['📊 Status']
 
   // Plugin info
   let pluginInstance: ChannelInstance | undefined
   try {
-    if (fs.existsSync(PLUGINS_FILE)) {
-      const plugins = JSON.parse(fs.readFileSync(PLUGINS_FILE, 'utf-8')) as ChannelInstance[]
-      pluginInstance = plugins.find((p) => p.id === ctx.pluginId)
-    }
+    const plugins = await readChannelPlugins()
+    pluginInstance = plugins.find((p) => p.id === ctx.pluginId)
   } catch {
     /* ignore */
   }
@@ -386,21 +424,22 @@ function handleStatus(ctx: CommandContext, args: string): CommandResult {
   lines.push('')
   if (ctx.sessionId) {
     try {
-      const db = getDb()
-      const sessionRow = db
-        .prepare('SELECT title, created_at, updated_at FROM sessions WHERE id = ?')
-        .get(ctx.sessionId) as { title: string; created_at: number; updated_at: number } | undefined
-      const msgCount = db
-        .prepare('SELECT COUNT(*) as count FROM messages WHERE session_id = ?')
-        .get(ctx.sessionId) as { count: number } | undefined
-
-      lines.push(`💬 Session: ${sessionRow?.title ?? 'Untitled'}`)
-      lines.push(`  Messages: ${msgCount?.count ?? 0}`)
-      if (sessionRow?.created_at) {
-        lines.push(`  Created: ${new Date(sessionRow.created_at).toLocaleString()}`)
+      const session = await getNativeWorker().request<NativeSessionStatusResult>(
+        'db/session-status',
+        { sessionId: ctx.sessionId },
+        120_000
+      )
+      if (!session.success) {
+        throw new Error(session.error || 'Native session status failed')
       }
-      if (sessionRow?.updated_at) {
-        lines.push(`  Last Active: ${new Date(sessionRow.updated_at).toLocaleString()}`)
+
+      lines.push(`💬 Session: ${session.found ? session.title || 'Untitled' : 'Untitled'}`)
+      lines.push(`  Messages: ${session.messageCount}`)
+      if (session.createdAt) {
+        lines.push(`  Created: ${new Date(session.createdAt).toLocaleString()}`)
+      }
+      if (session.updatedAt) {
+        lines.push(`  Last Active: ${new Date(session.updatedAt).toLocaleString()}`)
       }
     } catch {
       /* ignore */
@@ -427,79 +466,36 @@ function handleStatus(ctx: CommandContext, args: string): CommandResult {
   return { handled: true, reply: lines.join('\n') }
 }
 
-function handleCompress(ctx: CommandContext, args: string): CommandResult {
+async function handleCompress(ctx: CommandContext, args: string): Promise<CommandResult> {
   void args
   if (!ctx.sessionId) {
     return { handled: true, reply: 'No active session found.' }
   }
 
   try {
-    const db = getDb()
+    const result = await getNativeWorker().request<NativeMessageCompactResult>(
+      'db/messages-compact-session',
+      { sessionId: ctx.sessionId },
+      120_000
+    )
+    if (!result.success) {
+      throw new Error(result.error || 'Native message compaction failed')
+    }
 
-    // Fetch all messages for this session
-    const rows = db
-      .prepare(
-        'SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC'
-      )
-      .all(ctx.sessionId) as Array<{ id: string; role: string; content: string }>
-
-    if (rows.length < 6) {
+    if (result.totalMessages < 6) {
       return { handled: true, reply: 'Too few messages to compress.' }
     }
 
-    // Keep the last 6 messages intact, compress older ones
-    const cutoff = rows.length - 6
-    let compressedCount = 0
-
-    for (let i = 0; i < cutoff; i++) {
-      const row = rows[i]
-      let content: unknown
-      try {
-        content = JSON.parse(row.content)
-      } catch {
-        continue // plain text, skip
-      }
-
-      if (!Array.isArray(content)) continue
-
-      let changed = false
-      const newBlocks = (content as Array<Record<string, unknown>>).map((block) => {
-        // Clear old tool_result content (keep short ones)
-        if (block.type === 'tool_result') {
-          const text =
-            typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
-          if (text.length > 200) {
-            changed = true
-            return { ...block, content: '[Context compressed — stale tool result cleared]' }
-          }
-        }
-        // Clear old thinking blocks
-        if (block.type === 'thinking') {
-          changed = true
-          return { ...block, thinking: '[Thinking cleared during compression]' }
-        }
-        return block
-      })
-
-      if (changed) {
-        db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(
-          JSON.stringify(newBlocks),
-          row.id
-        )
-        compressedCount++
-      }
-    }
-
-    if (compressedCount === 0) {
+    if (result.compacted === 0) {
       return { handled: true, reply: 'Context is already compact.' }
     }
 
     console.log(
-      `[PluginCommand] Compressed ${compressedCount} messages in session ${ctx.sessionId}`
+      `[PluginCommand] Compacted ${result.compacted} messages in session ${ctx.sessionId}`
     )
     return {
       handled: true,
-      reply: `✅ Context compressed, cleaned ${compressedCount} messages (stale tool results and thinking blocks cleared). Compressed ${compressedCount} messages.`
+      reply: `✅ Context compressed, cleaned ${result.compacted} messages (stale tool results and thinking blocks cleared). Compressed ${result.compacted} messages.`
     }
   } catch (err) {
     console.error('[PluginCommand] Failed to compress context:', err)
@@ -558,66 +554,27 @@ function initializeWorkspaceMemoryFiles(workDir: string): {
   return { created, existing }
 }
 
-function handleStats(ctx: CommandContext, args: string): CommandResult {
+async function handleStats(ctx: CommandContext, args: string): Promise<CommandResult> {
   void args
   if (!ctx.sessionId) {
     return { handled: true, reply: 'No active session found.' }
   }
 
   try {
-    const db = getDb()
+    const stats = await getNativeWorker().request<NativeMessageUsageStatsResult>(
+      'db/messages-usage-stats',
+      { sessionId: ctx.sessionId },
+      120_000
+    )
+    if (!stats.success) {
+      throw new Error(stats.error || 'Native message usage stats failed')
+    }
 
-    // Fetch all assistant messages with usage data for this session
-    const rows = db
-      .prepare(
-        'SELECT usage, created_at FROM messages WHERE session_id = ? AND role = ? AND usage IS NOT NULL ORDER BY created_at ASC'
-      )
-      .all(ctx.sessionId, 'assistant') as Array<{ usage: string; created_at: number }>
-
-    if (rows.length === 0) {
+    if (!stats.hasUsage) {
       return { handled: true, reply: 'No token usage data available.' }
     }
 
-    let totalInput = 0
-    let totalOutput = 0
-    let totalCacheCreation = 0
-    let totalCacheRead = 0
-    let totalReasoning = 0
-    let totalDurationMs = 0
-    let requestCount = 0
-
-    for (const row of rows) {
-      try {
-        const usage = JSON.parse(row.usage) as {
-          inputTokens?: number
-          outputTokens?: number
-          billableInputTokens?: number
-          cacheCreationTokens?: number
-          cacheReadTokens?: number
-          reasoningTokens?: number
-          totalDurationMs?: number
-          requestTimings?: Array<unknown>
-        }
-        totalInput +=
-          usage.billableInputTokens ??
-          Math.max(
-            0,
-            (usage.inputTokens ?? 0) -
-              Math.max(0, usage.cacheReadTokens ?? 0) -
-              Math.max(0, usage.cacheCreationTokens ?? 0)
-          )
-        totalOutput += usage.outputTokens ?? 0
-        totalCacheCreation += usage.cacheCreationTokens ?? 0
-        totalCacheRead += usage.cacheReadTokens ?? 0
-        totalReasoning += usage.reasoningTokens ?? 0
-        totalDurationMs += usage.totalDurationMs ?? 0
-        requestCount += usage.requestTimings?.length ?? 1
-      } catch {
-        /* skip malformed usage */
-      }
-    }
-
-    const totalTokens = totalInput + totalOutput
+    const totalTokens = stats.totalInput + stats.totalOutput
     const formatNum = (n: number): string => {
       if (n < 1_000) return String(n)
       if (n < 1_000_000) return `${(n / 1_000).toFixed(1)}k`
@@ -633,30 +590,31 @@ function handleStats(ctx: CommandContext, args: string): CommandResult {
 
     lines.push('')
     lines.push(`📊 Total: ${formatNum(totalTokens)} tokens`)
-    lines.push(`  Input:  ${formatNum(totalInput)}`)
-    lines.push(`  Output: ${formatNum(totalOutput)}`)
+    lines.push(`  Input:  ${formatNum(stats.totalInput)}`)
+    lines.push(`  Output: ${formatNum(stats.totalOutput)}`)
 
-    if (totalCacheRead > 0 || totalCacheCreation > 0) {
+    if (stats.totalCacheRead > 0 || stats.totalCacheCreation > 0) {
       lines.push('')
       lines.push(`💾 Cache:`)
-      if (totalCacheRead > 0) {
-        const cacheTokenShare = totalCacheRead / (totalInput + totalCacheRead)
-        lines.push(`  Cache Read: ${formatNum(totalCacheRead)}`)
+      if (stats.totalCacheRead > 0) {
+        const cacheTokenShare = stats.totalCacheRead / (stats.totalInput + stats.totalCacheRead)
+        lines.push(`  Cache Read: ${formatNum(stats.totalCacheRead)}`)
         lines.push(`  Cached Token Share: ${formatPercent(cacheTokenShare)}`)
       }
-      if (totalCacheCreation > 0) lines.push(`  Cache Write: ${formatNum(totalCacheCreation)}`)
+      if (stats.totalCacheCreation > 0)
+        lines.push(`  Cache Write: ${formatNum(stats.totalCacheCreation)}`)
     }
 
-    if (totalReasoning > 0) {
-      lines.push(`🧠 推理 (Reasoning): ${formatNum(totalReasoning)}`)
+    if (stats.totalReasoning > 0) {
+      lines.push(`🧠 推理 (Reasoning): ${formatNum(stats.totalReasoning)}`)
     }
 
     lines.push('')
-    lines.push(`🔄 API Calls: ${requestCount}`)
-    lines.push(`💬 Assistant Replies: ${rows.length}`)
+    lines.push(`🔄 API Calls: ${stats.requestCount}`)
+    lines.push(`💬 Assistant Replies: ${stats.assistantReplies}`)
 
-    if (totalDurationMs > 0) {
-      const totalSec = totalDurationMs / 1000
+    if (stats.totalDurationMs > 0) {
+      const totalSec = stats.totalDurationMs / 1000
       const tps = totalSec > 0 ? totalTokens / totalSec : 0
       lines.push(
         `⏱️ Total Time: ${totalSec < 60 ? `${totalSec.toFixed(1)}s` : `${(totalSec / 60).toFixed(1)}min`}`
@@ -665,13 +623,11 @@ function handleStats(ctx: CommandContext, args: string): CommandResult {
     }
 
     // Session time range
-    const firstMsg = rows[0]
-    const lastMsg = rows[rows.length - 1]
-    if (firstMsg && lastMsg) {
+    if (stats.firstCreatedAt && stats.lastCreatedAt) {
       lines.push('')
       lines.push(`📅 Stats Range:`)
-      lines.push(`  First: ${new Date(firstMsg.created_at).toLocaleString()}`)
-      lines.push(`  Latest: ${new Date(lastMsg.created_at).toLocaleString()}`)
+      lines.push(`  First: ${new Date(stats.firstCreatedAt).toLocaleString()}`)
+      lines.push(`  Latest: ${new Date(stats.lastCreatedAt).toLocaleString()}`)
     }
 
     return { handled: true, reply: lines.join('\n') }

@@ -1,6 +1,4 @@
 import { nanoid } from 'nanoid'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
-import { IPC } from '@renderer/lib/ipc/channels'
 import type {
   AIModelConfig,
   AIProvider,
@@ -8,6 +6,7 @@ import type {
   RequestTiming,
   TokenUsage
 } from '@renderer/lib/api/types'
+import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import {
@@ -16,6 +15,20 @@ import {
   resolveCacheCreationCost
 } from '@renderer/lib/format-tokens'
 import { truncateRequestDebugForPersistence } from '@renderer/lib/debug-store'
+import {
+  USAGE_ACTIVITY_BY_MODEL_MSGPACK_CHANNEL,
+  USAGE_ACTIVITY_BY_PROVIDER_MSGPACK_CHANNEL,
+  USAGE_ACTIVITY_DAILY_MSGPACK_CHANNEL,
+  USAGE_ACTIVITY_OVERVIEW_MSGPACK_CHANNEL,
+  USAGE_EVENTS_ADD_MSGPACK_CHANNEL,
+  USAGE_EVENTS_BY_MODEL_MSGPACK_CHANNEL,
+  USAGE_EVENTS_BY_PROVIDER_MSGPACK_CHANNEL,
+  USAGE_EVENTS_CLEAR_MSGPACK_CHANNEL,
+  USAGE_EVENTS_DAILY_MSGPACK_CHANNEL,
+  USAGE_EVENTS_LIST_MSGPACK_CHANNEL,
+  USAGE_EVENTS_OVERVIEW_MSGPACK_CHANNEL,
+  USAGE_EVENTS_TIMELINE_MSGPACK_CHANNEL
+} from '../../../shared/messagepack/binary-ipc'
 
 export interface UsageAnalyticsQuery {
   from: number
@@ -209,7 +222,7 @@ export async function recordUsageEvent(input: {
   const costs = computeCosts(normalizedUsage, model)
   const createdAt = input.createdAt ?? Date.now()
 
-  await ipcClient.invoke(IPC.USAGE_EVENTS_ADD, {
+  await invokeMessagePackBinary(USAGE_EVENTS_ADD_MSGPACK_CHANNEL, {
     id: nanoid(),
     created_at: createdAt,
     request_started_at:
@@ -259,61 +272,83 @@ export async function recordUsageEvent(input: {
 }
 
 export function getUsageOverview(query: UsageAnalyticsQuery): Promise<UsageAnalyticsOverview> {
-  return ipcClient.invoke(IPC.USAGE_EVENTS_OVERVIEW, query) as Promise<UsageAnalyticsOverview>
+  return invokeMessagePackBinary<UsageAnalyticsOverview>(
+    USAGE_EVENTS_OVERVIEW_MSGPACK_CHANNEL,
+    query
+  )
 }
 
 export function getUsageDaily(query: UsageAnalyticsQuery): Promise<UsageAnalyticsGroupRow[]> {
-  return ipcClient.invoke(IPC.USAGE_EVENTS_DAILY, query) as Promise<UsageAnalyticsGroupRow[]>
+  return invokeMessagePackBinary<UsageAnalyticsGroupRow[]>(
+    USAGE_EVENTS_DAILY_MSGPACK_CHANNEL,
+    query
+  )
 }
 
 export function getUsageTimeline(
   query: UsageAnalyticsQuery,
   bucket: UsageTimelineBucket
 ): Promise<UsageAnalyticsGroupRow[]> {
-  return ipcClient.invoke(IPC.USAGE_EVENTS_TIMELINE, {
+  return invokeMessagePackBinary<UsageAnalyticsGroupRow[]>(USAGE_EVENTS_TIMELINE_MSGPACK_CHANNEL, {
     query,
     bucket
-  }) as Promise<UsageAnalyticsGroupRow[]>
+  })
 }
 
 export function getUsageByModel(query: UsageAnalyticsQuery): Promise<UsageAnalyticsGroupRow[]> {
-  return ipcClient.invoke(IPC.USAGE_EVENTS_BY_MODEL, query) as Promise<UsageAnalyticsGroupRow[]>
+  return invokeMessagePackBinary<UsageAnalyticsGroupRow[]>(
+    USAGE_EVENTS_BY_MODEL_MSGPACK_CHANNEL,
+    query
+  )
 }
 
 export function getUsageByProvider(query: UsageAnalyticsQuery): Promise<UsageAnalyticsGroupRow[]> {
-  return ipcClient.invoke(IPC.USAGE_EVENTS_BY_PROVIDER, query) as Promise<UsageAnalyticsGroupRow[]>
+  return invokeMessagePackBinary<UsageAnalyticsGroupRow[]>(
+    USAGE_EVENTS_BY_PROVIDER_MSGPACK_CHANNEL,
+    query
+  )
 }
 
 export function listUsageEvents(query: UsageAnalyticsQuery): Promise<UsageAnalyticsGroupRow[]> {
-  return ipcClient.invoke(IPC.USAGE_EVENTS_LIST, query) as Promise<UsageAnalyticsGroupRow[]>
+  return invokeMessagePackBinary<UsageAnalyticsGroupRow[]>(USAGE_EVENTS_LIST_MSGPACK_CHANNEL, query)
 }
 
 export function clearUsageEvents(query: UsageAnalyticsQuery): Promise<{ deleted: number }> {
-  return ipcClient.invoke(IPC.USAGE_EVENTS_CLEAR, query) as Promise<{ deleted: number }>
+  return invokeMessagePackBinary<{ deleted: number }>(USAGE_EVENTS_CLEAR_MSGPACK_CHANNEL, query)
 }
 
 export function getUsageActivityOverview(
   query: UsageActivityQuery
 ): Promise<UsageAnalyticsOverview> {
-  return ipcClient.invoke(IPC.USAGE_ACTIVITY_OVERVIEW, query) as Promise<UsageAnalyticsOverview>
+  return invokeMessagePackBinary<UsageAnalyticsOverview>(
+    USAGE_ACTIVITY_OVERVIEW_MSGPACK_CHANNEL,
+    query
+  )
 }
 
 export function getUsageActivityDaily(
   query: UsageActivityQuery
 ): Promise<UsageAnalyticsGroupRow[]> {
-  return ipcClient.invoke(IPC.USAGE_ACTIVITY_DAILY, query) as Promise<UsageAnalyticsGroupRow[]>
+  return invokeMessagePackBinary<UsageAnalyticsGroupRow[]>(
+    USAGE_ACTIVITY_DAILY_MSGPACK_CHANNEL,
+    query
+  )
 }
 
 export function getUsageActivityByModel(
   query: UsageActivityQuery
 ): Promise<UsageAnalyticsGroupRow[]> {
-  return ipcClient.invoke(IPC.USAGE_ACTIVITY_BY_MODEL, query) as Promise<UsageAnalyticsGroupRow[]>
+  return invokeMessagePackBinary<UsageAnalyticsGroupRow[]>(
+    USAGE_ACTIVITY_BY_MODEL_MSGPACK_CHANNEL,
+    query
+  )
 }
 
 export function getUsageActivityByProvider(
   query: UsageActivityQuery
 ): Promise<UsageAnalyticsGroupRow[]> {
-  return ipcClient.invoke(IPC.USAGE_ACTIVITY_BY_PROVIDER, query) as Promise<
-    UsageAnalyticsGroupRow[]
-  >
+  return invokeMessagePackBinary<UsageAnalyticsGroupRow[]>(
+    USAGE_ACTIVITY_BY_PROVIDER_MSGPACK_CHANNEL,
+    query
+  )
 }

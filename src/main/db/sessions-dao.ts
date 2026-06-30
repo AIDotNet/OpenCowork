@@ -1,4 +1,4 @@
-import { getDb } from './database'
+import { getNativeWorker } from '../lib/native-worker'
 
 export interface SessionRow {
   id: string
@@ -19,22 +19,51 @@ export interface SessionRow {
   message_count?: number
 }
 
-export function listSessions(limit = 2000, offset = 0): SessionRow[] {
-  const db = getDb()
-  // Full-load by default with a high safety ceiling — the renderer needs all
-  // sessions present for project grouping and active-session preservation, so
-  // this is a guard against pathological row counts, not true pagination.
-  return db
-    .prepare(`SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
-    .all(limit, offset) as SessionRow[]
+interface SessionFindResult {
+  success: boolean
+  session?: SessionRow | null
+  error?: string | null
 }
 
-export function getSession(id: string): SessionRow | undefined {
-  const db = getDb()
-  return db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as SessionRow | undefined
+interface SessionMutationResult {
+  success: boolean
+  changed: number
+  error?: string | null
 }
 
-export function createSession(session: {
+interface SessionClearAllResult {
+  success: boolean
+  sessionIds: string[]
+  deletedMessages: number
+  deletedSessions: number
+  error?: string | null
+}
+
+async function requestMutation(method: string, params: object): Promise<SessionMutationResult> {
+  const result = await getNativeWorker().request<SessionMutationResult>(method, params, 120_000)
+  if (!result.success) {
+    throw new Error(result.error || `Native session mutation failed: ${method}`)
+  }
+  return result
+}
+
+export function listSessions(limit = 2000, offset = 0): Promise<SessionRow[]> {
+  return getNativeWorker().request<SessionRow[]>('db/sessions-list', { limit, offset }, 120_000)
+}
+
+export async function getSession(id: string): Promise<SessionRow | undefined> {
+  const result = await getNativeWorker().request<SessionFindResult>(
+    'db/sessions-get',
+    { id },
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native session get failed')
+  }
+  return result.session ?? undefined
+}
+
+export async function createSession(session: {
   id: string
   title: string
   icon?: string
@@ -50,32 +79,11 @@ export function createSession(session: {
   providerId?: string
   modelId?: string
   modelSelectionMode?: string
-}): void {
-  const db = getDb()
-  db.prepare(
-    `INSERT INTO sessions (id, title, icon, mode, created_at, updated_at, message_count, project_id, working_folder, ssh_connection_id, plan_id, pinned, plugin_id, provider_id, model_id, model_selection_mode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    session.id,
-    session.title,
-    session.icon ?? null,
-    session.mode,
-    session.createdAt,
-    session.updatedAt,
-    0,
-    session.projectId ?? null,
-    session.workingFolder ?? null,
-    session.sshConnectionId ?? null,
-    session.planId ?? null,
-    session.pinned ? 1 : 0,
-    session.pluginId ?? null,
-    session.providerId ?? null,
-    session.modelId ?? null,
-    session.modelSelectionMode ?? (session.providerId && session.modelId ? 'manual' : 'inherit')
-  )
+}): Promise<void> {
+  await requestMutation('db/sessions-create', session)
 }
 
-export function updateSession(
+export async function updateSession(
   id: string,
   patch: Partial<{
     title: string
@@ -92,80 +100,22 @@ export function updateSession(
     modelId: string | null
     modelSelectionMode: string | null
   }>
-): void {
-  const db = getDb()
-  const sets: string[] = []
-  const values: unknown[] = []
-
-  if (patch.title !== undefined) {
-    sets.push('title = ?')
-    values.push(patch.title)
-  }
-  if (patch.icon !== undefined) {
-    sets.push('icon = ?')
-    values.push(patch.icon)
-  }
-  if (patch.mode !== undefined) {
-    sets.push('mode = ?')
-    values.push(patch.mode)
-  }
-  if (patch.updatedAt !== undefined) {
-    sets.push('updated_at = ?')
-    values.push(patch.updatedAt)
-  }
-  if (patch.projectId !== undefined) {
-    sets.push('project_id = ?')
-    values.push(patch.projectId)
-  }
-  if (patch.workingFolder !== undefined) {
-    sets.push('working_folder = ?')
-    values.push(patch.workingFolder)
-  }
-  if (patch.sshConnectionId !== undefined) {
-    sets.push('ssh_connection_id = ?')
-    values.push(patch.sshConnectionId)
-  }
-  if (patch.planId !== undefined) {
-    sets.push('plan_id = ?')
-    values.push(patch.planId)
-  }
-  if (patch.pinned !== undefined) {
-    sets.push('pinned = ?')
-    values.push(patch.pinned ? 1 : 0)
-  }
-  if (patch.pluginId !== undefined) {
-    sets.push('plugin_id = ?')
-    values.push(patch.pluginId)
-  }
-  if (patch.providerId !== undefined) {
-    sets.push('provider_id = ?')
-    values.push(patch.providerId)
-  }
-  if (patch.modelId !== undefined) {
-    sets.push('model_id = ?')
-    values.push(patch.modelId)
-  }
-  if (patch.modelSelectionMode !== undefined) {
-    sets.push('model_selection_mode = ?')
-    values.push(patch.modelSelectionMode)
-  }
-
-  if (sets.length === 0) return
-
-  values.push(id)
-  db.prepare(`UPDATE sessions SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+): Promise<void> {
+  await requestMutation('db/sessions-update', { id, patch })
 }
 
-export function deleteSession(id: string): void {
-  const db = getDb()
-  db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+export async function deleteSession(id: string): Promise<void> {
+  await requestMutation('db/sessions-delete', { id })
 }
 
-export function clearAllSessions(): void {
-  const db = getDb()
-  // Only clear non-plugin sessions and their messages
-  db.prepare(
-    `DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE plugin_id IS NULL)`
-  ).run()
-  db.prepare('DELETE FROM sessions WHERE plugin_id IS NULL').run()
+export async function clearAllSessions(): Promise<SessionClearAllResult> {
+  const result = await getNativeWorker().request<SessionClearAllResult>(
+    'db/sessions-clear-all',
+    {},
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native session clear-all failed')
+  }
+  return result
 }

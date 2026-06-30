@@ -2,6 +2,7 @@ import type { ContentBlock, ToolUseBlock, UnifiedMessage } from '@renderer/lib/a
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { useChatStore } from '@renderer/stores/chat-store'
+import { createResidentRequestDebugInfo } from '@renderer/lib/debug-store'
 
 type ThinkingProvider = 'anthropic' | 'openai-responses' | 'google'
 
@@ -81,7 +82,11 @@ function applySessionRuntimeSyncEvent(event: SessionRuntimeSyncEvent): void {
 
     case 'update_message':
       if (!messageExists(event.sessionId, event.messageId)) return
-      chatStore.updateMessage(event.sessionId, event.messageId, event.patch)
+      chatStore.updateMessage(
+        event.sessionId,
+        event.messageId,
+        sanitizeRuntimeSyncPatch(event.patch)
+      )
       return
 
     case 'append_text_delta':
@@ -124,6 +129,14 @@ function applySessionRuntimeSyncEvent(event: SessionRuntimeSyncEvent): void {
       if (!messageExists(event.sessionId, event.messageId)) return
       chatStore.appendContentBlock(event.sessionId, event.messageId, event.block)
       return
+  }
+}
+
+function sanitizeRuntimeSyncPatch(patch: Partial<UnifiedMessage>): Partial<UnifiedMessage> {
+  if (!patch.debugInfo) return patch
+  return {
+    ...patch,
+    debugInfo: createResidentRequestDebugInfo(patch.debugInfo)
   }
 }
 

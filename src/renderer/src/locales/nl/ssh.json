@@ -118,7 +118,6 @@
     "loadFailed": "Laden mislukt",
     "saveFailed": "Opslaan is mislukt",
     "downloadFailed": "Downloaden is mislukt",
-    "zipFailed": "Kon map niet archiveren",
     "uploadFailed": "Uploaden mislukt",
     "deleteFailed": "Verwijderen is mislukt",
     "renameFailed": "Hernoemen mislukt",
@@ -291,9 +290,7 @@
       "cancel": "Annuleren",
       "clear": "Wissen",
       "stages": {
-        "compress": "Comprimeren",
         "upload": "Uploaden",
-        "remote_unzip": "Verwijderen",
         "cleanup": "Opruimen",
         "done": "Voltooid",
         "error": "Mislukt",

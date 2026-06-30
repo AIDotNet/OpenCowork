@@ -1,7 +1,7 @@
 import type { UnifiedMessage } from '../api/types'
-import { createProvider } from '../api/provider'
 import type { ProviderConfig } from '../api/types'
 import { resolveLanguageName, type AppLanguage } from '../i18n-language'
+import { streamSidecarProviderTurn } from '../ipc/agent-bridge'
 
 export interface OptimizationOption {
   title: string
@@ -148,7 +148,6 @@ Begin with Step 1 now.`,
     }
   ]
 
-  const provider = createProvider(providerConfig)
   let optimizedOptions: OptimizationOption[] = []
   let hasToolCall = false
   let iterationCount = 0
@@ -158,12 +157,12 @@ Begin with Step 1 now.`,
     iterationCount++
 
     try {
-      for await (const event of provider.sendMessage(
+      for await (const event of streamSidecarProviderTurn({
         messages,
         tools,
-        { ...providerConfig, systemPrompt: OPTIMIZER_SYSTEM_PROMPT },
+        provider: { ...providerConfig, systemPrompt: OPTIMIZER_SYSTEM_PROMPT },
         signal
-      )) {
+      })) {
         if (event.type === 'text_delta' && event.text) {
           yield { type: 'text', content: event.text }
         } else if (event.type === 'thinking_delta' && event.thinking) {

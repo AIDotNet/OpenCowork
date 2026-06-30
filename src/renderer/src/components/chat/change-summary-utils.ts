@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { IPC } from '@renderer/lib/ipc/channels'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
+import { toMessagePackChannel } from '../../../../shared/messagepack/binary-ipc'
 import {
   canRenderInlineSnapshot,
   computeDiff,
@@ -57,10 +58,13 @@ async function loadSnapshotSidesViaIpc(
   const sourceChange = lastSourceChange ?? firstSourceChange
   if (!sourceChange) return null
 
-  const result = await ipcClient.invoke(IPC.AGENT_CHANGES_DIFF_CONTENT, {
-    runId: sourceChange.runId,
-    changeId: sourceChange.id
-  })
+  const result = await invokeMessagePackBinary(
+    toMessagePackChannel(IPC.AGENT_CHANGES_DIFF_CONTENT),
+    {
+      runId: sourceChange.runId,
+      changeId: sourceChange.id
+    }
+  )
 
   if (isErrorResult(result)) return result
   if (

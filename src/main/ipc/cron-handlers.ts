@@ -1,25 +1,45 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { nanoid } from 'nanoid'
 import cron from 'node-cron'
-import { getDb } from '../db/database'
-import { safeSendToWindow } from '../window-ipc'
+import { safeSendMessagePackToWindow } from '../window-ipc'
 import {
   scheduleJob,
   cancelJob,
   getScheduledJobIds,
   getActiveRunJobIds,
   markRunning,
-  markFinished,
+  markFinished
+} from '../cron/cron-scheduler'
+import {
+  appendCronRunLog,
+  createCronJob,
+  createCronRun,
+  deleteCronJob,
+  getCronJob,
+  getCronRunDetail,
+  listCronJobs,
+  listCronRuns,
+  markCronJobFired,
+  replaceCronRunMessages,
+  setCronJobEnabled,
+  softDeleteCronJob,
+  updateCronJob,
+  updateCronRun,
   type CronJobRecord,
   type CronRunRecord
-} from '../cron/cron-scheduler'
+} from '../db/cron-dao'
 import {
   abortCronAgentRun,
   getCronExecutionState,
   runCronAgentInBackground
 } from '../cron/cron-agent-background'
+import {
+  decodeMessagePackPayload,
+  encodeMessagePackPayload,
+  toMessagePackChannel
+} from '../../shared/messagepack/binary-ipc'
 
-interface CronAddArgs {
+export interface CronAddArgs {
   name: string
   sessionId?: string
   schedule: {
@@ -46,7 +66,7 @@ interface CronAddArgs {
   sourceProviderId?: string | null
 }
 
-interface CronUpdateArgs {
+export interface CronUpdateArgs {
   jobId: string
   patch: Partial<{
     name: string
@@ -123,6 +143,16 @@ interface CronRunLogAppendArgs {
   timestamp: number
   type: 'start' | 'text' | 'tool_call' | 'tool_result' | 'error' | 'end'
   content: string
+}
+
+function registerCronMessagePackHandler<TArgs>(
+  channel: string,
+  handler: (args: TArgs) => Promise<unknown> | unknown
+): void {
+  ipcMain.handle(toMessagePackChannel(channel), async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<TArgs>(bytes)
+    return encodeMessagePackPayload(await handler(args))
+  })
 }
 
 function resolveTimestamp(value: number | string | undefined): number | null {
@@ -321,284 +351,201 @@ function runToApi(r: CronRunRecord): CronRunApi {
   }
 }
 
+export async function handleCronAdd(args: CronAddArgs): Promise<unknown> {
+  if (!args.name) return { error: 'name is required' }
+  if (!args.prompt) return { error: 'prompt is required' }
+
+  const schedErr = validateSchedule(args.schedule)
+  if (schedErr) return { error: schedErr }
+
+  const id = `cron-${nanoid(8)}`
+  const now = Date.now()
+  const kind = args.schedule.kind
+
+  const record: CronJobRecord = {
+    id,
+    name: args.name,
+    session_id: args.sessionId ?? null,
+    schedule_kind: kind,
+    schedule_at: kind === 'at' ? resolveTimestamp(args.schedule.at) : null,
+    schedule_every: kind === 'every' ? (args.schedule.every ?? null) : null,
+    schedule_expr: kind === 'cron' ? (args.schedule.expr ?? null) : null,
+    schedule_tz: args.schedule.tz ?? 'UTC',
+    prompt: args.prompt,
+    agent_id: args.agentId ?? null,
+    model: args.model ?? null,
+    working_folder: args.workingFolder ?? null,
+    ssh_connection_id: args.sshConnectionId ?? null,
+    source_session_title: args.sourceSessionTitle ?? null,
+    source_project_id: args.sourceProjectId ?? null,
+    source_project_name: args.sourceProjectName ?? null,
+    source_provider_id: args.sourceProviderId ?? null,
+    delivery_mode: args.deliveryMode ?? 'desktop',
+    delivery_target: args.deliveryTarget ?? null,
+    plugin_id: args.pluginId ?? null,
+    plugin_chat_id: args.pluginChatId ?? null,
+    enabled: 1,
+    delete_after_run: (args.deleteAfterRun ?? (kind === 'at' ? 1 : 0)) ? 1 : 0,
+    max_iterations: args.maxIterations ?? 15,
+    deleted_at: null,
+    last_fired_at: null,
+    fire_count: 0,
+    created_at: now,
+    updated_at: now
+  }
+
+  try {
+    await createCronJob(record)
+  } catch (err) {
+    return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
+  }
+
+  const scheduled = scheduleJob(record)
+  if (!scheduled) {
+    try {
+      await deleteCronJob(id)
+    } catch {
+      // ignore
+    }
+    return { error: `Failed to schedule job (kind=${kind})` }
+  }
+
+  return { success: true, jobId: id, name: args.name, schedule: args.schedule }
+}
+
+export async function handleCronUpdate(args: CronUpdateArgs): Promise<unknown> {
+  if (!args.jobId) return { error: 'jobId is required' }
+  if (!args.patch || Object.keys(args.patch).length === 0) return { error: 'patch is required' }
+
+  try {
+    const row = await getCronJob(args.jobId)
+    if (!row) return { error: `Job "${args.jobId}" not found` }
+
+    const p = args.patch
+    const updated: CronJobRecord = { ...row }
+
+    if (p.name !== undefined) updated.name = p.name
+    if (p.prompt !== undefined) updated.prompt = p.prompt
+    if (p.agentId !== undefined) updated.agent_id = p.agentId
+    if (p.model !== undefined) updated.model = p.model
+    if (p.workingFolder !== undefined) updated.working_folder = p.workingFolder
+    if (p.sshConnectionId !== undefined) updated.ssh_connection_id = p.sshConnectionId
+    if (p.deliveryMode !== undefined) updated.delivery_mode = p.deliveryMode
+    if (p.deliveryTarget !== undefined) updated.delivery_target = p.deliveryTarget
+    if (p.enabled !== undefined) updated.enabled = p.enabled ? 1 : 0
+    if (p.deleteAfterRun !== undefined) updated.delete_after_run = p.deleteAfterRun ? 1 : 0
+    if (p.maxIterations !== undefined) updated.max_iterations = p.maxIterations
+    if (p.sessionId !== undefined) updated.session_id = p.sessionId
+    if (p.sourceSessionTitle !== undefined) updated.source_session_title = p.sourceSessionTitle
+    if (p.sourceProjectId !== undefined) updated.source_project_id = p.sourceProjectId
+    if (p.sourceProjectName !== undefined) updated.source_project_name = p.sourceProjectName
+    if (p.sourceProviderId !== undefined) updated.source_provider_id = p.sourceProviderId
+
+    if (p.schedule) {
+      const schedErr = validateSchedule(p.schedule as CronAddArgs['schedule'])
+      if (schedErr) return { error: schedErr }
+      updated.schedule_kind = p.schedule.kind
+      updated.schedule_at = p.schedule.kind === 'at' ? resolveTimestamp(p.schedule.at) : null
+      updated.schedule_every = p.schedule.kind === 'every' ? (p.schedule.every ?? null) : null
+      updated.schedule_expr = p.schedule.kind === 'cron' ? (p.schedule.expr?.trim() ?? null) : null
+      updated.schedule_tz = p.schedule.kind === 'cron' ? p.schedule.tz?.trim() || 'UTC' : 'UTC'
+    }
+
+    updated.updated_at = Date.now()
+
+    await updateCronJob(updated)
+
+    cancelJob(updated.id)
+    if (updated.enabled && !updated.deleted_at) {
+      const scheduled = scheduleJob(updated)
+      if (!scheduled) {
+        return { error: `Failed to schedule job (kind=${updated.schedule_kind})` }
+      }
+    }
+
+    return { success: true, jobId: args.jobId }
+  } catch (err) {
+    return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
+  }
+}
+
+export async function handleCronRemove(args: { jobId: string }): Promise<unknown> {
+  if (!args.jobId) return { error: 'jobId is required' }
+
+  try {
+    const row = await getCronJob(args.jobId)
+    if (!row) return { error: `Job "${args.jobId}" not found` }
+
+    cancelJob(args.jobId)
+    await softDeleteCronJob(args.jobId)
+    return { success: true, jobId: args.jobId }
+  } catch (err) {
+    return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
+  }
+}
+
+export async function handleCronDelete(args: { jobId: string }): Promise<unknown> {
+  if (!args.jobId) return { error: 'jobId is required' }
+
+  try {
+    const row = await getCronJob(args.jobId)
+    if (!row) return { error: `Job "${args.jobId}" not found` }
+
+    cancelJob(args.jobId)
+    // Hard delete: cascading FK constraints remove related cron run rows.
+    await deleteCronJob(args.jobId)
+    return { success: true, jobId: args.jobId }
+  } catch (err) {
+    return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
+  }
+}
+
+export async function handleCronList(
+  args?: { sessionId?: string | null; includeDeleted?: boolean } | null
+): Promise<unknown> {
+  try {
+    const scheduledIds = new Set(getScheduledJobIds())
+    const runningIds = new Set(getActiveRunJobIds())
+    const rows = await listCronJobs({
+      sessionId: args?.sessionId,
+      includeDeleted: Boolean(args?.includeDeleted)
+    })
+
+    return rows.map((r) => jobToApi(r, scheduledIds, runningIds))
+  } catch (err) {
+    return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
+  }
+}
+
 export function registerCronHandlers(): void {
-  ipcMain.handle('cron:add', async (_event, args: CronAddArgs) => {
-    if (!args.name) return { error: 'name is required' }
-    if (!args.prompt) return { error: 'prompt is required' }
-
-    const schedErr = validateSchedule(args.schedule)
-    if (schedErr) return { error: schedErr }
-
-    const id = `cron-${nanoid(8)}`
-    const now = Date.now()
-    const kind = args.schedule.kind
-
-    const record: CronJobRecord = {
-      id,
-      name: args.name,
-      session_id: args.sessionId ?? null,
-      schedule_kind: kind,
-      schedule_at: kind === 'at' ? resolveTimestamp(args.schedule.at) : null,
-      schedule_every: kind === 'every' ? (args.schedule.every ?? null) : null,
-      schedule_expr: kind === 'cron' ? (args.schedule.expr ?? null) : null,
-      schedule_tz: args.schedule.tz ?? 'UTC',
-      prompt: args.prompt,
-      agent_id: args.agentId ?? null,
-      model: args.model ?? null,
-      working_folder: args.workingFolder ?? null,
-      ssh_connection_id: args.sshConnectionId ?? null,
-      source_session_title: args.sourceSessionTitle ?? null,
-      source_project_id: args.sourceProjectId ?? null,
-      source_project_name: args.sourceProjectName ?? null,
-      source_provider_id: args.sourceProviderId ?? null,
-      delivery_mode: args.deliveryMode ?? 'desktop',
-      delivery_target: args.deliveryTarget ?? null,
-      plugin_id: args.pluginId ?? null,
-      plugin_chat_id: args.pluginChatId ?? null,
-      enabled: 1,
-      delete_after_run: (args.deleteAfterRun ?? (kind === 'at' ? 1 : 0)) ? 1 : 0,
-      max_iterations: args.maxIterations ?? 15,
-      deleted_at: null,
-      last_fired_at: null,
-      fire_count: 0,
-      created_at: now,
-      updated_at: now
-    }
-
-    try {
-      const db = getDb()
-      db.prepare(
-        `
-        INSERT INTO cron_jobs
-          (id, name, session_id, schedule_kind, schedule_at, schedule_every, schedule_expr, schedule_tz,
-           prompt, agent_id, model, working_folder, ssh_connection_id,
-           source_session_title, source_project_id, source_project_name, source_provider_id,
-           delivery_mode, delivery_target, plugin_id, plugin_chat_id,
-           enabled, delete_after_run, max_iterations, deleted_at,
-           last_fired_at, fire_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-      ).run(
-        record.id,
-        record.name,
-        record.session_id,
-        record.schedule_kind,
-        record.schedule_at,
-        record.schedule_every,
-        record.schedule_expr,
-        record.schedule_tz,
-        record.prompt,
-        record.agent_id,
-        record.model,
-        record.working_folder,
-        record.ssh_connection_id,
-        record.source_session_title,
-        record.source_project_id,
-        record.source_project_name,
-        record.source_provider_id,
-        record.delivery_mode,
-        record.delivery_target,
-        record.plugin_id,
-        record.plugin_chat_id,
-        record.enabled,
-        record.delete_after_run,
-        record.max_iterations,
-        record.deleted_at,
-        record.last_fired_at,
-        record.fire_count,
-        record.created_at,
-        record.updated_at
-      )
-    } catch (err) {
-      return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
-    }
-
-    const scheduled = scheduleJob(record)
-    if (!scheduled) {
-      try {
-        getDb().prepare('DELETE FROM cron_jobs WHERE id = ?').run(id)
-      } catch {
-        // ignore
-      }
-      return { error: `Failed to schedule job (kind=${kind})` }
-    }
-
-    return { success: true, jobId: id, name: args.name, schedule: args.schedule }
+  registerCronMessagePackHandler<CronAddArgs>('cron:add', async (args) => {
+    return await handleCronAdd(args)
   })
 
-  ipcMain.handle('cron:update', async (_event, args: CronUpdateArgs) => {
-    if (!args.jobId) return { error: 'jobId is required' }
-    if (!args.patch || Object.keys(args.patch).length === 0) return { error: 'patch is required' }
-
-    try {
-      const db = getDb()
-      const row = db.prepare('SELECT * FROM cron_jobs WHERE id = ?').get(args.jobId) as
-        | CronJobRecord
-        | undefined
-      if (!row) return { error: `Job "${args.jobId}" not found` }
-
-      const p = args.patch
-      const updated: CronJobRecord = { ...row }
-
-      if (p.name !== undefined) updated.name = p.name
-      if (p.prompt !== undefined) updated.prompt = p.prompt
-      if (p.agentId !== undefined) updated.agent_id = p.agentId
-      if (p.model !== undefined) updated.model = p.model
-      if (p.workingFolder !== undefined) updated.working_folder = p.workingFolder
-      if (p.sshConnectionId !== undefined) updated.ssh_connection_id = p.sshConnectionId
-      if (p.deliveryMode !== undefined) updated.delivery_mode = p.deliveryMode
-      if (p.deliveryTarget !== undefined) updated.delivery_target = p.deliveryTarget
-      if (p.enabled !== undefined) updated.enabled = p.enabled ? 1 : 0
-      if (p.deleteAfterRun !== undefined) updated.delete_after_run = p.deleteAfterRun ? 1 : 0
-      if (p.maxIterations !== undefined) updated.max_iterations = p.maxIterations
-      if (p.sessionId !== undefined) updated.session_id = p.sessionId
-      if (p.sourceSessionTitle !== undefined) updated.source_session_title = p.sourceSessionTitle
-      if (p.sourceProjectId !== undefined) updated.source_project_id = p.sourceProjectId
-      if (p.sourceProjectName !== undefined) updated.source_project_name = p.sourceProjectName
-      if (p.sourceProviderId !== undefined) updated.source_provider_id = p.sourceProviderId
-
-      if (p.schedule) {
-        const schedErr = validateSchedule(p.schedule as CronAddArgs['schedule'])
-        if (schedErr) return { error: schedErr }
-        updated.schedule_kind = p.schedule.kind
-        updated.schedule_at = p.schedule.kind === 'at' ? resolveTimestamp(p.schedule.at) : null
-        updated.schedule_every = p.schedule.kind === 'every' ? (p.schedule.every ?? null) : null
-        updated.schedule_expr =
-          p.schedule.kind === 'cron' ? (p.schedule.expr?.trim() ?? null) : null
-        updated.schedule_tz = p.schedule.kind === 'cron' ? p.schedule.tz?.trim() || 'UTC' : 'UTC'
-      }
-
-      updated.updated_at = Date.now()
-
-      db.prepare(
-        `
-        UPDATE cron_jobs SET
-          name=?, session_id=?, schedule_kind=?, schedule_at=?, schedule_every=?, schedule_expr=?, schedule_tz=?,
-          prompt=?, agent_id=?, model=?, working_folder=?, ssh_connection_id=?,
-          source_session_title=?, source_project_id=?, source_project_name=?, source_provider_id=?,
-          delivery_mode=?, delivery_target=?,
-          enabled=?, delete_after_run=?, max_iterations=?, updated_at=?
-        WHERE id=?
-      `
-      ).run(
-        updated.name,
-        updated.session_id,
-        updated.schedule_kind,
-        updated.schedule_at,
-        updated.schedule_every,
-        updated.schedule_expr,
-        updated.schedule_tz,
-        updated.prompt,
-        updated.agent_id,
-        updated.model,
-        updated.working_folder,
-        updated.ssh_connection_id,
-        updated.source_session_title,
-        updated.source_project_id,
-        updated.source_project_name,
-        updated.source_provider_id,
-        updated.delivery_mode,
-        updated.delivery_target,
-        updated.enabled,
-        updated.delete_after_run,
-        updated.max_iterations,
-        updated.updated_at,
-        updated.id
-      )
-
-      cancelJob(updated.id)
-      if (updated.enabled && !updated.deleted_at) {
-        const scheduled = scheduleJob(updated)
-        if (!scheduled) {
-          return { error: `Failed to schedule job (kind=${updated.schedule_kind})` }
-        }
-      }
-
-      return { success: true, jobId: args.jobId }
-    } catch (err) {
-      return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
-    }
+  registerCronMessagePackHandler<CronUpdateArgs>('cron:update', async (args) => {
+    return await handleCronUpdate(args)
   })
 
-  ipcMain.handle('cron:remove', async (_event, args: { jobId: string }) => {
-    if (!args.jobId) return { error: 'jobId is required' }
-
-    try {
-      const db = getDb()
-      const row = db.prepare('SELECT id FROM cron_jobs WHERE id = ?').get(args.jobId)
-      if (!row) return { error: `Job "${args.jobId}" not found` }
-
-      cancelJob(args.jobId)
-      const now = Date.now()
-      db.prepare(
-        'UPDATE cron_jobs SET enabled = 0, deleted_at = ?, updated_at = ? WHERE id = ?'
-      ).run(now, now, args.jobId)
-      return { success: true, jobId: args.jobId }
-    } catch (err) {
-      return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
-    }
+  registerCronMessagePackHandler<{ jobId: string }>('cron:remove', async (args) => {
+    return await handleCronRemove(args)
   })
 
-  ipcMain.handle('cron:delete', async (_event, args: { jobId: string }) => {
-    if (!args.jobId) return { error: 'jobId is required' }
-
-    try {
-      const db = getDb()
-      const row = db.prepare('SELECT id FROM cron_jobs WHERE id = ?').get(args.jobId)
-      if (!row) return { error: `Job "${args.jobId}" not found` }
-
-      cancelJob(args.jobId)
-      // Hard delete — cascading FK constraints remove related cron_runs, cron_run_messages, cron_run_logs
-      db.prepare('DELETE FROM cron_jobs WHERE id = ?').run(args.jobId)
-      return { success: true, jobId: args.jobId }
-    } catch (err) {
-      return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
-    }
+  registerCronMessagePackHandler<{ jobId: string }>('cron:delete', async (args) => {
+    return await handleCronDelete(args)
   })
 
-  ipcMain.handle(
+  registerCronMessagePackHandler<{ sessionId?: string | null; includeDeleted?: boolean } | undefined>(
     'cron:list',
-    async (_event, args?: { sessionId?: string | null; includeDeleted?: boolean }) => {
-      try {
-        const db = getDb()
-        const includeDeleted = Boolean(args?.includeDeleted)
-        const scheduledIds = new Set(getScheduledJobIds())
-        const runningIds = new Set(getActiveRunJobIds())
-
-        let rows: CronJobRecord[]
-        if (args?.sessionId) {
-          rows = db
-            .prepare(
-              includeDeleted
-                ? 'SELECT * FROM cron_jobs WHERE session_id = ? ORDER BY created_at DESC'
-                : 'SELECT * FROM cron_jobs WHERE session_id = ? AND deleted_at IS NULL ORDER BY created_at DESC'
-            )
-            .all(args.sessionId) as CronJobRecord[]
-        } else {
-          rows = db
-            .prepare(
-              includeDeleted
-                ? 'SELECT * FROM cron_jobs ORDER BY created_at DESC'
-                : 'SELECT * FROM cron_jobs WHERE deleted_at IS NULL ORDER BY created_at DESC'
-            )
-            .all() as CronJobRecord[]
-        }
-
-        return rows.map((r) => jobToApi(r, scheduledIds, runningIds))
-      } catch (err) {
-        return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
-      }
+    async (args) => {
+      return await handleCronList(args)
     }
   )
 
-  ipcMain.handle('cron:toggle', async (_event, args: { jobId: string; enabled: boolean }) => {
+  registerCronMessagePackHandler<{ jobId: string; enabled: boolean }>('cron:toggle', async (args) => {
     if (!args.jobId) return { error: 'jobId is required' }
 
     try {
-      const db = getDb()
-      const row = db.prepare('SELECT * FROM cron_jobs WHERE id = ?').get(args.jobId) as
-        | CronJobRecord
-        | undefined
+      const row = await getCronJob(args.jobId)
       if (!row) return { error: `Job "${args.jobId}" not found` }
       if (row.deleted_at) return { error: `Job "${args.jobId}" has been deleted` }
 
@@ -613,19 +560,12 @@ export function registerCronHandlers(): void {
         })
         if (schedErr) return { error: schedErr }
       }
-      db.prepare('UPDATE cron_jobs SET enabled = ?, updated_at = ? WHERE id = ?').run(
-        args.enabled ? 1 : 0,
-        now,
-        args.jobId
-      )
+      await setCronJobEnabled(args.jobId, args.enabled, now)
 
       if (args.enabled) {
         const scheduled = scheduleJob({ ...row, enabled: 1, updated_at: now })
         if (!scheduled) {
-          db.prepare('UPDATE cron_jobs SET enabled = 0, updated_at = ? WHERE id = ?').run(
-            Date.now(),
-            args.jobId
-          )
+          await setCronJobEnabled(args.jobId, false, Date.now())
           return { error: `Failed to schedule job (kind=${row.schedule_kind})` }
         }
       } else {
@@ -638,14 +578,11 @@ export function registerCronHandlers(): void {
     }
   })
 
-  ipcMain.handle('cron:run-now', async (_event, args: { jobId: string }) => {
+  registerCronMessagePackHandler<{ jobId: string }>('cron:run-now', async (args) => {
     if (!args.jobId) return { error: 'jobId is required' }
 
     try {
-      const db = getDb()
-      const row = db.prepare('SELECT * FROM cron_jobs WHERE id = ?').get(args.jobId) as
-        | CronJobRecord
-        | undefined
+      const row = await getCronJob(args.jobId)
       if (!row) return { error: `Job "${args.jobId}" not found` }
       if (row.deleted_at) return { error: `Job "${args.jobId}" has been deleted` }
 
@@ -656,7 +593,7 @@ export function registerCronHandlers(): void {
       const firedAt = Date.now()
       const win = BrowserWindow.getAllWindows()[0]
       if (win) {
-        safeSendToWindow(win, 'cron:fired', {
+        const firedPayload = {
           jobId: row.id,
           name: row.name,
           prompt: row.prompt,
@@ -672,12 +609,11 @@ export function registerCronHandlers(): void {
           maxIterations: row.max_iterations,
           pluginId: row.plugin_id,
           pluginChatId: row.plugin_chat_id
-        })
+        }
+        safeSendMessagePackToWindow(win, 'cron:fired', firedPayload)
       }
 
-      db.prepare(
-        'UPDATE cron_jobs SET last_fired_at = ?, fire_count = fire_count + 1 WHERE id = ?'
-      ).run(firedAt, row.id)
+      await markCronJobFired(row.id, firedAt)
 
       runCronAgentInBackground(
         {
@@ -699,7 +635,7 @@ export function registerCronHandlers(): void {
           getScheduledState: () => getScheduledJobIds().includes(row.id)
         },
         () => {
-          markFinished(row.id)
+          void markFinished(row.id)
         }
       )
 
@@ -709,7 +645,7 @@ export function registerCronHandlers(): void {
     }
   })
 
-  ipcMain.handle('cron:abort-run', async (_event, args: { jobId: string }) => {
+  registerCronMessagePackHandler<{ jobId: string }>('cron:abort-run', async (args) => {
     if (!args?.jobId) return { error: 'jobId is required' }
     const aborted = abortCronAgentRun(args.jobId)
     return aborted
@@ -717,225 +653,74 @@ export function registerCronHandlers(): void {
       : { error: `Job "${args.jobId}" is not running` }
   })
 
-  ipcMain.handle(
-    'cron:runs',
-    async (
-      _event,
-      args: {
-        jobId?: string
-        sessionId?: string | null
-        start?: number
-        end?: number
-        limit?: number
-      }
-    ) => {
-      try {
-        const db = getDb()
-        const limit = Math.max(1, Math.min(args?.limit ?? 200, 1000))
-        const filters: string[] = []
-        const values: unknown[] = []
-        const needsSessionJoin = Boolean(args?.sessionId)
-
-        if (args?.jobId) {
-          filters.push('r.job_id = ?')
-          values.push(args.jobId)
-        }
-        if (args?.sessionId) {
-          filters.push('COALESCE(r.source_session_id_snapshot, j.session_id) = ?')
-          values.push(args.sessionId)
-        }
-        if (typeof args?.start === 'number' && Number.isFinite(args.start)) {
-          filters.push('r.started_at >= ?')
-          values.push(args.start)
-        }
-        if (typeof args?.end === 'number' && Number.isFinite(args.end)) {
-          filters.push('r.started_at <= ?')
-          values.push(args.end)
-        }
-
-        const fromClause = needsSessionJoin
-          ? 'FROM cron_runs r LEFT JOIN cron_jobs j ON j.id = r.job_id'
-          : 'FROM cron_runs r'
-        const whereClause = filters.length > 0 ? ` WHERE ${filters.join(' AND ')}` : ''
-        const rows = db
-          .prepare(`SELECT r.* ${fromClause}${whereClause} ORDER BY r.started_at DESC LIMIT ?`)
-          .all(...values, limit)
-        return (rows as CronRunRecord[]).map(runToApi)
-      } catch (err) {
-        return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
-      }
+  registerCronMessagePackHandler<{
+    jobId?: string
+    sessionId?: string | null
+    start?: number
+    end?: number
+    limit?: number
+  }>('cron:runs', async (args) => {
+    try {
+      const rows = await listCronRuns(args ?? {})
+      return rows.map(runToApi)
+    } catch (err) {
+      return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
     }
-  )
+  })
 
-  ipcMain.handle('cron:run:create', async (_event, args: CronRunCreateArgs) => {
+  registerCronMessagePackHandler<CronRunCreateArgs>('cron:run:create', async (args) => {
     if (!args.runId || !args.jobId) return { error: 'runId and jobId are required' }
     try {
-      const db = getDb()
-      db.prepare(
-        `
-        INSERT INTO cron_runs (
-          id, job_id, started_at, finished_at, status, tool_call_count, output_summary, error,
-          scheduled_for, job_name_snapshot, prompt_snapshot,
-          source_session_id_snapshot, source_session_title_snapshot,
-          source_project_id_snapshot, source_project_name_snapshot, source_provider_id_snapshot,
-          model_snapshot, working_folder_snapshot,
-          delivery_mode_snapshot, delivery_target_snapshot
-        ) VALUES (?, ?, ?, NULL, 'running', 0, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-      ).run(
-        args.runId,
-        args.jobId,
-        args.startedAt,
-        args.scheduledFor ?? null,
-        args.jobNameSnapshot ?? null,
-        args.promptSnapshot ?? null,
-        args.sourceSessionIdSnapshot ?? null,
-        args.sourceSessionTitleSnapshot ?? null,
-        args.sourceProjectIdSnapshot ?? null,
-        args.sourceProjectNameSnapshot ?? null,
-        args.sourceProviderIdSnapshot ?? null,
-        args.modelSnapshot ?? null,
-        args.workingFolderSnapshot ?? null,
-        args.deliveryModeSnapshot ?? null,
-        args.deliveryTargetSnapshot ?? null
-      )
+      await createCronRun(args)
       return { success: true }
     } catch (err) {
       return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
     }
   })
 
-  ipcMain.handle('cron:run:update', async (_event, args: CronRunUpdateArgs) => {
+  registerCronMessagePackHandler<CronRunUpdateArgs>('cron:run:update', async (args) => {
     if (!args.runId) return { error: 'runId is required' }
     try {
-      const sets: string[] = []
-      const values: unknown[] = []
-      if (args.patch.finishedAt !== undefined) {
-        sets.push('finished_at = ?')
-        values.push(args.patch.finishedAt)
-      }
-      if (args.patch.status !== undefined) {
-        sets.push('status = ?')
-        values.push(args.patch.status)
-      }
-      if (args.patch.toolCallCount !== undefined) {
-        sets.push('tool_call_count = ?')
-        values.push(args.patch.toolCallCount)
-      }
-      if (args.patch.outputSummary !== undefined) {
-        sets.push('output_summary = ?')
-        values.push(args.patch.outputSummary)
-      }
-      if (args.patch.error !== undefined) {
-        sets.push('error = ?')
-        values.push(args.patch.error)
-      }
-      if (sets.length === 0) return { success: true }
-
-      values.push(args.runId)
-      getDb()
-        .prepare(`UPDATE cron_runs SET ${sets.join(', ')} WHERE id = ?`)
-        .run(...values)
+      if (!args.patch || Object.keys(args.patch).length === 0) return { success: true }
+      await updateCronRun(args)
       return { success: true }
     } catch (err) {
       return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
     }
   })
 
-  ipcMain.handle('cron:run-messages:replace', async (_event, args: CronRunMessagesReplaceArgs) => {
+  registerCronMessagePackHandler<CronRunMessagesReplaceArgs>('cron:run-messages:replace', async (args) => {
     if (!args.runId) return { error: 'runId is required' }
     try {
-      const db = getDb()
-      const delStmt = db.prepare('DELETE FROM cron_run_messages WHERE run_id = ?')
-      const insertStmt = db.prepare(`
-        INSERT INTO cron_run_messages (id, run_id, role, content, usage, message_source, sort_order, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      const tx = db.transaction(() => {
-        delStmt.run(args.runId)
-        args.messages.forEach((message, index) => {
-          insertStmt.run(
-            message.id,
-            args.runId,
-            message.role,
-            JSON.stringify(message.content),
-            message.usage === undefined ? null : JSON.stringify(message.usage),
-            message.source ?? null,
-            index,
-            message.createdAt
-          )
-        })
-      })
-      tx()
+      await replaceCronRunMessages(args.runId, args.messages)
       return { success: true }
     } catch (err) {
       return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
     }
   })
 
-  ipcMain.handle('cron:run-log:append', async (_event, args: CronRunLogAppendArgs) => {
+  registerCronMessagePackHandler<CronRunLogAppendArgs>('cron:run-log:append', async (args) => {
     if (!args.runId) return { error: 'runId is required' }
     try {
-      const db = getDb()
-      const nextSortOrder =
-        ((
-          db
-            .prepare('SELECT MAX(sort_order) AS value FROM cron_run_logs WHERE run_id = ?')
-            .get(args.runId) as { value?: number | null }
-        )?.value ?? -1) + 1
-      db.prepare(
-        'INSERT INTO cron_run_logs (id, run_id, timestamp, type, content, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(`log-${nanoid(8)}`, args.runId, args.timestamp, args.type, args.content, nextSortOrder)
+      await appendCronRunLog(args.runId, args.timestamp, args.type, args.content)
       return { success: true }
     } catch (err) {
       return { error: `DB error: ${err instanceof Error ? err.message : String(err)}` }
     }
   })
 
-  ipcMain.handle('cron:run-detail', async (_event, args: { runId: string }) => {
+  registerCronMessagePackHandler<{ runId: string }>('cron:run-detail', async (args) => {
     if (!args.runId) return { error: 'runId is required' }
     try {
-      const db = getDb()
-      const run = db.prepare('SELECT * FROM cron_runs WHERE id = ?').get(args.runId) as
-        | CronRunRecord
-        | undefined
-      if (!run) return { error: `Run "${args.runId}" not found` }
-
-      const jobRow = db.prepare('SELECT * FROM cron_jobs WHERE id = ?').get(run.job_id) as
-        | CronJobRecord
-        | undefined
-      const messageRows = db
-        .prepare(
-          `SELECT id, role, content, usage, message_source, created_at
-           FROM cron_run_messages WHERE run_id = ? ORDER BY sort_order ASC`
-        )
-        .all(args.runId) as Array<{
-        id: string
-        role: string
-        content: string
-        usage: string | null
-        message_source: string | null
-        created_at: number
-      }>
-      const logRows = db
-        .prepare(
-          `SELECT id, timestamp, type, content
-           FROM cron_run_logs WHERE run_id = ? ORDER BY sort_order ASC`
-        )
-        .all(args.runId) as Array<{
-        id: string
-        timestamp: number
-        type: 'start' | 'text' | 'tool_call' | 'tool_result' | 'error' | 'end'
-        content: string
-      }>
+      const detail = await getCronRunDetail(args.runId)
 
       const scheduledIds = new Set(getScheduledJobIds())
       const runningIds = new Set(getActiveRunJobIds())
 
       return {
-        run: runToApi(run),
-        job: jobRow ? jobToApi(jobRow, scheduledIds, runningIds) : null,
-        messages: messageRows.map(
+        run: runToApi(detail.run),
+        job: detail.job ? jobToApi(detail.job, scheduledIds, runningIds) : null,
+        messages: detail.messages.map(
           (row): CronRunMessageApi => ({
             id: row.id,
             role: row.role,
@@ -945,7 +730,7 @@ export function registerCronHandlers(): void {
             createdAt: row.created_at
           })
         ),
-        logs: logRows.map(
+        logs: detail.logs.map(
           (row): CronRunLogApi => ({
             id: row.id,
             timestamp: row.timestamp,
@@ -959,9 +744,9 @@ export function registerCronHandlers(): void {
     }
   })
 
-  ipcMain.handle('cron:run-finished', async (_event, args: { jobId: string }) => {
+  registerCronMessagePackHandler<{ jobId: string }>('cron:run-finished', async (args) => {
     if (args?.jobId) {
-      markFinished(args.jobId)
+      await markFinished(args.jobId)
       console.log(`[CronHandlers] Marked job ${args.jobId} as finished`)
     }
     return { success: true }

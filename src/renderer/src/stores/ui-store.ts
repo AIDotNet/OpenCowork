@@ -670,7 +670,8 @@ const CHAT_SURFACE_NAV_RESET = {
   resourcesPageOpen: false,
   translatePageOpen: false,
   drawPageOpen: false,
-  tasksPageOpen: false
+  tasksPageOpen: false,
+  pendingInsertText: null
 } as const
 
 function replaceChatRouteFromCurrentState(chatView: ChatView): void {
@@ -1886,6 +1887,11 @@ export const useUIStore = create<UIStore>()(
       },
       chatView: 'home',
       navigateToHome: () => {
+        // 进入主页（新建会话视图）意味着没有活动会话，立即退订当前会话，
+        // 避免旧的 MessageList 在视图退场动画期间继续全量重渲染与 IPC 加载造成卡顿。
+        if (useChatStore.getState().activeSessionId) {
+          useChatStore.getState().setActiveSession(null)
+        }
         set({ activeNavItem: 'chat', chatView: 'home', ...CHAT_SURFACE_NAV_RESET })
         replaceChatRoute({ chatView: 'home', projectId: null, sessionId: null })
       },

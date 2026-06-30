@@ -8,6 +8,7 @@ export function toAgentEvent(e: AgentStreamEvent): AgentEvent | null {
     case 'iteration_start':
     case 'text_delta':
     case 'thinking_delta':
+    case 'translation_buffer_update':
     case 'image_generation_started':
     case 'context_compression_start':
     case 'tool_use_args_delta':

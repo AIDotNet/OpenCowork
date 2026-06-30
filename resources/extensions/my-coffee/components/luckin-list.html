@@ -1,0 +1,234 @@
+<section class="coffee-panel">
+  <div class="panel-head">
+    <div>
+      <div class="eyebrow">My Coffee</div>
+      <h1 id="title">Luckin list</h1>
+      <p id="subtitle"></p>
+    </div>
+    <span id="count" class="count"></span>
+  </div>
+  <div id="rows" class="rows"></div>
+</section>
+
+<style>
+  body {
+    color: #172033;
+  }
+
+  .coffee-panel {
+    margin: 0;
+    padding: 14px;
+    border: 1px solid rgba(37, 99, 235, 0.18);
+    border-radius: 8px;
+    background: #f8fbff;
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .eyebrow {
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 3px 0 0;
+    font-size: 16px;
+  }
+
+  p {
+    margin: 3px 0 0;
+    color: #64748b;
+    font-size: 12px;
+  }
+
+  .count {
+    border: 1px solid rgba(37, 99, 235, 0.16);
+    border-radius: 999px;
+    padding: 2px 8px;
+    color: #1d4ed8;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .rows {
+    display: grid;
+    gap: 8px;
+  }
+
+  .empty {
+    border: 1px dashed rgba(15, 23, 42, 0.16);
+    border-radius: 8px;
+    padding: 10px;
+    color: #64748b;
+    font-size: 12px;
+    background: #ffffff;
+  }
+
+  .row {
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 8px;
+    padding: 10px;
+    background: #ffffff;
+  }
+
+  .row-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .row-body.has-image {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .thumb-wrap {
+    width: 72px;
+    height: 72px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 10px;
+    background: #f8fafc;
+    overflow: hidden;
+  }
+
+  .thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .row-title {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .badge {
+    color: #475569;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .meta {
+    margin-top: 5px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .details {
+    display: grid;
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .detail {
+    color: #475569;
+    font-size: 11px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+</style>
+
+<script>
+  window.addEventListener('extension-props', (event) => {
+    const props = event.detail || {}
+    const rows = Array.isArray(props.shops)
+      ? props.shops
+      : Array.isArray(props.products)
+        ? props.products
+        : []
+
+    document.getElementById('title').textContent = props.title || 'Luckin list'
+    document.getElementById('subtitle').textContent = props.subtitle || ''
+    document.getElementById('count').textContent = rows.length ? `${rows.length} items` : ''
+    document.getElementById('rows').innerHTML = rows.length
+      ? rows.map(renderRow).join('')
+      : '<div class="empty">当前结果里没有可展示的条目。</div>'
+  })
+
+  function renderRow(row) {
+    const title = row.deptName || row.productName || row.name || row.title || 'Item'
+    const badge =
+      row.badgeText ||
+      row.estimatePrice ||
+      row.initialPriceText ||
+      row.deptId ||
+      row.productId ||
+      row.skuCode ||
+      ''
+    const imageUrl = safeUrl(
+      row.imageUrl || row.pictureUrl || row.breviaryPicUrl || row.bigPicUrl || row.picture
+    )
+    const meta = (
+      Array.isArray(row.metaParts)
+        ? row.metaParts
+        : [
+            row.address,
+            row.businessTime,
+            row.distanceText,
+            row.skuName || row.attributeSummary,
+            row.tagsText,
+            row.initialPriceText && row.initialPriceText !== row.estimatePrice
+              ? `原价 ${row.initialPriceText}`
+              : '',
+            row.estimatePrice ? `价格 ${row.estimatePrice}` : row.initialPriceText
+          ]
+    ).filter(Boolean)
+    const details = (
+      Array.isArray(row.details)
+        ? row.details
+        : [
+            row.workStatus ? `状态: ${row.workStatus}` : '',
+            row.number ? `门店编号: ${row.number}` : '',
+            row.productId ? `商品 ID: ${row.productId}` : '',
+            row.skuCode ? `SKU: ${row.skuCode}` : ''
+          ]
+    ).filter(Boolean)
+    return `<article class="row">
+      <div class="row-body${imageUrl ? ' has-image' : ''}">
+        ${imageUrl ? `<div class="thumb-wrap"><img class="thumb" src="${escapeHtmlAttr(imageUrl)}" alt="${escapeHtmlAttr(title)}" /></div>` : ''}
+        <div>
+          <div class="row-title"><span>${escapeHtml(title)}</span><span class="badge">${escapeHtml(badge)}</span></div>
+          ${meta.length ? `<div class="meta">${escapeHtml(meta.join(' | '))}</div>` : ''}
+          ${details.length ? `<div class="details">${details.map((detail) => `<div class="detail">${escapeHtml(detail)}</div>`).join('')}</div>` : ''}
+        </div>
+      </div>
+    </article>`
+  }
+
+  function safeUrl(value) {
+    try {
+      const url = new URL(String(value || ''))
+      return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : ''
+    } catch {
+      return ''
+    }
+  }
+
+  function escapeHtmlAttr(value) {
+    return escapeHtml(value)
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+  }
+</script>

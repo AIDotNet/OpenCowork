@@ -1,0 +1,80 @@
+<section class="receipt">
+  <div class="eyebrow">My Coffee</div>
+  <h1 id="title">瑞幸咖啡</h1>
+  <p id="subtitle"></p>
+  <dl id="fields"></dl>
+</section>
+
+<style>
+  body {
+    color: #172033;
+  }
+
+  .receipt {
+    margin: 0;
+    padding: 14px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 8px;
+    background: #f8fbff;
+  }
+
+  .eyebrow {
+    color: #1d4ed8;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 4px 0;
+    font-size: 16px;
+  }
+
+  p {
+    margin: 0 0 10px;
+    color: #475569;
+    font-size: 12px;
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 6px 12px;
+    margin: 0;
+    font-size: 12px;
+  }
+
+  dt {
+    color: #64748b;
+  }
+
+  dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: #0f172a;
+  }
+</style>
+
+<script>
+  window.addEventListener('extension-props', (event) => {
+    const props = event.detail || {}
+    document.getElementById('title').textContent = props.title || '瑞幸咖啡'
+    document.getElementById('subtitle').textContent = props.subtitle || ''
+
+    const fields = Array.isArray(props.fields) ? props.fields : []
+    document.getElementById('fields').innerHTML = fields
+      .map((field) => `<dt>${escapeHtml(field.label)}</dt><dd>${escapeHtml(field.value)}</dd>`)
+      .join('')
+  })
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+  }
+</script>

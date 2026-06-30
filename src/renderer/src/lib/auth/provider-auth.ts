@@ -265,7 +265,7 @@ function buildOAuthProviderPatch(provider: AIProvider, token: OAuthToken): Parti
 /**
  * Build a provider patch that: replaces the accounts array, updates activeAccountId,
  * and projects the active account's token into the top-level oauth/apiKey/baseUrl fields
- * so all legacy readers (openai-chat.ts, etc.) just see the current account transparently.
+ * so provider consumers see the current account transparently.
  */
 function buildAccountProjectionPatch(
   provider: AIProvider,

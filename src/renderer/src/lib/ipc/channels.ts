@@ -4,14 +4,9 @@ export const IPC = {
   // App
   APP_HOMEDIR: 'app:homedir',
 
-  // API Streaming
-  API_STREAM_REQUEST: 'api:stream-request',
-  API_STREAM_CHUNK: 'api:stream-chunk',
-  API_STREAM_END: 'api:stream-end',
-  API_STREAM_ERROR: 'api:stream-error',
+  // API events
   API_QUOTA_UPDATE: 'api:quota-update',
   API_ACCOUNT_RATE_LIMITED: 'api:account-rate-limited',
-  API_ABORT: 'api:abort',
 
   // File System
   FS_SELECT_FILE: 'fs:select-file',
@@ -57,6 +52,7 @@ export const IPC = {
   TERMINAL_INPUT: 'terminal:input',
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_KILL: 'terminal:kill',
+  TERMINAL_GET: 'terminal:get',
   TERMINAL_LIST: 'terminal:list',
   TERMINAL_CREATED: 'terminal:created',
   TERMINAL_OUTPUT: 'terminal:output',
@@ -99,7 +95,6 @@ export const IPC = {
   EXTENSION_REMOVE: 'extension:remove',
   EXTENSION_OPEN_FOLDER: 'extension:open-folder',
   EXTENSION_READ_ASSET: 'extension:read-asset',
-  EXTENSION_FETCH: 'extension:fetch',
   EXTENSION_STORAGE_GET: 'extension:storage-get',
   EXTENSION_STORAGE_SET: 'extension:storage-set',
   EXTENSION_STORAGE_DELETE: 'extension:storage-delete',
@@ -128,20 +123,6 @@ export const IPC = {
   SYNC_RUN_PROGRESS: 'sync:run-progress',
   SYNC_CONFLICT_FOUND: 'sync:conflict-found',
   SYNC_RUN_FINISHED: 'sync:run-finished',
-
-  // Usage Analytics
-  USAGE_EVENTS_ADD: 'usage-events:add',
-  USAGE_EVENTS_OVERVIEW: 'usage-events:overview',
-  USAGE_EVENTS_DAILY: 'usage-events:daily',
-  USAGE_EVENTS_TIMELINE: 'usage-events:timeline',
-  USAGE_EVENTS_BY_MODEL: 'usage-events:by-model',
-  USAGE_EVENTS_BY_PROVIDER: 'usage-events:by-provider',
-  USAGE_EVENTS_LIST: 'usage-events:list',
-  USAGE_EVENTS_CLEAR: 'usage-events:clear',
-  USAGE_ACTIVITY_OVERVIEW: 'usage-activity:overview',
-  USAGE_ACTIVITY_DAILY: 'usage-activity:daily',
-  USAGE_ACTIVITY_BY_MODEL: 'usage-activity:by-model',
-  USAGE_ACTIVITY_BY_PROVIDER: 'usage-activity:by-provider',
 
   // Plugins
   PLUGIN_LIST_PROVIDERS: 'plugin:list-providers',
@@ -240,6 +221,7 @@ export const IPC = {
   GIT_GET_RANGE_COMMITS: 'git:get-range-commits',
   GIT_GET_CHANGED_FILES: 'git:get-changed-files',
   GIT_GET_STATUS: 'git:get-status',
+  GIT_GET_LINE_SUMMARY: 'git:get-line-summary',
   GIT_SCAN_REPOSITORIES: 'git:scan-repositories',
   GIT_GET_REPO_SUMMARY: 'git:get-repo-summary',
   GIT_GET_STATUS_DETAILED: 'git:get-status-detailed',

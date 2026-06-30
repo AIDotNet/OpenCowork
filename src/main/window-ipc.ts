@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron'
+import { encodeMessagePackPayload, toMessagePackChannel } from '../shared/messagepack/binary-ipc'
 
 function isDisposedFrameError(error: unknown): boolean {
   return (
@@ -7,7 +8,11 @@ function isDisposedFrameError(error: unknown): boolean {
   )
 }
 
-export function safeSendToWindow(win: BrowserWindow, channel: string, payload: unknown): boolean {
+export function safePostMessageToWindow(
+  win: BrowserWindow,
+  channel: string,
+  bytes: Uint8Array | Buffer
+): boolean {
   if (win.isDestroyed()) {
     return false
   }
@@ -18,18 +23,42 @@ export function safeSendToWindow(win: BrowserWindow, channel: string, payload: u
   }
 
   try {
-    contents.send(channel, payload)
+    const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+    contents.postMessage(channel, arrayBuffer)
     return true
   } catch (error) {
     if (!isDisposedFrameError(error)) {
-      console.warn(`[Window IPC] Failed to send ${channel}:`, error)
+      console.warn(`[Window IPC] Failed to post ${channel}:`, error)
+    }
+  }
+
+  try {
+    contents.send(channel, Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+    return true
+  } catch (error) {
+    if (!isDisposedFrameError(error)) {
+      console.warn(`[Window IPC] Failed to send binary fallback ${channel}:`, error)
     }
     return false
   }
 }
 
-export function safeSendToAllWindows(channel: string, payload: unknown): void {
+export function safeSendMessagePackToWindow(
+  win: BrowserWindow,
+  channel: string,
+  payload: unknown
+): boolean {
+  return safePostMessageToWindow(
+    win,
+    toMessagePackChannel(channel),
+    encodeMessagePackPayload(payload)
+  )
+}
+
+export function safeSendMessagePackToAllWindows(channel: string, payload: unknown): void {
+  const bytes = encodeMessagePackPayload(payload)
+  const binaryChannel = toMessagePackChannel(channel)
   for (const win of BrowserWindow.getAllWindows()) {
-    safeSendToWindow(win, channel, payload)
+    safePostMessageToWindow(win, binaryChannel, bytes)
   }
 }

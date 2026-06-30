@@ -1,17 +1,9 @@
 import { toolRegistry } from '@renderer/lib/agent/tool-registry'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
-import { IPC } from '@renderer/lib/ipc/channels'
 import type { ToolHandler } from '@renderer/lib/tools/tool-types'
 import { encodeToolError } from '@renderer/lib/tools/tool-result-format'
-import type {
-  ExtensionFetchResponse,
-  ExtensionInstance,
-  ExtensionToolDefinition,
-  ExtensionToolResult
-} from '../../../../shared/extension-types'
+import type { ExtensionInstance, ExtensionToolDefinition } from '../../../../shared/extension-types'
 import { useExtensionStore } from '@renderer/stores/extension-store'
-import { executeJsExtensionTool } from './extension-sandbox-runtime'
-import { encodeExtensionToolResult } from './extension-result'
+import { useChatStore } from '@renderer/stores/chat-store'
 
 const EXTENSION_TOOL_PREFIX = 'extension__'
 let registeredExtensionToolNames: string[] = []
@@ -66,65 +58,10 @@ function isReadOnlyTool(tool: ExtensionToolDefinition): boolean {
   return false
 }
 
-function normalizeJsResult(
-  extension: ExtensionInstance,
-  tool: ExtensionToolDefinition,
-  value: unknown
-): Omit<ExtensionToolResult, '__openCoworkExtensionResult'> {
-  if (isRecord(value)) {
-    return {
-      extensionId: extension.id,
-      toolName: tool.name,
-      ...(typeof value.text === 'string' ? { text: value.text } : {}),
-      ...('data' in value ? { data: value.data } : {}),
-      ...(isRecord(value.ui) ? { ui: value.ui as ExtensionToolResult['ui'] } : {})
-    }
-  }
-  return {
-    extensionId: extension.id,
-    toolName: tool.name,
-    text: typeof value === 'string' ? value : JSON.stringify(value),
-    data: value
-  }
-}
-
-function normalizeHttpResult(
-  extension: ExtensionInstance,
-  tool: ExtensionToolDefinition,
-  response: ExtensionFetchResponse
-): Omit<ExtensionToolResult, '__openCoworkExtensionResult'> {
-  const data = response.json !== undefined ? response.json : response.text
-  return {
-    extensionId: extension.id,
-    toolName: tool.name,
-    text: response.ok
-      ? `HTTP ${response.status} ${response.statusText}`.trim()
-      : `HTTP request failed: ${response.status} ${response.statusText}`.trim(),
-    data: {
-      ok: response.ok,
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-      body: data
-    }
-  }
-}
-
-async function executeHttpTool(
-  extension: ExtensionInstance,
-  tool: ExtensionToolDefinition,
-  input: Record<string, unknown>
-): Promise<string> {
-  const result = (await ipcClient.invoke(IPC.EXTENSION_FETCH, {
-    extensionId: extension.id,
-    toolName: tool.name,
-    input
-  })) as { success: boolean; response?: ExtensionFetchResponse; error?: string }
-
-  if (!result.success || !result.response) {
-    return encodeToolError(result.error ?? 'Extension HTTP tool failed')
-  }
-  return encodeExtensionToolResult(normalizeHttpResult(extension, tool, result.response))
+function nativeOnlyExtensionResult(toolName: string): string {
+  return encodeToolError(
+    `${toolName} executes in the .NET Native Worker and is unavailable through the renderer boundary.`
+  )
 }
 
 function createExtensionToolHandler(
@@ -137,13 +74,7 @@ function createExtensionToolHandler(
       description: `[Extension: ${extension.manifest.name}] ${tool.description}`,
       inputSchema: normalizeToolInputSchema(tool.inputSchema)
     },
-    execute: async (input: Record<string, unknown>) => {
-      if (tool.kind === 'http') {
-        return await executeHttpTool(extension, tool, input)
-      }
-      const value = await executeJsExtensionTool(extension, tool, input)
-      return encodeExtensionToolResult(normalizeJsResult(extension, tool, value))
-    },
+    execute: async () => nativeOnlyExtensionResult(extensionToolName(extension.id, tool.name)),
     requiresApproval: () => !isReadOnlyTool(tool)
   }
 }
@@ -161,9 +92,12 @@ export async function refreshExtensionTools(): Promise<void> {
     await useExtensionStore.getState().loadExtensions()
     unregisterExtensionTools()
 
+    const extensionStore = useExtensionStore.getState()
+    const activeProjectId = useChatStore.getState().activeProjectId ?? null
+    const activeExtensionIds = new Set(extensionStore.getActiveExtensionIds(activeProjectId))
     const names: string[] = []
-    for (const extension of useExtensionStore.getState().extensions) {
-      if (!extension.enabled) continue
+    for (const extension of extensionStore.extensions) {
+      if (!extension.enabled || !activeExtensionIds.has(extension.id)) continue
       for (const tool of extension.manifest.tools) {
         const handler = createExtensionToolHandler(extension, tool)
         toolRegistry.register(handler)

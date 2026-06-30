@@ -1,4 +1,4 @@
-export type TeamRuntimeBackendType = 'in-process' | 'isolated-renderer'
+export type TeamRuntimeBackendType = 'in-process'
 
 export type TeamRuntimePermissionMode = 'default' | 'plan'
 
@@ -70,31 +70,6 @@ export interface TeamRuntimePlanApprovalResponsePayload {
   approved: boolean
   requestId: string
   feedback?: string
-}
-
-export interface SpawnIsolatedTeamWorkerArgs {
-  teamName: string
-  memberId: string
-  memberName: string
-  prompt: string
-  taskId?: string | null
-  model?: string | null
-  agentName?: string | null
-  workingFolder?: string
-  sshConnectionId?: string | null
-}
-
-export interface SpawnIsolatedTeamWorkerResult {
-  success: true
-  workerId: string
-}
-
-export interface StopIsolatedTeamWorkerArgs {
-  workerId: string
-}
-
-export interface StopIsolatedTeamWorkersArgs {
-  teamName: string
 }
 
 export interface TeamRuntimePermissionUpdatePayload {

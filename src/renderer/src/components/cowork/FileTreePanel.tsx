@@ -631,13 +631,15 @@ interface FileTreePanelProps {
   surface?: 'card' | 'sheet' | 'agent'
   agentSearchOpen?: boolean
   agentCommand?: AgentFileTreeCommand | null
+  watchEnabled?: boolean
 }
 
 export function FileTreePanel({
   sessionId = null,
   surface = 'card',
   agentSearchOpen = false,
-  agentCommand = null
+  agentCommand = null,
+  watchEnabled = true
 }: FileTreePanelProps): React.JSX.Element {
   const { t } = useTranslation('cowork')
   const sessionView = useChatStore(
@@ -661,6 +663,7 @@ export function FileTreePanel({
   )
   const workingFolder = sessionView.workingFolder
   const sshConnectionId = sessionView.sshConnectionId
+  const agentSurface = surface === 'agent'
   const previewPanelState = useUIStore((s) => s.previewPanelState)
 
   const [tree, setTree] = useState<TreeNode[]>([])
@@ -767,7 +770,8 @@ export function FileTreePanel({
 
   // Watch working directory for changes and auto-refresh
   useEffect(() => {
-    if (!workingFolder || sshConnectionId) return
+    const shouldWatchWorkingFolder = watchEnabled && (!agentSurface || agentRootExpanded)
+    if (!shouldWatchWorkingFolder || !workingFolder || sshConnectionId) return
 
     let mounted = true
     let refreshTimer: NodeJS.Timeout | null = null
@@ -799,7 +803,7 @@ export function FileTreePanel({
       cleanup()
       void ipcClient.invoke(IPC.FS_UNWATCH_DIR, { path: workingFolder, recursive: true })
     }
-  }, [workingFolder, sshConnectionId, refreshTree])
+  }, [agentRootExpanded, agentSurface, watchEnabled, workingFolder, sshConnectionId, refreshTree])
 
   useEffect(() => {
     const query = searchQuery.trim()
@@ -1270,7 +1274,6 @@ export function FileTreePanel({
     setTree((current) => collapseTree(current))
   }, [])
   const compactSheetSurface = surface === 'sheet' || surface === 'agent'
-  const agentSurface = surface === 'agent'
   const showSearchInput = !agentSurface || agentSearchOpen
 
   useEffect(() => {

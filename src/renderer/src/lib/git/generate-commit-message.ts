@@ -1,8 +1,8 @@
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
-import { createProvider } from '@renderer/lib/api/provider'
 import type { ProviderConfig, UnifiedMessage } from '@renderer/lib/api/types'
 import { resolveLanguageName, type AppLanguage } from '@renderer/lib/i18n-language'
+import { runSidecarTextRequest } from '@renderer/lib/ipc/agent-bridge'
 
 const stripReasoningBlocks = (value: string): string =>
   value.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '').replace(/<\/think>/gi, '')
@@ -90,18 +90,16 @@ export async function generateCommitMessageFromStagedDiff(
   ]
 
   try {
-    const provider = createProvider(config)
     const abortController = new AbortController()
     const onAbort = (): void => abortController.abort()
     signal?.addEventListener('abort', onAbort, { once: true })
 
     const timeout = window.setTimeout(() => abortController.abort(), 60_000)
-    let text = ''
-    for await (const event of provider.sendMessage(messages, [], config, abortController.signal)) {
-      if (event.type === 'text_delta' && event.text) {
-        text += event.text
-      }
-    }
+    const text = await runSidecarTextRequest({
+      provider: config,
+      messages,
+      signal: abortController.signal
+    })
     window.clearTimeout(timeout)
     signal?.removeEventListener('abort', onAbort)
 

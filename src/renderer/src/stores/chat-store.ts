@@ -10,7 +10,28 @@ import type {
   ToolUseBlock,
   ToolDefinition
 } from '../lib/api/types'
-import { ipcClient } from '../lib/ipc/ipc-client'
+import { invokeMessagePack, invokeMessagePackBinary } from '../lib/ipc/messagepack-ipc-client'
+import {
+  DB_MESSAGES_ADD_BATCH_MSGPACK_CHANNEL,
+  DB_MESSAGES_CLEAR_MSGPACK_CHANNEL,
+  DB_MESSAGES_COUNT_MSGPACK_CHANNEL,
+  DB_MESSAGES_DELETE_MSGPACK_CHANNEL,
+  DB_MESSAGES_LIST_MSGPACK_CHANNEL,
+  DB_MESSAGES_LIST_PAGE_MSGPACK_CHANNEL,
+  DB_MESSAGES_REPLACE_MSGPACK_CHANNEL,
+  DB_MESSAGES_TRUNCATE_FROM_MSGPACK_CHANNEL,
+  DB_MESSAGES_UPSERT_MSGPACK_CHANNEL,
+  DB_PROJECTS_CREATE_MSGPACK_CHANNEL,
+  DB_PROJECTS_DELETE_MSGPACK_CHANNEL,
+  DB_PROJECTS_ENSURE_DEFAULT_MSGPACK_CHANNEL,
+  DB_PROJECTS_LIST_MSGPACK_CHANNEL,
+  DB_PROJECTS_UPDATE_MSGPACK_CHANNEL,
+  DB_SESSIONS_CLEAR_ALL_MSGPACK_CHANNEL,
+  DB_SESSIONS_CREATE_MSGPACK_CHANNEL,
+  DB_SESSIONS_DELETE_MSGPACK_CHANNEL,
+  DB_SESSIONS_LIST_MSGPACK_CHANNEL,
+  DB_SESSIONS_UPDATE_MSGPACK_CHANNEL
+} from '../../../shared/messagepack/binary-ipc'
 import { useAgentStore } from './agent-store'
 import { useTeamStore } from './team-store'
 import { useTaskStore } from './task-store'
@@ -19,7 +40,11 @@ import { useUIStore } from './ui-store'
 import { useBackgroundSessionStore } from './background-session-store'
 import { useSettingsStore } from './settings-store'
 import { useInputDraftStore } from './input-draft-store'
-import { invalidateVisibleSessionCache } from '../lib/agent/session-runtime-router'
+import {
+  invalidateVisibleSessionCache,
+  isSessionForeground
+} from '../lib/agent/session-runtime-router'
+import { mergeUsageSnapshot } from '../lib/agent/usage-merge'
 import { agentStream } from '../lib/ipc/agent-stream-receiver'
 import { parseChatRoute } from '../lib/chat-route'
 import {
@@ -101,6 +126,37 @@ export interface Session {
   promptSnapshot?: SessionPromptSnapshot
 }
 
+export function createRestorableSessionSnapshot(session: Session): Session {
+  return {
+    id: session.id,
+    title: session.title,
+    icon: session.icon,
+    mode: session.mode,
+    messages: session.messages,
+    messageCount: session.messageCount,
+    messagesLoaded: session.messagesLoaded,
+    loadedRangeStart: session.loadedRangeStart,
+    loadedRangeEnd: session.loadedRangeEnd,
+    lastKnownMessageCount: session.lastKnownMessageCount,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    projectId: session.projectId,
+    workingFolder: session.workingFolder,
+    sshConnectionId: session.sshConnectionId,
+    planId: session.planId,
+    pinned: session.pinned,
+    pluginId: session.pluginId,
+    externalChatId: session.externalChatId,
+    pluginChatType: session.pluginChatType,
+    pluginSenderId: session.pluginSenderId,
+    pluginSenderName: session.pluginSenderName,
+    modelSelectionMode: session.modelSelectionMode,
+    providerId: session.providerId,
+    modelId: session.modelId,
+    promptSnapshot: undefined
+  }
+}
+
 export interface ImageGenerationTiming {
   startedAt: number
   completedAt?: number
@@ -119,6 +175,144 @@ const _pendingSessionCreates = new Map<string, Promise<unknown>>()
 const _sessionMessageWriteQueues = new Map<string, Promise<void>>()
 const _messageWriteGenerations = new Map<string, number>()
 const _pendingMessageWriteCounts = new Map<string, number>()
+const _pendingMessageUpserts = new Map<string, PendingMessageUpsert>()
+
+type MessageUpsertReason =
+  | 'message-upsert'
+  | 'message-debounce'
+  | 'message-immediate'
+  | 'message-update'
+  | 'streaming-checkpoint'
+  | 'streaming-final'
+  | 'strip-reminders'
+
+interface PendingMessageUpsert {
+  timer: ReturnType<typeof setTimeout> | null
+  sessionId: string
+  messageId: string
+  sortOrder: number
+  expectedGeneration: number
+  reason: MessageUpsertReason
+  payload: MessageUpsertPayload
+  traceMessage: UnifiedMessage
+}
+
+interface MessageUpsertPayload {
+  id: string
+  sessionId: string
+  role: UnifiedMessage['role']
+  content: string
+  meta: string | null
+  createdAt: number
+  usage: string | null
+  sortOrder: number
+  debugReason: MessageUpsertReason
+}
+
+const MESSAGE_UPSERT_TRACE_WINDOW_MS = 30_000
+const DEFAULT_MESSAGE_UPSERT_COALESCE_MS = 1500
+const BACKGROUND_MESSAGE_UPSERT_COALESCE_MS = 5000
+const MESSAGE_UPSERT_MIN_CHANGED_CHARS = 1024
+let _messageUpsertTraceWindowStartedAt = Date.now()
+let _messageUpsertTraceTotal = 0
+const _messageUpsertTraceByReason = new Map<MessageUpsertReason, number>()
+const _messageUpsertTraceSessionIds = new Set<string>()
+
+function shouldLogMessageUpsertTrace(): boolean {
+  try {
+    return (
+      localStorage.getItem('openCowork.dbTrace') === '1' ||
+      localStorage.getItem('openCowork.messagePersistenceTrace') === '1'
+    )
+  } catch {
+    return false
+  }
+}
+
+function logMessageUpsertDebug(message: string, details: Record<string, unknown>): void {
+  if (!shouldLogMessageUpsertTrace()) return
+  console.debug(message, details)
+}
+
+function readPositiveIntegerLocalStorage(key: string, fallback: number): number {
+  try {
+    const value = Number.parseInt(localStorage.getItem(key) ?? '', 10)
+    return Number.isFinite(value) && value > 0 ? value : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function getMessageUpsertCoalesceMs(sessionId: string, reason: MessageUpsertReason): number {
+  if (reason !== 'streaming-checkpoint' && reason !== 'message-debounce') {
+    return readPositiveIntegerLocalStorage(
+      'openCowork.messageUpsertCoalesceMs',
+      DEFAULT_MESSAGE_UPSERT_COALESCE_MS
+    )
+  }
+  const fallback = isSessionForeground(sessionId)
+    ? DEFAULT_MESSAGE_UPSERT_COALESCE_MS
+    : BACKGROUND_MESSAGE_UPSERT_COALESCE_MS
+  return readPositiveIntegerLocalStorage('openCowork.messageUpsertCoalesceMs', fallback)
+}
+
+function hashString(value: string): string {
+  let hash = 2166136261
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+function buildMessagePayloadFingerprint(payload: MessageUpsertPayload): string {
+  return hashString(
+    [
+      payload.role,
+      payload.content,
+      payload.meta ?? '',
+      payload.usage ?? '',
+      String(payload.createdAt),
+      String(payload.sortOrder)
+    ].join('\u001f')
+  )
+}
+
+function recordMessageUpsertTrace(
+  reason: MessageUpsertReason,
+  sessionId: string,
+  msg: UnifiedMessage,
+  sortOrder: number
+): void {
+  if (!shouldLogMessageUpsertTrace()) return
+
+  _messageUpsertTraceTotal += 1
+  _messageUpsertTraceByReason.set(reason, (_messageUpsertTraceByReason.get(reason) ?? 0) + 1)
+  _messageUpsertTraceSessionIds.add(sessionId)
+
+  const now = Date.now()
+  if (now - _messageUpsertTraceWindowStartedAt < MESSAGE_UPSERT_TRACE_WINDOW_MS) return
+
+  console.debug('[ChatStore] db:messages:upsert summary', {
+    windowMs: now - _messageUpsertTraceWindowStartedAt,
+    total: _messageUpsertTraceTotal,
+    byReason: Object.fromEntries(_messageUpsertTraceByReason.entries()),
+    sessionCount: _messageUpsertTraceSessionIds.size,
+    last: {
+      reason,
+      sessionId,
+      messageId: msg.id,
+      role: msg.role,
+      revision: msg._revision ?? 0,
+      sortOrder
+    }
+  })
+
+  _messageUpsertTraceWindowStartedAt = now
+  _messageUpsertTraceTotal = 0
+  _messageUpsertTraceByReason.clear()
+  _messageUpsertTraceSessionIds.clear()
+}
 
 function getMessageWriteGeneration(sessionId: string): number {
   return _messageWriteGenerations.get(sessionId) ?? 0
@@ -183,23 +377,22 @@ function enqueueSessionMessageWrite(
 }
 
 function dbCreateSession(s: Session): void {
-  const pending = ipcClient
-    .invoke('db:sessions:create', {
-      id: s.id,
-      title: s.title,
-      icon: s.icon,
-      mode: s.mode,
-      createdAt: s.createdAt,
-      updatedAt: s.updatedAt,
-      projectId: s.projectId,
-      workingFolder: s.workingFolder,
-      sshConnectionId: s.sshConnectionId,
-      planId: s.planId,
-      pinned: s.pinned,
-      providerId: s.providerId,
-      modelId: s.modelId,
-      modelSelectionMode: s.modelSelectionMode ?? (s.providerId && s.modelId ? 'manual' : 'inherit')
-    })
+  const pending = invokeMessagePack(DB_SESSIONS_CREATE_MSGPACK_CHANNEL, {
+    id: s.id,
+    title: s.title,
+    icon: s.icon,
+    mode: s.mode,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt,
+    projectId: s.projectId,
+    workingFolder: s.workingFolder,
+    sshConnectionId: s.sshConnectionId,
+    planId: s.planId,
+    pinned: s.pinned,
+    providerId: s.providerId,
+    modelId: s.modelId,
+    modelSelectionMode: s.modelSelectionMode ?? (s.providerId && s.modelId ? 'manual' : 'inherit')
+  })
     .catch(() => {})
     .finally(() => {
       if (_pendingSessionCreates.get(s.id) === pending) {
@@ -211,12 +404,16 @@ function dbCreateSession(s: Session): void {
 }
 
 function dbUpdateSession(id: string, patch: Record<string, unknown>): void {
-  ipcClient.invoke('db:sessions:update', { id, patch }).catch(() => {})
+  invokeMessagePack(DB_SESSIONS_UPDATE_MSGPACK_CHANNEL, { id, patch }).catch(() => {})
 }
 
 function dbDeleteSession(id: string): void {
   bumpMessageWriteGeneration(id)
-  enqueueSessionMessageWrite(id, () => ipcClient.invoke('db:sessions:delete', id))
+  _sessionMessageWriteQueues.delete(id)
+  void (_pendingSessionCreates.get(id) ?? Promise.resolve())
+    .catch(() => {})
+    .then(() => invokeMessagePack(DB_SESSIONS_DELETE_MSGPACK_CHANNEL, id))
+    .catch(() => {})
 }
 
 function dbClearAllSessions(sessionIds: string[] = []): void {
@@ -225,31 +422,29 @@ function dbClearAllSessions(sessionIds: string[] = []): void {
     return _sessionMessageWriteQueues.get(sessionId)?.catch(() => {}) ?? Promise.resolve()
   })
   void Promise.all(pendingWrites)
-    .then(() => ipcClient.invoke('db:sessions:clear-all'))
+    .then(() => invokeMessagePack(DB_SESSIONS_CLEAR_ALL_MSGPACK_CHANNEL, {}))
     .catch(() => {})
 }
 
 function dbCreateProject(project: Project): void {
-  ipcClient
-    .invoke('db:projects:create', {
-      id: project.id,
-      name: project.name,
-      workingFolder: project.workingFolder,
-      sshConnectionId: project.sshConnectionId,
-      pluginId: project.pluginId,
-      pinned: project.pinned,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt
-    })
-    .catch(() => {})
+  invokeMessagePack(DB_PROJECTS_CREATE_MSGPACK_CHANNEL, {
+    id: project.id,
+    name: project.name,
+    workingFolder: project.workingFolder,
+    sshConnectionId: project.sshConnectionId,
+    pluginId: project.pluginId,
+    pinned: project.pinned,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt
+  }).catch(() => {})
 }
 
 function dbUpdateProject(id: string, patch: Record<string, unknown>): void {
-  ipcClient.invoke('db:projects:update', { id, patch }).catch(() => {})
+  invokeMessagePack(DB_PROJECTS_UPDATE_MSGPACK_CHANNEL, { id, patch }).catch(() => {})
 }
 
 function dbDeleteProject(id: string): void {
-  ipcClient.invoke('db:projects:delete', id).catch(() => {})
+  invokeMessagePack(DB_PROJECTS_DELETE_MSGPACK_CHANNEL, id).catch(() => {})
 }
 
 function sanitizeMessageContentForPersistence(
@@ -268,16 +463,18 @@ function dbAddMessage(sessionId: string, msg: UnifiedMessage, sortOrder: number)
   const pending = enqueueSessionMessageWrite(
     sessionId,
     () =>
-      ipcClient.invoke('db:messages:add', {
-        id: msg.id,
-        sessionId,
-        role: msg.role,
-        content: JSON.stringify(sanitizeMessageContentForPersistence(msg.content)),
-        meta: msg.meta ? JSON.stringify(msg.meta) : null,
-        createdAt: msg.createdAt,
-        usage: msg.usage ? JSON.stringify(msg.usage) : null,
-        sortOrder
-      }),
+      invokeMessagePack(DB_MESSAGES_ADD_BATCH_MSGPACK_CHANNEL, [
+        {
+          id: msg.id,
+          sessionId,
+          role: msg.role,
+          content: JSON.stringify(sanitizeMessageContentForPersistence(msg.content)),
+          meta: msg.meta ? JSON.stringify(msg.meta) : null,
+          createdAt: msg.createdAt,
+          usage: msg.usage ? JSON.stringify(msg.usage) : null,
+          sortOrder
+        }
+      ]),
     generation
   )
   trackPendingMessageWrite([msg.id], pending)
@@ -292,8 +489,8 @@ function dbAddMessageBatch(
   const pending = enqueueSessionMessageWrite(
     sessionId,
     () =>
-      ipcClient.invoke(
-        'db:messages:add-batch',
+      invokeMessagePack(
+        DB_MESSAGES_ADD_BATCH_MSGPACK_CHANNEL,
         items.map(({ msg, sortOrder }) => ({
           id: msg.id,
           sessionId,
@@ -324,11 +521,67 @@ function resolveMessageSortOrder(
   return Math.max(0, session.messageCount - 1, fallback)
 }
 
+function buildPendingMessageUpsertKey(sessionId: string, messageId: string): string {
+  return `${sessionId}:${messageId}`
+}
+
+function shouldCoalesceMessageUpsert(reason: MessageUpsertReason): boolean {
+  return reason !== 'streaming-final'
+}
+
+function dispatchMessageUpsert(pendingUpsert: PendingMessageUpsert): void {
+  const key = buildPendingMessageUpsertKey(pendingUpsert.sessionId, pendingUpsert.messageId)
+  const current = _pendingMessageUpserts.get(key)
+  if (current === pendingUpsert) {
+    _pendingMessageUpserts.delete(key)
+  }
+
+  const pending = enqueueSessionMessageWrite(
+    pendingUpsert.sessionId,
+    () => invokeMessagePack(DB_MESSAGES_UPSERT_MSGPACK_CHANNEL, pendingUpsert.payload),
+    pendingUpsert.expectedGeneration
+  )
+  trackPendingMessageWrite([pendingUpsert.messageId], pending)
+  recordMessageUpsertTrace(
+    pendingUpsert.reason,
+    pendingUpsert.sessionId,
+    pendingUpsert.traceMessage,
+    pendingUpsert.sortOrder
+  )
+}
+
+function flushPendingMessageUpsert(sessionId: string, messageId: string): void {
+  const key = buildPendingMessageUpsertKey(sessionId, messageId)
+  const pendingUpsert = _pendingMessageUpserts.get(key)
+  if (!pendingUpsert) return
+  if (pendingUpsert.timer) clearTimeout(pendingUpsert.timer)
+  dispatchMessageUpsert(pendingUpsert)
+}
+
+function clearPendingMessageUpsert(sessionId: string, messageId: string): void {
+  const key = buildPendingMessageUpsertKey(sessionId, messageId)
+  const pendingUpsert = _pendingMessageUpserts.get(key)
+  if (!pendingUpsert) return
+  if (pendingUpsert.timer) clearTimeout(pendingUpsert.timer)
+  _pendingMessageUpserts.delete(key)
+}
+
+function clearPendingMessageUpsertsForSession(sessionId: string, fromSortOrder = 0): void {
+  for (const [key, pendingUpsert] of _pendingMessageUpserts.entries()) {
+    if (pendingUpsert.sessionId !== sessionId || pendingUpsert.sortOrder < fromSortOrder) {
+      continue
+    }
+    if (pendingUpsert.timer) clearTimeout(pendingUpsert.timer)
+    _pendingMessageUpserts.delete(key)
+  }
+}
+
 function dbUpsertMessage(
   sessionId: string,
   msg: UnifiedMessage,
   sortOrder: number,
-  expectedGeneration = getMessageWriteGeneration(sessionId)
+  expectedGeneration = getMessageWriteGeneration(sessionId),
+  reason: MessageUpsertReason = 'message-upsert'
 ): void {
   const normalizedContent =
     typeof msg.content === 'string' || Array.isArray(msg.content)
@@ -343,7 +596,7 @@ function dbUpsertMessage(
         (b as { name?: unknown }).name === 'visualize_show_widget'
       ) {
         const input = (b as { input?: Record<string, unknown> }).input ?? {}
-        console.log('[WidgetTrace] dbUpdateMessage persist', {
+        logWidgetTrace('log', '[WidgetTrace] dbUpdateMessage persist', {
           msgId: msg.id,
           toolUseId: (b as { id?: string }).id,
           inputKeys: Object.keys(input),
@@ -352,34 +605,89 @@ function dbUpsertMessage(
       }
     }
   }
-  const pending = enqueueSessionMessageWrite(
+  const payload: MessageUpsertPayload = {
+    id: msg.id,
     sessionId,
-    () =>
-      ipcClient.invoke('db:messages:upsert', {
-        id: msg.id,
-        sessionId,
-        role: msg.role,
-        content: JSON.stringify(normalizedContent),
-        meta: msg.meta ? JSON.stringify(msg.meta) : null,
-        createdAt: msg.createdAt,
-        usage: msg.usage ? JSON.stringify(msg.usage) : null,
-        sortOrder
-      }),
-    expectedGeneration
-  )
-  trackPendingMessageWrite([msg.id], pending)
+    role: msg.role,
+    content: JSON.stringify(normalizedContent),
+    meta: msg.meta ? JSON.stringify(msg.meta) : null,
+    createdAt: msg.createdAt,
+    usage: msg.usage ? JSON.stringify(msg.usage) : null,
+    sortOrder,
+    debugReason: reason
+  }
+  const persistKey = buildMessagePersistKey(payload, sortOrder, expectedGeneration)
+  const pendingKey = buildPendingMessageUpsertKey(sessionId, msg.id)
+  const existingPending = _pendingMessageUpserts.get(pendingKey)
+  if (_lastScheduledMessagePersistKeys.get(msg.id) === persistKey) {
+    if (existingPending && !shouldCoalesceMessageUpsert(reason)) {
+      flushPendingMessageUpsert(sessionId, msg.id)
+    }
+    logMessageUpsertDebug('[ChatStore] db:messages:upsert skipped duplicate payload', {
+      sessionId,
+      messageId: msg.id,
+      reason,
+      revision: getMessageRevision(msg),
+      sortOrder,
+      expectedGeneration,
+      fingerprint: buildMessagePayloadFingerprint(payload)
+    })
+    return
+  }
+  rememberScheduledMessagePersist(msg.id, persistKey)
+  if (!shouldCoalesceMessageUpsert(reason)) {
+    if (existingPending) {
+      if (existingPending.timer) clearTimeout(existingPending.timer)
+      _pendingMessageUpserts.delete(pendingKey)
+    }
+    dispatchMessageUpsert({
+      timer: null,
+      sessionId,
+      messageId: msg.id,
+      sortOrder,
+      expectedGeneration,
+      reason,
+      payload,
+      traceMessage: msg
+    })
+    return
+  }
+
+  if (existingPending) {
+    if (existingPending.timer) clearTimeout(existingPending.timer)
+  }
+  const pendingUpsert: PendingMessageUpsert = {
+    timer: setTimeout(
+      () => {
+        dispatchMessageUpsert(pendingUpsert)
+      },
+      getMessageUpsertCoalesceMs(sessionId, reason)
+    ),
+    sessionId,
+    messageId: msg.id,
+    sortOrder,
+    expectedGeneration,
+    reason,
+    payload,
+    traceMessage: msg
+  }
+  _pendingMessageUpserts.set(pendingKey, pendingUpsert)
 }
 
 function dbClearMessages(sessionId: string): void {
   bumpMessageWriteGeneration(sessionId)
-  enqueueSessionMessageWrite(sessionId, () => ipcClient.invoke('db:messages:clear', sessionId))
+  clearPendingMessageUpsertsForSession(sessionId)
+  enqueueSessionMessageWrite(sessionId, () =>
+    invokeMessagePack(DB_MESSAGES_CLEAR_MSGPACK_CHANNEL, sessionId)
+  )
 }
 
 function dbDeleteMessage(sessionId: string, messageId: string): void {
+  clearPendingMessageUpsert(sessionId, messageId)
   const generation = getMessageWriteGeneration(sessionId)
   const pending = enqueueSessionMessageWrite(
     sessionId,
-    () => ipcClient.invoke('db:messages:delete', { sessionId, messageId }),
+    () => invokeMessagePack(DB_MESSAGES_DELETE_MSGPACK_CHANNEL, { sessionId, messageId }),
     generation
   )
   trackPendingMessageWrite([messageId], pending)
@@ -387,9 +695,22 @@ function dbDeleteMessage(sessionId: string, messageId: string): void {
 
 function dbTruncateMessagesFrom(sessionId: string, fromSortOrder: number): void {
   bumpMessageWriteGeneration(sessionId)
+  clearPendingMessageUpsertsForSession(sessionId, fromSortOrder)
   enqueueSessionMessageWrite(sessionId, () =>
-    ipcClient.invoke('db:messages:truncate-from', { sessionId, fromSortOrder })
+    invokeMessagePack(DB_MESSAGES_TRUNCATE_FROM_MSGPACK_CHANNEL, { sessionId, fromSortOrder })
   )
+}
+
+function dbListMessages(sessionId: string): Promise<MessageRow[]> {
+  return invokeMessagePackBinary<MessageRow[]>(DB_MESSAGES_LIST_MSGPACK_CHANNEL, sessionId)
+}
+
+function dbListMessagesPage(args: {
+  sessionId: string
+  limit: number
+  offset: number
+}): Promise<MessageRow[]> {
+  return invokeMessagePackBinary<MessageRow[]>(DB_MESSAGES_LIST_PAGE_MSGPACK_CHANNEL, args)
 }
 
 // --- Debounced message persistence for streaming ---
@@ -397,30 +718,166 @@ function dbTruncateMessagesFrom(sessionId: string, fromSortOrder: number): void 
 const _pendingFlush = new Map<string, ReturnType<typeof setTimeout>>()
 const _streamingDirtyMessageIds = new Set<string>()
 const _activeStreamingMessageIds = new Set<string>()
+const _lastPersistedMessageRevisions = new Map<string, number>()
+const _lastPersistedMessageContentSizes = new Map<string, number>()
+const _lastScheduledMessagePersistKeys = new Map<string, string>()
 
-const STREAMING_PERIODIC_FLUSH_MS = 1_000
-const _streamingFlushIntervals = new Map<string, ReturnType<typeof setInterval>>()
+const MAX_PERSISTED_MESSAGE_REVISION_CACHE = 2_000
+// Streaming deltas update the renderer every frame, but DB persistence only needs
+// a crash-recovery checkpoint. Keep this deliberately coarse and force one final
+// write when streaming ends.
+const STREAMING_PERIODIC_FLUSH_MS = 30_000
+const _streamingFlushIntervals = new Map<
+  string,
+  { msgId: string; intervalId: ReturnType<typeof setInterval> }
+>()
+
+function shouldLogWidgetTrace(): boolean {
+  try {
+    return localStorage.getItem('openCowork.widgetTrace') === '1'
+  } catch {
+    return false
+  }
+}
+
+function logWidgetTrace(
+  level: 'log' | 'trace',
+  message: string,
+  details: Record<string, unknown>
+): void {
+  if (!shouldLogWidgetTrace()) return
+  console[level](message, details)
+}
+
+function getMessageRevision(msg: UnifiedMessage): number {
+  return msg._revision ?? 0
+}
+
+function rememberPersistedMessageRevision(msg: UnifiedMessage): void {
+  _lastPersistedMessageRevisions.set(msg.id, getMessageRevision(msg))
+  while (_lastPersistedMessageRevisions.size > MAX_PERSISTED_MESSAGE_REVISION_CACHE) {
+    const oldest = _lastPersistedMessageRevisions.keys().next().value
+    if (!oldest) break
+    _lastPersistedMessageRevisions.delete(oldest)
+  }
+}
+
+function hasPersistedCurrentRevision(msg: UnifiedMessage): boolean {
+  return _lastPersistedMessageRevisions.get(msg.id) === getMessageRevision(msg)
+}
+
+function estimateMessagePersistenceSize(msg: UnifiedMessage): number {
+  if (typeof msg.content === 'string') return msg.content.length
+  try {
+    return JSON.stringify(msg.content).length
+  } catch {
+    return 0
+  }
+}
+
+function buildMessagePersistKey(
+  payload: MessageUpsertPayload,
+  sortOrder: number,
+  expectedGeneration: number
+): string {
+  return `${expectedGeneration}:${sortOrder}:${buildMessagePayloadFingerprint(payload)}`
+}
+
+function rememberScheduledMessagePersist(messageId: string, persistKey: string): void {
+  _lastScheduledMessagePersistKeys.set(messageId, persistKey)
+  while (_lastScheduledMessagePersistKeys.size > MAX_PERSISTED_MESSAGE_REVISION_CACHE) {
+    const oldest = _lastScheduledMessagePersistKeys.keys().next().value
+    if (!oldest) break
+    _lastScheduledMessagePersistKeys.delete(oldest)
+  }
+}
+
+function flushStreamingMessageIfDirty(
+  sessionId: string,
+  msgId: string,
+  getState: () => ChatStore,
+  force = false
+): void {
+  if (!force) {
+    flushDeferredMessageAdds(sessionId)
+  }
+
+  const isDirty = _streamingDirtyMessageIds.has(msgId)
+  if (!force && !isDirty) return
+
+  const session = getSessionByIdFromState(getState(), sessionId)
+  const msg = session?.messages.find((m) => m.id === msgId)
+  if (!msg) {
+    _streamingDirtyMessageIds.delete(msgId)
+    return
+  }
+
+  if (hasPersistedCurrentRevision(msg)) {
+    _streamingDirtyMessageIds.delete(msgId)
+    logMessageUpsertDebug('[ChatStore] streaming flush skipped current revision', {
+      sessionId,
+      msgId,
+      force,
+      revision: getMessageRevision(msg)
+    })
+    return
+  }
+
+  const contentSize = estimateMessagePersistenceSize(msg)
+  const previousContentSize = _lastPersistedMessageContentSizes.get(msg.id)
+  if (
+    !force &&
+    previousContentSize !== undefined &&
+    Math.abs(contentSize - previousContentSize) < MESSAGE_UPSERT_MIN_CHANGED_CHARS
+  ) {
+    logMessageUpsertDebug('[ChatStore] streaming checkpoint skipped small content delta', {
+      sessionId,
+      msgId,
+      revision: getMessageRevision(msg),
+      changedChars: Math.abs(contentSize - previousContentSize),
+      minChangedChars: MESSAGE_UPSERT_MIN_CHANGED_CHARS
+    })
+    return
+  }
+
+  _streamingDirtyMessageIds.delete(msgId)
+  dbUpsertMessage(
+    sessionId,
+    msg,
+    resolveMessageSortOrder(session, msgId),
+    undefined,
+    force ? 'streaming-final' : 'streaming-checkpoint'
+  )
+  rememberPersistedMessageRevision(msg)
+  _lastPersistedMessageContentSizes.set(msg.id, contentSize)
+  logMessageUpsertDebug('[ChatStore] streaming flush persisted', {
+    sessionId,
+    msgId,
+    force,
+    revision: getMessageRevision(msg),
+    intervalMs: STREAMING_PERIODIC_FLUSH_MS
+  })
+}
 
 function startStreamingPeriodicFlush(
   sessionId: string,
   msgId: string,
   getState: () => ChatStore
 ): void {
+  const existing = _streamingFlushIntervals.get(sessionId)
+  if (existing?.msgId === msgId) return
+
   stopStreamingPeriodicFlush(sessionId)
   const intervalId = setInterval(() => {
-    const session = getSessionByIdFromState(getState(), sessionId)
-    const msg = session?.messages.find((m) => m.id === msgId)
-    if (msg) {
-      dbUpsertMessage(sessionId, msg, resolveMessageSortOrder(session, msgId))
-    }
+    flushStreamingMessageIfDirty(sessionId, msgId, getState)
   }, STREAMING_PERIODIC_FLUSH_MS)
-  _streamingFlushIntervals.set(sessionId, intervalId)
+  _streamingFlushIntervals.set(sessionId, { msgId, intervalId })
 }
 
 function stopStreamingPeriodicFlush(sessionId: string): void {
-  const intervalId = _streamingFlushIntervals.get(sessionId)
-  if (intervalId) {
-    clearInterval(intervalId)
+  const entry = _streamingFlushIntervals.get(sessionId)
+  if (entry) {
+    clearInterval(entry.intervalId)
     _streamingFlushIntervals.delete(sessionId)
   }
 }
@@ -448,7 +905,7 @@ function clearDeferredMessageAddById(sessionId: string, messageId: string): void
   }
 }
 
-function flushDeferredMessageAdds(sessionId: string): void {
+function flushDeferredMessageAdds(sessionId: string): number {
   const toFlush: typeof _deferredMessageAdds = []
   for (let i = _deferredMessageAdds.length - 1; i >= 0; i--) {
     if (_deferredMessageAdds[i].sessionId === sessionId) {
@@ -456,12 +913,13 @@ function flushDeferredMessageAdds(sessionId: string): void {
       _deferredMessageAdds.splice(i, 1)
     }
   }
-  if (toFlush.length === 0) return
+  if (toFlush.length === 0) return 0
   toFlush.reverse()
   dbAddMessageBatch(
     sessionId,
     toFlush.map(({ msg, sortOrder }) => ({ msg, sortOrder }))
   )
+  return toFlush.length
 }
 
 // --- RAF-batched streaming delta buffer ---
@@ -496,7 +954,7 @@ function dbFlushMessage(sessionId: string, msg: UnifiedMessage): void {
       ) {
         const input = (b as { input?: Record<string, unknown> }).input ?? {}
         if (Object.keys(input).length === 0) {
-          console.trace('[WidgetTrace] dbFlushMessage sees EMPTY input', {
+          logWidgetTrace('trace', '[WidgetTrace] dbFlushMessage sees EMPTY input', {
             msgId: msg.id,
             toolUseId: (b as { id?: string }).id
           })
@@ -513,7 +971,13 @@ function dbFlushMessage(sessionId: string, msg: UnifiedMessage): void {
     setTimeout(() => {
       _pendingFlush.delete(key)
       const session = getSessionByIdFromState(useChatStore.getState(), sessionId)
-      dbUpsertMessage(sessionId, msg, resolveMessageSortOrder(session, msg.id), generation)
+      dbUpsertMessage(
+        sessionId,
+        msg,
+        resolveMessageSortOrder(session, msg.id),
+        generation,
+        'message-debounce'
+      )
     }, 2000)
   )
 }
@@ -529,16 +993,100 @@ function dbFlushMessageImmediate(sessionId: string, msg: UnifiedMessage): void {
     _pendingFlush.delete(msg.id)
   }
   const session = getSessionByIdFromState(useChatStore.getState(), sessionId)
-  dbUpsertMessage(sessionId, msg, resolveMessageSortOrder(session, msg.id))
+  dbUpsertMessage(
+    sessionId,
+    msg,
+    resolveMessageSortOrder(session, msg.id),
+    undefined,
+    'message-immediate'
+  )
 }
 
 function clearPendingMessageFlushes(messageIds: string[]): void {
+  const messageIdSet = new Set(messageIds)
+  for (const [key, pendingUpsert] of _pendingMessageUpserts.entries()) {
+    if (!messageIdSet.has(pendingUpsert.messageId)) continue
+    if (pendingUpsert.timer) clearTimeout(pendingUpsert.timer)
+    _pendingMessageUpserts.delete(key)
+  }
   for (const messageId of messageIds) {
+    _lastPersistedMessageRevisions.delete(messageId)
+    _lastPersistedMessageContentSizes.delete(messageId)
+    _lastScheduledMessagePersistKeys.delete(messageId)
     const pending = _pendingFlush.get(messageId)
     if (!pending) continue
     clearTimeout(pending)
     _pendingFlush.delete(messageId)
   }
+}
+
+function scheduleAfterNextPaint(callback: () => void): void {
+  if (typeof window === 'undefined') {
+    setTimeout(callback, 0)
+    return
+  }
+  window.requestAnimationFrame(() => {
+    window.setTimeout(callback, 0)
+  })
+}
+
+function cleanupDeletedSessionMessages(messageIds: string[]): void {
+  if (messageIds.length === 0) return
+  clearPendingMessageFlushes(messageIds)
+  for (const messageId of messageIds) {
+    _streamingDirtyMessageIds.delete(messageId)
+  }
+}
+
+let _deferredSessionMaintenanceToken = 0
+let _deferredSessionMaintenanceTimer: ReturnType<typeof setTimeout> | null = null
+let _activeSessionHydrationToken = 0
+
+function scheduleDeferredSessionMaintenance(getState: () => ChatStore, delayMs = 160): void {
+  const token = ++_deferredSessionMaintenanceToken
+  if (_deferredSessionMaintenanceTimer) {
+    clearTimeout(_deferredSessionMaintenanceTimer)
+    _deferredSessionMaintenanceTimer = null
+  }
+
+  scheduleAfterNextPaint(() => {
+    if (token !== _deferredSessionMaintenanceToken) return
+    _deferredSessionMaintenanceTimer = setTimeout(() => {
+      if (token !== _deferredSessionMaintenanceToken) return
+      _deferredSessionMaintenanceTimer = null
+      getState().releaseDormantSessions()
+    }, delayMs)
+  })
+}
+
+function scheduleActiveSessionHydration(
+  getState: () => ChatStore,
+  sessionId: string,
+  options: { fallbackPlanId?: string | null } = {}
+): void {
+  const token = ++_activeSessionHydrationToken
+  scheduleAfterNextPaint(() => {
+    if (token !== _activeSessionHydrationToken) return
+    if (getState().activeSessionId !== sessionId) return
+
+    void useTaskStore.getState().loadTasksForSession(sessionId)
+    void getState()
+      .loadRecentSessionMessages(sessionId)
+      .finally(() => scheduleDeferredSessionMaintenance(getState))
+
+    void usePlanStore
+      .getState()
+      .loadPlanForSession(sessionId)
+      .then((loadedPlan) => {
+        if (token !== _activeSessionHydrationToken) return
+        if (getState().activeSessionId !== sessionId) return
+        usePlanStore.getState().setActivePlan(loadedPlan?.id ?? options.fallbackPlanId ?? null)
+      })
+  })
+}
+
+function cancelActiveSessionHydration(): void {
+  _activeSessionHydrationToken += 1
 }
 
 // --- Session index helpers ---
@@ -690,6 +1238,7 @@ interface ChatStore {
 
   // Project CRUD
   setActiveProject: (id: string | null) => void
+  setActiveProjectHome: (id: string | null) => void
   createProject: (
     input?: Partial<Pick<Project, 'name' | 'workingFolder' | 'sshConnectionId' | 'pluginId'>>
   ) => Promise<string>
@@ -806,6 +1355,7 @@ interface ChatStore {
   getSessionMessages: (sessionId: string) => UnifiedMessage[]
   recoverFromRendererOom: (sessionId?: string | null) => Promise<void>
   releaseDormantSessions: () => void
+  scheduleSessionMaintenance: () => void
 }
 
 interface ProjectRow {
@@ -1384,11 +1934,11 @@ async function loadRequestContextMessages(
   }
 
   if (maxMessages === null) {
-    const msgRows = (await ipcClient.invoke('db:messages:list-page', {
+    const msgRows = await dbListMessagesPage({
       sessionId: session.id,
       limit: knownCount,
       offset: 0
-    })) as MessageRow[]
+    })
     const fetchedMessages = msgRows.map(rowToMessage)
     return mergeResidentTailWithFetchedPrefix(residentMessages, fetchedMessages, maxMessages)
   }
@@ -1426,11 +1976,11 @@ async function loadRequestContextMessages(
     return clampRequestContext(residentMessages, maxMessages)
   }
 
-  const msgRows = (await ipcClient.invoke('db:messages:list-page', {
+  const msgRows = await dbListMessagesPage({
     sessionId: session.id,
     limit: fetchLimit,
     offset: tailOffset
-  })) as MessageRow[]
+  })
   const fetchedMessages = msgRows.map(rowToMessage)
   return mergeResidentTailWithFetchedPrefix(residentMessages, fetchedMessages, maxMessages)
 }
@@ -1511,7 +2061,16 @@ function mergeLoadedMessagesWithResident(
 
   fetchedMessages.forEach((fetched, index) => {
     const resident = residentById.get(fetched.id)
-    const message = resident && shouldPreferResidentMessage(resident, fetched) ? resident : fetched
+    const preferResident = resident && shouldPreferResidentMessage(resident, fetched)
+    const message =
+      resident && preferResident
+        ? resident
+        : resident && (resident.usage || fetched.usage)
+          ? {
+              ...fetched,
+              usage: mergeUsageSnapshot(resident.usage, fetched.usage)
+            }
+          : fetched
     entries.push({
       index: fetchedSortOrders[index] ?? windowStart + index,
       sequence: index,
@@ -1696,6 +2255,31 @@ function sanitizeToolBlocksForResend(messages: UnifiedMessage[]): {
   return { messages: sanitized.messages, changed: true }
 }
 
+function countToolReplayBlocks(messages: UnifiedMessage[]): {
+  messages: number
+  toolUses: number
+  toolResults: number
+} {
+  let toolUses = 0
+  let toolResults = 0
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (block.type === 'tool_use') {
+        toolUses += 1
+      } else if (block.type === 'tool_result') {
+        toolResults += 1
+      }
+    }
+  }
+
+  return {
+    messages: messages.length,
+    toolUses,
+    toolResults
+  }
+}
+
 export const useChatStore = create<ChatStore>()(
   immer((set, get) => ({
     projects: [],
@@ -1712,7 +2296,10 @@ export const useChatStore = create<ChatStore>()(
 
     ensureDefaultProject: async () => {
       try {
-        const row = (await ipcClient.invoke('db:projects:ensure-default')) as ProjectRow | null
+        const row = await invokeMessagePackBinary<ProjectRow | null>(
+          DB_PROJECTS_ENSURE_DEFAULT_MSGPACK_CHANNEL,
+          {}
+        )
         if (!row) return null
         const project = rowToProject(row)
         set((state) => {
@@ -1762,24 +2349,39 @@ export const useChatStore = create<ChatStore>()(
           agentStream.notifySessionVisibility(nextSessionId, true)
         }
       }
-      useUIStore.getState().syncSessionScopedState(nextSessionId)
-      get().releaseDormantSessions()
+      useUIStore.getState().syncSessionScopedState(nextSessionId, id)
+      scheduleDeferredSessionMaintenance(get)
       if (nextSessionId) {
-        void get()
-          .loadRecentSessionMessages(nextSessionId)
-          .finally(() => get().releaseDormantSessions())
-        void usePlanStore
-          .getState()
-          .loadPlanForSession(nextSessionId)
-          .then((plan) => {
-            const planStore = usePlanStore.getState()
-            if (useChatStore.getState().activeSessionId === nextSessionId) {
-              planStore.setActivePlan(plan?.id ?? null)
-            }
-          })
+        const planStore = usePlanStore.getState()
+        const cachedPlan = planStore.getPlanBySession(nextSessionId)
+        planStore.setActivePlan(cachedPlan?.id ?? null)
+        scheduleActiveSessionHydration(get, nextSessionId, {
+          fallbackPlanId: cachedPlan?.id ?? null
+        })
       } else {
+        cancelActiveSessionHydration()
+        useTaskStore.getState().clearTasks()
         usePlanStore.getState().setActivePlan(null)
       }
+    },
+
+    setActiveProjectHome: (id) => {
+      const prevSessionId = get().activeSessionId
+      set((state) => {
+        state.activeProjectId = id
+        state.activeSessionId = null
+        state.streamingMessageId = null
+      })
+      if (prevSessionId) {
+        invalidateVisibleSessionCache()
+        agentStream.notifySessionVisibility(prevSessionId, false)
+      }
+      useAgentStore.getState().switchToolCallSession(prevSessionId, null)
+      useTaskStore.getState().clearTasks()
+      usePlanStore.getState().setActivePlan(null)
+      useUIStore.getState().syncSessionScopedState(null, id)
+      cancelActiveSessionHydration()
+      scheduleDeferredSessionMaintenance(get)
     },
 
     createProject: async (input) => {
@@ -1796,7 +2398,10 @@ export const useChatStore = create<ChatStore>()(
       }
 
       try {
-        const row = (await ipcClient.invoke('db:projects:create', payload)) as ProjectRow
+        const row = await invokeMessagePackBinary<ProjectRow>(
+          DB_PROJECTS_CREATE_MSGPACK_CHANNEL,
+          payload
+        )
         const project = rowToProject(row)
         set((state) => {
           state.projects.unshift(project)
@@ -1851,10 +2456,10 @@ export const useChatStore = create<ChatStore>()(
 
       let deletedSessionIds = localSessionIds
       try {
-        const result = (await ipcClient.invoke('db:projects:delete', projectId)) as {
+        const result = await invokeMessagePackBinary<{
           projectId: string
           sessionIds: string[]
-        } | null
+        } | null>(DB_PROJECTS_DELETE_MSGPACK_CHANNEL, projectId)
         if (result?.sessionIds) {
           deletedSessionIds = Array.from(new Set([...localSessionIds, ...result.sessionIds]))
         }
@@ -1924,10 +2529,7 @@ export const useChatStore = create<ChatStore>()(
         taskState.deleteSessionTasks(sessionId)
         useInputDraftStore.getState().removeSessionDraft(sessionId)
       }
-      clearPendingMessageFlushes(deletedMessageIds)
-      for (const messageId of deletedMessageIds) {
-        _streamingDirtyMessageIds.delete(messageId)
-      }
+      scheduleAfterNextPaint(() => cleanupDeletedSessionMessages(deletedMessageIds))
       const liveSessionId = agentState.liveSessionId
       if (liveSessionId && deletedSessionIds.includes(liveSessionId)) {
         agentState.resetLiveSessionExecution(liveSessionId)
@@ -1935,19 +2537,25 @@ export const useChatStore = create<ChatStore>()(
       }
 
       if (nextActiveSessionId) {
-        await get().loadSessionMessages(nextActiveSessionId)
-        await useTaskStore.getState().loadTasksForSession(nextActiveSessionId)
-        const activePlan = usePlanStore.getState().getPlanBySession(nextActiveSessionId)
-        usePlanStore.getState().setActivePlan(activePlan?.id ?? null)
+        const planStore = usePlanStore.getState()
+        const activePlan = planStore.getPlanBySession(nextActiveSessionId)
+        planStore.setActivePlan(activePlan?.id ?? null)
+        scheduleActiveSessionHydration(get, nextActiveSessionId, {
+          fallbackPlanId: activePlan?.id ?? null
+        })
       } else {
+        cancelActiveSessionHydration()
         useTaskStore.getState().clearTasks()
         usePlanStore.getState().setActivePlan(null)
       }
-      useUIStore.getState().syncSessionScopedState(nextActiveSessionId)
+      useUIStore
+        .getState()
+        .syncSessionScopedState(nextActiveSessionId, useChatStore.getState().activeProjectId)
 
       if (shouldEnsureDefaultProject) {
         await get().ensureDefaultProject()
       }
+      scheduleDeferredSessionMaintenance(get)
     },
 
     togglePinProject: (projectId) => {
@@ -2070,22 +2678,25 @@ export const useChatStore = create<ChatStore>()(
         )
         let effectiveKnownCount = knownCount
         let windowStart = Math.max(0, effectiveKnownCount - nextLimit)
-        let msgRows = (await ipcClient.invoke('db:messages:list-page', {
+        let msgRows = await dbListMessagesPage({
           sessionId,
           limit: nextLimit,
           offset: windowStart
-        })) as MessageRow[]
+        })
 
         if (msgRows.length === 0) {
-          const actualCount = (await ipcClient.invoke('db:messages:count', sessionId)) as number
+          const actualCount = await invokeMessagePackBinary<number>(
+            DB_MESSAGES_COUNT_MSGPACK_CHANNEL,
+            sessionId
+          )
           if (actualCount !== effectiveKnownCount) {
             effectiveKnownCount = actualCount
             windowStart = Math.max(0, effectiveKnownCount - nextLimit)
-            msgRows = (await ipcClient.invoke('db:messages:list-page', {
+            msgRows = await dbListMessagesPage({
               sessionId,
               limit: nextLimit,
               offset: windowStart
-            })) as MessageRow[]
+            })
           }
         }
 
@@ -2099,11 +2710,11 @@ export const useChatStore = create<ChatStore>()(
         ) {
           const prependCount = Math.min(nextLimit, windowStart)
           const prependOffset = Math.max(0, windowStart - prependCount)
-          const prependRows = (await ipcClient.invoke('db:messages:list-page', {
+          const prependRows = await dbListMessagesPage({
             sessionId,
             limit: prependCount,
             offset: prependOffset
-          })) as MessageRow[]
+          })
           const prependMessages = prependRows.map(rowToMessage)
           const prependSortOrders = prependRows.map((row) => row.sort_order)
           if (prependMessages.length === 0) break
@@ -2164,11 +2775,11 @@ export const useChatStore = create<ChatStore>()(
       const nextCount = Math.min(limit, olderCount)
       let offset = olderCount - nextCount
       try {
-        const msgRows = (await ipcClient.invoke('db:messages:list-page', {
+        const msgRows = await dbListMessagesPage({
           sessionId,
           limit: nextCount,
           offset
-        })) as MessageRow[]
+        })
         let olderMessages = msgRows.map(rowToMessage)
 
         while (
@@ -2178,11 +2789,11 @@ export const useChatStore = create<ChatStore>()(
         ) {
           const prependCount = Math.min(limit, offset)
           const prependOffset = Math.max(0, offset - prependCount)
-          const prependRows = (await ipcClient.invoke('db:messages:list-page', {
+          const prependRows = await dbListMessagesPage({
             sessionId,
             limit: prependCount,
             offset: prependOffset
-          })) as MessageRow[]
+          })
           const prependMessages = prependRows.map(rowToMessage)
           if (prependMessages.length === 0) break
           olderMessages = [...prependMessages, ...olderMessages]
@@ -2223,7 +2834,7 @@ export const useChatStore = create<ChatStore>()(
         knownCount <= session.messages.length
       if (shouldSkip) return
       try {
-        const msgRows = (await ipcClient.invoke('db:messages:list', sessionId)) as MessageRow[]
+        const msgRows = await dbListMessages(sessionId)
         const messages = msgRows.map(rowToMessage)
         const messageSortOrders = msgRows.map((row) => row.sort_order)
         const latestSession = get().sessions.find((s) => s.id === sessionId)
@@ -2265,11 +2876,11 @@ export const useChatStore = create<ChatStore>()(
       const safeOffset = Math.max(0, offset)
       const safeLimit = Math.max(MIN_INITIAL_SESSION_MESSAGE_PAGE_SIZE, limit)
       try {
-        const msgRows = (await ipcClient.invoke('db:messages:list-page', {
+        const msgRows = await dbListMessagesPage({
           sessionId,
           limit: safeLimit,
           offset: safeOffset
-        })) as MessageRow[]
+        })
         const messages = msgRows.map(rowToMessage)
         const messageSortOrders = msgRows.map((row) => row.sort_order)
         const latestSession = get().sessions.find((s) => s.id === sessionId)
@@ -2308,8 +2919,20 @@ export const useChatStore = create<ChatStore>()(
         options?.includeTrailingAssistantPlaceholder ?? true
 
       let messages = await loadRequestContextMessages(session, options?.requestContextMaxMessages)
-      const sanitized = sanitizeToolBlocksForResend(messages)
-      messages = applyLatestCompactRequestView(sanitized.messages)
+      const initialShape = countToolReplayBlocks(messages)
+      const preCompactSanitized = sanitizeToolBlocksForResend(messages)
+      messages = applyLatestCompactRequestView(preCompactSanitized.messages)
+      const postCompactSanitized = sanitizeToolBlocksForResend(messages)
+      messages = postCompactSanitized.messages
+      if (preCompactSanitized.changed || postCompactSanitized.changed) {
+        console.warn('[ChatStore] Sanitized tool replay request context', {
+          sessionId,
+          preCompactChanged: preCompactSanitized.changed,
+          postCompactChanged: postCompactSanitized.changed,
+          before: initialShape,
+          after: countToolReplayBlocks(messages)
+        })
+      }
 
       // Always strip empty assistant messages — they cause API errors ("must not be empty").
       // When includeTrailingAssistantPlaceholder is true we still keep a trailing assistant
@@ -2339,10 +2962,10 @@ export const useChatStore = create<ChatStore>()(
           isInitialLoad && typeof window !== 'undefined'
             ? parseChatRoute(window.location.hash)
             : null
-        const [projectRows, sessionRows] = (await Promise.all([
-          ipcClient.invoke('db:projects:list'),
-          ipcClient.invoke('db:sessions:list')
-        ])) as [ProjectRow[], SessionRow[]]
+        const [projectRows, sessionRows] = await Promise.all([
+          invokeMessagePackBinary<ProjectRow[]>(DB_PROJECTS_LIST_MSGPACK_CHANNEL, {}),
+          invokeMessagePackBinary<SessionRow[]>(DB_SESSIONS_LIST_MSGPACK_CHANNEL, {})
+        ])
         let projects = projectRows.map(rowToProject)
 
         if (projects.length === 0) {
@@ -2426,8 +3049,8 @@ export const useChatStore = create<ChatStore>()(
           useTaskStore.getState().clearTasks()
           usePlanStore.getState().setActivePlan(null)
         }
-        useUIStore.getState().syncSessionScopedState(nextActiveSessionId)
-        get().releaseDormantSessions()
+        useUIStore.getState().syncSessionScopedState(nextActiveSessionId, nextActiveProjectId)
+        scheduleDeferredSessionMaintenance(get)
       } catch (err) {
         console.error('[ChatStore] Failed to load from DB:', err)
         set({ _loaded: true })
@@ -2526,7 +3149,8 @@ export const useChatStore = create<ChatStore>()(
       useTaskStore.getState().clearTasks()
       usePlanStore.getState().setActivePlan(null)
       useUIStore.getState().syncSessionScopedState(id)
-      get().releaseDormantSessions()
+      cancelActiveSessionHydration()
+      scheduleDeferredSessionMaintenance(get)
       return id
     },
 
@@ -2535,6 +3159,7 @@ export const useChatStore = create<ChatStore>()(
       const wasActiveSession = get().activeSessionId === id
       const deletedProjectId = deletedSession?.projectId ?? null
       const deletedStreamingMsgId = get().streamingMessages[id]
+      const deletedMessageIds = deletedSession?.messages.map((message) => message.id) ?? []
       const currentChatView = useUIStore.getState().chatView
       let nextActiveId: string | null = null
 
@@ -2574,10 +3199,7 @@ export const useChatStore = create<ChatStore>()(
       if (plan) usePlanStore.getState().deletePlan(plan.id)
       useTaskStore.getState().deleteSessionTasks(id)
       useInputDraftStore.getState().removeSessionDraft(id)
-      clearPendingMessageFlushes(deletedSession?.messages.map((message) => message.id) ?? [])
-      for (const messageId of deletedSession?.messages.map((message) => message.id) ?? []) {
-        _streamingDirtyMessageIds.delete(messageId)
-      }
+      scheduleAfterNextPaint(() => cleanupDeletedSessionMessages(deletedMessageIds))
       dbDeleteSession(id)
 
       if (wasLiveSession) {
@@ -2585,20 +3207,20 @@ export const useChatStore = create<ChatStore>()(
       }
 
       if (nextActiveId) {
-        void get()
-          .loadRecentSessionMessages(nextActiveId)
-          .finally(() => get().releaseDormantSessions())
-        void useTaskStore.getState().loadTasksForSession(nextActiveId)
         const planStore = usePlanStore.getState()
-        void planStore.loadPlanForSession(nextActiveId).then((loadedPlan) => {
-          if (useChatStore.getState().activeSessionId !== nextActiveId) return
-          usePlanStore.getState().setActivePlan(loadedPlan?.id ?? null)
+        const cachedPlan = planStore.getPlanBySession(nextActiveId)
+        planStore.setActivePlan(cachedPlan?.id ?? null)
+        scheduleActiveSessionHydration(get, nextActiveId, {
+          fallbackPlanId: cachedPlan?.id ?? null
         })
       } else {
+        cancelActiveSessionHydration()
         useTaskStore.getState().clearTasks()
         usePlanStore.getState().setActivePlan(null)
       }
-      useUIStore.getState().syncSessionScopedState(nextActiveId)
+      useUIStore
+        .getState()
+        .syncSessionScopedState(nextActiveId, useChatStore.getState().activeProjectId)
       if (wasActiveSession && !nextActiveId) {
         if (deletedProjectId && currentChatView !== 'home') {
           useUIStore.getState().navigateToProject(deletedProjectId)
@@ -2606,7 +3228,7 @@ export const useChatStore = create<ChatStore>()(
           useUIStore.getState().navigateToHome()
         }
       }
-      get().releaseDormantSessions()
+      scheduleDeferredSessionMaintenance(get)
     },
 
     setActiveSession: (id) => {
@@ -2628,24 +3250,20 @@ export const useChatStore = create<ChatStore>()(
         }
         state.streamingMessageId = id ? (state.streamingMessages[id] ?? null) : null
       })
-      useUIStore.getState().syncSessionScopedState(id)
-      get().releaseDormantSessions()
+      useUIStore.getState().syncSessionScopedState(id, useChatStore.getState().activeProjectId)
+      scheduleDeferredSessionMaintenance(get)
       // Switch per-session tool calls in agent-store
       useAgentStore.getState().switchToolCallSession(prevId, id)
       // Load tasks for the new session
       if (id) {
-        void useTaskStore.getState().loadTasksForSession(id)
-        void get()
-          .loadRecentSessionMessages(id)
-          .finally(() => get().releaseDormantSessions())
         const planStore = usePlanStore.getState()
         const activePlan = planStore.getPlanBySession(id)
         planStore.setActivePlan(activePlan?.id ?? null)
-        void planStore.loadPlanForSession(id).then((loadedPlan) => {
-          if (useChatStore.getState().activeSessionId !== id) return
-          usePlanStore.getState().setActivePlan(loadedPlan?.id ?? activePlan?.id ?? null)
+        scheduleActiveSessionHydration(get, id, {
+          fallbackPlanId: activePlan?.id ?? null
         })
       } else {
+        cancelActiveSessionHydration()
         useTaskStore.getState().clearTasks()
         usePlanStore.getState().setActivePlan(null)
         usePlanStore.getState().releaseDormantPlans(null)
@@ -3063,7 +3681,7 @@ export const useChatStore = create<ChatStore>()(
         _streamingDirtyMessageIds.delete(messageId)
       }
       agentState.clearToolCalls()
-      useUIStore.getState().syncSessionScopedState(null)
+      useUIStore.getState().syncSessionScopedState(null, null)
       dbClearAllSessions(ids)
     },
 
@@ -3087,7 +3705,7 @@ export const useChatStore = create<ChatStore>()(
         }
       })
 
-      get().releaseDormantSessions()
+      scheduleDeferredSessionMaintenance(get)
     },
 
     removeSessionFromSync: (sessionId) => {
@@ -3096,6 +3714,7 @@ export const useChatStore = create<ChatStore>()(
 
       const wasActiveSession = get().activeSessionId === sessionId
       const deletedProjectId = deletedSession.projectId ?? null
+      const deletedMessageIds = deletedSession.messages.map((message) => message.id)
       const currentChatView = useUIStore.getState().chatView
 
       set((state) => {
@@ -3115,10 +3734,7 @@ export const useChatStore = create<ChatStore>()(
 
       bumpMessageWriteGeneration(sessionId)
       clearDeferredMessageAdds(sessionId)
-      clearPendingMessageFlushes(deletedSession.messages.map((message) => message.id))
-      for (const messageId of deletedSession.messages.map((message) => message.id)) {
-        _streamingDirtyMessageIds.delete(messageId)
-      }
+      scheduleAfterNextPaint(() => cleanupDeletedSessionMessages(deletedMessageIds))
 
       const agentState = useAgentStore.getState()
       const wasLiveSession = agentState.liveSessionId === sessionId
@@ -3134,8 +3750,12 @@ export const useChatStore = create<ChatStore>()(
       if (plan) usePlanStore.getState().deletePlan(plan.id)
       useTaskStore.getState().deleteSessionTasks(sessionId)
       useInputDraftStore.getState().removeSessionDraft(sessionId)
-      clearPendingMessageFlushes(deletedSession.messages.map((message) => message.id))
-      useUIStore.getState().syncSessionScopedState(useChatStore.getState().activeSessionId)
+      useUIStore
+        .getState()
+        .syncSessionScopedState(
+          useChatStore.getState().activeSessionId,
+          useChatStore.getState().activeProjectId
+        )
 
       if (wasActiveSession) {
         useTaskStore.getState().clearTasks()
@@ -3148,7 +3768,7 @@ export const useChatStore = create<ChatStore>()(
         }
       }
 
-      get().releaseDormantSessions()
+      scheduleDeferredSessionMaintenance(get)
     },
 
     clearSessionMessages: (sessionId) => {
@@ -3419,7 +4039,7 @@ export const useChatStore = create<ChatStore>()(
         _streamingDirtyMessageIds.delete(streamingMsgId)
       }
       enqueueSessionMessageWrite(sessionId, () =>
-        ipcClient.invoke('db:messages:replace', {
+        invokeMessagePack(DB_MESSAGES_REPLACE_MSGPACK_CHANNEL, {
           sessionId,
           messages: revisedMessages.map((msg, i) => ({
             id: msg.id,
@@ -3480,7 +4100,13 @@ export const useChatStore = create<ChatStore>()(
       if (session && session.messages.length > 0) {
         const changedMsgs = session.messages.filter((m) => changedMsgIds.has(m.id))
         for (const msg of changedMsgs) {
-          dbUpsertMessage(sessionId, msg, resolveMessageSortOrder(session, msg.id))
+          dbUpsertMessage(
+            sessionId,
+            msg,
+            resolveMessageSortOrder(session, msg.id),
+            undefined,
+            'strip-reminders'
+          )
         }
         if (changedMsgs.length > 0) {
           dbUpdateSession(sessionId, { updatedAt: session.updatedAt })
@@ -3513,14 +4139,10 @@ export const useChatStore = create<ChatStore>()(
       })
       if (!shouldPersist) return
       if (get().streamingMessages[sessionId]) {
-        if (isToolResultOnlyUserMessage(msg)) {
-          // Tool-result messages are appended while the assistant bubble is still
-          // streaming. Persist them silently so DB-backed reloads and queued turns
-          // can still reconstruct the tool chain without broadcasting a reload.
-          dbUpsertMessage(sessionId, msg, sortOrder)
-        } else {
-          _deferredMessageAdds.push({ sessionId, msg, sortOrder })
-        }
+        // Streaming turns can create many tool-result messages in quick bursts.
+        // Batch them with the other deferred adds and flush at periodic checkpoints
+        // or at stream finalization, instead of upserting on every tool result.
+        _deferredMessageAdds.push({ sessionId, msg, sortOrder })
         return
       }
       dbAddMessage(sessionId, msg, sortOrder)
@@ -3591,7 +4213,11 @@ export const useChatStore = create<ChatStore>()(
         if (!session) return
         const msg = session.messages.find((m) => m.id === msgId)
         if (msg) {
-          Object.assign(msg, patch)
+          const { usage, ...messagePatch } = patch
+          Object.assign(msg, messagePatch)
+          if (usage) {
+            msg.usage = mergeUsageSnapshot(msg.usage, usage)
+          }
           bumpMessageRevision(msg)
         }
       })
@@ -3601,7 +4227,14 @@ export const useChatStore = create<ChatStore>()(
       }
       const session = getSessionByIdFromState(get(), sessionId)
       const msg = session?.messages.find((m) => m.id === msgId)
-      if (msg) dbUpsertMessage(sessionId, msg, resolveMessageSortOrder(session, msgId))
+      if (msg)
+        dbUpsertMessage(
+          sessionId,
+          msg,
+          resolveMessageSortOrder(session, msgId),
+          undefined,
+          'message-update'
+        )
     },
 
     removeMessageById: (sessionId, msgId) => {
@@ -3804,7 +4437,7 @@ export const useChatStore = create<ChatStore>()(
 
     updateToolUseInput: (sessionId, msgId, toolUseId, input) => {
       if (input && typeof input === 'object' && 'widget_code' in input) {
-        console.log('[WidgetTrace] updateToolUseInput', {
+        logWidgetTrace('log', '[WidgetTrace] updateToolUseInput', {
           msgId,
           toolUseId,
           inputKeys: Object.keys(input),
@@ -3826,7 +4459,7 @@ export const useChatStore = create<ChatStore>()(
         if (block) {
           block.input = summarizeToolInputForHistory(block.name, input)
           if (block.name === 'visualize_show_widget') {
-            console.log('[WidgetTrace] block.input written', {
+            logWidgetTrace('log', '[WidgetTrace] block.input written', {
               msgId,
               toolUseId,
               blockInputKeys: Object.keys(block.input ?? {}),
@@ -3877,7 +4510,9 @@ export const useChatStore = create<ChatStore>()(
           const existing = session.messages.find((m) => m.id === msgId)
           if (existing) {
             existing.content = bufferedMsg.content
-            if (bufferedMsg.usage) existing.usage = bufferedMsg.usage
+            if (bufferedMsg.usage) {
+              existing.usage = mergeUsageSnapshot(existing.usage, bufferedMsg.usage)
+            }
             if (bufferedMsg.providerResponseId) {
               existing.providerResponseId = bufferedMsg.providerResponseId
             }
@@ -3929,24 +4564,42 @@ export const useChatStore = create<ChatStore>()(
 
     setStreamingMessageId: (sessionId, id) => {
       const prevStreamingMsgId = get().streamingMessages[sessionId]
-      set((state) => {
-        if (id) {
-          _streamingBackfillBlockedSessionIds.delete(sessionId)
-          state.streamingMessages[sessionId] = id
-        } else {
-          _streamingBackfillBlockedSessionIds.add(sessionId)
-          delete state.streamingMessages[sessionId]
-        }
-        releaseDormantSessionMemory(state)
-        // Sync convenience field when updating the active session
-        if (sessionId === state.activeSessionId) {
-          state.streamingMessageId = id
-        }
-      })
+      const stateBefore = get()
+      const needsStateUpdate =
+        (id ? prevStreamingMsgId !== id : Boolean(prevStreamingMsgId)) ||
+        (sessionId === stateBefore.activeSessionId && stateBefore.streamingMessageId !== id)
+
+      if (needsStateUpdate) {
+        set((state) => {
+          if (id) {
+            _streamingBackfillBlockedSessionIds.delete(sessionId)
+            state.streamingMessages[sessionId] = id
+          } else {
+            _streamingBackfillBlockedSessionIds.add(sessionId)
+            delete state.streamingMessages[sessionId]
+          }
+          releaseDormantSessionMemory(state)
+          // Sync convenience field when updating the active session
+          if (sessionId === state.activeSessionId) {
+            state.streamingMessageId = id
+          }
+        })
+      } else if (id) {
+        _streamingBackfillBlockedSessionIds.delete(sessionId)
+      } else {
+        _streamingBackfillBlockedSessionIds.add(sessionId)
+      }
 
       if (id) {
         _activeStreamingMessageIds.add(id)
         startStreamingPeriodicFlush(sessionId, id, get)
+        if (prevStreamingMsgId && prevStreamingMsgId !== id) {
+          flushPendingStreamDeltasForMessage(sessionId, prevStreamingMsgId)
+          _activeStreamingMessageIds.delete(prevStreamingMsgId)
+          flushDeferredMessageAdds(sessionId)
+          flushStreamingMessageIfDirty(sessionId, prevStreamingMsgId, get, true)
+        }
+        return
       }
 
       if (!id && prevStreamingMsgId) {
@@ -3954,12 +4607,7 @@ export const useChatStore = create<ChatStore>()(
         stopStreamingPeriodicFlush(sessionId)
         _activeStreamingMessageIds.delete(prevStreamingMsgId)
         flushDeferredMessageAdds(sessionId)
-        if (_streamingDirtyMessageIds.has(prevStreamingMsgId)) {
-          _streamingDirtyMessageIds.delete(prevStreamingMsgId)
-          const session = getSessionByIdFromState(get(), sessionId)
-          const msg = session?.messages.find((m) => m.id === prevStreamingMsgId)
-          if (msg) dbFlushMessageImmediate(sessionId, msg)
-        }
+        flushStreamingMessageIfDirty(sessionId, prevStreamingMsgId, get, true)
         dbUpdateSession(sessionId, { updatedAt: Date.now() })
       }
     },
@@ -4063,7 +4711,7 @@ export const useChatStore = create<ChatStore>()(
         usePlanStore.getState().setActivePlan(null)
       }
 
-      get().releaseDormantSessions()
+      scheduleDeferredSessionMaintenance(get)
     },
 
     releaseDormantSessions: () => {
@@ -4073,6 +4721,10 @@ export const useChatStore = create<ChatStore>()(
           ? (state.streamingMessages[state.activeSessionId] ?? null)
           : null
       })
+    },
+
+    scheduleSessionMaintenance: () => {
+      scheduleDeferredSessionMaintenance(get)
     }
   }))
 )

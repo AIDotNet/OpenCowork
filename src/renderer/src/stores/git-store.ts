@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { toast } from 'sonner'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
+import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
+import { toMessagePackChannel } from '../../../shared/messagepack/binary-ipc'
 import { useChatStore } from './chat-store'
 import { useUIStore } from './ui-store'
 
@@ -66,6 +67,10 @@ interface GitResultBase {
   error?: string
 }
 
+interface RefreshRepositoryOptions {
+  force?: boolean
+}
+
 interface GitStore {
   repositories: GitRepositoryItem[]
   selectedRepoPath: string | null
@@ -73,9 +78,9 @@ interface GitStore {
   scanError: string | null
   repoDetailsByPath: Record<string, GitRepositoryDetails>
   activePollingTimer: number | null
-  scanRepositories: () => Promise<void>
+  scanRepositories: (options?: { force?: boolean }) => Promise<void>
   selectRepository: (repoPath: string | null) => void
-  refreshRepository: (repoPath: string) => Promise<void>
+  refreshRepository: (repoPath: string, options?: RefreshRepositoryOptions) => Promise<void>
   loadMoreHistory: (repoPath: string) => Promise<void>
   loadFileHistory: (repoPath: string, filePath: string, append?: boolean) => Promise<void>
   loadFileDiff: (repoPath: string, filePath: string, staged?: boolean) => Promise<void>
@@ -160,7 +165,7 @@ function getErrorMessage(result: unknown, fallback: string): string {
 }
 
 async function invokeGit<T>(channel: string, payload: Record<string, unknown>): Promise<T> {
-  return (await ipcClient.invoke(channel, payload)) as T
+  return await invokeMessagePackBinary<T>(toMessagePackChannel(channel), payload)
 }
 
 function createEmptyRepoDetails(): GitRepositoryDetails {
@@ -185,6 +190,18 @@ function ensureRepoDetails(
 }
 
 const pendingFileDiffRequests = new Map<string, Promise<void>>()
+const pendingFileHistoryRequests = new Map<string, Promise<void>>()
+const pendingHistoryFileDiffRequests = new Map<string, Promise<{ success: boolean }>>()
+const pendingScanRequests = new Map<string, Promise<void>>()
+const pendingRepositoryRefreshRequests = new Map<string, Promise<void>>()
+const repositoryRefreshExpiresAtByKey = new Map<string, number>()
+const repositoryRefreshRevisionByKey = new Map<string, number>()
+const REPOSITORY_SCAN_CACHE_TTL_MS = 5_000
+const REPOSITORY_REFRESH_CACHE_TTL_MS = 3_000
+const REPOSITORY_REFRESH_ERROR_TTL_MS = 1_000
+
+let lastAppliedScanKey: string | null = null
+let scanCacheExpiresAt = 0
 
 function fileDiffCacheKey(filePath: string, staged = false): string {
   return `${staged ? 'staged' : 'unstaged'}:${filePath}`
@@ -192,6 +209,36 @@ function fileDiffCacheKey(filePath: string, staged = false): string {
 
 function fileDiffRequestKey(repoPath: string, filePath: string, staged = false): string {
   return `${repoPath}:${fileDiffCacheKey(filePath, staged)}`
+}
+
+function gitTargetCacheKey(target: { cwd: string; sshConnectionId: string | null }): string {
+  return `${target.sshConnectionId ?? 'local'}:${target.cwd}`
+}
+
+function projectScanKey(project: ReturnType<typeof getActiveProject>): string | null {
+  if (!project?.workingFolder) return null
+  return `${project.sshConnectionId ?? 'local'}:${project.workingFolder}`
+}
+
+function repositoryRefreshRevision(key: string): number {
+  return repositoryRefreshRevisionByKey.get(key) ?? 0
+}
+
+function bumpRepositoryRefreshRevision(key: string): void {
+  repositoryRefreshRevisionByKey.set(key, repositoryRefreshRevision(key) + 1)
+  repositoryRefreshExpiresAtByKey.delete(key)
+}
+
+function clearGitRequestCaches(): void {
+  pendingFileDiffRequests.clear()
+  pendingFileHistoryRequests.clear()
+  pendingHistoryFileDiffRequests.clear()
+  pendingScanRequests.clear()
+  pendingRepositoryRefreshRequests.clear()
+  repositoryRefreshExpiresAtByKey.clear()
+  repositoryRefreshRevisionByKey.clear()
+  lastAppliedScanKey = null
+  scanCacheExpiresAt = 0
 }
 
 export const useGitStore = create<GitStore>((set, get) => ({
@@ -202,41 +249,67 @@ export const useGitStore = create<GitStore>((set, get) => ({
   repoDetailsByPath: {},
   activePollingTimer: null,
 
-  scanRepositories: async () => {
+  scanRepositories: async (options = {}) => {
     const project = getActiveProject()
+    const scanKey = projectScanKey(project)
     if (!project?.workingFolder) {
+      clearGitRequestCaches()
       set({ repositories: [], selectedRepoPath: null, scanError: null, isScanning: false })
       return
     }
 
-    set({ isScanning: true, scanError: null })
-    const result = await invokeGit<GitResultBase & { repositories?: GitRepositoryItem[] }>(
-      IPC.GIT_SCAN_REPOSITORIES,
-      {
-        ...getGitTarget(project.workingFolder),
-        rootPath: project.workingFolder,
-        maxDepth: 3
+    if (!scanKey) return
+    const now = Date.now()
+    if (!options.force && lastAppliedScanKey === scanKey && scanCacheExpiresAt > now) return
+
+    const pending = pendingScanRequests.get(scanKey)
+    if (!options.force && pending) return pending
+
+    const request = (async () => {
+      set({ isScanning: true, scanError: null })
+      const result = await invokeGit<GitResultBase & { repositories?: GitRepositoryItem[] }>(
+        IPC.GIT_SCAN_REPOSITORIES,
+        {
+          ...getGitTarget(project.workingFolder),
+          rootPath: project.workingFolder,
+          maxDepth: 3
+        }
+      )
+
+      if (projectScanKey(getActiveProject()) !== scanKey) return
+
+      if (!result?.success) {
+        set({
+          isScanning: false,
+          repositories: [],
+          scanError: getErrorMessage(result, 'Failed to scan Git repositories')
+        })
+        scanCacheExpiresAt = Date.now() + REPOSITORY_REFRESH_ERROR_TTL_MS
+        lastAppliedScanKey = scanKey
+        return
       }
-    )
 
-    if (!result?.success) {
-      set({
-        isScanning: false,
-        repositories: [],
-        scanError: getErrorMessage(result, 'Failed to scan Git repositories')
-      })
-      return
-    }
+      const repositories = result.repositories ?? []
+      const nextSelected = repositories.find((repo) => repo.fullPath === get().selectedRepoPath)
+        ? get().selectedRepoPath
+        : (repositories[0]?.fullPath ?? null)
 
-    const repositories = result.repositories ?? []
-    const nextSelected = repositories.find((repo) => repo.fullPath === get().selectedRepoPath)
-      ? get().selectedRepoPath
-      : (repositories[0]?.fullPath ?? null)
+      set({ repositories, selectedRepoPath: nextSelected, isScanning: false, scanError: null })
+      scanCacheExpiresAt = Date.now() + REPOSITORY_SCAN_CACHE_TTL_MS
+      lastAppliedScanKey = scanKey
 
-    set({ repositories, selectedRepoPath: nextSelected, isScanning: false, scanError: null })
+      if (nextSelected) {
+        await get().refreshRepository(nextSelected)
+      }
+    })()
 
-    if (nextSelected) {
-      await get().refreshRepository(nextSelected)
+    pendingScanRequests.set(scanKey, request)
+    try {
+      await request
+    } finally {
+      if (pendingScanRequests.get(scanKey) === request) {
+        pendingScanRequests.delete(scanKey)
+      }
     }
   },
 
@@ -247,55 +320,98 @@ export const useGitStore = create<GitStore>((set, get) => ({
     }
   },
 
-  refreshRepository: async (repoPath) => {
-    set((state) => ({
-      repoDetailsByPath: {
-        ...state.repoDetailsByPath,
-        [repoPath]: {
-          ...ensureRepoDetails(state.repoDetailsByPath, repoPath),
-          loading: true,
-          error: null
-        }
-      }
-    }))
+  refreshRepository: async (repoPath, options = {}) => {
+    const target = getGitTarget(repoPath)
+    const refreshKey = gitTargetCacheKey(target)
+    const details = ensureRepoDetails(get().repoDetailsByPath, repoPath)
+    const now = Date.now()
 
-    const [statusResult, historyResult, branchesResult] = await Promise.all([
-      invokeGit<GitResultBase & { status?: GitStatusDetailed }>(
-        IPC.GIT_GET_STATUS_DETAILED,
-        getGitTarget(repoPath)
-      ),
-      invokeGit<GitResultBase & { history?: GitCommitHistoryItem[] }>(IPC.GIT_GET_COMMIT_HISTORY, {
-        ...getGitTarget(repoPath),
-        limit: 50,
-        skip: 0
-      }),
-      invokeGit<GitResultBase & { branches?: GitBranchItem[]; current?: string | null }>(
-        IPC.GIT_LIST_BRANCHES,
-        getGitTarget(repoPath)
+    if (options.force) {
+      bumpRepositoryRefreshRevision(refreshKey)
+    } else if (
+      details.status &&
+      !details.error &&
+      (repositoryRefreshExpiresAtByKey.get(refreshKey) ?? 0) > now
+    ) {
+      return
+    } else {
+      const pending = pendingRepositoryRefreshRequests.get(refreshKey)
+      if (pending) return pending
+    }
+
+    const requestRevision = repositoryRefreshRevision(refreshKey)
+    const request = (async () => {
+      set((state) => ({
+        repoDetailsByPath: {
+          ...state.repoDetailsByPath,
+          [repoPath]: {
+            ...ensureRepoDetails(state.repoDetailsByPath, repoPath),
+            loading: true,
+            error: null
+          }
+        }
+      }))
+
+      const [statusResult, historyResult, branchesResult] = await Promise.all([
+        invokeGit<GitResultBase & { status?: GitStatusDetailed }>(
+          IPC.GIT_GET_STATUS_DETAILED,
+          target
+        ),
+        invokeGit<GitResultBase & { history?: GitCommitHistoryItem[] }>(
+          IPC.GIT_GET_COMMIT_HISTORY,
+          {
+            ...target,
+            limit: 50,
+            skip: 0
+          }
+        ),
+        invokeGit<GitResultBase & { branches?: GitBranchItem[]; current?: string | null }>(
+          IPC.GIT_LIST_BRANCHES,
+          target
+        )
+      ])
+
+      if (repositoryRefreshRevision(refreshKey) !== requestRevision) return
+
+      set((state) => ({
+        repoDetailsByPath: {
+          ...state.repoDetailsByPath,
+          [repoPath]: {
+            ...ensureRepoDetails(state.repoDetailsByPath, repoPath),
+            status: statusResult.success ? (statusResult.status ?? null) : null,
+            history: historyResult.success ? (historyResult.history ?? []) : [],
+            branches: branchesResult.success ? (branchesResult.branches ?? []) : [],
+            currentBranch: branchesResult.success ? (branchesResult.current ?? null) : null,
+            historyFileDiffByKey: ensureRepoDetails(state.repoDetailsByPath, repoPath)
+              .historyFileDiffByKey,
+            loading: false,
+            error:
+              (!statusResult.success && getErrorMessage(statusResult, 'Failed to load status')) ||
+              (!historyResult.success &&
+                getErrorMessage(historyResult, 'Failed to load history')) ||
+              (!branchesResult.success &&
+                getErrorMessage(branchesResult, 'Failed to load branches')) ||
+              null
+          }
+        }
+      }))
+
+      const latest = ensureRepoDetails(get().repoDetailsByPath, repoPath)
+      repositoryRefreshExpiresAtByKey.set(
+        refreshKey,
+        Date.now() +
+          (latest.error ? REPOSITORY_REFRESH_ERROR_TTL_MS : REPOSITORY_REFRESH_CACHE_TTL_MS)
       )
-    ])
+    })()
 
-    set((state) => ({
-      repoDetailsByPath: {
-        ...state.repoDetailsByPath,
-        [repoPath]: {
-          ...ensureRepoDetails(state.repoDetailsByPath, repoPath),
-          status: statusResult.success ? (statusResult.status ?? null) : null,
-          history: historyResult.success ? (historyResult.history ?? []) : [],
-          branches: branchesResult.success ? (branchesResult.branches ?? []) : [],
-          currentBranch: branchesResult.success ? (branchesResult.current ?? null) : null,
-          historyFileDiffByKey: ensureRepoDetails(state.repoDetailsByPath, repoPath)
-            .historyFileDiffByKey,
-          loading: false,
-          error:
-            (!statusResult.success && getErrorMessage(statusResult, 'Failed to load status')) ||
-            (!historyResult.success && getErrorMessage(historyResult, 'Failed to load history')) ||
-            (!branchesResult.success &&
-              getErrorMessage(branchesResult, 'Failed to load branches')) ||
-            null
-        }
+    pendingRepositoryRefreshRequests.set(refreshKey, request)
+    try {
+      await request
+    } finally {
+      if (pendingRepositoryRefreshRequests.get(refreshKey) === request) {
+        pendingRepositoryRefreshRequests.delete(refreshKey)
       }
-    }))
+    }
   },
 
   loadMoreHistory: async (repoPath) => {
@@ -323,28 +439,46 @@ export const useGitStore = create<GitStore>((set, get) => ({
   loadFileHistory: async (repoPath, filePath, append = false) => {
     const details = ensureRepoDetails(get().repoDetailsByPath, repoPath)
     const existing = details.fileHistoryByPath[filePath] ?? []
-    const result = await invokeGit<GitResultBase & { history?: GitCommitHistoryItem[] }>(
-      IPC.GIT_GET_FILE_HISTORY,
-      {
-        ...getGitTarget(repoPath),
-        filePath,
-        limit: 50,
-        skip: append ? existing.length : 0
-      }
-    )
-    if (!result.success) return
-    set((state) => ({
-      repoDetailsByPath: {
-        ...state.repoDetailsByPath,
-        [repoPath]: {
-          ...ensureRepoDetails(state.repoDetailsByPath, repoPath),
-          fileHistoryByPath: {
-            ...ensureRepoDetails(state.repoDetailsByPath, repoPath).fileHistoryByPath,
-            [filePath]: append ? [...existing, ...(result.history ?? [])] : (result.history ?? [])
+    if (!append && existing.length > 0) return
+
+    const skip = append ? existing.length : 0
+    const requestKey = `${repoPath}:${filePath}:${skip}`
+    const pending = pendingFileHistoryRequests.get(requestKey)
+    if (pending) return pending
+
+    const request = (async () => {
+      const result = await invokeGit<GitResultBase & { history?: GitCommitHistoryItem[] }>(
+        IPC.GIT_GET_FILE_HISTORY,
+        {
+          ...getGitTarget(repoPath),
+          filePath,
+          limit: 50,
+          skip
+        }
+      )
+      if (!result.success) return
+      set((state) => ({
+        repoDetailsByPath: {
+          ...state.repoDetailsByPath,
+          [repoPath]: {
+            ...ensureRepoDetails(state.repoDetailsByPath, repoPath),
+            fileHistoryByPath: {
+              ...ensureRepoDetails(state.repoDetailsByPath, repoPath).fileHistoryByPath,
+              [filePath]: append ? [...existing, ...(result.history ?? [])] : (result.history ?? [])
+            }
           }
         }
+      }))
+    })()
+
+    pendingFileHistoryRequests.set(requestKey, request)
+    try {
+      await request
+    } finally {
+      if (pendingFileHistoryRequests.get(requestKey) === request) {
+        pendingFileHistoryRequests.delete(requestKey)
       }
-    }))
+    }
   },
 
   loadFileDiff: async (repoPath, filePath, staged = false) => {
@@ -401,31 +535,46 @@ export const useGitStore = create<GitStore>((set, get) => ({
     ]
     if (existing !== undefined) return { success: true }
 
-    const result = await invokeGit<GitResultBase & { diff?: string }>(
-      IPC.GIT_GET_FILE_DIFF_AT_COMMIT,
-      {
-        ...getGitTarget(repoPath),
-        filePath,
-        commitHash
+    const requestKey = `${repoPath}:${cacheKey}`
+    const pending = pendingHistoryFileDiffRequests.get(requestKey)
+    if (pending) return pending
+
+    const request = (async (): Promise<{ success: boolean }> => {
+      const result = await invokeGit<GitResultBase & { diff?: string }>(
+        IPC.GIT_GET_FILE_DIFF_AT_COMMIT,
+        {
+          ...getGitTarget(repoPath),
+          filePath,
+          commitHash
+        }
+      )
+      if (!result.success) {
+        toast.error(getErrorMessage(result, 'Failed to load history changes'))
+        return { success: false }
       }
-    )
-    if (!result.success) {
-      toast.error(getErrorMessage(result, 'Failed to load history changes'))
-      return { success: false }
-    }
-    set((state) => ({
-      repoDetailsByPath: {
-        ...state.repoDetailsByPath,
-        [repoPath]: {
-          ...ensureRepoDetails(state.repoDetailsByPath, repoPath),
-          historyFileDiffByKey: {
-            ...ensureRepoDetails(state.repoDetailsByPath, repoPath).historyFileDiffByKey,
-            [cacheKey]: result.diff ?? ''
+      set((state) => ({
+        repoDetailsByPath: {
+          ...state.repoDetailsByPath,
+          [repoPath]: {
+            ...ensureRepoDetails(state.repoDetailsByPath, repoPath),
+            historyFileDiffByKey: {
+              ...ensureRepoDetails(state.repoDetailsByPath, repoPath).historyFileDiffByKey,
+              [cacheKey]: result.diff ?? ''
+            }
           }
         }
+      }))
+      return { success: true }
+    })()
+
+    pendingHistoryFileDiffRequests.set(requestKey, request)
+    try {
+      return await request
+    } finally {
+      if (pendingHistoryFileDiffRequests.get(requestKey) === request) {
+        pendingHistoryFileDiffRequests.delete(requestKey)
       }
-    }))
-    return { success: true }
+    }
   },
 
   getStagedDiffBundle: async (repoPath) => {
@@ -488,7 +637,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
 
   fetchRepository: async (repoPath) => {
     const result = await invokeGit<GitResultBase>(IPC.GIT_FETCH, getGitTarget(repoPath))
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Fetch failed') }
@@ -496,7 +645,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
 
   pullRebase: async (repoPath) => {
     const result = await invokeGit<GitResultBase>(IPC.GIT_PULL_REBASE, getGitTarget(repoPath))
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Pull --rebase failed') }
@@ -504,7 +653,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
 
   pushRepository: async (repoPath) => {
     const result = await invokeGit<GitResultBase>(IPC.GIT_PUSH, getGitTarget(repoPath))
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Push failed') }
@@ -522,7 +671,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       name,
       ...(startPoint ? { startPoint } : {})
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Failed to create branch') }
@@ -533,7 +682,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       ...getGitTarget(repoPath),
       name
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Failed to checkout branch') }
@@ -544,7 +693,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       ...getGitTarget(repoPath),
       ref
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Merge failed') }
@@ -555,7 +704,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       ...getGitTarget(repoPath),
       ref
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Rebase failed') }
@@ -567,7 +716,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       name,
       ...(force ? { force: true } : {})
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Failed to delete local branch') }
@@ -579,7 +728,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       remote,
       branchName
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Failed to delete remote branch') }
@@ -591,7 +740,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       newName,
       ...(oldName !== undefined ? { oldName } : {})
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Failed to rename branch') }
@@ -602,7 +751,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       ...getGitTarget(repoPath),
       paths
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Failed to stage files') }
@@ -613,7 +762,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       ...getGitTarget(repoPath),
       paths
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Failed to unstage files') }
@@ -621,7 +770,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
 
   stageAll: async (repoPath) => {
     const result = await invokeGit<GitResultBase>(IPC.GIT_STAGE_ALL, getGitTarget(repoPath))
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Failed to stage all') }
@@ -629,7 +778,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
 
   unstageAll: async (repoPath) => {
     const result = await invokeGit<GitResultBase>(IPC.GIT_UNSTAGE_ALL, getGitTarget(repoPath))
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Failed to unstage all') }
@@ -641,7 +790,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       paths,
       scope
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Failed to discard changes') }
@@ -652,7 +801,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
       ...getGitTarget(repoPath),
       message
     })
-    if (result.success) await get().refreshRepository(repoPath)
+    if (result.success) await get().refreshRepository(repoPath, { force: true })
     return result.success
       ? { success: true }
       : { success: false, error: getErrorMessage(result, 'Commit failed') }
@@ -677,6 +826,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
 
   reset: () => {
     get().stopPolling()
+    clearGitRequestCaches()
     set({
       repositories: [],
       selectedRepoPath: null,

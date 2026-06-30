@@ -455,8 +455,7 @@ export function GitPage(): React.JSX.Element {
     if (!selectedRepoPath || !selectedRow) return
     if (selectedRow.section === 'untracked') return
     void loadFileDiff(selectedRepoPath, selectedRow.path, selectedRow.section === 'staged')
-    void loadFileHistory(selectedRepoPath, selectedRow.path)
-  }, [loadFileDiff, loadFileHistory, selectedRepoPath, selectedRow])
+  }, [loadFileDiff, selectedRepoPath, selectedRow])
 
   const fileHistory = useMemo(
     () => (selectedRow ? (details?.fileHistoryByPath[selectedRow.path] ?? []) : []),
@@ -777,7 +776,7 @@ export function GitPage(): React.JSX.Element {
                   size="icon"
                   className="size-7"
                   disabled={isScanning}
-                  onClick={() => void scanRepositories()}
+                  onClick={() => void scanRepositories({ force: true })}
                 >
                   <RefreshCw className={cn('size-3.5', isScanning && 'animate-spin')} />
                 </Button>

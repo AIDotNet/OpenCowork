@@ -14,6 +14,7 @@ const DEFAULT_ROUTE: ChatRouteState = {
 }
 
 const LAST_CHAT_ROUTE_SETTINGS_KEY = 'lastChatRoute'
+let lastPersistedChatRoute: string | null = null
 const VALID_CHAT_VIEWS: ReadonlySet<ChatView> = new Set([
   'home',
   'project',
@@ -40,6 +41,18 @@ function sanitizeChatRouteState(value: unknown): ChatRouteState | null {
     sessionId:
       typeof candidate.sessionId === 'string' && candidate.sessionId ? candidate.sessionId : null
   }
+}
+
+function buildPersistedChatRouteValue(state: ChatRouteState): ChatRouteState {
+  return {
+    chatView: state.chatView,
+    projectId: state.projectId,
+    sessionId: state.sessionId
+  }
+}
+
+function serializeChatRouteState(state: ChatRouteState): string {
+  return JSON.stringify(buildPersistedChatRouteValue(state))
 }
 
 function normalizeHash(hash: string): string {
@@ -115,19 +128,26 @@ export function buildChatRoute(state: ChatRouteState): string {
 export async function readPersistedChatRoute(): Promise<ChatRouteState | null> {
   try {
     const value = await ipcClient.invoke('settings:get', LAST_CHAT_ROUTE_SETTINGS_KEY)
-    return sanitizeChatRouteState(value)
+    const state = sanitizeChatRouteState(value)
+    lastPersistedChatRoute = state ? serializeChatRouteState(state) : null
+    return state
   } catch {
     return null
   }
 }
 
 export function persistChatRoute(state: ChatRouteState): void {
+  const value = buildPersistedChatRouteValue(state)
+  const serialized = JSON.stringify(value)
+  if (lastPersistedChatRoute === serialized) return
+
+  lastPersistedChatRoute = serialized
   void ipcClient.invoke('settings:set', {
     key: LAST_CHAT_ROUTE_SETTINGS_KEY,
-    value: {
-      chatView: state.chatView,
-      projectId: state.projectId,
-      sessionId: state.sessionId
+    value
+  }).catch(() => {
+    if (lastPersistedChatRoute === serialized) {
+      lastPersistedChatRoute = null
     }
   })
 }

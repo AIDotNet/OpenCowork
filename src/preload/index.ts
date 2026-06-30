@@ -6,40 +6,44 @@ import type {
   CreateTeamRuntimeArgs,
   DeleteTeamRuntimeArgs,
   GetTeamRuntimeSnapshotArgs,
-  SpawnIsolatedTeamWorkerArgs,
-  StopIsolatedTeamWorkerArgs,
-  StopIsolatedTeamWorkersArgs,
   UpdateTeamRuntimeManifestArgs,
   UpdateTeamRuntimeMemberArgs
 } from '../shared/team-runtime-types'
+import {
+  decodeMessagePackPayload,
+  encodeMessagePackPayload,
+  toMessagePackChannel
+} from '../shared/messagepack/binary-ipc'
+
+async function invokeMessagePackBinary<T>(channel: string, payload: unknown): Promise<T> {
+  const response = await ipcRenderer.invoke(
+    toMessagePackChannel(channel),
+    encodeMessagePackPayload(payload)
+  )
+  return decodeMessagePackPayload<T>(response as ArrayBuffer | ArrayBufferView)
+}
 
 // Custom APIs for renderer
 const api = {
   downloadImage: (args: { url: string; defaultName?: string }) =>
-    ipcRenderer.invoke('image:download', args),
-  fetchImageBase64: (args: { url: string }) => ipcRenderer.invoke('image:fetch-base64', args),
+    invokeMessagePackBinary('image:download', args),
+  fetchImageBase64: (args: { url: string }) => invokeMessagePackBinary('image:fetch-base64', args),
   writeImageToClipboard: (args: { data: string }) =>
-    ipcRenderer.invoke('clipboard:write-image', args),
+    invokeMessagePackBinary('clipboard:write-image', args),
   teamRuntimeCreate: (args: CreateTeamRuntimeArgs) =>
-    ipcRenderer.invoke('team-runtime:create', args),
+    invokeMessagePackBinary('team-runtime:create', args),
   teamRuntimeDelete: (args: DeleteTeamRuntimeArgs) =>
-    ipcRenderer.invoke('team-runtime:delete', args),
+    invokeMessagePackBinary('team-runtime:delete', args),
   teamRuntimeAppendMessage: (args: AppendTeamRuntimeMessageArgs) =>
-    ipcRenderer.invoke('team-runtime:message:append', args),
+    invokeMessagePackBinary('team-runtime:message:append', args),
   teamRuntimeGetSnapshot: (args: GetTeamRuntimeSnapshotArgs) =>
-    ipcRenderer.invoke('team-runtime:snapshot', args),
+    invokeMessagePackBinary('team-runtime:snapshot', args),
   teamRuntimeUpdateMember: (args: UpdateTeamRuntimeMemberArgs) =>
-    ipcRenderer.invoke('team-runtime:member:update', args),
+    invokeMessagePackBinary('team-runtime:member:update', args),
   teamRuntimeUpdateManifest: (args: UpdateTeamRuntimeManifestArgs) =>
-    ipcRenderer.invoke('team-runtime:manifest:update', args),
+    invokeMessagePackBinary('team-runtime:manifest:update', args),
   teamRuntimeConsumeMessages: (args: ConsumeTeamRuntimeMessagesArgs) =>
-    ipcRenderer.invoke('team-runtime:messages:consume', args),
-  teamWorkerSpawn: (args: SpawnIsolatedTeamWorkerArgs) =>
-    ipcRenderer.invoke('team-worker:spawn', args),
-  teamWorkerStop: (args: StopIsolatedTeamWorkerArgs) =>
-    ipcRenderer.invoke('team-worker:stop', args),
-  teamWorkerStopTeam: (args: StopIsolatedTeamWorkersArgs) =>
-    ipcRenderer.invoke('team-worker:stop-team', args)
+    invokeMessagePackBinary('team-runtime:messages:consume', args)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

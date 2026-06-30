@@ -1,7 +1,14 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { nanoid } from 'nanoid'
-import { ipcClient } from '../lib/ipc/ipc-client'
+import { invokeMessagePackBinary } from '../lib/ipc/messagepack-ipc-client'
+import {
+  DB_PLANS_CREATE_MSGPACK_CHANNEL,
+  DB_PLANS_DELETE_MSGPACK_CHANNEL,
+  DB_PLANS_GET_BY_SESSION_MSGPACK_CHANNEL,
+  DB_PLANS_LIST_MSGPACK_CHANNEL,
+  DB_PLANS_UPDATE_MSGPACK_CHANNEL
+} from '../../../shared/messagepack/binary-ipc'
 import { useChatStore } from './chat-store'
 
 // --- Types ---
@@ -29,27 +36,25 @@ export interface Plan {
 // --- DB persistence helpers (fire-and-forget) ---
 
 function dbCreatePlan(plan: Plan): void {
-  ipcClient
-    .invoke('db:plans:create', {
-      id: plan.id,
-      sessionId: plan.sessionId,
-      title: plan.title,
-      status: plan.status,
-      filePath: plan.filePath,
-      content: plan.content ?? null,
-      specJson: plan.specJson ?? null,
-      createdAt: plan.createdAt,
-      updatedAt: plan.updatedAt
-    })
-    .catch(() => {})
+  invokeMessagePackBinary(DB_PLANS_CREATE_MSGPACK_CHANNEL, {
+    id: plan.id,
+    sessionId: plan.sessionId,
+    title: plan.title,
+    status: plan.status,
+    filePath: plan.filePath,
+    content: plan.content ?? null,
+    specJson: plan.specJson ?? null,
+    createdAt: plan.createdAt,
+    updatedAt: plan.updatedAt
+  }).catch(() => {})
 }
 
 function dbUpdatePlan(id: string, patch: Record<string, unknown>): void {
-  ipcClient.invoke('db:plans:update', { id, patch }).catch(() => {})
+  invokeMessagePackBinary(DB_PLANS_UPDATE_MSGPACK_CHANNEL, { id, patch }).catch(() => {})
 }
 
 function dbDeletePlan(id: string): void {
-  ipcClient.invoke('db:plans:delete', id).catch(() => {})
+  invokeMessagePackBinary(DB_PLANS_DELETE_MSGPACK_CHANNEL, id).catch(() => {})
 }
 
 // --- Row → Plan conversion ---
@@ -139,6 +144,7 @@ interface PlanStore {
   beginImplementation: (planId: string) => void
   completePlan: (planId: string) => void
   deletePlan: (planId: string) => void
+  syncPlanFromNative: (plan: Plan) => void
 
   // Queries
   getPlanBySession: (sessionId: string) => Plan | undefined
@@ -158,7 +164,7 @@ export const usePlanStore = create<PlanStore>()(
 
     loadPlansFromDb: async () => {
       try {
-        const rows = (await ipcClient.invoke('db:plans:list')) as PlanRow[]
+        const rows = await invokeMessagePackBinary<PlanRow[]>(DB_PLANS_LIST_MSGPACK_CHANNEL, {})
         const plansBySession: Record<string, Plan> = {}
         const plans: Record<string, Plan> = {}
 
@@ -201,7 +207,10 @@ export const usePlanStore = create<PlanStore>()(
       }
 
       try {
-        const row = (await ipcClient.invoke('db:plans:get-by-session', sessionId)) as PlanRow | null
+        const row = await invokeMessagePackBinary<PlanRow | null>(
+          DB_PLANS_GET_BY_SESSION_MSGPACK_CHANNEL,
+          sessionId
+        )
         if (!row) {
           set((state) => {
             const existing = state.plansBySession[sessionId]
@@ -371,6 +380,19 @@ export const usePlanStore = create<PlanStore>()(
       if (existingPlan?.sessionId) {
         useChatStore.getState().clearSessionPromptSnapshot(existingPlan.sessionId)
       }
+    },
+
+    syncPlanFromNative: (plan) => {
+      set((state) => {
+        const previousPlanForSession = state.plansBySession[plan.sessionId]
+        if (previousPlanForSession && previousPlanForSession.id !== plan.id) {
+          delete state.plans[previousPlanForSession.id]
+        }
+        state.plans[plan.id] = plan
+        state.plansBySession[plan.sessionId] = stripPlanPayload(plan)
+        releaseDormantPlanMemory(state, plan.sessionId)
+      })
+      useChatStore.getState().clearSessionPromptSnapshot(plan.sessionId)
     },
 
     getPlanBySession: (sessionId) => {

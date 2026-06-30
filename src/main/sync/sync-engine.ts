@@ -1,12 +1,9 @@
 import { app } from 'electron'
-import * as fs from 'fs'
-import * as path from 'path'
 import { createHash, randomUUID } from 'crypto'
-import type Database from 'better-sqlite3'
-import { getDataDir, getDb } from '../db/database'
-import { flushSettingsSync, replaceSettingsForSync } from '../ipc/settings-handlers'
-import { writeConfig } from '../ipc/secure-key-store'
-import { safeSendToAllWindows } from '../window-ipc'
+import { applySyncDbMerge, captureSyncDbSnapshot, saveSyncDbMetadata } from '../db/sync-dao'
+import { flushSettingsSync, reloadSettingsCache } from '../ipc/settings-handlers'
+import { getNativeWorker } from '../lib/native-worker'
+import { safeSendMessagePackToAllWindows } from '../window-ipc'
 import {
   getActiveSyncProvider,
   patchSyncConfig,
@@ -32,22 +29,7 @@ import type {
 const SYNC_SCHEMA_VERSION = 1
 const KEY_SEPARATOR = '\u0000'
 const FILE_DOMAIN = 'file'
-const DATA_FILE_INCLUDES = [
-  'settings.json',
-  'config.json',
-  'plugins.json',
-  'SOUL.md',
-  'USER.md',
-  'MEMORY.md'
-]
-const DATA_DIR_INCLUDES = ['agents', 'commands', 'prompts', 'memory']
-
-interface DbTableSchema {
-  name: string
-  columns: string[]
-  pkColumns: string[]
-  dependencies: string[]
-}
+const SYNC_NATIVE_TIMEOUT_MS = 120_000
 
 interface BaselineRecordState {
   domain: string
@@ -59,8 +41,6 @@ interface LocalSnapshot {
   records: Map<string, SyncRecord>
   tombstones: Map<string, SyncTombstone>
   baseline: Map<string, BaselineRecordState>
-  tableSchemas: Map<string, DbTableSchema>
-  upsertTableOrder: string[]
 }
 
 interface MergeResult {
@@ -78,10 +58,26 @@ interface PendingConflictState {
   runId: string
   provider: SyncProviderConfig
   mode: SyncRunMode
-  local: LocalSnapshot
   remote: RemoteBundleState
   merge: MergeResult
   startedAt: number
+}
+
+interface NativeSyncFileSnapshotResult {
+  success: boolean
+  records: SyncRecord[]
+  error?: string | null
+}
+
+interface NativeSyncFileMutationResult {
+  success: boolean
+  changed: number
+  settingsChanged?: boolean
+  error?: string | null
+}
+
+function emitSyncEvent(channel: string, payload: unknown): void {
+  safeSendMessagePackToAllWindows(channel, payload)
 }
 
 function recordKey(domain: string, recordId: string): string {
@@ -110,253 +106,89 @@ function hashValue(value: unknown): string {
   return createHash('sha256').update(stableStringify(value)).digest('hex')
 }
 
-function quoteIdent(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`
-}
-
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
-function normalizeRecordId(pkValues: unknown[]): string {
-  return JSON.stringify(pkValues)
-}
-
-function parseRecordId(recordId: string): unknown[] {
-  const parsed = JSON.parse(recordId) as unknown
-  return Array.isArray(parsed) ? parsed : [parsed]
-}
-
-function dbDomain(tableName: string): string {
-  return `db:${tableName}`
-}
-
-function tableFromDomain(domain: string): string | null {
-  return domain.startsWith('db:') ? domain.slice(3) : null
-}
-
-function getRecordUpdatedAt(row: Record<string, unknown>): number | null {
-  const updatedAt = row.updated_at
-  if (typeof updatedAt === 'number' && Number.isFinite(updatedAt)) return updatedAt
-  const createdAt = row.created_at
-  if (typeof createdAt === 'number' && Number.isFinite(createdAt)) return createdAt
-  return null
-}
-
-function getDataRelativePath(filePath: string): string | null {
-  const relativePath = path.relative(getDataDir(), filePath)
-  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) return null
-  return relativePath.replace(/\\/g, '/')
-}
-
-function resolveDataRelativePath(relativePath: string): string | null {
-  const normalized = relativePath.replace(/\\/g, '/')
-  if (!normalized || normalized.startsWith('/') || normalized.split('/').includes('..')) return null
-  return path.join(getDataDir(), ...normalized.split('/'))
-}
-
-function shouldIncludeDataRelativePath(relativePath: string): boolean {
-  const normalized = relativePath.replace(/\\/g, '/')
-  if (DATA_FILE_INCLUDES.includes(normalized)) return true
-  return DATA_DIR_INCLUDES.some((dir) => normalized === dir || normalized.startsWith(`${dir}/`))
-}
-
-function walkFiles(rootPath: string): string[] {
-  if (!fs.existsSync(rootPath)) return []
-  const stat = fs.statSync(rootPath)
-  if (stat.isFile()) return [rootPath]
-  if (!stat.isDirectory()) return []
-
-  const files: string[] = []
-  for (const entry of fs.readdirSync(rootPath, { withFileTypes: true })) {
-    const childPath = path.join(rootPath, entry.name)
-    if (entry.isDirectory()) {
-      files.push(...walkFiles(childPath))
-    } else if (entry.isFile()) {
-      files.push(childPath)
-    }
-  }
-  return files
-}
-
-function listSyncTableSchemas(db: Database.Database): Map<string, DbTableSchema> {
-  const rows = db
-    .prepare(
-      `SELECT name FROM sqlite_master
-       WHERE type = 'table'
-         AND name NOT LIKE 'sqlite_%'
-         AND name NOT LIKE 'sync_%'
-       ORDER BY name ASC`
-    )
-    .all() as Array<{ name: string }>
-
-  const schemas = new Map<string, DbTableSchema>()
-  for (const row of rows) {
-    const columns = db.prepare(`PRAGMA table_info(${quoteIdent(row.name)})`).all() as Array<{
-      name: string
-      pk: number
-    }>
-    const pkColumns = columns
-      .filter((column) => column.pk > 0)
-      .sort((left, right) => left.pk - right.pk)
-      .map((column) => column.name)
-    if (pkColumns.length === 0) continue
-
-    const dependencies = db
-      .prepare(`PRAGMA foreign_key_list(${quoteIdent(row.name)})`)
-      .all() as Array<{
-      table: string
-    }>
-    schemas.set(row.name, {
-      name: row.name,
-      columns: columns.map((column) => column.name),
-      pkColumns,
-      dependencies: Array.from(new Set(dependencies.map((dependency) => dependency.table)))
-    })
-  }
-  return schemas
-}
-
-function sortTablesForUpsert(schemas: Map<string, DbTableSchema>): string[] {
-  const visited = new Set<string>()
-  const visiting = new Set<string>()
-  const ordered: string[] = []
-
-  const visit = (tableName: string): void => {
-    if (visited.has(tableName)) return
-    if (visiting.has(tableName)) return
-    visiting.add(tableName)
-    const schema = schemas.get(tableName)
-    for (const dependency of schema?.dependencies ?? []) {
-      if (schemas.has(dependency)) visit(dependency)
-    }
-    visiting.delete(tableName)
-    visited.add(tableName)
-    ordered.push(tableName)
-  }
-
-  for (const tableName of schemas.keys()) {
-    visit(tableName)
-  }
-  return ordered
-}
-
-function loadBaseline(providerId: string): Map<string, BaselineRecordState> {
-  const rows = getDb()
-    .prepare(
-      `SELECT domain, record_id, content_hash
-       FROM sync_record_state
-       WHERE provider_id = ?`
-    )
-    .all(providerId) as Array<{
-    domain: string
-    record_id: string
-    content_hash: string
-  }>
-
-  return new Map(
-    rows.map((row) => [
-      recordKey(row.domain, row.record_id),
-      {
-        domain: row.domain,
-        recordId: row.record_id,
-        contentHash: row.content_hash
-      }
-    ])
+async function captureSyncFileSnapshot(): Promise<NativeSyncFileSnapshotResult> {
+  console.log('[SyncFiles][Native] capture snapshot start')
+  const result = await getNativeWorker().request<NativeSyncFileSnapshotResult>(
+    'sync/files-capture',
+    {},
+    SYNC_NATIVE_TIMEOUT_MS
   )
+  if (!result.success) {
+    throw new Error(result.error || 'Native sync file snapshot failed')
+  }
+  console.log('[SyncFiles][Native] capture snapshot done', {
+    records: result.records.length
+  })
+  return result
 }
 
-function loadLocalTombstones(providerId: string): Map<string, SyncTombstone> {
-  const rows = getDb()
-    .prepare(
-      `SELECT domain, record_id, deleted_at, origin_device_id
-       FROM sync_tombstones
-       WHERE provider_id = ?`
-    )
-    .all(providerId) as Array<{
-    domain: string
-    record_id: string
-    deleted_at: number
-    origin_device_id: string
-  }>
-
-  return new Map(
-    rows.map((row) => [
-      recordKey(row.domain, row.record_id),
-      {
-        domain: row.domain,
-        recordId: row.record_id,
-        deletedAt: row.deleted_at,
-        originDeviceId: row.origin_device_id
-      }
-    ])
+async function applySyncFileRecords(records: SyncRecord[]): Promise<void> {
+  if (records.length === 0) return
+  console.log('[SyncFiles][Native] apply files start', { records: records.length })
+  const result = await getNativeWorker().request<NativeSyncFileMutationResult>(
+    'sync/files-apply',
+    { records },
+    SYNC_NATIVE_TIMEOUT_MS
   )
-}
-
-function captureDbRecords(schemas: Map<string, DbTableSchema>): SyncRecord[] {
-  const db = getDb()
-  const records: SyncRecord[] = []
-  for (const schema of schemas.values()) {
-    const orderBy = schema.pkColumns.map(quoteIdent).join(', ')
-    const rows = db
-      .prepare(`SELECT * FROM ${quoteIdent(schema.name)} ORDER BY ${orderBy}`)
-      .all() as Record<string, unknown>[]
-    for (const row of rows) {
-      const recordId = normalizeRecordId(schema.pkColumns.map((column) => row[column]))
-      const value = {
-        table: schema.name,
-        row
-      }
-      records.push({
-        domain: dbDomain(schema.name),
-        recordId,
-        hash: hashValue(value),
-        value,
-        updatedAt: getRecordUpdatedAt(row)
-      })
-    }
+  if (!result.success) {
+    throw new Error(result.error || 'Native sync file apply failed')
   }
-  return records
-}
-
-function captureFileRecords(): SyncRecord[] {
-  const dataDir = getDataDir()
-  const candidates = [
-    ...DATA_FILE_INCLUDES.map((fileName) => path.join(dataDir, fileName)),
-    ...DATA_DIR_INCLUDES.map((dirName) => path.join(dataDir, dirName))
-  ]
-  const filePaths = Array.from(new Set(candidates.flatMap(walkFiles)))
-  const records: SyncRecord[] = []
-
-  for (const filePath of filePaths) {
-    const relativePath = getDataRelativePath(filePath)
-    if (!relativePath || !shouldIncludeDataRelativePath(relativePath)) continue
-    const stat = fs.statSync(filePath)
-    const value = {
-      path: relativePath,
-      data: fs.readFileSync(filePath).toString('base64')
-    }
-    records.push({
-      domain: FILE_DOMAIN,
-      recordId: relativePath,
-      hash: hashValue(value),
-      value,
-      updatedAt: Math.floor(stat.mtimeMs)
-    })
+  if (result.settingsChanged) {
+    await reloadSettingsCache()
   }
-  return records
+  console.log('[SyncFiles][Native] apply files done', { changed: result.changed })
 }
 
-function captureLocalSnapshot(providerId: string, deviceId: string): LocalSnapshot {
-  flushSettingsSync()
-  const tableSchemas = listSyncTableSchemas(getDb())
+async function deleteSyncFileRecords(recordIds: string[]): Promise<void> {
+  if (recordIds.length === 0) return
+  console.log('[SyncFiles][Native] delete files start', { records: recordIds.length })
+  const result = await getNativeWorker().request<NativeSyncFileMutationResult>(
+    'sync/files-delete',
+    { recordIds },
+    SYNC_NATIVE_TIMEOUT_MS
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native sync file delete failed')
+  }
+  if (result.settingsChanged) {
+    await reloadSettingsCache()
+  }
+  console.log('[SyncFiles][Native] delete files done', { changed: result.changed })
+}
+
+async function captureLocalSnapshot(providerId: string, deviceId: string): Promise<LocalSnapshot> {
+  await flushSettingsSync()
+  const dbSnapshot = await captureSyncDbSnapshot(providerId)
+  const fileSnapshot = await captureSyncFileSnapshot()
   const records = new Map<string, SyncRecord>()
-  for (const record of [...captureDbRecords(tableSchemas), ...captureFileRecords()]) {
+  for (const record of dbSnapshot.records) {
+    const syncRecord: SyncRecord = {
+      ...record,
+      hash: hashValue(record.value)
+    }
+    records.set(recordKey(syncRecord.domain, syncRecord.recordId), syncRecord)
+  }
+  for (const record of fileSnapshot.records) {
     records.set(recordKey(record.domain, record.recordId), record)
   }
 
-  const baseline = loadBaseline(providerId)
-  const tombstones = loadLocalTombstones(providerId)
+  const baseline = new Map(
+    dbSnapshot.baseline.map((row) => [
+      recordKey(row.domain, row.recordId),
+      {
+        domain: row.domain,
+        recordId: row.recordId,
+        contentHash: row.contentHash
+      }
+    ])
+  )
+  const tombstones = new Map(
+    dbSnapshot.tombstones.map((row) => [recordKey(row.domain, row.recordId), row])
+  )
   const now = Date.now()
   for (const [key, state] of baseline) {
     if (records.has(key) || tombstones.has(key)) continue
@@ -371,9 +203,7 @@ function captureLocalSnapshot(providerId: string, deviceId: string): LocalSnapsh
   return {
     records,
     tombstones,
-    baseline,
-    tableSchemas,
-    upsertTableOrder: sortTablesForUpsert(tableSchemas)
+    baseline
   }
 }
 
@@ -598,132 +428,30 @@ function mergePull(local: LocalSnapshot, remoteBundle: SyncBundle | null): Merge
   }
 }
 
-function orderRecordKeysByTables(
-  keys: Iterable<string>,
-  tableOrder: string[],
-  reverse = false
-): string[] {
-  const order = reverse ? [...tableOrder].reverse() : tableOrder
-  const orderIndex = new Map(order.map((table, index) => [table, index]))
-  return [...keys].sort((left, right) => {
-    const leftTable = tableFromDomain(splitRecordKey(left).domain)
-    const rightTable = tableFromDomain(splitRecordKey(right).domain)
-    const leftOrder = leftTable ? (orderIndex.get(leftTable) ?? 10_000) : 20_000
-    const rightOrder = rightTable ? (orderIndex.get(rightTable) ?? 10_000) : 20_000
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder
-    return left.localeCompare(right)
-  })
-}
-
-function upsertDbRecord(db: Database.Database, schema: DbTableSchema, record: SyncRecord): void {
-  if (!isPlainRecord(record.value) || !isPlainRecord(record.value.row)) {
-    throw new Error(`Invalid DB sync record for ${record.domain}`)
-  }
-  const row = record.value.row
-  const columns = schema.columns
-  const conflictColumns = schema.pkColumns.map(quoteIdent).join(', ')
-  const updateColumns = columns.filter((column) => !schema.pkColumns.includes(column))
-  const sql =
-    `INSERT INTO ${quoteIdent(schema.name)} (${columns.map(quoteIdent).join(', ')}) ` +
-    `VALUES (${columns.map(() => '?').join(', ')}) ` +
-    `ON CONFLICT(${conflictColumns}) DO ${
-      updateColumns.length > 0
-        ? `UPDATE SET ${updateColumns
-            .map((column) => `${quoteIdent(column)} = excluded.${quoteIdent(column)}`)
-            .join(', ')}`
-        : 'NOTHING'
-    }`
-  db.prepare(sql).run(...columns.map((column) => row[column] ?? null))
-}
-
-function deleteDbRecord(db: Database.Database, schema: DbTableSchema, recordId: string): void {
-  const pkValues = parseRecordId(recordId)
-  if (pkValues.length !== schema.pkColumns.length) {
-    throw new Error(`Invalid record id for ${schema.name}`)
-  }
-  const where = schema.pkColumns.map((column) => `${quoteIdent(column)} = ?`).join(' AND ')
-  db.prepare(`DELETE FROM ${quoteIdent(schema.name)} WHERE ${where}`).run(...pkValues)
-}
-
-function applyFileRecord(record: SyncRecord): void {
-  if (!isPlainRecord(record.value)) throw new Error(`Invalid file sync record: ${record.recordId}`)
-  const relativePath = typeof record.value.path === 'string' ? record.value.path : record.recordId
-  if (!shouldIncludeDataRelativePath(relativePath)) {
-    throw new Error(`Refusing to write unsupported sync file: ${relativePath}`)
-  }
-  const targetPath = resolveDataRelativePath(relativePath)
-  if (!targetPath) throw new Error(`Invalid sync file path: ${relativePath}`)
-  const data = typeof record.value.data === 'string' ? record.value.data : ''
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
-  const buffer = Buffer.from(data, 'base64')
-
-  if (relativePath === 'settings.json') {
-    replaceSettingsForSync(JSON.parse(buffer.toString('utf-8')) as Record<string, unknown>)
-    return
-  }
-
-  if (relativePath === 'config.json') {
-    const localSyncConfig = readSyncConfig()
-    const nextConfig = JSON.parse(buffer.toString('utf-8')) as Record<string, unknown>
-    const nextSync = isPlainRecord(nextConfig.sync)
-      ? {
-          ...nextConfig.sync,
-          deviceId: localSyncConfig.deviceId
-        }
-      : nextConfig.sync
-    writeConfig({
-      ...nextConfig,
-      sync: nextSync
-    })
-    return
-  }
-
-  fs.writeFileSync(targetPath, buffer)
-}
-
-function deleteFileRecord(recordId: string): void {
-  if (!shouldIncludeDataRelativePath(recordId)) return
-  const targetPath = resolveDataRelativePath(recordId)
-  if (!targetPath || !fs.existsSync(targetPath)) return
-  const stat = fs.statSync(targetPath)
-  if (stat.isFile()) fs.unlinkSync(targetPath)
-}
-
-function applyMergeToLocal(local: LocalSnapshot, merge: MergeResult): void {
-  const db = getDb()
-  const dbApplyKeys = orderRecordKeysByTables(
-    [...merge.recordsToApply.keys()].filter((key) => splitRecordKey(key).domain.startsWith('db:')),
-    local.upsertTableOrder
+async function applyMergeToLocal(merge: MergeResult): Promise<void> {
+  const recordsToApply = [...merge.recordsToApply.values()].filter((record) =>
+    record.domain.startsWith('db:')
   )
-  const dbDeleteKeys = orderRecordKeysByTables(
-    [...merge.recordsToDelete.keys()].filter((key) => splitRecordKey(key).domain.startsWith('db:')),
-    local.upsertTableOrder,
-    true
-  )
+  const recordsToDelete = [...merge.recordsToDelete.values()]
+    .filter((tombstone) => tombstone.domain.startsWith('db:'))
+    .map((tombstone) => ({
+      domain: tombstone.domain,
+      recordId: tombstone.recordId
+    }))
 
-  const tx = db.transaction(() => {
-    for (const key of dbDeleteKeys) {
-      const { domain, recordId } = splitRecordKey(key)
-      const tableName = tableFromDomain(domain)
-      const schema = tableName ? local.tableSchemas.get(tableName) : undefined
-      if (schema) deleteDbRecord(db, schema, recordId)
-    }
-    for (const key of dbApplyKeys) {
-      const record = merge.recordsToApply.get(key)
-      if (!record) continue
-      const tableName = tableFromDomain(record.domain)
-      const schema = tableName ? local.tableSchemas.get(tableName) : undefined
-      if (schema) upsertDbRecord(db, schema, record)
-    }
+  await applySyncDbMerge({
+    recordsToApply,
+    recordsToDelete
   })
-  tx()
 
-  for (const [, tombstone] of merge.recordsToDelete) {
-    if (tombstone.domain === FILE_DOMAIN) deleteFileRecord(tombstone.recordId)
-  }
-  for (const [, record] of merge.recordsToApply) {
-    if (record.domain === FILE_DOMAIN) applyFileRecord(record)
-  }
+  await deleteSyncFileRecords(
+    [...merge.recordsToDelete.values()]
+      .filter((tombstone) => tombstone.domain === FILE_DOMAIN)
+      .map((tombstone) => tombstone.recordId)
+  )
+  await applySyncFileRecords(
+    [...merge.recordsToApply.values()].filter((record) => record.domain === FILE_DOMAIN)
+  )
 }
 
 function buildBundle(
@@ -764,39 +492,11 @@ function buildBundle(
   }
 }
 
-function saveSyncMetadata(providerId: string, bundle: SyncBundle): void {
-  const db = getDb()
-  const now = Date.now()
-  const tx = db.transaction(() => {
-    db.prepare('DELETE FROM sync_record_state WHERE provider_id = ?').run(providerId)
-    db.prepare('DELETE FROM sync_tombstones WHERE provider_id = ?').run(providerId)
-
-    const insertState = db.prepare(
-      `INSERT INTO sync_record_state (provider_id, domain, record_id, content_hash, synced_at)
-       VALUES (?, ?, ?, ?, ?)`
-    )
-    for (const record of bundle.records) {
-      insertState.run(providerId, record.domain, record.recordId, record.hash, now)
-    }
-
-    const insertTombstone = db.prepare(
-      `INSERT INTO sync_tombstones (provider_id, domain, record_id, deleted_at, origin_device_id)
-       VALUES (?, ?, ?, ?, ?)`
-    )
-    for (const tombstone of bundle.tombstones) {
-      insertTombstone.run(
-        providerId,
-        tombstone.domain,
-        tombstone.recordId,
-        tombstone.deletedAt,
-        tombstone.originDeviceId
-      )
-    }
-  })
-  tx()
-}
-
-function resolveConflicts(merge: MergeResult, resolutions: SyncConflictResolution[]): void {
+function resolveConflicts(
+  merge: MergeResult,
+  resolutions: SyncConflictResolution[],
+  originDeviceId: string
+): void {
   const resolutionsById = new Map(
     resolutions.map((resolution) => [resolution.conflictId, resolution.choice])
   )
@@ -812,7 +512,7 @@ function resolveConflicts(merge: MergeResult, resolutions: SyncConflictResolutio
           domain: conflict.domain,
           recordId: conflict.recordId,
           deletedAt: Date.now(),
-          originDeviceId: readSyncConfig().deviceId
+          originDeviceId
         })
       }
       continue
@@ -864,8 +564,8 @@ export class SyncEngine {
     ]
   }
 
-  getStatus(): SyncStatus {
-    const config = readSyncConfig()
+  async getStatus(): Promise<SyncStatus> {
+    const config = await readSyncConfig()
     return {
       status: this.status,
       running: this.running,
@@ -879,7 +579,7 @@ export class SyncEngine {
   async testConnection(
     provider?: SyncProviderConfig
   ): Promise<{ success: boolean; error?: string }> {
-    const target = provider ?? getActiveSyncProvider()
+    const target = provider ?? (await getActiveSyncProvider())
     if (target.type !== 'webdav') return { success: false, error: 'Unsupported sync provider' }
     return this.webdavProvider.testConnection(target.webdav)
   }
@@ -891,17 +591,24 @@ export class SyncEngine {
     this.pendingConflict = null
     const startedAt = Date.now()
     const runId = randomUUID()
-    const provider = getActiveSyncProvider()
-    safeSendToAllWindows('sync:status-changed', this.getStatus())
-    safeSendToAllWindows('sync:run-progress', { runId, phase: 'started', mode })
+    const provider = await getActiveSyncProvider()
+    console.log('[SyncEngine] run start', { runId, mode, providerId: provider.id })
+    emitSyncEvent('sync:status-changed', await this.getStatus())
+    emitSyncEvent('sync:run-progress', { runId, phase: 'started', mode })
 
     try {
       if (!provider.enabled) throw new Error('Sync provider is disabled')
       if (provider.type !== 'webdav') throw new Error('Unsupported sync provider')
 
-      const config = readSyncConfig()
-      const local = captureLocalSnapshot(provider.id, config.deviceId)
-      safeSendToAllWindows('sync:run-progress', { runId, phase: 'download' })
+      const config = await readSyncConfig()
+      const local = await captureLocalSnapshot(provider.id, config.deviceId)
+      console.log('[SyncEngine] local snapshot ready', {
+        runId,
+        records: local.records.size,
+        tombstones: local.tombstones.size,
+        baseline: local.baseline.size
+      })
+      emitSyncEvent('sync:run-progress', { runId, phase: 'download' })
       const remote = await this.webdavProvider.download(provider.webdav)
       const merge =
         mode === 'push'
@@ -909,13 +616,18 @@ export class SyncEngine {
           : mode === 'pull'
             ? mergePull(local, remote.bundle)
             : mergeThreeWay(local, remote.bundle)
+      console.log('[SyncEngine] merge planned', {
+        runId,
+        apply: merge.recordsToApply.size,
+        delete: merge.recordsToDelete.size,
+        conflicts: merge.conflicts.length
+      })
 
       if (merge.conflicts.length > 0) {
-        return this.recordConflictRun({
+        return await this.recordConflictRun({
           runId,
           provider,
           mode,
-          local,
           remote,
           merge,
           startedAt
@@ -927,7 +639,6 @@ export class SyncEngine {
           runId,
           provider,
           mode,
-          local,
           remote,
           merge,
           startedAt
@@ -958,12 +669,13 @@ export class SyncEngine {
         error: error instanceof Error ? error.message : String(error)
       }
       this.status = 'error'
-      patchSyncConfig({ lastRun: summary })
-      safeSendToAllWindows('sync:run-finished', summary)
+      console.warn('[SyncEngine] run failed', { runId, error: summary.error })
+      await patchSyncConfig({ lastRun: summary })
+      emitSyncEvent('sync:run-finished', summary)
       return summary
     } finally {
       this.running = false
-      safeSendToAllWindows('sync:status-changed', this.getStatus())
+      emitSyncEvent('sync:status-changed', await this.getStatus())
     }
   }
 
@@ -973,10 +685,10 @@ export class SyncEngine {
 
     this.running = true
     this.status = 'running'
-    safeSendToAllWindows('sync:status-changed', this.getStatus())
+    emitSyncEvent('sync:status-changed', await this.getStatus())
 
     try {
-      resolveConflicts(this.pendingConflict.merge, resolutions)
+      resolveConflicts(this.pendingConflict.merge, resolutions, (await readSyncConfig()).deviceId)
       const summary = await this.finishMergedRun(this.pendingConflict)
       this.pendingConflict = null
       return summary
@@ -999,24 +711,23 @@ export class SyncEngine {
         error: error instanceof Error ? error.message : String(error)
       }
       this.status = 'error'
-      patchSyncConfig({ lastRun: summary })
-      safeSendToAllWindows('sync:run-finished', summary)
+      await patchSyncConfig({ lastRun: summary })
+      emitSyncEvent('sync:run-finished', summary)
       return summary
     } finally {
       this.running = false
-      safeSendToAllWindows('sync:status-changed', this.getStatus())
+      emitSyncEvent('sync:status-changed', await this.getStatus())
     }
   }
 
-  private recordConflictRun(args: {
+  private async recordConflictRun(args: {
     runId: string
     provider: SyncProviderConfig
     mode: SyncRunMode
-    local: LocalSnapshot
     remote: RemoteBundleState
     merge: MergeResult
     startedAt: number
-  }): SyncRunSummary {
+  }): Promise<SyncRunSummary> {
     const summary = this.buildSummary({
       runId: args.runId,
       providerId: args.provider.id,
@@ -1030,15 +741,14 @@ export class SyncEngine {
       runId: args.runId,
       provider: args.provider,
       mode: args.mode,
-      local: args.local,
       remote: args.remote,
       merge: args.merge,
       startedAt: args.startedAt
     }
     this.status = 'conflict'
-    patchSyncConfig({ lastRun: summary })
-    safeSendToAllWindows('sync:conflict-found', args.merge.conflicts)
-    safeSendToAllWindows('sync:run-finished', summary)
+    await patchSyncConfig({ lastRun: summary })
+    emitSyncEvent('sync:conflict-found', args.merge.conflicts)
+    emitSyncEvent('sync:run-finished', summary)
     return summary
   }
 
@@ -1048,21 +758,26 @@ export class SyncEngine {
     mode: SyncRunMode
     startedAt: number
   }): Promise<SyncRunSummary> {
-    const config = readSyncConfig()
-    safeSendToAllWindows('sync:run-progress', {
+    const config = await readSyncConfig()
+    emitSyncEvent('sync:run-progress', {
       runId: args.runId,
       phase: 'remote-changed'
     })
-    const local = captureLocalSnapshot(args.provider.id, config.deviceId)
+    const local = await captureLocalSnapshot(args.provider.id, config.deviceId)
+    console.log('[SyncEngine] retry local snapshot ready', {
+      runId: args.runId,
+      records: local.records.size,
+      tombstones: local.tombstones.size,
+      baseline: local.baseline.size
+    })
     const remote = await this.webdavProvider.download(args.provider.webdav)
     const merge = args.mode === 'push' ? mergePush(local) : mergeThreeWay(local, remote.bundle)
 
     if (merge.conflicts.length > 0) {
-      return this.recordConflictRun({
+      return await this.recordConflictRun({
         runId: args.runId,
         provider: args.provider,
         mode: args.mode,
-        local,
         remote,
         merge,
         startedAt: args.startedAt
@@ -1073,7 +788,6 @@ export class SyncEngine {
       runId: args.runId,
       provider: args.provider,
       mode: args.mode,
-      local,
       remote,
       merge,
       startedAt: args.startedAt
@@ -1084,19 +798,18 @@ export class SyncEngine {
     runId: string
     provider: SyncProviderConfig
     mode: SyncRunMode
-    local: LocalSnapshot
     remote: RemoteBundleState
     merge: MergeResult
     startedAt: number
   }): Promise<SyncRunSummary> {
-    safeSendToAllWindows('sync:run-progress', { runId: args.runId, phase: 'apply-local' })
-    applyMergeToLocal(args.local, args.merge)
+    emitSyncEvent('sync:run-progress', { runId: args.runId, phase: 'apply-local' })
+    await applyMergeToLocal(args.merge)
 
-    const config = readSyncConfig()
+    const config = await readSyncConfig()
     const bundle = buildBundle(config.deviceId, args.merge.finalRecords, args.merge.finalTombstones)
     let uploadedRemote = args.remote
     if (args.mode !== 'pull') {
-      safeSendToAllWindows('sync:run-progress', { runId: args.runId, phase: 'upload' })
+      emitSyncEvent('sync:run-progress', { runId: args.runId, phase: 'upload' })
       uploadedRemote = await this.webdavProvider.upload(args.provider.webdav, bundle, {
         previousExists: Boolean(args.remote.bundle),
         previousEtag: args.remote.etag,
@@ -1106,10 +819,8 @@ export class SyncEngine {
         bundle.records.length + bundle.tombstones.length - (args.remote.bundle?.records.length ?? 0)
     }
 
-    saveSyncMetadata(
-      args.provider.id,
-      args.mode === 'pull' && args.remote.bundle ? args.remote.bundle : bundle
-    )
+    const metadataBundle = args.mode === 'pull' && args.remote.bundle ? args.remote.bundle : bundle
+    await saveSyncDbMetadata(args.provider.id, metadataBundle.records, metadataBundle.tombstones)
 
     const summary = this.buildSummary({
       runId: args.runId,
@@ -1121,8 +832,14 @@ export class SyncEngine {
       remote: uploadedRemote
     })
     this.status = 'success'
-    patchSyncConfig({ lastRun: summary })
-    safeSendToAllWindows('sync:run-finished', summary)
+    console.log('[SyncEngine] run success', {
+      runId: args.runId,
+      uploaded: summary.uploadedRecords,
+      downloaded: summary.downloadedRecords,
+      deleted: summary.deletedRecords
+    })
+    await patchSyncConfig({ lastRun: summary })
+    emitSyncEvent('sync:run-finished', summary)
     return summary
   }
 

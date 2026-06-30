@@ -22,6 +22,7 @@ import { ErrorBoundary } from './components/error-boundary'
 import { useSettingsStore } from './stores/settings-store'
 import { initProviderStore, useProviderStore } from './stores/provider-store'
 import { initAppPluginStore, useAppPluginStore } from './stores/app-plugin-store'
+import { initExtensionStore } from './stores/extension-store'
 import { useAgentStore } from './stores/agent-store'
 import { useChatStore } from './stores/chat-store'
 import { usePlanStore } from './stores/plan-store'
@@ -32,7 +33,7 @@ import { useTeamStore } from './stores/team-store'
 import { useUIStore } from './stores/ui-store'
 import { registerAllTools, updateWebSearchToolRegistration } from './lib/tools'
 import { updateAppPluginToolRegistration } from './lib/app-plugin'
-import { registerAllProviders } from './lib/api'
+import { refreshExtensionTools } from './lib/extensions/extension-tools'
 import { registerAllViewers } from './lib/preview/register-viewers'
 import {
   createMarkdownComponents,
@@ -48,11 +49,7 @@ import { useCronStore, type CronAgentLogEntry } from './stores/cron-store'
 import { ipcClient } from './lib/ipc/ipc-client'
 import { IPC } from './lib/ipc/channels'
 import { attachRendererToolBridge } from './lib/ipc/renderer-tool-bridge'
-import { attachRendererProviderBridge } from './lib/ipc/renderer-provider-bridge'
 import { agentStream } from './lib/ipc/agent-stream-receiver'
-import { getTeamRuntimeSnapshot } from './lib/agent/teams/runtime-client'
-import { stopTeamInboxPoller } from './lib/agent/teams/inbox-poller'
-import { runTeammate } from './lib/agent/teams/teammate-runner'
 import { nanoid } from 'nanoid'
 import type { UnifiedMessage } from './lib/api/types'
 import { NotifyToastContainer } from './components/notify/NotifyWindow'
@@ -63,6 +60,7 @@ import {
   type AgentRuntimeSyncEvent
 } from './lib/agent-runtime-sync'
 import { installSessionRuntimeSyncListener } from './lib/session-runtime-sync'
+import { installRendererMemoryMonitor } from './lib/renderer-memory-monitor'
 import {
   getGlobalMemorySnapshot,
   loadGlobalMemorySnapshot,
@@ -70,17 +68,17 @@ import {
   type GlobalMemorySnapshot
 } from './lib/agent/memory-files'
 
-// Register synchronous providers and viewers immediately at startup
-registerAllProviders()
+// Register synchronous viewers immediately at startup
 registerAllViewers()
 initProviderStore()
 initAppPluginStore()
 attachRendererToolBridge()
-attachRendererProviderBridge()
 agentStream.attach()
 
 // Register tools (async because SubAgents are loaded from .md files via IPC)
-registerAllTools().catch((err) => console.error('[App] Failed to register tools:', err))
+initExtensionStore()
+  .then(() => registerAllTools())
+  .catch((err) => console.error('[App] Failed to register tools:', err))
 
 // Initialize channel incoming event listener
 initChannelEventListener()
@@ -116,18 +114,6 @@ interface AvailableUpdate {
   currentVersion: string
   newVersion: string
   releaseNotes: string
-}
-
-interface TeamWorkerParams {
-  teamName: string
-  memberId: string
-  memberName: string
-  prompt: string
-  taskId: string | null
-  model: string | null
-  agentName: string | null
-  workingFolder?: string
-  sshConnectionId?: string | null
 }
 
 function isSshWindowView(): boolean {
@@ -208,29 +194,6 @@ function App(): React.JSX.Element {
   const appView = useMemo(() => getAppView(), [])
   const detachedSessionId = useMemo(() => getDetachedSessionId(), [])
   const sessionWindowView = appView === 'session' && !!detachedSessionId
-  const teamWorkerParams = useMemo<TeamWorkerParams | null>(() => {
-    const search = new URLSearchParams(window.location.search)
-    if (search.get('ocWorker') !== 'team') return null
-    const teamName = search.get('teamName')
-    const memberId = search.get('memberId')
-    const memberName = search.get('memberName')
-    const prompt = search.get('prompt')
-    if (!teamName || !memberId || !memberName || !prompt) return null
-    return {
-      teamName,
-      memberId,
-      memberName,
-      prompt,
-      taskId: search.get('taskId'),
-      model: search.get('model'),
-      agentName: search.get('agentName'),
-      workingFolder: search.get('workingFolder') ?? undefined,
-      sshConnectionId: search.get('sshConnectionId')
-    }
-  }, [])
-  const workerBootStartedRef = useRef(false)
-  const [workerBootError, setWorkerBootError] = useState<string | null>(null)
-  const workerMemberName = teamWorkerParams?.memberName ?? ''
   const sshWindowView = useMemo(() => isSshWindowView(), [])
   const rendererOomRecoveryRef = useRef(consumeRendererOomRecoveryFlag())
   const cronLogBufferRef = useRef<CronAgentLogEntry[]>([])
@@ -241,7 +204,7 @@ function App(): React.JSX.Element {
   )
 
   // Initialize plugin auto-reply agent loop listener only in the main app window.
-  usePluginAutoReply(!sessionWindowView && !sshWindowView && !teamWorkerParams)
+  usePluginAutoReply(!sessionWindowView && !sshWindowView)
 
   useEffect(() => {
     if (useSettingsStore.persist.hasHydrated()) {
@@ -253,44 +216,6 @@ function App(): React.JSX.Element {
       setSettingsHydrated(true)
     })
   }, [])
-
-  useEffect(() => {
-    if (!teamWorkerParams || workerBootStartedRef.current) return
-    workerBootStartedRef.current = true
-    stopTeamInboxPoller()
-
-    void (async () => {
-      try {
-        const snapshot = await getTeamRuntimeSnapshot({
-          teamName: teamWorkerParams.teamName,
-          limit: 20
-        })
-        if (!snapshot) {
-          throw new Error(`Team runtime not found: ${teamWorkerParams.teamName}`)
-        }
-
-        const sessionId = useChatStore.getState().activeSessionId ?? undefined
-        useTeamStore.getState().syncRuntimeSnapshot(snapshot, sessionId)
-
-        await runTeammate({
-          memberId: teamWorkerParams.memberId,
-          memberName: teamWorkerParams.memberName,
-          prompt: teamWorkerParams.prompt,
-          taskId: teamWorkerParams.taskId,
-          model: teamWorkerParams.model,
-          agentName: teamWorkerParams.agentName,
-          workingFolder: teamWorkerParams.workingFolder,
-          sshConnectionId: teamWorkerParams.sshConnectionId ?? undefined
-        })
-
-        window.close()
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        console.error('[TeamWorker] Failed to boot worker window:', error)
-        setWorkerBootError(message)
-      }
-    })()
-  }, [detachedSessionId, sessionWindowView, teamWorkerParams])
 
   // Load sessions and plans from SQLite on startup
   useEffect(() => {
@@ -322,7 +247,7 @@ function App(): React.JSX.Element {
         : undefined
       usePlanStore.getState().setActivePlan(activePlan?.id ?? null)
 
-      if (rendererOomRecoveryRef.current && !teamWorkerParams) {
+      if (rendererOomRecoveryRef.current) {
         const recoverySessionId = useChatStore.getState().activeSessionId
         useSettingsStore.getState().updateSettings({ animationsEnabled: false })
         useUIStore.setState({
@@ -345,7 +270,7 @@ function App(): React.JSX.Element {
         toast.warning('Renderer recovered in reduced-memory mode')
       }
     })()
-    window.electron.ipcRenderer
+    ipcClient
       .invoke('settings:get', 'apiKey')
       .then((key) => {
         if (typeof key === 'string' && key) {
@@ -355,7 +280,7 @@ function App(): React.JSX.Element {
       .catch(() => {
         // Ignore — main process may not have a stored key yet
       })
-  }, [detachedSessionId, sessionWindowView, teamWorkerParams])
+  }, [detachedSessionId, sessionWindowView])
 
   useEffect(() => {
     if (sessionWindowView) return
@@ -369,6 +294,7 @@ function App(): React.JSX.Element {
   }, [sessionWindowView])
 
   useEffect(() => installSessionRuntimeSyncListener(), [])
+  useEffect(() => installRendererMemoryMonitor(), [])
   useEffect(() => installGoalSyncListener(), [])
 
   useEffect(
@@ -492,7 +418,7 @@ function App(): React.JSX.Element {
       if (shouldReloadMessages) {
         void chatState
           .loadRecentSessionMessages(sessionPayload.id, true)
-          .finally(() => useChatStore.getState().releaseDormantSessions())
+          .finally(() => useChatStore.getState().scheduleSessionMaintenance())
       }
     })
 
@@ -814,7 +740,7 @@ function App(): React.JSX.Element {
     setUpdateDownloadProgress(null)
     toast.info(t('app.update.downloading'))
 
-    const result = (await window.electron.ipcRenderer.invoke('update:download')) as
+    const result = (await ipcClient.invoke('update:download')) as
       | { success: true }
       | { success: false; error: string }
 
@@ -860,6 +786,18 @@ function App(): React.JSX.Element {
     }
   }, [])
 
+  useEffect(() => {
+    const unsubscribeChat = useChatStore.subscribe((state, previousState) => {
+      if (state.activeProjectId !== previousState.activeProjectId) {
+        void refreshExtensionTools()
+      }
+    })
+
+    return () => {
+      unsubscribeChat()
+    }
+  }, [])
+
   // Global unhandled promise rejection handler
   useEffect(() => {
     const handler = (e: PromiseRejectionEvent): void => {
@@ -871,27 +809,6 @@ function App(): React.JSX.Element {
     window.addEventListener('unhandledrejection', handler)
     return () => window.removeEventListener('unhandledrejection', handler)
   }, [t])
-
-  if (teamWorkerParams) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
-        <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center">
-          {workerBootError ? (
-            <>
-              <div className="text-sm font-medium">Team worker failed to start</div>
-              <div className="text-xs text-muted-foreground">{workerBootError}</div>
-            </>
-          ) : (
-            <>
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <div className="text-sm font-medium">Running background teammate…</div>
-              <div className="text-xs text-muted-foreground">{workerMemberName}</div>
-            </>
-          )}
-        </div>
-      </div>
-    )
-  }
 
   if (sshWindowView) {
     return (

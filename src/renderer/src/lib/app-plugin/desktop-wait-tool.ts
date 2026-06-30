@@ -1,6 +1,12 @@
 import type { ToolHandler } from '@renderer/lib/tools/tool-types'
 import { DESKTOP_WAIT_TOOL_NAME } from './types'
 
+function nativeOnlyDesktopResult(toolName: string): string {
+  return JSON.stringify({
+    error: `${toolName} execution has migrated to .NET Native Worker.`
+  })
+}
+
 export const desktopWaitTool: ToolHandler = {
   definition: {
     name: DESKTOP_WAIT_TOOL_NAME,
@@ -16,20 +22,6 @@ export const desktopWaitTool: ToolHandler = {
       additionalProperties: false
     }
   },
-  execute: async (input) => {
-    const delayMs = Number(input.delayMs ?? 2000)
-    if (!Number.isFinite(delayMs) || delayMs < 0) {
-      return JSON.stringify({ error: 'DesktopWait requires a non-negative numeric delayMs.' })
-    }
-
-    const boundedDelayMs = Math.min(delayMs, 10000)
-    await new Promise((resolve) => setTimeout(resolve, boundedDelayMs))
-
-    return JSON.stringify({
-      success: true,
-      delayMs: boundedDelayMs,
-      message: `Desktop wait completed after ${boundedDelayMs}ms.`
-    })
-  },
+  execute: async () => nativeOnlyDesktopResult('DesktopWait'),
   requiresApproval: () => true
 }

@@ -20,6 +20,7 @@ import { WindowControls } from './WindowControls'
 import { RightPanel } from './RightPanel'
 import { setSessionForegroundVisibility } from '@renderer/lib/agent/session-runtime-router'
 import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
+import { selectSessionPendingApproval } from '@renderer/lib/agent/session-scoped-agent-state'
 
 interface DetachedSessionPageProps {
   sessionId: string
@@ -41,8 +42,8 @@ export function DetachedSessionPage({ sessionId }: DetachedSessionPageProps): Re
       }
     })
   )
-  const pendingApproval = useAgentStore(
-    (state) => state.pendingToolCalls.find((toolCall) => toolCall.sessionId === sessionId) ?? null
+  const { pendingApproval } = useAgentStore(
+    useShallow((state) => selectSessionPendingApproval(state, sessionId))
   )
   const resolveApproval = useAgentStore((state) => state.resolveApproval)
   const workingFolderSheetOpen = useUIStore((state) => state.workingFolderSheetOpen)

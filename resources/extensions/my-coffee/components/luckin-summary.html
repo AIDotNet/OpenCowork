@@ -1,0 +1,255 @@
+<section class="summary">
+  <div class="eyebrow">My Coffee</div>
+  <h1 id="title">Luckin summary</h1>
+  <p id="subtitle"></p>
+  <dl id="fields"></dl>
+  <div id="sections" class="sections"></div>
+</section>
+
+<style>
+  body {
+    color: #172033;
+  }
+
+  .summary {
+    margin: 0;
+    padding: 14px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .eyebrow {
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 3px 0 0;
+    font-size: 16px;
+  }
+
+  p {
+    margin: 3px 0 12px;
+    color: #64748b;
+    font-size: 12px;
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0;
+  }
+
+  .field {
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: #f8fafc;
+  }
+
+  dt {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  dd {
+    margin: 3px 0 0;
+    color: #0f172a;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .empty {
+    border: 1px dashed rgba(15, 23, 42, 0.18);
+    border-radius: 8px;
+    padding: 10px;
+    color: #64748b;
+    font-size: 12px;
+    background: #f8fafc;
+  }
+
+  .sections {
+    display: grid;
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  .section {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 10px;
+    padding: 10px;
+    background: #f8fafc;
+  }
+
+  .section h2 {
+    margin: 0 0 8px;
+    color: #0f172a;
+    font-size: 13px;
+  }
+
+  .section-list {
+    display: grid;
+    gap: 7px;
+  }
+
+  .section-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+    padding: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .section-row.has-image {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+
+  .section-thumb-wrap {
+    width: 68px;
+    height: 68px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 10px;
+    background: #f8fafc;
+    overflow: hidden;
+  }
+
+  .section-thumb {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .section-label {
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .section-value {
+    min-width: 0;
+    color: #0f172a;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .section-badge {
+    border: 1px solid rgba(37, 99, 235, 0.16);
+    border-radius: 999px;
+    padding: 2px 8px;
+    color: #1d4ed8;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .section-details {
+    display: grid;
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .section-detail {
+    color: #475569;
+    font-size: 11px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 520px) {
+    dl {
+      grid-template-columns: 1fr;
+    }
+
+    .section-row.has-image {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  window.addEventListener('extension-props', (event) => {
+    const props = event.detail || {}
+    const fields = Array.isArray(props.fields) ? props.fields : []
+    const sections = Array.isArray(props.sections) ? props.sections : []
+    document.getElementById('title').textContent = props.title || 'Luckin summary'
+    document.getElementById('subtitle').textContent = props.subtitle || ''
+    document.getElementById('fields').innerHTML = fields.length
+      ? fields.map(renderField).join('')
+      : ''
+    document.getElementById('sections').innerHTML = sections.length
+      ? sections.map(renderSection).join('')
+      : fields.length
+        ? ''
+        : '<div class="empty">结果已收到，但没有匹配到可展示的字段。</div>'
+  })
+
+  function renderField(field) {
+    return `<div class="field"><dt>${escapeHtml(field.label || field.name)}</dt><dd>${escapeHtml(field.value)}</dd></div>`
+  }
+
+  function renderSection(section) {
+    const items = Array.isArray(section.items) ? section.items : []
+    if (!items.length) return ''
+    return `<section class="section">
+      <h2>${escapeHtml(section.title || '详情')}</h2>
+      <div class="section-list">${items.map(renderSectionRow).join('')}</div>
+    </section>`
+  }
+
+  function renderSectionRow(item) {
+    const imageUrl = safeUrl(
+      item.imageUrl || item.pictureUrl || item.breviaryPicUrl || item.bigPicUrl || item.picture
+    )
+    const badge = item.badge || ''
+    const details = Array.isArray(item.details) ? item.details.filter(Boolean) : []
+    return `<div class="section-row${imageUrl ? ' has-image' : ''}">
+      ${imageUrl ? `<div class="section-thumb-wrap"><img class="section-thumb" src="${escapeHtmlAttr(imageUrl)}" alt="${escapeHtmlAttr(item.label || item.name || '字段')}" /></div>` : ''}
+      <div>
+        <div class="section-head">
+          <div class="section-label">${escapeHtml(item.label || item.name || '字段')}</div>
+          ${badge ? `<div class="section-badge">${escapeHtml(badge)}</div>` : ''}
+        </div>
+        ${item.value ? `<div class="section-value">${escapeHtml(item.value)}</div>` : ''}
+        ${details.length ? `<div class="section-details">${details.map((detail) => `<div class="section-detail">${escapeHtml(detail)}</div>`).join('')}</div>` : ''}
+      </div>
+    </div>`
+  }
+
+  function safeUrl(value) {
+    try {
+      const url = new URL(String(value || ''))
+      return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : ''
+    } catch {
+      return ''
+    }
+  }
+
+  function escapeHtmlAttr(value) {
+    return escapeHtml(value)
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+  }
+</script>

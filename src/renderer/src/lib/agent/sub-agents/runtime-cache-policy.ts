@@ -1,5 +1,5 @@
 import type { ProviderConfig } from '../../api/types'
-import { RESPONSES_WEBSOCKET_SUB_AGENT_SCOPE_PREFIX } from '../../../../../shared/openai-responses-websocket'
+import { OPENAI_RESPONSES_SUB_AGENT_SCOPE_PREFIX } from '../../../../../shared/openai-responses-session'
 
 function normalizeCacheSegment(value: string | null | undefined, fallback: string): string {
   const normalized = (value ?? '')
@@ -49,7 +49,7 @@ export function withSubAgentRuntimeCachePolicy(
   if (next.type === 'openai-responses') {
     next = {
       ...next,
-      responsesSessionScope: `${RESPONSES_WEBSOCKET_SUB_AGENT_SCOPE_PREFIX}:${runSegment}`
+      responsesSessionScope: `${OPENAI_RESPONSES_SUB_AGENT_SCOPE_PREFIX}:${runSegment}`
     }
   }
 

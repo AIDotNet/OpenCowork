@@ -1,8 +1,8 @@
 import { nanoid } from 'nanoid'
-import { createProvider } from './api/provider'
 import type { ProviderConfig, UnifiedMessage, ContentBlock } from './api/types'
 import type { ImageAttachment } from './image-attachments'
 import { imageAttachmentToContentBlock } from './image-attachments'
+import { runSidecarTextRequest } from './ipc/agent-bridge'
 
 const DRAW_OPTIMIZER_SYSTEM_PROMPT = `You are an elite image-generation prompt director specializing in GPT Image models, including gpt-image-2.
 
@@ -113,7 +113,6 @@ export async function optimizeDrawPrompt(
   options: DrawPromptOptimizationOptions = {},
   signal?: AbortSignal
 ): Promise<DrawPromptOptimizationResult> {
-  const provider = createProvider(providerConfig)
   const messages: UnifiedMessage[] = [
     {
       id: nanoid(),
@@ -123,27 +122,16 @@ export async function optimizeDrawPrompt(
     }
   ]
 
-  let output = ''
-
-  for await (const event of provider.sendMessage(
+  const output = await runSidecarTextRequest({
     messages,
-    [],
-    {
+    provider: {
       ...providerConfig,
       systemPrompt: DRAW_OPTIMIZER_SYSTEM_PROMPT,
       temperature: 0.35,
       maxTokens: 1000
     },
     signal
-  )) {
-    if (event.type === 'text_delta' && event.text) {
-      output += event.text
-    }
-
-    if (event.type === 'error') {
-      throw new Error(event.error?.message || 'Prompt optimization failed')
-    }
-  }
+  })
 
   const optimized = output.trim()
   if (!optimized) {

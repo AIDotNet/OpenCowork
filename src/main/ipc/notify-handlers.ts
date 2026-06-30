@@ -1,5 +1,6 @@
-import { ipcMain, Notification } from 'electron'
-import { safeSendToAllWindows } from '../window-ipc'
+import { Notification } from 'electron'
+import { safeSendMessagePackToAllWindows } from '../window-ipc'
+import { registerMessagePackHandler } from './messagepack-handler'
 
 // Deduplication cache to prevent duplicate notifications
 const notificationCache = new Map<string, number>()
@@ -55,34 +56,35 @@ export function showSystemNotification(title: string, body: string): void {
 }
 
 export function registerNotifyHandlers(): void {
-  ipcMain.handle(
-    'notify:desktop',
-    async (_event, args: { title: string; body: string; type?: string; duration?: number }) => {
-      try {
-        showSystemNotification(args.title ?? 'OpenCoWork', args.body ?? '')
-        return { success: true }
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) }
-      }
+  registerMessagePackHandler<
+    { title: string; body: string; type?: string; duration?: number },
+    { success: boolean; error?: string }
+  >('notify:desktop', async (args) => {
+    try {
+      showSystemNotification(args.title ?? 'OpenCoWork', args.body ?? '')
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
-  )
+  })
 
-  ipcMain.handle(
-    'notify:session',
-    async (_event, args: { sessionId: string; title: string; body: string }) => {
-      try {
-        if (!args?.sessionId) {
-          return { success: false, error: 'sessionId is required' }
-        }
-        safeSendToAllWindows('notify:session-message', {
-          sessionId: args.sessionId,
-          title: args.title ?? 'OpenCoWork',
-          body: args.body ?? ''
-        })
-        return { success: true }
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) }
+  registerMessagePackHandler<
+    { sessionId: string; title: string; body: string },
+    { success: boolean; error?: string }
+  >('notify:session', async (args) => {
+    try {
+      if (!args?.sessionId) {
+        return { success: false, error: 'sessionId is required' }
       }
+      const payload = {
+        sessionId: args.sessionId,
+        title: args.title ?? 'OpenCoWork',
+        body: args.body ?? ''
+      }
+      safeSendMessagePackToAllWindows('notify:session-message', payload)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
-  )
+  })
 }

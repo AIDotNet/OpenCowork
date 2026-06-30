@@ -1,45 +1,84 @@
 import type {
-  APIProvider,
   ImageErrorCode,
   ProviderConfig,
   StreamEvent,
-  ToolDefinition,
   UnifiedMessage,
   ContentBlock,
   ImageBlock
 } from './types'
-import {
-  generateImagesFromText,
-  editImageWithPrompt,
-  streamImagesFromText,
-  streamImageEditWithPrompt,
-  OpenAIImagesRequestError,
-  type Base64ImageInput,
-  type GeneratedImage
-} from './openai-images'
-import { registerProvider } from './provider'
 import { ipcClient } from '../ipc/ipc-client'
 import { IPC } from '../ipc/channels'
+import { agentBridge } from '../ipc/agent-bridge'
+
+const OPENAI_IMAGES_NATIVE_TIMEOUT_MS = 10 * 60 * 1000
+
+interface Base64ImageInput {
+  dataUrl: string
+  mediaType?: string
+}
+
+interface GeneratedImage {
+  sourceType: 'base64' | 'url'
+  data: string
+  mediaType: string
+}
+
+interface NativeOpenAIImagesResult {
+  images?: Array<{
+    sourceType?: string
+    data?: string
+    mediaType?: string
+  }>
+}
 
 function normalizeImageProviderError(error: unknown): { code: ImageErrorCode; message: string } {
-  if (error instanceof OpenAIImagesRequestError) {
-    return {
-      code: error.code,
-      message: error.message
-    }
-  }
-
-  if (error instanceof TypeError) {
-    return {
-      code: 'network',
-      message: `Network request failed while generating image. ${error.message}`
-    }
-  }
-
   return {
     code: 'unknown',
     message: error instanceof Error ? error.message : String(error)
   }
+}
+
+function normalizeNativeImagesResult(result: unknown): GeneratedImage[] {
+  const payload = result as NativeOpenAIImagesResult | null
+  const images = Array.isArray(payload?.images) ? payload.images : []
+  return images
+    .map((image): GeneratedImage | null => {
+      if (!image || typeof image.data !== 'string' || !image.data.trim()) return null
+      const sourceType = image.sourceType === 'url' ? 'url' : 'base64'
+      return {
+        sourceType,
+        data: image.data,
+        mediaType:
+          typeof image.mediaType === 'string' && image.mediaType ? image.mediaType : 'image/png'
+      }
+    })
+    .filter((image): image is GeneratedImage => Boolean(image))
+}
+
+async function requestNativeImages(args: {
+  config: ProviderConfig
+  prompt: string
+  images: Base64ImageInput[]
+}): Promise<GeneratedImage[]> {
+  const initialized = await agentBridge.initialize()
+  if (!initialized) {
+    throw new Error('Native worker unavailable for image generation.')
+  }
+
+  const result = await agentBridge.request(
+    'openai-images/generate',
+    {
+      provider: args.config,
+      prompt: args.prompt,
+      images: args.images
+    },
+    OPENAI_IMAGES_NATIVE_TIMEOUT_MS
+  )
+  const images = normalizeNativeImagesResult(result)
+  if (images.length === 0) {
+    throw new Error('Native image generation returned no image output.')
+  }
+  return images
 }
 
 async function persistGeneratedImage(image: GeneratedImage): Promise<ImageBlock> {
@@ -85,200 +124,105 @@ async function persistGeneratedImage(image: GeneratedImage): Promise<ImageBlock>
   }
 }
 
-function createTransientImageBlock(image: GeneratedImage): ImageBlock {
-  return {
-    type: 'image',
-    source:
-      image.sourceType === 'base64'
-        ? { type: 'base64', mediaType: image.mediaType, data: image.data }
-        : { type: 'url', url: image.data }
-  }
-}
+export async function* streamNativeOpenAIImages(args: {
+  messages: UnifiedMessage[]
+  config: ProviderConfig
+  signal?: AbortSignal
+}): AsyncIterable<StreamEvent> {
+  const requestStartedAt = Date.now()
+  let firstImageAt: number | null = null
 
-class OpenAIImagesProvider implements APIProvider {
-  readonly name = 'OpenAI Images'
-  readonly type = 'openai-images' as const
+  console.log('[OpenAI Images Provider] native image request start:', {
+    type: args.config.type,
+    model: args.config.model,
+    baseUrl: args.config.baseUrl
+  })
 
-  async *sendMessage(
-    messages: UnifiedMessage[],
-    _tools: ToolDefinition[],
-    config: ProviderConfig,
-    signal?: AbortSignal
-  ): AsyncIterable<StreamEvent> {
-    const requestStartedAt = Date.now()
-    let firstImageAt: number | null = null
-    let lastPartialImage: GeneratedImage | null = null
-    let emittedFinalImage = false
+  try {
+    yield { type: 'message_start' }
 
-    console.log('[OpenAI Images Provider] sendMessage called with config:', {
-      type: config.type,
-      model: config.model,
-      baseUrl: config.baseUrl
+    const lastUserMessage = [...args.messages].reverse().find((m) => m.role === 'user')
+    if (!lastUserMessage) {
+      throw new Error('No user message found')
+    }
+
+    let textPrompt = ''
+    const imageInputs: Base64ImageInput[] = []
+
+    if (typeof lastUserMessage.content === 'string') {
+      textPrompt = lastUserMessage.content
+    } else {
+      const contentBlocks = lastUserMessage.content as ContentBlock[]
+      for (const block of contentBlocks) {
+        if (block.type === 'text') {
+          textPrompt += block.text
+        } else if (block.type === 'image') {
+          const imgBlock = block as ImageBlock
+          if (imgBlock.source.type === 'base64') {
+            imageInputs.push({
+              dataUrl: `data:${imgBlock.source.mediaType || 'image/png'};base64,${imgBlock.source.data}`,
+              mediaType: imgBlock.source.mediaType
+            })
+          }
+        }
+      }
+    }
+
+    if (!textPrompt.trim()) {
+      textPrompt = 'Edit this image'
+    }
+
+    if (args.signal?.aborted) {
+      throw new Error('Image request was cancelled')
+    }
+
+    const results = await requestNativeImages({
+      config: args.config,
+      prompt: textPrompt,
+      images: imageInputs
     })
 
-    try {
-      yield { type: 'message_start' }
-
-      // Extract the last user message
-      const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
-      if (!lastUserMessage) {
-        throw new Error('No user message found')
-      }
-
-      // Extract text prompt and check for images
-      let textPrompt = ''
-      const imageInputs: Base64ImageInput[] = []
-
-      if (typeof lastUserMessage.content === 'string') {
-        textPrompt = lastUserMessage.content
-      } else {
-        const contentBlocks = lastUserMessage.content as ContentBlock[]
-        for (const block of contentBlocks) {
-          if (block.type === 'text') {
-            textPrompt += block.text
-          } else if (block.type === 'image') {
-            const imgBlock = block as ImageBlock
-            if (imgBlock.source.type === 'base64') {
-              imageInputs.push({
-                dataUrl: `data:${imgBlock.source.mediaType || 'image/png'};base64,${imgBlock.source.data}`,
-                mediaType: imgBlock.source.mediaType
-              })
-            } else if (imgBlock.source.type === 'url' && imgBlock.source.url) {
-              // For URL images, we'd need to fetch and convert to base64
-              // For now, skip URL images
-              continue
-            }
-          }
-        }
-      }
-
-      if (!textPrompt.trim()) {
-        textPrompt = 'Edit this image'
-      }
-
-      if (config.imageGenerationStream?.enabled === true) {
-        const stream =
-          imageInputs.length > 0
-            ? streamImageEditWithPrompt({
-                config,
-                prompt: textPrompt,
-                images: imageInputs,
-                signal
-              })
-            : streamImagesFromText({
-                config,
-                prompt: textPrompt,
-                signal
-              })
-
-        for await (const event of stream) {
-          if (firstImageAt === null) firstImageAt = Date.now()
-          if (event.kind === 'partial') {
-            lastPartialImage = event.image
-            yield {
-              type: 'image_generation_partial',
-              imageBlock: createTransientImageBlock(event.image),
-              ...(typeof event.partialImageIndex === 'number'
-                ? { partialImageIndex: event.partialImageIndex }
-                : {})
-            }
-            continue
-          }
-
-          emittedFinalImage = true
-          const imageBlock = await persistGeneratedImage(event.image)
-          yield { type: 'image_generated', imageBlock }
-        }
-
-        const requestCompletedAt = Date.now()
-        yield {
-          type: 'message_end',
-          stopReason: 'stop',
-          timing: {
-            totalMs: requestCompletedAt - requestStartedAt,
-            ttftMs: firstImageAt
-              ? firstImageAt - requestStartedAt
-              : requestCompletedAt - requestStartedAt
-          }
-        }
-        return
-      }
-
-      const results =
-        imageInputs.length > 0
-          ? await editImageWithPrompt({
-              config,
-              prompt: textPrompt,
-              images: imageInputs,
-              signal
-            })
-          : await generateImagesFromText({
-              config,
-              prompt: textPrompt,
-              signal
-            })
-
-      for (const img of results) {
-        const imageBlock = await persistGeneratedImage(img)
-        yield { type: 'image_generated', imageBlock }
-      }
-
-      // Yield completion event with image results
-      const requestCompletedAt = Date.now()
-      yield {
-        type: 'message_end',
-        stopReason: 'stop',
-        timing: {
-          totalMs: requestCompletedAt - requestStartedAt,
-          ttftMs: requestCompletedAt - requestStartedAt
-        }
-      }
-    } catch (error) {
-      const normalizedError = normalizeImageProviderError(error)
-      console.error('[OpenAI Images Provider] Error:', normalizedError.message, error)
-
-      if (lastPartialImage && !emittedFinalImage && !signal?.aborted) {
-        console.warn('[OpenAI Images Provider] Preserving last streamed preview after failure.')
-        const imageBlock = await persistGeneratedImage(lastPartialImage)
-        yield { type: 'image_generated', imageBlock }
-      }
-
-      // Yield a structured image error so UI can render a friendly card
-      yield {
-        type: 'image_error',
-        imageError: {
-          code: normalizedError.code,
-          message: normalizedError.message
-        }
-      }
-
-      const requestCompletedAt = Date.now()
-      yield {
-        type: 'message_end',
-        stopReason: 'error',
-        timing: {
-          totalMs: requestCompletedAt - requestStartedAt,
-          ttftMs: firstImageAt
-            ? firstImageAt - requestStartedAt
-            : requestCompletedAt - requestStartedAt
-        }
-      }
-
-      return
+    for (const img of results) {
+      if (firstImageAt === null) firstImageAt = Date.now()
+      const imageBlock = await persistGeneratedImage(img)
+      yield { type: 'image_generated', imageBlock }
     }
-  }
 
-  formatMessages(messages: UnifiedMessage[]): unknown {
-    void messages
-    return []
-  }
+    const requestCompletedAt = Date.now()
+    yield {
+      type: 'message_end',
+      stopReason: 'stop',
+      timing: {
+        totalMs: requestCompletedAt - requestStartedAt,
+        ttftMs: firstImageAt
+          ? firstImageAt - requestStartedAt
+          : requestCompletedAt - requestStartedAt
+      }
+    }
+  } catch (error) {
+    const normalizedError = normalizeImageProviderError(error)
+    console.error('[OpenAI Images Provider] Error:', normalizedError.message, error)
 
-  formatTools(tools: ToolDefinition[]): unknown {
-    void tools
-    return []
-  }
-}
+    yield {
+      type: 'image_error',
+      imageError: {
+        code: normalizedError.code,
+        message: normalizedError.message
+      }
+    }
 
-export function registerOpenAIImagesProvider(): void {
-  registerProvider('openai-images', () => new OpenAIImagesProvider())
+    const requestCompletedAt = Date.now()
+    yield {
+      type: 'message_end',
+      stopReason: 'error',
+      timing: {
+        totalMs: requestCompletedAt - requestStartedAt,
+        ttftMs: firstImageAt
+          ? firstImageAt - requestStartedAt
+          : requestCompletedAt - requestStartedAt
+      }
+    }
+
+    return
+  }
 }

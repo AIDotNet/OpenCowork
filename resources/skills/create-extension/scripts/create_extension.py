@@ -27,23 +27,11 @@ def normalize_extension_id(value: str) -> str:
     return normalized
 
 
-def normalize_tool_name(value: str) -> str:
-    normalized = re.sub(r"[^A-Za-z0-9_-]+", "_", value.strip())
-    normalized = re.sub(r"[_-]{2,}", "_", normalized).strip("_-")
-    if not normalized or not normalized[0].isalpha():
-        normalized = f"tool_{normalized}" if normalized else "tool"
-    return normalized[:64]
-
-
 def infer_origin(url: str) -> str | None:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return None
     return f"{parsed.scheme}://{parsed.netloc}"
-
-
-def write_text(path: Path, content: str) -> None:
-    path.write_text(content.rstrip() + "\n", encoding="utf-8")
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -57,22 +45,28 @@ def build_minimal_manifest(extension_id: str, name: str, description: str) -> di
         "name": name,
         "version": "0.1.0",
         "description": description,
-        "entry": "index.js",
+        "permissions": {
+            "network": ["https://jsonplaceholder.typicode.com"]
+        },
         "tools": [
             {
-                "name": "show_card",
-                "description": "Show a simple card from a sandboxed extension handler.",
-                "kind": "js",
-                "handler": "showCard",
+                "name": "get_post",
+                "description": "Fetch a demo post by id with a declarative HTTP GET tool.",
+                "kind": "http",
                 "readOnly": True,
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "message": {
+                        "id": {
                             "type": "string",
-                            "description": "Optional message to show"
+                            "description": "Post id, for example 1"
                         }
-                    }
+                    },
+                    "required": ["id"]
+                },
+                "http": {
+                    "method": "GET",
+                    "url": "https://jsonplaceholder.typicode.com/posts/{{input.id}}"
                 }
             }
         ]
@@ -124,7 +118,7 @@ def build_http_manifest(
     }
 
 
-def build_ui_manifest(extension_id: str, name: str, description: str) -> dict:
+def build_js_manifest(extension_id: str, name: str, description: str) -> dict:
     return {
         "schemaVersion": 1,
         "id": extension_id,
@@ -134,202 +128,48 @@ def build_ui_manifest(extension_id: str, name: str, description: str) -> dict:
         "entry": "index.js",
         "tools": [
             {
-                "name": "show_table",
-                "description": "Return rows rendered by OpenCowork's built-in table UI.",
+                "name": "show_summary",
+                "description": "Return a summary from a JavaScript extension handler.",
                 "kind": "js",
-                "handler": "showTable",
-                "readOnly": True,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {}
-                }
-            },
-            {
-                "name": "show_html",
-                "description": "Render a custom sandbox HTML response component.",
-                "kind": "js",
-                "handler": "showHtml",
+                "handler": "showSummary",
                 "readOnly": True,
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "title": {
+                        "query": {
                             "type": "string",
-                            "description": "Optional title for the rendered card"
+                            "description": "Optional text to summarize"
                         }
                     }
                 }
-            }
-        ],
-        "renderers": [
-            {
-                "name": "summary_card",
-                "type": "html",
-                "entry": "renderer.html"
             }
         ]
     }
 
 
-MINIMAL_INDEX_JS = r"""
-globalThis.openCoworkExtension = {
-  handlers: {
-    async showCard(input) {
-      const message =
-        typeof input.message === 'string' && input.message.trim()
-          ? input.message.trim()
-          : 'Hello from an OpenCowork extension.'
-
-      return {
-        text: message,
-        data: { message },
-        ui: {
+def build_js_entry(name: str) -> str:
+    return f"""globalThis.openCoworkExtension = {{
+  handlers: {{
+    async showSummary(input, ctx) {{
+      const query = typeof input.query === 'string' ? input.query : ''
+      const previous = await ctx.storage.get('last_query')
+      await ctx.storage.set('last_query', query)
+      return {{
+        text: query ? `Summary for ${{query}}` : 'Summary ready',
+        data: {{
+          extension: {json.dumps(name)},
+          query,
+          previous
+        }},
+        ui: {{
           kind: 'card',
-          title: 'Extension Result',
-          body: message,
-          items: [
-            { label: 'Runtime', value: 'sandbox iframe' },
-            { label: 'Direct network', value: 'disabled' }
-          ]
-        }
-      }
-    }
-  }
-}
-"""
-
-
-UI_INDEX_JS = r"""
-globalThis.openCoworkExtension = {
-  handlers: {
-    async showTable() {
-      const rows = [
-        { name: 'Alpha', value: 3, status: 'ready' },
-        { name: 'Beta', value: 7, status: 'running' },
-        { name: 'Gamma', value: 2, status: 'queued' }
-      ]
-
-      return {
-        text: 'Table data returned by a sandboxed extension handler.',
-        data: rows,
-        ui: {
-          kind: 'table',
-          columns: ['name', 'value', 'status'],
-          rows
-        }
-      }
-    },
-
-    async showHtml(input) {
-      const title =
-        typeof input.title === 'string' && input.title.trim()
-          ? input.title.trim()
-          : 'OpenCowork Extension'
-
-      return {
-        text: 'Rendered with a custom sandbox HTML renderer.',
-        data: {
-          generatedAt: new Date().toISOString()
-        },
-        ui: {
-          kind: 'html',
-          renderer: 'summary_card',
-          props: {
-            title,
-            subtitle: 'This iframe receives props through postMessage.',
-            rows: [
-              { label: 'Runtime', value: 'sandbox iframe' },
-              { label: 'Direct network', value: 'blocked' },
-              { label: 'Host bridge', value: 'ctx.fetch / ctx.storage / ctx.config' }
-            ]
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
-
-RENDERER_HTML = r"""
-<section class="card">
-  <div class="eyebrow">OpenCowork Extension</div>
-  <h1 id="title">Extension</h1>
-  <p id="subtitle"></p>
-  <dl id="rows"></dl>
-</section>
-
-<style>
-  body {
-    color: #e5e7eb;
-  }
-
-  .card {
-    margin: 0;
-    padding: 14px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    border-radius: 8px;
-    background: rgba(15, 23, 42, 0.72);
-  }
-
-  .eyebrow {
-    color: #93c5fd;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0;
-    text-transform: uppercase;
-  }
-
-  h1 {
-    margin: 4px 0;
-    font-size: 16px;
-  }
-
-  p {
-    margin: 0 0 10px;
-    color: #cbd5e1;
-    font-size: 12px;
-  }
-
-  dl {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 6px 12px;
-    margin: 0;
-    font-size: 12px;
-  }
-
-  dt {
-    color: #94a3b8;
-  }
-
-  dd {
-    margin: 0;
-    color: #f8fafc;
-  }
-</style>
-
-<script>
-  window.addEventListener('extension-props', (event) => {
-    const props = event.detail || {}
-    document.getElementById('title').textContent = props.title || 'Extension'
-    document.getElementById('subtitle').textContent = props.subtitle || ''
-
-    const rows = Array.isArray(props.rows) ? props.rows : []
-    document.getElementById('rows').innerHTML = rows
-      .map((row) => `<dt>${escapeHtml(row.label)}</dt><dd>${escapeHtml(row.value)}</dd>`)
-      .join('')
-  })
-
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;')
-  }
-</script>
+          title: {json.dumps(name)},
+          body: query || 'No query provided'
+        }}
+      }}
+    }}
+  }}
+}}
 """
 
 
@@ -368,7 +208,6 @@ def validate_manifest(manifest: dict, root: Path) -> list[str]:
         tools = []
 
     tool_names: list[str] = []
-    js_handlers: list[str] = []
     for index, tool in enumerate(tools):
         if not is_object(tool):
             errors.append(f"tool at index {index} must be an object")
@@ -383,9 +222,6 @@ def validate_manifest(manifest: dict, root: Path) -> list[str]:
         if not is_object(tool.get("inputSchema")):
             errors.append(f"tool {name or index} needs an inputSchema object")
         kind = tool.get("kind")
-        if kind not in {"http", "js"}:
-            errors.append(f"tool {name or index} kind must be http or js")
-            continue
         if kind == "http":
             http = tool.get("http")
             if not is_object(http):
@@ -395,32 +231,20 @@ def validate_manifest(manifest: dict, root: Path) -> list[str]:
                 errors.append(f"http tool {name or index} needs http.method")
             if not isinstance(http.get("url"), str) or not http["url"].strip():
                 errors.append(f"http tool {name or index} needs http.url")
-        if kind == "js":
-            handler = tool.get("handler")
-            if not isinstance(handler, str) or not handler.strip():
+        elif kind == "js":
+            if not isinstance(tool.get("handler"), str) or not tool["handler"].strip():
                 errors.append(f"js tool {name or index} needs handler")
-            else:
-                js_handlers.append(handler.strip())
+        else:
+            errors.append(f"tool {name or index} kind must be http or js")
+            continue
 
     ensure_unique(tool_names, "tool name", errors)
 
     entry = manifest.get("entry")
-    entry_text = ""
-    if js_handlers:
-        if not isinstance(entry, str) or not entry.strip():
-            errors.append("entry is required when JS tools are defined")
-        else:
-            entry_path = root / entry
-            if not entry_path.is_file():
-                errors.append(f"entry file is missing: {entry}")
-            else:
-                entry_text = entry_path.read_text(encoding="utf-8")
-                if "globalThis.openCoworkExtension" not in entry_text:
-                    errors.append("entry file must define globalThis.openCoworkExtension")
-                for handler in js_handlers:
-                    if handler not in entry_text:
-                        errors.append(f"entry file does not reference handler: {handler}")
-    elif isinstance(entry, str) and entry.strip() and not (root / entry).is_file():
+    js_tools = [tool for tool in tools if is_object(tool) and tool.get("kind") == "js"]
+    if js_tools and not isinstance(entry, str):
+        errors.append("entry is required for JS tools")
+    if isinstance(entry, str) and entry.strip() and not (root / entry).is_file():
         errors.append(f"entry file is missing: {entry}")
 
     renderers = manifest.get("renderers", [])
@@ -457,9 +281,8 @@ def validate_manifest(manifest: dict, root: Path) -> list[str]:
     permissions = manifest.get("permissions")
     network = permissions.get("network") if is_object(permissions) else None
     http_tools = [tool for tool in tools if is_object(tool) and tool.get("kind") == "http"]
-    uses_ctx_fetch = bool(re.search(r"\bctx\s*\.\s*fetch\s*\(", entry_text))
-    if (http_tools or uses_ctx_fetch) and not isinstance(network, list):
-        errors.append("permissions.network is required for HTTP tools or ctx.fetch")
+    if http_tools and not isinstance(network, list):
+        errors.append("permissions.network is required for HTTP tools")
 
     return errors
 
@@ -503,7 +326,6 @@ def scaffold(args: argparse.Namespace) -> Path:
 
     if args.template == "minimal":
         write_json(root / "extension.json", build_minimal_manifest(extension_id, name, description))
-        write_text(root / "index.js", MINIMAL_INDEX_JS)
     elif args.template == "http":
         url = args.url or "https://jsonplaceholder.typicode.com/posts/{{input.id}}"
         network = list(args.network)
@@ -517,10 +339,9 @@ def scaffold(args: argparse.Namespace) -> Path:
             root / "extension.json",
             build_http_manifest(extension_id, name, description, url, network, method)
         )
-    elif args.template == "ui":
-        write_json(root / "extension.json", build_ui_manifest(extension_id, name, description))
-        write_text(root / "index.js", UI_INDEX_JS)
-        write_text(root / "renderer.html", RENDERER_HTML)
+    elif args.template == "js":
+        write_json(root / "extension.json", build_js_manifest(extension_id, name, description))
+        (root / "index.js").write_text(build_js_entry(name), encoding="utf-8")
     else:
         raise ValueError(f"Unknown template: {args.template}")
 
@@ -538,7 +359,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--template",
-        choices=["minimal", "http", "ui"],
+        choices=["minimal", "http", "js"],
         default="minimal",
         help="Scaffold template to create"
     )

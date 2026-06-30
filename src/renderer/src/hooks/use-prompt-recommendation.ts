@@ -78,6 +78,8 @@ export function usePromptRecommendation({
     () => document.visibilityState === 'visible'
   )
   const [isWindowFocused, setIsWindowFocused] = React.useState(() => document.hasFocus())
+  const isDocumentVisibleRef = React.useRef(isDocumentVisible)
+  const isWindowFocusedRef = React.useRef(isWindowFocused)
   const cacheRef = React.useRef<Map<string, RecommendationCacheValue>>(new Map())
   const requestSeqRef = React.useRef(0)
   const abortRef = React.useRef<AbortController | null>(null)
@@ -224,6 +226,8 @@ export function usePromptRecommendation({
   React.useEffect(() => {
     const handleVisibilityChange = (): void => {
       const visible = document.visibilityState === 'visible'
+      if (isDocumentVisibleRef.current === visible) return
+      isDocumentVisibleRef.current = visible
       setIsDocumentVisible(visible)
       if (!visible) {
         abortPendingRequest(true)
@@ -231,10 +235,14 @@ export function usePromptRecommendation({
     }
 
     const handleWindowFocus = (): void => {
+      if (isWindowFocusedRef.current) return
+      isWindowFocusedRef.current = true
       setIsWindowFocused(true)
     }
 
     const handleWindowBlur = (): void => {
+      if (!isWindowFocusedRef.current) return
+      isWindowFocusedRef.current = false
       setIsWindowFocused(false)
       abortPendingRequest(true)
     }

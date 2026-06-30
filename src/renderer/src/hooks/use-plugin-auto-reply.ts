@@ -2,7 +2,7 @@
  * Plugin Auto-Reply Hook
  *
  * Listens for `plugin:auto-reply-task` window events and runs an
- * independent Agent Loop (same pattern as cron-agent-runner.ts) with
+ * independent native sidecar Agent Loop with
  * the full main-agent configuration: all tools, system prompt with
  * plugin context, thinking, context compression, etc.
  *
@@ -14,6 +14,7 @@ import { useEffect } from 'react'
 import { nanoid } from 'nanoid'
 import { runAgentViaSidecar } from '@renderer/lib/agent/run-agent-via-sidecar'
 import { buildSidecarAgentRunRequest } from '@renderer/lib/ipc/sidecar-protocol'
+import { agentBridge } from '@renderer/lib/ipc/agent-bridge'
 import { toolRegistry } from '@renderer/lib/agent/tool-registry'
 import {
   buildSystemPrompt,
@@ -27,7 +28,12 @@ import { useChatStore } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
+import {
+  DB_PROJECTS_GET_MSGPACK_CHANNEL,
+  DB_SESSIONS_GET_MSGPACK_CHANNEL
+} from '../../../shared/messagepack/binary-ipc'
 import {
   registerPluginTools,
   isPluginToolsRegistered,
@@ -98,6 +104,7 @@ interface PluginAutoReplyTask {
 }
 
 const PLUGIN_STREAM_DELTA_FLUSH_MS = 66
+const OPENAI_AUDIO_NATIVE_TIMEOUT_MS = 10 * 60 * 1000
 const pluginTaskChains = new Map<string, Promise<void>>()
 const queuedPluginTasksByScope = new Map<string, number>()
 const queuedPluginTasksBySession = new Map<string, number>()
@@ -415,12 +422,10 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
           : task.audio.mediaType) ?? 'application/octet-stream'
 
       const transcript = await transcribeFeishuAudio({
+        config: openAiConfig.config,
         base64: download.base64,
         mediaType: effectiveMediaType,
-        fileName: task.audio.fileName ?? 'audio',
-        model: openAiConfig.config.model,
-        apiKey: openAiConfig.config.apiKey,
-        baseUrl: openAiConfig.config.baseUrl
+        fileName: task.audio.fileName ?? 'audio'
       })
 
       effectiveContent = transcript.trim()
@@ -483,7 +488,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
         .getState()
         .projects.find((project) => project.id === channelProjectId)
       if (!existingProject) {
-        const row = (await ipcClient.invoke('db:projects:get', channelProjectId)) as {
+        const row = await invokeMessagePackBinary<{
           id: string
           name: string
           created_at: number
@@ -491,7 +496,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
           working_folder?: string | null
           ssh_connection_id?: string | null
           plugin_id?: string | null
-        } | null
+        } | null>(DB_PROJECTS_GET_MSGPACK_CHANNEL, channelProjectId)
         if (row) {
           useChatStore.setState((state) => {
             const projectExists = state.projects.some((project) => project.id === row.id)
@@ -545,9 +550,9 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   }
   if (!session) {
     try {
-      const row = (await ipcClient.invoke('db:sessions:get', sessionId)) as {
+      const row = await invokeMessagePackBinary<{
         session?: Partial<PluginSessionSummaryRow>
-      } | null
+      } | null>(DB_SESSIONS_GET_MSGPACK_CHANNEL, sessionId)
       const dbSession = row?.session
       if (dbSession) {
         const sessionRow = buildPluginSessionSummaryRow({
@@ -572,9 +577,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
           providerId: dbSession.provider_id || channelMeta?.providerId || null,
           modelId: dbSession.model_id || channelMeta?.model || null
         })
-        useChatStore
-          .getState()
-          .upsertSessionFromSync(sessionRow, { preserveLoadedMessages: true })
+        useChatStore.getState().upsertSessionFromSync(sessionRow, { preserveLoadedMessages: true })
         session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
       }
     } catch (err) {
@@ -951,9 +954,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     const sent = await sendPluginMessage(pendingChannelText)
     if (sent) {
       deliveredChannelTextLength = nextDeliveredLength
-      console.log(
-        `[PluginAutoReply] Sent partial text before ${reason} for ${pluginId}:${chatId}`
-      )
+      console.log(`[PluginAutoReply] Sent partial text before ${reason} for ${pluginId}:${chatId}`)
     }
   }
 
@@ -1441,45 +1442,29 @@ function resolveOpenAiProviderConfig(
 }
 
 async function transcribeFeishuAudio(params: {
+  config: ProviderConfig
   base64: string
   mediaType: string
   fileName: string
-  model: string
-  apiKey: string
-  baseUrl?: string
 }): Promise<string> {
-  const { base64, mediaType, fileName, model, apiKey, baseUrl } = params
-
-  // Convert base64 to blob
-  const binaryString = atob(base64)
-  const bytes = new Uint8Array(binaryString.length)
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i)
+  const initialized = await agentBridge.initialize()
+  if (!initialized) {
+    throw new Error('Native worker unavailable for audio transcription.')
   }
-  const blob = new Blob([bytes], { type: mediaType })
 
-  // Create FormData
-  const formData = new FormData()
-  formData.append('file', blob, fileName)
-  formData.append('model', model)
-
-  // Call OpenAI-compatible transcription API
-  const url = `${(baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')}/audio/transcriptions`
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`
+  const result = (await agentBridge.request(
+    'openai-audio/transcribe',
+    {
+      provider: params.config,
+      file: {
+        base64: params.base64,
+        mediaType: params.mediaType,
+        fileName: params.fileName
+      }
     },
-    body: formData
-  })
+    OPENAI_AUDIO_NATIVE_TIMEOUT_MS
+  )) as { text?: string }
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => 'Unknown error')
-    throw new Error(`Transcription API error: ${response.status} ${errorText}`)
-  }
-
-  const result = (await response.json()) as { text?: string }
   return result.text ?? ''
 }
 

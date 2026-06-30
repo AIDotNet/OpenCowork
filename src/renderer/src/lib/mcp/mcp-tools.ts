@@ -1,7 +1,7 @@
 import { toolRegistry } from '../agent/tool-registry'
-import type { ToolHandler, ToolContext } from '../tools/tool-types'
+import type { ToolHandler } from '../tools/tool-types'
 import type { McpServerConfig, McpTool, McpResource } from './types'
-import { IPC } from '../ipc/channels'
+import { encodeToolError } from '../tools/tool-result-format'
 
 /**
  * MCP Tool & Resource Bridge — dynamically maps MCP server tools and resources
@@ -17,6 +17,12 @@ const MCP_TOOL_PREFIX = 'mcp__'
 
 /** Track registered MCP tool/resource names for cleanup */
 let _registeredMcpNames: string[] = []
+
+function nativeOnlyMcpResult(toolName: string): string {
+  return encodeToolError(
+    `${toolName} executes in the .NET Native Worker and is unavailable through the renderer boundary.`
+  )
+}
 
 /** Build a prefixed tool name */
 function mcpToolName(serverId: string, toolName: string): string {
@@ -44,7 +50,7 @@ export function isMcpTool(name: string): boolean {
 
 /**
  * Register MCP tools for all active servers.
- * Each MCP tool becomes a ToolHandler that calls mcp:call-tool via IPC.
+ * Execution is owned by the .NET Native Worker; renderer keeps definitions only.
  */
 export function registerMcpTools(
   activeServers: McpServerConfig[],
@@ -72,23 +78,7 @@ export function registerMcpTools(
             required: (mcpTool.inputSchema?.required as string[]) ?? []
           }
         },
-        execute: async (input: Record<string, unknown>, ctx: ToolContext) => {
-          try {
-            const result = await ctx.ipc.invoke(IPC.MCP_CALL_TOOL, {
-              serverId: server.id,
-              toolName: mcpTool.name,
-              args: input
-            })
-            const res = result as { success: boolean; result?: unknown; error?: string }
-            if (!res.success) {
-              return JSON.stringify({ error: res.error ?? 'MCP tool call failed' })
-            }
-            return JSON.stringify(res.result)
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err)
-            return JSON.stringify({ error: `MCP tool "${mcpTool.name}" failed: ${msg}` })
-          }
-        },
+        execute: async () => nativeOnlyMcpResult(name),
         requiresApproval: () => true
       }
 
@@ -107,7 +97,7 @@ function mcpResourceToolName(serverId: string, resourceName: string): string {
 
 /**
  * Register MCP resources as tools for all active servers.
- * Each resource becomes a read-only ToolHandler that calls mcp:read-resource via IPC.
+ * Execution is owned by the .NET Native Worker; renderer keeps definitions only.
  */
 export function registerMcpResources(
   activeServers: McpServerConfig[],
@@ -129,22 +119,7 @@ export function registerMcpResources(
             properties: {}
           }
         },
-        execute: async (_input: Record<string, unknown>, ctx: ToolContext) => {
-          try {
-            const result = await ctx.ipc.invoke(IPC.MCP_READ_RESOURCE, {
-              serverId: server.id,
-              uri: resource.uri
-            })
-            const res = result as { success: boolean; result?: unknown; error?: string }
-            if (!res.success) {
-              return JSON.stringify({ error: res.error ?? 'MCP resource read failed' })
-            }
-            return JSON.stringify(res.result)
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err)
-            return JSON.stringify({ error: `MCP resource "${resource.name}" failed: ${msg}` })
-          }
-        },
+        execute: async () => nativeOnlyMcpResult(name),
         requiresApproval: () => true
       }
 

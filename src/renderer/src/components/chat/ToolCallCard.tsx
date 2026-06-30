@@ -1221,8 +1221,8 @@ function formatSearchEngineLabel(engine: string | undefined): string | null {
   if (!engine) return null
   if (engine === 'git_grep') return 'git grep'
   if (engine === 'ripgrep') return 'ripgrep'
-  if (engine === 'sidecar') return 'sidecar'
-  if (engine === 'node' || engine === 'node_fallback') return 'Node fallback'
+  if (engine === 'native_aot') return '.NET native'
+  if (engine === 'node' || engine.startsWith('node_')) return 'legacy local search'
   if (engine === 'remote_rg') return 'remote rg'
   if (engine === 'remote_grep') return 'remote grep'
   return engine

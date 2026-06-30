@@ -55,7 +55,7 @@ import { ImageGenerationErrorCard } from '@renderer/components/chat/ImageGenerat
 import { ImagePreview } from '@renderer/components/chat/ImagePreview'
 import { ModelIcon, ProviderIcon } from '@renderer/components/settings/provider-icons'
 import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
-import { createProvider } from '@renderer/lib/api/provider'
+import { streamNativeOpenAIImages } from '@renderer/lib/api/openai-images-provider'
 import type {
   AIModelConfig,
   AIProvider,
@@ -1103,7 +1103,6 @@ export function DrawPage(): React.JSX.Element {
       baseProviderConfig,
       streamPreviewEnabledForRun
     )
-    const provider = createProvider(providerConfig)
     const requestStartedAt = Date.now()
     const content: string | ContentBlock[] =
       attachedImages.length > 0
@@ -1126,12 +1125,11 @@ export function DrawPage(): React.JSX.Element {
     ]
 
     try {
-      for await (const event of provider.sendMessage(
+      for await (const event of streamNativeOpenAIImages({
         messages,
-        [],
-        providerConfig,
-        controller.signal
-      )) {
+        config: providerConfig,
+        signal: controller.signal
+      })) {
         switch (event.type) {
           case 'image_generation_partial': {
             const image = normalizeImageSrc(event)
@@ -1382,18 +1380,16 @@ export function DrawPage(): React.JSX.Element {
         ]
       }
 
-      const provider = createProvider(providerConfig)
       const messages = createMessages()
       const requestStartedAt = Date.now()
       let processed = false
 
       try {
-        for await (const event of provider.sendMessage(
+        for await (const event of streamNativeOpenAIImages({
           messages,
-          [],
-          providerConfig,
-          controller.signal
-        )) {
+          config: providerConfig,
+          signal: controller.signal
+        })) {
           switch (event.type) {
             case 'image_generation_partial': {
               const image = normalizeImageSrc(event)

@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useMemo, useEffect, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatTokens, getBillableTotalTokens } from '@renderer/lib/format-tokens'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
+import { DB_MESSAGES_SEARCH_CONTENT_MSGPACK_CHANNEL } from '../../../../shared/messagepack/binary-ipc'
 import {
   Plus,
   MessageSquare,
@@ -59,7 +60,11 @@ import {
   DialogTitle
 } from '@renderer/components/ui/dialog'
 import { toast } from 'sonner'
-import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
+import {
+  createRestorableSessionSnapshot,
+  useChatStore,
+  type SessionMode
+} from '@renderer/stores/chat-store'
 import type { ProviderType } from '@renderer/lib/api/types'
 import {
   isProviderAvailableForModelSelection,
@@ -81,8 +86,8 @@ import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
 import { openDetachedSessionWindow, openSessionOrFocusDetached } from '@renderer/lib/session-window'
 import { cn } from '@renderer/lib/utils'
 import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
-import { createProvider } from '@renderer/lib/api/provider'
 import type { UnifiedMessage } from '@renderer/lib/api/types'
+import { runSidecarTextRequest } from '@renderer/lib/ipc/agent-bridge'
 import { clampLeftSidebarWidth, LEFT_SIDEBAR_DEFAULT_WIDTH } from './right-panel-defs'
 
 const modeIcons: Record<SessionMode, React.ReactNode> = {
@@ -522,7 +527,7 @@ export function SessionListPanel(): React.JSX.Element {
       abortSession(session.id)
     }
     clearPendingSessionMessages(session.id)
-    const snapshot = JSON.parse(JSON.stringify(session))
+    const snapshot = createRestorableSessionSnapshot(session)
     deleteSession(session.id)
     setDeleteTarget(null)
     toast.success(t('sidebar_toast.sessionDeleted'), {
@@ -744,7 +749,6 @@ export function SessionListPanel(): React.JSX.Element {
           return
         }
 
-        const provider = createProvider(providerConfig)
         const transcript = session.messages
           .slice(0, 12)
           .map((message) => {
@@ -782,16 +786,14 @@ export function SessionListPanel(): React.JSX.Element {
           }
         ]
 
-        let nextTitle = ''
-        for await (const event of provider.sendMessage(messages, [], {
-          ...providerConfig,
-          systemPrompt:
-            'You are a session title generator. Return only a short accurate title in the same language as the conversation. Do not explain. Do not wrap in punctuation.'
-        })) {
-          if (event.type === 'text_delta' && event.text) {
-            nextTitle += event.text
+        const nextTitle = await runSidecarTextRequest({
+          messages,
+          provider: {
+            ...providerConfig,
+            systemPrompt:
+              'You are a session title generator. Return only a short accurate title in the same language as the conversation. Do not explain. Do not wrap in punctuation.'
           }
-        }
+        })
 
         const cleanedTitle = nextTitle
           .replace(/[\r\n"“”'‘’《》【】]/g, ' ')
@@ -910,9 +912,12 @@ export function SessionListPanel(): React.JSX.Element {
     const handle = setTimeout(() => {
       void (async () => {
         try {
-          const rows = (await ipcClient.invoke('db:messages:search-content', {
-            query: searchQuery
-          })) as { session_id: string; snippet: string }[]
+          const rows = await invokeMessagePackBinary<{ session_id: string; snippet: string }[]>(
+            DB_MESSAGES_SEARCH_CONTENT_MSGPACK_CHANNEL,
+            {
+              query: searchQuery
+            }
+          )
           if (cancelled) return
           const matchedIds = new Set<string>()
           const snippetBySessionId = new Map<string, string>()
@@ -1325,6 +1330,7 @@ export function SessionListPanel(): React.JSX.Element {
       expandedHistoryProjectIds.has(group.project.id) ||
       historicalItems.some((session) => session.id === activeSessionId)
     const isActiveProject = activeProjectId === group.project.id
+    const ProjectIcon = group.project.sshConnectionId ? Server : FolderOpen
 
     return (
       <div key={group.project.id} className="mb-1.5">
@@ -1355,7 +1361,7 @@ export function SessionListPanel(): React.JSX.Element {
                   )}
                 />
               </span>
-              <FolderOpen className="size-4 shrink-0" />
+              <ProjectIcon className="size-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">{group.project.name}</span>
               {group.project.sshConnectionId ? (
                 <span

@@ -12,7 +12,10 @@ import type {
   AutoModelTaskType
 } from '@renderer/stores/ui-store'
 import { agentBridge, canSidecarHandle, runSidecarCleanup } from '@renderer/lib/ipc/agent-bridge'
-import { buildSidecarAgentRunRequest } from '@renderer/lib/ipc/sidecar-protocol'
+import {
+  buildSidecarAgentRunRequest,
+  isNativeSidecarProviderConfig
+} from '@renderer/lib/ipc/sidecar-protocol'
 import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
 import { toAgentEvent } from '@renderer/lib/agent/stream-event-adapter'
 import {
@@ -902,6 +905,18 @@ export async function selectAutoModel(options: {
         toolsAllowed: allowTools,
         decisionSource: 'fallback-main',
         fallbackReason: 'sidecar_request_build_failed'
+      })
+    }
+
+    if (!isNativeSidecarProviderConfig(routingConfig)) {
+      return finishSelection({
+        target: 'main',
+        config: mainConfig,
+        mode,
+        ...signalStatusFields(routingSignals),
+        toolsAllowed: allowTools,
+        decisionSource: 'fallback-main',
+        fallbackReason: 'sidecar_provider_not_native'
       })
     }
 

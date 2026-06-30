@@ -20,6 +20,7 @@ import { copilotOAuthPreset } from './copilot-oauth'
 import { xiaomiCodingPreset, xiaomiPreset } from './xiaomi'
 import { bigmodelCodingPreset, bigmodelPreset } from './bigmodel'
 import { volcenginePreset } from './volcengine'
+import { xaiPreset } from './x-ai'
 import type { BuiltinProviderPreset } from './types'
 
 export const builtinProviderPresets: BuiltinProviderPreset[] = [
@@ -49,5 +50,6 @@ export const builtinProviderPresets: BuiltinProviderPreset[] = [
   xiaomiPreset,
   bigmodelCodingPreset,
   bigmodelPreset,
-  volcenginePreset
+  volcenginePreset,
+  xaiPreset
 ]

@@ -98,22 +98,12 @@ function createSkillHandler(): ToolHandler {
         required: ['SkillName']
       }
     },
-    execute: async (input, ctx) => {
+    execute: async (input) => {
       const skillName = input.SkillName as string
       if (!skillName) {
         return encodeToolError('SkillName is required')
       }
-      try {
-        const result = (await ctx.ipc.invoke('skills:load', { name: skillName })) as
-          | { content: string; workingDirectory: string }
-          | { error: string }
-        if ('error' in result) {
-          return encodeToolError(result.error)
-        }
-        return `<skill_context>\n<working_directory>${result.workingDirectory}</working_directory>\n<instruction>CRITICAL: When executing any script mentioned in this skill, you MUST prepend the working_directory to form an absolute path. For example, if the skill says "python scripts/foo.py", you must run "python ${result.workingDirectory}/scripts/foo.py". NEVER run scripts using bare relative paths like "python scripts/foo.py" — they will fail because your cwd is not the skill directory.</instruction>\n</skill_context>\n\n${result.content}`
-      } catch (err) {
-        return encodeToolError(err instanceof Error ? err.message : String(err))
-      }
+      return encodeToolError('Skill executes in the .NET Native Worker and is unavailable through the renderer boundary.')
     },
     requiresApproval: () => false
   }

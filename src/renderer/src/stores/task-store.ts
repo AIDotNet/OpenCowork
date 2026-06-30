@@ -1,6 +1,13 @@
 import { create } from 'zustand'
-import { ipcClient } from '../lib/ipc/ipc-client'
 import { emitAgentRuntimeSync, isAgentRuntimeSyncSuppressed } from '../lib/agent-runtime-sync'
+import { invokeMessagePackBinary } from '../lib/ipc/messagepack-ipc-client'
+import {
+  DB_TASKS_CREATE_MSGPACK_CHANNEL,
+  DB_TASKS_DELETE_BY_SESSION_MSGPACK_CHANNEL,
+  DB_TASKS_DELETE_MSGPACK_CHANNEL,
+  DB_TASKS_LIST_BY_SESSION_MSGPACK_CHANNEL,
+  DB_TASKS_UPDATE_MSGPACK_CHANNEL
+} from '../../../shared/messagepack/binary-ipc'
 import { useChatStore } from './chat-store'
 
 export interface TaskItem {
@@ -26,36 +33,34 @@ export type TodoItem = TaskItem
 
 function dbCreateTask(task: TaskItem, sortOrder: number): void {
   if (!task.sessionId) return
-  ipcClient
-    .invoke('db:tasks:create', {
-      id: task.id,
-      sessionId: task.sessionId,
-      planId: task.planId,
-      subject: task.subject,
-      description: task.description,
-      activeForm: task.activeForm,
-      status: task.status,
-      owner: task.owner,
-      blocks: task.blocks,
-      blockedBy: task.blockedBy,
-      metadata: task.metadata,
-      sortOrder,
-      createdAt: task.createdAt,
-      updatedAt: task.updatedAt
-    })
-    .catch(() => {})
+  invokeMessagePackBinary(DB_TASKS_CREATE_MSGPACK_CHANNEL, {
+    id: task.id,
+    sessionId: task.sessionId,
+    planId: task.planId,
+    subject: task.subject,
+    description: task.description,
+    activeForm: task.activeForm,
+    status: task.status,
+    owner: task.owner,
+    blocks: task.blocks,
+    blockedBy: task.blockedBy,
+    metadata: task.metadata,
+    sortOrder,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt
+  }).catch(() => {})
 }
 
 function dbUpdateTask(id: string, patch: Record<string, unknown>): void {
-  ipcClient.invoke('db:tasks:update', { id, patch }).catch(() => {})
+  invokeMessagePackBinary(DB_TASKS_UPDATE_MSGPACK_CHANNEL, { id, patch }).catch(() => {})
 }
 
 function dbDeleteTask(id: string): void {
-  ipcClient.invoke('db:tasks:delete', id).catch(() => {})
+  invokeMessagePackBinary(DB_TASKS_DELETE_MSGPACK_CHANNEL, id).catch(() => {})
 }
 
 function dbDeleteTasksBySession(sessionId: string): void {
-  ipcClient.invoke('db:tasks:delete-by-session', sessionId).catch(() => {})
+  invokeMessagePackBinary(DB_TASKS_DELETE_BY_SESSION_MSGPACK_CHANNEL, sessionId).catch(() => {})
 }
 
 interface TaskRow {
@@ -171,7 +176,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     })
 
     try {
-      const rows = (await ipcClient.invoke('db:tasks:list-by-session', sessionId)) as TaskRow[]
+      const rows = await invokeMessagePackBinary<TaskRow[]>(
+        DB_TASKS_LIST_BY_SESSION_MSGPACK_CHANNEL,
+        sessionId
+      )
       const tasks = rows.map(rowToTask)
       set((state) => {
         const nextTasksBySession = { ...state.tasksBySession, [sessionId]: tasks }

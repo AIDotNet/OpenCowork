@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   Check,
@@ -45,9 +45,8 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { openDetachedSessionWindow } from '@renderer/lib/session-window'
 import { sessionToMarkdown } from '@renderer/lib/utils/export-chat'
-import { loadHtmlToImage } from '@renderer/lib/utils/html-to-image-loader'
+import { copySessionAsImageToClipboard } from '@renderer/lib/utils/export-session-image'
 import { cn } from '@renderer/lib/utils'
-import { dataUrlToBlob, writeImageBlobToClipboard } from '@renderer/lib/utils/image-clipboard'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useUIStore } from '@renderer/stores/ui-store'
@@ -59,75 +58,9 @@ interface SessionConversationPaneProps {
   windowHeaderOwnsTitle?: boolean
 }
 
-const EXPORT_IMAGE_PLACEHOLDER_DATA_URL = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
 const TERMINAL_DOCK_TRANSITION = {
   duration: 0.24,
   ease: [0.22, 1, 0.36, 1] as const
-}
-
-function isRemoteImageSrc(value: string | null): value is string {
-  return typeof value === 'string' && /^https?:\/\//i.test(value)
-}
-
-async function waitForExportImageReady(image: HTMLImageElement): Promise<void> {
-  if (image.complete && image.naturalWidth > 0) return
-
-  await new Promise<void>((resolve) => {
-    const cleanup = (): void => {
-      image.removeEventListener('load', handleDone)
-      image.removeEventListener('error', handleDone)
-    }
-
-    const handleDone = (): void => {
-      cleanup()
-      resolve()
-    }
-
-    image.addEventListener('load', handleDone, { once: true })
-    image.addEventListener('error', handleDone, { once: true })
-  })
-}
-
-async function inlineRemoteImagesForExport(root: HTMLElement): Promise<void> {
-  const images = Array.from(root.querySelectorAll('img'))
-  if (images.length === 0) return
-
-  const dataUrlCache = new Map<string, string>()
-
-  await Promise.all(
-    images.map(async (image) => {
-      const src = image.getAttribute('src')?.trim() || ''
-      if (!src) return
-
-      image.removeAttribute('srcset')
-
-      if (!isRemoteImageSrc(src)) {
-        await waitForExportImageReady(image)
-        return
-      }
-
-      let dataUrl = dataUrlCache.get(src)
-      if (!dataUrl) {
-        try {
-          const result = (await window.api.fetchImageBase64({ url: src })) as {
-            data?: string
-            mimeType?: string
-            error?: string
-          }
-          if (result.error) throw new Error(result.error)
-          dataUrl = result.data
-            ? `data:${result.mimeType || 'image/png'};base64,${result.data}`
-            : EXPORT_IMAGE_PLACEHOLDER_DATA_URL
-        } catch {
-          dataUrl = EXPORT_IMAGE_PLACEHOLDER_DATA_URL
-        }
-        dataUrlCache.set(src, dataUrl)
-      }
-
-      image.setAttribute('src', dataUrl)
-      await waitForExportImageReady(image)
-    })
-  )
 }
 
 export function SessionConversationPane({
@@ -187,9 +120,9 @@ export function SessionConversationPane({
   const updateSessionTitle = useChatStore((state) => state.updateSessionTitle)
   const clearSessionMessages = useChatStore((state) => state.clearSessionMessages)
   const deleteSession = useChatStore((state) => state.deleteSession)
+  const paneRef = useRef<HTMLDivElement | null>(null)
   const [copiedAll, setCopiedAll] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [exportRendering, setExportRendering] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
   const [renameValue, setRenameValue] = useState('')
@@ -230,105 +163,16 @@ export function SessionConversationPane({
 
   const handleExportImage = useCallback(async (): Promise<void> => {
     if (!resolvedSessionId) return
-    const session = useChatStore.getState().sessions.find((item) => item.id === resolvedSessionId)
-    if (!session) return
 
     setExporting(true)
-
-    const styleEl = document.createElement('style')
-    styleEl.setAttribute('data-export-image', '')
-    styleEl.textContent = `
-      [data-message-content] * {
-        max-width: 100% !important;
-        overflow-wrap: break-word !important;
-        word-break: break-word !important;
-      }
-      [data-message-content] pre,
-      [data-message-content] code {
-        white-space: pre-wrap !important;
-        word-break: break-all !important;
-      }
-      [data-message-content] table {
-        table-layout: fixed !important;
-        width: 100% !important;
-      }
-      [data-message-content] img,
-      [data-message-content] svg {
-        max-width: 100% !important;
-        height: auto !important;
-      }
-    `
-    document.head.appendChild(styleEl)
-
     try {
-      await useChatStore.getState().loadSessionMessages(resolvedSessionId, true)
-      setExportRendering(true)
-
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => resolve())
-        })
+      const contentNode = paneRef.current?.querySelector(
+        '[data-message-content]'
+      ) as HTMLElement | null
+      await copySessionAsImageToClipboard({
+        sessionId: resolvedSessionId,
+        width: contentNode?.clientWidth
       })
-
-      const node = document.querySelector('[data-message-content]') as HTMLElement | null
-      if (!node) {
-        throw new Error('Export target not found')
-      }
-
-      const exportStage = document.createElement('div')
-      exportStage.setAttribute('data-export-image-stage', '')
-      exportStage.style.cssText = [
-        'position: fixed',
-        'left: -100000px',
-        'top: 0',
-        'opacity: 0',
-        'pointer-events: none',
-        `width: ${node.clientWidth}px`
-      ].join(';')
-
-      const exportNode = node.cloneNode(true) as HTMLElement
-      exportStage.appendChild(exportNode)
-      document.body.appendChild(exportStage)
-
-      try {
-        await inlineRemoteImagesForExport(exportNode)
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => resolve())
-          })
-        })
-
-        const bgRaw = getComputedStyle(document.documentElement)
-          .getPropertyValue('--background')
-          .trim()
-        const bgColor = bgRaw ? `hsl(${bgRaw})` : '#ffffff'
-        const { toPng } = await loadHtmlToImage()
-        const captureWidth = node.clientWidth
-        const captureHeight = Math.max(
-          exportNode.scrollHeight,
-          exportNode.offsetHeight,
-          node.scrollHeight,
-          node.offsetHeight
-        )
-        const dataUrl = await toPng(exportNode, {
-          backgroundColor: bgColor,
-          pixelRatio: 2,
-          width: captureWidth,
-          height: captureHeight,
-          canvasWidth: captureWidth * 2,
-          canvasHeight: captureHeight * 2,
-          style: {
-            overflow: 'visible',
-            maxWidth: `${captureWidth}px`,
-            width: `${captureWidth}px`,
-            height: `${captureHeight}px`
-          }
-        })
-
-        await writeImageBlobToClipboard(dataUrlToBlob(dataUrl))
-      } finally {
-        exportStage.remove()
-      }
       toast.success(t('layout.imageCopied', { defaultValue: 'Image copied to clipboard' }))
     } catch (error) {
       console.error('Export image failed:', error)
@@ -336,8 +180,6 @@ export function SessionConversationPane({
         description: String(error)
       })
     } finally {
-      setExportRendering(false)
-      document.head.removeChild(styleEl)
       setExporting(false)
     }
   }, [resolvedSessionId, t])
@@ -398,7 +240,7 @@ export function SessionConversationPane({
   }
 
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col bg-background">
+    <div ref={paneRef} className="relative flex min-w-0 flex-1 flex-col bg-background">
       <RuntimeStatusPanel sessionId={resolvedSessionId} />
       <div
         className={cn(
@@ -605,7 +447,6 @@ export function SessionConversationPane({
           onContinue={continueLastToolExecution}
           onEditUserMessage={editAndResend}
           onDeleteMessage={deleteMessage}
-          exportAll={exportRendering}
         />
         <InputArea
           sessionId={resolvedSessionId}

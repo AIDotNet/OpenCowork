@@ -1,8 +1,50 @@
+import { mkdirSync } from 'fs'
+import { homedir } from 'os'
+import { basename, join } from 'path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { McpServerConfig, McpServerStatus, McpTool, McpResource, McpPrompt } from './mcp-types'
+
+function buildProcessEnv(): Record<string, string> {
+  const base: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) base[key] = value
+  }
+  return base
+}
+
+function isNpmCommand(command: string): boolean {
+  const name = basename(command).toLowerCase().replace(/\.(cmd|exe)$/, '')
+  return name === 'npm' || name === 'npx'
+}
+
+function defaultNpmCacheDir(): string {
+  return join(homedir(), '.open-cowork', 'npm-cache')
+}
+
+function buildStdioEnv(
+  command: string,
+  configuredEnv?: Record<string, string>
+): Record<string, string> | undefined {
+  if (!configuredEnv && !isNpmCommand(command)) {
+    return undefined
+  }
+
+  const env = { ...buildProcessEnv(), ...(configuredEnv ?? {}) }
+  if (isNpmCommand(command) && !env.NPM_CONFIG_CACHE && !env.npm_config_cache) {
+    const cacheDir = defaultNpmCacheDir()
+    try {
+      mkdirSync(cacheDir, { recursive: true })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[MCP] Failed to create npm cache dir ${cacheDir}: ${message}`)
+    }
+    env.NPM_CONFIG_CACHE = cacheDir
+  }
+  return env
+}
 
 /**
  * McpClientWrapper — wraps @modelcontextprotocol/sdk Client for a single MCP server.
@@ -118,15 +160,7 @@ export class McpClientWrapper {
           throw new Error('stdio transport requires a command')
         }
         {
-          // Merge process.env (filtering undefined values) with user-specified env
-          let mergedEnv: Record<string, string> | undefined
-          if (this.config.env) {
-            const base: Record<string, string> = {}
-            for (const [k, v] of Object.entries(process.env)) {
-              if (v !== undefined) base[k] = v
-            }
-            mergedEnv = { ...base, ...this.config.env }
-          }
+          const mergedEnv = buildStdioEnv(this.config.command, this.config.env)
           return new StdioClientTransport({
             command: this.config.command,
             args: this.config.args,

@@ -1,25 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
+  Activity,
   ArrowLeftRight,
   Braces,
-  ChevronDown,
+  Copy,
   Download,
   Fingerprint,
-  FolderArchive,
+  Folder,
   FolderOpen,
   FolderSync,
-  HardDriveDownload,
   KeyRound,
   Loader2,
+  MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
   Plus,
   RefreshCw,
   ScrollText,
   Search,
   Server,
-  ShieldCheck,
+  Star,
   Terminal,
-  Zap,
   type LucideIcon
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -35,12 +38,6 @@ import {
 } from '@renderer/stores/ssh-store'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { Button } from '@renderer/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@renderer/components/ui/dropdown-menu'
 import {
   Dialog,
   DialogContent,
@@ -166,99 +163,73 @@ function getGroupHostCount(connections: SshConnection[], groupId: string | null)
   return connections.filter((connection) => connection.groupId === groupId).length
 }
 
-function getStatusPillStyle(kind: 'success' | 'warning' | 'danger' | 'idle'): React.CSSProperties {
-  if (kind === 'success') {
-    return {
-      background: 'color-mix(in srgb, var(--ssh-success) 14%, transparent)',
-      color: 'var(--ssh-success)'
-    }
-  }
+type SshOsKind = 'ubuntu' | 'windows' | 'debian' | 'centos' | 'fedora' | 'macos' | 'linux'
 
-  if (kind === 'warning') {
-    return {
-      background: 'color-mix(in srgb, var(--ssh-warning) 16%, transparent)',
-      color: 'var(--ssh-warning)'
-    }
-  }
-
-  if (kind === 'danger') {
-    return {
-      background: 'color-mix(in srgb, var(--ssh-danger) 16%, transparent)',
-      color: 'var(--ssh-danger)'
-    }
-  }
-
-  return {
-    background: 'color-mix(in srgb, var(--ssh-muted) 14%, transparent)',
-    color: 'var(--ssh-muted)'
-  }
+const SSH_OS_META: Record<SshOsKind, { label: string; bg: string; fg: string }> = {
+  ubuntu: { label: 'Ubuntu', bg: '#e95420', fg: '#fff7ed' },
+  windows: { label: 'Windows', bg: '#0078d4', fg: '#eef7ff' },
+  debian: { label: 'Debian', bg: '#a80030', fg: '#fff1f5' },
+  centos: { label: 'CentOS', bg: '#6f42c1', fg: '#f5f0ff' },
+  fedora: { label: 'Fedora', bg: '#294172', fg: '#edf5ff' },
+  macos: { label: 'macOS', bg: '#3f3f46', fg: '#f4f4f5' },
+  linux: { label: 'Linux', bg: '#262626', fg: '#f5f5f5' }
 }
 
-function StatusPill({
-  session,
-  isTesting,
-  testOk
-}: {
-  session: SshSession | undefined
-  isTesting: boolean
-  testOk: boolean | undefined
-}): React.JSX.Element {
-  const { t } = useTranslation('ssh')
+function inferSshOsKind(connection: SshConnection): SshOsKind {
+  const configured = (connection as SshConnection & { osType?: string | null }).osType
+  const text = [
+    configured,
+    connection.name,
+    connection.host,
+    connection.username,
+    connection.defaultDirectory,
+    connection.startupCommand
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
 
-  if (session?.status === 'connected') {
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold"
-        style={getStatusPillStyle('success')}
-      >
-        <span className="size-1.5 rounded-full bg-current" />
-        {t('list.online')}
-      </span>
-    )
-  }
+  if (/\b(win|windows|rdp)\b/.test(text)) return 'windows'
+  if (text.includes('ubuntu') || connection.authType === 'password') return 'ubuntu'
+  if (text.includes('debian')) return 'debian'
+  if (text.includes('centos') || text.includes('rocky') || text.includes('almalinux')) return 'centos'
+  if (text.includes('fedora')) return 'fedora'
+  if (text.includes('macos') || text.includes('darwin')) return 'macos'
+  return 'linux'
+}
 
-  if (session?.status === 'connecting' || isTesting) {
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold"
-        style={getStatusPillStyle('warning')}
-      >
-        <Loader2 className="size-3 animate-spin" />
-        {session?.status === 'connecting' ? t('connecting') : t('testing')}
-      </span>
-    )
-  }
-
-  if (testOk === true) {
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold"
-        style={getStatusPillStyle('success')}
-      >
-        <ShieldCheck className="size-3" />
-        {t('list.reachable')}
-      </span>
-    )
-  }
-
-  if (testOk === false) {
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold"
-        style={getStatusPillStyle('danger')}
-      >
-        {t('list.unreachable')}
-      </span>
-    )
-  }
+function SshOsBadge({ kind }: { kind: SshOsKind }): React.JSX.Element {
+  const meta = SSH_OS_META[kind]
 
   return (
-    <span
-      className="rounded-full px-2.5 py-1 text-[0.7rem] font-medium"
-      style={getStatusPillStyle('idle')}
+    <div
+      className="inline-flex size-9 items-center justify-center rounded-[9px] border border-[#404040] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+      style={{ backgroundColor: meta.bg, color: meta.fg }}
+      title={meta.label}
+      aria-label={meta.label}
     >
-      {t('list.offline')}
-    </span>
+      {kind === 'windows' ? (
+        <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
+          <path fill="currentColor" d="M3 5.4 10.8 4v7.4H3V5.4Zm8.8-1.6L21 2.2v9.2h-9.2V3.8ZM3 12.6h7.8V20L3 18.6v-6Zm8.8 0H21v9.2l-9.2-1.6v-7.6Z" />
+        </svg>
+      ) : kind === 'ubuntu' ? (
+        <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
+          <circle cx="12" cy="12" r="4.1" fill="none" stroke="currentColor" strokeWidth="2.2" />
+          <circle cx="18.3" cy="7.2" r="2.2" fill="currentColor" />
+          <circle cx="18.3" cy="16.8" r="2.2" fill="currentColor" />
+          <circle cx="6.4" cy="12" r="2.2" fill="currentColor" />
+          <path fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" d="m15.3 9.5 1.5-1.1M15.3 14.5l1.5 1.1M8.1 12H6.4" />
+        </svg>
+      ) : kind === 'macos' ? (
+        <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
+          <path fill="currentColor" d="M16.8 2.8c.1 1.2-.4 2.3-1.1 3.1-.8.9-2 1.5-3.1 1.4-.1-1.1.4-2.3 1.1-3.1.8-.9 2.1-1.5 3.1-1.4Zm3.5 14.6c-.5 1.1-.8 1.6-1.5 2.6-1 1.4-2.4 3.1-4.1 3.1-1.5 0-1.9-1-3.9-1s-2.4 1-3.9 1c-1.7 0-3-1.5-4-2.9-2.7-3.9-3-8.5-1.3-11 1.2-1.8 3.1-2.8 4.9-2.8 1.8 0 2.9 1 4.3 1 1.4 0 2.3-1 4.4-1 1.6 0 3.3.9 4.5 2.3-3.9 2.1-3.3 7.7.6 8.7Z" />
+        </svg>
+      ) : (
+        <span className="text-[11px] font-bold uppercase leading-none">
+          {meta.label.slice(0, kind === 'linux' ? 3 : 2)}
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -286,95 +257,136 @@ function HostRow({
   onTest: () => void
 }): React.JSX.Element {
   const { t } = useTranslation('ssh')
-  const tagText = group?.name ?? t('ungrouped')
-  const authText = t(`migration.auth.${connection.authType}`)
+  const statusTone =
+    session?.status === 'connected'
+      ? 'text-[var(--ssh-success)]'
+      : session?.status === 'connecting' || isTesting
+        ? 'text-[var(--ssh-warning)]'
+        : testOk === false
+          ? 'text-[var(--ssh-danger)]'
+          : 'text-[var(--ssh-muted)]'
+  const statusText =
+    session?.status === 'connected'
+      ? t('list.online')
+      : session?.status === 'connecting'
+        ? t('connecting')
+        : isTesting
+          ? t('testing')
+          : testOk === false
+            ? t('list.unreachable')
+            : t('list.offline')
+  const osKind = inferSshOsKind(connection)
+  const openActionLabel = t('list.open', { defaultValue: 'Open' })
+  const badges = [
+    group?.name ?? t('ungrouped'),
+    t(`migration.auth.${connection.authType}`),
+    `${connection.port} 端口`,
+    connection.keepAliveInterval ? `${connection.keepAliveInterval}s 心跳` : null
+  ].filter(Boolean) as string[]
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
       className={cn(
-        'group grid w-full grid-cols-1 gap-3 border-b border-[var(--ssh-border)] px-4 py-3.5 text-left transition-all md:grid-cols-[minmax(0,1.45fr)_minmax(160px,0.85fr)_120px_230px]',
-        isSelected
-          ? 'bg-[var(--ssh-pill-active)] shadow-[inset_3px_0_0_var(--ssh-accent)]'
-          : 'hover:bg-[var(--ssh-pill)]'
+        'grid min-w-[1080px] grid-cols-[44px_44px_76px_96px_minmax(170px,1fr)_220px_minmax(230px,280px)_176px] items-center border-b border-[#2c2c2c] bg-[#151515] px-2 text-[13px] text-[#e5e7eb] transition-colors hover:bg-[#1b1b1b]',
+        isSelected && 'bg-[#1f1f1f]'
       )}
     >
-      <div className="flex min-w-0 items-center gap-3">
-        <div
-          className="flex size-10 shrink-0 items-center justify-center rounded-[13px] text-[var(--ssh-accent-contrast)] shadow-[0_12px_26px_-18px_color-mix(in_srgb,var(--ssh-accent)_60%,transparent)]"
-          style={{
-            background:
-              'linear-gradient(135deg, var(--ssh-accent), color-mix(in srgb, var(--ssh-accent) 72%, var(--ssh-text)))'
+      <button
+        type="button"
+        className="flex h-[50px] items-center justify-center"
+        onClick={onSelect}
+      >
+        <span className="size-4 rounded-[4px] border border-[#3a3a3a]" />
+      </button>
+
+      <button
+        type="button"
+        className="flex h-[50px] items-center justify-center text-[#9ca3af] hover:text-white"
+        onClick={onSelect}
+      >
+        <Star className="size-4" />
+      </button>
+
+      <button type="button" className="flex items-center gap-2" onClick={onSelect}>
+        <SshOsBadge kind={osKind} />
+      </button>
+
+      <button type="button" className="flex items-center gap-2" onClick={onSelect}>
+        <span className={cn('inline-flex items-center gap-1 text-[12px]', statusTone)}>
+          <span className="size-2 rounded-full bg-current" />
+          {statusText}
+        </span>
+      </button>
+
+      <button type="button" className="truncate text-left font-medium" onClick={onSelect}>
+        {connection.name}
+      </button>
+
+      <div className="flex items-center gap-2 font-mono text-[12px] text-[#d4d4d8]">
+        <span className="truncate">{connection.host}</span>
+        <button
+          type="button"
+          className="inline-flex size-5 items-center justify-center rounded-[6px] text-[#6ee787] hover:bg-[#222]"
+          onClick={() => {
+            void navigator.clipboard.writeText(connection.host)
           }}
+          title="Copy host"
         >
-          <Server className="size-4.5" />
-        </div>
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-[0.95rem] font-semibold text-[var(--ssh-text)]">
-              {connection.name}
-            </span>
-            {connection.proxyJump ? (
-              <span className="rounded-full bg-[var(--ssh-accent-soft)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--ssh-accent)]">
-                ProxyJump
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[0.73rem] text-[var(--ssh-muted)]">
-            <span>ssh</span>
-            <span className="opacity-45">/</span>
-            <span className="truncate">{connection.username}</span>
-            <span className="opacity-45">/</span>
-            <span className="truncate">{tagText}</span>
-          </div>
-        </div>
+          <Copy className="size-3" />
+        </button>
       </div>
 
-      <div className="min-w-0 md:self-center">
-        <div className="truncate font-mono text-[0.78rem] text-[var(--ssh-text)] opacity-80">
-          {connection.host}:{connection.port}
-        </div>
-        <div className="mt-1 truncate text-[0.72rem] text-[var(--ssh-muted)]">
-          {authText}
-          {connection.defaultDirectory ? ` / ${connection.defaultDirectory}` : ''}
-        </div>
-      </div>
-
-      <div className="flex items-center md:justify-start">
-        <StatusPill session={session} isTesting={isTesting} testOk={testOk} />
+      <div className="flex flex-wrap gap-2 py-3">
+        {badges.map((badge) => (
+          <span
+            key={badge}
+            className="rounded-[6px] border border-[#3b3b3b] bg-[#2a2a2a] px-2 py-1 text-[11px] text-[#c4c4c4]"
+          >
+            {badge}
+          </span>
+        ))}
       </div>
 
       <div
-        className="flex items-center gap-2 md:justify-end"
+        className="flex items-center justify-end gap-1.5 whitespace-nowrap"
         onClick={(event) => event.stopPropagation()}
       >
         <Button
-          variant="ghost"
           size="sm"
-          className="h-8 rounded-[10px] px-3 text-[0.72rem] font-semibold text-[var(--ssh-muted)] hover:bg-[var(--ssh-pill)] hover:text-[var(--ssh-text)]"
-          onClick={onEdit}
-        >
-          {t('editConnection')}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 rounded-[10px] px-3 text-[0.72rem] font-semibold text-[var(--ssh-muted)] hover:bg-[var(--ssh-pill)] hover:text-[var(--ssh-text)]"
-          onClick={onTest}
-          disabled={isTesting}
-        >
-          {isTesting ? <Loader2 className="size-3.5 animate-spin" /> : t('testConnection')}
-        </Button>
-        <Button
-          size="sm"
-          className="h-8 rounded-[10px] bg-[var(--ssh-accent)] px-3 text-[0.72rem] font-bold text-[var(--ssh-accent-contrast)] hover:opacity-90"
+          className="h-8 min-w-14 rounded-[7px] bg-[#38b768] px-3 text-[12px] font-semibold text-white shadow-none hover:bg-[#45c874]"
           onClick={onConnect}
+          title={session?.status === 'connected' ? t('openTerminal') : t('connect')}
         >
-          {session?.status === 'connected' ? t('openTerminal') : t('connect')}
+          {session?.status === 'connected' ? openActionLabel : t('connect')}
         </Button>
+        <button
+          type="button"
+          className="inline-flex size-8 items-center justify-center rounded-[7px] border border-[#343434] bg-[#1d1d1d] text-[#b8b8b8] transition-colors hover:border-[#454545] hover:bg-[#262626] hover:text-white"
+          onClick={onEdit}
+          title={t('editConnection')}
+          aria-label={t('editConnection')}
+        >
+          <Pencil className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          className="inline-flex size-8 items-center justify-center rounded-[7px] border border-[#343434] bg-[#1d1d1d] text-[#b8b8b8] transition-colors hover:border-[#454545] hover:bg-[#262626] hover:text-white"
+          onClick={onTest}
+          title={t('testConnection')}
+          aria-label={t('testConnection')}
+        >
+          {isTesting ? <Loader2 className="size-3.5 animate-spin" /> : <Activity className="size-3.5" />}
+        </button>
+        <button
+          type="button"
+          className="inline-flex size-8 items-center justify-center rounded-[7px] text-[#9ca3af] transition-colors hover:bg-[#222] hover:text-white"
+          title={t('workspace.more', { defaultValue: 'More' })}
+          aria-label={t('workspace.more', { defaultValue: 'More' })}
+        >
+          <MoreHorizontal className="size-4" />
+        </button>
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -382,96 +394,122 @@ function GroupRail({
   groups,
   connections,
   selectedGroupId,
+  collapsed,
   onSelectGroup,
   onCreateGroup
 }: {
   groups: SshGroup[]
   connections: SshConnection[]
   selectedGroupId: string | null
+  collapsed: boolean
   onSelectGroup: (groupId: string | null) => void
   onCreateGroup: () => void
 }): React.JSX.Element {
   const { t } = useTranslation('ssh')
+  const ungroupedCount = getGroupHostCount(connections, null)
+  const showUngrouped = ungroupedCount > 0
+
+  const treeItemClass = (active: boolean): string =>
+    cn(
+      'flex w-full items-center gap-2 rounded-[8px] px-3 py-2 text-left text-[13px] transition-colors',
+      active ? 'bg-[#2b2b2b] text-white' : 'text-[#d4d4d8] hover:bg-[#212121] hover:text-white'
+    )
 
   return (
-    <aside className="hidden w-[220px] shrink-0 flex-col border-r border-[var(--ssh-panel-border)] bg-[var(--ssh-panel)] text-[var(--ssh-panel-text)] md:flex">
-      <div className="border-b border-[var(--ssh-panel-border)] px-4 py-4">
-        <div className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[var(--ssh-panel-muted)] opacity-70">
-          {t('workspace.vaults', { defaultValue: 'Hosts' })}
-        </div>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <div className="text-[1rem] font-semibold text-[var(--ssh-panel-text)]">
-            {t('workspace.groupRailTitle', { defaultValue: 'Groups' })}
-          </div>
-          <button
-            type="button"
-            onClick={onCreateGroup}
-            className="inline-flex size-8 items-center justify-center rounded-[10px] bg-[var(--ssh-panel-hover)] text-[var(--ssh-panel-muted)] hover:text-[var(--ssh-panel-text)]"
-            title={t('newGroup')}
-          >
-            <Plus className="size-4" />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-2 py-3">
-        <button
-          type="button"
-          onClick={() => onSelectGroup(null)}
-          className={cn(
-            'flex w-full items-center justify-between gap-3 rounded-[12px] px-3 py-2.5 text-left transition-colors',
-            selectedGroupId === null
-              ? 'bg-[var(--ssh-pill-active)] text-[var(--ssh-pill-active-text)]'
-              : 'text-[var(--ssh-panel-muted)] hover:bg-[var(--ssh-panel-hover)] hover:text-[var(--ssh-panel-text)]'
-          )}
-        >
-          <span className="min-w-0 truncate text-[0.86rem] font-medium">
-            {t('workspace.allVaults', { defaultValue: 'All hosts' })}
-          </span>
-          <span className="text-[0.74rem] opacity-65">{connections.length}</span>
-        </button>
-
-        <div className="mt-3 space-y-1">
-          {groups.map((group) => {
-            const active = selectedGroupId === group.id
-            return (
+    <aside
+      className={cn(
+        'shrink-0 border-r border-[#2d2d2d] bg-[#141414] text-white transition-all',
+        collapsed ? 'w-[68px]' : 'w-[285px]'
+      )}
+    >
+      <div className="h-full overflow-y-auto px-2 py-3">
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-3 pt-2 text-[#9ca3af]">
+            <Folder className="size-4" />
+            {groups.slice(0, 3).map((group) => (
               <button
                 key={group.id}
                 type="button"
                 onClick={() => onSelectGroup(group.id)}
                 className={cn(
-                  'flex w-full items-center justify-between gap-3 rounded-[12px] px-3 py-2.5 text-left transition-colors',
-                  active
-                    ? 'bg-[var(--ssh-pill-active)] text-[var(--ssh-pill-active-text)]'
-                    : 'text-[var(--ssh-panel-muted)] hover:bg-[var(--ssh-panel-hover)] hover:text-[var(--ssh-panel-text)]'
+                  'inline-flex size-8 items-center justify-center rounded-[8px] transition-colors',
+                  selectedGroupId === group.id
+                    ? 'bg-[#2b2b2b] text-white'
+                    : 'hover:bg-[#212121] hover:text-white'
                 )}
+                title={group.name}
               >
-                <span className="min-w-0 truncate text-[0.86rem] font-medium">{group.name}</span>
-                <span className="text-[0.74rem] opacity-65">
-                  {getGroupHostCount(connections, group.id)}
-                </span>
+                <FolderOpen className="size-4" />
               </button>
-            )
-          })}
-        </div>
+            ))}
+            {showUngrouped ? <Server className="size-4" /> : null}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="rounded-[10px] border border-[#2a2a2a] bg-[#161616] px-2 py-2">
+              <div className="mb-2 flex items-center justify-between px-2 text-[13px] text-[#d4d4d8]">
+                <span>{t('workspace.groupRailTitle')}</span>
+                <button
+                  type="button"
+                  onClick={onCreateGroup}
+                  className="rounded-[6px] px-2 py-1 text-[#9ca3af] hover:bg-[#212121] hover:text-white"
+                  title={t('newGroup')}
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              </div>
 
-        <div className="mt-3 border-t border-[var(--ssh-panel-border)] pt-3">
-          <button
-            type="button"
-            onClick={() => onSelectGroup('__ungrouped__')}
-            className={cn(
-              'flex w-full items-center justify-between gap-3 rounded-[12px] px-3 py-2.5 text-left transition-colors',
-              selectedGroupId === '__ungrouped__'
-                ? 'bg-[var(--ssh-pill-active)] text-[var(--ssh-pill-active-text)]'
-                : 'text-[var(--ssh-panel-muted)] hover:bg-[var(--ssh-panel-hover)] hover:text-[var(--ssh-panel-text)]'
-            )}
-          >
-            <span className="min-w-0 truncate text-[0.86rem] font-medium">{t('ungrouped')}</span>
-            <span className="text-[0.74rem] opacity-65">
-              {getGroupHostCount(connections, null)}
-            </span>
-          </button>
-        </div>
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => onSelectGroup(null)}
+                  className={treeItemClass(selectedGroupId === null)}
+                >
+                  <Folder className="size-4" />
+                  <span className="truncate">{t('workspace.allVaults')}</span>
+                  <span className="ml-auto text-[#777]">{connections.length}</span>
+                </button>
+
+                <div className="ml-4 space-y-1 border-l border-[#2a2a2a] pl-3">
+                  {groups.length === 0 ? (
+                    <div className="px-3 py-3 text-[12px] leading-5 text-[#7a7a7a]">
+                      {t('workspace.emptyGroupsDesc', {
+                        defaultValue: 'No groups yet. Create one to organize your hosts.'
+                      })}
+                    </div>
+                  ) : null}
+
+                  {groups.map((group) => (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() => onSelectGroup(group.id)}
+                      className={treeItemClass(selectedGroupId === group.id)}
+                    >
+                      <FolderOpen className="size-4" />
+                      <span className="truncate">{group.name}</span>
+                      <span className="ml-auto text-[#777]">
+                        {getGroupHostCount(connections, group.id)}
+                      </span>
+                    </button>
+                  ))}
+
+                  {showUngrouped ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelectGroup('__ungrouped__')}
+                      className={treeItemClass(selectedGroupId === '__ungrouped__')}
+                    >
+                      <Server className="size-4" />
+                      <span>{t('ungrouped')}</span>
+                      <span className="ml-auto text-[#777]">{ungroupedCount}</span>
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   )
@@ -501,6 +539,7 @@ function HostsWorkspace({
   const [editingGroup, setEditingGroup] = useState<SshGroup | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [inspectorDialogOpen, setInspectorDialogOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const quickConnectTarget = useMemo(() => parseQuickConnect(searchQuery), [searchQuery])
 
@@ -561,12 +600,16 @@ function HostsWorkspace({
     )
     if (selectedStillVisible) return
 
-    const nextConnection = visibleConnections[0] ?? connections[0] ?? null
+    const nextConnection =
+      visibleConnections[0] ??
+      (selectedGroupId === null && !searchQuery.trim() ? (connections[0] ?? null) : null)
     setDetailConnectionId(nextConnection?.id ?? null)
   }, [
     connections,
     detailConnectionId,
     inspectorMode,
+    searchQuery,
+    selectedGroupId,
     setDetailConnectionId,
     setInspectorMode,
     visibleConnections
@@ -735,247 +778,201 @@ function HostsWorkspace({
 
   return (
     <>
-      <div className="flex min-w-0 flex-1 overflow-hidden bg-[var(--ssh-canvas)] text-[var(--ssh-text)]">
-        <GroupRail
-          groups={groups}
-          connections={connections}
-          selectedGroupId={selectedGroupId}
-          onSelectGroup={(groupId) => setSelectedGroupId(groupId)}
-          onCreateGroup={() => {
-            setEditingGroup(null)
-            setGroupDialogOpen(true)
-          }}
-        />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[#141414] text-white">
+        <div className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)] border-b border-[#2d2d2d]">
+          <div className="flex items-center gap-2 px-3 py-3">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-[8px] px-2 py-1 text-[13px] text-[#d4d4d8] hover:bg-[#212121] hover:text-white"
+              onClick={() => setSidebarCollapsed((current) => !current)}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+              {!sidebarCollapsed ? <span>收起</span> : null}
+            </button>
+            <button
+              type="button"
+              className="inline-flex size-8 items-center justify-center rounded-[8px] border border-[#3a3a3a] text-[#d4d4d8] hover:bg-[#212121] hover:text-white"
+              onClick={() => void loadAll()}
+            >
+              <RefreshCw className="size-4" />
+            </button>
+            {!sidebarCollapsed ? (
+              <>
+                <button
+                  type="button"
+                  className="rounded-[8px] border border-[#3a3a3a] px-3 py-1.5 text-[13px] text-[#f5f5f5] hover:bg-[#212121]"
+                  onClick={() => {
+                    setEditingGroup(null)
+                    setGroupDialogOpen(true)
+                  }}
+                >
+                  + 分组
+                </button>
+                <button
+                  type="button"
+                  className="rounded-[8px] border border-[#3a3a3a] px-3 py-1.5 text-[13px] text-[#f5f5f5] hover:bg-[#212121]"
+                  onClick={startCreateConnection}
+                >
+                  + SSH
+                </button>
+              </>
+            ) : null}
+          </div>
 
-        <main className="flex min-w-0 flex-1 flex-col">
-          <div className="border-b border-[var(--ssh-panel-border)] bg-[var(--ssh-panel)] px-4 py-3 text-[var(--ssh-panel-text)]">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[280px] flex-1">
-                <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[var(--ssh-panel-muted)] opacity-70" />
-                <input
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  onKeyDown={handleSearchKeyDown}
-                  placeholder={t('workspace.searchHosts', {
-                    defaultValue: 'Find a host or ssh user@hostname...'
-                  })}
-                  className="h-10 w-full rounded-[12px] border border-[var(--ssh-panel-border)] bg-[var(--ssh-panel-strong)] pl-10 pr-4 font-mono text-[0.82rem] text-[var(--ssh-panel-text)] outline-none transition placeholder:text-[var(--ssh-panel-muted)] focus:border-[var(--ssh-accent)] focus:ring-4 focus:ring-[var(--ssh-accent-soft)]"
-                />
-              </div>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <button
+              type="button"
+              className={cn(
+                'rounded-[8px] px-3 py-1.5 text-[13px]',
+                selectedGroupId == null ? 'bg-[#232323] text-white' : 'text-[#b6b6b6] hover:bg-[#212121]'
+              )}
+              onClick={() => setSelectedGroupId(null)}
+            >
+              全部
+            </button>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    className="h-10 rounded-[12px] bg-[var(--ssh-panel-hover)] px-3 text-[0.78rem] font-semibold text-[var(--ssh-panel-text)] hover:opacity-90"
-                  >
-                    <Server className="size-3.5" />
-                    {t('workspace.newHost', { defaultValue: 'NEW HOST' })}
-                    <ChevronDown className="size-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={startCreateConnection}>
-                    {t('newConnection')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setEditingGroup(null)
-                      setGroupDialogOpen(true)
-                    }}
-                  >
-                    {t('newGroup')}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <Button
-                size="sm"
-                className="h-10 rounded-[12px] bg-[var(--ssh-accent)] px-4 text-[0.78rem] font-bold text-[var(--ssh-accent-contrast)] hover:opacity-90 disabled:bg-[var(--ssh-panel-hover)] disabled:text-[var(--ssh-panel-muted)]"
-                onClick={() => {
-                  if (quickConnectTarget) {
-                    void handleQuickConnect()
-                    return
-                  }
-                  if (selectedConnection) onConnect(selectedConnection.id)
-                }}
-                disabled={!selectedConnection && !quickConnectTarget}
-              >
-                <Zap className="size-3.5" />
-                {quickConnectTarget
-                  ? t('workspace.quickConnect', { defaultValue: 'Quick connect' })
-                  : t('connect')}
-              </Button>
+            <div className="relative min-w-[320px] max-w-[520px] flex-1">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#71717a]" />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="ssh root@** / 搜索"
+                className="h-10 w-full rounded-[8px] border border-[#3a3a3a] bg-[#191919] pl-10 pr-4 text-[13px] text-[#f5f5f5] outline-none placeholder:text-[#71717a]"
+              />
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 rounded-[10px] bg-[var(--ssh-panel-hover)] px-3 text-[0.72rem] font-semibold text-[var(--ssh-panel-muted)] hover:text-[var(--ssh-panel-text)]"
-                  >
-                    <FolderArchive className="size-3.5" />
-                    {activeVaultLabel}
-                    <ChevronDown className="size-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem onClick={() => setSelectedGroupId(null)}>
-                    {t('workspace.allVaults', { defaultValue: 'All hosts' })}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSelectedGroupId('__ungrouped__')}>
-                    {t('ungrouped')}
-                  </DropdownMenuItem>
-                  {groups.map((group) => (
-                    <DropdownMenuItem key={group.id} onClick={() => setSelectedGroupId(group.id)}>
-                      {group.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+            <button type="button" className="text-[13px] font-medium text-[#30c56b]">
+              查看雨云服务器🔥
+            </button>
+
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex size-8 items-center justify-center rounded-[8px] border border-[#3a3a3a] text-[#d4d4d8] hover:bg-[#212121] hover:text-white"
+                onClick={() => setImportOpen(true)}
+              >
+                <FolderSync className="size-4" />
+              </button>
+              <button
+                type="button"
+                className="inline-flex size-8 items-center justify-center rounded-[8px] border border-[#3a3a3a] text-[#d4d4d8] hover:bg-[#212121] hover:text-white"
+                onClick={() => void handleExportAll()}
+              >
+                <Download className="size-4" />
+              </button>
+              <button
+                type="button"
+                className="rounded-[8px] border border-[#2d7d48] bg-[#173620] px-3 py-1.5 text-[13px] text-[#6ee787]"
+              >
+                本地仓库
+              </button>
+              <button
+                type="button"
+                className="rounded-[8px] px-3 py-1.5 text-[13px] text-[#b6b6b6] hover:bg-[#212121] hover:text-white"
+              >
+                云端仓库
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <GroupRail
+            groups={groups}
+            connections={connections}
+            selectedGroupId={selectedGroupId}
+            collapsed={sidebarCollapsed}
+            onSelectGroup={(groupId) => setSelectedGroupId(groupId)}
+            onCreateGroup={() => {
+              setEditingGroup(null)
+              setGroupDialogOpen(true)
+            }}
+          />
+
+          <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[#141414]">
+            <div className="flex items-center justify-between border-b border-[#2d2d2d] px-4 py-3">
+              <div>
+                <div className="text-[15px] font-semibold text-white">{activeVaultLabel}</div>
+                <div className="mt-1 text-[12px] text-[#8b8b8b]">
+                  {visibleConnections.length} 台主机 / {onlineCount} 台在线
+                </div>
+              </div>
 
               {quickConnectTarget ? (
-                <div className="inline-flex min-w-0 items-center gap-2 rounded-[10px] bg-[var(--ssh-accent-soft)] px-3 py-1.5 text-[0.72rem] text-[var(--ssh-accent)]">
-                  <Terminal className="size-3.5 shrink-0" />
-                  <span className="truncate">{quickConnectTarget.command}</span>
-                  <span className="shrink-0 opacity-65">
-                    {t('workspace.quickConnectAgent', { defaultValue: 'SSH Agent' })}
-                  </span>
-                </div>
+                <button
+                  type="button"
+                  className="rounded-[8px] border border-[#2d7d48] bg-[#173620] px-3 py-1.5 text-[13px] text-[#6ee787]"
+                  onClick={() => void handleQuickConnect()}
+                >
+                  {quickConnectTarget.command}
+                </button>
               ) : null}
-
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  className="inline-flex size-8 items-center justify-center rounded-[10px] bg-[var(--ssh-panel-hover)] text-[var(--ssh-panel-muted)] hover:text-[var(--ssh-panel-text)]"
-                  onClick={() => void loadAll()}
-                  title={t('list.refresh')}
-                >
-                  <RefreshCw className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex size-8 items-center justify-center rounded-[10px] bg-[var(--ssh-panel-hover)] text-[var(--ssh-panel-muted)] hover:text-[var(--ssh-panel-text)]"
-                  onClick={() => setImportOpen(true)}
-                  title={t('migration.importButton')}
-                >
-                  <FolderSync className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex size-8 items-center justify-center rounded-[10px] bg-[var(--ssh-panel-hover)] text-[var(--ssh-panel-muted)] hover:text-[var(--ssh-panel-text)]"
-                  onClick={() => void handleExportAll()}
-                  title={t('migration.exportAll')}
-                >
-                  <Download className="size-4" />
-                </button>
-              </div>
             </div>
-          </div>
 
-          <div className="flex min-h-0 flex-1 overflow-hidden">
-            <section className="flex min-w-0 flex-1 flex-col">
-              <div className="border-b border-[var(--ssh-border)] px-4 py-4">
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                  <div>
-                    <div className="text-[1.16rem] font-semibold text-[var(--ssh-text)]">
-                      {t('workspace.hostsHeading', { defaultValue: 'Hosts' })}
-                    </div>
-                    <div className="mt-1 text-[0.76rem] text-[var(--ssh-muted)]">
-                      {t('workspace.hostsMeta', {
-                        defaultValue: '{{count}} hosts / {{online}} online',
-                        count: visibleConnections.length,
-                        online: onlineCount
-                      })}
-                    </div>
+            {visibleConnections.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center px-8">
+                <div className="max-w-[420px] text-center">
+                  <div className="mx-auto flex size-16 items-center justify-center rounded-[18px] border border-[#3a3a3a] bg-[#1d1d1d] text-[#6ee787]">
+                    <Server className="size-7" />
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <div className="rounded-full bg-[var(--ssh-pill)] px-3 py-1.5 text-[0.72rem] font-medium text-[var(--ssh-muted)]">
-                      {activeVaultLabel}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 rounded-[10px] px-3 text-[0.72rem] font-semibold text-[var(--ssh-muted)] hover:bg-[var(--ssh-pill)] hover:text-[var(--ssh-text)]"
-                      onClick={() => setImportOpen(true)}
-                    >
-                      <HardDriveDownload className="size-3.5" />
-                      {t('migration.importButton')}
-                    </Button>
+                  <div className="mt-5 text-[18px] font-semibold text-white">{t('noConnections')}</div>
+                  <div className="mt-2 text-[13px] leading-6 text-[#8b8b8b]">
+                    {searchQuery.trim() ? t('workspace.noSearchMatches') : t('noConnectionsDesc')}
                   </div>
+                  <Button
+                    size="sm"
+                    className="mt-6 h-10 rounded-[10px] bg-[#38b768] px-4 text-[13px] font-semibold text-white hover:bg-[#45c874]"
+                    onClick={startCreateConnection}
+                  >
+                    <Plus className="size-4" />
+                    {t('newConnection')}
+                  </Button>
                 </div>
               </div>
-
-              {visibleConnections.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center px-8">
-                  <div className="max-w-[430px] text-center">
-                    <div className="mx-auto flex size-16 items-center justify-center rounded-[20px] bg-[var(--ssh-accent-soft)] text-[var(--ssh-accent)]">
-                      <Server className="size-7" />
-                    </div>
-                    <div className="mt-5 text-[1.15rem] font-semibold text-[var(--ssh-text)]">
-                      {t('noConnections')}
-                    </div>
-                    <div className="mt-2 text-[0.86rem] leading-6 text-[var(--ssh-muted)]">
-                      {searchQuery.trim()
-                        ? t('workspace.noSearchMatches', {
-                            defaultValue:
-                              'No hosts match the current search. Try another hostname or user.'
-                          })
-                        : t('noConnectionsDesc')}
-                    </div>
-                    <Button
-                      size="sm"
-                      className="mt-6 h-10 rounded-[12px] bg-[var(--ssh-accent)] px-4 text-[0.82rem] font-bold text-[var(--ssh-accent-contrast)] hover:opacity-90"
-                      onClick={startCreateConnection}
-                    >
-                      <Plus className="size-4" />
-                      {t('newConnection')}
-                    </Button>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-auto">
+                <div className="min-w-[1020px] border-b border-[#2d2d2d] bg-[#1b1b1b] px-2 py-3 text-[12px] text-[#9ca3af]">
+                  <div className="grid grid-cols-[44px_44px_76px_96px_minmax(170px,1fr)_220px_minmax(230px,280px)_176px] items-center">
+                    <div />
+                    <div />
+                    <div>系统</div>
+                    <div>延迟</div>
+                    <div>名称</div>
+                    <div>地址</div>
+                    <div>信息</div>
+                    <div className="text-right">操作</div>
                   </div>
                 </div>
-              ) : (
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <div className="grid grid-cols-1 border-b border-[var(--ssh-border)] bg-[var(--ssh-canvas-subtle)] px-4 py-2 text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-[var(--ssh-muted)] md:grid-cols-[minmax(0,1.45fr)_minmax(160px,0.85fr)_120px_230px]">
-                    <div>{t('list.host')}</div>
-                    <div>{t('workspace.addressTitle', { defaultValue: 'Address' })}</div>
-                    <div>{t('list.status')}</div>
-                    <div className="text-right">{t('list.actions')}</div>
-                  </div>
 
-                  {visibleConnections.map((connection) => {
-                    const testInfo = testStatus[connection.id]
-                    const fresh =
-                      typeof testInfo?.at === 'number' &&
-                      Date.now() - testInfo.at < TEST_STATUS_TTL_MS
-                    const testOk = fresh ? testInfo?.ok : undefined
-                    const session = getSessionForConnection(sessions, connection.id)
+                {visibleConnections.map((connection) => {
+                  const testInfo = testStatus[connection.id]
+                  const fresh =
+                    typeof testInfo?.at === 'number' &&
+                    Date.now() - testInfo.at < TEST_STATUS_TTL_MS
+                  const testOk = fresh ? testInfo?.ok : undefined
+                  const session = getSessionForConnection(sessions, connection.id)
 
-                    return (
-                      <HostRow
-                        key={connection.id}
-                        connection={connection}
-                        group={groups.find((group) => group.id === connection.groupId)}
-                        session={session}
-                        isSelected={
-                          inspectorMode === 'edit' && detailConnectionId === connection.id
-                        }
-                        isTesting={testingId === connection.id}
-                        testOk={testOk}
-                        onSelect={() => handleSelectConnection(connection.id)}
-                        onEdit={() => handleEditConnection(connection.id)}
-                        onConnect={() => onConnect(connection.id)}
-                        onTest={() => void handleTest(connection.id)}
-                      />
-                    )
-                  })}
-                </div>
-              )}
-            </section>
-          </div>
-        </main>
+                  return (
+                    <HostRow
+                      key={connection.id}
+                      connection={connection}
+                      group={groups.find((group) => group.id === connection.groupId)}
+                      session={session}
+                      isSelected={inspectorMode === 'edit' && detailConnectionId === connection.id}
+                      isTesting={testingId === connection.id}
+                      testOk={testOk}
+                      onSelect={() => handleSelectConnection(connection.id)}
+                      onEdit={() => handleEditConnection(connection.id)}
+                      onConnect={() => onConnect(connection.id)}
+                      onTest={() => void handleTest(connection.id)}
+                    />
+                  )
+                })}
+              </div>
+            )}
+          </main>
+        </div>
       </div>
 
       <Dialog open={inspectorDialogOpen} onOpenChange={setInspectorDialogOpen}>
@@ -1006,6 +1003,7 @@ function HostsWorkspace({
               groups={groups}
               session={selectedSession}
               showHeader={false}
+              onCancel={() => setInspectorDialogOpen(false)}
               onConnect={(connectionId) => {
                 setInspectorDialogOpen(false)
                 onConnect(connectionId)
@@ -1077,6 +1075,10 @@ export function SshConnectionList({ onConnect }: SshConnectionListProps): React.
         return <HostsWorkspace onConnect={onConnect} />
     }
   }, [onConnect, workspaceSection])
+
+  if (workspaceSection === 'hosts') {
+    return <div className="flex h-full w-full min-w-0 overflow-hidden bg-[#141414]">{body}</div>
+  }
 
   return (
     <div className="flex h-full w-full min-w-0 overflow-hidden bg-[var(--ssh-canvas)] text-[var(--ssh-text)]">

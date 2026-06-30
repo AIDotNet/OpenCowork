@@ -2,14 +2,11 @@ import { ipcMain, shell, BrowserWindow, app } from 'electron'
 import { spawn } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
-import { safeSendToWindow } from '../window-ipc'
-import {
-  createTerminalSession,
-  getTerminalSessionSnapshot,
-  killTerminalSession,
-  onTerminalSessionExit,
-  onTerminalSessionOutput
-} from './terminal-handlers'
+import { safeSendMessagePackToWindow } from '../window-ipc'
+import { getNativeWorker } from '../lib/native-worker'
+import { buildShellEnvironment } from './shell-environment'
+import { decodeMessagePackPayload, toMessagePackChannel } from '../../shared/messagepack/binary-ipc'
+import { registerMessagePackHandler } from './messagepack-handler'
 
 const ANSI_ESCAPE_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g')
 const COMPACT_OUTPUT_CHAR_THRESHOLD = 6000
@@ -40,7 +37,7 @@ interface ShellOutputSummary {
   firstChunkMs?: number
   shell?: string
   outputFile?: string
-  executionEngine?: 'main'
+  executionEngine?: 'main' | 'native_aot'
   timedOut?: boolean
   aborted?: boolean
 }
@@ -59,6 +56,7 @@ interface ShellExecutionTiming {
   spawnMs: number
   firstChunkMs?: number
   shell: string
+  executionEngine?: 'main' | 'native_aot'
   timedOut?: boolean
   aborted?: boolean
 }
@@ -69,7 +67,44 @@ interface ShellStartedEvent {
   terminalId: string
 }
 
+interface NativeShellStartedEvent {
+  execId?: string
+  processId?: string
+  terminalId?: string
+}
+
+interface NativeShellOutputEvent {
+  execId?: string
+  chunk?: string
+  stream?: ShellStream
+}
+
+interface NativeShellExecResult {
+  success: boolean
+  exitCode: number
+  stdout: string
+  stderr: string
+  error?: string | null
+  processId?: string | null
+  terminalId?: string | null
+  timing: ShellExecutionTiming
+}
+
+interface NativeShellAbortResult {
+  success: boolean
+  aborted: boolean
+  error?: string | null
+}
+
 type OpenWithAppId = 'vscode'
+
+type ShellExecArgs = {
+  command: string
+  timeout?: number
+  cwd?: string
+  execId?: string
+  shell?: string
+}
 
 interface OpenCommand {
   command: string
@@ -234,7 +269,7 @@ function buildShellResult(payload: {
               ? { firstChunkMs: payload.timing.firstChunkMs }
               : {}),
             shell: payload.timing.shell,
-            executionEngine: 'main' as const,
+            executionEngine: payload.timing.executionEngine ?? 'main',
             timedOut: payload.timing.timedOut === true,
             aborted: payload.timing.aborted === true
           }
@@ -256,13 +291,6 @@ function writeShellOutputArchive(stdout: string, stderr: string): string | undef
     return filePath
   } catch {
     return undefined
-  }
-}
-
-async function terminateShellTerminal(terminalId: string): Promise<void> {
-  const result = killTerminalSession(terminalId)
-  if (result.error) {
-    throw new Error(result.error)
   }
 }
 
@@ -319,171 +347,152 @@ async function openWithWhitelistedApp(appId: OpenWithAppId, targetPath: string):
   throw lastError instanceof Error ? lastError : new Error(`Failed to open ${targetPath}`)
 }
 
+function serializeShellEnvironment(): Record<string, string> {
+  const env = buildShellEnvironment()
+  const serialized: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string') {
+      serialized[key] = value
+    }
+  }
+  return serialized
+}
+
+function isNativeShellStartedEvent(value: unknown): value is NativeShellStartedEvent {
+  return typeof value === 'object' && value !== null
+}
+
+function isNativeShellOutputEvent(value: unknown): value is NativeShellOutputEvent {
+  return typeof value === 'object' && value !== null
+}
+
 export function registerShellHandlers(): void {
   const runningShellProcesses = new Map<
     string,
     { terminalId: string; abort: (reason?: 'user' | 'timeout') => void }
   >()
 
-  ipcMain.handle(
-    'shell:exec',
-    async (
-      event,
-      args: { command: string; timeout?: number; cwd?: string; execId?: string; shell?: string }
-    ) => {
-      const DEFAULT_TIMEOUT = 600_000
-      const MAX_TIMEOUT = 3_600_000
-      const timeout = Math.min(args.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT)
-      const execId = args.execId
-      const startedAt = Date.now()
-      let resolved = false
+  registerMessagePackHandler<ShellExecArgs>('shell:exec', async (args, event) => {
+    const DEFAULT_TIMEOUT = 600_000
+    const MAX_TIMEOUT = 3_600_000
+    const timeout = Math.min(args.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT)
+    const execId = args.execId?.trim()
+    const startedAt = Date.now()
+    const ownerWindow =
+      BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getAllWindows()[0] ?? null
+    const nativeWorker = getNativeWorker()
 
-      const created = await createTerminalSession(
-        {
-          cwd: args.cwd || process.cwd(),
-          command: args.command,
-          shell: args.shell,
-          title: 'Shell'
-        },
-        event.sender
-      )
-
-      if (!created.id) {
-        return buildShellResult({
-          exitCode: 1,
-          stdout: '',
-          stderr: created.error ?? 'Failed to create terminal session',
-          timing: {
-            totalMs: Date.now() - startedAt,
-            spawnMs: 0,
-            shell: 'pty'
-          }
-        })
+    const cleanupStarted = nativeWorker.onEvent('shell/started', (params) => {
+      if (!execId || !ownerWindow || !isNativeShellStartedEvent(params)) return
+      if (params.execId !== execId) return
+      const payload: ShellStartedEvent = {
+        execId,
+        processId: String(params.processId ?? params.terminalId ?? execId),
+        terminalId: String(params.terminalId ?? params.processId ?? execId)
       }
-
-      const terminalId = created.id
-      const spawnCompletedAt = Date.now()
-      const ownerWindow =
-        BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getAllWindows()[0] ?? null
-
-      if (execId && ownerWindow) {
-        const payload: ShellStartedEvent = {
-          execId,
-          processId: terminalId,
-          terminalId
+      runningShellProcesses.set(execId, {
+        terminalId: payload.terminalId,
+        abort: (reason: 'user' | 'timeout' = 'user') => {
+          void nativeWorker
+            .request<NativeShellAbortResult>('shell/abort', { execId, reason }, 10_000)
+            .catch((error) => console.warn('[Shell] Native abort failed:', error))
         }
-        safeSendToWindow(ownerWindow, 'shell:started', payload)
+      })
+      safeSendMessagePackToWindow(ownerWindow, 'shell:started', payload)
+    })
+
+    const cleanupOutput = nativeWorker.onEvent('shell/output', (params) => {
+      if (!execId || !ownerWindow || !isNativeShellOutputEvent(params)) return
+      if (params.execId !== execId || typeof params.chunk !== 'string') return
+      const payload = {
+        execId,
+        chunk: params.chunk,
+        stream: params.stream === 'stderr' ? 'stderr' : 'stdout'
       }
+      safeSendMessagePackToWindow(ownerWindow, 'shell:output', payload)
+    })
 
-      return await new Promise((resolve) => {
-        let settled = false
-        let abortReason: 'user' | 'timeout' | null = null
-        let firstChunkAt: number | null = null
-        let timeoutTimer: ReturnType<typeof setTimeout> | null = null
-        let exitCleanup: (() => void) | null = null
-
-        const sendChunk = (chunk: string, stream: ShellStream): void => {
-          if (!execId || !ownerWindow) return
-          safeSendToWindow(ownerWindow, 'shell:output', { execId, chunk, stream })
+    if (execId) {
+      runningShellProcesses.set(execId, {
+        terminalId: `native-shell-${execId}`,
+        abort: (reason: 'user' | 'timeout' = 'user') => {
+          void nativeWorker
+            .request<NativeShellAbortResult>('shell/abort', { execId, reason }, 10_000)
+            .catch((error) => console.warn('[Shell] Native abort failed:', error))
         }
-
-        const finalize = (): void => {
-          if (settled || resolved) return
-          settled = true
-          resolved = true
-          if (timeoutTimer) {
-            clearTimeout(timeoutTimer)
-            timeoutTimer = null
-          }
-          exitCleanup?.()
-          exitCleanup = null
-          if (execId) runningShellProcesses.delete(execId)
-
-          const snapshot = getTerminalSessionSnapshot(terminalId)
-          const fullOutput = snapshot?.outputBuffer.map((chunk) => chunk.data).join('') ?? ''
-          const normalized = stripAnsi(fullOutput)
-          const exitCode = snapshot?.exitCode ?? (abortReason === 'timeout' ? 124 : 130)
-          const stderr =
-            exitCode === 0
-              ? ''
-              : abortReason === 'timeout'
-                ? '[Timed out]'
-                : abortReason === 'user'
-                  ? '[Aborted]'
-                  : ''
-
-          resolve(
-            buildShellResult({
-              exitCode,
-              stdout: normalized,
-              stderr,
-              processId: terminalId,
-              terminalId,
-              timing: {
-                totalMs: Date.now() - startedAt,
-                spawnMs: spawnCompletedAt - startedAt,
-                ...(firstChunkAt !== null ? { firstChunkMs: firstChunkAt - startedAt } : {}),
-                shell: created.shell ?? 'pty',
-                timedOut: abortReason === 'timeout',
-                aborted: abortReason === 'user'
-              }
-            })
-          )
-        }
-
-        const cleanupOutputListener = onTerminalSessionOutput((payload) => {
-          if (payload.id !== terminalId || !payload.data) return
-          if (firstChunkAt === null) firstChunkAt = Date.now()
-          sendChunk(payload.data, 'stdout')
-        })
-
-        const cleanupExitListener = onTerminalSessionExit((payload) => {
-          if (payload.id !== terminalId) return
-          finalize()
-        })
-
-        exitCleanup = () => {
-          cleanupOutputListener()
-          cleanupExitListener()
-        }
-
-        if (getTerminalSessionSnapshot(terminalId)?.exitCode !== undefined) {
-          finalize()
-          return
-        }
-
-        const requestAbort = (reason: 'user' | 'timeout' = 'user'): void => {
-          if (settled) return
-          abortReason = reason
-          void terminateShellTerminal(terminalId).finally(() => {
-            setTimeout(finalize, 80)
-          })
-        }
-
-        if (execId) {
-          runningShellProcesses.set(execId, { terminalId, abort: requestAbort })
-        }
-
-        timeoutTimer = setTimeout(() => {
-          requestAbort('timeout')
-        }, timeout)
       })
     }
-  )
 
-  ipcMain.on('shell:abort', (_event, data: { execId?: string }) => {
+    try {
+      const result = await nativeWorker.request<NativeShellExecResult>(
+        'shell/exec',
+        {
+          command: args.command,
+          timeout,
+          cwd: args.cwd || process.cwd(),
+          ...(execId ? { execId } : {}),
+          ...(args.shell ? { shell: args.shell } : {}),
+          env: serializeShellEnvironment()
+        },
+        timeout + 30_000
+      )
+
+      return buildShellResult({
+        exitCode: result.exitCode,
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? '',
+        ...(result.error ? { error: result.error } : {}),
+        ...(result.processId ? { processId: result.processId } : {}),
+        ...(result.terminalId ? { terminalId: result.terminalId } : {}),
+        timing: {
+          totalMs: result.timing?.totalMs ?? Date.now() - startedAt,
+          spawnMs: result.timing?.spawnMs ?? 0,
+          ...(result.timing?.firstChunkMs !== undefined && result.timing?.firstChunkMs !== null
+            ? { firstChunkMs: result.timing.firstChunkMs }
+            : {}),
+          shell: result.timing?.shell ?? 'native',
+          executionEngine: 'native_aot',
+          timedOut: result.timing?.timedOut === true,
+          aborted: result.timing?.aborted === true
+        }
+      })
+    } catch (err) {
+      return buildShellResult({
+        exitCode: 1,
+        stdout: '',
+        stderr: err instanceof Error ? err.message : String(err),
+        error: err instanceof Error ? err.message : String(err),
+        timing: {
+          totalMs: Date.now() - startedAt,
+          spawnMs: 0,
+          shell: 'native',
+          executionEngine: 'native_aot'
+        }
+      })
+    } finally {
+      cleanupStarted()
+      cleanupOutput()
+      if (execId) runningShellProcesses.delete(execId)
+    }
+  })
+
+  const abortShellProcess = (data: { execId?: string }): void => {
     const execId = data?.execId
     if (!execId) return
     const running = runningShellProcesses.get(execId)
     if (!running) return
     running.abort('user')
+  }
+
+  ipcMain.on(toMessagePackChannel('shell:abort'), (_event, bytes: Uint8Array) => {
+    abortShellProcess(decodeMessagePackPayload<{ execId?: string }>(bytes))
   })
 
-  ipcMain.handle('shell:openPath', async (_event, folderPath: string) => {
+  registerMessagePackHandler<string>('shell:openPath', async (folderPath) => {
     return shell.openPath(folderPath)
   })
 
-  ipcMain.handle('shell:showItemInFolder', async (_event, targetPath: string) => {
+  registerMessagePackHandler<string>('shell:showItemInFolder', async (targetPath) => {
     try {
       const resolvedPath = path.resolve(targetPath)
       if (!fs.existsSync(resolvedPath)) {
@@ -497,7 +506,7 @@ export function registerShellHandlers(): void {
     }
   })
 
-  ipcMain.handle('shell:trashPath', async (_event, targetPath: string) => {
+  registerMessagePackHandler<string>('shell:trashPath', async (targetPath) => {
     try {
       const resolvedPath = path.resolve(targetPath)
       if (!fs.existsSync(resolvedPath)) {
@@ -511,9 +520,9 @@ export function registerShellHandlers(): void {
     }
   })
 
-  ipcMain.handle(
+  registerMessagePackHandler<{ path: string; appId: OpenWithAppId }>(
     'shell:openWithApp',
-    async (_event, args: { path: string; appId: OpenWithAppId }) => {
+    async (args) => {
       try {
         const resolvedPath = path.resolve(args.path)
         if (!fs.existsSync(resolvedPath)) {
@@ -528,7 +537,7 @@ export function registerShellHandlers(): void {
     }
   )
 
-  ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+  registerMessagePackHandler<string>('shell:openExternal', async (url) => {
     if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
       return shell.openExternal(url)
     }

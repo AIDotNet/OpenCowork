@@ -1,14 +1,6 @@
 import { toolRegistry } from '../agent/tool-registry'
-import { encodeStructuredToolResult, encodeToolError } from './tool-result-format'
+import { encodeToolError } from './tool-result-format'
 import type { ToolHandler } from './tool-types'
-
-function normalizeLoadingMessages(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
 
 const visualizeShowWidgetHandler: ToolHandler = {
   definition: {
@@ -43,29 +35,10 @@ const visualizeShowWidgetHandler: ToolHandler = {
       required: ['loading_messages', 'title', 'widget_code']
     }
   },
-  execute: async (input) => {
-    const title = typeof input.title === 'string' ? input.title.trim() : ''
-    const loadingMessages = normalizeLoadingMessages(input.loading_messages)
-    const widgetCode = typeof input.widget_code === 'string' ? input.widget_code : ''
-
-    if (!title) {
-      return encodeToolError('title is required')
-    }
-
-    if (loadingMessages.length < 1 || loadingMessages.length > 4) {
-      return encodeToolError('loading_messages must contain 1-4 strings')
-    }
-
-    if (!widgetCode.trim()) {
-      return encodeToolError('widget_code is empty')
-    }
-
-    return encodeStructuredToolResult({
-      success: true,
-      title,
-      message: `Widget "${title}" rendered inline`
-    })
-  },
+  execute: async () =>
+    encodeToolError(
+      'visualize_show_widget executes in the .NET Native Worker and is unavailable through the renderer boundary.'
+    ),
   requiresApproval: () => false
 }
 

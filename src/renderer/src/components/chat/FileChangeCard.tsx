@@ -20,11 +20,12 @@ import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-form
 import type { AgentRunFileChange } from '@renderer/stores/agent-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { MONO_FONT } from '@renderer/lib/constants'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
+import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
 import { AnimatePresence, motion } from 'motion/react'
 import { Button } from '@renderer/components/ui/button'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
+import { toMessagePackChannel } from '../../../../shared/messagepack/binary-ipc'
 import { type DiffViewerChunk, type DiffViewerLine } from './CodeDiffViewer'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
 
@@ -956,10 +957,13 @@ function TrackedEditDiff({
       setIsLoading(true)
       setLoadError(null)
       try {
-        const result = await ipcClient.invoke(IPC.AGENT_CHANGES_DIFF_CONTENT, {
-          runId: change.runId,
-          changeId: change.id
-        })
+        const result = await invokeMessagePackBinary(
+          toMessagePackChannel(IPC.AGENT_CHANGES_DIFF_CONTENT),
+          {
+            runId: change.runId,
+            changeId: change.id
+          }
+        )
         if (cancelled) return
         if (
           result &&

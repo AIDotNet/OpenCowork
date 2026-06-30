@@ -1,44 +1,13 @@
 import { toolRegistry } from '../agent/tool-registry'
-import type { ToolHandler, ToolContext } from '../tools/tool-types'
-import { IPC } from '../ipc/channels'
-import { useChannelStore } from '@renderer/stores/channel-store'
+import type { ToolHandler } from '../tools/tool-types'
 
 // ── 5 Unified Plugin Tools ──
 // All provider-agnostic — route via plugin_id to the correct backend service
 
-function isPluginToolEnabled(pluginId: string, toolName: string): boolean {
-  const channel = useChannelStore.getState().channels.find((p) => p.id === pluginId)
-  if (!channel?.tools) return true
-  const enabled = channel.tools[toolName]
-  return enabled !== false
-}
-
-function toolDisabledError(toolName: string): string {
-  return JSON.stringify({ error: `Tool "${toolName}" is disabled for this channel.` })
-}
-
-async function execPlugin(
-  ctx: ToolContext,
-  pluginId: unknown,
-  action: string,
-  params: Record<string, unknown>,
-  toolName: string
-): Promise<string> {
-  if (!pluginId || typeof pluginId !== 'string') {
-    return JSON.stringify({
-      error: 'Missing or invalid plugin_id. Check the active channels list.'
-    })
-  }
-  if (!isPluginToolEnabled(pluginId, toolName)) {
-    return toolDisabledError(toolName)
-  }
-  try {
-    const result = await ctx.ipc.invoke(IPC.PLUGIN_EXEC, { pluginId, action, params })
-    return JSON.stringify(result)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return JSON.stringify({ error: `Plugin action "${action}" failed: ${msg}` })
-  }
+function nativeOnlyPluginResult(toolName: string): string {
+  return JSON.stringify({
+    error: `${toolName} executes in the .NET Native Worker and is unavailable through the renderer boundary.`
+  })
 }
 
 const pluginSendMessage: ToolHandler = {
@@ -56,41 +25,7 @@ const pluginSendMessage: ToolHandler = {
       required: ['plugin_id', 'chat_id', 'content']
     }
   },
-  execute: async (input, ctx) => {
-    // Delivery-once guard: block duplicate delivery calls within a single cron run
-    console.log(
-      `[PluginSendMessage] callerAgent=${ctx.callerAgent}, sharedState=`,
-      JSON.stringify(ctx.sharedState),
-      `pluginId=${input.plugin_id}, chatId=${input.chat_id}`
-    )
-    if (ctx.callerAgent === 'CronAgent' && ctx.sharedState?.deliveryUsed) {
-      console.warn(
-        '[PluginSendMessage] CronAgent already delivered results this run — BLOCKING duplicate call'
-      )
-      return JSON.stringify({
-        success: true,
-        skipped: true,
-        reason: 'Already delivered results this run. Only one delivery call is allowed.'
-      })
-    }
-    // Mark delivery BEFORE sending — prevents race conditions with parallel tool calls
-    if (ctx.callerAgent === 'CronAgent' && ctx.sharedState) {
-      ctx.sharedState.deliveryUsed = true
-      console.log('[PluginSendMessage] Marked deliveryUsed=true BEFORE sending')
-    }
-    const result = await execPlugin(
-      ctx,
-      input.plugin_id,
-      'sendMessage',
-      { chatId: input.chat_id, content: input.content },
-      'PluginSendMessage'
-    )
-    console.log(
-      '[PluginSendMessage] Send result:',
-      typeof result === 'string' ? result.slice(0, 200) : result
-    )
-    return result
-  },
+  execute: async () => nativeOnlyPluginResult('PluginSendMessage'),
   requiresApproval: () => true
 }
 
@@ -108,15 +43,7 @@ const pluginReplyMessage: ToolHandler = {
       required: ['plugin_id', 'message_id', 'content']
     }
   },
-  execute: async (input, ctx) => {
-    return execPlugin(
-      ctx,
-      input.plugin_id,
-      'replyMessage',
-      { messageId: input.message_id, content: input.content },
-      'PluginReplyMessage'
-    )
-  },
+  execute: async () => nativeOnlyPluginResult('PluginReplyMessage'),
   requiresApproval: () => true
 }
 
@@ -134,15 +61,7 @@ const pluginGetGroupMessages: ToolHandler = {
       required: ['plugin_id', 'chat_id']
     }
   },
-  execute: async (input, ctx) => {
-    return execPlugin(
-      ctx,
-      input.plugin_id,
-      'getGroupMessages',
-      { chatId: input.chat_id, count: input.count ?? 20 },
-      'PluginGetGroupMessages'
-    )
-  }
+  execute: async () => nativeOnlyPluginResult('PluginGetGroupMessages')
 }
 
 const pluginListGroups: ToolHandler = {
@@ -157,9 +76,7 @@ const pluginListGroups: ToolHandler = {
       required: ['plugin_id']
     }
   },
-  execute: async (input, ctx) => {
-    return execPlugin(ctx, input.plugin_id, 'listGroups', {}, 'PluginListGroups')
-  }
+  execute: async () => nativeOnlyPluginResult('PluginListGroups')
 }
 
 const pluginSummarizeGroup: ToolHandler = {
@@ -180,15 +97,7 @@ const pluginSummarizeGroup: ToolHandler = {
       required: ['plugin_id', 'chat_id']
     }
   },
-  execute: async (input, ctx) => {
-    return execPlugin(
-      ctx,
-      input.plugin_id,
-      'getGroupMessages',
-      { chatId: input.chat_id, count: input.count ?? 50 },
-      'PluginSummarizeGroup'
-    )
-  }
+  execute: async () => nativeOnlyPluginResult('PluginSummarizeGroup')
 }
 
 const pluginGetCurrentChatMessages: ToolHandler = {
@@ -211,35 +120,7 @@ const pluginGetCurrentChatMessages: ToolHandler = {
       required: []
     }
   },
-  execute: async (input, ctx) => {
-    const pluginId = typeof input.plugin_id === 'string' ? input.plugin_id : ctx.pluginId
-    const chatId = typeof input.chat_id === 'string' ? input.chat_id : ctx.pluginChatId
-    if (!pluginId || !chatId) {
-      return JSON.stringify({
-        error: 'Missing plugin_id or chat_id. Ensure you are in a channel chat session.'
-      })
-    }
-    if (!isPluginToolEnabled(pluginId, 'PluginGetCurrentChatMessages')) {
-      return toolDisabledError('PluginGetCurrentChatMessages')
-    }
-    try {
-      const composite = `plugin:${pluginId}:chat:${chatId}`
-      const session = (await ctx.ipc.invoke(IPC.PLUGIN_SESSIONS_FIND_BY_CHAT, composite)) as {
-        id?: string
-      } | null
-      if (!session?.id) {
-        return JSON.stringify({ error: 'Channel session not found for this chat.' })
-      }
-      const rows = await ctx.ipc.invoke(IPC.PLUGIN_SESSIONS_MESSAGES, {
-        sessionId: session.id,
-        limit: typeof input.count === 'number' ? input.count : 20
-      })
-      return JSON.stringify({ sessionId: session.id, messages: rows })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return JSON.stringify({ error: `Failed to load channel chat messages: ${msg}` })
-    }
-  }
+  execute: async () => nativeOnlyPluginResult('PluginGetCurrentChatMessages')
 }
 
 // ── Feishu-specific Media Tools ──
@@ -262,18 +143,7 @@ const feishuSendImage: ToolHandler = {
       required: ['plugin_id', 'chat_id', 'file_path']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuSendImage')) {
-      return toolDisabledError('FeishuSendImage')
-    }
-    const result = (await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_SEND_IMAGE, {
-      pluginId: input.plugin_id,
-      chatId: input.chat_id,
-      filePath: input.file_path
-    })) as { ok?: boolean; error?: string; messageId?: string }
-    if (result?.error) throw new Error(`FeishuSendImage failed: ${result.error}`)
-    return JSON.stringify({ ok: true, messageId: result?.messageId })
-  },
+  execute: async () => nativeOnlyPluginResult('FeishuSendImage'),
   requiresApproval: () => true
 }
 
@@ -301,19 +171,7 @@ const feishuSendFile: ToolHandler = {
       required: ['plugin_id', 'chat_id', 'file_path']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuSendFile')) {
-      return toolDisabledError('FeishuSendFile')
-    }
-    const result = (await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_SEND_FILE, {
-      pluginId: input.plugin_id,
-      chatId: input.chat_id,
-      filePath: input.file_path,
-      fileType: input.file_type
-    })) as { ok?: boolean; error?: string; messageId?: string }
-    if (result?.error) throw new Error(`FeishuSendFile failed: ${result.error}`)
-    return JSON.stringify({ ok: true, messageId: result?.messageId })
-  },
+  execute: async () => nativeOnlyPluginResult('FeishuSendFile'),
   requiresApproval: () => true
 }
 
@@ -339,19 +197,7 @@ const weixinSendImage: ToolHandler = {
       required: ['plugin_id', 'chat_id', 'file_path']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'WeixinSendImage')) {
-      return toolDisabledError('WeixinSendImage')
-    }
-    const result = (await ctx.ipc.invoke(IPC.PLUGIN_WEIXIN_SEND_IMAGE, {
-      pluginId: input.plugin_id,
-      chatId: input.chat_id,
-      filePath: input.file_path,
-      content: input.content
-    })) as { ok?: boolean; error?: string; messageId?: string }
-    if (result?.error) throw new Error(`WeixinSendImage failed: ${result.error}`)
-    return JSON.stringify({ ok: true, messageId: result?.messageId })
-  },
+  execute: async () => nativeOnlyPluginResult('WeixinSendImage'),
   requiresApproval: () => true
 }
 
@@ -377,19 +223,7 @@ const weixinSendFile: ToolHandler = {
       required: ['plugin_id', 'chat_id', 'file_path']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'WeixinSendFile')) {
-      return toolDisabledError('WeixinSendFile')
-    }
-    const result = (await ctx.ipc.invoke(IPC.PLUGIN_WEIXIN_SEND_FILE, {
-      pluginId: input.plugin_id,
-      chatId: input.chat_id,
-      filePath: input.file_path,
-      content: input.content
-    })) as { ok?: boolean; error?: string; messageId?: string }
-    if (result?.error) throw new Error(`WeixinSendFile failed: ${result.error}`)
-    return JSON.stringify({ ok: true, messageId: result?.messageId })
-  },
+  execute: async () => nativeOnlyPluginResult('WeixinSendFile'),
   requiresApproval: () => true
 }
 
@@ -416,23 +250,7 @@ const feishuListChatMembers: ToolHandler = {
       required: ['plugin_id']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuListChatMembers')) {
-      return toolDisabledError('FeishuListChatMembers')
-    }
-    const chatId = (input.chat_id as string | undefined) ?? ctx.pluginChatId
-    if (!chatId) {
-      return JSON.stringify({ error: 'Missing chat_id. Ensure you are in a channel chat session.' })
-    }
-    const result = await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_LIST_MEMBERS, {
-      pluginId: input.plugin_id,
-      chatId,
-      pageToken: input.page_token,
-      pageSize: input.page_size,
-      memberIdType: input.member_id_type
-    })
-    return JSON.stringify(result)
-  }
+  execute: async () => nativeOnlyPluginResult('FeishuListChatMembers')
 }
 
 const feishuAtMember: ToolHandler = {
@@ -455,21 +273,7 @@ const feishuAtMember: ToolHandler = {
       required: ['plugin_id', 'text']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuAtMember')) {
-      return toolDisabledError('FeishuAtMember')
-    }
-    const fallbackSender = ctx.pluginSenderId ? [ctx.pluginSenderId] : undefined
-    const result = (await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_SEND_MENTION, {
-      pluginId: input.plugin_id,
-      chatId: input.chat_id ?? ctx.pluginChatId,
-      userIds: input.user_ids ?? fallbackSender,
-      atAll: input.at_all ?? false,
-      text: input.text
-    })) as { ok?: boolean; error?: string; messageId?: string }
-    if (result?.error) throw new Error(`FeishuAtMember failed: ${result.error}`)
-    return JSON.stringify({ ok: true, messageId: result?.messageId })
-  },
+  execute: async () => nativeOnlyPluginResult('FeishuAtMember'),
   requiresApproval: () => true
 }
 
@@ -492,19 +296,7 @@ const feishuSendUrgent: ToolHandler = {
       required: ['plugin_id', 'message_id', 'user_ids', 'urgent_types']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuSendUrgent')) {
-      return toolDisabledError('FeishuSendUrgent')
-    }
-    const result = (await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_SEND_URGENT, {
-      pluginId: input.plugin_id,
-      messageId: input.message_id,
-      userIds: input.user_ids,
-      urgentTypes: input.urgent_types
-    })) as { ok?: boolean; error?: string }
-    if (result?.error) throw new Error(`FeishuSendUrgent failed: ${result.error}`)
-    return JSON.stringify({ ok: true })
-  },
+  execute: async () => nativeOnlyPluginResult('FeishuSendUrgent'),
   requiresApproval: () => true
 }
 
@@ -520,15 +312,7 @@ const feishuBitableListApps: ToolHandler = {
       required: ['plugin_id']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuBitableListApps')) {
-      return toolDisabledError('FeishuBitableListApps')
-    }
-    const result = await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_BITABLE_LIST_APPS, {
-      pluginId: input.plugin_id
-    })
-    return JSON.stringify(result)
-  }
+  execute: async () => nativeOnlyPluginResult('FeishuBitableListApps')
 }
 
 const feishuBitableListTables: ToolHandler = {
@@ -544,16 +328,7 @@ const feishuBitableListTables: ToolHandler = {
       required: ['plugin_id', 'app_token']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuBitableListTables')) {
-      return toolDisabledError('FeishuBitableListTables')
-    }
-    const result = await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_BITABLE_LIST_TABLES, {
-      pluginId: input.plugin_id,
-      appToken: input.app_token
-    })
-    return JSON.stringify(result)
-  }
+  execute: async () => nativeOnlyPluginResult('FeishuBitableListTables')
 }
 
 const feishuBitableListFields: ToolHandler = {
@@ -570,17 +345,7 @@ const feishuBitableListFields: ToolHandler = {
       required: ['plugin_id', 'app_token', 'table_id']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuBitableListFields')) {
-      return toolDisabledError('FeishuBitableListFields')
-    }
-    const result = await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_BITABLE_LIST_FIELDS, {
-      pluginId: input.plugin_id,
-      appToken: input.app_token,
-      tableId: input.table_id
-    })
-    return JSON.stringify(result)
-  }
+  execute: async () => nativeOnlyPluginResult('FeishuBitableListFields')
 }
 
 const feishuBitableGetRecords: ToolHandler = {
@@ -600,20 +365,7 @@ const feishuBitableGetRecords: ToolHandler = {
       required: ['plugin_id', 'app_token', 'table_id']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuBitableGetRecords')) {
-      return toolDisabledError('FeishuBitableGetRecords')
-    }
-    const result = await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_BITABLE_GET_RECORDS, {
-      pluginId: input.plugin_id,
-      appToken: input.app_token,
-      tableId: input.table_id,
-      filter: input.filter,
-      pageSize: input.page_size,
-      pageToken: input.page_token
-    })
-    return JSON.stringify(result)
-  }
+  execute: async () => nativeOnlyPluginResult('FeishuBitableGetRecords')
 }
 
 const feishuBitableCreateRecords: ToolHandler = {
@@ -635,18 +387,7 @@ const feishuBitableCreateRecords: ToolHandler = {
       required: ['plugin_id', 'app_token', 'table_id', 'records']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuBitableCreateRecords')) {
-      return toolDisabledError('FeishuBitableCreateRecords')
-    }
-    const result = await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_BITABLE_CREATE_RECORDS, {
-      pluginId: input.plugin_id,
-      appToken: input.app_token,
-      tableId: input.table_id,
-      records: input.records
-    })
-    return JSON.stringify(result)
-  }
+  execute: async () => nativeOnlyPluginResult('FeishuBitableCreateRecords')
 }
 
 const feishuBitableUpdateRecords: ToolHandler = {
@@ -668,18 +409,7 @@ const feishuBitableUpdateRecords: ToolHandler = {
       required: ['plugin_id', 'app_token', 'table_id', 'records']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuBitableUpdateRecords')) {
-      return toolDisabledError('FeishuBitableUpdateRecords')
-    }
-    const result = await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_BITABLE_UPDATE_RECORDS, {
-      pluginId: input.plugin_id,
-      appToken: input.app_token,
-      tableId: input.table_id,
-      records: input.records
-    })
-    return JSON.stringify(result)
-  }
+  execute: async () => nativeOnlyPluginResult('FeishuBitableUpdateRecords')
 }
 
 const feishuBitableDeleteRecords: ToolHandler = {
@@ -701,18 +431,7 @@ const feishuBitableDeleteRecords: ToolHandler = {
       required: ['plugin_id', 'app_token', 'table_id', 'record_ids']
     }
   },
-  execute: async (input, ctx) => {
-    if (!isPluginToolEnabled(input.plugin_id as string, 'FeishuBitableDeleteRecords')) {
-      return toolDisabledError('FeishuBitableDeleteRecords')
-    }
-    const result = await ctx.ipc.invoke(IPC.PLUGIN_FEISHU_BITABLE_DELETE_RECORDS, {
-      pluginId: input.plugin_id,
-      appToken: input.app_token,
-      tableId: input.table_id,
-      recordIds: input.record_ids
-    })
-    return JSON.stringify(result)
-  }
+  execute: async () => nativeOnlyPluginResult('FeishuBitableDeleteRecords')
 }
 
 const FEISHU_TOOLS: ToolHandler[] = [

@@ -1,51 +1,11 @@
 import { toolRegistry } from '../agent/tool-registry'
-import { useGoalStore, type SessionGoal } from '../../stores/goal-store'
-import { ipcClient } from '../ipc/ipc-client'
-import { encodeStructuredToolResult, encodeToolError } from './tool-result-format'
+import { encodeStructuredToolResult } from './tool-result-format'
 import type { ToolHandler } from './tool-types'
 
-function getSessionId(sessionId?: string): string | null {
-  return sessionId?.trim() || null
-}
-
-function goalToToolResponse(goal: SessionGoal | undefined | null): {
-  goal: SessionGoal | null
-  remaining_tokens: number | null
-} {
-  const remainingTokens =
-    goal?.tokenBudget !== undefined && goal?.tokenBudget !== null
-      ? Math.max(0, goal.tokenBudget - goal.tokensUsed)
-      : null
-  return {
-    goal: goal ?? null,
-    remaining_tokens: remainingTokens
-  }
-}
-
-function completionBudgetReport(goal: SessionGoal): string | null {
-  if (goal.status !== 'complete') return null
-  const parts: string[] = []
-  if (goal.tokenBudget !== undefined && goal.tokenBudget !== null) {
-    parts.push(`tokens used: ${goal.tokensUsed} of ${goal.tokenBudget}`)
-  }
-  if (goal.timeUsedSeconds > 0) {
-    parts.push(`time used: ${goal.timeUsedSeconds} seconds`)
-  }
-  if (parts.length === 0) return null
-  return `Goal achieved. Report final budget usage to the user: ${parts.join('; ')}.`
-}
-
-async function canMarkGoalBlocked(sessionId: string, goalId?: string | null): Promise<boolean> {
-  try {
-    const result = (await ipcClient.invoke('goal-runtime:can-mark-blocked', {
-      sessionId,
-      goalId
-    })) as { canMarkBlocked?: boolean } | null
-    return result?.canMarkBlocked === true
-  } catch (error) {
-    console.warn('[GoalTool] Failed to query blocked eligibility:', error)
-    return false
-  }
+function encodeNativeOnlyGoalResult(toolName: string): string {
+  return encodeStructuredToolResult({
+    error: `${toolName} execution has migrated to .NET Native Worker.`
+  })
 }
 
 const getGoalHandler: ToolHandler = {
@@ -58,15 +18,7 @@ const getGoalHandler: ToolHandler = {
       properties: {}
     }
   },
-  execute: async (_input, ctx) => {
-    const sessionId = getSessionId(ctx.sessionId)
-    if (!sessionId) return encodeToolError('No active session for get_goal.')
-
-    const goal =
-      useGoalStore.getState().getGoalBySession(sessionId) ??
-      (await useGoalStore.getState().loadGoalForSession(sessionId, true))
-    return encodeStructuredToolResult(goalToToolResponse(goal))
-  },
+  execute: async () => encodeNativeOnlyGoalResult('get_goal'),
   requiresApproval: () => false
 }
 
@@ -91,25 +43,7 @@ const createGoalHandler: ToolHandler = {
       required: ['objective']
     }
   },
-  execute: async (input, ctx) => {
-    const sessionId = getSessionId(ctx.sessionId)
-    if (!sessionId) return encodeToolError('No active session for create_goal.')
-
-    const objective = typeof input.objective === 'string' ? input.objective.trim() : ''
-    if (!objective) return encodeToolError('create_goal requires a non-empty objective.')
-    const rawBudget = input.token_budget
-    const tokenBudget =
-      typeof rawBudget === 'number' && Number.isFinite(rawBudget) ? Math.floor(rawBudget) : null
-    const result = await useGoalStore.getState().createGoal({
-      sessionId,
-      objective,
-      tokenBudget
-    })
-    if (!result.success || !result.goal) {
-      return encodeToolError(result.error ?? 'Unable to create goal.')
-    }
-    return encodeStructuredToolResult(goalToToolResponse(result.goal))
-  },
+  execute: async () => encodeNativeOnlyGoalResult('create_goal'),
   requiresApproval: () => false
 }
 
@@ -131,40 +65,7 @@ const updateGoalHandler: ToolHandler = {
       required: ['status']
     }
   },
-  execute: async (input, ctx) => {
-    const sessionId = getSessionId(ctx.sessionId)
-    if (!sessionId) return encodeToolError('No active session for update_goal.')
-    if (input.status !== 'complete' && input.status !== 'blocked') {
-      return encodeToolError(
-        'update_goal can only mark the existing goal complete or blocked; pause, resume, and limit status changes are controlled by the user or system.'
-      )
-    }
-
-    const currentGoal =
-      useGoalStore.getState().getGoalBySession(sessionId) ??
-      (await useGoalStore.getState().loadGoalForSession(sessionId, true))
-    if (!currentGoal) {
-      return encodeToolError('No active goal exists for update_goal.')
-    }
-
-    if (input.status === 'blocked' && !(await canMarkGoalBlocked(sessionId, currentGoal.goalId))) {
-      return encodeToolError(
-        'update_goal can only mark the goal blocked after the same blocker has recurred for at least three consecutive goal turns.'
-      )
-    }
-
-    const result = await useGoalStore.getState().updateGoal(sessionId, {
-      status: input.status as 'complete' | 'blocked'
-    })
-    if (!result.success || !result.goal) {
-      return encodeToolError(result.error ?? 'Unable to update goal.')
-    }
-
-    return encodeStructuredToolResult({
-      ...goalToToolResponse(result.goal),
-      completion_budget_report: completionBudgetReport(result.goal)
-    })
-  },
+  execute: async () => encodeNativeOnlyGoalResult('update_goal'),
   requiresApproval: () => false
 }
 

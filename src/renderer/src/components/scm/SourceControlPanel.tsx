@@ -416,7 +416,7 @@ export function SourceControlPanel({
           size="icon"
           className="size-7 shrink-0"
           disabled={!repoPath}
-          onClick={() => repoPath && void git.refreshRepository(repoPath)}
+          onClick={() => repoPath && void git.refreshRepository(repoPath, { force: true })}
           title={t('common:action.refresh', { defaultValue: 'Refresh' })}
         >
           <RefreshCw className="size-3.5" />

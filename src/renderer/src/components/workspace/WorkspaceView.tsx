@@ -158,7 +158,11 @@ export function WorkspaceView(): React.JSX.Element {
       >
         {leftView === 'explorer' ? (
           sessionView.workingFolder ? (
-            <FileTreePanel sessionId={sessionView.sessionId} surface="agent" />
+            <FileTreePanel
+              sessionId={sessionView.sessionId}
+              surface="agent"
+              watchEnabled={leftView === 'explorer'}
+            />
           ) : (
             <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
               {t('layout:scmNoFolder', { defaultValue: 'Open a working folder to browse files.' })}

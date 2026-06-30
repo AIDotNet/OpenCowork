@@ -1,8 +1,6 @@
 import { toolRegistry } from '../agent/tool-registry'
-import { IPC } from '../ipc/channels'
-import { encodeStructuredToolResult, encodeToolError } from './tool-result-format'
+import { encodeStructuredToolResult } from './tool-result-format'
 import type { ToolHandler } from './tool-types'
-import { useSettingsStore } from '../../stores/settings-store'
 
 // Web search provider types
 export type WebSearchProvider =
@@ -24,36 +22,10 @@ export interface WebSearchConfig {
   timeout?: number
 }
 
-export interface WebSearchResult {
-  title: string
-  url: string
-  content: string
-  score?: number
-  publishedDate?: string
-}
-
-export interface WebSearchResponse {
-  results: WebSearchResult[]
-  query: string
-  provider: WebSearchProvider
-  totalResults?: number
-}
-
-export type WebFetchFormat = 'markdown' | 'text' | 'html'
-
-export interface WebFetchResult {
-  url: string
-  finalUrl?: string
-  title?: string
-  content: string
-  format: WebFetchFormat
-  error?: string
-}
-
-export interface WebFetchResponse {
-  results: WebFetchResult[]
-  format: WebFetchFormat
-  totalResults: number
+function nativeOnlyResult(toolName: string): string {
+  return encodeStructuredToolResult({
+    error: `${toolName} execution has migrated to .NET Native Worker.`
+  })
 }
 
 const webSearchHandler: ToolHandler = {
@@ -83,50 +55,8 @@ const webSearchHandler: ToolHandler = {
       required: ['query']
     }
   },
-  execute: async (input, ctx) => {
-    const query = input.query as string
-    const maxResults = (input.maxResults as number) || 5
-    const searchMode = (input.searchMode as string) || 'web'
-
-    const settings = useSettingsStore.getState()
-    const provider = settings.webSearchProvider
-    const apiKey = settings.webSearchApiKey
-    const timeout = settings.webSearchTimeout
-
-    try {
-      const result = await ctx.ipc.invoke(IPC.WEB_SEARCH, {
-        query,
-        provider,
-        maxResults,
-        searchMode,
-        apiKey,
-        timeout
-      })
-      return encodeStructuredToolResult(result as unknown as Record<string, unknown>)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return encodeToolError(`Web search failed: ${message}`)
-    }
-  },
+  execute: async () => nativeOnlyResult('WebSearch'),
   requiresApproval: () => false
-}
-
-function normalizeUrls(input: Record<string, unknown>): string[] {
-  const directUrl = typeof input.url === 'string' ? input.url.trim() : ''
-  const rawUrls = input.urls
-
-  if (directUrl) return [directUrl]
-  if (typeof rawUrls === 'string') {
-    return rawUrls.trim() ? [rawUrls.trim()] : []
-  }
-  if (Array.isArray(rawUrls)) {
-    return rawUrls
-      .filter((item): item is string => typeof item === 'string')
-      .map((item) => item.trim())
-      .filter(Boolean)
-  }
-
-  return []
 }
 
 const webFetchHandler: ToolHandler = {
@@ -159,27 +89,7 @@ const webFetchHandler: ToolHandler = {
       additionalProperties: false
     }
   },
-  execute: async (input, ctx) => {
-    const urls = normalizeUrls(input)
-    const format = (input.format as WebFetchFormat) || 'markdown'
-    const timeout = useSettingsStore.getState().webSearchTimeout
-
-    if (urls.length === 0) {
-      return encodeToolError('Web fetch requires a url or urls input')
-    }
-
-    try {
-      const result = await ctx.ipc.invoke(IPC.WEB_FETCH, {
-        urls,
-        format,
-        timeout
-      })
-      return encodeStructuredToolResult(result as unknown as Record<string, unknown>)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return encodeToolError(`Web fetch failed: ${message}`)
-    }
-  },
+  execute: async () => nativeOnlyResult('WebFetch'),
   requiresApproval: () => false
 }
 

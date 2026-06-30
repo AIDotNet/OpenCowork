@@ -61,7 +61,12 @@ import {
 } from '@renderer/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
-import { useChatStore, type SessionMode, type Session } from '@renderer/stores/chat-store'
+import {
+  createRestorableSessionSnapshot,
+  useChatStore,
+  type SessionMode,
+  type Session
+} from '@renderer/stores/chat-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
@@ -252,7 +257,7 @@ export function AppSidebar(): React.JSX.Element {
     if (hasRunning) {
       abortSession(session.id)
     }
-    const snapshot = JSON.parse(JSON.stringify(session))
+    const snapshot = createRestorableSessionSnapshot(session)
     deleteSession(session.id)
     setDeleteTarget(null)
     toast.success(t('sidebar_toast.sessionDeleted'), {

@@ -1,4 +1,4 @@
-import { getDb } from './database'
+import { getNativeWorker } from '../lib/native-worker'
 
 // ── SSH Groups ──
 
@@ -10,55 +10,62 @@ export interface SshGroupRow {
   updated_at: number
 }
 
-export function listSshGroups(): SshGroupRow[] {
-  const db = getDb()
-  return db.prepare('SELECT * FROM ssh_groups ORDER BY sort_order ASC').all() as SshGroupRow[]
+interface SshMutationResult {
+  success: boolean
+  changed: number
+  error?: string | null
 }
 
-export function createSshGroup(group: {
+interface SshConnectionFindResult {
+  success: boolean
+  connection?: SshConnectionRow | null
+  error?: string | null
+}
+
+function assertMutation(result: SshMutationResult, operation: string): void {
+  if (!result.success) {
+    throw new Error(result.error || `Native SSH ${operation} failed`)
+  }
+}
+
+export function listSshGroups(): Promise<SshGroupRow[]> {
+  return getNativeWorker().request<SshGroupRow[]>('db/ssh-groups-list', {}, 120_000)
+}
+
+export async function createSshGroup(group: {
   id: string
   name: string
   sortOrder?: number
   createdAt: number
   updatedAt: number
-}): void {
-  const db = getDb()
-  db.prepare(
-    `INSERT INTO ssh_groups (id, name, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`
-  ).run(group.id, group.name, group.sortOrder ?? 0, group.createdAt, group.updatedAt)
+}): Promise<void> {
+  const result = await getNativeWorker().request<SshMutationResult>(
+    'db/ssh-groups-create',
+    group,
+    120_000
+  )
+  assertMutation(result, 'group create')
 }
 
-export function updateSshGroup(
+export async function updateSshGroup(
   id: string,
   patch: Partial<{ name: string; sortOrder: number; updatedAt: number }>
-): void {
-  const db = getDb()
-  const sets: string[] = []
-  const values: unknown[] = []
-
-  if (patch.name !== undefined) {
-    sets.push('name = ?')
-    values.push(patch.name)
-  }
-  if (patch.sortOrder !== undefined) {
-    sets.push('sort_order = ?')
-    values.push(patch.sortOrder)
-  }
-  if (patch.updatedAt !== undefined) {
-    sets.push('updated_at = ?')
-    values.push(patch.updatedAt)
-  }
-
-  if (sets.length === 0) return
-  values.push(id)
-  db.prepare(`UPDATE ssh_groups SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+): Promise<void> {
+  const result = await getNativeWorker().request<SshMutationResult>(
+    'db/ssh-groups-update',
+    { id, patch },
+    120_000
+  )
+  assertMutation(result, 'group update')
 }
 
-export function deleteSshGroup(id: string): void {
-  const db = getDb()
-  // Unlink connections first (set group_id to null)
-  db.prepare('UPDATE ssh_connections SET group_id = NULL WHERE group_id = ?').run(id)
-  db.prepare('DELETE FROM ssh_groups WHERE id = ?').run(id)
+export async function deleteSshGroup(id: string): Promise<void> {
+  const result = await getNativeWorker().request<SshMutationResult>(
+    'db/ssh-groups-delete',
+    { id },
+    120_000
+  )
+  assertMutation(result, 'group delete')
 }
 
 // ── SSH Connections ──
@@ -84,21 +91,23 @@ export interface SshConnectionRow {
   updated_at: number
 }
 
-export function listSshConnections(): SshConnectionRow[] {
-  const db = getDb()
-  return db
-    .prepare('SELECT * FROM ssh_connections ORDER BY sort_order ASC')
-    .all() as SshConnectionRow[]
+export function listSshConnections(): Promise<SshConnectionRow[]> {
+  return getNativeWorker().request<SshConnectionRow[]>('db/ssh-connections-list', {}, 120_000)
 }
 
-export function getSshConnection(id: string): SshConnectionRow | undefined {
-  const db = getDb()
-  return db.prepare('SELECT * FROM ssh_connections WHERE id = ?').get(id) as
-    | SshConnectionRow
-    | undefined
+export async function getSshConnection(id: string): Promise<SshConnectionRow | undefined> {
+  const result = await getNativeWorker().request<SshConnectionFindResult>(
+    'db/ssh-connections-get',
+    { id },
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native SSH connection get failed')
+  }
+  return result.connection ?? undefined
 }
 
-export function createSshConnection(conn: {
+export async function createSshConnection(conn: {
   id: string
   groupId?: string
   name: string
@@ -116,37 +125,16 @@ export function createSshConnection(conn: {
   sortOrder?: number
   createdAt: number
   updatedAt: number
-}): void {
-  const db = getDb()
-  db.prepare(
-    `INSERT INTO ssh_connections
-       (id, group_id, name, host, port, username, auth_type,
-        encrypted_password, private_key_path, encrypted_passphrase,
-        startup_command, default_directory, proxy_jump,
-        keep_alive_interval, sort_order, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    conn.id,
-    conn.groupId ?? null,
-    conn.name,
-    conn.host,
-    conn.port ?? 22,
-    conn.username,
-    conn.authType ?? 'password',
-    conn.encryptedPassword ?? null,
-    conn.privateKeyPath ?? null,
-    conn.encryptedPassphrase ?? null,
-    conn.startupCommand ?? null,
-    conn.defaultDirectory ?? null,
-    conn.proxyJump ?? null,
-    conn.keepAliveInterval ?? 60,
-    conn.sortOrder ?? 0,
-    conn.createdAt,
-    conn.updatedAt
+}): Promise<void> {
+  const result = await getNativeWorker().request<SshMutationResult>(
+    'db/ssh-connections-create',
+    conn,
+    120_000
   )
+  assertMutation(result, 'connection create')
 }
 
-export function updateSshConnection(
+export async function updateSshConnection(
   id: string,
   patch: Partial<{
     groupId: string | null
@@ -166,82 +154,20 @@ export function updateSshConnection(
     lastConnectedAt: number | null
     updatedAt: number
   }>
-): void {
-  const db = getDb()
-  const sets: string[] = []
-  const values: unknown[] = []
-
-  if (patch.groupId !== undefined) {
-    sets.push('group_id = ?')
-    values.push(patch.groupId)
-  }
-  if (patch.name !== undefined) {
-    sets.push('name = ?')
-    values.push(patch.name)
-  }
-  if (patch.host !== undefined) {
-    sets.push('host = ?')
-    values.push(patch.host)
-  }
-  if (patch.port !== undefined) {
-    sets.push('port = ?')
-    values.push(patch.port)
-  }
-  if (patch.username !== undefined) {
-    sets.push('username = ?')
-    values.push(patch.username)
-  }
-  if (patch.authType !== undefined) {
-    sets.push('auth_type = ?')
-    values.push(patch.authType)
-  }
-  if (patch.encryptedPassword !== undefined) {
-    sets.push('encrypted_password = ?')
-    values.push(patch.encryptedPassword)
-  }
-  if (patch.privateKeyPath !== undefined) {
-    sets.push('private_key_path = ?')
-    values.push(patch.privateKeyPath)
-  }
-  if (patch.encryptedPassphrase !== undefined) {
-    sets.push('encrypted_passphrase = ?')
-    values.push(patch.encryptedPassphrase)
-  }
-  if (patch.startupCommand !== undefined) {
-    sets.push('startup_command = ?')
-    values.push(patch.startupCommand)
-  }
-  if (patch.defaultDirectory !== undefined) {
-    sets.push('default_directory = ?')
-    values.push(patch.defaultDirectory)
-  }
-  if (patch.proxyJump !== undefined) {
-    sets.push('proxy_jump = ?')
-    values.push(patch.proxyJump)
-  }
-  if (patch.keepAliveInterval !== undefined) {
-    sets.push('keep_alive_interval = ?')
-    values.push(patch.keepAliveInterval)
-  }
-  if (patch.sortOrder !== undefined) {
-    sets.push('sort_order = ?')
-    values.push(patch.sortOrder)
-  }
-  if (patch.lastConnectedAt !== undefined) {
-    sets.push('last_connected_at = ?')
-    values.push(patch.lastConnectedAt)
-  }
-  if (patch.updatedAt !== undefined) {
-    sets.push('updated_at = ?')
-    values.push(patch.updatedAt)
-  }
-
-  if (sets.length === 0) return
-  values.push(id)
-  db.prepare(`UPDATE ssh_connections SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+): Promise<void> {
+  const result = await getNativeWorker().request<SshMutationResult>(
+    'db/ssh-connections-update',
+    { id, patch },
+    120_000
+  )
+  assertMutation(result, 'connection update')
 }
 
-export function deleteSshConnection(id: string): void {
-  const db = getDb()
-  db.prepare('DELETE FROM ssh_connections WHERE id = ?').run(id)
+export async function deleteSshConnection(id: string): Promise<void> {
+  const result = await getNativeWorker().request<SshMutationResult>(
+    'db/ssh-connections-delete',
+    { id },
+    120_000
+  )
+  assertMutation(result, 'connection delete')
 }

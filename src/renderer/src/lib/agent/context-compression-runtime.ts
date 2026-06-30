@@ -62,7 +62,10 @@ export function buildRuntimeCompression(
         messages,
         providerConfig,
         signal,
-        options?.preserveCount
+        options?.preserveCount,
+        undefined,
+        undefined,
+        'auto'
       )
       return compressed
     }

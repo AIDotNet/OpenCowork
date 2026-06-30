@@ -110,9 +110,7 @@ import {
   normalizeResponsesImageGenerationPartialImages
 } from '@renderer/lib/api/responses-image-generation'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
-import { ipcStreamRequest } from '@renderer/lib/ipc/api-stream'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
-import { loadPrompt } from '@renderer/lib/prompts/prompt-loader'
 import { ProviderIcon, ModelIcon } from './provider-icons'
 import {
   clampCompressionThreshold,
@@ -370,17 +368,19 @@ async function fetchModelsFromProvider(
   userAgent?: string,
   oauth?: AIProvider['oauth']
 ): Promise<AIModelConfig[]> {
+  const useAnthropicCompatAuth = builtinId === 'longcat'
+
   if (builtinId === 'openrouter') {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (userAgent) headers['User-Agent'] = userAgent
-    const result = await window.electron.ipcRenderer.invoke('api:request', {
+    const result = (await ipcClient.invoke('api:request', {
       url: 'https://openrouter.ai/api/frontend/models/find',
       method: 'GET',
       headers,
       useSystemProxy
-    })
+    })) as { statusCode?: number; body?: string; error?: string }
     if (result?.error) throw new Error(result.error)
-    const data = JSON.parse(result.body)
+    const data = JSON.parse(result.body ?? '{}')
     const models = data?.data?.models ?? data?.data ?? []
     return models
       .slice(0, 200)
@@ -404,17 +404,17 @@ async function fetchModelsFromProvider(
       headers['editor-version'] = 'vscode/1.105.0'
       headers['editor-plugin-version'] = 'copilot-chat/0.26.7'
     }
-    const result = await window.electron.ipcRenderer.invoke('api:request', {
+    const result = (await ipcClient.invoke('api:request', {
       url,
       method: 'GET',
       headers,
       useSystemProxy
-    })
+    })) as { statusCode?: number; body?: string; error?: string }
     if (result?.error) throw new Error(result.error)
     if (result?.statusCode && result.statusCode >= 400) {
       throw new Error(`HTTP ${result.statusCode}: ${result.body?.slice(0, 200)}`)
     }
-    const data = JSON.parse(result.body)
+    const data = JSON.parse(result.body ?? '{}')
     const models = data?.data ?? []
     return models
       .map((model: Record<string, unknown>) => toDiscoveredModelConfig(model, { builtinId }))
@@ -427,19 +427,26 @@ async function fetchModelsFromProvider(
       'Content-Type': 'application/json',
       'anthropic-version': '2023-06-01'
     }
-    if (apiKey) headers['x-api-key'] = apiKey
+    if (apiKey) {
+      if (useAnthropicCompatAuth) {
+        headers['Authorization'] = `Bearer ${apiKey}`
+        headers['x-api-key'] = apiKey
+      } else {
+        headers['x-api-key'] = apiKey
+      }
+    }
     if (userAgent) headers['User-Agent'] = userAgent
-    const result = await window.electron.ipcRenderer.invoke('api:request', {
+    const result = (await ipcClient.invoke('api:request', {
       url,
       method: 'GET',
       headers,
       useSystemProxy
-    })
+    })) as { statusCode?: number; body?: string; error?: string }
     if (result?.error) throw new Error(result.error)
     if (result?.statusCode && result.statusCode >= 400) {
       throw new Error(`HTTP ${result.statusCode}: ${result.body?.slice(0, 200)}`)
     }
-    const data = JSON.parse(result.body)
+    const data = JSON.parse(result.body ?? '{}')
     const models = data?.data ?? []
     const discoveredModels = models
       .map((model: Record<string, unknown>) => toDiscoveredModelConfig(model, { builtinId }))
@@ -2038,10 +2045,6 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         return
       }
 
-      const model =
-        activeProvider.models.find((m) => m.enabled)?.id ??
-        activeProvider.models[0]?.id ??
-        'gpt-5.1-codex'
       const baseUrl = normalizeProviderBaseUrl(
         activeProvider.baseUrl?.trim() || 'https://chatgpt.com/backend-api/codex',
         'openai-responses'
@@ -2060,52 +2063,30 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         for (const [key, raw] of Object.entries(overrides)) {
           const val = String(raw)
             .replace(/\{\{\s*sessionId\s*\}\}/g, sid)
-            .replace(/\{\{\s*model\s*\}\}/g, model)
+            .replace(/\{\{\s*model\s*\}\}/g, activeProvider.models[0]?.id ?? '')
             .trim()
           if (val) headers[key] = val
         }
       }
-      const url = `${baseUrl}/responses`
-      const bodyObj: Record<string, unknown> = {
-        model,
-        input: [{ type: 'message', role: 'user', content: 'Hi' }],
-        stream: true,
-        ...(activeProvider.requestOverrides?.body ?? {})
+      const result = await invokeApiRequest({
+        url: `${baseUrl}/models`,
+        method: 'GET',
+        headers,
+        useSystemProxy: activeProvider.useSystemProxy
+      })
+      if (result?.error) {
+        throw new Error(result.error)
       }
-      if (activeProvider.instructionsPrompt) {
-        const instructions = await loadPrompt(activeProvider.instructionsPrompt)
-        if (instructions !== null) bodyObj.instructions = instructions
-      }
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 15000)
-      try {
-        for await (const ev of ipcStreamRequest({
-          url,
-          method: 'POST',
-          headers,
-          body: JSON.stringify(bodyObj),
-          signal: controller.signal,
-          useSystemProxy: activeProvider.useSystemProxy,
-          providerId: activeProvider.id,
-          providerBuiltinId: activeProvider.builtinId
-        })) {
-          if (ev.data) {
-            setTimeout(() => controller.abort(), 500)
-            break
-          }
-        }
-        toast.success(t('provider.quotaFetched'))
-      } finally {
-        clearTimeout(timeout)
-      }
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') {
+      const status = result?.statusCode ?? 0
+      if (status >= 200 && status < 300) {
         toast.success(t('provider.quotaFetched'))
       } else {
-        toast.error(t('provider.quotaFetchFailed'), {
-          description: err instanceof Error ? err.message : String(err)
-        })
+        throw new Error(`HTTP ${status}: ${result?.body?.slice(0, 200) ?? ''}`)
       }
+    } catch (err) {
+      toast.error(t('provider.quotaFetchFailed'), {
+        description: err instanceof Error ? err.message : String(err)
+      })
     } finally {
       setFetchingQuota(false)
     }
@@ -2164,6 +2145,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         Object.assign(headers, await buildMoonshotCommonHeaders(activeProvider.oauth?.deviceId))
       }
       const authToken = activeProvider.apiKey || activeProvider.oauth?.accessToken || ''
+      const useAnthropicCompatAuth = activeProvider.builtinId === 'longcat'
       const applyHeaderOverrides = (modelId: string): void => {
         const overrides = activeProvider.requestOverrides?.headers
         if (!overrides) return
@@ -2177,30 +2159,27 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         }
       }
       let url: string
-      let body: string
+      let method = 'POST'
+      let body: string | undefined
       if (isAnthropic) {
-        url = `${baseUrl}/v1/messages`
-        headers['x-api-key'] = activeProvider.apiKey
+        url = `${baseUrl}/v1/models`
+        method = 'GET'
+        if (useAnthropicCompatAuth) {
+          headers['Authorization'] = `Bearer ${activeProvider.apiKey}`
+          headers['x-api-key'] = activeProvider.apiKey
+        } else {
+          headers['x-api-key'] = activeProvider.apiKey
+        }
         headers['anthropic-version'] = '2023-06-01'
         applyHeaderOverrides(model)
-        body = JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'Hi' }] })
       } else if (isResponses) {
-        url = `${baseUrl}/responses`
+        url = `${baseUrl}/models`
+        method = 'GET'
         if (authToken) headers['Authorization'] = `Bearer ${authToken}`
         if (activeProvider.oauth?.accountId) {
           headers['Chatgpt-Account-Id'] = activeProvider.oauth.accountId
         }
         applyHeaderOverrides(model)
-        const bodyObj: Record<string, unknown> = {
-          model,
-          input: [{ type: 'message', role: 'user', content: 'Hi' }],
-          stream: true
-        }
-        if (activeProvider.instructionsPrompt) {
-          const instructions = await loadPrompt(activeProvider.instructionsPrompt)
-          if (instructions !== null) bodyObj.instructions = instructions
-        }
-        body = JSON.stringify(bodyObj)
       } else {
         url = `${baseUrl}/chat/completions`
         if (authToken) headers['Authorization'] = `Bearer ${authToken}`
@@ -2214,9 +2193,9 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
       }
       const result = await invokeApiRequest({
         url,
-        method: 'POST',
+        method,
         headers,
-        body,
+        ...(body ? { body } : {}),
         useSystemProxy: activeProvider.useSystemProxy
       })
       if (result?.error) {
@@ -3565,7 +3544,7 @@ export function ModelManagementPanel(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-2xl border bg-background shadow-sm">
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl bg-background shadow-sm">
       <div className="shrink-0 border-b bg-muted/10 px-5 py-4">
         <div className="flex flex-col gap-4">
           <div className="flex items-start justify-between gap-4">
@@ -4281,16 +4260,6 @@ export function ProviderPanel(): React.JSX.Element {
   const selectedProvider = resolvedSelectedId
     ? (providers.find((p) => p.id === resolvedSelectedId) ?? null)
     : null
-  const enabledProviderCount = providers.filter((provider) => provider.enabled).length
-  const totalProviderModelCount = providers.reduce(
-    (count, provider) => count + provider.models.length,
-    0
-  )
-  const enabledProviderModelCount = providers.reduce(
-    (count, provider) => count + provider.models.filter((model) => model.enabled).length,
-    0
-  )
-
   const enabledProviders = useMemo(
     () =>
       providers.filter(
@@ -4392,30 +4361,7 @@ export function ProviderPanel(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-2xl border bg-background shadow-sm">
-      <div className="shrink-0 border-b bg-muted/10 px-5 py-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold">{t('provider.title')}</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">{t('provider.subtitle')}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-            <span className="rounded-full border bg-background px-2 py-1">
-              {t('provider.providerSummary', {
-                total: providers.length,
-                enabled: enabledProviderCount
-              })}
-            </span>
-            <span className="rounded-full border bg-background px-2 py-1">
-              {t('provider.providerModelSummary', {
-                enabled: enabledProviderModelCount,
-                total: totalProviderModelCount
-              })}
-            </span>
-          </div>
-        </div>
-      </div>
-
+    <div className="flex h-full flex-col overflow-hidden bg-background">
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left: Provider list */}
         <div className="flex w-60 shrink-0 flex-col border-r bg-muted/10">

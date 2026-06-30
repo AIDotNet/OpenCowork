@@ -57,6 +57,11 @@ export const CodeEditor = React.forwardRef<CodeEditorHandle, CodeEditorProps>(fu
     (s) => s.editorRemoteLanguageServiceEnabled
   )
   const editorRef = React.useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null)
+  const onSaveRef = React.useRef(onSave)
+
+  React.useEffect(() => {
+    onSaveRef.current = onSave
+  }, [onSave])
 
   const path = React.useMemo(
     () =>
@@ -152,11 +157,9 @@ export const CodeEditor = React.forwardRef<CodeEditorHandle, CodeEditorProps>(fu
       editorRef.current = monacoEditor
       revealInitialPosition(monacoEditor)
 
-      if (onSave) {
-        monacoEditor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
-          void onSave()
-        })
-      }
+      monacoEditor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
+        void onSaveRef.current?.()
+      })
 
       if (onOpenFile) {
         monacoEditor.addCommand(monacoInstance.KeyCode.F12, () => {
@@ -171,7 +174,7 @@ export const CodeEditor = React.forwardRef<CodeEditorHandle, CodeEditorProps>(fu
         })
       }
     },
-    [onOpenFile, onSave, openImportSource, revealInitialPosition]
+    [onOpenFile, openImportSource, revealInitialPosition]
   )
 
   React.useEffect(() => {

@@ -1,14 +1,18 @@
 import { createHash } from 'crypto'
-import * as fs from 'fs'
 import { ipcMain } from 'electron'
 import {
   appendStoredFileChange,
   deleteStoredFinalizedRunChangeSetsOlderThan,
   getStoredRunChangeSet,
-  listStoredRunChangeSetsBySession,
   markFileChangeReverted,
   recomputeRunStatus
 } from '../db/agent-changes-dao'
+import { getNativeWorker } from '../lib/native-worker'
+import {
+  decodeMessagePackPayload,
+  encodeMessagePackPayload,
+  toMessagePackChannel
+} from '../../shared/messagepack/binary-ipc'
 
 export type RunChangeStatus = 'open' | 'reverted'
 export type FileChangeStatus = 'open' | 'reverted'
@@ -69,6 +73,46 @@ interface SshChangeAdapter {
   readSnapshot: (connectionId: string, filePath: string) => Promise<FileSnapshot>
   writeText: (connectionId: string, filePath: string, content: string) => Promise<void>
   deleteFile: (connectionId: string, filePath: string) => Promise<void>
+}
+
+interface NativeAgentChangeHydratedListResult {
+  success: boolean
+  changeSets?: RunChangeSet[] | null
+  error?: string | null
+}
+
+interface NativeAgentChangeHydratedGetResult {
+  success: boolean
+  changeSet?: RunChangeSet | null
+  error?: string | null
+}
+
+interface NativeAgentChangeDiffResult {
+  success: boolean
+  handled: boolean
+  notFound: boolean
+  beforeText?: string | null
+  afterText?: string | null
+  error?: string | null
+}
+
+interface NativeAgentChangeRollbackResult {
+  success: boolean
+  handled: boolean
+  reverted: boolean
+  revertedAt?: number | null
+  reason?: string | null
+  error?: string | null
+}
+
+function registerAgentChangeMessagePackHandler<TArgs>(
+  channel: string,
+  handler: (args: TArgs) => Promise<unknown> | unknown
+): void {
+  ipcMain.handle(toMessagePackChannel(channel), async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<TArgs>(bytes)
+    return encodeMessagePackPayload(await handler(args))
+  })
 }
 
 let sshChangeAdapter: SshChangeAdapter | null = null
@@ -162,11 +206,11 @@ export function buildOpaqueExistingSnapshot(): FileSnapshot {
   }
 }
 
-function pruneStaleRunChangesIfNeeded(): void {
+async function pruneStaleRunChangesIfNeeded(): Promise<void> {
   const now = Date.now()
   if (now - lastPruneAt < PRUNE_INTERVAL_MS) return
   lastPruneAt = now
-  deleteStoredFinalizedRunChangeSetsOlderThan(now - FINALIZED_RUN_CHANGES_RETENTION_MS)
+  await deleteStoredFinalizedRunChangeSetsOlderThan(now - FINALIZED_RUN_CHANGES_RETENTION_MS)
 }
 
 function resolveRunId(meta?: ChangeMeta): string | null {
@@ -177,14 +221,14 @@ function resolveRunId(meta?: ChangeMeta): string | null {
   return null
 }
 
-function recordTextWriteChange(args: {
+async function recordTextWriteChange(args: {
   meta?: ChangeMeta
   filePath: string
   before: FileSnapshot
   afterText: string
   transport: ChangeTransport
   connectionId?: string
-}): void {
+}): Promise<void> {
   const runId = resolveRunId(args.meta)
   if (!runId) {
     console.warn(
@@ -202,7 +246,7 @@ function recordTextWriteChange(args: {
   const now = Date.now()
   const sessionId = args.meta?.sessionId?.trim() || undefined
   const assistantMessageId = args.meta?.runId?.trim() || runId
-  const existingForId = getStoredRunChangeSet(runId)
+  const existingForId = await getStoredRunChangeSet(runId)
   const sequence = (existingForId?.changes.length ?? 0) + 1
 
   const change: TrackedFileChange = {
@@ -221,7 +265,7 @@ function recordTextWriteChange(args: {
     createdAt: now
   }
 
-  appendStoredFileChange({
+  await appendStoredFileChange({
     runId,
     sessionId,
     assistantMessageId,
@@ -230,14 +274,14 @@ function recordTextWriteChange(args: {
   })
 }
 
-export function recordLocalTextWriteChange(args: {
+export async function recordLocalTextWriteChange(args: {
   meta?: ChangeMeta
   filePath: string
   beforeExists: boolean
   beforeText?: string
   afterText: string
-}): void {
-  recordTextWriteChange({
+}): Promise<void> {
+  await recordTextWriteChange({
     meta: args.meta,
     filePath: args.filePath,
     before: buildFileSnapshot(args.beforeExists, args.beforeText),
@@ -246,14 +290,14 @@ export function recordLocalTextWriteChange(args: {
   })
 }
 
-export function recordSshTextWriteChange(args: {
+export async function recordSshTextWriteChange(args: {
   meta?: ChangeMeta
   connectionId: string
   filePath: string
   before: FileSnapshot
   afterText: string
-}): void {
-  recordTextWriteChange({
+}): Promise<void> {
+  await recordTextWriteChange({
     meta: args.meta,
     filePath: args.filePath,
     before: args.before,
@@ -267,73 +311,36 @@ export function registerSshChangeAdapter(adapter: SshChangeAdapter): void {
   sshChangeAdapter = adapter
 }
 
-function cloneSnapshot(snapshot: FileSnapshot): FileSnapshot {
-  return {
-    exists: snapshot.exists,
-    text:
-      snapshot.text ??
-      (snapshot.size <= INLINE_TEXT_SNAPSHOT_LIMIT_BYTES ? snapshot.fullText : undefined),
-    previewText: snapshot.previewText,
-    tailPreviewText: snapshot.tailPreviewText,
-    textOmitted: snapshot.textOmitted,
-    hash: snapshot.hash,
-    size: snapshot.size,
-    lineCount: snapshot.lineCount
+async function loadRunChangeSet(runId: string): Promise<RunChangeSet | null> {
+  const result = await getNativeWorker().request<NativeAgentChangeHydratedGetResult>(
+    'agent-changes/get-hydrated',
+    { runId },
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native agent change get failed')
   }
+  return result.changeSet ?? null
 }
 
-function hydrateLocalAfterSnapshot(
-  change: TrackedFileChange,
-  snapshot: FileSnapshot
-): FileSnapshot {
-  const cloned = cloneSnapshot(snapshot)
-  if (cloned.text !== undefined) return cloned
-  if (change.transport !== 'local' || snapshot.size > INLINE_TEXT_SNAPSHOT_LIMIT_BYTES) {
-    return cloned
+async function getRunChangeSetsBySession(sessionId: string): Promise<RunChangeSet[]> {
+  await pruneStaleRunChangesIfNeeded()
+  const result = await getNativeWorker().request<NativeAgentChangeHydratedListResult>(
+    'agent-changes/list-session-hydrated',
+    { sessionId },
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native agent change list failed')
   }
-  if (!snapshot.hash || !fs.existsSync(change.filePath)) return cloned
-
-  const stats = fs.statSync(change.filePath)
-  if (!stats.isFile() || stats.size > INLINE_TEXT_SNAPSHOT_LIMIT_BYTES) return cloned
-
-  const text = fs.readFileSync(change.filePath, 'utf-8')
-  if (hashText(text) !== snapshot.hash) return cloned
-
-  return {
-    ...cloned,
-    text
-  }
+  return result.changeSets ?? []
 }
 
-function cloneChange(change: TrackedFileChange): TrackedFileChange {
-  return {
-    ...change,
-    before: cloneSnapshot(change.before),
-    after: hydrateLocalAfterSnapshot(change, change.after)
-  }
-}
-
-function cloneRunChangeSet(changeSet: RunChangeSet): RunChangeSet {
-  return {
-    ...changeSet,
-    changes: changeSet.changes.map(cloneChange)
-  }
-}
-
-function loadRunChangeSet(runId: string): RunChangeSet | null {
-  return (getStoredRunChangeSet(runId) as RunChangeSet | null) ?? null
-}
-
-function getRunChangeSetsBySession(sessionId: string): RunChangeSet[] {
-  pruneStaleRunChangesIfNeeded()
-  return (listStoredRunChangeSetsBySession(sessionId) as RunChangeSet[]).map(cloneRunChangeSet)
-}
-
-function findChange(
+async function findChange(
   runId: string,
   changeId: string
-): { changeSet: RunChangeSet; change: TrackedFileChange } | null {
-  const changeSet = loadRunChangeSet(runId)
+): Promise<{ changeSet: RunChangeSet; change: TrackedFileChange } | null> {
+  const changeSet = await loadRunChangeSet(runId)
   if (!changeSet) return null
   const change = changeSet.changes.find((entry) => entry.id === changeId)
   if (!change) return null
@@ -349,23 +356,31 @@ async function getChangeDiffContent(
   runId: string,
   changeId: string
 ): Promise<{ beforeText: string; afterText: string } | { error: string } | null> {
-  const found = findChange(runId, changeId)
+  const nativeLocal = await getNativeWorker().request<NativeAgentChangeDiffResult>(
+    'agent-changes/diff-local',
+    { runId, changeId },
+    120_000
+  )
+  if (nativeLocal.handled) {
+    if (nativeLocal.notFound) return null
+    if (!nativeLocal.success) return { error: nativeLocal.error || 'Native local diff failed' }
+    if (nativeLocal.beforeText == null || nativeLocal.afterText == null) {
+      return { error: 'Full diff is unavailable for this change' }
+    }
+    return {
+      beforeText: nativeLocal.beforeText,
+      afterText: nativeLocal.afterText
+    }
+  }
+
+  const found = await findChange(runId, changeId)
   if (!found) return null
 
   const beforeText = resolveSnapshotFullText(found.change.before)
   let afterText = resolveSnapshotFullText(found.change.after)
 
   if (afterText === null && found.change.status === 'open') {
-    if (found.change.transport === 'local') {
-      try {
-        const currentText = fs.readFileSync(found.change.filePath, 'utf-8')
-        if (hashText(currentText) === found.change.after.hash) {
-          afterText = currentText
-        }
-      } catch {
-        // file may have been deleted or changed
-      }
-    } else if (found.change.connectionId && sshChangeAdapter) {
+    if (found.change.connectionId && sshChangeAdapter) {
       try {
         const snap = await sshChangeAdapter.readSnapshot(
           found.change.connectionId,
@@ -391,22 +406,31 @@ async function getChangeDiffContent(
 async function forceRollback(
   change: TrackedFileChange
 ): Promise<{ reverted: boolean; reason?: string }> {
+  if (change.transport === 'local') {
+    const result = await getNativeWorker().request<NativeAgentChangeRollbackResult>(
+      'agent-changes/rollback-local-change',
+      { change },
+      120_000
+    )
+    if (!result.handled) {
+      return { reverted: false, reason: 'Native local rollback did not handle this change' }
+    }
+    if (!result.success || !result.reverted) {
+      return { reverted: false, reason: result.reason || result.error || 'Native rollback failed' }
+    }
+    change.status = 'reverted'
+    change.revertedAt = result.revertedAt ?? Date.now()
+    return { reverted: true }
+  }
+
   if (change.op === 'create') {
-    if (change.transport === 'local') {
-      try {
-        fs.rmSync(change.filePath, { force: true })
-      } catch (err) {
-        return { reverted: false, reason: String(err) }
-      }
-    } else {
-      if (!change.connectionId || !sshChangeAdapter) {
-        return { reverted: false, reason: 'SSH change adapter is unavailable' }
-      }
-      try {
-        await sshChangeAdapter.deleteFile(change.connectionId, change.filePath)
-      } catch (err) {
-        return { reverted: false, reason: String(err) }
-      }
+    if (!change.connectionId || !sshChangeAdapter) {
+      return { reverted: false, reason: 'SSH change adapter is unavailable' }
+    }
+    try {
+      await sshChangeAdapter.deleteFile(change.connectionId, change.filePath)
+    } catch (err) {
+      return { reverted: false, reason: String(err) }
     }
 
     change.status = 'reverted'
@@ -423,21 +447,13 @@ async function forceRollback(
   }
 
   const targetText = beforeText ?? ''
-  if (change.transport === 'local') {
-    try {
-      fs.writeFileSync(change.filePath, targetText, 'utf-8')
-    } catch (err) {
-      return { reverted: false, reason: String(err) }
-    }
-  } else {
-    if (!change.connectionId || !sshChangeAdapter) {
-      return { reverted: false, reason: 'SSH change adapter is unavailable' }
-    }
-    try {
-      await sshChangeAdapter.writeText(change.connectionId, change.filePath, targetText)
-    } catch (err) {
-      return { reverted: false, reason: String(err) }
-    }
+  if (!change.connectionId || !sshChangeAdapter) {
+    return { reverted: false, reason: 'SSH change adapter is unavailable' }
+  }
+  try {
+    await sshChangeAdapter.writeText(change.connectionId, change.filePath, targetText)
+  } catch (err) {
+    return { reverted: false, reason: String(err) }
   }
 
   change.status = 'reverted'
@@ -452,7 +468,7 @@ async function undoRunChangeSet(runId: string): Promise<{
   failures: Array<{ changeId: string; filePath: string; reason: string }>
   changeset: RunChangeSet | null
 }> {
-  const changeSet = loadRunChangeSet(runId)
+  const changeSet = await loadRunChangeSet(runId)
   if (!changeSet) {
     return {
       success: false,
@@ -472,7 +488,7 @@ async function undoRunChangeSet(runId: string): Promise<{
     const result = await forceRollback(change)
     if (result.reverted) {
       revertedCount += 1
-      markFileChangeReverted({
+      await markFileChangeReverted({
         runId,
         changeId: change.id,
         revertedAt: change.revertedAt ?? Date.now()
@@ -487,15 +503,15 @@ async function undoRunChangeSet(runId: string): Promise<{
     }
   }
 
-  recomputeRunStatus(runId)
-  const refreshed = loadRunChangeSet(runId)
+  await recomputeRunStatus(runId)
+  const refreshed = await loadRunChangeSet(runId)
 
   return {
     success: failureCount === 0,
     revertedCount,
     failureCount,
     failures,
-    changeset: refreshed ? cloneRunChangeSet(refreshed) : null
+    changeset: refreshed
   }
 }
 
@@ -507,46 +523,49 @@ async function undoFileChange(
   reason?: string
   changeset: RunChangeSet | null
 }> {
-  const found = findChange(runId, changeId)
+  const found = await findChange(runId, changeId)
   if (!found) {
     return { success: false, reason: 'Change not found', changeset: null }
   }
 
   if (found.change.status === 'reverted') {
-    return { success: true, changeset: cloneRunChangeSet(found.changeSet) }
+    return { success: true, changeset: found.changeSet }
   }
 
   const result = await forceRollback(found.change)
   if (result.reverted) {
-    markFileChangeReverted({
+    await markFileChangeReverted({
       runId,
       changeId,
       revertedAt: found.change.revertedAt ?? Date.now()
     })
   }
-  recomputeRunStatus(runId)
-  const refreshed = loadRunChangeSet(runId)
+  await recomputeRunStatus(runId)
+  const refreshed = await loadRunChangeSet(runId)
 
   return {
     success: result.reverted,
     reason: result.reason,
-    changeset: refreshed ? cloneRunChangeSet(refreshed) : null
+    changeset: refreshed
   }
 }
 
 export function registerAgentChangeHandlers(): void {
-  ipcMain.handle('agent:changes:list-session', async (_event, args: ListSessionRunChangesArgs) => {
-    try {
-      if (!args?.sessionId) return []
-      return getRunChangeSetsBySession(args.sessionId)
-    } catch (err) {
-      return { error: String(err) }
+  registerAgentChangeMessagePackHandler<ListSessionRunChangesArgs>(
+    'agent:changes:list-session',
+    async (args) => {
+      try {
+        if (!args?.sessionId) return []
+        return await getRunChangeSetsBySession(args.sessionId)
+      } catch (err) {
+        return { error: String(err) }
+      }
     }
-  })
+  )
 
-  ipcMain.handle(
+  registerAgentChangeMessagePackHandler<{ runId: string; changeId: string }>(
     'agent:changes:diff-content',
-    async (_event, args: { runId: string; changeId: string }) => {
+    async (args) => {
       try {
         if (!args?.runId || !args?.changeId) return { error: 'runId and changeId are required' }
         return await getChangeDiffContent(args.runId, args.changeId)
@@ -556,18 +575,21 @@ export function registerAgentChangeHandlers(): void {
     }
   )
 
-  ipcMain.handle('agent:changes:undo-run', async (_event, args: { runId: string }) => {
-    try {
-      if (!args?.runId) return { error: 'runId is required' }
-      return await undoRunChangeSet(args.runId)
-    } catch (err) {
-      return { error: String(err) }
+  registerAgentChangeMessagePackHandler<{ runId: string }>(
+    'agent:changes:undo-run',
+    async (args) => {
+      try {
+        if (!args?.runId) return { error: 'runId is required' }
+        return await undoRunChangeSet(args.runId)
+      } catch (err) {
+        return { error: String(err) }
+      }
     }
-  })
+  )
 
-  ipcMain.handle(
+  registerAgentChangeMessagePackHandler<{ runId: string; changeId: string }>(
     'agent:changes:undo-file',
-    async (_event, args: { runId: string; changeId: string }) => {
+    async (args) => {
       try {
         if (!args?.runId || !args?.changeId) return { error: 'runId and changeId are required' }
         return await undoFileChange(args.runId, args.changeId)

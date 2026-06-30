@@ -658,7 +658,67 @@ function CompletionSummaryBar({ summary }: { summary: CompletionSummaryData }): 
   return <CompletionTokenSummary summary={summary} />
 }
 
-function DebugToggleButton({ debugInfo }: { debugInfo: RequestDebugInfo }): React.JSX.Element {
+interface DebugToolCallEntry {
+  id: string
+  name: string
+  input: Record<string, unknown>
+  result?: ToolResultContent
+  isError?: boolean
+}
+
+function formatDebugJson(value: unknown): string {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function collectDebugToolCalls(
+  content: string | ContentBlock[],
+  toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
+): DebugToolCallEntry[] {
+  if (!Array.isArray(content)) return []
+
+  const inlineResults = new Map<string, { content: ToolResultContent; isError?: boolean }>()
+  for (const block of content) {
+    if (block.type !== 'tool_result') continue
+    inlineResults.set(block.toolUseId, {
+      content: block.content,
+      isError: block.isError
+    })
+  }
+
+  return content
+    .filter(
+      (block): block is Extract<ContentBlock, { type: 'tool_use' }> => block.type === 'tool_use'
+    )
+    .map((block) => {
+      const result = toolResults?.get(block.id) ?? inlineResults.get(block.id)
+      return {
+        id: block.id,
+        name: block.name,
+        input: block.input,
+        ...(result
+          ? {
+              result: result.content,
+              isError: result.isError
+            }
+          : {})
+      }
+    })
+}
+
+function DebugToggleButton({
+  debugInfo,
+  content,
+  toolResults
+}: {
+  debugInfo: RequestDebugInfo
+  content: string | ContentBlock[]
+  toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
+}): React.JSX.Element {
   const [show, setShow] = useState(false)
   const bodyFormatted = (() => {
     if (!debugInfo.body) return null
@@ -668,6 +728,7 @@ function DebugToggleButton({ debugInfo }: { debugInfo: RequestDebugInfo }): Reac
       return debugInfo.body
     }
   })()
+  const toolCalls = show ? collectDebugToolCalls(content, toolResults) : []
   const cacheShapeRows = [
     { label: 'System hash', value: debugInfo.systemHash },
     { label: 'Tools hash', value: debugInfo.toolsHash },
@@ -771,6 +832,92 @@ function DebugToggleButton({ debugInfo }: { debugInfo: RequestDebugInfo }): Reac
                 </LazySyntaxHighlighter>
               </div>
             )}
+            <div>
+              <div className="flex items-center justify-between border-b bg-muted/20 px-4 py-1.5">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Tool Calls In This Message
+                </span>
+                {toolCalls.length > 0 ? (
+                  <span className="text-[10px] text-muted-foreground">
+                    {toolCalls.length} call{toolCalls.length === 1 ? '' : 's'}
+                  </span>
+                ) : null}
+              </div>
+              {toolCalls.length === 0 ? (
+                <div className="px-4 py-3 text-[11px] text-muted-foreground">
+                  No tool calls were produced by this assistant message. The request body may still
+                  contain available tool definitions; actual tool calls appear only after the model
+                  emits them.
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {toolCalls.map((toolCall) => {
+                    const inputText = formatDebugJson(toolCall.input)
+                    const resultText =
+                      toolCall.result === undefined ? null : formatDebugJson(toolCall.result)
+                    return (
+                      <div key={toolCall.id} className="space-y-2 px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-2 text-[11px]">
+                          <span className="rounded bg-orange-500/10 px-1.5 py-0.5 font-medium text-orange-500">
+                            {toolCall.name}
+                          </span>
+                          <span className="min-w-0 break-all text-muted-foreground">
+                            {toolCall.id}
+                          </span>
+                          {toolCall.isError ? (
+                            <span className="ml-auto shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-destructive">
+                              error
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="overflow-hidden rounded border">
+                          <div className="border-b bg-muted/20 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Input
+                          </div>
+                          <LazySyntaxHighlighter
+                            language="json"
+                            customStyle={{
+                              margin: 0,
+                              padding: '8px',
+                              fontSize: '11px',
+                              fontFamily: MONO_FONT,
+                              background: 'transparent',
+                              wordBreak: 'break-all',
+                              whiteSpace: 'pre-wrap'
+                            }}
+                            codeTagProps={{ style: { fontFamily: MONO_FONT } }}
+                          >
+                            {inputText}
+                          </LazySyntaxHighlighter>
+                        </div>
+                        {resultText !== null ? (
+                          <div className="overflow-hidden rounded border">
+                            <div className="border-b bg-muted/20 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                              Result
+                            </div>
+                            <LazySyntaxHighlighter
+                              language="json"
+                              customStyle={{
+                                margin: 0,
+                                padding: '8px',
+                                fontSize: '11px',
+                                fontFamily: MONO_FONT,
+                                background: 'transparent',
+                                wordBreak: 'break-all',
+                                whiteSpace: 'pre-wrap'
+                              }}
+                              codeTagProps={{ style: { fontFamily: MONO_FONT } }}
+                            >
+                              {resultText}
+                            </LazySyntaxHighlighter>
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1594,7 +1741,7 @@ export function AssistantMessage({
     : 'w-full origin-left'
   const liveFadeInClassName = liveComponentClassName ? `w-full ${liveComponentClassName}` : 'w-full'
   const debugInfo = devMode
-    ? (requestDebugInfo ?? (msgId ? getLastDebugInfo(msgId) : undefined))
+    ? ((msgId ? getLastDebugInfo(msgId) : undefined) ?? requestDebugInfo)
     : undefined
   const openTranslatePage = useUIStore((s) => s.openTranslatePage)
   const navigateToSession = useUIStore((s) => s.navigateToSession)
@@ -3033,7 +3180,13 @@ export function AssistantMessage({
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
-              {devMode && debugInfo && <DebugToggleButton debugInfo={debugInfo} />}
+              {devMode && debugInfo && (
+                <DebugToggleButton
+                  debugInfo={debugInfo}
+                  content={content}
+                  toolResults={toolResults}
+                />
+              )}
             </div>
           )}
       </div>

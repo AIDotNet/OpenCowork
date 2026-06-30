@@ -1,0 +1,153 @@
+<section class="payment">
+  <div class="details">
+    <div class="eyebrow">My Coffee</div>
+    <h1 id="title">Luckin payment</h1>
+    <p id="subtitle"></p>
+    <dl id="fields"></dl>
+    <a id="link" target="_blank" rel="noreferrer"></a>
+  </div>
+  <div id="qrWrap" class="qr-wrap">
+    <img id="qr" alt="Payment QR code" />
+  </div>
+</section>
+
+<style>
+  body {
+    color: #172033;
+  }
+
+  .payment {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 150px;
+    gap: 14px;
+    margin: 0;
+    padding: 14px;
+    border: 1px solid rgba(37, 99, 235, 0.18);
+    border-radius: 8px;
+    background: #f8fbff;
+  }
+
+  .eyebrow {
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 3px 0 0;
+    font-size: 16px;
+  }
+
+  p {
+    margin: 3px 0 12px;
+    color: #64748b;
+    font-size: 12px;
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    margin: 0 0 10px;
+  }
+
+  .field {
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 8px;
+    padding: 7px 9px;
+    background: #ffffff;
+  }
+
+  dt {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  dd {
+    margin: 3px 0 0;
+    color: #0f172a;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .qr-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 150px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  img {
+    width: 132px;
+    height: 132px;
+    object-fit: contain;
+  }
+
+  a {
+    display: block;
+    color: #1d4ed8;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 620px) {
+    .payment {
+      grid-template-columns: 1fr;
+    }
+
+    dl {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  window.addEventListener('extension-props', (event) => {
+    const props = event.detail || {}
+    const fields = Array.isArray(props.fields) ? props.fields : []
+    const qrCodeUrl = safeUrl(props.qrCodeUrl || props.payOrderQrCodeUrl)
+    const openUrl = safeUrl(props.openUrl) || qrCodeUrl
+
+    document.getElementById('title').textContent = props.title || 'Luckin payment'
+    document.getElementById('subtitle').textContent = props.subtitle || ''
+    document.getElementById('fields').innerHTML = fields.map(renderField).join('')
+
+    const qr = document.getElementById('qr')
+    const qrWrap = document.getElementById('qrWrap')
+    qr.src = qrCodeUrl
+    qrWrap.style.display = qrCodeUrl ? 'flex' : 'none'
+
+    const link = document.getElementById('link')
+    link.href = openUrl
+    link.textContent = openUrl
+    link.style.display = openUrl ? 'block' : 'none'
+  })
+
+  function renderField(field) {
+    return `<div class="field"><dt>${escapeHtml(field.label || field.name)}</dt><dd>${escapeHtml(field.value)}</dd></div>`
+  }
+
+  function safeUrl(value) {
+    try {
+      const url = new URL(String(value || ''))
+      return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : ''
+    } catch {
+      return ''
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+  }
+</script>

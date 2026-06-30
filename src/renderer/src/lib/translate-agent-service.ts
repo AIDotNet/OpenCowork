@@ -1,30 +1,13 @@
 import { nanoid } from 'nanoid'
-import { createProvider } from '@renderer/lib/api/provider'
 import type {
   ProviderConfig,
   UnifiedMessage,
-  ContentBlock,
   ToolDefinition,
-  ToolUseBlock,
   TextBlock
 } from '@renderer/lib/api/types'
 import { resolveLanguageName as resolveAppLanguageName } from '@renderer/lib/i18n-language'
-
-// ── Language helpers (shared with simple service) ──────────────────────────
-
-function isLikelyCompletionStatus(content: string): boolean {
-  const normalized = content.trim().toLowerCase()
-  if (!normalized) return false
-
-  const statusPatterns = [
-    /^(done|completed?|finished?|all done)[.!。！]?$/,
-    /^translation (is )?(done|complete[sd]?)[.!。！]?$/,
-    /^(翻译)?(已)?完成[。.!！]?$/,
-    /^已完成[。.!！]?$/
-  ]
-
-  return statusPatterns.some((pattern) => pattern.test(normalized))
-}
+import { runAgentViaSidecar } from '@renderer/lib/agent/run-agent-via-sidecar'
+import { buildSidecarAgentRunRequest } from '@renderer/lib/ipc/sidecar-protocol'
 
 // ── Tool definitions ────────────────────────────────────────────────────────
 
@@ -112,8 +95,6 @@ export interface RunTranslationAgentOptions {
   targetLanguage: string
   providerConfig: ProviderConfig
   signal: AbortSignal
-  /** Called via IPC to read a file from disk */
-  readDocument: (filePath: string) => Promise<{ content?: string; error?: string }>
   onEvent: (event: TranslationAgentEvent) => void
 }
 
@@ -220,64 +201,17 @@ Translation requirements:
   }
 }
 
-// ── Tool executor ─────────────────────────────────────────────────────────────
+// ── Main agent loop ───────────────────────────────────────────────────────────
 
-function executeTool(
-  name: string,
-  input: Record<string, unknown>,
-  buffer: { value: string },
-  readDocument: (filePath: string) => Promise<{ content?: string; error?: string }>
-): Promise<string> {
-  switch (name) {
-    case 'Write': {
-      const content = typeof input.content === 'string' ? input.content : ''
-      const existingLength = buffer.value.trim().length
-      const nextLength = content.trim().length
-
-      if (existingLength > 0) {
-        const veryShortComparedToBuffer =
-          nextLength > 0 && nextLength <= Math.max(24, Math.floor(existingLength * 0.12))
-
-        if (veryShortComparedToBuffer && isLikelyCompletionStatus(content)) {
-          return Promise.resolve(
-            JSON.stringify({
-              error:
-                'Write must contain full translated text, not completion/status text. Keep current buffer and finish with TRANSLATION_DONE without tool calls.'
-            })
-          )
-        }
-      }
-
-      buffer.value = content
-      return Promise.resolve(JSON.stringify({ ok: true, length: content.length }))
-    }
-    case 'Edit': {
-      const oldStr = typeof input.old_string === 'string' ? input.old_string : ''
-      const newStr = typeof input.new_string === 'string' ? input.new_string : ''
-      if (!oldStr) return Promise.resolve(JSON.stringify({ error: 'old_string is required' }))
-      if (!buffer.value.includes(oldStr)) {
-        return Promise.resolve(JSON.stringify({ error: 'old_string not found in buffer' }))
-      }
-      buffer.value = buffer.value.replace(oldStr, newStr)
-      return Promise.resolve(JSON.stringify({ ok: true }))
-    }
-    case 'Read': {
-      return Promise.resolve(buffer.value || '(buffer is empty)')
-    }
-    case 'FileRead': {
-      const filePath = typeof input.file_path === 'string' ? input.file_path : ''
-      if (!filePath) return Promise.resolve(JSON.stringify({ error: 'file_path is required' }))
-      return readDocument(filePath).then((result) => {
-        if (result.error) return JSON.stringify({ error: result.error })
-        return result.content ?? ''
-      })
-    }
-    default:
-      return Promise.resolve(JSON.stringify({ error: `Unknown tool: ${name}` }))
+function stringifyToolOutput(output: unknown): string {
+  if (typeof output === 'string') return output
+  if (output == null) return ''
+  try {
+    return JSON.stringify(output)
+  } catch {
+    return String(output)
   }
 }
-
-// ── Main agent loop ───────────────────────────────────────────────────────────
 
 export async function runTranslationAgent({
   text,
@@ -285,194 +219,84 @@ export async function runTranslationAgent({
   targetLanguage,
   providerConfig,
   signal,
-  readDocument,
   onEvent
 }: RunTranslationAgentOptions): Promise<void> {
-  const provider = createProvider(providerConfig)
   const systemPrompt = buildAgentSystemPrompt(sourceLanguage, targetLanguage)
-  const buffer = { value: '' }
   const MAX_ITERATIONS = 12
 
   const conversationMessages: UnifiedMessage[] = [
     buildUserMessage(text, sourceLanguage, targetLanguage, 1)
   ]
 
-  for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
-    if (signal.aborted) return
-    onEvent({ type: 'iteration', iteration })
-
-    // Collect streaming output
-    const assistantBlocks: ContentBlock[] = []
-    const toolArgsById = new Map<string, string>()
-    const toolNamesById = new Map<string, string>()
-    let currentToolId = ''
-    let currentToolName = ''
-    const pendingToolUses: ToolUseBlock[] = []
-
-    try {
-      const stream = provider.sendMessage(
-        conversationMessages,
-        TRANSLATION_TOOLS,
-        { ...providerConfig, systemPrompt, thinkingEnabled: false, temperature: 0.2 },
-        signal
-      )
-
-      for await (const event of stream) {
-        if (signal.aborted) return
-
-        switch (event.type) {
-          case 'text_delta':
-            if (event.text) {
-              onEvent({ type: 'agent_text', text: event.text })
-              // Accumulate text blocks for conversation history
-              const lastBlock = assistantBlocks[assistantBlocks.length - 1]
-              if (lastBlock && lastBlock.type === 'text') {
-                ;(lastBlock as TextBlock).text += event.text
-              } else {
-                assistantBlocks.push({ type: 'text', text: event.text })
-              }
-            }
-            break
-
-          case 'tool_call_start':
-            currentToolId = event.toolCallId ?? nanoid()
-            currentToolName = event.toolName ?? ''
-            toolArgsById.set(currentToolId, '')
-            toolNamesById.set(currentToolId, currentToolName)
-            break
-
-          case 'tool_call_delta':
-            if (event.toolCallId || currentToolId) {
-              const tid = event.toolCallId || currentToolId
-              toolArgsById.set(tid, (toolArgsById.get(tid) ?? '') + (event.argumentsDelta ?? ''))
-            }
-            break
-
-          case 'tool_call_end': {
-            const endId = event.toolCallId || currentToolId || nanoid()
-            const endName = event.toolName || currentToolName
-            const rawArgs = toolArgsById.get(endId) ?? ''
-            toolArgsById.delete(endId)
-            toolNamesById.delete(endId)
-            let toolInput: Record<string, unknown> = {}
-            try {
-              if (rawArgs.trim()) toolInput = JSON.parse(rawArgs)
-            } catch {
-              if (event.toolCallInput) toolInput = event.toolCallInput
-            }
-            if (Object.keys(toolInput).length === 0 && event.toolCallInput) {
-              toolInput = event.toolCallInput
-            }
-            const toolUseBlock: ToolUseBlock = {
-              type: 'tool_use',
-              id: endId,
-              name: endName,
-              input: toolInput
-            }
-            assistantBlocks.push(toolUseBlock)
-            pendingToolUses.push(toolUseBlock)
-            onEvent({ type: 'tool_use', name: endName, input: toolInput })
-            break
-          }
-
-          case 'message_end':
-            onEvent({
-              type: 'message_end',
-              usage: event.usage,
-              timing: event.timing,
-              providerResponseId: event.providerResponseId
-            })
-            break
-
-          case 'error':
-            throw new Error(event.error?.message ?? 'API error')
-        }
-      }
-    } catch (err) {
-      if (signal.aborted) return
-      onEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) })
-      return
+  const request = buildSidecarAgentRunRequest({
+    messages: conversationMessages,
+    tools: TRANSLATION_TOOLS,
+    provider: { ...providerConfig, systemPrompt, thinkingEnabled: false, temperature: 0.2 },
+    maxIterations: MAX_ITERATIONS,
+    forceApproval: false,
+    translation: {
+      enabled: true,
+      sourceLanguage,
+      targetLanguage
     }
+  })
 
-    // Finalize dangling tool calls
-    for (const [danglingId, argsText] of toolArgsById) {
-      const danglingName = toolNamesById.get(danglingId) ?? ''
-      let danglingInput: Record<string, unknown> = {}
-      try {
-        danglingInput = JSON.parse(argsText)
-      } catch {
-        /* ignore */
-      }
-      const block: ToolUseBlock = {
-        type: 'tool_use',
-        id: danglingId,
-        name: danglingName,
-        input: danglingInput
-      }
-      assistantBlocks.push(block)
-      pendingToolUses.push(block)
-      onEvent({ type: 'tool_use', name: danglingName, input: danglingInput })
-    }
-
-    // Add assistant turn to conversation
-    conversationMessages.push({
-      id: nanoid(),
-      role: 'assistant',
-      content: assistantBlocks.length > 0 ? assistantBlocks : '',
-      createdAt: Date.now()
-    })
-
-    // No tool calls → agent is done
-    if (pendingToolUses.length === 0) {
-      onEvent({ type: 'done' })
-      return
-    }
-
-    // Execute tool calls and build tool_result user message
-    const toolResultBlocks: ContentBlock[] = []
-    for (const tu of pendingToolUses) {
-      if (signal.aborted) return
-      let output: string
-      let isError = false
-      try {
-        output = await executeTool(tu.name, tu.input, buffer, readDocument)
-      } catch (err) {
-        output = JSON.stringify({ error: err instanceof Error ? err.message : String(err) })
-        isError = true
-      }
-
-      if (!isError) {
-        try {
-          const parsed = JSON.parse(output)
-          if (parsed && typeof parsed === 'object' && 'error' in parsed) {
-            isError = true
-          }
-        } catch {
-          /* non-JSON output */
-        }
-      }
-
-      // Emit buffer update after Write/Edit
-      if (!isError && (tu.name === 'Write' || tu.name === 'Edit')) {
-        onEvent({ type: 'buffer_update', content: buffer.value })
-      }
-      onEvent({ type: 'tool_result', name: tu.name, output, isError })
-      toolResultBlocks.push({
-        type: 'tool_result',
-        toolUseId: tu.id,
-        content: output,
-        ...(isError ? { isError: true } : {})
-      })
-    }
-
-    conversationMessages.push({
-      id: nanoid(),
-      role: 'user',
-      content: toolResultBlocks,
-      createdAt: Date.now()
-    })
+  if (!request) {
+    onEvent({ type: 'error', message: 'Failed to build native translation request' })
+    return
   }
 
-  // Max iterations reached — surface whatever is in the buffer
-  onEvent({ type: 'done' })
+  try {
+    for await (const event of runAgentViaSidecar(request, {
+      signal,
+      routeSubAgentEventsToBus: false
+    })) {
+      if (signal.aborted) return
+
+      switch (event.type) {
+        case 'iteration_start':
+          onEvent({ type: 'iteration', iteration: event.iteration })
+          break
+        case 'translation_buffer_update':
+          onEvent({ type: 'buffer_update', content: event.content })
+          break
+        case 'text_delta':
+          if (event.text) onEvent({ type: 'agent_text', text: event.text })
+          break
+        case 'tool_use_generated':
+          onEvent({
+            type: 'tool_use',
+            name: event.toolUseBlock.name,
+            input: event.toolUseBlock.input
+          })
+          break
+        case 'tool_call_result':
+          onEvent({
+            type: 'tool_result',
+            name: event.toolCall.name,
+            output: event.toolCall.error ?? stringifyToolOutput(event.toolCall.output),
+            isError: event.toolCall.status === 'error' || Boolean(event.toolCall.error)
+          })
+          break
+        case 'message_end':
+          onEvent({
+            type: 'message_end',
+            usage: event.usage,
+            timing: event.timing,
+            providerResponseId: event.providerResponseId
+          })
+          break
+        case 'error':
+          onEvent({ type: 'error', message: event.error.message })
+          return
+        case 'loop_end':
+          onEvent({ type: 'done' })
+          return
+      }
+    }
+  } catch (err) {
+    if (!signal.aborted) {
+      onEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
 }

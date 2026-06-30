@@ -1,13 +1,12 @@
 import { toolRegistry } from '../agent/tool-registry'
-import { IPC } from '../ipc/channels'
-import { encodeStructuredToolResult, encodeToolError } from './tool-result-format'
+import { encodeStructuredToolResult } from './tool-result-format'
 import type { ToolHandler } from './tool-types'
 
-function unavailable(name: string, details: string): ReturnType<typeof encodeStructuredToolResult> {
+function encodeNativeOnlyCodeCompatibleResult(
+  toolName: string
+): ReturnType<typeof encodeStructuredToolResult> {
   return encodeStructuredToolResult({
-    status: 'unavailable',
-    tool: name,
-    reason: details
+    error: `${toolName} execution has migrated to .NET Native Worker.`
   })
 }
 
@@ -24,20 +23,7 @@ const powerShellHandler: ToolHandler = {
       required: ['command']
     }
   },
-  execute: async (input, ctx) => {
-    if (window.electron.process.platform !== 'win32') {
-      return unavailable('PowerShell', 'PowerShell is only exposed on Windows.')
-    }
-    const command = String(input.command ?? '')
-    if (!command.trim()) return encodeToolError('PowerShell requires command')
-    const result = await ctx.ipc.invoke(IPC.SHELL_EXEC, {
-      command,
-      timeout: input.timeout,
-      cwd: ctx.workingFolder,
-      shell: 'powershell.exe'
-    })
-    return encodeStructuredToolResult({ result })
-  },
+  execute: async () => encodeNativeOnlyCodeCompatibleResult('PowerShell'),
   requiresApproval: () => true
 }
 
@@ -55,21 +41,7 @@ const monitorHandler: ToolHandler = {
       required: ['command']
     }
   },
-  execute: async (input, ctx) => {
-    const command = String(input.command ?? '')
-    if (!command.trim()) return encodeToolError('Monitor requires command')
-    const result = await ctx.ipc.invoke(IPC.PROCESS_SPAWN, {
-      command,
-      cwd: ctx.workingFolder,
-      metadata: {
-        source: 'monitor-tool',
-        sessionId: ctx.sessionId,
-        toolUseId: ctx.currentToolUseId,
-        description: input.description
-      }
-    })
-    return encodeStructuredToolResult({ result })
-  },
+  execute: async () => encodeNativeOnlyCodeCompatibleResult('Monitor'),
   requiresApproval: () => true
 }
 

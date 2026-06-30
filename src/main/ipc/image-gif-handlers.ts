@@ -4,6 +4,11 @@ import { join } from 'path'
 import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { encodeGif } from '../image/gif-encoder'
+import {
+  decodeMessagePackPayload,
+  encodeMessagePackPayload,
+  toMessagePackChannel
+} from '../../shared/messagepack/binary-ipc'
 const IMAGE_CREATE_GIF_FROM_GRID = 'image:create-gif-from-grid'
 
 const GENERATED_IMAGES_DIR = 'open-cowork'
@@ -510,123 +515,127 @@ function composeAlignedFrameBitmap(
   return output
 }
 
+type CreateGifFromGridArgs = {
+  filePath?: string
+  data?: string
+  mediaType?: string
+  runId?: string
+  frameDurationMs?: number
+}
+
+async function handleCreateGifFromGrid(args: CreateGifFromGridArgs): Promise<unknown> {
+  try {
+    const sourceBuffer = loadSourceBuffer(args)
+    const sourceImage = nativeImage.createFromBuffer(sourceBuffer)
+    if (sourceImage.isEmpty()) {
+      return { success: false, error: 'Failed to decode generated image.' }
+    }
+
+    ensureSquareImage(sourceImage)
+
+    const normalizedGrid = normalizeGridImage(sourceImage)
+    const outputDir = buildOutputDir(args.runId)
+    const gridPng = normalizedGrid.toPNG()
+    const grid = toPersistedImageResult(join(outputDir, 'grid.png'), gridPng, 'image/png')
+
+    const rawFrames: Array<{ width: number; height: number; bitmap: Buffer }> = []
+    const frameStats: FrameContentStats[] = []
+    const gridBitmap = normalizedGrid.toBitmap()
+    const columnSegments = resolveGridSegments(
+      gridBitmap,
+      GRID_SIZE,
+      GRID_SIZE,
+      'column',
+      GRID_COLUMNS
+    )
+    const rowSegments = resolveGridSegments(gridBitmap, GRID_SIZE, GRID_SIZE, 'row', GRID_ROWS)
+
+    for (let row = 0; row < GRID_ROWS; row += 1) {
+      for (let col = 0; col < GRID_COLUMNS; col += 1) {
+        const columnSegment = columnSegments[col]
+        const rowSegment = rowSegments[row]
+        const frameImage = normalizedGrid.crop({
+          x: columnSegment.start,
+          y: rowSegment.start,
+          width: columnSegment.size,
+          height: rowSegment.size
+        })
+        const frameBitmap = frameImage.toBitmap()
+        rawFrames.push({
+          width: columnSegment.size,
+          height: rowSegment.size,
+          bitmap: frameBitmap
+        })
+        frameStats.push(analyzeFrameContent(frameBitmap, columnSegment.size, rowSegment.size))
+      }
+    }
+
+    if (rawFrames.length !== FRAME_COUNT) {
+      return { success: false, error: 'Failed to slice all 9 frames from the generated grid.' }
+    }
+
+    ensureConsistentSubjectScale(frameStats)
+
+    const alignedLayout = resolveAlignedFrameLayout(frameStats)
+    const frames: PersistedImageResult[] = []
+    const gifFrames: Array<{ width: number; height: number; bitmap: Buffer }> = []
+
+    rawFrames.forEach((frame, index) => {
+      const alignedBitmap = composeAlignedFrameBitmap(
+        frame.bitmap,
+        frame.width,
+        frameStats[index],
+        alignedLayout
+      )
+      const alignedImage = nativeImage.createFromBitmap(alignedBitmap, {
+        width: alignedLayout.width,
+        height: alignedLayout.height,
+        scaleFactor: 1
+      })
+      const frameBuffer = alignedImage.toPNG()
+      frames.push(
+        toPersistedImageResult(
+          join(outputDir, `frame-${String(index + 1).padStart(2, '0')}.png`),
+          frameBuffer,
+          'image/png'
+        )
+      )
+      gifFrames.push({
+        width: alignedLayout.width,
+        height: alignedLayout.height,
+        bitmap: alignedBitmap
+      })
+    })
+
+    const gifBuffer = encodeGif(gifFrames, {
+      delayMs: Math.max(20, Number(args.frameDurationMs) || 120),
+      loopCount: 0
+    })
+    const gif = toPersistedImageResult(join(outputDir, 'animation.gif'), gifBuffer, 'image/gif')
+
+    return {
+      success: true,
+      grid,
+      frames,
+      gif,
+      outputDir,
+      gridSize: GRID_SIZE,
+      frameSize: FRAME_SIZE
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
 export function registerImageGifHandlers(): void {
   ipcMain.handle(
-    IMAGE_CREATE_GIF_FROM_GRID,
-    async (
-      _event,
-      args: {
-        filePath?: string
-        data?: string
-        mediaType?: string
-        runId?: string
-        frameDurationMs?: number
-      }
-    ) => {
-      try {
-        const sourceBuffer = loadSourceBuffer(args)
-        const sourceImage = nativeImage.createFromBuffer(sourceBuffer)
-        if (sourceImage.isEmpty()) {
-          return { success: false, error: 'Failed to decode generated image.' }
-        }
-
-        ensureSquareImage(sourceImage)
-
-        const normalizedGrid = normalizeGridImage(sourceImage)
-        const outputDir = buildOutputDir(args.runId)
-        const gridPng = normalizedGrid.toPNG()
-        const grid = toPersistedImageResult(join(outputDir, 'grid.png'), gridPng, 'image/png')
-
-        const rawFrames: Array<{ width: number; height: number; bitmap: Buffer }> = []
-        const frameStats: FrameContentStats[] = []
-        const gridBitmap = normalizedGrid.toBitmap()
-        const columnSegments = resolveGridSegments(
-          gridBitmap,
-          GRID_SIZE,
-          GRID_SIZE,
-          'column',
-          GRID_COLUMNS
-        )
-        const rowSegments = resolveGridSegments(gridBitmap, GRID_SIZE, GRID_SIZE, 'row', GRID_ROWS)
-
-        for (let row = 0; row < GRID_ROWS; row += 1) {
-          for (let col = 0; col < GRID_COLUMNS; col += 1) {
-            const columnSegment = columnSegments[col]
-            const rowSegment = rowSegments[row]
-            const frameImage = normalizedGrid.crop({
-              x: columnSegment.start,
-              y: rowSegment.start,
-              width: columnSegment.size,
-              height: rowSegment.size
-            })
-            const frameBitmap = frameImage.toBitmap()
-            rawFrames.push({
-              width: columnSegment.size,
-              height: rowSegment.size,
-              bitmap: frameBitmap
-            })
-            frameStats.push(analyzeFrameContent(frameBitmap, columnSegment.size, rowSegment.size))
-          }
-        }
-
-        if (rawFrames.length !== FRAME_COUNT) {
-          return { success: false, error: 'Failed to slice all 9 frames from the generated grid.' }
-        }
-
-        ensureConsistentSubjectScale(frameStats)
-
-        const alignedLayout = resolveAlignedFrameLayout(frameStats)
-        const frames: PersistedImageResult[] = []
-        const gifFrames: Array<{ width: number; height: number; bitmap: Buffer }> = []
-
-        rawFrames.forEach((frame, index) => {
-          const alignedBitmap = composeAlignedFrameBitmap(
-            frame.bitmap,
-            frame.width,
-            frameStats[index],
-            alignedLayout
-          )
-          const alignedImage = nativeImage.createFromBitmap(alignedBitmap, {
-            width: alignedLayout.width,
-            height: alignedLayout.height,
-            scaleFactor: 1
-          })
-          const frameBuffer = alignedImage.toPNG()
-          frames.push(
-            toPersistedImageResult(
-              join(outputDir, `frame-${String(index + 1).padStart(2, '0')}.png`),
-              frameBuffer,
-              'image/png'
-            )
-          )
-          gifFrames.push({
-            width: alignedLayout.width,
-            height: alignedLayout.height,
-            bitmap: alignedBitmap
-          })
-        })
-
-        const gifBuffer = encodeGif(gifFrames, {
-          delayMs: Math.max(20, Number(args.frameDurationMs) || 120),
-          loopCount: 0
-        })
-        const gif = toPersistedImageResult(join(outputDir, 'animation.gif'), gifBuffer, 'image/gif')
-
-        return {
-          success: true,
-          grid,
-          frames,
-          gif,
-          outputDir,
-          gridSize: GRID_SIZE,
-          frameSize: FRAME_SIZE
-        }
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error)
-        }
-      }
+    toMessagePackChannel(IMAGE_CREATE_GIF_FROM_GRID),
+    async (_event, bytes: Uint8Array) => {
+      const args = decodeMessagePackPayload<CreateGifFromGridArgs>(bytes)
+      return encodeMessagePackPayload(await handleCreateGifFromGrid(args))
     }
   )
 }

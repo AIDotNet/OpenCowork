@@ -1,8 +1,6 @@
-import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { nanoid } from 'nanoid'
-import { getDb } from './database'
+import { getNativeWorker } from '../lib/native-worker'
 import { readSettings } from '../ipc/settings-handlers'
 
 export interface ProjectRow {
@@ -16,12 +14,18 @@ export interface ProjectRow {
   updated_at: number
 }
 
-function sanitizeProjectName(rawName: string): string {
-  const cleaned = rawName
-    .replace(/[<>:"/\\|?*]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return cleaned || 'New Project'
+interface ProjectFindResult {
+  success: boolean
+  project?: ProjectRow | null
+  error?: string | null
+}
+
+export interface ProjectDeleteResult {
+  success: boolean
+  deleted: boolean
+  projectId?: string | null
+  sessionIds: string[]
+  error?: string | null
 }
 
 function getPreferredLocalProjectBaseDirectory(): string {
@@ -43,60 +47,39 @@ function getPreferredLocalProjectBaseDirectory(): string {
   return path.join(os.homedir(), 'Documents')
 }
 
-function ensureUniqueLocalProjectDirectory(baseName: string): { name: string; folderPath: string } {
-  const baseDirectory = getPreferredLocalProjectBaseDirectory()
-  if (!fs.existsSync(baseDirectory)) {
-    fs.mkdirSync(baseDirectory, { recursive: true })
+function withProjectBaseDirectory<T extends object>(params: T): T & { baseDirectory: string } {
+  return {
+    ...params,
+    baseDirectory: getPreferredLocalProjectBaseDirectory()
   }
+}
 
-  const safeBaseName = sanitizeProjectName(baseName)
-  let candidateName = safeBaseName
-  let suffix = 1
-  let candidatePath = path.join(baseDirectory, candidateName)
+export function listProjects(): Promise<ProjectRow[]> {
+  return getNativeWorker().request<ProjectRow[]>('db/projects-list', {}, 120_000)
+}
 
-  while (fs.existsSync(candidatePath)) {
-    candidateName = `${safeBaseName} (${suffix})`
-    candidatePath = path.join(baseDirectory, candidateName)
-    suffix += 1
+export async function getProject(id: string): Promise<ProjectRow | undefined> {
+  const result = await getNativeWorker().request<ProjectFindResult>(
+    'db/projects-get',
+    { id },
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native project get failed')
   }
-
-  fs.mkdirSync(candidatePath, { recursive: true })
-  return { name: candidateName, folderPath: candidatePath }
+  return result.project ?? undefined
 }
 
-export function listProjects(): ProjectRow[] {
-  const db = getDb()
-  return db
-    .prepare(
-      `SELECT id, name, working_folder, ssh_connection_id, plugin_id, pinned, created_at, updated_at
-         FROM projects
-        ORDER BY pinned DESC, CASE WHEN plugin_id IS NULL THEN 0 ELSE 1 END, updated_at DESC`
-    )
-    .all() as ProjectRow[]
-}
-
-export function getProject(id: string): ProjectRow | undefined {
-  const db = getDb()
-  return db
-    .prepare(
-      `SELECT id, name, working_folder, ssh_connection_id, plugin_id, pinned, created_at, updated_at
-         FROM projects
-        WHERE id = ?`
-    )
-    .get(id) as ProjectRow | undefined
-}
-
-export function findProjectByPluginId(pluginId: string): ProjectRow | undefined {
-  const db = getDb()
-  return db
-    .prepare(
-      `SELECT id, name, working_folder, ssh_connection_id, plugin_id, pinned, created_at, updated_at
-         FROM projects
-        WHERE plugin_id = ?
-        ORDER BY pinned DESC, updated_at DESC
-        LIMIT 1`
-    )
-    .get(pluginId) as ProjectRow | undefined
+export async function findProjectByPluginId(pluginId: string): Promise<ProjectRow | undefined> {
+  const result = await getNativeWorker().request<ProjectFindResult>(
+    'db/projects-find-by-plugin',
+    { pluginId },
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native project plugin lookup failed')
+  }
+  return result.project ?? undefined
 }
 
 export function createProject(project: {
@@ -108,50 +91,15 @@ export function createProject(project: {
   pinned?: boolean
   createdAt?: number
   updatedAt?: number
-}): ProjectRow {
-  const db = getDb()
-  const now = Date.now()
-  let name = sanitizeProjectName(project.name)
-  const sshConnectionId = project.sshConnectionId ?? null
-  let workingFolder = project.workingFolder ?? null
-
-  if (!workingFolder && !sshConnectionId) {
-    const allocated = ensureUniqueLocalProjectDirectory(name)
-    name = allocated.name
-    workingFolder = allocated.folderPath
-  } else if (workingFolder && !sshConnectionId && !fs.existsSync(workingFolder)) {
-    fs.mkdirSync(workingFolder, { recursive: true })
-  }
-
-  const row: ProjectRow = {
-    id: project.id ?? nanoid(),
-    name,
-    working_folder: workingFolder,
-    ssh_connection_id: sshConnectionId,
-    plugin_id: project.pluginId ?? null,
-    pinned: project.pinned ? 1 : 0,
-    created_at: project.createdAt ?? now,
-    updated_at: project.updatedAt ?? now
-  }
-
-  db.prepare(
-    `INSERT INTO projects (id, name, working_folder, ssh_connection_id, plugin_id, pinned, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    row.id,
-    row.name,
-    row.working_folder,
-    row.ssh_connection_id,
-    row.plugin_id,
-    row.pinned,
-    row.created_at,
-    row.updated_at
+}): Promise<ProjectRow> {
+  return getNativeWorker().request<ProjectRow>(
+    'db/projects-create',
+    withProjectBaseDirectory(project),
+    120_000
   )
-
-  return row
 }
 
-export function updateProject(
+export async function updateProject(
   id: string,
   patch: Partial<{
     name: string
@@ -161,110 +109,41 @@ export function updateProject(
     pinned: boolean
     updatedAt: number
   }>
-): void {
-  const db = getDb()
-  const sets: string[] = []
-  const values: unknown[] = []
-
-  if (patch.name !== undefined) {
-    sets.push('name = ?')
-    values.push(sanitizeProjectName(patch.name))
+): Promise<void> {
+  const result = await getNativeWorker().request<ProjectFindResult>(
+    'db/projects-update',
+    withProjectBaseDirectory({ id, patch }),
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native project update failed')
   }
-
-  if (patch.workingFolder !== undefined) {
-    const nextFolder = patch.workingFolder
-    const current = getProject(id)
-    const effectiveSshConnectionId =
-      patch.sshConnectionId !== undefined
-        ? patch.sshConnectionId
-        : (current?.ssh_connection_id ?? null)
-    if (nextFolder && !effectiveSshConnectionId && !fs.existsSync(nextFolder)) {
-      fs.mkdirSync(nextFolder, { recursive: true })
-    }
-    sets.push('working_folder = ?')
-    values.push(nextFolder)
-  }
-
-  if (patch.sshConnectionId !== undefined) {
-    sets.push('ssh_connection_id = ?')
-    values.push(patch.sshConnectionId)
-  }
-
-  if (patch.pluginId !== undefined) {
-    sets.push('plugin_id = ?')
-    values.push(patch.pluginId)
-  }
-
-  if (patch.pinned !== undefined) {
-    sets.push('pinned = ?')
-    values.push(patch.pinned ? 1 : 0)
-  }
-
-  if (patch.updatedAt !== undefined) {
-    sets.push('updated_at = ?')
-    values.push(patch.updatedAt)
-  }
-
-  if (sets.length === 0) return
-
-  values.push(id)
-  db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...values)
 }
 
-export function deleteProject(id: string): { projectId: string; sessionIds: string[] } | null {
-  const db = getDb()
-  const project = getProject(id)
-  if (!project) return null
-
-  const rows = db.prepare(`SELECT id FROM sessions WHERE project_id = ?`).all(id) as Array<{
-    id: string
-  }>
-  const sessionIds = rows.map((row) => row.id)
-
-  const tx = db.transaction(() => {
-    db.prepare(`DELETE FROM sessions WHERE project_id = ?`).run(id)
-    db.prepare(`DELETE FROM projects WHERE id = ?`).run(id)
-  })
-  tx()
-
-  return { projectId: id, sessionIds }
-}
-
-export function ensureDefaultProject(): ProjectRow {
-  const db = getDb()
-  const existing = db
-    .prepare(
-      `SELECT id, name, working_folder, ssh_connection_id, plugin_id, pinned, created_at, updated_at
-         FROM projects
-        WHERE plugin_id IS NULL
-        ORDER BY pinned DESC, updated_at DESC
-        LIMIT 1`
-    )
-    .get() as ProjectRow | undefined
-
-  if (existing) {
-    if (!existing.working_folder && !existing.ssh_connection_id) {
-      const allocated = ensureUniqueLocalProjectDirectory(existing.name || 'New Project')
-      updateProject(existing.id, {
-        name: allocated.name,
-        workingFolder: allocated.folderPath,
-        sshConnectionId: null,
-        updatedAt: Date.now()
-      })
-      return getProject(existing.id) ?? existing
-    }
-    return existing
+export async function deleteProject(id: string): Promise<ProjectDeleteResult | null> {
+  const result = await getNativeWorker().request<ProjectDeleteResult>(
+    'db/projects-delete',
+    { id },
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native project delete failed')
   }
-
-  return createProject({ name: 'New Project' })
+  return result.deleted ? result : null
 }
 
-export function ensurePluginProject(pluginId: string, preferredName?: string): ProjectRow {
-  const existing = findProjectByPluginId(pluginId)
-  if (existing) return existing
+export function ensureDefaultProject(): Promise<ProjectRow> {
+  return getNativeWorker().request<ProjectRow>(
+    'db/projects-ensure-default',
+    withProjectBaseDirectory({}),
+    120_000
+  )
+}
 
-  return createProject({
-    name: preferredName || `Plugin ${pluginId}`,
-    pluginId
-  })
+export function ensurePluginProject(pluginId: string, preferredName?: string): Promise<ProjectRow> {
+  return getNativeWorker().request<ProjectRow>(
+    'db/projects-ensure-plugin',
+    withProjectBaseDirectory({ pluginId, preferredName }),
+    120_000
+  )
 }

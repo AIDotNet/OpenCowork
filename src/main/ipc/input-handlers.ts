@@ -1,4 +1,3 @@
-import { ipcMain } from 'electron'
 import {
   DESKTOP_INPUT_CLICK,
   DESKTOP_INPUT_SCROLL,
@@ -10,17 +9,18 @@ import {
   type ScrollArgs,
   type TypeArgs
 } from './desktop-control'
+import { registerMessagePackHandler } from './messagepack-handler'
 
 export function registerInputHandlers(): void {
-  ipcMain.handle(DESKTOP_INPUT_CLICK, (_event, args: ClickArgs) => {
+  registerMessagePackHandler<ClickArgs>(DESKTOP_INPUT_CLICK, (args) => {
     return desktopInputClick(args)
   })
 
-  ipcMain.handle(DESKTOP_INPUT_TYPE, (_event, args: TypeArgs) => {
+  registerMessagePackHandler<TypeArgs>(DESKTOP_INPUT_TYPE, (args) => {
     return desktopInputType(args)
   })
 
-  ipcMain.handle(DESKTOP_INPUT_SCROLL, (_event, args: ScrollArgs) => {
+  registerMessagePackHandler<ScrollArgs>(DESKTOP_INPUT_SCROLL, (args) => {
     return desktopInputScroll(args)
   })
 }

@@ -1,39 +1,71 @@
 import { ipcMain } from 'electron'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as os from 'os'
+import { getNativeWorker } from '../lib/native-worker'
 import { McpManager } from '../mcp/mcp-manager'
 import type { McpServerConfig } from '../mcp/mcp-types'
+import {
+  decodeMessagePackPayload,
+  encodeMessagePackPayload,
+  toMessagePackChannel
+} from '../../shared/messagepack/binary-ipc'
 
-const DATA_DIR = path.join(os.homedir(), '.open-cowork')
-const MCP_FILE = path.join(DATA_DIR, 'mcp-servers.json')
+const MCP_CONFIG_TIMEOUT_MS = 60_000
 
-// ── Persistence helpers ──
+let activeMcpManager: McpManager | null = null
 
-function readServers(): McpServerConfig[] {
-  try {
-    if (fs.existsSync(MCP_FILE)) {
-      return JSON.parse(fs.readFileSync(MCP_FILE, 'utf-8'))
-    }
-  } catch {
-    // Return empty on any error
-  }
-  return []
+type McpCallToolArgs = {
+  serverId: string
+  toolName: string
+  args: Record<string, unknown>
 }
 
-function writeServers(servers: McpServerConfig[]): void {
+type McpReadResourceArgs = {
+  serverId: string
+  uri?: string
+  resourceName?: string
+}
+
+// ── Native config persistence ──
+
+async function readServers(): Promise<McpServerConfig[]> {
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true })
-    }
-    fs.writeFileSync(MCP_FILE, JSON.stringify(servers, null, 2), 'utf-8')
+    return await getNativeWorker().request<McpServerConfig[]>(
+      'mcp/config-list',
+      {},
+      MCP_CONFIG_TIMEOUT_MS
+    )
   } catch (err) {
-    console.error('[MCP] Write error:', err)
+    console.error('[MCP] Config read error:', err)
+    return []
   }
+}
+
+async function addServer(config: McpServerConfig): Promise<{ success: boolean; error?: string }> {
+  return await getNativeWorker().request('mcp/config-add', config, MCP_CONFIG_TIMEOUT_MS)
+}
+
+async function updateServer(
+  id: string,
+  patch: Partial<McpServerConfig>
+): Promise<{ success: boolean; error?: string }> {
+  return await getNativeWorker().request('mcp/config-update', { id, patch }, MCP_CONFIG_TIMEOUT_MS)
+}
+
+async function removeServer(id: string): Promise<{ success: boolean; error?: string }> {
+  return await getNativeWorker().request('mcp/config-remove', id, MCP_CONFIG_TIMEOUT_MS)
+}
+
+function registerMcpMessagePackHandler<TArgs>(
+  channel: string,
+  handler: (args: TArgs) => Promise<unknown> | unknown
+): void {
+  ipcMain.handle(toMessagePackChannel(channel), async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<TArgs>(bytes)
+    return encodeMessagePackPayload(await handler(args))
+  })
 }
 
 export async function autoConnectMcpServers(mcpManager: McpManager): Promise<void> {
-  const servers = readServers().filter((server) => server.enabled)
+  const servers = (await readServers()).filter((server) => server.enabled)
 
   await Promise.allSettled(
     servers.map(async (server) => {
@@ -49,43 +81,35 @@ export async function autoConnectMcpServers(mcpManager: McpManager): Promise<voi
 // ── Register IPC handlers ──
 
 export function registerMcpHandlers(mcpManager: McpManager): void {
+  activeMcpManager = mcpManager
+
   // List all configured MCP servers
-  ipcMain.handle('mcp:list', () => {
-    return readServers()
+  registerMcpMessagePackHandler<undefined>('mcp:list', async () => {
+    return await readServers()
   })
 
   // Add a new MCP server config
-  ipcMain.handle('mcp:add', (_event, config: McpServerConfig) => {
-    const servers = readServers()
-    servers.push(config)
-    writeServers(servers)
-    return { success: true }
+  registerMcpMessagePackHandler<McpServerConfig>('mcp:add', async (config) => {
+    return await addServer(config)
   })
 
   // Update an MCP server config
-  ipcMain.handle(
+  registerMcpMessagePackHandler<{ id: string; patch: Partial<McpServerConfig> }>(
     'mcp:update',
-    (_event, { id, patch }: { id: string; patch: Partial<McpServerConfig> }) => {
-      const servers = readServers()
-      const idx = servers.findIndex((s) => s.id === id)
-      if (idx === -1) return { success: false, error: 'Server not found' }
-      servers[idx] = { ...servers[idx], ...patch }
-      writeServers(servers)
-      return { success: true }
+    async ({ id, patch }) => {
+      return await updateServer(id, patch)
     }
   )
 
   // Remove an MCP server config
-  ipcMain.handle('mcp:remove', async (_event, id: string) => {
+  registerMcpMessagePackHandler<string>('mcp:remove', async (id) => {
     await mcpManager.disconnectServer(id)
-    const servers = readServers().filter((s) => s.id !== id)
-    writeServers(servers)
-    return { success: true }
+    return await removeServer(id)
   })
 
   // Connect to an MCP server
-  ipcMain.handle('mcp:connect', async (_event, id: string) => {
-    const servers = readServers()
+  registerMcpMessagePackHandler<string>('mcp:connect', async (id) => {
+    const servers = await readServers()
     const config = servers.find((s) => s.id === id)
     if (!config) return { success: false, error: 'Server not found' }
 
@@ -99,24 +123,24 @@ export function registerMcpHandlers(mcpManager: McpManager): void {
   })
 
   // Disconnect from an MCP server
-  ipcMain.handle('mcp:disconnect', async (_event, id: string) => {
+  registerMcpMessagePackHandler<string>('mcp:disconnect', async (id) => {
     await mcpManager.disconnectServer(id)
     return { success: true }
   })
 
   // Get server status
-  ipcMain.handle('mcp:status', (_event, id: string) => {
+  registerMcpMessagePackHandler<string>('mcp:status', (id) => {
     return mcpManager.getStatus(id)
   })
 
   // Get full server info (status + capabilities)
-  ipcMain.handle('mcp:server-info', (_event, id: string) => {
+  registerMcpMessagePackHandler<string>('mcp:server-info', (id) => {
     return mcpManager.getServerInfo(id)
   })
 
   // Get all servers info (config + runtime status + capabilities)
-  ipcMain.handle('mcp:all-servers-info', () => {
-    const servers = readServers()
+  registerMcpMessagePackHandler<undefined>('mcp:all-servers-info', async () => {
+    const servers = await readServers()
     return servers.map((config) => {
       const info = mcpManager.getServerInfo(config.id)
       return {
@@ -131,78 +155,47 @@ export function registerMcpHandlers(mcpManager: McpManager): void {
   })
 
   // List tools for a specific server
-  ipcMain.handle('mcp:list-tools', (_event, id: string) => {
+  registerMcpMessagePackHandler<string>('mcp:list-tools', (id) => {
     return mcpManager.getTools(id)
   })
 
   // Call a tool on an MCP server
-  ipcMain.handle(
-    'mcp:call-tool',
-    async (
-      _event,
-      {
-        serverId,
-        toolName,
-        args
-      }: { serverId: string; toolName: string; args: Record<string, unknown> }
-    ) => {
-      try {
-        const result = await mcpManager.callTool(serverId, toolName, args)
-        return { success: true, result }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return { success: false, error: msg }
-      }
-    }
-  )
+  registerMcpMessagePackHandler<McpCallToolArgs>('mcp:call-tool', async (args) => {
+    return await executeMcpToolFromMain(args)
+  })
 
   // Read a resource from an MCP server
-  ipcMain.handle(
-    'mcp:read-resource',
-    async (_event, { serverId, uri }: { serverId: string; uri: string }) => {
-      try {
-        const result = await mcpManager.readResource(serverId, uri)
-        return { success: true, result }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return { success: false, error: msg }
-      }
-    }
-  )
+  registerMcpMessagePackHandler<McpReadResourceArgs>('mcp:read-resource', async (args) => {
+    return await readMcpResourceFromMain(args)
+  })
 
   // List resources for a server
-  ipcMain.handle('mcp:list-resources', (_event, id: string) => {
+  registerMcpMessagePackHandler<string>('mcp:list-resources', (id) => {
     return mcpManager.getResources(id)
   })
 
   // Get a prompt from an MCP server
-  ipcMain.handle(
-    'mcp:get-prompt',
-    async (
-      _event,
-      {
-        serverId,
-        promptName,
-        args
-      }: { serverId: string; promptName: string; args?: Record<string, string> }
-    ) => {
-      try {
-        const result = await mcpManager.getPrompt(serverId, promptName, args)
-        return { success: true, result }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return { success: false, error: msg }
-      }
+  registerMcpMessagePackHandler<{
+    serverId: string
+    promptName: string
+    args?: Record<string, string>
+  }>('mcp:get-prompt', async ({ serverId, promptName, args }) => {
+    try {
+      const result = await mcpManager.getPrompt(serverId, promptName, args)
+      return { success: true, result }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { success: false, error: msg }
     }
-  )
+  })
 
   // List prompts for a server
-  ipcMain.handle('mcp:list-prompts', (_event, id: string) => {
+  registerMcpMessagePackHandler<string>('mcp:list-prompts', (id) => {
     return mcpManager.getPrompts(id)
   })
 
   // Refresh capabilities for a server
-  ipcMain.handle('mcp:refresh-capabilities', async (_event, id: string) => {
+  registerMcpMessagePackHandler<string>('mcp:refresh-capabilities', async (id) => {
     try {
       await mcpManager.refreshCapabilities(id)
       return { success: true }
@@ -211,4 +204,52 @@ export function registerMcpHandlers(mcpManager: McpManager): void {
       return { success: false, error: msg }
     }
   })
+}
+
+function getActiveMcpManager(): McpManager {
+  if (!activeMcpManager) {
+    throw new Error('MCP manager is not initialized')
+  }
+  return activeMcpManager
+}
+
+export async function executeMcpToolFromMain({
+  serverId,
+  toolName,
+  args
+}: McpCallToolArgs): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  try {
+    const result = await getActiveMcpManager().callTool(serverId, toolName, args)
+    return { success: true, result }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { success: false, error: msg }
+  }
+}
+
+export async function readMcpResourceFromMain({
+  serverId,
+  uri,
+  resourceName
+}: McpReadResourceArgs): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  try {
+    const manager = getActiveMcpManager()
+    const resolvedUri =
+      uri ?? manager.getResources(serverId).find((resource) => resource.name === resourceName)?.uri
+
+    if (!resolvedUri) {
+      return {
+        success: false,
+        error: resourceName
+          ? `MCP resource "${resourceName}" not found on server ${serverId}`
+          : 'MCP resource uri is required'
+      }
+    }
+
+    const result = await manager.readResource(serverId, resolvedUri)
+    return { success: true, result }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { success: false, error: msg }
+  }
 }

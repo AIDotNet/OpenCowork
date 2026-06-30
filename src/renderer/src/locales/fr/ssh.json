@@ -118,7 +118,6 @@
     "loadFailed": "Échec du chargement",
     "saveFailed": "Échec de l'enregistrement",
     "downloadFailed": "Le téléchargement a échoué",
-    "zipFailed": "Impossible d'archiver le répertoire",
     "uploadFailed": "Le chargement a échoué",
     "deleteFailed": "Supprimer a échoué",
     "renameFailed": "Le nom a échoué",
@@ -287,13 +286,11 @@
     },
     "uploads": {
       "title": "Envois",
-      "description": "Suivez la compression, le téléchargement, le décompresser à distance et la progression du nettoyage.",
+      "description": "Suivez la progression du transfert et du nettoyage.",
       "cancel": "Annuler",
       "clear": "Effacer",
       "stages": {
-        "compress": "Compression",
         "upload": "Envoi",
-        "remote_unzip": "Décompresser à distance",
         "cleanup": "Nettoyage",
         "done": "Achevé",
         "error": "Échec",

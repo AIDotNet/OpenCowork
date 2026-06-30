@@ -9,8 +9,8 @@ import type {
 } from '../api/types'
 import type { ToolCallState } from '../agent/types'
 import type { CompressionConfig } from '../agent/context-compression'
-import { isMoonshotProviderConfig } from '../auth/oauth'
 import { summarizeToolInputForHistory } from '../tools/tool-input-sanitizer'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 
 export interface SidecarTextBlock {
   type: 'text'
@@ -95,7 +95,6 @@ export interface SidecarUnifiedMessage {
 
 export interface SidecarProviderConfig {
   type: string
-  mode?: 'native' | 'bridged'
   apiKey: string
   baseUrl?: string
   model: string
@@ -117,10 +116,12 @@ export interface SidecarProviderConfig {
   enablePromptCache?: boolean
   enableSystemPromptCache?: boolean
   promptCacheKey?: string
+  cacheTtl?: ProviderConfig['cacheTtl']
   requestOverrides?: ProviderConfig['requestOverrides']
   instructionsPrompt?: string
   responseSummary?: string
   responsesImageGeneration?: ProviderConfig['responsesImageGeneration']
+  imageGenerationStream?: ProviderConfig['imageGenerationStream']
   computerUseEnabled?: boolean
   organization?: string
   project?: string
@@ -135,10 +136,36 @@ export interface SidecarToolDefinition {
   inputSchema: ToolDefinition['inputSchema']
 }
 
+export interface SidecarWebSearchConfig {
+  enabled: boolean
+  provider:
+    | 'tavily'
+    | 'searxng'
+    | 'exa'
+    | 'exa-mcp'
+    | 'bocha'
+    | 'zhipu'
+    | 'google'
+    | 'bing'
+    | 'baidu'
+  apiKey?: string
+  searchEngine?: string
+  maxResults?: number
+  timeout?: number
+}
+
+export interface SidecarTranslationContext {
+  enabled: true
+  sourceLanguage: string
+  targetLanguage: string
+}
+
 export interface SidecarAgentRunRequest {
   messages: SidecarUnifiedMessage[]
   provider: SidecarProviderConfig
   tools: SidecarToolDefinition[]
+  webSearch?: SidecarWebSearchConfig
+  imagePluginProvider?: SidecarProviderConfig
   runId?: string
   sessionId?: string
   workingFolder?: string
@@ -149,14 +176,20 @@ export interface SidecarAgentRunRequest {
   sessionMode?: 'agent' | 'chat'
   planMode?: boolean
   planModeAllowedTools?: string[]
+  teamToolsActive?: boolean
+  activeTeamName?: string
   goalRunSource?: 'user_turn' | 'continue'
   pluginId?: string
   pluginChatId?: string
   pluginChatType?: 'p2p' | 'group'
   pluginSenderId?: string
   pluginSenderName?: string
+  callerAgent?: string
   sshConnectionId?: string
   captureFinalMessages?: boolean
+  providerTurnOnly?: boolean
+  includeFullDebugBody?: boolean
+  translation?: SidecarTranslationContext
 }
 
 export interface SidecarApprovalRequest {
@@ -188,21 +221,18 @@ function normalizeMaxParallelTools(value: number | undefined): number | undefine
   return Math.min(16, Math.max(1, Math.floor(value)))
 }
 
-const SIDECAR_NATIVE_PROVIDER_TYPES = new Set<string>([
-  'anthropic',
-  'openai-chat',
-  'openai-responses',
-  'gemini'
-])
-
-function shouldBridgeProvider(provider: ProviderConfig): boolean {
-  if (!SIDECAR_NATIVE_PROVIDER_TYPES.has(provider.type)) return true
-  if (isMoonshotProviderConfig(provider)) return true
-  if (provider.type === 'gemini') {
-    if (provider.category === 'image') return true
-    if (/image/i.test(provider.model)) return true
+export function isNativeSidecarProviderConfig(provider: ProviderConfig): boolean {
+  if (
+    provider.type !== 'openai-chat' &&
+    provider.type !== 'openai-responses' &&
+    provider.type !== 'anthropic' &&
+    provider.type !== 'gemini' &&
+    provider.type !== 'vertex-ai'
+  ) {
+    return false
   }
-  return false
+  if (provider.category && provider.category !== 'chat') return false
+  return true
 }
 
 function mapSidecarContentBlock(block: ContentBlock): SidecarContentBlock | null {
@@ -307,10 +337,8 @@ function mapSidecarMessage(message: UnifiedMessage): SidecarUnifiedMessage | nul
 }
 
 function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig {
-  const bridged = shouldBridgeProvider(provider)
   return {
     type: provider.type,
-    ...(bridged ? { mode: 'bridged' as const } : {}),
     apiKey: provider.apiKey,
     ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
     model: provider.model,
@@ -341,11 +369,16 @@ function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig {
     ...(provider.enableSystemPromptCache !== undefined
       ? { enableSystemPromptCache: provider.enableSystemPromptCache }
       : {}),
+    ...(provider.promptCacheKey ? { promptCacheKey: provider.promptCacheKey } : {}),
+    ...(provider.cacheTtl ? { cacheTtl: provider.cacheTtl } : {}),
     ...(provider.requestOverrides ? { requestOverrides: provider.requestOverrides } : {}),
     ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
     ...(provider.responseSummary ? { responseSummary: provider.responseSummary } : {}),
     ...(provider.responsesImageGeneration
       ? { responsesImageGeneration: provider.responsesImageGeneration }
+      : {}),
+    ...(provider.imageGenerationStream
+      ? { imageGenerationStream: provider.imageGenerationStream }
       : {}),
     ...(provider.computerUseEnabled !== undefined
       ? { computerUseEnabled: provider.computerUseEnabled }
@@ -366,6 +399,23 @@ function mapSidecarTool(tool: ToolDefinition): SidecarToolDefinition {
   }
 }
 
+function mapSidecarWebSearchConfig(tools: ToolDefinition[]): SidecarWebSearchConfig | undefined {
+  if (!tools.some((tool) => tool.name === 'WebSearch' || tool.name === 'WebFetch')) {
+    return undefined
+  }
+
+  const settings = useSettingsStore.getState()
+  if (!settings.webSearchEnabled) return undefined
+  return {
+    enabled: true,
+    provider: settings.webSearchProvider,
+    ...(settings.webSearchApiKey ? { apiKey: settings.webSearchApiKey } : {}),
+    ...(settings.webSearchEngine ? { searchEngine: settings.webSearchEngine } : {}),
+    maxResults: settings.webSearchMaxResults,
+    timeout: settings.webSearchTimeout
+  }
+}
+
 export function buildSidecarAgentRunRequest(args: {
   messages: UnifiedMessage[]
   provider: ProviderConfig
@@ -377,17 +427,24 @@ export function buildSidecarAgentRunRequest(args: {
   forceApproval: boolean
   maxParallelTools?: number
   compression?: CompressionConfig | null
+  imagePluginProvider?: ProviderConfig | null
   sessionMode?: 'agent' | 'chat'
   planMode?: boolean
   planModeAllowedTools?: readonly string[]
+  teamToolsActive?: boolean
+  activeTeamName?: string
   goalRunSource?: 'user_turn' | 'continue'
   pluginId?: string
   pluginChatId?: string
   pluginChatType?: 'p2p' | 'group'
   pluginSenderId?: string
   pluginSenderName?: string
+  callerAgent?: string
   sshConnectionId?: string
   captureFinalMessages?: boolean
+  providerTurnOnly?: boolean
+  includeFullDebugBody?: boolean
+  translation?: SidecarTranslationContext
 }): SidecarAgentRunRequest | null {
   const provider = mapSidecarProvider(args.provider)
 
@@ -399,11 +456,17 @@ export function buildSidecarAgentRunRequest(args: {
   }
 
   const maxParallelTools = normalizeMaxParallelTools(args.maxParallelTools)
+  const webSearch = mapSidecarWebSearchConfig(args.tools)
+  const imagePluginProvider = args.imagePluginProvider
+    ? mapSidecarProvider(args.imagePluginProvider)
+    : null
 
   return {
     messages,
     provider,
     tools: args.tools.map(mapSidecarTool),
+    ...(webSearch ? { webSearch } : {}),
+    ...(imagePluginProvider ? { imagePluginProvider } : {}),
     ...(args.runId ? { runId: args.runId } : {}),
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
     ...(args.workingFolder ? { workingFolder: args.workingFolder } : {}),
@@ -416,14 +479,20 @@ export function buildSidecarAgentRunRequest(args: {
     ...(args.planModeAllowedTools && args.planModeAllowedTools.length > 0
       ? { planModeAllowedTools: [...args.planModeAllowedTools] }
       : {}),
+    ...(args.teamToolsActive ? { teamToolsActive: true } : {}),
+    ...(args.activeTeamName ? { activeTeamName: args.activeTeamName } : {}),
     ...(args.goalRunSource ? { goalRunSource: args.goalRunSource } : {}),
     ...(args.pluginId ? { pluginId: args.pluginId } : {}),
     ...(args.pluginChatId ? { pluginChatId: args.pluginChatId } : {}),
     ...(args.pluginChatType ? { pluginChatType: args.pluginChatType } : {}),
     ...(args.pluginSenderId ? { pluginSenderId: args.pluginSenderId } : {}),
     ...(args.pluginSenderName ? { pluginSenderName: args.pluginSenderName } : {}),
+    ...(args.callerAgent ? { callerAgent: args.callerAgent } : {}),
     ...(args.sshConnectionId ? { sshConnectionId: args.sshConnectionId } : {}),
-    ...(args.captureFinalMessages ? { captureFinalMessages: true } : {})
+    ...(args.captureFinalMessages ? { captureFinalMessages: true } : {}),
+    ...(args.providerTurnOnly ? { providerTurnOnly: true } : {}),
+    ...(args.includeFullDebugBody ? { includeFullDebugBody: true } : {}),
+    ...(args.translation ? { translation: args.translation } : {})
   }
 }
 

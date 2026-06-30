@@ -8,6 +8,7 @@ import { useProviderStore } from '@renderer/stores/provider-store'
 import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { IPC } from '@renderer/lib/ipc/channels'
+import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 
 export interface AgentStep {
   id: string
@@ -108,12 +109,12 @@ export const useTranslateStore = create<TranslateStore>((set, get) => ({
   setAgentMode: (enabled) => set({ agentMode: enabled, agentSteps: [] }),
   clearSelectedFile: () => set({ selectedFilePath: null, selectedFileName: null }),
   selectFile: async () => {
-    const result = (await window.electron.ipcRenderer.invoke(IPC.FS_SELECT_FILE)) as
+    const result = (await ipcClient.invoke(IPC.FS_SELECT_FILE)) as
       | { canceled: true }
       | { path: string }
     if ('canceled' in result) return
 
-    const docResult = (await window.electron.ipcRenderer.invoke(IPC.FS_READ_DOCUMENT, {
+    const docResult = (await ipcClient.invoke(IPC.FS_READ_DOCUMENT, {
       path: result.path
     })) as { content: string; name: string } | { error: string }
     if ('error' in docResult) {
@@ -209,12 +210,6 @@ export const useTranslateStore = create<TranslateStore>((set, get) => ({
           targetLanguage,
           providerConfig: requestConfig,
           signal: abortController.signal,
-          readDocument: async (filePath) => {
-            const res = (await window.electron.ipcRenderer.invoke(IPC.FS_READ_DOCUMENT, {
-              path: filePath
-            })) as { content: string; name: string } | { error: string }
-            return 'error' in res ? { error: res.error } : { content: res.content }
-          },
           onEvent: (event) => {
             if (abortController.signal.aborted) return
             switch (event.type) {

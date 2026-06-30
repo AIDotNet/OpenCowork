@@ -1,10 +1,10 @@
-import { ipcMain } from 'electron'
 import type { MigrationApplyDecision } from '../../shared/migration-types'
 import { applyOpenCodeMigration } from '../migration/opencode-apply'
 import { buildOpenCodeMigrationPreview } from '../migration/opencode-preview'
+import { registerMessagePackHandler } from './messagepack-handler'
 
 export function registerMigrationHandlers(): void {
-  ipcMain.handle('migration:preview', async (_event, source?: string) => {
+  registerMessagePackHandler<string | undefined>('migration:preview', async (source) => {
     if (source && source !== 'opencode') {
       return {
         source,
@@ -20,22 +20,21 @@ export function registerMigrationHandlers(): void {
     return buildOpenCodeMigrationPreview()
   })
 
-  ipcMain.handle(
-    'migration:apply',
-    async (_event, args?: { source?: string; decisions?: MigrationApplyDecision[] }) => {
-      if (args?.source && args.source !== 'opencode') {
-        return {
-          source: args.source,
-          sourcePath: '',
-          backupPath: undefined,
-          warnings: [`Unsupported migration source: ${args.source}`],
-          results: [],
-          summary: { total: 0, applied: 0, skipped: 0, failed: 1 },
-          appliedAt: Date.now()
-        }
+  registerMessagePackHandler<
+    { source?: string; decisions?: MigrationApplyDecision[] } | undefined
+  >('migration:apply', async (args) => {
+    if (args?.source && args.source !== 'opencode') {
+      return {
+        source: args.source,
+        sourcePath: '',
+        backupPath: undefined,
+        warnings: [`Unsupported migration source: ${args.source}`],
+        results: [],
+        summary: { total: 0, applied: 0, skipped: 0, failed: 1 },
+        appliedAt: Date.now()
       }
-
-      return applyOpenCodeMigration(Array.isArray(args?.decisions) ? args?.decisions : [])
     }
-  )
+
+    return applyOpenCodeMigration(Array.isArray(args?.decisions) ? args?.decisions : [])
+  })
 }

@@ -43,10 +43,9 @@ extension__<extensionId>__<toolName>
 - `description`: optional settings text.
 - `entry`: required when any JS tool is present.
 - `configSchema`: optional array of `{ key, label, type, required }`; `type` is `text` or `secret`.
-- `permissions.network`: required for HTTP tools or `ctx.fetch`; entries are origins or URL
+- `permissions.network`: required for HTTP tools or JS `ctx.fetch`; entries are origins or URL
   prefixes, with `*` allowed but discouraged.
 - `tools`: required non-empty array.
-- `renderers`: optional array of HTML response renderers.
 
 Tool fields:
 
@@ -97,7 +96,7 @@ Interpolation returns an empty string for missing values. Non-string values are 
 
 All network calls go through the host:
 
-- HTTP tools call the host fetch path.
+- HTTP tools call the native host HTTP path.
 - JS tools must use `ctx.fetch(request)`.
 - Direct `fetch`, `XMLHttpRequest`, `WebSocket`, and `EventSource` are disabled in the JS sandbox.
 - Requests are denied unless `permissions.network` allows the target URL and redirects.
@@ -112,41 +111,10 @@ Prefer exact origins or URL prefixes:
 }
 ```
 
-## JS Sandbox
+## Tool Results
 
-`index.js` must set `globalThis.openCoworkExtension`:
-
-```js
-globalThis.openCoworkExtension = {
-  handlers: {
-    async showSummary(input, ctx) {
-      const last = await ctx.storage.get('last_query')
-      await ctx.storage.set('last_query', input.query || '')
-      return {
-        text: 'Summary ready',
-        data: { last },
-        ui: {
-          kind: 'card',
-          title: 'Summary',
-          body: input.query || 'No query'
-        }
-      }
-    }
-  }
-}
-```
-
-Available context:
-
-- `ctx.config`: merged text and secret config values.
-- `ctx.fetch(request)`: host-mediated fetch with network allowlist enforcement.
-- `ctx.storage.get(key)`, `ctx.storage.set(key, value)`, `ctx.storage.delete(key)`.
-
-Not available:
-
-- Node imports, Electron APIs, filesystem, shell, parent DOM access, direct network APIs.
-
-## Tool Results And UI
+HTTP tools return a structured extension result containing status, headers, and the response body.
+If the body is valid JSON, it is exposed as parsed JSON; otherwise it is returned as text.
 
 JS handlers may return plain values or structured objects:
 
@@ -158,48 +126,25 @@ return {
 }
 ```
 
-Built-in UI kinds:
-
-- `card`: `title`, `subtitle`, `body`, `items`.
-- `table`: `columns`, `rows`.
-- `form`: `fields` with label/name and value.
-- `chart`: `data` with label/name and value.
-- `html`: `renderer`, `props`.
-
-HTML renderer manifest:
-
-```json
-{
-  "renderers": [
-    { "name": "summary_card", "type": "html", "entry": "renderer.html" }
-  ]
-}
-```
-
-HTML renderer result:
+`index.js` must set `globalThis.openCoworkExtension`:
 
 ```js
-return {
-  text: 'Rendered with HTML',
-  ui: {
-    kind: 'html',
-    renderer: 'summary_card',
-    props: { title: 'Demo' }
+globalThis.openCoworkExtension = {
+  handlers: {
+    async showSummary(input, ctx) {
+      const previous = await ctx.storage.get('last_query')
+      await ctx.storage.set('last_query', input.query || '')
+      return { text: 'Summary ready', data: { previous } }
+    }
   }
 }
 ```
 
-Renderer files run in a sandbox iframe. Listen for `extension-props` and escape dynamic values:
+Available JS context:
 
-```html
-<div id="root"></div>
-<script>
-  window.addEventListener('extension-props', (event) => {
-    const props = event.detail || {}
-    document.getElementById('root').textContent = props.title || ''
-  })
-</script>
-```
+- `ctx.config`: merged text and secret config values.
+- `ctx.fetch(request)`: host-mediated fetch with network allowlist enforcement.
+- `ctx.storage.get(key)`, `ctx.storage.set(key, value)`, `ctx.storage.delete(key)`.
 
 ## Install And Debug
 
@@ -215,4 +160,3 @@ manifest `entry`, tool `handler`, and `globalThis.openCoworkExtension.handlers` 
 
 V1 does not support zip or remote install, React component packages, custom message providers, or
 direct filesystem/shell/Electron access.
-

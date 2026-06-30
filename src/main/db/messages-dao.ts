@@ -1,4 +1,4 @@
-import { getDb } from './database'
+import { getNativeWorker } from '../lib/native-worker'
 
 export interface MessageRow {
   id: string
@@ -20,240 +20,103 @@ export interface MessageInput {
   createdAt: number
   usage?: string | null
   sortOrder: number
+  debugReason?: string | null
 }
 
-interface MessageOrderRow {
-  id: string
-  role: string
-  created_at: number
-  sort_order: number
+export interface MessageContentMatch {
+  session_id: string
+  snippet: string
 }
 
-const ROLE_ORDER: Record<string, number> = {
-  user: 0,
-  assistant: 1,
-  system: 2
+interface MessageMutationResult {
+  success: boolean
+  changed: number
+  error?: string | null
 }
 
-function hasSortOrderAnomaly(rows: MessageOrderRow[]): boolean {
-  if (rows.length === 0) return false
+interface MessageDeleteResult {
+  success: boolean
+  deleted: boolean
+  error?: string | null
+}
 
-  const seen = new Set<number>()
-  for (let index = 0; index < rows.length; index += 1) {
-    const sortOrder = rows[index].sort_order
-    if (sortOrder !== index || seen.has(sortOrder)) return true
-    seen.add(sortOrder)
+interface MessageCountResult {
+  success: boolean
+  count: number
+  error?: string | null
+}
+
+interface MessageDeleteLastResult {
+  success: boolean
+  message?: MessageRow | null
+  error?: string | null
+}
+
+async function requestMutation(method: string, params: object): Promise<MessageMutationResult> {
+  const result = await getNativeWorker().request<MessageMutationResult>(method, params, 120_000)
+  if (!result.success) {
+    throw new Error(result.error || `Native message mutation failed: ${method}`)
   }
-
-  return false
+  return result
 }
 
-function normalizeSessionMessageSortOrders(sessionId: string): void {
-  const db = getDb()
-  const rows = db
-    .prepare(
-      `SELECT id, role, created_at, sort_order
-         FROM messages
-        WHERE session_id = ?
-        ORDER BY sort_order ASC, created_at ASC`
-    )
-    .all(sessionId) as MessageOrderRow[]
-
-  if (!hasSortOrderAnomaly(rows)) return
-
-  const ordered = [...rows].sort((left, right) => {
-    const createdAtDelta = left.created_at - right.created_at
-    if (createdAtDelta !== 0) return createdAtDelta
-
-    const roleDelta = (ROLE_ORDER[left.role] ?? 10) - (ROLE_ORDER[right.role] ?? 10)
-    if (roleDelta !== 0) return roleDelta
-
-    return left.sort_order - right.sort_order
-  })
-
-  const update = db.prepare('UPDATE messages SET sort_order = ? WHERE id = ?')
-  const tx = db.transaction(() => {
-    ordered.forEach((row, index) => {
-      if (row.sort_order !== index) {
-        update.run(index, row.id)
-      }
-    })
-  })
-  tx()
+export function getMessages(sessionId: string): Promise<MessageRow[]> {
+  return getNativeWorker().request<MessageRow[]>('db/messages-list', { sessionId }, 120_000)
 }
 
-export function getMessages(sessionId: string): MessageRow[] {
-  const db = getDb()
-  normalizeSessionMessageSortOrders(sessionId)
-  return db
-    .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY sort_order ASC, created_at ASC')
-    .all(sessionId) as MessageRow[]
+export function getUserMessages(sessionId: string): Promise<MessageRow[]> {
+  return getNativeWorker().request<MessageRow[]>('db/messages-list-user', { sessionId }, 120_000)
 }
 
-export function getUserMessages(sessionId: string): MessageRow[] {
-  const db = getDb()
-  normalizeSessionMessageSortOrders(sessionId)
-  return db
-    .prepare(
-      'SELECT * FROM messages WHERE session_id = ? AND role = ? ORDER BY sort_order ASC, created_at ASC'
-    )
-    .all(sessionId, 'user') as MessageRow[]
+export function getMessagesPage(
+  sessionId: string,
+  limit: number,
+  offset: number
+): Promise<MessageRow[]> {
+  return getNativeWorker().request<MessageRow[]>(
+    'db/messages-list-page',
+    { sessionId, limit, offset },
+    120_000
+  )
 }
 
-export function getMessagesPage(sessionId: string, limit: number, offset: number): MessageRow[] {
-  const db = getDb()
-  normalizeSessionMessageSortOrders(sessionId)
-  return db
-    .prepare(
-      'SELECT * FROM messages WHERE session_id = ? ORDER BY sort_order ASC, created_at ASC LIMIT ? OFFSET ?'
-    )
-    .all(sessionId, limit, offset) as MessageRow[]
+export async function addMessage(msg: MessageInput): Promise<void> {
+  await requestMutation('db/messages-add', msg)
 }
 
-export function addMessage(msg: MessageInput): void {
-  const db = getDb()
-  const tx = db.transaction(() => {
-    const result = db
-      .prepare(
-        `INSERT OR IGNORE INTO messages (id, session_id, role, content, meta, created_at, usage, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        msg.id,
-        msg.sessionId,
-        msg.role,
-        msg.content,
-        msg.meta ?? null,
-        msg.createdAt,
-        msg.usage ?? null,
-        msg.sortOrder
-      )
-
-    if (result.changes > 0) {
-      db.prepare(
-        'UPDATE sessions SET message_count = COALESCE(message_count, 0) + 1 WHERE id = ?'
-      ).run(msg.sessionId)
-    }
-  })
-  tx()
-}
-
-export function addMessages(msgs: MessageInput[]): void {
+export async function addMessages(msgs: MessageInput[]): Promise<void> {
   if (msgs.length === 0) return
-  const db = getDb()
-  const tx = db.transaction(() => {
-    const insert = db.prepare(
-      `INSERT OR IGNORE INTO messages (id, session_id, role, content, meta, created_at, usage, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    const newCountBySession = new Map<string, number>()
-    for (const msg of msgs) {
-      const result = insert.run(
-        msg.id,
-        msg.sessionId,
-        msg.role,
-        msg.content,
-        msg.meta ?? null,
-        msg.createdAt,
-        msg.usage ?? null,
-        msg.sortOrder
-      )
-      if (result.changes > 0) {
-        newCountBySession.set(msg.sessionId, (newCountBySession.get(msg.sessionId) ?? 0) + 1)
-      }
-    }
-    for (const [sessionId, count] of newCountBySession) {
-      db.prepare(
-        'UPDATE sessions SET message_count = COALESCE(message_count, 0) + ? WHERE id = ?'
-      ).run(count, sessionId)
-    }
-  })
-  tx()
+  await requestMutation('db/messages-add-batch', { messages: msgs })
 }
 
-export function upsertMessage(msg: MessageInput): void {
-  const db = getDb()
-  const tx = db.transaction(() => {
-    const existing = db.prepare('SELECT session_id FROM messages WHERE id = ?').get(msg.id) as
-      | { session_id: string }
-      | undefined
-
-    db.prepare(
-      `INSERT INTO messages (id, session_id, role, content, meta, created_at, usage, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         session_id = excluded.session_id,
-         role = excluded.role,
-         content = excluded.content,
-         meta = excluded.meta,
-         usage = excluded.usage`
-    ).run(
-      msg.id,
-      msg.sessionId,
-      msg.role,
-      msg.content,
-      msg.meta ?? null,
-      msg.createdAt,
-      msg.usage ?? null,
-      msg.sortOrder
-    )
-
-    if (!existing) {
-      db.prepare(
-        'UPDATE sessions SET message_count = COALESCE(message_count, 0) + 1 WHERE id = ?'
-      ).run(msg.sessionId)
-    }
-  })
-  tx()
+export async function upsertMessage(msg: MessageInput): Promise<void> {
+  await requestMutation('db/messages-upsert', msg)
 }
 
-export function updateMessage(
+export async function updateMessage(
   msgId: string,
   patch: Partial<{ content: string; meta: string | null; usage: string | null }>
-): void {
-  const db = getDb()
-  const sets: string[] = []
-  const values: unknown[] = []
-
-  if (patch.content !== undefined) {
-    sets.push('content = ?')
-    values.push(patch.content)
-  }
-  if (patch.meta !== undefined) {
-    sets.push('meta = ?')
-    values.push(patch.meta)
-  }
-  if (patch.usage !== undefined) {
-    sets.push('usage = ?')
-    values.push(patch.usage)
-  }
-
-  if (sets.length === 0) return
-
-  values.push(msgId)
-  db.prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`).run(...values)
+): Promise<void> {
+  await requestMutation('db/messages-update', { id: msgId, patch })
 }
 
-export function clearMessages(sessionId: string): void {
-  const db = getDb()
-  db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId)
-  db.prepare('UPDATE sessions SET message_count = 0 WHERE id = ?').run(sessionId)
+export async function clearMessages(sessionId: string): Promise<void> {
+  await requestMutation('db/messages-clear', { sessionId })
 }
 
-export function deleteMessage(sessionId: string, messageId: string): boolean {
-  const db = getDb()
-  const result = db
-    .prepare('DELETE FROM messages WHERE session_id = ? AND id = ?')
-    .run(sessionId, messageId)
-  if (result.changes <= 0) return false
-
-  db.prepare(
-    'UPDATE sessions SET message_count = MAX(COALESCE(message_count, 0) - 1, 0) WHERE id = ?'
-  ).run(sessionId)
-  return true
+export async function deleteMessage(sessionId: string, messageId: string): Promise<boolean> {
+  const result = await getNativeWorker().request<MessageDeleteResult>(
+    'db/messages-delete',
+    { sessionId, messageId },
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native message delete failed')
+  }
+  return result.deleted
 }
 
-export function replaceMessages(
+export async function replaceMessages(
   sessionId: string,
   messages: Array<{
     id: string
@@ -264,100 +127,48 @@ export function replaceMessages(
     usage?: string | null
     sortOrder: number
   }>
-): void {
-  const db = getDb()
-  const tx = db.transaction(() => {
-    db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId)
-    const insert = db.prepare(
-      `INSERT OR REPLACE INTO messages (id, session_id, role, content, meta, created_at, usage, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    for (const msg of messages) {
-      insert.run(
-        msg.id,
-        sessionId,
-        msg.role,
-        msg.content,
-        msg.meta ?? null,
-        msg.createdAt,
-        msg.usage ?? null,
-        msg.sortOrder
-      )
-    }
-    db.prepare('UPDATE sessions SET message_count = ? WHERE id = ?').run(messages.length, sessionId)
-  })
-  tx()
+): Promise<void> {
+  await requestMutation('db/messages-replace', { sessionId, messages })
 }
 
-export function truncateMessagesFrom(sessionId: string, fromSortOrder: number): void {
-  const db = getDb()
-  const removed = db
-    .prepare('SELECT COUNT(*) as cnt FROM messages WHERE session_id = ? AND sort_order >= ?')
-    .get(sessionId, fromSortOrder) as { cnt: number }
+export async function truncateMessagesFrom(
+  sessionId: string,
+  fromSortOrder: number
+): Promise<void> {
+  await requestMutation('db/messages-truncate-from', { sessionId, fromSortOrder })
+}
 
-  db.prepare('DELETE FROM messages WHERE session_id = ? AND sort_order >= ?').run(
-    sessionId,
-    fromSortOrder
+export async function deleteLastMessage(
+  sessionId: string,
+  role: string
+): Promise<MessageRow | null> {
+  const result = await getNativeWorker().request<MessageDeleteLastResult>(
+    'db/messages-delete-last',
+    { sessionId, role },
+    120_000
   )
-
-  if (removed.cnt > 0) {
-    db.prepare(
-      'UPDATE sessions SET message_count = MAX(COALESCE(message_count, 0) - ?, 0) WHERE id = ?'
-    ).run(removed.cnt, sessionId)
+  if (!result.success) {
+    throw new Error(result.error || 'Native message delete-last failed')
   }
+  return result.message ?? null
 }
 
-export function deleteLastMessage(sessionId: string, role: string): MessageRow | null {
-  const db = getDb()
-  const last = db
-    .prepare(
-      'SELECT * FROM messages WHERE session_id = ? AND role = ? ORDER BY sort_order DESC LIMIT 1'
-    )
-    .get(sessionId, role) as MessageRow | undefined
-  if (!last) return null
-  db.prepare('DELETE FROM messages WHERE id = ?').run(last.id)
-  db.prepare(
-    'UPDATE sessions SET message_count = MAX(COALESCE(message_count, 0) - 1, 0) WHERE id = ?'
-  ).run(sessionId)
-  return last
+export async function getMessageCount(sessionId: string): Promise<number> {
+  const result = await getNativeWorker().request<MessageCountResult>(
+    'db/messages-count',
+    { sessionId },
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native message count failed')
+  }
+  return result.count
 }
 
-export function getMessageCount(sessionId: string): number {
-  const db = getDb()
-  const row = db
-    .prepare('SELECT message_count as cnt FROM sessions WHERE id = ?')
-    .get(sessionId) as { cnt?: number } | undefined
-  return row?.cnt ?? 0
+export function searchMessageContent(query: string, limit = 50): Promise<MessageContentMatch[]> {
+  return getNativeWorker().request<MessageContentMatch[]>(
+    'db/messages-search-content',
+    { query, limit },
+    120_000
+  )
 }
-
-export interface MessageContentMatch {
-  session_id: string
-  snippet: string
-}
-
-// Content search over message bodies, scoped to one matching message per session
-// (the earliest hit by sort_order). Used by the session list search to find
-// conversations by content without loading every session's messages into the
-// renderer. Uses LIKE rather than FTS to avoid a schema migration.
-export function searchMessageContent(query: string, limit = 50): MessageContentMatch[] {
-  const trimmed = query.trim()
-  if (!trimmed) return []
-  const db = getDb()
-  // Escape LIKE wildcards so user input is treated literally.
-  const escaped = trimmed.replace(/[\\%_]/g, (c) => `\\${c}`)
-  const like = `%${escaped}%`
-  return db
-    .prepare(
-      `SELECT m.session_id AS session_id, m.content AS snippet
-         FROM messages m
-         JOIN (
-           SELECT session_id, MIN(sort_order) AS so
-             FROM messages
-            WHERE content LIKE ? ESCAPE '\\'
-            GROUP BY session_id
-         ) f ON f.session_id = m.session_id AND f.so = m.sort_order
-        LIMIT ?`
-    )
-    .all(like, limit) as MessageContentMatch[]
-}
-

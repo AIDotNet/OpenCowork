@@ -369,6 +369,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
   )
   const createProject = useChatStore((state) => state.createProject)
   const setActiveProject = useChatStore((state) => state.setActiveProject)
+  const setActiveProjectHome = useChatStore((state) => state.setActiveProjectHome)
   const renameProject = useChatStore((state) => state.renameProject)
   const deleteProject = useChatStore((state) => state.deleteProject)
   const togglePinProject = useChatStore((state) => state.togglePinProject)
@@ -567,34 +568,35 @@ export function WorkspaceSidebar(): React.JSX.Element {
   }, [])
 
   const openChatHome = useCallback(() => {
-    const chatStore = useChatStore.getState()
     const uiStore = useUIStore.getState()
-    chatStore.setActiveProject(null)
+    setActiveProjectHome(null)
     uiStore.setMode('chat')
     uiStore.navigateToHome()
-  }, [])
+  }, [setActiveProjectHome])
 
-  const openProjectHome = useCallback((projectId: string) => {
-    const chatStore = useChatStore.getState()
-    const uiStore = useUIStore.getState()
-    chatStore.setActiveProject(projectId)
-    chatStore.setActiveSession(null)
-    if (uiStore.mode === 'chat') {
-      uiStore.setMode('cowork')
-    }
-    uiStore.navigateToProject(projectId)
-  }, [])
+  const openProjectHome = useCallback(
+    (projectId: string) => {
+      const uiStore = useUIStore.getState()
+      setActiveProjectHome(projectId)
+      if (uiStore.mode === 'chat') {
+        uiStore.setMode('cowork')
+      }
+      uiStore.navigateToProject(projectId)
+    },
+    [setActiveProjectHome]
+  )
 
-  const openProjectNewSession = useCallback((projectId: string) => {
-    const chatStore = useChatStore.getState()
-    const uiStore = useUIStore.getState()
-    chatStore.setActiveProject(projectId)
-    chatStore.setActiveSession(null)
-    if (uiStore.mode === 'chat') {
-      uiStore.setMode('cowork')
-    }
-    uiStore.navigateToHome()
-  }, [])
+  const openProjectNewSession = useCallback(
+    (projectId: string) => {
+      const uiStore = useUIStore.getState()
+      setActiveProjectHome(projectId)
+      if (uiStore.mode === 'chat') {
+        uiStore.setMode('cowork')
+      }
+      uiStore.navigateToHome()
+    },
+    [setActiveProjectHome]
+  )
 
   const handleCreateChatSession = useCallback(() => {
     openChatHome()
@@ -1455,6 +1457,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                       const projectToggleTitle = isCollapsed
                         ? t('rightPanel.expand')
                         : t('rightPanel.collapse')
+                      const ProjectIcon = project.sshConnectionId ? Server : FolderOpen
                       const handleProjectRowKeyDown = (
                         event: React.KeyboardEvent<HTMLDivElement>
                       ): void => {
@@ -1482,7 +1485,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                 onKeyDown={handleProjectRowKeyDown}
                                 title={project.workingFolder ?? project.name}
                               >
-                                <FolderOpen
+                                <ProjectIcon
                                   className={cn(
                                     'size-3.5 shrink-0',
                                     isProjectActive ? 'text-primary/80' : 'text-muted-foreground/80'
@@ -1575,7 +1578,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                         <DropdownMenuItem
                                           onClick={() => openProjectSession(project.id)}
                                         >
-                                          <FolderOpen className="size-4" />
+                                          <ProjectIcon className="size-4" />
                                           {t('sidebar.openProject')}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
@@ -1704,7 +1707,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-52">
                               <ContextMenuItem onClick={() => openProjectSession(project.id)}>
-                                <FolderOpen className="size-4" />
+                                <ProjectIcon className="size-4" />
                                 {t('sidebar.openProject')}
                               </ContextMenuItem>
                               <ContextMenuItem

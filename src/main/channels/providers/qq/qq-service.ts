@@ -1,5 +1,5 @@
 import WebSocket from 'ws'
-import { getDb } from '../../../db/database'
+import { markQqWakeupSent, resolveQqWakeupEligibility } from '../../../db/qq-wakeup-dao'
 import type {
   ChannelEvent,
   ChannelGroup,
@@ -50,18 +50,6 @@ function parseBooleanConfig(value: string | undefined): boolean {
   return /^(1|true|yes|on)$/i.test((value ?? '').trim())
 }
 
-function getWakeupPeriodKey(sourceTimestamp: number, now: number): string | null {
-  const diffMs = now - sourceTimestamp
-  if (diffMs < 0) return null
-
-  const dayMs = 24 * 60 * 60 * 1000
-  if (diffMs < dayMs) return 'day-0'
-  if (diffMs < 3 * dayMs) return 'day-1-3'
-  if (diffMs < 7 * dayMs) return 'day-3-7'
-  if (diffMs < 30 * dayMs) return 'day-7-30'
-  return null
-}
-
 export class QQService implements MessagingChannelService {
   readonly pluginId: string
   readonly pluginType = 'qq-bot'
@@ -104,7 +92,7 @@ export class QQService implements MessagingChannelService {
     console.log(
       `[qq-bot:${this.pluginId}] Using QQ ${useSandbox ? 'sandbox' : 'production'} API domain, markdown=${markdownSupport}`
     )
-    this.restoreSession()
+    await this.restoreSession()
     await this.api.validate()
 
     this.intentionalClose = false
@@ -155,20 +143,20 @@ export class QQService implements MessagingChannelService {
       return this.api.sendMessage(target, content)
     }
 
-    const wakeup = this.resolveWakeupEligibility(target.id)
-    return this.api
-      .sendMessage(target, content, undefined, { isWakeup: wakeup.enabled })
-      .then((result) => {
-        if (wakeup.enabled && wakeup.periodKey) {
-          this.markWakeupSent(
-            target.id,
-            wakeup.periodKey,
-            wakeup.sourceMessageId,
-            wakeup.sourceTimestamp
-          )
-        }
-        return result
+    const wakeup = await resolveQqWakeupEligibility(this.pluginId, target.id)
+    const result = await this.api.sendMessage(target, content, undefined, {
+      isWakeup: wakeup.enabled
+    })
+    if (wakeup.enabled && wakeup.periodKey) {
+      await markQqWakeupSent({
+        pluginId: this.pluginId,
+        openId: target.id,
+        periodKey: wakeup.periodKey,
+        sourceMessageId: wakeup.sourceMessageId,
+        sourceTimestamp: wakeup.sourceTimestamp
       })
+    }
+    return result
   }
 
   async getGroupMessages(chatId: string, count?: number): Promise<ChannelMessage[]> {
@@ -179,80 +167,6 @@ export class QQService implements MessagingChannelService {
 
   async listGroups(): Promise<ChannelGroup[]> {
     return []
-  }
-
-  private resolveWakeupEligibility(openId: string): {
-    enabled: boolean
-    periodKey: string | null
-    sourceMessageId: string | null
-    sourceTimestamp: number
-  } {
-    const db = getDb()
-    const now = Date.now()
-    const row = db
-      .prepare(
-        `SELECT source_message_id, source_timestamp
-         FROM qq_wakeup_windows
-        WHERE plugin_id = ? AND open_id = ? AND period_key = '__source__'
-        LIMIT 1`
-      )
-      .get(this.pluginId, openId) as
-      | { source_message_id?: string | null; source_timestamp?: number }
-      | undefined
-
-    const sourceTimestamp = row?.source_timestamp ?? now
-    const periodKey = getWakeupPeriodKey(sourceTimestamp, now)
-    if (!periodKey) {
-      return {
-        enabled: false,
-        periodKey: null,
-        sourceMessageId: row?.source_message_id ?? null,
-        sourceTimestamp
-      }
-    }
-
-    const existing = db
-      .prepare(
-        `SELECT 1
-         FROM qq_wakeup_windows
-        WHERE plugin_id = ? AND open_id = ? AND period_key = ?
-        LIMIT 1`
-      )
-      .get(this.pluginId, openId, periodKey)
-
-    return {
-      enabled: !existing,
-      periodKey,
-      sourceMessageId: row?.source_message_id ?? null,
-      sourceTimestamp
-    }
-  }
-
-  private markWakeupSent(
-    openId: string,
-    periodKey: string,
-    sourceMessageId: string | null,
-    sourceTimestamp: number
-  ): void {
-    const db = getDb()
-    const now = Date.now()
-    db.prepare(
-      `INSERT OR REPLACE INTO qq_wakeup_windows (
-        plugin_id, open_id, period_key, source_message_id, source_timestamp, sent_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM qq_wakeup_windows WHERE plugin_id = ? AND open_id = ? AND period_key = ?), ?), ?)`
-    ).run(
-      this.pluginId,
-      openId,
-      periodKey,
-      sourceMessageId,
-      sourceTimestamp,
-      now,
-      this.pluginId,
-      openId,
-      periodKey,
-      now,
-      now
-    )
   }
 
   private emit(type: ChannelEvent['type'], data: unknown): void {
@@ -274,8 +188,8 @@ export class QQService implements MessagingChannelService {
     return this.pluginId
   }
 
-  private restoreSession(): void {
-    const saved = loadSession(this.getSessionStoreKey())
+  private async restoreSession(): Promise<void> {
+    const saved = await loadSession(this.getSessionStoreKey())
     if (!saved) return
 
     this.sessionId = saved.sessionId

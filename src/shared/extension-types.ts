@@ -1,11 +1,14 @@
 export type ExtensionToolKind = 'http' | 'js'
-export type ExtensionUiKind = 'card' | 'table' | 'form' | 'chart' | 'html'
+export type ExtensionUiKind = 'card' | 'table' | 'form' | 'chart' | 'html' | 'component'
 
 export interface ExtensionConfigFieldSchema {
   key: string
   label: string
   type: 'text' | 'secret'
   required?: boolean
+  description?: string
+  placeholder?: string
+  defaultValue?: string
 }
 
 export interface ExtensionHttpDefinition {
@@ -25,10 +28,34 @@ export interface ExtensionToolDefinition {
   readOnly?: boolean
 }
 
+export interface ExtensionFetchRequest {
+  method?: string
+  url: string
+  headers?: Record<string, string>
+  body?: unknown
+}
+
+export interface ExtensionFetchResponse {
+  ok: boolean
+  status: number
+  statusText: string
+  headers: Record<string, string>
+  text: string
+  json?: unknown
+}
+
 export interface ExtensionRendererDefinition {
   name: string
   type: 'html'
   entry: string
+}
+
+export interface ExtensionComponentDefinition {
+  name: string
+  type: 'html'
+  entry: string
+  title?: string
+  description?: string
 }
 
 export interface ExtensionManifest {
@@ -44,6 +71,7 @@ export interface ExtensionManifest {
   }
   tools: ExtensionToolDefinition[]
   renderers?: ExtensionRendererDefinition[]
+  components?: ExtensionComponentDefinition[]
 }
 
 export interface ExtensionInstance {
@@ -53,22 +81,6 @@ export interface ExtensionInstance {
   updatedAt: number
   config: Record<string, string>
   manifest: ExtensionManifest
-}
-
-export interface ExtensionFetchRequest {
-  method?: string
-  url: string
-  headers?: Record<string, string>
-  body?: unknown
-}
-
-export interface ExtensionFetchResponse {
-  ok: boolean
-  status: number
-  statusText: string
-  headers: Record<string, string>
-  text: string
-  json?: unknown
 }
 
 export interface ExtensionToolResult {

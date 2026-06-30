@@ -22,7 +22,7 @@ import {
   CollapsibleTrigger
 } from '@renderer/components/ui/collapsible'
 import { useTeamStore } from '@renderer/stores/team-store'
-import { abortTeammate, abortAllTeammates } from '@renderer/lib/agent/teams/teammate-runner'
+import { abortTeammate, abortAllTeammates } from '@renderer/lib/agent/teams/team-native-control'
 import { resetTeamAutoTrigger } from '@renderer/hooks/use-chat-actions'
 import { removeTeamLimiter } from '@renderer/lib/agent/sub-agents/create-tool'
 import { teamEvents } from '@renderer/lib/agent/teams/events'

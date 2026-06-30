@@ -13,7 +13,7 @@ export interface ToolContext {
   readFileHistory?: Map<string, FileReadSnapshot>
   /** Per-run inline tool handlers that should shadow the global registry. */
   inlineToolHandlers?: Record<string, ToolHandler>
-  /** The tool_use block id currently being executed (set by agent-loop) */
+  /** The tool_use block id currently being executed by the active agent runtime. */
   currentToolUseId?: string
   /** Current top-level agent run id, reused for post-run change review and rollback. */
   agentRunId?: string
@@ -28,7 +28,7 @@ export interface ToolContext {
   /** Plugin message sender identifiers (when available) */
   pluginSenderId?: string
   pluginSenderName?: string
-  /** Mutable shared state bag — survives { ...toolCtx } spread copies in agent-loop.
+  /** Mutable shared state bag — survives { ...toolCtx } spread copies in runtime tool dispatch.
    *  Used for per-run flags like deliveryUsed that must persist across tool calls. */
   sharedState?: { deliveryUsed?: boolean; bashCwd?: string }
   /** Channel security permissions for tool approval checks. */

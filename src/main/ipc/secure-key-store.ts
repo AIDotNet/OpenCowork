@@ -1,49 +1,55 @@
-import { ipcMain } from 'electron'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as os from 'os'
+import { getNativeWorker } from '../lib/native-worker'
+import { registerMessagePackHandler } from './messagepack-handler'
 
-const DATA_DIR = path.join(os.homedir(), '.open-cowork')
-const CONFIG_FILE = 'config.json'
+const CONFIG_TIMEOUT_MS = 60_000
 
-function getConfigPath(): string {
-  return path.join(DATA_DIR, CONFIG_FILE)
+type MutationResult = {
+  success: boolean
+  error?: string
 }
 
-export function readConfig(): Record<string, unknown> {
+export async function readConfig(): Promise<Record<string, unknown>> {
   try {
-    const filePath = getConfigPath()
-    if (fs.existsSync(filePath)) {
-      return JSON.parse(fs.readFileSync(filePath, 'utf-8'))
-    }
-  } catch {
-    // Return empty on any error
-  }
-  return {}
-}
-
-export function writeConfig(config: Record<string, unknown>): void {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true })
-    }
-    fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2), 'utf-8')
+    return await getNativeWorker().request<Record<string, unknown>>(
+      'config/read',
+      {},
+      CONFIG_TIMEOUT_MS
+    )
   } catch (err) {
-    console.error('[ConfigStore] Write error:', err)
+    console.error('[ConfigStore] Read error:', err)
+    return {}
   }
+}
+
+export async function writeConfig(config: Record<string, unknown>): Promise<void> {
+  const result = await getNativeWorker().request<MutationResult>(
+    'config/write',
+    config,
+    CONFIG_TIMEOUT_MS
+  )
+  if (!result.success) {
+    throw new Error(result.error ?? 'Config write failed')
+  }
+}
+
+export async function getConfigValue(key?: string): Promise<unknown> {
+  return await getNativeWorker().request('config/get', key ?? {}, CONFIG_TIMEOUT_MS)
+}
+
+export async function setConfigValue(key: string, value: unknown): Promise<MutationResult> {
+  return await getNativeWorker().request('config/set', { key, value }, CONFIG_TIMEOUT_MS)
+}
+
+export async function deleteConfigValue(key: string): Promise<MutationResult> {
+  return await getNativeWorker().request('config/delete', key, CONFIG_TIMEOUT_MS)
 }
 
 export function registerConfigHandlers(): void {
-  ipcMain.handle('config:get', async (_event, key?: string) => {
-    const config = readConfig()
-    if (key) return config[key]
-    return config
+  registerMessagePackHandler<string | undefined>('config:get', async (key) => {
+    return await getConfigValue(key)
   })
 
-  ipcMain.handle('config:set', async (_event, args: { key: string; value: unknown }) => {
-    const config = readConfig()
-    config[args.key] = args.value
-    writeConfig(config)
-    return { success: true }
+  registerMessagePackHandler<{ key: string; value: unknown }>('config:set', async (args) => {
+    return await setConfigValue(args.key, args.value)
   })
 }

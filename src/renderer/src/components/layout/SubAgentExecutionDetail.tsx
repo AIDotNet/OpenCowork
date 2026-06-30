@@ -2,19 +2,12 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { Bot } from 'lucide-react'
-import { nanoid } from 'nanoid'
 import { TranscriptMessageList } from '@renderer/components/chat/TranscriptMessageList'
-import { InputArea } from '@renderer/components/chat/InputArea'
 import { useAgentStore, type SubAgentState } from '@renderer/stores/agent-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
-import {
-  imageAttachmentToContentBlock,
-  type ImageAttachment
-} from '@renderer/lib/image-attachments'
 import { cn } from '@renderer/lib/utils'
 import { parseSubAgentMeta } from '@renderer/lib/agent/sub-agents/create-tool'
-import { abortSubAgentRun, appendSubAgentUserMessage } from '@renderer/lib/agent/sub-agents/runner'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import {
   findSubAgentInSelection,
@@ -192,73 +185,6 @@ function buildFallbackTranscript({
   return messages
 }
 
-function buildUserMessageContent(
-  text: string,
-  images?: ImageAttachment[]
-): UnifiedMessage['content'] {
-  const trimmed = text.trim()
-  const blocks: ContentBlock[] = []
-
-  if (trimmed) {
-    blocks.push({ type: 'text', text: trimmed })
-  }
-  for (const image of images ?? []) {
-    blocks.push(imageAttachmentToContentBlock(image))
-  }
-
-  if (blocks.length === 1 && blocks[0]?.type === 'text') {
-    return blocks[0].text
-  }
-  return blocks
-}
-
-function SubAgentConversationInput({
-  agent,
-  sessionId,
-  workingFolder
-}: {
-  agent: SubAgentState
-  sessionId: string | null
-  workingFolder?: string
-}): React.JSX.Element {
-  const handleSend = React.useCallback(
-    (text: string, images?: ImageAttachment[]): void => {
-      const content = buildUserMessageContent(text, images)
-      if (Array.isArray(content) && content.length === 0) return
-      if (typeof content === 'string' && !content.trim()) return
-
-      appendSubAgentUserMessage(agent.toolUseId, {
-        id: nanoid(),
-        role: 'user',
-        content,
-        createdAt: Date.now()
-      })
-    },
-    [agent.toolUseId]
-  )
-
-  const handleStop = React.useCallback((): void => {
-    abortSubAgentRun(agent.toolUseId)
-  }, [agent.toolUseId])
-
-  return (
-    <InputArea
-      sessionId={sessionId}
-      onSend={handleSend}
-      onStop={handleStop}
-      isStreaming={agent.isRunning}
-      workingFolder={workingFolder}
-      hideWorkingFolderIndicator
-      disabled={!agent.isRunning}
-      draftKeyOverride={`subagent:${agent.toolUseId}`}
-      suppressPendingQueue
-      hideGoalSessionBar
-      hideModeSwitch
-      modelRoute="fast"
-    />
-  )
-}
-
 export function SubAgentExecutionDetail({
   toolUseId,
   inlineText,
@@ -276,18 +202,6 @@ export function SubAgentExecutionDetail({
   const resolvedSessionId = sessionId ?? activeSessionId
   const sessionMessages = useChatStore((s) =>
     resolvedSessionId ? s.getSessionMessages(resolvedSessionId) : EMPTY_SESSION_MESSAGES
-  )
-  const sessionContext = useChatStore(
-    useShallow((s) => {
-      const index = resolvedSessionId ? s.sessionsById[resolvedSessionId] : undefined
-      const session = index !== undefined ? s.sessions[index] : undefined
-      const project = session?.projectId
-        ? s.projects.find((item) => item.id === session.projectId)
-        : null
-      return {
-        workingFolder: session?.workingFolder ?? project?.workingFolder ?? undefined
-      }
-    })
   )
   const agentDetail = useAgentStore(
     useShallow((s) => {
@@ -380,13 +294,6 @@ export function SubAgentExecutionDetail({
         sessionId={resolvedSessionId}
         liveToolCallMap={liveToolCallMap}
       />
-      {agent ? (
-        <SubAgentConversationInput
-          agent={agent}
-          sessionId={resolvedSessionId}
-          workingFolder={sessionContext.workingFolder}
-        />
-      ) : null}
     </div>
   )
 }

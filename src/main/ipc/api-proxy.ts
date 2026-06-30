@@ -1,88 +1,26 @@
-import { ipcMain, BrowserWindow, net, session } from 'electron'
+import { ipcMain, net, session, type WebContents } from 'electron'
 import * as https from 'https'
 import * as http from 'http'
 import { URL } from 'url'
 import { readSettings } from './settings-handlers'
-import {
-  buildResponsesWebsocketSessionKey,
-  resolveResponsesWebsocketConfig,
-  type ResponsesWebsocketMode,
-  type ResponsesWebsocketRequestKind
-} from '../../shared/openai-responses-websocket'
-import { ResponsesWebSocketSessionManager } from '../lib/responses-websocket-session-manager'
 import { applyDefaultApiUserAgent } from '../lib/api-user-agent'
+import {
+  decodeMessagePackPayload,
+  encodeMessagePackPayload,
+  toMessagePackChannel
+} from '../../shared/messagepack/binary-ipc'
 
 const MAX_RESPONSE_BODY_CHARS = 10_000_000
 
 // Retry policy for transient AI provider failures.
 // Total requests sent = 1 initial + up to MAX_RETRY_ATTEMPTS retries for HTTP status failures.
 const MAX_RETRY_ATTEMPTS = 10
-const MAX_TRANSPORT_RETRY_ATTEMPTS = 3
 const RETRY_BASE_DELAY_MS = 1000
 const RETRY_MAX_DELAY_MS = 30_000
 const RETRY_MAX_RETRY_AFTER_MS = 60_000
-const API_STREAM_CIRCUIT_BREAK_MS = 60_000
-
-const apiStreamCircuitBreakers = new Map<string, { expiresAt: number; reason: string }>()
 
 function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500
-}
-
-function shouldCircuitBreakStatus(status: number): boolean {
-  return status >= 500
-}
-
-function isRetryableTransportMessage(message: string | undefined): boolean {
-  if (!message) return false
-  return (
-    /the response ended prematurely/i.test(message) ||
-    /\bresponseended\b/i.test(message) ||
-    /unexpected eof/i.test(message) ||
-    /0 bytes from the transport stream/i.test(message) ||
-    /socket hang up/i.test(message) ||
-    /\beconnreset\b/i.test(message) ||
-    /\beconnaborted\b/i.test(message) ||
-    /\betimedout\b/i.test(message) ||
-    /ssl connection could not be established/i.test(message) ||
-    /connection timed out/i.test(message) ||
-    /request timed out/i.test(message) ||
-    /connection timeout/i.test(message) ||
-    /stream idle timeout/i.test(message) ||
-    /^connection closed$/i.test(message.trim())
-  )
-}
-
-function buildApiStreamCircuitKey(
-  req: Pick<APIStreamRequest, 'url' | 'providerId' | 'providerBuiltinId' | 'accountId'>
-): string {
-  const scope = req.accountId || req.providerId || req.providerBuiltinId || 'unknown'
-  try {
-    return `${scope}::${new URL(req.url).origin}`
-  } catch {
-    return `${scope}::${req.url}`
-  }
-}
-
-function getApiStreamCircuitReason(circuitKey: string): string | null {
-  const state = apiStreamCircuitBreakers.get(circuitKey)
-  if (!state) return null
-  if (state.expiresAt <= Date.now()) {
-    apiStreamCircuitBreakers.delete(circuitKey)
-    return null
-  }
-  return state.reason
-}
-
-function setApiStreamCircuitReason(circuitKey: string, reason: string): void {
-  apiStreamCircuitBreakers.set(circuitKey, {
-    expiresAt: Date.now() + API_STREAM_CIRCUIT_BREAK_MS,
-    reason
-  })
-}
-
-function resetApiStreamCircuit(circuitKey: string): void {
-  apiStreamCircuitBreakers.delete(circuitKey)
 }
 
 function parseRetryAfterMs(value: string | string[] | undefined): number | undefined {
@@ -109,14 +47,21 @@ function computeBackoffMs(attempt: number, retryAfterMs: number | undefined): nu
   return Math.max(100, Math.floor(exp + jitter))
 }
 
-type AttemptResult =
-  | { kind: 'streamed' }
-  | { kind: 'retryable'; status: number; body: string; retryAfterMs?: number; errorType?: string }
-  | { kind: 'fatal'; status: number; body: string; errorType?: string }
-  | { kind: 'fallback'; reason: string }
+function sendMessagePackToWebContents(
+  contents: WebContents,
+  channel: string,
+  payload: unknown
+): void {
+  const bytes = encodeMessagePackPayload(payload)
+  const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+  try {
+    contents.postMessage(toMessagePackChannel(channel), arrayBuffer)
+  } catch {
+    contents.send(toMessagePackChannel(channel), Buffer.from(bytes))
+  }
+}
 
-interface APIStreamRequest {
-  requestId: string
+interface APIProxyRequest {
   url: string
   method: string
   headers: Record<string, string>
@@ -125,33 +70,6 @@ interface APIStreamRequest {
   allowInsecureTls?: boolean
   providerId?: string
   providerBuiltinId?: string
-  /** Active OAuth account id when the request is account-scoped. Used to surface rate-limit markers. */
-  accountId?: string
-  providerType?: string
-  model?: string
-  sessionId?: string
-  responsesSessionScope?: string
-  websocketUrl?: string
-  websocketMode?: ResponsesWebsocketMode
-  httpFallbackBody?: string
-}
-
-interface AccountRateLimitPayload {
-  providerId?: string
-  providerBuiltinId?: string
-  accountId?: string
-  resetAt: number
-  reason: 'http-429' | 'codex-quota'
-  windowType?: 'primary' | 'secondary'
-  message?: string
-}
-
-function readTimeoutFromEnv(name: string, fallbackMs: number): number {
-  const raw = process.env[name]
-  if (raw == null || raw === '') return fallbackMs
-  const parsed = Number(raw)
-  if (!Number.isFinite(parsed) || parsed < 0) return fallbackMs
-  return Math.floor(parsed)
 }
 
 function cancelNetRequest(req: Electron.ClientRequest): void {
@@ -212,7 +130,6 @@ let insecureProxySessionState: {
   promise: Promise<Electron.Session>
   proxyRules: string | null
 } | null = null
-const responsesWsManager = new ResponsesWebSocketSessionManager('api-proxy')
 
 function getConfiguredSystemProxyUrl(): string | null {
   const saved = readSettings().systemProxyUrl
@@ -229,93 +146,6 @@ function getConfiguredSystemProxyUrl(): string | null {
     if (value) return value
   }
   return null
-}
-
-function maskDebugHeaders(headers: Record<string, string>): Record<string, string> {
-  const masked: Record<string, string> = {}
-  const sensitiveKeys = ['authorization', 'x-api-key', 'api-key', 'x-goog-api-key']
-  for (const [key, value] of Object.entries(headers)) {
-    if (sensitiveKeys.includes(key.toLowerCase())) {
-      if (value.length > 8) {
-        masked[key] = `${value.slice(0, 4)}****${value.slice(-4)}`
-      } else if (value.length > 0) {
-        masked[key] = '****'
-      } else {
-        masked[key] = value
-      }
-      continue
-    }
-    masked[key] = value
-  }
-  return masked
-}
-
-function createSseChunk(eventName: string, payload: string): string {
-  return `event: ${eventName}\ndata: ${payload}\n\n`
-}
-
-function sendStreamChunk(
-  sender: Electron.WebContents | null,
-  requestId: string,
-  data: string
-): void {
-  if (!sender) return
-  sender.send('api:stream-chunk', { requestId, data })
-}
-
-function sendSseEvent(
-  sender: Electron.WebContents | null,
-  requestId: string,
-  eventName: string,
-  payload: unknown
-): void {
-  sendStreamChunk(sender, requestId, createSseChunk(eventName, JSON.stringify(payload)))
-}
-
-function sendResponsesRequestDebug(
-  sender: Electron.WebContents | null,
-  req: Pick<
-    APIStreamRequest,
-    'requestId' | 'providerId' | 'providerBuiltinId' | 'model' | 'headers'
-  >,
-  args: {
-    url: string
-    method: string
-    body?: string
-    contextWindowBody?: string
-    headers?: Record<string, string>
-    transport: 'http' | 'websocket'
-    fallbackReason?: string
-    reusedConnection?: boolean
-    websocketRequestKind?: ResponsesWebsocketRequestKind
-    websocketIncrementalReason?: string
-    previousResponseId?: string
-  }
-): void {
-  sendSseEvent(sender, req.requestId, '__request_debug', {
-    url: args.url,
-    method: args.method,
-    headers: maskDebugHeaders(args.headers ?? req.headers),
-    ...(typeof args.body === 'string' ? { body: args.body } : {}),
-    ...(typeof args.contextWindowBody === 'string'
-      ? { contextWindowBody: args.contextWindowBody }
-      : {}),
-    timestamp: Date.now(),
-    ...(req.providerId ? { providerId: req.providerId } : {}),
-    ...(req.providerBuiltinId ? { providerBuiltinId: req.providerBuiltinId } : {}),
-    ...(req.model ? { model: req.model } : {}),
-    transport: args.transport,
-    ...(args.fallbackReason ? { fallbackReason: args.fallbackReason } : {}),
-    ...(typeof args.reusedConnection === 'boolean'
-      ? { reusedConnection: args.reusedConnection }
-      : {}),
-    ...(args.websocketRequestKind ? { websocketRequestKind: args.websocketRequestKind } : {}),
-    ...(args.websocketIncrementalReason
-      ? { websocketIncrementalReason: args.websocketIncrementalReason }
-      : {}),
-    ...(args.previousResponseId ? { previousResponseId: args.previousResponseId } : {}),
-    executionPath: 'node'
-  })
 }
 
 async function getInsecureProxySession(): Promise<Electron.Session> {
@@ -429,90 +259,6 @@ function extractCodexQuota(
   }
 }
 
-function sendQuotaUpdate(
-  event: Electron.IpcMainEvent,
-  req: Pick<APIStreamRequest, 'requestId' | 'url' | 'providerId' | 'providerBuiltinId'>,
-  headers: Record<string, string | string[] | undefined>
-): void {
-  const quota = extractCodexQuota(headers)
-  if (!quota) return
-  const sender = getSender(event)
-  if (!sender) return
-  sender.send('api:quota-update', {
-    requestId: req.requestId,
-    url: req.url,
-    providerId: req.providerId,
-    providerBuiltinId: req.providerBuiltinId,
-    quota
-  })
-}
-
-/**
- * Detect if the response should trigger an account-level rate-limit marker.
- * Returns the payload to emit, or null.
- *
- * Two triggers:
- *   1. HTTP 429 — derive resetAt from the Retry-After header when present.
- *   2. Codex quota headers showing primary.usedPercent >= 100 — resetAt from x-codex-primary-reset-*.
- *      This is a pre-emptive signal: we mark the account before the next 429 actually arrives.
- */
-function detectAccountRateLimit(
-  status: number,
-  headers: Record<string, string | string[] | undefined>,
-  req: Pick<APIStreamRequest, 'providerId' | 'providerBuiltinId' | 'accountId'>
-): AccountRateLimitPayload | null {
-  if (status === 429) {
-    const retryAfterMs = parseRetryAfterMs(headers['retry-after']) ?? 60_000
-    return {
-      providerId: req.providerId,
-      providerBuiltinId: req.providerBuiltinId,
-      accountId: req.accountId,
-      resetAt: Date.now() + retryAfterMs,
-      reason: 'http-429',
-      message: `HTTP 429 with retry-after ${Math.round(retryAfterMs / 1000)}s`
-    }
-  }
-
-  const quota = extractCodexQuota(headers)
-  if (!quota) return null
-  const saturated =
-    (quota.primary && (quota.primary.usedPercent ?? 0) >= 100 && 'primary') ||
-    (quota.secondary && (quota.secondary.usedPercent ?? 0) >= 100 && 'secondary') ||
-    null
-  if (!saturated) return null
-  const window = saturated === 'primary' ? quota.primary : quota.secondary
-  if (!window) return null
-
-  let resetAt: number | undefined
-  if (typeof window.resetAt === 'string') {
-    const parsed = Date.parse(window.resetAt)
-    if (Number.isFinite(parsed)) resetAt = parsed
-  }
-  if (resetAt === undefined && typeof window.resetAfterSeconds === 'number') {
-    resetAt = Date.now() + window.resetAfterSeconds * 1000
-  }
-  if (resetAt === undefined) return null
-
-  return {
-    providerId: req.providerId,
-    providerBuiltinId: req.providerBuiltinId,
-    accountId: req.accountId,
-    resetAt,
-    reason: 'codex-quota',
-    windowType: saturated,
-    message: `Codex ${saturated} window saturated`
-  }
-}
-
-function sendAccountRateLimited(
-  event: Electron.IpcMainEvent,
-  payload: AccountRateLimitPayload
-): void {
-  const sender = getSender(event)
-  if (!sender) return
-  sender.send('api:account-rate-limited', payload)
-}
-
 async function requestViaSystemProxy(args: {
   url: string
   method: string
@@ -588,816 +334,128 @@ async function requestViaSystemProxy(args: {
   })
 }
 
-export function registerApiProxyHandlers(): void {
-  // Handle non-streaming API requests (e.g., test connection)
-  ipcMain.handle('api:request', async (event, req: Omit<APIStreamRequest, 'requestId'>) => {
-    const {
-      url,
-      method,
-      headers,
-      body,
-      useSystemProxy,
-      allowInsecureTls,
-      providerId,
-      providerBuiltinId
-    } = req
-    const requestHeaders = applyDefaultApiUserAgent(sanitizeHeaders(headers))
+async function handleApiRequest(
+  event: { sender: WebContents },
+  req: APIProxyRequest
+): Promise<{ statusCode?: number; body?: string; error?: string }> {
+  const {
+    url,
+    method,
+    headers,
+    body,
+    useSystemProxy,
+    allowInsecureTls,
+    providerId,
+    providerBuiltinId
+  } = req
+  const requestHeaders = applyDefaultApiUserAgent(sanitizeHeaders(headers))
 
-    type AttemptOutcome = {
-      statusCode?: number
-      body?: string
-      error?: string
-      headers?: Record<string, string | string[] | undefined>
-    }
+  type AttemptOutcome = {
+    statusCode?: number
+    body?: string
+    error?: string
+    headers?: Record<string, string | string[] | undefined>
+  }
 
-    const runDirectAttempt = (): Promise<AttemptOutcome> => {
-      const parsedUrl = new URL(url)
-      const isHttps = parsedUrl.protocol === 'https:'
-      const httpModule = isHttps ? https : http
+  const runDirectAttempt = (): Promise<AttemptOutcome> => {
+    const parsedUrl = new URL(url)
+    const isHttps = parsedUrl.protocol === 'https:'
+    const httpModule = isHttps ? https : http
 
-      const bodyBuffer = body ? Buffer.from(body, 'utf-8') : null
-      const reqHeaders = buildForwardHeaders(requestHeaders, bodyBuffer)
+    const bodyBuffer = body ? Buffer.from(body, 'utf-8') : null
+    const reqHeaders = buildForwardHeaders(requestHeaders, bodyBuffer)
 
-      return new Promise<AttemptOutcome>((resolve) => {
-        const options = {
-          hostname: parsedUrl.hostname,
-          port: parsedUrl.port || (isHttps ? 443 : 80),
-          path: parsedUrl.pathname + parsedUrl.search,
-          method,
-          headers: reqHeaders,
-          ...(isHttps && (allowInsecureTls ?? true) ? { rejectUnauthorized: false } : {})
-        }
-
-        const httpReq = httpModule.request(options, (res) => {
-          let responseBody = ''
-          res.on('data', (chunk: Buffer) => {
-            if (responseBody.length < MAX_RESPONSE_BODY_CHARS) {
-              responseBody += chunk.toString()
-            }
-          })
-          res.on('end', () => {
-            resolve({
-              statusCode: res.statusCode,
-              body: responseBody,
-              headers: res.headers as Record<string, string | string[] | undefined>
-            })
-          })
-        })
-
-        httpReq.on('error', (err) => {
-          console.error(`[API Proxy] request error: ${err.message}`)
-          resolve({ statusCode: 0, error: err.message })
-        })
-
-        httpReq.setTimeout(15000, () => {
-          httpReq.destroy()
-          resolve({ statusCode: 0, error: 'Request timed out (15s)' })
-        })
-
-        if (bodyBuffer) httpReq.write(bodyBuffer)
-        httpReq.end()
-      })
-    }
-
-    try {
-      console.log(`[API Proxy] request ${method} ${url}`)
-      let result: AttemptOutcome = {}
-      for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-        result = useSystemProxy
-          ? await requestViaSystemProxy({
-              url,
-              method,
-              headers: requestHeaders,
-              body,
-              allowInsecureTls
-            })
-          : await runDirectAttempt()
-        const status = result.statusCode ?? 0
-        if (status > 0 && isRetryableStatus(status) && attempt < MAX_RETRY_ATTEMPTS) {
-          const retryAfterMs = parseRetryAfterMs(result.headers?.['retry-after'])
-          const delay = computeBackoffMs(attempt, retryAfterMs)
-          console.warn(
-            `[API Proxy] request HTTP ${status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRY_ATTEMPTS})`
-          )
-          await new Promise<void>((r) => setTimeout(r, delay))
-          continue
-        }
-        break
+    return new Promise<AttemptOutcome>((resolve) => {
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (isHttps ? 443 : 80),
+        path: parsedUrl.pathname + parsedUrl.search,
+        method,
+        headers: reqHeaders,
+        ...(isHttps && (allowInsecureTls ?? true) ? { rejectUnauthorized: false } : {})
       }
 
-      if ((providerId || providerBuiltinId) && result.headers) {
-        const quota = extractCodexQuota(result.headers)
-        if (quota && event.sender) {
-          event.sender.send('api:quota-update', {
-            url,
-            providerId,
-            providerBuiltinId,
-            quota
-          })
-        }
-      }
-
-      return { statusCode: result.statusCode, body: result.body, error: result.error }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      console.error(`[API Proxy] request fatal error: ${errMsg}`)
-      return { statusCode: 0, error: errMsg }
-    }
-  })
-
-  // Handle streaming API requests from renderer
-  ipcMain.on('api:stream-request', (event, req: APIStreamRequest) => {
-    const {
-      requestId,
-      url,
-      method,
-      headers,
-      body,
-      httpFallbackBody,
-      useSystemProxy,
-      allowInsecureTls,
-      providerId,
-      providerBuiltinId,
-      accountId
-    } = req
-    const httpBody = httpFallbackBody ?? body
-    const requestHeaders = applyDefaultApiUserAgent(sanitizeHeaders(headers))
-    const circuitKey = buildApiStreamCircuitKey({ url, providerId, providerBuiltinId, accountId })
-
-    console.log(`[API Proxy] stream-request[${requestId}] ${method} ${url}`)
-
-    // Abort plumbing: registered once for the lifetime of the retry loop.
-    let aborted = false
-    let cancelCurrentAttempt: (() => void) | null = null
-    let cancelRetryWait: (() => void) | null = null
-
-    const abortHandler = (_event: Electron.IpcMainEvent, data: { requestId: string }): void => {
-      if (data.requestId !== requestId) return
-      aborted = true
-      cancelCurrentAttempt?.()
-      cancelRetryWait?.()
-      ipcMain.removeListener('api:abort', abortHandler)
-    }
-    ipcMain.on('api:abort', abortHandler)
-
-    const sendError = (payload: { message: string; type?: string; statusCode?: number }): void => {
-      const sender = getSender(event)
-      if (sender) {
-        sender.send('api:stream-error', {
-          requestId,
-          error: payload.message,
-          type: payload.type,
-          statusCode: payload.statusCode
+      const httpReq = httpModule.request(options, (res) => {
+        let responseBody = ''
+        res.on('data', (chunk: Buffer) => {
+          if (responseBody.length < MAX_RESPONSE_BODY_CHARS) {
+            responseBody += chunk.toString()
+          }
         })
-      }
-    }
-
-    const waitForRetry = (ms: number): Promise<void> =>
-      new Promise<void>((resolve) => {
-        if (aborted) {
-          resolve()
-          return
-        }
-        const timer = setTimeout(() => {
-          cancelRetryWait = null
-          resolve()
-        }, ms)
-        cancelRetryWait = () => {
-          clearTimeout(timer)
-          cancelRetryWait = null
-          resolve()
-        }
+        res.on('end', () => {
+          resolve({
+            statusCode: res.statusCode,
+            body: responseBody,
+            headers: res.headers as Record<string, string | string[] | undefined>
+          })
+        })
       })
 
-    const openCircuitReason = getApiStreamCircuitReason(circuitKey)
-    if (openCircuitReason) {
-      sendError({ message: openCircuitReason, type: 'transport_circuit_open' })
-      ipcMain.removeListener('api:abort', abortHandler)
-      return
-    }
-
-    const runOneHttpAttempt = async (args?: {
-      debugInfo?: {
-        transport: 'http' | 'websocket'
-        url: string
-        method: string
-        body?: string
-        fallbackReason?: string
-        reusedConnection?: boolean
-      }
-    }): Promise<AttemptResult> => {
-      const requestSession =
-        useSystemProxy && allowInsecureTls ? await getInsecureProxySession() : undefined
-
-      return await new Promise<AttemptResult>((resolve) => {
-        const STREAM_CHUNK_FLUSH_MS = 32
-        const STREAM_CHUNK_MAX_BUFFER_CHARS = 8_192
-        let bufferedChunk = ''
-        let chunkFlushTimer: ReturnType<typeof setTimeout> | null = null
-        let settled = false
-        let completed = false
-        let deliveredAnyChunk = false
-
-        const finish = (result: AttemptResult): void => {
-          if (settled) return
-          settled = true
-          cancelCurrentAttempt = null
-          resolve(result)
-        }
-
-        const clearChunkFlushTimer = (): void => {
-          if (chunkFlushTimer) {
-            clearTimeout(chunkFlushTimer)
-            chunkFlushTimer = null
-          }
-        }
-
-        const flushBufferedChunk = (): void => {
-          clearChunkFlushTimer()
-          if (!bufferedChunk) return
-          const sender = getSender(event)
-          if (sender) {
-            sender.send('api:stream-chunk', { requestId, data: bufferedChunk })
-            deliveredAnyChunk = true
-          }
-          bufferedChunk = ''
-        }
-
-        const queueChunkFlush = (): void => {
-          if (chunkFlushTimer) return
-          chunkFlushTimer = setTimeout(() => {
-            chunkFlushTimer = null
-            flushBufferedChunk()
-          }, STREAM_CHUNK_FLUSH_MS)
-        }
-
-        const pushStreamChunk = (chunk: Buffer): void => {
-          bufferedChunk += chunk.toString()
-          if (bufferedChunk.length >= STREAM_CHUNK_MAX_BUFFER_CHARS) {
-            flushBufferedChunk()
-            return
-          }
-          queueChunkFlush()
-        }
-
-        const buildTransportAttemptResult = (message: string): AttemptResult => {
-          const trimmed = message.trim()
-          const retryableTransport = isRetryableTransportMessage(trimmed)
-          return {
-            kind: retryableTransport && !deliveredAnyChunk ? 'retryable' : 'fatal',
-            status: 0,
-            body: trimmed || 'Unknown transport error',
-            ...(retryableTransport ? { errorType: 'transport_error' } : {})
-          }
-        }
-
-        // Timeouts (ms):
-        // - Connection: max wait for the server to start responding (first byte)
-        // - Idle: max gap between consecutive data chunks during streaming
-        const CONNECTION_TIMEOUT = readTimeoutFromEnv(
-          'OPENCOWORK_API_CONNECTION_TIMEOUT_MS',
-          180_000
-        )
-        const IDLE_TIMEOUT = readTimeoutFromEnv('OPENCOWORK_API_IDLE_TIMEOUT_MS', 300_000)
-
-        try {
-          if (args?.debugInfo) {
-            sendResponsesRequestDebug(
-              getSender(event),
-              { ...req, headers: requestHeaders },
-              args.debugInfo
-            )
-          }
-
-          if (useSystemProxy) {
-            const requestUrl = url.trim()
-            const bodyBuffer = httpBody ? Buffer.from(httpBody, 'utf-8') : null
-            const reqHeaders = buildForwardHeaders(requestHeaders, bodyBuffer, {
-              includeContentLength: false
-            })
-
-            let idleTimer: ReturnType<typeof setTimeout> | null = null
-            const clearIdleTimer = (): void => {
-              if (idleTimer) {
-                clearTimeout(idleTimer)
-                idleTimer = null
-              }
-            }
-
-            const httpReq = net.request({
-              method,
-              url: requestUrl,
-              ...(requestSession ? { session: requestSession } : {})
-            })
-            for (const [key, value] of Object.entries(reqHeaders)) {
-              httpReq.setHeader(key, value)
-            }
-
-            let connectionTimer: ReturnType<typeof setTimeout> | null = null
-            const clearConnectionTimer = (): void => {
-              if (connectionTimer) {
-                clearTimeout(connectionTimer)
-                connectionTimer = null
-              }
-            }
-
-            const resetIdleTimer = (): void => {
-              if (IDLE_TIMEOUT <= 0) return
-              clearIdleTimer()
-              idleTimer = setTimeout(() => {
-                console.warn(`[API Proxy] Idle timeout (${IDLE_TIMEOUT}ms) for ${requestId}`)
-                cancelNetRequest(httpReq)
-              }, IDLE_TIMEOUT)
-            }
-
-            cancelCurrentAttempt = (): void => {
-              clearConnectionTimer()
-              clearIdleTimer()
-              clearChunkFlushTimer()
-              bufferedChunk = ''
-              cancelNetRequest(httpReq)
-            }
-
-            httpReq.on('response', (res) => {
-              clearConnectionTimer()
-              const statusCode = res.statusCode || 0
-              sendQuotaUpdate(
-                event,
-                { requestId, url, providerId, providerBuiltinId },
-                res.headers ?? {}
-              )
-              const rateLimit = detectAccountRateLimit(statusCode, res.headers ?? {}, {
-                providerId,
-                providerBuiltinId,
-                accountId
-              })
-              if (rateLimit) {
-                sendAccountRateLimited(event, rateLimit)
-              }
-
-              if (statusCode < 200 || statusCode >= 300) {
-                clearIdleTimer()
-                let errorBody = ''
-                res.on('data', (chunk: Buffer) => {
-                  if (errorBody.length < 4000) errorBody += chunk.toString()
-                })
-                res.on('end', () => {
-                  const retryAfterMs = parseRetryAfterMs(
-                    (res.headers as Record<string, string | string[] | undefined>)['retry-after']
-                  )
-                  console.error(
-                    `[API Proxy] stream-request[${requestId}] HTTP ${statusCode}: ${errorBody.slice(0, 500)}`
-                  )
-                  // If this account is rate-limited, don't retry on it at the proxy level:
-                  // the agent loop will fail over to another account.
-                  const kind: AttemptResult['kind'] = rateLimit
-                    ? 'fatal'
-                    : isRetryableStatus(statusCode)
-                      ? 'retryable'
-                      : 'fatal'
-                  finish({
-                    kind,
-                    status: statusCode,
-                    body: errorBody,
-                    retryAfterMs,
-                    errorType: `http_${statusCode}`
-                  } as AttemptResult)
-                })
-                return
-              }
-
-              res.on('data', (chunk: Buffer) => {
-                resetIdleTimer()
-                pushStreamChunk(chunk)
-              })
-
-              res.on('end', () => {
-                completed = true
-                clearIdleTimer()
-                flushBufferedChunk()
-                const sender = getSender(event)
-                if (sender) sender.send('api:stream-end', { requestId })
-                finish({ kind: 'streamed' })
-              })
-
-              res.on('error', (err) => {
-                clearIdleTimer()
-                clearChunkFlushTimer()
-                bufferedChunk = ''
-                console.error(
-                  `[API Proxy] stream-request[${requestId}] response error: ${err.message}`
-                )
-                finish(buildTransportAttemptResult(err.message))
-              })
-            })
-
-            if (CONNECTION_TIMEOUT > 0) {
-              connectionTimer = setTimeout(() => {
-                console.warn(
-                  `[API Proxy] Connection timeout (${CONNECTION_TIMEOUT}ms) for ${requestId}`
-                )
-                cancelNetRequest(httpReq)
-                finish(
-                  buildTransportAttemptResult(`Connection timeout (${CONNECTION_TIMEOUT / 1000}s)`)
-                )
-              }, CONNECTION_TIMEOUT)
-            }
-
-            httpReq.on('error', (err) => {
-              clearConnectionTimer()
-              clearIdleTimer()
-              clearChunkFlushTimer()
-              bufferedChunk = ''
-              console.error(
-                `[API Proxy] stream-request[${requestId}] request error: ${err.message}`
-              )
-              finish(buildTransportAttemptResult(err.message))
-            })
-
-            httpReq.on('close', () => {
-              clearConnectionTimer()
-              clearIdleTimer()
-              clearChunkFlushTimer()
-              bufferedChunk = ''
-              // 正常流结束后，底层连接 close 是预期行为，不应再报错。
-              if (!settled && !completed) finish(buildTransportAttemptResult('Connection closed'))
-            })
-
-            if (bodyBuffer) httpReq.write(bodyBuffer)
-            httpReq.end()
-            return
-          }
-
-          // Direct http/https path
-          const parsedUrl = new URL(url)
-          const isHttps = parsedUrl.protocol === 'https:'
-          const httpModule = isHttps ? https : http
-
-          const bodyBuffer = httpBody ? Buffer.from(httpBody, 'utf-8') : null
-          const reqHeaders = buildForwardHeaders(requestHeaders, bodyBuffer)
-
-          const options = {
-            hostname: parsedUrl.hostname,
-            port: parsedUrl.port || (isHttps ? 443 : 80),
-            path: parsedUrl.pathname + parsedUrl.search,
-            method,
-            headers: reqHeaders,
-            ...(isHttps && (allowInsecureTls ?? true) ? { rejectUnauthorized: false } : {})
-          }
-
-          let idleTimer: ReturnType<typeof setTimeout> | null = null
-          const clearIdleTimer = (): void => {
-            if (idleTimer) {
-              clearTimeout(idleTimer)
-              idleTimer = null
-            }
-          }
-
-          const httpReq = httpModule.request(options, (res) => {
-            const statusCode = res.statusCode || 0
-            sendQuotaUpdate(
-              event,
-              { requestId, url, providerId, providerBuiltinId },
-              res.headers ?? {}
-            )
-            const rateLimit = detectAccountRateLimit(statusCode, res.headers ?? {}, {
-              providerId,
-              providerBuiltinId,
-              accountId
-            })
-            if (rateLimit) {
-              sendAccountRateLimited(event, rateLimit)
-            }
-
-            if (statusCode < 200 || statusCode >= 300) {
-              clearIdleTimer()
-              let errorBody = ''
-              res.on('data', (chunk: Buffer) => {
-                if (errorBody.length < 4000) errorBody += chunk.toString()
-              })
-              res.on('end', () => {
-                const retryAfterMs = parseRetryAfterMs(res.headers['retry-after'])
-                console.error(
-                  `[API Proxy] stream-request[${requestId}] HTTP ${statusCode}: ${errorBody.slice(0, 500)}`
-                )
-                finish({
-                  kind: rateLimit ? 'fatal' : isRetryableStatus(statusCode) ? 'retryable' : 'fatal',
-                  status: statusCode,
-                  body: errorBody,
-                  retryAfterMs,
-                  errorType: `http_${statusCode}`
-                } as AttemptResult)
-              })
-              return
-            }
-
-            const resetIdleTimer = (): void => {
-              if (IDLE_TIMEOUT <= 0) return
-              clearIdleTimer()
-              idleTimer = setTimeout(() => {
-                console.warn(`[API Proxy] Idle timeout (${IDLE_TIMEOUT}ms) for ${requestId}`)
-                httpReq.destroy(
-                  new Error(`Stream idle timeout (${IDLE_TIMEOUT / 1000}s with no data)`)
-                )
-              }, IDLE_TIMEOUT)
-            }
-
-            res.on('data', (chunk: Buffer) => {
-              resetIdleTimer()
-              pushStreamChunk(chunk)
-            })
-
-            res.on('end', () => {
-              clearIdleTimer()
-              flushBufferedChunk()
-              const sender = getSender(event)
-              if (sender) sender.send('api:stream-end', { requestId })
-              finish({ kind: 'streamed' })
-            })
-
-            res.on('error', (err) => {
-              clearIdleTimer()
-              clearChunkFlushTimer()
-              bufferedChunk = ''
-              console.error(
-                `[API Proxy] stream-request[${requestId}] response error: ${err.message}`
-              )
-              finish(buildTransportAttemptResult(err.message))
-            })
-          })
-
-          cancelCurrentAttempt = (): void => {
-            clearIdleTimer()
-            clearChunkFlushTimer()
-            bufferedChunk = ''
-            httpReq.destroy()
-          }
-
-          if (CONNECTION_TIMEOUT > 0) {
-            httpReq.setTimeout(CONNECTION_TIMEOUT, () => {
-              console.warn(
-                `[API Proxy] Connection timeout (${CONNECTION_TIMEOUT}ms) for ${requestId}`
-              )
-              httpReq.destroy(new Error(`Connection timeout (${CONNECTION_TIMEOUT / 1000}s)`))
-            })
-          }
-
-          httpReq.on('error', (err) => {
-            clearIdleTimer()
-            clearChunkFlushTimer()
-            bufferedChunk = ''
-            console.error(`[API Proxy] stream-request[${requestId}] request error: ${err.message}`)
-            finish(buildTransportAttemptResult(err.message))
-          })
-
-          httpReq.on('close', () => {
-            clearIdleTimer()
-            clearChunkFlushTimer()
-            bufferedChunk = ''
-            if (!settled && !completed) finish(buildTransportAttemptResult('Connection closed'))
-          })
-
-          if (bodyBuffer) httpReq.write(bodyBuffer)
-          httpReq.end()
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err)
-          console.error(`[API Proxy] stream-request[${requestId}] fatal error: ${errMsg}`)
-          finish(buildTransportAttemptResult(errMsg))
-        }
-      })
-    }
-
-    const runHttpWithRetries = async (debugInfo?: {
-      transport: 'http' | 'websocket'
-      url: string
-      method: string
-      body?: string
-      fallbackReason?: string
-      reusedConnection?: boolean
-    }): Promise<boolean> => {
-      let httpStatusAttempt = 0
-      let transportAttempt = 0
-      const shouldCircuitBreakResult = (
-        result: Extract<AttemptResult, { kind: 'retryable' | 'fatal' }>
-      ): boolean => {
-        if (result.status > 0) return shouldCircuitBreakStatus(result.status)
-        return result.errorType === 'transport_error' && isRetryableTransportMessage(result.body)
-      }
-      const buildCircuitReason = (
-        result: Extract<AttemptResult, { kind: 'retryable' | 'fatal' }>
-      ): string => {
-        const trimmed = result.body.trim().slice(0, 500)
-        const lastError =
-          result.status > 0
-            ? `HTTP ${result.status}${trimmed ? `: ${trimmed}` : ''}`
-            : trimmed || 'Unknown transport error'
-        return `Provider is temporarily pausing new requests after repeated upstream failures. Requests will resume automatically soon. Last error: ${lastError}`
-      }
-
-      while (true) {
-        if (aborted) return true
-        const result = await runOneHttpAttempt(
-          httpStatusAttempt === 0 && transportAttempt === 0 && debugInfo ? { debugInfo } : undefined
-        )
-        if (aborted) return true
-        if (result.kind === 'streamed') {
-          resetApiStreamCircuit(circuitKey)
-          return true
-        }
-        if (result.kind === 'retryable') {
-          const transportRetryable = result.status === 0 && result.errorType === 'transport_error'
-          const attemptsUsed = transportRetryable ? transportAttempt : httpStatusAttempt
-          const attemptLimit = transportRetryable
-            ? MAX_TRANSPORT_RETRY_ATTEMPTS
-            : MAX_RETRY_ATTEMPTS
-
-          if (attemptsUsed < attemptLimit) {
-            const delay = computeBackoffMs(attemptsUsed, result.retryAfterMs)
-            const reasonLabel =
-              result.status > 0
-                ? `HTTP ${result.status}`
-                : result.body.slice(0, 120) || 'transport error'
-            console.warn(
-              `[API Proxy] stream-request[${requestId}] ${reasonLabel}, retrying in ${delay}ms (attempt ${attemptsUsed + 1}/${attemptLimit})`
-            )
-            if (transportRetryable) {
-              transportAttempt += 1
-            } else {
-              httpStatusAttempt += 1
-            }
-            await waitForRetry(delay)
-            continue
-          }
-        }
-        if (result.kind === 'fallback') {
-          continue
-        }
-        if (
-          (result.kind === 'retryable' || result.kind === 'fatal') &&
-          shouldCircuitBreakResult(result)
-        ) {
-          setApiStreamCircuitReason(circuitKey, buildCircuitReason(result))
-        }
-        const trimmed = result.body.slice(0, 2000)
-        const errorMessage =
-          result.status > 0 ? `HTTP ${result.status}: ${trimmed}` : trimmed || 'Unknown error'
-        sendError({
-          message: errorMessage,
-          type: result.errorType,
-          ...(result.status > 0 ? { statusCode: result.status } : {})
-        })
-        return false
-      }
-    }
-
-    const runResponsesWsAttempt = async (args: {
-      websocketUrl: string
-      fallbackReason?: string
-    }): Promise<AttemptResult> => {
-      const sender = getSender(event)
-      const wsAbortController = new AbortController()
-      cancelCurrentAttempt = (): void => {
-        wsAbortController.abort()
-      }
-
-      const result = await responsesWsManager.executeRequest({
-        providerKey: providerId ?? providerBuiltinId ?? 'unknown',
-        sessionKey: buildResponsesWebsocketSessionKey({
-          providerKey: providerId ?? providerBuiltinId ?? 'unknown',
-          model: req.model,
-          sessionId: req.sessionId,
-          websocketUrl: args.websocketUrl,
-          sessionScope: req.responsesSessionScope
-        }),
-        websocketUrl: args.websocketUrl,
-        headers: requestHeaders,
-        httpBody: body ?? '',
-        useSystemProxy,
-        allowInsecureTls,
-        signal: wsAbortController.signal,
-        label: requestId,
-        fallbackReason: args.fallbackReason,
-        onDebug: (debugInfo) => {
-          sendResponsesRequestDebug(sender, req, {
-            url: debugInfo.url,
-            method: 'WEBSOCKET',
-            headers: debugInfo.headers,
-            body: debugInfo.body,
-            contextWindowBody: debugInfo.contextWindowBody,
-            transport: debugInfo.transport,
-            fallbackReason: debugInfo.fallbackReason,
-            reusedConnection: debugInfo.reusedConnection,
-            websocketRequestKind: debugInfo.websocketRequestKind,
-            websocketIncrementalReason: debugInfo.websocketIncrementalReason,
-            previousResponseId: debugInfo.previousResponseId
-          })
-        },
-        onEvent: (eventType, payload) => {
-          sendStreamChunk(sender, requestId, createSseChunk(eventType, JSON.stringify(payload)))
-          if (
-            eventType === 'response.completed' ||
-            eventType === 'response.failed' ||
-            eventType === 'error'
-          ) {
-            sender?.send('api:stream-end', { requestId })
-          }
-        }
+      httpReq.on('error', (err) => {
+        console.error(`[API Proxy] request error: ${err.message}`)
+        resolve({ statusCode: 0, error: err.message })
       })
 
-      cancelCurrentAttempt = null
-      if (result.kind === 'streamed') {
-        return { kind: 'streamed' }
-      }
-      if (result.kind === 'fallback') {
-        return { kind: 'fallback', reason: result.reason }
-      }
-      return { kind: 'fatal', status: 0, body: result.error }
-    }
-
-    ;(async () => {
-      const responsesWsConfig = resolveResponsesWebsocketConfig({
-        providerType: req.providerType,
-        websocketMode: req.websocketMode,
-        websocketUrl: req.websocketUrl,
-        baseUrl: url,
-        sessionScope: req.responsesSessionScope
+      httpReq.setTimeout(15000, () => {
+        httpReq.destroy()
+        resolve({ statusCode: 0, error: 'Request timed out (15s)' })
       })
 
-      const shouldTryResponsesWs =
-        req.providerType === 'openai-responses' &&
-        responsesWsConfig.mode !== 'disabled' &&
-        Boolean(responsesWsConfig.websocketUrl)
-
-      if (!shouldTryResponsesWs) {
-        const fallbackReason =
-          req.providerType === 'openai-responses' &&
-          responsesWsConfig.source !== 'disabled' &&
-          responsesWsConfig.reason &&
-          responsesWsConfig.reason !== 'unsupported_provider'
-            ? responsesWsConfig.reason
-            : undefined
-        await runHttpWithRetries({
-          transport: 'http',
-          url,
-          method,
-          body: httpBody,
-          ...(fallbackReason ? { fallbackReason } : {})
-        })
-        return
-      }
-
-      const websocketUrl = responsesWsConfig.websocketUrl!
-      const circuitReason = responsesWsManager.getCircuitReason(
-        providerId ?? providerBuiltinId ?? 'unknown',
-        websocketUrl
-      )
-      if (circuitReason) {
-        await runHttpWithRetries({
-          transport: 'http',
-          url,
-          method,
-          body: httpBody,
-          fallbackReason: circuitReason
-        })
-        return
-      }
-
-      const wsResult = await runResponsesWsAttempt({ websocketUrl })
-      if (aborted) return
-
-      if (wsResult.kind === 'streamed') return
-
-      if (wsResult.kind === 'fallback') {
-        await runHttpWithRetries({
-          transport: 'http',
-          url,
-          method,
-          body: httpBody,
-          fallbackReason: wsResult.reason
-        })
-        return
-      }
-
-      const trimmed = wsResult.body.slice(0, 2000)
-      sendError({ message: trimmed || 'Unknown WebSocket error' })
-    })().finally(() => {
-      ipcMain.removeListener('api:abort', abortHandler)
+      if (bodyBuffer) httpReq.write(bodyBuffer)
+      httpReq.end()
     })
-  })
+  }
+
+  try {
+    console.log(`[API Proxy] request ${method} ${url}`)
+    let result: AttemptOutcome = {}
+    for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      result = useSystemProxy
+        ? await requestViaSystemProxy({
+            url,
+            method,
+            headers: requestHeaders,
+            body,
+            allowInsecureTls
+          })
+        : await runDirectAttempt()
+      const status = result.statusCode ?? 0
+      if (status > 0 && isRetryableStatus(status) && attempt < MAX_RETRY_ATTEMPTS) {
+        const retryAfterMs = parseRetryAfterMs(result.headers?.['retry-after'])
+        const delay = computeBackoffMs(attempt, retryAfterMs)
+        console.warn(
+          `[API Proxy] request HTTP ${status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRY_ATTEMPTS})`
+        )
+        await new Promise<void>((r) => setTimeout(r, delay))
+        continue
+      }
+      break
+    }
+
+    if ((providerId || providerBuiltinId) && result.headers) {
+      const quota = extractCodexQuota(result.headers)
+      if (quota && event.sender) {
+        const payload = {
+          url,
+          providerId,
+          providerBuiltinId,
+          quota
+        }
+        sendMessagePackToWebContents(event.sender, 'api:quota-update', payload)
+      }
+    }
+
+    return { statusCode: result.statusCode, body: result.body, error: result.error }
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error(`[API Proxy] request fatal error: ${errMsg}`)
+    return { statusCode: 0, error: errMsg }
+  }
 }
 
-function getSender(event: Electron.IpcMainEvent): Electron.WebContents | null {
-  try {
-    const sender = event.sender
-    if (sender.isDestroyed() || sender.isCrashed()) {
-      return null
-    }
-    const win = BrowserWindow.fromWebContents(sender)
-    if (win && !win.isDestroyed()) {
-      return sender
-    }
-  } catch {
-    // Window may have been closed
-  }
-  return null
+export function registerApiProxyHandlers(): void {
+  ipcMain.handle(toMessagePackChannel('api:request'), async (event, bytes: Uint8Array) => {
+    const req = decodeMessagePackPayload<APIProxyRequest>(bytes)
+    return encodeMessagePackPayload(await handleApiRequest(event, req))
+  })
 }

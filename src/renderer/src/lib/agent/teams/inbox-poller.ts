@@ -1,7 +1,8 @@
 import type { ToolCallState } from '../types'
 import type {
   TeamRuntimePermissionUpdatePayload,
-  TeamRuntimePlanApprovalRequestPayload
+  TeamRuntimePlanApprovalRequestPayload,
+  TeamRuntimePlanApprovalResponsePayload
 } from '../../../../../shared/team-runtime-types'
 import { useAgentStore } from '../../../stores/agent-store'
 import { useTeamStore } from '../../../stores/team-store'
@@ -72,6 +73,35 @@ export async function sendApprovalResponse(params: {
       type: 'permission_response',
       content: JSON.stringify({ approved: params.approved, requestId: params.requestId }),
       summary: params.summary,
+      timestamp: Date.now()
+    }
+  })
+}
+
+export async function sendPlanApprovalResponse(params: {
+  requestId: string
+  approved: boolean
+  to: string
+  feedback?: string
+}): Promise<void> {
+  const team = useTeamStore.getState().activeTeam
+  if (!team) return
+
+  const payload: TeamRuntimePlanApprovalResponsePayload = {
+    requestId: params.requestId,
+    approved: params.approved,
+    ...(params.feedback ? { feedback: params.feedback } : {})
+  }
+
+  await appendTeamRuntimeMessage({
+    teamName: team.name,
+    message: {
+      id: `plan-res-${params.requestId}-${Date.now()}`,
+      from: 'lead',
+      to: params.to,
+      type: 'plan_approval_response',
+      content: JSON.stringify(payload),
+      summary: params.approved ? 'Leader approved plan' : 'Leader rejected plan',
       timestamp: Date.now()
     }
   })

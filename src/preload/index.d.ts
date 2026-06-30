@@ -5,10 +5,6 @@ import type {
   CreateTeamRuntimeArgs,
   DeleteTeamRuntimeArgs,
   GetTeamRuntimeSnapshotArgs,
-  SpawnIsolatedTeamWorkerArgs,
-  SpawnIsolatedTeamWorkerResult,
-  StopIsolatedTeamWorkerArgs,
-  StopIsolatedTeamWorkersArgs,
   UpdateTeamRuntimeManifestArgs,
   UpdateTeamRuntimeMemberArgs,
   TeamRuntimeCreateResult,
@@ -34,9 +30,6 @@ interface OpenCoworkAPI {
   teamRuntimeConsumeMessages: (
     args: ConsumeTeamRuntimeMessagesArgs
   ) => Promise<TeamRuntimeMessageRecord[]>
-  teamWorkerSpawn: (args: SpawnIsolatedTeamWorkerArgs) => Promise<SpawnIsolatedTeamWorkerResult>
-  teamWorkerStop: (args: StopIsolatedTeamWorkerArgs) => Promise<{ success: true }>
-  teamWorkerStopTeam: (args: StopIsolatedTeamWorkersArgs) => Promise<{ success: true }>
 }
 
 declare global {

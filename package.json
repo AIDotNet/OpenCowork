@@ -1,6 +1,6 @@
 {
   "name": "open-cowork",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Open-source desktop platform for multi-agent AI collaboration with local tools and workplace integration",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -12,6 +12,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "native:publish": "node ./scripts/publish-native-worker.mjs",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",

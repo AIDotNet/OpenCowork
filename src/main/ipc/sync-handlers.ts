@@ -9,6 +9,11 @@ import { getActiveRunJobIds } from '../cron/cron-scheduler'
 import { readSyncConfig, writeSyncConfig } from '../sync/sync-config'
 import { syncEngine } from '../sync/sync-engine'
 import { getSidecarManager } from './sidecar-manager'
+import {
+  decodeMessagePackPayload,
+  encodeMessagePackPayload,
+  toMessagePackChannel
+} from '../../shared/messagepack/binary-ipc'
 
 let autoSyncTimer: ReturnType<typeof setInterval> | null = null
 
@@ -22,53 +27,67 @@ function stopAutoSyncTimer(): void {
   autoSyncTimer = null
 }
 
-function shouldDeferAutoSync(): boolean {
-  const status = syncEngine.getStatus()
+async function shouldDeferAutoSync(): Promise<boolean> {
+  const status = await syncEngine.getStatus()
   if (status.running || status.pendingConflicts.length > 0) return true
   if (getActiveRunJobIds().length > 0) return true
   return getSidecarManager().hasActiveRuns()
 }
 
-export function configureAutoSyncTimer(): void {
+function registerSyncMessagePackHandler<TArgs>(
+  channel: string,
+  handler: (args: TArgs) => Promise<unknown> | unknown
+): void {
+  ipcMain.handle(toMessagePackChannel(channel), async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<TArgs>(bytes)
+    return encodeMessagePackPayload(await handler(args))
+  })
+}
+
+export async function configureAutoSyncTimer(): Promise<void> {
   stopAutoSyncTimer()
-  const config = readSyncConfig()
+  const config = await readSyncConfig()
   const provider = config.providers.find((item) => item.id === config.activeProviderId)
   if (!provider?.enabled || !provider.webdav.autoSyncEnabled) return
 
   const intervalMs = Math.max(5, provider.webdav.syncIntervalMinutes) * 60 * 1000
   autoSyncTimer = setInterval(() => {
-    if (shouldDeferAutoSync()) return
-    void syncEngine.run('sync')
+    void (async () => {
+      if (await shouldDeferAutoSync()) return
+      await syncEngine.run('sync')
+    })()
   }, intervalMs)
 }
 
 export function registerSyncHandlers(): void {
-  ipcMain.handle('sync:config:get', () => readSyncConfig())
+  registerSyncMessagePackHandler<undefined>('sync:config:get', () => readSyncConfig())
 
-  ipcMain.handle('sync:config:set', (_event, config: SyncConfig) => {
-    const next = writeSyncConfig(config)
-    configureAutoSyncTimer()
+  registerSyncMessagePackHandler<SyncConfig>('sync:config:set', async (config) => {
+    const next = await writeSyncConfig(config)
+    await configureAutoSyncTimer()
     return next
   })
 
-  ipcMain.handle('sync:providers:list', () => syncEngine.getProviderDescriptors())
+  registerSyncMessagePackHandler<undefined>('sync:providers:list', () =>
+    syncEngine.getProviderDescriptors()
+  )
 
-  ipcMain.handle('sync:connection:test', (_event, provider?: SyncProviderConfig) => {
+  registerSyncMessagePackHandler<SyncProviderConfig | undefined>('sync:connection:test', (provider) => {
     return syncEngine.testConnection(provider)
   })
 
-  ipcMain.handle('sync:status', () => syncEngine.getStatus())
+  registerSyncMessagePackHandler<undefined>('sync:status', () => syncEngine.getStatus())
 
-  ipcMain.handle('sync:run', (_event, args?: { mode?: unknown }) => {
+  registerSyncMessagePackHandler<{ mode?: unknown } | undefined>('sync:run', (args) => {
     return syncEngine.run(normalizeRunMode(args?.mode))
   })
 
-  ipcMain.handle(
+  registerSyncMessagePackHandler<{ resolutions?: SyncConflictResolution[] } | undefined>(
     'sync:conflicts:resolve',
-    (_event, args?: { resolutions?: SyncConflictResolution[] }) => {
+    (args) => {
       return syncEngine.resolveConflicts(Array.isArray(args?.resolutions) ? args.resolutions : [])
     }
   )
 
-  configureAutoSyncTimer()
+  void configureAutoSyncTimer()
 }

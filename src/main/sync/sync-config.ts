@@ -87,8 +87,8 @@ function createDefaultConfig(deviceId: string = randomUUID()): SyncConfig {
   }
 }
 
-export function readSyncConfig(): SyncConfig {
-  const root = readConfig()
+export async function readSyncConfig(): Promise<SyncConfig> {
+  const root = await readConfig()
   const raw = toRecord(root[CONFIG_KEY])
   const deviceId = asString(raw.deviceId) || randomUUID()
   const providersRaw = Array.isArray(raw.providers) ? raw.providers : []
@@ -111,8 +111,8 @@ export function readSyncConfig(): SyncConfig {
   }
 }
 
-export function writeSyncConfig(config: SyncConfig): SyncConfig {
-  const root = readConfig()
+export async function writeSyncConfig(config: SyncConfig): Promise<SyncConfig> {
+  const root = await readConfig()
   const nextConfig: SyncConfig = {
     ...config,
     deviceId: config.deviceId || randomUUID(),
@@ -121,22 +121,22 @@ export function writeSyncConfig(config: SyncConfig): SyncConfig {
         ? config.providers.map(normalizeProvider)
         : createDefaultConfig().providers
   }
-  writeConfig({
+  await writeConfig({
     ...root,
     [CONFIG_KEY]: nextConfig
   })
   return nextConfig
 }
 
-export function patchSyncConfig(patch: Partial<SyncConfig>): SyncConfig {
-  return writeSyncConfig({
-    ...readSyncConfig(),
+export async function patchSyncConfig(patch: Partial<SyncConfig>): Promise<SyncConfig> {
+  return await writeSyncConfig({
+    ...(await readSyncConfig()),
     ...patch
   })
 }
 
-export function getActiveSyncProvider(): SyncProviderConfig {
-  const config = readSyncConfig()
+export async function getActiveSyncProvider(): Promise<SyncProviderConfig> {
+  const config = await readSyncConfig()
   return (
     config.providers.find((provider) => provider.id === config.activeProviderId) ??
     config.providers[0] ??

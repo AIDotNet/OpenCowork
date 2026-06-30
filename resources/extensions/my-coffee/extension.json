@@ -1,0 +1,302 @@
+{
+  "schemaVersion": 1,
+  "id": "my-coffee",
+  "name": "My Coffee",
+  "version": "0.8.5",
+  "description": "瑞幸咖啡到店自提下单插件。通过官方 MCP 网关查询门店、搜索商品、预览订单、创建支付二维码、查询订单和取消订单。",
+  "entry": "index.js",
+  "configSchema": [
+    {
+      "key": "luckinToken",
+      "label": "Luckin MCP Token",
+      "type": "secret",
+      "required": true,
+      "placeholder": "粘贴 LUCKIN_MCP_TOKEN",
+      "description": "访问 https://open.lkcoffee.com/mcp 登录创建 token。保存后，在输入框 + 菜单选择 My Coffee 才会加载瑞幸工具。"
+    }
+  ],
+  "permissions": {
+    "network": ["https://gwmcp.lkcoffee.com"]
+  },
+  "tools": [
+    {
+      "name": "check_token",
+      "description": "检查 Luckin MCP token 是否已在插件设置中填写。不会向网络发送 token。",
+      "kind": "js",
+      "handler": "checkToken",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_tools",
+      "description": "读取瑞幸 MCP 服务器当前暴露的工具和 schema。首次调用或参数不确定时先使用此工具确认 schema。",
+      "kind": "js",
+      "handler": "listTools",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "query_shop_list",
+      "description": "查询瑞幸自提门店。必须传经纬度；只有用户明确提供准确经纬度时，locationIsPrecise 才能设为 true 并展示距离。不要默认替用户选择门店。",
+      "kind": "js",
+      "handler": "queryShopList",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "longitude": {
+            "type": "number",
+            "description": "经度，必填"
+          },
+          "latitude": {
+            "type": "number",
+            "description": "纬度，必填"
+          },
+          "deptName": {
+            "type": "string",
+            "description": "可选门店名、商圈或关键词"
+          },
+          "locationIsPrecise": {
+            "type": "boolean",
+            "description": "仅当用户明确提供准确经纬度时为 true；IP 粗定位必须为 false"
+          }
+        },
+        "required": ["longitude", "latitude"]
+      }
+    },
+    {
+      "name": "search_product",
+      "description": "在用户确认的自提门店内搜索瑞幸商品。外送、配送、送达等意图不支持，应先询问用户是否改为到店自提。",
+      "kind": "js",
+      "handler": "searchProduct",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "deptId": {
+            "type": "integer",
+            "description": "已由用户确认的自提门店 deptId"
+          },
+          "query": {
+            "type": "string",
+            "description": "商品关键词，例如 拿铁、生椰、轻乳茶"
+          }
+        },
+        "required": ["deptId", "query"]
+      }
+    },
+    {
+      "name": "query_product_detail",
+      "description": "查询商品详情和可选属性。用户提出温度、糖度、奶基、杯型等定制项时，切换 SKU 前必须先调用此工具。",
+      "kind": "js",
+      "handler": "queryProductDetail",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "deptId": {
+            "type": "integer",
+            "description": "门店 deptId"
+          },
+          "productId": {
+            "type": "integer",
+            "description": "商品 productId"
+          },
+          "delivery": {
+            "type": "string",
+            "description": "固定使用 pick"
+          }
+        },
+        "required": ["deptId", "productId"]
+      }
+    },
+    {
+      "name": "switch_product",
+      "description": "基于商品详情切换商品属性并获取新 SKU。不要凭搜索结果猜 SKU。",
+      "kind": "js",
+      "handler": "switchProduct",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "deptId": {
+            "type": "integer"
+          },
+          "productId": {
+            "type": "integer"
+          },
+          "skuCode": {
+            "type": "string"
+          },
+          "attrOperationParam": {
+            "type": "object",
+            "description": "来自商品详情的属性切换参数"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "数量"
+          }
+        },
+        "required": ["deptId", "productId", "skuCode", "attrOperationParam", "amount"]
+      }
+    },
+    {
+      "name": "preview_order",
+      "description": "创建订单前必须先预览订单，获取最终价格和 couponCodeList。若 preview 返回 couponCodeList，create_order 会自动原样透传。",
+      "kind": "js",
+      "handler": "previewOrder",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "deptId": {
+            "type": "integer"
+          },
+          "productList": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "amount": {
+                  "type": "integer"
+                },
+                "productId": {
+                  "type": "integer"
+                },
+                "skuCode": {
+                  "type": "string"
+                }
+              },
+              "required": ["amount", "productId", "skuCode"]
+            }
+          }
+        },
+        "required": ["deptId", "productList"]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "创建瑞幸自提订单并返回支付二维码。此工具会拒绝未匹配最近 preview_order 的请求，并且只展示 payOrderQrCodeUrl，不展示 payOrderUrl。",
+      "kind": "js",
+      "handler": "createOrder",
+      "readOnly": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "deptId": {
+            "type": "integer"
+          },
+          "productList": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "amount": {
+                  "type": "integer"
+                },
+                "productId": {
+                  "type": "integer"
+                },
+                "skuCode": {
+                  "type": "string"
+                }
+              },
+              "required": ["amount", "productId", "skuCode"]
+            }
+          },
+          "longitude": {
+            "type": "number",
+            "description": "使用 query_shop_list 返回的门店经度"
+          },
+          "latitude": {
+            "type": "number",
+            "description": "使用 query_shop_list 返回的门店纬度"
+          }
+        },
+        "required": ["deptId", "productList", "longitude", "latitude"]
+      }
+    },
+    {
+      "name": "query_order_detail",
+      "description": "查询订单状态、门店、商品和支付金额。只有订单已支付且返回取餐信息时，才展示取餐码。",
+      "kind": "js",
+      "handler": "queryOrderDetail",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "订单号；省略时尝试使用最近创建的订单"
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "取消瑞幸订单。没有 orderId 时尝试使用最近创建或查询的订单；取消属于变更操作，需要用户授权。",
+      "kind": "js",
+      "handler": "cancelOrder",
+      "readOnly": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "订单号；省略时尝试使用最近创建的订单"
+          }
+        }
+      }
+    }
+  ],
+  "components": [
+    {
+      "name": "luckin_shop_list",
+      "type": "html",
+      "entry": "components/luckin-list.html",
+      "title": "Luckin shop list",
+      "description": "Custom list component for stores with address and optional precise-distance badges."
+    },
+    {
+      "name": "luckin_product_list",
+      "type": "html",
+      "entry": "components/luckin-list.html",
+      "title": "Luckin product list",
+      "description": "Custom list component for product/SKU search results."
+    },
+    {
+      "name": "luckin_order_summary",
+      "type": "html",
+      "entry": "components/luckin-summary.html",
+      "title": "Luckin order summary",
+      "description": "Custom summary component for preview, cancellation, and order fields."
+    },
+    {
+      "name": "luckin_payment",
+      "type": "html",
+      "entry": "components/luckin-payment.html",
+      "title": "Luckin payment QR",
+      "description": "Custom payment QR component with the full clickable QR link."
+    },
+    {
+      "name": "luckin_status",
+      "type": "html",
+      "entry": "components/luckin-summary.html",
+      "title": "Luckin order status",
+      "description": "Custom status component that only shows pickup fields when the tool returns them."
+    }
+  ],
+  "renderers": [
+    {
+      "name": "coffee_receipt",
+      "type": "html",
+      "entry": "renderer.html"
+    }
+  ]
+}

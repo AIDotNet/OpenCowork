@@ -1,8 +1,9 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
 import {
   Bell,
+  FileCode2,
   FolderOpen,
   Loader2,
   PanelRightClose,
@@ -34,11 +35,7 @@ import {
   SheetTrigger
 } from '@renderer/components/ui/sheet'
 import { SshConnectionList } from './SshConnectionList'
-import { SshFileEditor } from './SshFileEditor'
-import { SshTerminalStatusPanel } from './SshTerminalStatusPanel'
-import { SshProcessMonitor } from './SshProcessMonitor'
-
-const SshTerminal = lazy(() => import('./SshTerminal').then((m) => ({ default: m.SshTerminal })))
+import { SshConnectedWorkspace } from './SshConnectedWorkspace'
 
 type ShellTone = 'library' | 'connect' | 'terminal'
 
@@ -448,8 +445,7 @@ export function SshPage(): React.JSX.Element {
   const transferTasks = useSshStore((state) => state.transferTasks)
   const setDetailConnectionId = useSshStore((state) => state.setDetailConnectionId)
   const setInspectorMode = useSshStore((state) => state.setInspectorMode)
-  const [terminalStatusOpen, setTerminalStatusOpen] = useState(true)
-  const [processMonitorOpen, setProcessMonitorOpen] = useState(false)
+  const [terminalStatusOpen, setTerminalStatusOpen] = useState(false)
 
   const uploadTaskList = Object.values(transferTasks).sort(
     (left, right) => right.updatedAt - left.updatedAt
@@ -583,13 +579,20 @@ export function SshPage(): React.JSX.Element {
   }, [setWorkspaceSection])
 
   const activeTab = openTabs.find((tab) => tab.id === activeTabId) ?? null
-  const activeSession =
-    activeTab?.type === 'terminal' && activeTab.sessionId ? sessions[activeTab.sessionId] : null
+  const activeSession = activeTab?.sessionId ? (sessions[activeTab.sessionId] ?? null) : null
+  const workspaceSession =
+    activeSession ??
+    (activeTab
+      ? (Object.values(sessions).find(
+          (session) =>
+            session.connectionId === activeTab.connectionId && session.status === 'connected'
+        ) ?? null)
+      : null)
   const showTerminalView = workspaceSection === 'terminal' && !!activeTabId && openTabs.length > 0
   const activeConnection = activeTab
     ? (connections.find((connection) => connection.id === activeTab.connectionId) ?? null)
     : null
-  const terminalConnected = activeSession?.status === 'connected'
+  const terminalConnected = !!workspaceSession && workspaceSession.status === 'connected'
   const activeConnectionAddress = activeConnection
     ? `${activeConnection.username}@${activeConnection.host}:${activeConnection.port}`
     : null
@@ -618,9 +621,10 @@ export function SshPage(): React.JSX.Element {
     [shellPalette, shellTone]
   )
   const stageStatus =
-    activeSession?.status === 'connecting' ||
-    activeSession?.status === 'error' ||
-    activeSession?.status === 'disconnected'
+    activeTab?.type === 'terminal' &&
+    (activeSession?.status === 'connecting' ||
+      activeSession?.status === 'error' ||
+      activeSession?.status === 'disconnected')
       ? activeSession.status
       : activeTab?.status === 'connecting' || activeTab?.status === 'error'
         ? activeTab.status
@@ -676,7 +680,7 @@ export function SshPage(): React.JSX.Element {
       return <SshConnectionList onConnect={(connectionId) => void handleConnect(connectionId)} />
     }
 
-    if (!terminalConnected) {
+    if (activeTab?.type === 'terminal' && !terminalConnected) {
       return (
         <ConnectionStage
           connectionName={activeConnection?.name ?? activeTab?.connectionName ?? 'SSH'}
@@ -698,62 +702,33 @@ export function SshPage(): React.JSX.Element {
         className="flex flex-1 overflow-hidden"
         style={{ background: shellPalette.terminalCanvas }}
       >
-        <div className="relative flex min-w-0 flex-1 flex-col">
-          {openTabs.map((tab) => (
-            <div
-              key={tab.id}
-              className="absolute inset-0"
-              style={{ display: tab.id === activeTabId ? undefined : 'none' }}
-            >
-              {tab.type === 'file' ? (
-                tab.filePath ? (
-                  <SshFileEditor
-                    connectionId={tab.connectionId}
-                    filePath={tab.filePath}
-                    sessionId={tab.sessionId ?? undefined}
-                  />
-                ) : null
-              ) : tab.sessionId ? (
-                <Suspense fallback={null}>
-                  <SshTerminal sessionId={tab.sessionId} connectionName={tab.connectionName} />
-                </Suspense>
-              ) : (
-                <div
-                  className="flex h-full items-center justify-center"
-                  style={{ color: shellPalette.terminalText }}
-                >
-                  <Loader2 className="size-5 animate-spin" />
-                </div>
-              )}
-            </div>
-          ))}
-          {activeConnection && processMonitorOpen ? (
-            <SshProcessMonitor
-              connectionId={activeConnection.id}
-              connectionName={activeConnection.name}
-              host={activeConnection.host}
-              onClose={() => setProcessMonitorOpen(false)}
-            />
-          ) : null}
-        </div>
-
-        {activeConnection && effectiveTerminalStatusOpen ? (
-          <SshTerminalStatusPanel
-            connectionId={activeConnection.id}
-            connectionName={activeConnection.name}
-            host={activeConnection.host}
-            onClose={() => setTerminalStatusOpen(false)}
-            onExpandProcesses={() => setProcessMonitorOpen(true)}
+        {activeConnection && activeTab ? (
+          <SshConnectedWorkspace
+            connection={activeConnection}
+            sessionId={workspaceSession?.id ?? ''}
+            activeTab={activeTab}
+            showStatusPanel={effectiveTerminalStatusOpen}
+            onCloseStatus={() => setTerminalStatusOpen(false)}
           />
-        ) : null}
+        ) : (
+          <div
+            className="flex h-full items-center justify-center"
+            style={{ color: shellPalette.terminalText }}
+          >
+            <Loader2 className="size-5 animate-spin" />
+          </div>
+        )}
       </div>
     )
   }, [
     activeConnection,
     activeConnectionAddress,
     activeSession?.error,
+    activeSession?.id,
+    activeSession?.status,
     activeTab,
     activeTabId,
+    workspaceSession?.id,
     handleCloseTab,
     handleConnect,
     handleRetryActive,
@@ -763,7 +738,6 @@ export function SshPage(): React.JSX.Element {
     stageStatus,
     terminalConnected,
     effectiveTerminalStatusOpen,
-    processMonitorOpen,
     shellPalette
   ])
 
@@ -869,7 +843,11 @@ export function SshPage(): React.JSX.Element {
                   className="max-w-[220px] min-w-[118px] pr-2"
                   onClick={() => useSshStore.getState().setActiveTab(tab.id)}
                 >
-                  <Terminal className="size-3.5 shrink-0" />
+                  {tab.type === 'file' ? (
+                    <FileCode2 className="size-3.5 shrink-0" />
+                  ) : (
+                    <Terminal className="size-3.5 shrink-0" />
+                  )}
                   <span className="truncate">{tab.title}</span>
                   {isConnecting ? (
                     <Loader2 className="size-3 animate-spin shrink-0" />

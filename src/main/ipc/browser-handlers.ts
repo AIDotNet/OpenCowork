@@ -1,15 +1,15 @@
-import { ipcMain } from 'electron'
 import {
   getBrowserEmulationStatus,
   getBuiltInBrowserStorageSessions
 } from '../browser/browser-emulation'
+import { registerMessagePackHandler } from './messagepack-handler'
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
 export function registerBrowserHandlers(): void {
-  ipcMain.handle('browser:clear-cookies', async () => {
+  registerMessagePackHandler<undefined>('browser:clear-cookies', async () => {
     try {
       await Promise.all(
         getBuiltInBrowserStorageSessions().map((browserSession) =>
@@ -23,7 +23,7 @@ export function registerBrowserHandlers(): void {
     }
   })
 
-  ipcMain.handle('browser:emulation-status', async () => {
+  registerMessagePackHandler<undefined>('browser:emulation-status', async () => {
     try {
       return { success: true, status: getBrowserEmulationStatus() }
     } catch (error) {

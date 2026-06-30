@@ -21,6 +21,12 @@ export type { BuiltinProviderPreset }
 
 const DEFAULT_FAST_PROVIDER_BUILTIN_ID = 'routin-ai'
 const DEFAULT_FAST_MODEL_ID = 'doubao-seed-2-0-mini-260215'
+// Kimi K2.7 Code rejects thinking.type values other than "enabled"; off means omitting it.
+const KIMI_ENABLED_ONLY_THINKING_MODEL_KEYS = new Set([
+  'kimi-for-coding',
+  'kimi-k2.7-code',
+  'kimi-k2.7-code-highspeed'
+])
 
 export interface ManagedModelConfig extends AIModelConfig {
   normalizedKey: string
@@ -58,6 +64,15 @@ function cloneValue<T>(value: T): T {
 
 function cloneModelConfig(model: AIModelConfig): AIModelConfig {
   return cloneValue(model)
+}
+
+function omitUnsupportedDisabledThinkingParams(model: AIModelConfig): AIModelConfig {
+  if (!KIMI_ENABLED_ONLY_THINKING_MODEL_KEYS.has(normalizeModelKey(model.id))) return model
+  if (!model.thinkingConfig?.disabledBodyParams) return model
+
+  const thinkingConfig = { ...model.thinkingConfig }
+  delete thinkingConfig.disabledBodyParams
+  return { ...model, thinkingConfig }
 }
 
 function cloneManagedModelConfig(model: ManagedModelConfig): ManagedModelConfig {
@@ -246,22 +261,22 @@ export function buildProviderModelSnapshot(
   const existingModel = options.existingModel ? cloneModelConfig(options.existingModel) : null
 
   if (existingModel) {
-    return {
+    return omitUnsupportedDisabledThinkingParams({
       ...baseModel,
       ...(managedModel ?? {}),
       ...existingModel,
       enabled: existingModel.enabled
-    }
+    })
   }
 
   if (managedModel) {
-    return {
+    return omitUnsupportedDisabledThinkingParams({
       ...baseModel,
       ...managedModel
-    }
+    })
   }
 
-  return baseModel
+  return omitUnsupportedDisabledThinkingParams(baseModel)
 }
 
 function createProviderFromPreset(preset: BuiltinProviderPreset): AIProvider {
@@ -1624,6 +1639,19 @@ function ensureBuiltinPresets(): void {
           trimmedBaseUrl === 'https://api.openai.com/v1' ||
           trimmedBaseUrl === 'https://api.openai.com' ||
           trimmedBaseUrl === 'https://api.kimi.com/coding'
+        ) {
+          patch.baseUrl = preset.defaultBaseUrl
+        }
+      }
+      if (preset.builtinId === 'longcat') {
+        const trimmedBaseUrl = existing.baseUrl.trim().replace(/\/+$/, '')
+        if (
+          !trimmedBaseUrl ||
+          trimmedBaseUrl === 'https://api.longcat.chat/openai' ||
+          trimmedBaseUrl === 'https://api.longcat.chat/openai/v1/chat/completions' ||
+          trimmedBaseUrl === 'https://api.longcat.chat/anthropic' ||
+          trimmedBaseUrl === 'https://api.longcat.chat/anthropic/v1' ||
+          trimmedBaseUrl === 'https://api.longcat.chat/anthropic/v1/messages'
         ) {
           patch.baseUrl = preset.defaultBaseUrl
         }

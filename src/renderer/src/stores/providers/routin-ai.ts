@@ -1580,6 +1580,68 @@ export const routinAiPreset: BuiltinProviderPreset = {
         bodyParams: { thinking: { type: 'enabled' } },
         disabledBodyParams: { thinking: { type: 'disabled' } }
       }
+    },
+    // ── xAI Grok ──（官方标注无输出 token 上限；4.3 与 multi-agent 支持 reasoning_effort low/high）
+    {
+      id: 'grok-4.3',
+      name: 'Grok 4.3',
+      icon: 'grok',
+      enabled: true,
+      contextLength: 1_000_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 1.25,
+      outputPrice: 2.5,
+      cacheHitPrice: 0.2,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'high'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'grok-4.20',
+      name: 'Grok 4.20',
+      icon: 'grok',
+      enabled: true,
+      contextLength: 2_000_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 1.25,
+      outputPrice: 2.5,
+      cacheHitPrice: 0.2
+    },
+    {
+      id: 'grok-4.20-multi-agent',
+      name: 'Grok 4.20 Multi-Agent',
+      icon: 'grok',
+      enabled: true,
+      contextLength: 2_000_000,
+      supportsVision: true,
+      // 多智能体变体不支持 tools/tool_choice 参数
+      supportsFunctionCall: false,
+      inputPrice: 1.25,
+      outputPrice: 2.5,
+      cacheHitPrice: 0.2,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'high'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'grok-build-0.1',
+      name: 'Grok Build 0.1',
+      icon: 'grok',
+      enabled: true,
+      contextLength: 256_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 1,
+      outputPrice: 2,
+      cacheHitPrice: 0.2
     }
   ]
 }

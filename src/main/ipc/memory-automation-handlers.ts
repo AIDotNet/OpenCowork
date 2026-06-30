@@ -14,6 +14,21 @@ import type {
   MemoryRootInput,
   MemoryStage1OutputInput
 } from '../../shared/memory-automation-types'
+import {
+  decodeMessagePackPayload,
+  encodeMessagePackPayload,
+  toMessagePackChannel
+} from '../../shared/messagepack/binary-ipc'
+
+function registerMemoryMessagePackHandler<TArgs>(
+  channel: string,
+  handler: (args: TArgs) => Promise<unknown> | unknown
+): void {
+  ipcMain.handle(toMessagePackChannel(channel), async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<TArgs>(bytes)
+    return encodeMessagePackPayload(await handler(args))
+  })
+}
 
 function normalizeListQuery(value: unknown): MemoryAutomationListQuery {
   if (!value || typeof value !== 'object') return {}
@@ -55,27 +70,30 @@ function normalizeStage1Outputs(value: unknown): MemoryStage1OutputInput[] {
 }
 
 export function registerMemoryAutomationHandlers(): void {
-  ipcMain.handle('memory-automation:list', (_event, query: unknown) => {
+  registerMemoryMessagePackHandler<unknown>('memory-automation:list', async (query) => {
     return {
-      entries: memoryAutomationDao.listMemoryAutomationEntries(normalizeListQuery(query))
+      entries: await memoryAutomationDao.listMemoryAutomationEntries(normalizeListQuery(query))
     }
   })
 
-  ipcMain.handle('memory-automation:record', (_event, input: MemoryAutomationRecordInput) => {
-    try {
-      const entry = memoryAutomationDao.addMemoryAutomationEntry(input)
-      return { success: true, entry }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
+  registerMemoryMessagePackHandler<MemoryAutomationRecordInput>(
+    'memory-automation:record',
+    async (input) => {
+      try {
+        const entry = await memoryAutomationDao.addMemoryAutomationEntry(input)
+        return { success: true, entry }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        }
       }
     }
-  })
+  )
 
-  ipcMain.handle('memory-automation:undo', (_event, args: MemoryAutomationUndoArgs) => {
+  registerMemoryMessagePackHandler<MemoryAutomationUndoArgs>('memory-automation:undo', async (args) => {
     try {
-      const entry = memoryAutomationDao.markMemoryAutomationUndo(
+      const entry = await memoryAutomationDao.markMemoryAutomationUndo(
         args.id,
         args.status ?? 'undone',
         args.error
@@ -92,61 +110,67 @@ export function registerMemoryAutomationHandlers(): void {
     }
   })
 
-  ipcMain.handle('memory-automation:run-session', () => {
-    return {
-      success: true,
-      queued: false
+  registerMemoryMessagePackHandler<{ sessionId?: string } | undefined>(
+    'memory-automation:run-session',
+    () => {
+      return {
+        success: true,
+        queued: false
+      }
     }
-  })
+  )
 
-  ipcMain.handle('memory-automation:run-rollup', (_event, args: MemoryAutomationRunRollupArgs) => {
-    try {
-      if (args.action === 'get-watermark') {
-        if (!args.scope || !args.targetPath || !args.sourceDate || !args.contentHash) {
-          return { success: false, error: 'Missing rollup watermark fields' }
+  registerMemoryMessagePackHandler<MemoryAutomationRunRollupArgs>(
+    'memory-automation:run-rollup',
+    async (args) => {
+      try {
+        if (args.action === 'get-watermark') {
+          if (!args.scope || !args.targetPath || !args.sourceDate || !args.contentHash) {
+            return { success: false, error: 'Missing rollup watermark fields' }
+          }
+          return {
+            success: true,
+            alreadyProcessed: await memoryAutomationDao.hasProcessedRollup({
+              scope: args.scope,
+              targetPath: args.targetPath,
+              sourceDate: args.sourceDate,
+              contentHash: args.contentHash
+            })
+          }
         }
-        return {
-          success: true,
-          alreadyProcessed: memoryAutomationDao.hasProcessedRollup({
+
+        if (args.action === 'mark-watermark') {
+          if (!args.scope || !args.targetPath || !args.sourceDate || !args.contentHash) {
+            return { success: false, error: 'Missing rollup watermark fields' }
+          }
+          await memoryAutomationDao.markProcessedRollup({
             scope: args.scope,
+            target: 'project_memory',
             targetPath: args.targetPath,
             sourceDate: args.sourceDate,
             contentHash: args.contentHash
           })
+          return { success: true, alreadyProcessed: true }
         }
-      }
 
-      if (args.action === 'mark-watermark') {
-        if (!args.scope || !args.targetPath || !args.sourceDate || !args.contentHash) {
-          return { success: false, error: 'Missing rollup watermark fields' }
+        return { success: true, queued: false }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
         }
-        memoryAutomationDao.markProcessedRollup({
-          scope: args.scope,
-          target: 'project_memory',
-          targetPath: args.targetPath,
-          sourceDate: args.sourceDate,
-          contentHash: args.contentHash
-        })
-        return { success: true, alreadyProcessed: true }
-      }
-
-      return { success: true, queued: false }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
       }
     }
-  })
+  )
 
-  ipcMain.handle('memory-pipeline:run', (_event, rawArgs: unknown) => {
+  registerMemoryMessagePackHandler<unknown>('memory-pipeline:run', async (rawArgs) => {
     const args = asObject<MemoryPipelineRunArgs>(rawArgs)
     try {
       if (args.action === 'prepare-session') {
-        const roots = normalizeRoots(args.roots).map((root) =>
-          memoryPipelineDao.ensureMemoryRoot(root)
+        const roots = await Promise.all(
+          normalizeRoots(args.roots).map((root) => memoryPipelineDao.ensureMemoryRoot(root))
         )
-        const job = memoryPipelineDao.createMemoryJob({
+        const job = await memoryPipelineDao.createMemoryJob({
           kind: 'stage1',
           status: 'running',
           sourceSessionId: args.sessionId ?? null,
@@ -156,27 +180,28 @@ export function registerMemoryAutomationHandlers(): void {
       }
 
       if (args.action === 'ensure-roots') {
-        const roots = normalizeRoots(args.roots).map((root) =>
-          memoryPipelineDao.ensureMemoryRoot(root)
+        const roots = await Promise.all(
+          normalizeRoots(args.roots).map((root) => memoryPipelineDao.ensureMemoryRoot(root))
         )
         return { success: true, roots }
       }
 
       if (args.action === 'complete-stage1') {
-        const stage1Outputs = normalizeStage1Outputs(args.stage1Outputs).map((output) =>
-          memoryPipelineDao.addStage1Output(output)
+        const stage1Outputs = await Promise.all(
+          normalizeStage1Outputs(args.stage1Outputs).map((output) =>
+            memoryPipelineDao.addStage1Output(output)
+          )
         )
         let job = args.jobId
-          ? memoryPipelineDao.finishMemoryJob({
+          ? await memoryPipelineDao.finishMemoryJob({
               id: args.jobId,
               status:
-                args.status ??
-                (stage1Outputs.length > 0 ? 'succeeded' : 'succeeded_no_output'),
+                args.status ?? (stage1Outputs.length > 0 ? 'succeeded' : 'succeeded_no_output'),
               error: args.error
             })
           : undefined
         if (!job && args.sessionId) {
-          job = memoryPipelineDao.createMemoryJob({
+          job = await memoryPipelineDao.createMemoryJob({
             kind: 'stage1',
             status: stage1Outputs.length > 0 ? 'succeeded' : 'succeeded_no_output',
             sourceSessionId: args.sessionId
@@ -191,7 +216,7 @@ export function registerMemoryAutomationHandlers(): void {
         }
         return {
           success: true,
-          stage1Outputs: memoryPipelineDao.listStage1Outputs({
+          stage1Outputs: await memoryPipelineDao.listStage1Outputs({
             memoryRootId: args.memoryRootId,
             limit: args.limit
           })
@@ -201,26 +226,30 @@ export function registerMemoryAutomationHandlers(): void {
       if (args.action === 'complete-phase2') {
         const rootId = args.memoryRootId ?? null
         const job =
-          args.jobId && memoryPipelineDao.getMemoryJob(args.jobId)
-            ? memoryPipelineDao.finishMemoryJob({
+          args.jobId && (await memoryPipelineDao.getMemoryJob(args.jobId))
+            ? await memoryPipelineDao.finishMemoryJob({
                 id: args.jobId,
                 status: args.status ?? (args.error ? 'failed' : 'succeeded'),
                 error: args.error
               })
-            : memoryPipelineDao.createMemoryJob({
+            : await memoryPipelineDao.createMemoryJob({
                 kind: 'phase2',
                 status: args.status ?? (args.error ? 'failed' : 'succeeded'),
                 memoryRootId: rootId,
                 sourceSessionId: args.sessionId ?? null
               })
         if (args.error && job) {
-          memoryPipelineDao.finishMemoryJob({ id: job.id, status: 'failed', error: args.error })
+          await memoryPipelineDao.finishMemoryJob({
+            id: job.id,
+            status: 'failed',
+            error: args.error
+          })
         }
         return { success: true, job: job ?? undefined }
       }
 
       if (args.action === 'record-job') {
-        const job = memoryPipelineDao.createMemoryJob({
+        const job = await memoryPipelineDao.createMemoryJob({
           kind: args.jobKind ?? 'phase2',
           status: args.status ?? 'running',
           memoryRootId: args.memoryRootId ?? null,
@@ -239,10 +268,12 @@ export function registerMemoryAutomationHandlers(): void {
     }
   })
 
-  ipcMain.handle('memory-pipeline:list-roots', (_event, rawQuery: unknown) => {
+  registerMemoryMessagePackHandler<unknown>('memory-pipeline:list-roots', async (rawQuery) => {
     try {
       return {
-        roots: memoryPipelineDao.listMemoryRoots(asObject<MemoryPipelineListRootsQuery>(rawQuery))
+        roots: await memoryPipelineDao.listMemoryRoots(
+          asObject<MemoryPipelineListRootsQuery>(rawQuery)
+        )
       }
     } catch (error) {
       return {
@@ -252,10 +283,12 @@ export function registerMemoryAutomationHandlers(): void {
     }
   })
 
-  ipcMain.handle('memory-pipeline:list-jobs', (_event, rawQuery: unknown) => {
+  registerMemoryMessagePackHandler<unknown>('memory-pipeline:list-jobs', async (rawQuery) => {
     try {
       return {
-        jobs: memoryPipelineDao.listMemoryJobs(asObject<MemoryPipelineListJobsQuery>(rawQuery))
+        jobs: await memoryPipelineDao.listMemoryJobs(
+          asObject<MemoryPipelineListJobsQuery>(rawQuery)
+        )
       }
     } catch (error) {
       return {
@@ -265,7 +298,7 @@ export function registerMemoryAutomationHandlers(): void {
     }
   })
 
-  ipcMain.handle('memory-pipeline:clear-root', (_event, rawArgs: unknown) => {
+  registerMemoryMessagePackHandler<unknown>('memory-pipeline:clear-root', async (rawArgs) => {
     const args = asObject<MemoryPipelineClearRootArgs>(rawArgs)
     try {
       if (!args.memoryRootId) {
@@ -273,7 +306,7 @@ export function registerMemoryAutomationHandlers(): void {
       }
       return {
         success: true,
-        ...memoryPipelineDao.clearMemoryRoot(args)
+        ...(await memoryPipelineDao.clearMemoryRoot(args))
       }
     } catch (error) {
       return {
@@ -283,7 +316,7 @@ export function registerMemoryAutomationHandlers(): void {
     }
   })
 
-  ipcMain.handle('memory:record-citation-usage', (_event, rawEntry: unknown) => {
+  registerMemoryMessagePackHandler<unknown>('memory:record-citation-usage', async (rawEntry) => {
     const entry = asObject<MemoryCitationEntry>(rawEntry)
     try {
       if (
@@ -293,7 +326,7 @@ export function registerMemoryAutomationHandlers(): void {
       ) {
         return { success: false, error: 'Invalid memory citation usage payload' }
       }
-      memoryPipelineDao.recordCitationUsage(entry)
+      await memoryPipelineDao.recordCitationUsage(entry)
       return { success: true }
     } catch (error) {
       return {

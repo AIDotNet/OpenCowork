@@ -1,5 +1,4 @@
 import { nanoid } from 'nanoid'
-import { createProvider } from '@renderer/lib/api/provider'
 import type {
   ProviderConfig,
   RequestTiming,
@@ -7,6 +6,7 @@ import type {
   UnifiedMessage
 } from '@renderer/lib/api/types'
 import { resolveLanguageName as resolveAppLanguageName } from '@renderer/lib/i18n-language'
+import { streamSidecarProviderTurn } from '@renderer/lib/ipc/agent-bridge'
 
 export interface StreamAiTranslationOptions {
   text: string
@@ -65,7 +65,6 @@ export async function streamAiTranslation({
   onTextDelta,
   onMessageEnd
 }: StreamAiTranslationOptions): Promise<void> {
-  const provider = createProvider(providerConfig)
   const systemPrompt = buildTranslationSystemPrompt(sourceLanguage, targetLanguage)
 
   const messages: UnifiedMessage[] = [
@@ -77,16 +76,16 @@ export async function streamAiTranslation({
     }
   ]
 
-  for await (const event of provider.sendMessage(
+  for await (const event of streamSidecarProviderTurn({
     messages,
-    [],
-    {
+    tools: [],
+    provider: {
       ...providerConfig,
       systemPrompt,
       thinkingEnabled: false
     },
     signal
-  )) {
+  })) {
     if (signal.aborted) break
 
     if (event.type === 'text_delta' && event.text) {

@@ -5,7 +5,7 @@ export interface TeamPromptSnapshot {
   teamName: string
   role: 'lead' | 'worker'
   permissionMode?: 'default' | 'plan'
-  defaultBackend?: 'in-process' | 'isolated-renderer'
+  defaultBackend?: 'in-process'
   activeMembers?: string[]
 }
 
@@ -35,7 +35,7 @@ export function buildLeadCoordinatorPrompt(team: ActiveTeam): string {
   }
 
   if (team.defaultBackend) {
-    parts.push(`Default team backend: ${team.defaultBackend}.`)
+    parts.push('Default team backend: .NET Native Worker.')
   }
 
   if (members.length > 0) {

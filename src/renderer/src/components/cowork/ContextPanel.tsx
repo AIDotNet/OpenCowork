@@ -371,9 +371,7 @@ export function ContextPanel(): React.JSX.Element {
                   variant="ghost"
                   size="sm"
                   className="h-6 gap-1.5 px-2 text-[10px] text-muted-foreground"
-                  onClick={() =>
-                    window.electron.ipcRenderer.invoke('shell:openPath', workingFolder)
-                  }
+                  onClick={() => ipcClient.invoke('shell:openPath', workingFolder)}
                 >
                   <ExternalLink className="size-3" />
                   {t('context.open')}

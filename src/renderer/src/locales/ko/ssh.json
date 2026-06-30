@@ -118,7 +118,6 @@
     "loadFailed": "짐에 실패",
     "saveFailed": "자주 묻는 질문",
     "downloadFailed": "다운로드 실패",
-    "zipFailed": "아카이브 디렉토리에 실패",
     "uploadFailed": "업로드 실패",
     "deleteFailed": "삭제 실패",
     "renameFailed": "이름 실패",
@@ -287,13 +286,11 @@
     },
     "uploads": {
       "title": "관련 기사",
-      "description": "압축, 업로드, 원격 압축 및 정리 진행을 추적합니다.",
+      "description": "전송 및 정리 진행을 추적합니다.",
       "cancel": "이름 *",
       "clear": "이름 *",
       "stages": {
-        "compress": "공지사항",
         "upload": "다운로드",
-        "remote_unzip": "원격 압축",
         "cleanup": "청소하기",
         "done": "한국어",
         "error": "실패한",

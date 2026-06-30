@@ -113,8 +113,8 @@ type ChangeRow = GitChangeRow | AgentChangeRow
 
 const EMPTY_SESSION_MESSAGES: UnifiedMessage[] = []
 const EMPTY_DIFF_BY_KEY: Record<string, string> = {}
-const MAX_PRELOAD_DIFFS = 160
-const DIFF_PRELOAD_BATCH_SIZE = 8
+const MAX_PRELOAD_DIFFS = 12
+const DIFF_PRELOAD_BATCH_SIZE = 2
 
 function dirname(input: string): string {
   const normalized = input.replace(/\\/g, '/')
@@ -536,6 +536,9 @@ export function AgentFilesPanel({
 }: AgentFilesPanelProps): React.JSX.Element {
   const { t, i18n } = useTranslation('layout')
   const activeTab = useUIStore((state) => state.agentFilesActiveTabBySurface[surface] ?? initialTab)
+  const panelVisible = useUIStore((state) =>
+    surface === 'sheet' ? state.workingFolderSheetOpen : true
+  )
   const setActiveTab = useUIStore((state) => state.setAgentFilesActiveTab)
   const selectedChangeKey = useUIStore((state) => state.agentFilesSelectedChangeKey)
   const setSelectedChangeKey = useUIStore((state) => state.setAgentFilesSelectedChangeKey)
@@ -611,16 +614,18 @@ export function AgentFilesPanel({
   const getStagedDiffBundle = git.getStagedDiffBundle
 
   React.useEffect(() => {
+    if (!panelVisible || activeTab !== 'changes') return
     if (!sessionView.sessionId) return
     if (requestedRefreshRef.current === sessionView.sessionId) return
     requestedRefreshRef.current = sessionView.sessionId
     void refreshSessionRunChanges(sessionView.sessionId)
-  }, [refreshSessionRunChanges, sessionView.sessionId])
+  }, [activeTab, panelVisible, refreshSessionRunChanges, sessionView.sessionId])
 
   React.useEffect(() => {
+    if (!panelVisible || activeTab !== 'changes') return
     if (!sessionView.workingFolder) return
     void scanRepositories()
-  }, [scanRepositories, sessionView.projectId, sessionView.workingFolder])
+  }, [activeTab, panelVisible, scanRepositories, sessionView.projectId, sessionView.workingFolder])
 
   const assistantMessageIds = React.useMemo(() => {
     const ids = new Set<string>()
@@ -714,6 +719,7 @@ export function AgentFilesPanel({
   }, [status])
 
   React.useEffect(() => {
+    if (!panelVisible || activeTab !== 'changes') return
     if (!selectedRepoPath || gitRowsBase.length === 0) return
     const cachedDiffs =
       useGitStore.getState().repoDetailsByPath[selectedRepoPath]?.diffByKey ?? EMPTY_DIFF_BY_KEY
@@ -744,7 +750,7 @@ export function AgentFilesPanel({
       }
     }
     void preload()
-  }, [gitRowsBase, loadFileDiff, selectedRepoPath])
+  }, [activeTab, gitRowsBase, loadFileDiff, panelVisible, selectedRepoPath])
 
   const gitRows: GitChangeRow[] = React.useMemo(
     () =>
@@ -1107,7 +1113,8 @@ export function AgentFilesPanel({
                 <>
                   <DropdownMenuItem
                     onSelect={() => {
-                      if (git.selectedRepoPath) void git.refreshRepository(git.selectedRepoPath)
+                      if (git.selectedRepoPath)
+                        void git.refreshRepository(git.selectedRepoPath, { force: true })
                       if (sessionView.sessionId)
                         void refreshSessionRunChanges(sessionView.sessionId)
                     }}
@@ -1258,7 +1265,8 @@ export function AgentFilesPanel({
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onSelect={() => {
-                      if (git.selectedRepoPath) void git.refreshRepository(git.selectedRepoPath)
+                      if (git.selectedRepoPath)
+                        void git.refreshRepository(git.selectedRepoPath, { force: true })
                     }}
                   >
                     <RefreshCw className="size-4" />
@@ -1348,6 +1356,7 @@ export function AgentFilesPanel({
                 surface="agent"
                 agentSearchOpen={fileSearchOpen}
                 agentCommand={fileTreeCommand}
+                watchEnabled={panelVisible && activeTab === 'files'}
               />
             ) : (
               <AgentFilesEmptyState

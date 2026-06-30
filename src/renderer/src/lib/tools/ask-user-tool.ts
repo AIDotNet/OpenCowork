@@ -4,7 +4,7 @@ import type { ToolDefinition } from '../api/types'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useBackgroundSessionStore } from '@renderer/stores/background-session-store'
 import { isSessionForeground } from '@renderer/lib/agent/session-runtime-router'
-import { encodeStructuredToolResult, encodeToolError } from './tool-result-format'
+import { encodeToolError } from './tool-result-format'
 import type { ToolHandler } from './tool-types'
 
 export interface AskUserOption {
@@ -185,10 +185,6 @@ function deriveHeader(question: string, index: number): string {
   return Array.from(compact).slice(0, MAX_CHIP_WIDTH).join('')
 }
 
-function headerLength(header: string): number {
-  return Array.from(header).length
-}
-
 function normalizeQuestions(questions: AskUserQuestionItem[]): AskUserQuestionItem[] {
   return questions.map((question, index) => ({
     question: question.question.trim(),
@@ -200,67 +196,6 @@ function normalizeQuestions(questions: AskUserQuestionItem[]): AskUserQuestionIt
       ...(option.preview?.trim() ? { preview: option.preview.trim() } : {})
     }))
   }))
-}
-
-function looksLikeHtmlFragment(preview: string): boolean {
-  return /<\s*[a-z!][^>]*>/i.test(preview)
-}
-
-function validatePreview(preview: string | undefined): string | null {
-  if (!preview || !looksLikeHtmlFragment(preview)) return null
-  if (/<\s*(html|body|!doctype)\b/i.test(preview)) {
-    return 'preview must be an HTML fragment, not a full document'
-  }
-  if (/<\s*(script|style)\b/i.test(preview)) {
-    return 'preview must not contain <script> or <style> tags'
-  }
-  return null
-}
-
-function validateQuestions(questions: AskUserQuestionItem[]): string | null {
-  if (questions.length === 0) return 'At least one question is required'
-  if (questions.length > 4) return 'Maximum 4 questions allowed'
-
-  const seenQuestions = new Set<string>()
-
-  for (let index = 0; index < questions.length; index += 1) {
-    const item = questions[index]
-    const questionText = item.question?.trim()
-    const header = item.header?.trim() || deriveHeader(item.question ?? '', index)
-
-    if (!questionText) return `Question ${index + 1} is missing question text`
-    if (seenQuestions.has(questionText)) return 'Question texts must be unique'
-    seenQuestions.add(questionText)
-
-    if (!header) return `Question "${questionText}" is missing a header`
-    if (headerLength(header) > MAX_CHIP_WIDTH) {
-      return `Question "${questionText}" header must be at most ${MAX_CHIP_WIDTH} characters`
-    }
-
-    const options = item.options
-    if (!options || options.length < 2 || options.length > 4) {
-      return `Question "${questionText}" must provide 2-4 options`
-    }
-
-    const seenLabels = new Set<string>()
-    for (const option of options) {
-      const label = option.label?.trim()
-      if (!label) return `Question "${questionText}" contains an option without a label`
-      if (seenLabels.has(label)) {
-        return `Option labels must be unique within question "${questionText}"`
-      }
-      seenLabels.add(label)
-
-      const previewError = validatePreview(option.preview)
-      if (previewError) return `Option "${label}" in question "${questionText}": ${previewError}`
-    }
-
-    if (item.multiSelect && options.some((option) => !!option.preview)) {
-      return `Question "${questionText}" cannot use preview with multiSelect=true`
-    }
-  }
-
-  return null
 }
 
 function isResolvedPayload(payload: unknown): payload is AskUserResolvedPayload {
@@ -283,58 +218,6 @@ function normalizeResolvedPayload(
   return { answers: payload }
 }
 
-function serializeAnswer(answer: string | string[]): string {
-  return Array.isArray(answer) ? answer.join(', ') : answer
-}
-
-function buildStructuredResult(
-  questions: AskUserQuestionItem[],
-  payload: AskUserResolvedPayload,
-  options?: { autoAnswered?: boolean; source?: string }
-): AskUserStructuredResult {
-  const answers: Record<string, string> = {}
-  const annotations: Record<string, AskUserAnnotation> = {}
-
-  for (let index = 0; index < questions.length; index += 1) {
-    const question = questions[index]
-    const answer = payload.answers[String(index)]
-    if (answer === undefined) continue
-
-    answers[question.question] = serializeAnswer(answer)
-
-    const annotation = payload.annotations?.[String(index)]
-    const notes = annotation?.notes?.trim()
-    if (annotation?.preview || notes) {
-      annotations[question.question] = {
-        ...(annotation?.preview ? { preview: annotation.preview } : {}),
-        ...(notes ? { notes } : {})
-      }
-    }
-  }
-
-  const summaryParts = Object.entries(answers).map(([questionText, answerText]) => {
-    const annotation = annotations[questionText]
-    const extras: string[] = []
-    if (annotation?.preview) extras.push('selected preview attached')
-    if (annotation?.notes) extras.push(`notes: ${annotation.notes}`)
-    return extras.length > 0
-      ? `"${questionText}"="${answerText}" (${extras.join('; ')})`
-      : `"${questionText}"="${answerText}"`
-  })
-
-  return {
-    questions,
-    answers,
-    ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
-    summary:
-      summaryParts.length > 0
-        ? `User has answered your questions: ${summaryParts.join(', ')}. You can now continue with the user's answers in mind.`
-        : 'User has answered your questions.',
-    ...(options?.source ? { source: options.source } : {}),
-    ...(options?.autoAnswered ? { autoAnswered: true } : {})
-  }
-}
-
 const answerResolvers = new Map<string, (payload: AskUserResolvedPayload) => void>()
 
 export function resolveAskUserAnswers(
@@ -354,6 +237,57 @@ export function clearPendingQuestions(): void {
     resolve({ answers: {} })
   }
   answerResolvers.clear()
+}
+
+function nativeOnlyAskUserResult(): string {
+  return encodeToolError(
+    'AskUserQuestion executes in the .NET Native Worker and is unavailable through the renderer boundary.'
+  )
+}
+
+export async function handleNativeAskUserRequest(params: unknown): Promise<AskUserResolvedPayload> {
+  const record = isRecord(params) ? params : {}
+  const toolUseId = typeof record.toolUseId === 'string' ? record.toolUseId.trim() : ''
+  if (!toolUseId) {
+    return { answers: {} }
+  }
+
+  const questions = normalizeQuestions(coerceAskUserQuestions(record.questions))
+  if (questions.length === 0) {
+    return { answers: {} }
+  }
+
+  const sessionId = typeof record.sessionId === 'string' ? record.sessionId : undefined
+  if (sessionId && !isSessionForeground(sessionId)) {
+    const sessionTitle =
+      useChatStore.getState().sessions.find((item) => item.id === sessionId)?.title ??
+      i18n.t('askUser.backgroundSessionFallback', {
+        ns: 'chat',
+        defaultValue: 'Background session'
+      })
+    useBackgroundSessionStore.getState().addInboxItem({
+      sessionId,
+      type: 'ask_user',
+      title:
+        questions[0]?.header ||
+        i18n.t('askUser.backgroundInboxTitle', {
+          ns: 'chat',
+          defaultValue: 'Input needed'
+        }),
+      description: i18n.t('askUser.backgroundInboxDescription', {
+        ns: 'chat',
+        defaultValue: '{{title}} is waiting for your choice',
+        title: sessionTitle
+      }),
+      toolUseId
+    })
+  }
+
+  return await new Promise<AskUserResolvedPayload>((resolve) => {
+    const previous = answerResolvers.get(toolUseId)
+    if (previous) previous({ answers: {} })
+    answerResolvers.set(toolUseId, resolve)
+  })
 }
 
 const askUserToolDefinition: Omit<ToolDefinition, 'name'> = {
@@ -487,108 +421,12 @@ const askUserToolDefinition: Omit<ToolDefinition, 'name'> = {
   }
 }
 
-const askUserToolExecute: ToolHandler['execute'] = async (input, ctx) => {
-  const toolUseId = ctx.currentToolUseId
-  if (!toolUseId) {
-    return encodeToolError(
-      'Missing tool use ID. AskUserQuestion requires a tool_use block id to keep the question pending and map the user reply back to the running tool call.'
-    )
-  }
-
-  const rawQuestions = coerceAskUserQuestions(input.questions ?? input)
-  if (rawQuestions.length === 0) {
-    return encodeToolError('At least one question is required')
-  }
-
-  const validationError = validateQuestions(rawQuestions)
-  if (validationError) {
-    return encodeToolError(validationError)
-  }
-
-  const questions = normalizeQuestions(rawQuestions)
-  const metadata =
-    input.metadata && typeof input.metadata === 'object'
-      ? (input.metadata as { source?: unknown })
-      : undefined
-  const metadataSource = typeof metadata?.source === 'string' ? metadata.source.trim() : undefined
-  if (ctx.pluginId) {
-    const lines: string[] = []
-    for (const q of questions) {
-      let line = `- [${q.header}] ${q.question}`
-      if (q.options?.length) {
-        const opts = q.options
-          .map((o) => o.label + (o.description ? ` (${o.description})` : ''))
-          .join(', ')
-        line += `  [${opts}]`
-      }
-      lines.push(line)
-    }
-    return `You are in a plugin session and cannot show interactive UI to the user. Instead, ask the user these questions directly in your reply message:\n${lines.join('\n')}\nWait for the user to respond before proceeding.`
-  }
-
-  if (ctx.sessionId && !isSessionForeground(ctx.sessionId)) {
-    const sessionTitle =
-      useChatStore.getState().sessions.find((item) => item.id === ctx.sessionId)?.title ??
-      i18n.t('askUser.backgroundSessionFallback', {
-        ns: 'chat',
-        defaultValue: 'Background session'
-      })
-    useBackgroundSessionStore.getState().addInboxItem({
-      sessionId: ctx.sessionId,
-      type: 'ask_user',
-      title:
-        questions[0]?.header ||
-        i18n.t('askUser.backgroundInboxTitle', {
-          ns: 'chat',
-          defaultValue: 'Input needed'
-        }),
-      description: i18n.t('askUser.backgroundInboxDescription', {
-        ns: 'chat',
-        defaultValue: '{{title}} is waiting for your choice',
-        title: sessionTitle
-      }),
-      toolUseId
-    })
-  }
-
-  const payload = await new Promise<AskUserResolvedPayload>((resolve) => {
-    answerResolvers.set(toolUseId, resolve)
-
-    const onAbort = (): void => {
-      if (answerResolvers.has(toolUseId)) {
-        answerResolvers.delete(toolUseId)
-        resolve({ answers: {} })
-      }
-    }
-
-    ctx.signal.addEventListener('abort', onAbort, { once: true })
-  })
-
-  if (ctx.signal.aborted) {
-    useBackgroundSessionStore.getState().resolveInboxItemByToolUseId(toolUseId)
-    return encodeToolError('Aborted by user')
-  }
-
-  useBackgroundSessionStore.getState().resolveInboxItemByToolUseId(toolUseId)
-
-  if (Object.keys(payload.answers).length === 0) {
-    return encodeToolError('No answers provided')
-  }
-
-  return encodeStructuredToolResult(
-    buildStructuredResult(questions, payload, { source: metadataSource }) as unknown as Record<
-      string,
-      unknown
-    >
-  )
-}
-
 const askUserQuestionHandler: ToolHandler = {
   definition: {
     name: 'AskUserQuestion',
     ...askUserToolDefinition
   },
-  execute: askUserToolExecute,
+  execute: async () => nativeOnlyAskUserResult(),
   requiresApproval: () => false
 }
 

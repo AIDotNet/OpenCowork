@@ -12,14 +12,15 @@ import type {
 } from '../lib/api/types'
 import { ipcStorage } from '../lib/ipc/ipc-storage'
 import { ipcClient } from '../lib/ipc/ipc-client'
+import { invokeMessagePackBinary } from '../lib/ipc/messagepack-ipc-client'
 import { IPC } from '../lib/ipc/channels'
 import { emitAgentRuntimeSync, isAgentRuntimeSyncSuppressed } from '../lib/agent-runtime-sync'
 import { useTeamStore } from './team-store'
-import { sendApprovalResponse } from '../lib/agent/teams/inbox-poller'
-import { sendPlanApprovalResponse } from '../lib/agent/teams/plan-approval-bridge'
+import { sendApprovalResponse, sendPlanApprovalResponse } from '../lib/agent/teams/inbox-poller'
 import { compactBashToolResultContent } from '../lib/tools/bash-output'
 import { summarizeToolInputForHistory } from '../lib/tools/tool-input-sanitizer'
 import { calculateCacheReadRatio } from '../lib/agent/cache-shape'
+import { toMessagePackChannel } from '../../../shared/messagepack/binary-ipc'
 
 // Approval resolvers live outside the store — they hold non-serializable
 // callbacks and don't need to trigger React re-renders.
@@ -1169,6 +1170,44 @@ function applyToolCallPatchToBuckets(
   return false
 }
 
+function resolveApprovalInBuckets(
+  pending: ToolCallState[],
+  executed: ToolCallState[],
+  toolCallId: string,
+  approved: boolean
+): boolean {
+  const idx = pending.findIndex((toolCall) => toolCall.id === toolCallId)
+  if (idx === -1) return false
+
+  const [moved] = pending.splice(idx, 1)
+  moved.status = approved ? 'running' : 'error'
+  if (approved) {
+    delete moved.error
+  } else {
+    moved.error = 'User denied permission'
+  }
+  executed.push(normalizeToolCall(moved))
+  trimToolCallArray(executed)
+  trimToolCallArray(pending)
+  return true
+}
+
+function rejectPendingApprovalsInBuckets(
+  pending: ToolCallState[],
+  executed: ToolCallState[],
+  error: string
+): void {
+  if (pending.length === 0) return
+
+  for (const tc of pending) {
+    tc.status = 'error'
+    tc.error = error
+    executed.push(normalizeToolCall(tc))
+  }
+  pending.splice(0, pending.length)
+  trimToolCallArray(executed)
+}
+
 interface AgentStore {
   isRunning: boolean
   currentLoopId: string | null
@@ -1764,9 +1803,10 @@ export const useAgentStore = create<AgentStore>()(
       refreshSessionRunChanges: async (sessionId) => {
         if (!sessionId) return
         try {
-          const result = await ipcClient.invoke(IPC.AGENT_CHANGES_LIST_SESSION, {
-            sessionId
-          })
+          const result = await invokeMessagePackBinary(
+            toMessagePackChannel(IPC.AGENT_CHANGES_LIST_SESSION),
+            { sessionId }
+          )
           if (isAgentChangeError(result) || !Array.isArray(result)) return
           set((state) => {
             clearSessionRunChangeCache(state.runChangesByRunId, sessionId)
@@ -1785,7 +1825,10 @@ export const useAgentStore = create<AgentStore>()(
       undoRunChanges: async (runId) => {
         if (!runId) return { error: 'runId is required' }
         try {
-          const result = await ipcClient.invoke(IPC.AGENT_CHANGES_UNDO_RUN, { runId })
+          const result = await invokeMessagePackBinary(
+            toMessagePackChannel(IPC.AGENT_CHANGES_UNDO_RUN),
+            { runId }
+          )
           if (isAgentChangeError(result)) return { error: result.error }
           const changeset =
             result && typeof result === 'object' && 'changeset' in result
@@ -1806,10 +1849,13 @@ export const useAgentStore = create<AgentStore>()(
       undoFileChange: async (runId, changeId) => {
         if (!runId || !changeId) return { error: 'runId and changeId are required' }
         try {
-          const result = await ipcClient.invoke(IPC.AGENT_CHANGES_UNDO_FILE, {
-            runId,
-            changeId
-          })
+          const result = await invokeMessagePackBinary(
+            toMessagePackChannel(IPC.AGENT_CHANGES_UNDO_FILE),
+            {
+              runId,
+              changeId
+            }
+          )
           if (isAgentChangeError(result)) return { error: result.error }
           const changeset =
             result && typeof result === 'object' && 'changeset' in result
@@ -2278,13 +2324,15 @@ export const useAgentStore = create<AgentStore>()(
         approvalMetadata.clear()
         // Move all pending tool calls to executed
         set((state) => {
-          for (const tc of state.pendingToolCalls) {
-            tc.status = 'error'
-            tc.error = 'Aborted (team deleted)'
-            state.executedToolCalls.push(normalizeToolCall(tc))
+          rejectPendingApprovalsInBuckets(
+            state.pendingToolCalls,
+            state.executedToolCalls,
+            'Aborted (team deleted)'
+          )
+          for (const cache of Object.values(state.sessionToolCallsCache)) {
+            if (!cache) continue
+            rejectPendingApprovalsInBuckets(cache.pending, cache.executed, 'Aborted (team deleted)')
           }
-          state.pendingToolCalls = []
-          trimToolCallArray(state.executedToolCalls)
         })
         if (!isAgentRuntimeSyncSuppressed()) {
           emitAgentRuntimeSync({ kind: 'clear_pending_approvals' })
@@ -2322,16 +2370,26 @@ export const useAgentStore = create<AgentStore>()(
         }
 
         // Move tool call from pending to executed so the dialog advances
-        // to the next pending item. Without this, teammate tool calls
-        // stay in pendingToolCalls and block subsequent approvals.
+        // to the next pending item. Approval requests can live either in the
+        // current live bucket or in a per-session cache for detached/background
+        // sessions, so check both locations.
         set((state) => {
-          const idx = state.pendingToolCalls.findIndex((t) => t.id === toolCallId)
-          if (idx !== -1) {
-            const [moved] = state.pendingToolCalls.splice(idx, 1)
-            moved.status = approved ? 'running' : 'error'
-            if (!approved) moved.error = 'User denied permission'
-            state.executedToolCalls.push(normalizeToolCall(moved))
-            trimToolCallArray(state.executedToolCalls)
+          if (
+            resolveApprovalInBuckets(
+              state.pendingToolCalls,
+              state.executedToolCalls,
+              toolCallId,
+              approved
+            )
+          ) {
+            return
+          }
+
+          for (const cache of Object.values(state.sessionToolCallsCache)) {
+            if (!cache) continue
+            if (resolveApprovalInBuckets(cache.pending, cache.executed, toolCallId, approved)) {
+              return
+            }
           }
         })
         if (!isAgentRuntimeSyncSuppressed()) {

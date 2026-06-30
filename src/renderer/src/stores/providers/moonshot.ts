@@ -4,6 +4,7 @@ const KIMI_CLI_USER_AGENT = 'KimiCLI/1.30.0'
 const KIMI_OAUTH_HOST = 'https://auth.kimi.com'
 const KIMI_CLIENT_ID = '17e5f671-d194-4dfb-9706-5516cb48c098'
 
+// Price fields below are USD per 1M tokens; Kimi publishes CNY prices, so values are converted.
 export const moonshotCodingPreset: BuiltinProviderPreset = {
   builtinId: 'moonshot-coding',
   name: 'Moonshot（套餐）',
@@ -40,7 +41,7 @@ export const moonshotCodingPreset: BuiltinProviderPreset = {
   defaultModels: [
     {
       id: 'kimi-for-coding',
-      name: 'Kimi K2.7 Code for Coding',
+      name: 'Kimi For Coding (K2.7 Code)',
       icon: 'kimi',
       enabled: true,
       contextLength: 262_144,
@@ -53,7 +54,6 @@ export const moonshotCodingPreset: BuiltinProviderPreset = {
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
         forceTemperature: 1
       }
     }
@@ -68,6 +68,15 @@ export const moonshotPreset: BuiltinProviderPreset = {
   homepage: 'https://platform.moonshot.cn',
   apiKeyUrl: 'https://platform.moonshot.cn/console/api-keys',
   defaultModel: 'kimi-k2.7-code',
+  deprecatedModelIds: [
+    'kimi-k2-0905-preview',
+    'kimi-k2-0711-preview',
+    'kimi-k2-turbo-preview',
+    'kimi-k2-thinking',
+    'kimi-k2-thinking-turbo',
+    'kimi-latest',
+    'kimi-thinking-preview'
+  ],
   defaultModels: [
     {
       id: 'kimi-k2.7-code',
@@ -84,7 +93,6 @@ export const moonshotPreset: BuiltinProviderPreset = {
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
         forceTemperature: 1
       }
     },
@@ -103,7 +111,6 @@ export const moonshotPreset: BuiltinProviderPreset = {
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
         forceTemperature: 1
       }
     },
@@ -117,8 +124,9 @@ export const moonshotPreset: BuiltinProviderPreset = {
       maxOutputTokens: 32_768,
       supportsVision: true,
       supportsFunctionCall: true,
-      inputPrice: 0.15,
-      outputPrice: 0.9,
+      inputPrice: 0.95,
+      outputPrice: 4,
+      cacheHitPrice: 0.16,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
@@ -136,26 +144,9 @@ export const moonshotPreset: BuiltinProviderPreset = {
       maxOutputTokens: 32_768,
       supportsVision: true,
       supportsFunctionCall: true,
-      inputPrice: 0.23,
+      inputPrice: 0.56,
       outputPrice: 3,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-        forceTemperature: 1
-      }
-    },
-    {
-      id: 'kimi-k2-thinking',
-      name: 'Kimi K2 Thinking',
-      icon: 'kimi',
-      enabled: true,
-      contextLength: 131_072,
-      maxOutputTokens: 8_192,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 0.47,
-      outputPrice: 2,
+      cacheHitPrice: 0.1,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
@@ -185,35 +176,74 @@ export const moonshotPreset: BuiltinProviderPreset = {
       maxOutputTokens: 4_096,
       supportsVision: false,
       supportsFunctionCall: true,
-      inputPrice: 0.2,
-      outputPrice: 2,
-      cacheHitPrice: 0.05
+      inputPrice: 0.28,
+      outputPrice: 1.4,
+      cacheHitPrice: 0.07
     },
     {
       id: 'moonshot-v1-32k',
       name: 'Moonshot v1 32K',
       icon: 'moonshot',
       enabled: true,
-      contextLength: 32_000,
+      contextLength: 32_768,
       maxOutputTokens: 4_096,
       supportsVision: false,
       supportsFunctionCall: true,
-      inputPrice: 1,
-      outputPrice: 3,
-      cacheHitPrice: 0.25
+      inputPrice: 0.7,
+      outputPrice: 2.8,
+      cacheHitPrice: 0.18
     },
     {
       id: 'moonshot-v1-128k',
       name: 'Moonshot v1 128K',
       icon: 'moonshot',
       enabled: true,
-      contextLength: 128_000,
+      contextLength: 131_072,
       maxOutputTokens: 4_096,
       supportsVision: false,
       supportsFunctionCall: true,
-      inputPrice: 2,
-      outputPrice: 5,
-      cacheHitPrice: 0.5
+      inputPrice: 1.4,
+      outputPrice: 4.2,
+      cacheHitPrice: 0.35
+    },
+    {
+      id: 'moonshot-v1-8k-vision-preview',
+      name: 'Moonshot v1 8K Vision Preview',
+      icon: 'moonshot',
+      enabled: true,
+      contextLength: 8_192,
+      maxOutputTokens: 4_096,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.28,
+      outputPrice: 1.4,
+      cacheHitPrice: 0.07
+    },
+    {
+      id: 'moonshot-v1-32k-vision-preview',
+      name: 'Moonshot v1 32K Vision Preview',
+      icon: 'moonshot',
+      enabled: true,
+      contextLength: 32_768,
+      maxOutputTokens: 4_096,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.7,
+      outputPrice: 2.8,
+      cacheHitPrice: 0.18
+    },
+    {
+      id: 'moonshot-v1-128k-vision-preview',
+      name: 'Moonshot v1 128K Vision Preview',
+      icon: 'moonshot',
+      enabled: true,
+      contextLength: 131_072,
+      maxOutputTokens: 4_096,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 1.4,
+      outputPrice: 4.2,
+      cacheHitPrice: 0.35
     }
   ]
 }

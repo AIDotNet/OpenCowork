@@ -271,20 +271,20 @@ export class GoalRuntimeService {
     return audit.count >= GOAL_BLOCKED_TURN_THRESHOLD
   }
 
-  prepareRun(args: {
+  async prepareRun(args: {
     runId: string
     sessionId?: string
     planMode?: boolean
     source?: GoalRunSource
     messages: RuntimeMessage[]
     enqueueMessages: (messages: RuntimeMessage[]) => void
-  }): RuntimeMessage[] {
+  }): Promise<RuntimeMessage[]> {
     const sessionId = args.sessionId?.trim()
     const source = args.source ?? 'user_turn'
     const planMode = args.planMode === true
     if (!sessionId) return args.messages
 
-    const goal = goalsDao.getGoal(sessionId) ?? null
+    const goal = (await goalsDao.getGoal(sessionId)) ?? null
     const pendingPrompts = this.pendingPromptsBySession.get(sessionId) ?? []
     this.pendingPromptsBySession.delete(sessionId)
 
@@ -379,12 +379,12 @@ export class GoalRuntimeService {
     await this.accountRunUsage(run, undefined, this.elapsedDeltaSeconds(run))
 
     let requestContinue = false
-    const goal = goalsDao.getGoal(sessionId) ?? null
+    const goal = (await goalsDao.getGoal(sessionId)) ?? null
     if (goalId && goal?.goal_id === goalId) {
       if (goal.status === 'complete') {
         const blockers = this.buildCompletionGateBlockers(run)
         if (blockers.length > 0) {
-          const restored = goalsDao.updateGoal(sessionId, { status: 'active' })
+          const restored = await goalsDao.updateGoal(sessionId, { status: 'active' })
           if (restored) {
             emitGoalUpdated(restored, 'goal-completion-deferred')
           }
@@ -396,35 +396,31 @@ export class GoalRuntimeService {
           })
         } else {
           this.resetBlockedAudit(sessionId, goal.goal_id)
-          emitGoalEventAdded(
-            goalsDao.addGoalEvent({
-              sessionId,
-              goalId: goal.goal_id,
-              eventType: 'completed',
-              metadata: {
-                tokensUsed: goal.tokens_used,
-                tokenBudget: goal.token_budget,
-                timeUsedSeconds: goal.time_used_seconds
-              }
-            }),
-            'goal-completed'
-          )
+          const completedEvent = await goalsDao.addGoalEvent({
+            sessionId,
+            goalId: goal.goal_id,
+            eventType: 'completed',
+            metadata: {
+              tokensUsed: goal.tokens_used,
+              tokenBudget: goal.token_budget,
+              timeUsedSeconds: goal.time_used_seconds
+            }
+          })
+          emitGoalEventAdded(completedEvent, 'goal-completed')
         }
       } else if (goal.status === 'active') {
         if (run.aborted || run.lastLoopEndReason === 'aborted') {
-          const paused = goalsDao.updateGoal(sessionId, { status: 'paused' })
+          const paused = await goalsDao.updateGoal(sessionId, { status: 'paused' })
           if (paused) {
             this.resetBlockedAudit(sessionId, paused.goal_id)
             emitGoalUpdated(paused, 'goal-stall-paused')
-            emitGoalEventAdded(
-              goalsDao.addGoalEvent({
-                sessionId,
-                goalId: paused.goal_id,
-                eventType: 'stall_paused',
-                message: 'the user stopped the run'
-              }),
-              'goal-stall-paused'
-            )
+            const pausedEvent = await goalsDao.addGoalEvent({
+              sessionId,
+              goalId: paused.goal_id,
+              eventType: 'stall_paused',
+              message: 'the user stopped the run'
+            })
+            emitGoalEventAdded(pausedEvent, 'goal-stall-paused')
           }
         } else {
           const blockers = this.buildContinuationBlockers(run)
@@ -570,14 +566,14 @@ export class GoalRuntimeService {
     timeDeltaSeconds = 0
   ): Promise<void> {
     if (run.planMode || !run.goalId) return
-    const goal = goalsDao.getGoal(run.sessionId)
+    const goal = await goalsDao.getGoal(run.sessionId)
     if (!goal || goal.goal_id !== run.goalId) return
 
     const tokenDelta = usage ? goalTokenDeltaForUsage(usage) : 0
     const safeTimeDelta = Math.max(0, Math.floor(timeDeltaSeconds))
     if (tokenDelta === 0 && safeTimeDelta === 0) return
 
-    const updated = goalsDao.accountGoalUsage({
+    const updated = await goalsDao.accountGoalUsage({
       sessionId: run.sessionId,
       tokenDelta,
       timeDeltaSeconds: safeTimeDelta,
@@ -598,25 +594,23 @@ export class GoalRuntimeService {
   }
 
   private async markRunUsageLimited(run: ActiveRunState, message?: string): Promise<void> {
-    const goal = goalsDao.getGoal(run.sessionId)
+    const goal = await goalsDao.getGoal(run.sessionId)
     if (!goal || goal.goal_id !== run.goalId || goal.status !== 'active') return
 
     const timeDeltaSeconds = this.elapsedDeltaSeconds(run)
     await this.accountRunUsage(run, undefined, timeDeltaSeconds)
-    const limited = goalsDao.updateGoal(run.sessionId, { status: 'usage_limited' })
+    const limited = await goalsDao.updateGoal(run.sessionId, { status: 'usage_limited' })
     if (!limited) return
 
     emitGoalUpdated(limited, 'goal-usage-limited')
     if (message?.trim()) {
-      emitGoalEventAdded(
-        goalsDao.addGoalEvent({
-          sessionId: run.sessionId,
-          goalId: limited.goal_id,
-          eventType: 'usage_limited',
-          message: message.trim()
-        }),
-        'goal-usage-limited'
-      )
+      const limitedEvent = await goalsDao.addGoalEvent({
+        sessionId: run.sessionId,
+        goalId: limited.goal_id,
+        eventType: 'usage_limited',
+        message: message.trim()
+      })
+      emitGoalEventAdded(limitedEvent, 'goal-usage-limited')
     }
   }
 
@@ -681,43 +675,39 @@ export class GoalRuntimeService {
       count
     })
 
-    emitGoalEventAdded(
-      goalsDao.addGoalEvent({
-        sessionId: args.sessionId,
-        goalId: args.goalId,
-        eventType: args.eventType,
-        message: blockers.join('; '),
-        metadata: {
-          blockers,
-          blockerSignature: signature,
-          consecutiveTurns: count
-        }
-      }),
-      'goal-blocker-recorded'
-    )
+    const blockerEvent = await goalsDao.addGoalEvent({
+      sessionId: args.sessionId,
+      goalId: args.goalId,
+      eventType: args.eventType,
+      message: blockers.join('; '),
+      metadata: {
+        blockers,
+        blockerSignature: signature,
+        consecutiveTurns: count
+      }
+    })
+    emitGoalEventAdded(blockerEvent, 'goal-blocker-recorded')
 
     if (count < GOAL_BLOCKED_TURN_THRESHOLD) {
       return true
     }
 
-    const blocked = goalsDao.updateGoal(args.sessionId, { status: 'blocked' })
+    const blocked = await goalsDao.updateGoal(args.sessionId, { status: 'blocked' })
     if (!blocked) return true
 
     emitGoalUpdated(blocked, 'goal-blocked')
-    emitGoalEventAdded(
-      goalsDao.addGoalEvent({
-        sessionId: args.sessionId,
-        goalId: blocked.goal_id,
-        eventType: 'blocked',
-        message: blockers.join('; '),
-        metadata: {
-          blockers,
-          blockerSignature: signature,
-          consecutiveTurns: count
-        }
-      }),
-      'goal-blocked'
-    )
+    const blockedEvent = await goalsDao.addGoalEvent({
+      sessionId: args.sessionId,
+      goalId: blocked.goal_id,
+      eventType: 'blocked',
+      message: blockers.join('; '),
+      metadata: {
+        blockers,
+        blockerSignature: signature,
+        consecutiveTurns: count
+      }
+    })
+    emitGoalEventAdded(blockedEvent, 'goal-blocked')
     return false
   }
 

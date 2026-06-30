@@ -264,7 +264,7 @@ export function BrowserPanel({
     const onNewWindow = (e: Event & { url: string; preventDefault: () => void }): void => {
       e.preventDefault()
       if (!canNavigateTo(e.url)) return
-      window.electron.ipcRenderer.invoke('shell:openExternal', e.url)
+      ipcClient.invoke(IPC.SHELL_OPEN_EXTERNAL, e.url)
     }
 
     wv.addEventListener('did-start-loading', onStartLoading)

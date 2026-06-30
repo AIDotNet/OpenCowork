@@ -71,14 +71,7 @@ export type SshWorkspaceSection =
   | 'sftp'
   | 'terminal'
 
-export type SshUploadStage =
-  | 'compress'
-  | 'upload'
-  | 'remote_unzip'
-  | 'cleanup'
-  | 'done'
-  | 'error'
-  | 'canceled'
+export type SshUploadStage = 'upload' | 'cleanup' | 'done' | 'error' | 'canceled'
 
 export type SshUploadProgress = {
   current?: number
@@ -268,10 +261,7 @@ let sshStatusSubscribed = false
 
 function mapUploadStageToTransferStage(stage: SshUploadStage): SftpTransferStage {
   switch (stage) {
-    case 'compress':
-      return 'preparing'
     case 'upload':
-    case 'remote_unzip':
       return 'transferring'
     case 'cleanup':
       return 'cleanup'
@@ -496,6 +486,14 @@ function normalizePageInfo(meta?: ListDirPagedResult): FileExplorerPageInfo {
   const cursor = typeof meta?.nextCursor === 'string' ? meta.nextCursor : undefined
   const hasMore = typeof meta?.hasMore === 'boolean' ? meta.hasMore : Boolean(cursor)
   return { cursor, hasMore }
+}
+
+function areStringSetsEqual(left: Set<string> | undefined, right: Set<string>): boolean {
+  if (!left || left.size !== right.size) return false
+  for (const value of right) {
+    if (!left.has(value)) return false
+  }
+  return true
 }
 
 // ── Store ──
@@ -1900,8 +1898,12 @@ export const useSshStore = create<SshStore>()((set, get) => ({
   },
 
   setFileExplorerExpanded: (sessionId, expanded) => {
-    set((s) => ({
-      fileExplorerExpanded: { ...s.fileExplorerExpanded, [sessionId]: new Set(expanded) }
-    }))
+    set((s) => {
+      const next = new Set(expanded)
+      if (areStringSetsEqual(s.fileExplorerExpanded[sessionId], next)) return s
+      return {
+        fileExplorerExpanded: { ...s.fileExplorerExpanded, [sessionId]: next }
+      }
+    })
   }
 }))

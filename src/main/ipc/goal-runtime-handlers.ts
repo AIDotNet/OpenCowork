@@ -1,10 +1,10 @@
-import { ipcMain } from 'electron'
 import { getGoalRuntimeService } from '../goals/goal-runtime'
+import { registerMessagePackHandler } from './messagepack-handler'
 
 export function registerGoalRuntimeHandlers(): void {
-  ipcMain.handle(
+  registerMessagePackHandler<{ sessionId?: string; goalId?: string | null }>(
     'goal-runtime:can-mark-blocked',
-    (_event, args: { sessionId?: string; goalId?: string | null }) => {
+    (args) => {
       const sessionId = typeof args?.sessionId === 'string' ? args.sessionId.trim() : ''
       if (!sessionId) return { canMarkBlocked: false }
       const goalId = typeof args?.goalId === 'string' ? args.goalId.trim() : null

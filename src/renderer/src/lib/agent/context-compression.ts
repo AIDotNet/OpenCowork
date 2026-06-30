@@ -1,15 +1,10 @@
-import { nanoid } from 'nanoid'
 import type {
   AIModelConfig,
   CompactBoundaryMeta,
-  CompactSummaryMeta,
-  ContentBlock,
   ProviderConfig,
   UnifiedMessage
 } from '../api/types'
-import { runSidecarTextRequest } from '@renderer/lib/ipc/agent-bridge'
-import { RESPONSES_SESSION_SCOPE_CONTEXT_COMPRESSION } from '@renderer/lib/api/responses-session-policy'
-import i18n from '@renderer/locales'
+import { runSidecarContextCompression } from '@renderer/lib/ipc/agent-bridge'
 
 export interface CompressionConfig {
   enabled: boolean
@@ -40,44 +35,14 @@ export const CONTEXT_COMPRESSION_PRE_BUFFER_TOKENS = 20_000
 export const CONTEXT_COMPRESSION_PRE_GAP_TOKENS = 8_000
 
 const DEFAULT_PRECOMPRESS_THRESHOLD = 0.65
-const PRESERVE_RECENT_COUNT = 0
-const TOOL_RESULT_KEEP_RECENT = 6
-const MAX_COMPRESS_RETRIES = 2
-const MAX_CONSECUTIVE_FAILURES = 3
-const SAFE_BOUNDARY_SCAN_LIMIT = 10
-const TOOL_RESULT_CLEAR_CHAR_THRESHOLD = 200
-const SERIALIZED_TOOL_USE_INPUT_LIMIT = 500
-const SERIALIZED_TOOL_RESULT_LIMIT = 800
-const BASE_RETRY_DELAY_MS = 1_500
 const LEGACY_SUMMARY_PREFIXES = [
   '[Context Memory Compressed Summary]',
   '[Context Memory Compressed Summary]',
   '[Context Memory Compressed Summary'
 ]
 
-const CLEARED_TOOL_RESULT_PLACEHOLDER = i18n.t('contextCompression.clearedToolResult', {
-  ns: 'agent'
-})
-const CLEARED_THINKING_PLACEHOLDER = i18n.t('contextCompression.clearedThinking', { ns: 'agent' })
-const COMPRESSION_SYSTEM_PROMPT = i18n.t('contextCompression.systemPrompt', { ns: 'agent' })
-
-let consecutiveFailures = 0
-
-function serializeImageAttachmentForContext(
-  block: Extract<ContentBlock, { type: 'image' }>
-): string {
-  const label = i18n.t('contextCompression.imageAttachment', { ns: 'agent' })
-  const filePath = block.source.filePath?.trim()
-  if (filePath) return `${label} file path: ${filePath}`
-
-  const url = block.source.type === 'url' ? block.source.url?.trim() : ''
-  if (url) return `${label} URL: ${url}`
-
-  return label
-}
-
 export function resetCompressionFailures(): void {
-  consecutiveFailures = 0
+  // Native worker owns the summarizer circuit breaker.
 }
 
 export function clampCompressionThreshold(value?: number | null): number {
@@ -163,10 +128,9 @@ export function getPreCompressionTriggerTokens(config: CompressionConfig): numbe
 
 export function shouldCompress(inputTokens: number, config: CompressionConfig): boolean {
   if (!config.enabled || config.contextLength <= 0) return false
-  // The summarizer circuit-breaker (consecutiveFailures) is intentionally NOT checked
-  // here. Once the LLM summarizer keeps failing, compressMessages() falls back to a
-  // local, non-LLM truncation instead of doing nothing — so we must keep triggering
-  // above the token threshold to guarantee the context stays bounded.
+  // The native worker owns summarizer failure handling and falls back to local
+  // truncation when needed, so the renderer should keep triggering above the
+  // token threshold to guarantee the context stays bounded.
   return inputTokens >= getCompressionTriggerTokens(config)
 }
 
@@ -569,521 +533,35 @@ export function mergeLoopEndMessagesKeepHistory(
   ]
 }
 
-export function createCompactBoundaryMessage(args: {
-  trigger: CompactBoundaryMeta['trigger']
-  preTokens: number
-  messagesSummarized: number
-  preservedMessages?: UnifiedMessage[]
-}): UnifiedMessage {
-  const preservedMessages = args.preservedMessages ?? []
-  const meta: CompactBoundaryMeta = {
-    trigger: args.trigger,
-    preTokens: args.preTokens,
-    messagesSummarized: args.messagesSummarized,
-    ...(preservedMessages.length > 0
-      ? {
-          preservedSegment: {
-            headId: preservedMessages[0]!.id,
-            anchorId: '',
-            tailId: preservedMessages[preservedMessages.length - 1]!.id
-          }
-        }
-      : {})
-  }
-
-  return {
-    id: nanoid(),
-    role: 'system',
-    content: 'Conversation compacted',
-    createdAt: Date.now(),
-    meta: { compactBoundary: meta }
-  }
-}
-
-export function createCompactSummaryMessage(args: {
-  summary: string
-  messagesSummarized: number
-  recentMessagesPreserved: boolean
-}): UnifiedMessage {
-  const summaryMeta: CompactSummaryMeta = {
-    messagesSummarized: args.messagesSummarized,
-    recentMessagesPreserved: args.recentMessagesPreserved
-  }
-
-  return {
-    id: nanoid(),
-    role: 'user',
-    content: i18n.t('contextCompression.summaryMessage', {
-      ns: 'agent',
-      count: args.messagesSummarized,
-      summary: args.summary
-    }),
-    createdAt: Date.now(),
-    meta: { compactSummary: summaryMeta }
-  }
-}
-
-export function preCompressMessages(messages: UnifiedMessage[]): UnifiedMessage[] {
-  if (messages.length <= TOOL_RESULT_KEEP_RECENT) return messages
-
-  const cutoff = messages.length - TOOL_RESULT_KEEP_RECENT
-  return messages.map((message, index) => {
-    if (index >= cutoff) return message
-    if (typeof message.content === 'string') return message
-
-    let changed = false
-    const newBlocks = message.content.map((block) => {
-      if (block.type === 'tool_result') {
-        const content =
-          typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
-        if (content.length > TOOL_RESULT_CLEAR_CHAR_THRESHOLD) {
-          changed = true
-          return { ...block, content: CLEARED_TOOL_RESULT_PLACEHOLDER }
-        }
-      }
-
-      if (block.type === 'thinking') {
-        changed = true
-        return { ...block, thinking: CLEARED_THINKING_PLACEHOLDER }
-      }
-
-      if (block.type === 'image') {
-        changed = true
-        return { type: 'text', text: serializeImageAttachmentForContext(block) } as ContentBlock
-      }
-
-      return block
-    })
-
-    return changed ? { ...message, content: newBlocks } : message
-  })
-}
-
 export async function compressMessages(
   messages: UnifiedMessage[],
   providerConfig: ProviderConfig,
   signal?: AbortSignal,
-  preserveCount = PRESERVE_RECENT_COUNT,
+  preserveCount = 0,
   focusPrompt?: string,
   pinnedContext?: string,
   trigger: CompactBoundaryMeta['trigger'] = 'manual',
   preTokens = 0
 ): Promise<{ messages: UnifiedMessage[]; result: CompressionResult }> {
-  const originalCount = messages.length
-  const minMessagesToCompress = trigger === 'manual' ? 1 : 2
-  const effectivePreserveCount =
-    trigger === 'manual'
-      ? Math.min(Math.max(0, preserveCount), Math.max(0, originalCount - minMessagesToCompress))
-      : preserveCount
-
-  if (originalCount < effectivePreserveCount + minMessagesToCompress) {
-    return {
-      messages,
-      result: { compressed: false, originalCount, newCount: originalCount }
-    }
+  if (signal?.aborted) {
+    throw new Error('aborted')
   }
 
-  const boundaryIndex = findSafeCompactBoundary(messages, messages.length - effectivePreserveCount)
-  const messagesToCompress = messages.slice(0, boundaryIndex)
-  const messagesToPreserve = messages.slice(boundaryIndex)
-
-  if (messagesToCompress.length < minMessagesToCompress) {
-    return {
-      messages,
-      result: { compressed: false, originalCount, newCount: originalCount }
-    }
-  }
-
-  // Summarizer circuit-breaker is open (the LLM summarizer has failed repeatedly).
-  // Skip the network call and reduce the context locally so it stays bounded.
-  if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-    console.warn('[Context Compression] Summarizer circuit open — using local truncation fallback.')
-    return buildLocalTruncationResult(
-      messagesToCompress,
-      messagesToPreserve,
-      originalCount,
-      preTokens
-    )
-  }
-
-  let lastError: Error | null = null
-  for (let attempt = 0; attempt <= MAX_COMPRESS_RETRIES; attempt += 1) {
-    try {
-      const inputMessages =
-        attempt === 0 ? messagesToCompress : truncateOldestMessages(messagesToCompress, attempt)
-      const originalTaskMessage = findOriginalTaskMessage(inputMessages)
-      const serialized = serializeCompressionInput(
-        inputMessages,
-        originalTaskMessage?.content,
-        pinnedContext
-      )
-      const rawSummary = await callSummarizer(serialized, providerConfig, signal, focusPrompt)
-      const formattedSummary = formatCompactSummary(rawSummary)
-      if (!formattedSummary.trim()) {
-        throw new Error(i18n.t('contextCompression.emptyResultError', { ns: 'agent' }))
-      }
-
-      const boundaryMessage = createCompactBoundaryMessage({
-        trigger,
-        preTokens,
-        messagesSummarized: messagesToCompress.length,
-        preservedMessages: messagesToPreserve
-      })
-      const summaryMessage = createCompactSummaryMessage({
-        summary: formattedSummary,
-        messagesSummarized: messagesToCompress.length,
-        recentMessagesPreserved: messagesToPreserve.length > 0
-      })
-
-      if (boundaryMessage.meta?.compactBoundary?.preservedSegment) {
-        boundaryMessage.meta.compactBoundary.preservedSegment.anchorId = summaryMessage.id
-      }
-
-      consecutiveFailures = 0
-
-      const compressedMessages = [boundaryMessage, summaryMessage, ...messagesToPreserve]
-      return {
-        messages: compressedMessages,
-        result: {
-          compressed: true,
-          originalCount,
-          newCount: compressedMessages.length,
-          messagesSummarized: messagesToCompress.length
-        }
-      }
-    } catch (error) {
-      lastError = error as Error
-      console.error(`[Context Compression] Attempt ${attempt + 1} failed:`, error)
-      if (attempt < MAX_COMPRESS_RETRIES) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, BASE_RETRY_DELAY_MS * Math.pow(2, attempt))
-        )
-      }
-    }
-  }
-
-  consecutiveFailures += 1
-  console.error(
-    `[Context Compression] All retries failed (consecutive: ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}), falling back to local truncation:`,
-    lastError
-  )
-
-  // The summarizer failed for this attempt. Rather than leaving the context
-  // unbounded, drop the oldest messages locally at a tool-pair-safe boundary.
-  return buildLocalTruncationResult(
-    messagesToCompress,
-    messagesToPreserve,
-    originalCount,
-    preTokens
-  )
-}
-
-/**
- * Non-LLM fallback used when the summarizer is unavailable or its circuit-breaker
- * is open. Produces the SAME boundary + summary artifact shape as a successful
- * compression (so the UI merge/render logic treats it identically), but the
- * "summary" is a localized placeholder noting that the older messages were dropped
- * without an LLM-generated summary. The original task message is appended verbatim
- * when available so the model retains the overall goal.
- */
-function buildLocalTruncationResult(
-  messagesToCompress: UnifiedMessage[],
-  messagesToPreserve: UnifiedMessage[],
-  originalCount: number,
-  preTokens: number
-): { messages: UnifiedMessage[]; result: CompressionResult } {
-  const originalTask = findOriginalTaskMessage(messagesToCompress)
-  const taskText = originalTask ? extractUnifiedMessageText(originalTask) : ''
-  let summaryBody = i18n.t('contextCompression.localTruncationSummary', {
-    ns: 'agent',
-    count: messagesToCompress.length
+  const result = await runSidecarContextCompression({
+    messages,
+    provider: providerConfig,
+    signal,
+    ...(focusPrompt ? { focusPrompt } : {}),
+    ...(typeof preserveCount === 'number' && Number.isFinite(preserveCount)
+      ? { preserveCount }
+      : {}),
+    ...(trigger ? { trigger } : {}),
+    ...(typeof preTokens === 'number' && Number.isFinite(preTokens) ? { preTokens } : {}),
+    ...(pinnedContext?.trim() ? { pinnedContext: pinnedContext.trim() } : {})
   })
-  if (taskText) {
-    summaryBody = `${summaryBody}\n\n${taskText}`
-  }
 
-  const boundaryMessage = createCompactBoundaryMessage({
-    trigger: 'auto',
-    preTokens,
-    messagesSummarized: messagesToCompress.length,
-    preservedMessages: messagesToPreserve
-  })
-  const summaryMessage = createCompactSummaryMessage({
-    summary: summaryBody,
-    messagesSummarized: messagesToCompress.length,
-    recentMessagesPreserved: messagesToPreserve.length > 0
-  })
-  if (boundaryMessage.meta?.compactBoundary?.preservedSegment) {
-    boundaryMessage.meta.compactBoundary.preservedSegment.anchorId = summaryMessage.id
-  }
-
-  const compressedMessages = [boundaryMessage, summaryMessage, ...messagesToPreserve]
-  return {
-    messages: compressedMessages,
-    result: {
-      compressed: true,
-      originalCount,
-      newCount: compressedMessages.length,
-      messagesSummarized: messagesToCompress.length
-    }
-  }
-}
-
-function findSafeCompactBoundary(messages: UnifiedMessage[], initialBoundary: number): number {
-  let boundary = Math.max(1, Math.min(initialBoundary, messages.length))
-
-  for (let attempts = 0; attempts < SAFE_BOUNDARY_SCAN_LIMIT; attempts += 1) {
-    const compressedToolUseIds = new Set<string>()
-    for (let index = 0; index < boundary; index += 1) {
-      const message = messages[index]
-      if (typeof message.content === 'string') continue
-      for (const block of message.content) {
-        if (block.type === 'tool_use' && block.id) {
-          compressedToolUseIds.add(block.id)
-        }
-      }
-    }
-
-    let hasSplit = false
-    for (let index = boundary; index < messages.length && !hasSplit; index += 1) {
-      const message = messages[index]
-      if (typeof message.content === 'string') continue
-      for (const block of message.content) {
-        if (
-          block.type === 'tool_result' &&
-          block.toolUseId &&
-          compressedToolUseIds.has(block.toolUseId)
-        ) {
-          hasSplit = true
-          break
-        }
-      }
-    }
-
-    if (!hasSplit) return boundary
-    boundary = Math.max(1, boundary - 1)
-  }
-
-  return boundary
-}
-
-function truncateOldestMessages(messages: UnifiedMessage[], attempt: number): UnifiedMessage[] {
-  const dropCount = Math.ceil(messages.length * 0.25 * attempt)
-  const result: UnifiedMessage[] = []
-  let dropped = 0
-  let keptFirstUser = false
-
-  for (const message of messages) {
-    if (message.role === 'system') {
-      result.push(message)
-      continue
-    }
-
-    if (!keptFirstUser && message.role === 'user') {
-      result.push(message)
-      keptFirstUser = true
-      continue
-    }
-
-    if (dropped < dropCount) {
-      dropped += 1
-      continue
-    }
-
-    result.push(message)
-  }
-
-  return result.length >= 2 ? result : messages
-}
-
-function formatCompactSummary(rawSummary: string): string {
-  let result = rawSummary
-  result = result.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
-  const summaryMatch = result.match(/<summary>([\s\S]*?)<\/summary>/i)
-  if (summaryMatch) {
-    result = summaryMatch[1] ?? ''
-  }
-  return result.replace(/\n\n+/g, '\n\n').trim()
-}
-
-function serializeCompressionInput(
-  messages: UnifiedMessage[],
-  originalTaskContent?: UnifiedMessage['content'],
-  pinnedContext?: string
-): string {
-  const parts: string[] = []
-
-  if (originalTaskContent) {
-    parts.push('## Original Task')
-    parts.push(
-      typeof originalTaskContent === 'string'
-        ? originalTaskContent
-        : serializeMessageContent(originalTaskContent)
-    )
-  }
-
-  if (pinnedContext?.trim()) {
-    parts.push('## Pinned Plan Context')
-    parts.push(pinnedContext.trim())
-  }
-
-  parts.push('## Full Conversation History')
-  parts.push(serializeMessages(messages))
-
-  return parts.join('\n\n')
-}
-
-function serializeMessageContent(content: ContentBlock[]): string {
-  return content
-    .map((block) => {
-      switch (block.type) {
-        case 'text':
-          return block.text
-        case 'thinking':
-          return ''
-        case 'tool_use':
-          return i18n.t('contextCompression.toolCallLog', {
-            ns: 'agent',
-            name: block.name,
-            input: JSON.stringify(block.input).slice(0, SERIALIZED_TOOL_USE_INPUT_LIMIT)
-          })
-        case 'tool_result': {
-          const result =
-            typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
-          const preview =
-            result.length > SERIALIZED_TOOL_RESULT_LIMIT
-              ? `${result.slice(0, SERIALIZED_TOOL_RESULT_LIMIT)}\n... [truncated, ${result.length} chars total]`
-              : result
-          return i18n.t('contextCompression.toolResultLog', {
-            ns: 'agent',
-            error: block.isError,
-            content: preview
-          })
-        }
-        case 'image':
-          return serializeImageAttachmentForContext(block)
-        case 'image_error':
-          return `[Image error: ${block.message}]`
-        case 'agent_error':
-          return `[Agent error: ${block.message}]`
-        default:
-          return ''
-      }
-    })
-    .filter(Boolean)
-    .join('\n')
-}
-
-function findOriginalTaskMessage(messages: UnifiedMessage[]): UnifiedMessage | null {
-  for (const message of messages) {
-    if (message.role !== 'user') continue
-    if (message.source === 'team') continue
-    if (isCompactSummaryLikeMessage(message)) continue
-
-    if (Array.isArray(message.content)) {
-      const hasHumanContent = message.content.some(
-        (block) => block.type === 'text' || block.type === 'image'
-      )
-      if (!hasHumanContent) continue
-    }
-
-    return message
-  }
-
-  return null
-}
-
-function serializeMessages(messages: UnifiedMessage[]): string {
-  const parts: string[] = []
-
-  for (const message of messages) {
-    const role = message.role.toUpperCase()
-
-    if (typeof message.content === 'string') {
-      if (message.content.trim()) {
-        parts.push(`[${role}]: ${message.content}`)
-      }
-      continue
-    }
-
-    const blockText = serializeMessageContent(message.content)
-    if (blockText.trim()) {
-      parts.push(`[${role}]: ${blockText}`)
-    }
-  }
-
-  return parts.join('\n\n')
-}
-
-async function callSummarizer(
-  serializedMessages: string,
-  providerConfig: ProviderConfig,
-  signal?: AbortSignal,
-  focusPrompt?: string
-): Promise<string> {
-  const config: ProviderConfig = {
-    ...providerConfig,
-    systemPrompt: COMPRESSION_SYSTEM_PROMPT,
-    thinkingEnabled: false
-  }
-
-  const focusInstruction = focusPrompt
-    ? i18n.t('contextCompression.specialFocus', { ns: 'agent', focusPrompt })
-    : ''
-
-  const messages: UnifiedMessage[] = [
-    {
-      id: 'compress-req',
-      role: 'user',
-      content: i18n.t('contextCompression.compressRequest', {
-        ns: 'agent',
-        focusInstruction,
-        content: serializedMessages
-      }),
-      createdAt: Date.now()
-    }
-  ]
-
-  const abortController = new AbortController()
-  const timeout = setTimeout(() => abortController.abort(), 120_000)
-
-  if (signal) {
-    if (signal.aborted) {
-      clearTimeout(timeout)
-      abortController.abort()
-    } else {
-      signal.addEventListener(
-        'abort',
-        () => {
-          clearTimeout(timeout)
-          abortController.abort()
-        },
-        { once: true }
-      )
-    }
-  }
-
-  let result = ''
-  try {
-    result = await runSidecarTextRequest({
-      provider: config,
-      messages,
-      signal: abortController.signal,
-      maxIterations: 1,
-      responsesSessionScope: RESPONSES_SESSION_SCOPE_CONTEXT_COMPRESSION
-    })
-  } finally {
-    clearTimeout(timeout)
-  }
-
-  result = result.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
-  if (!result) {
-    throw new Error(i18n.t('contextCompression.emptyResultError', { ns: 'agent' }))
-  }
-
-  const stripped = result.replace(/<\/?(?:analysis|summary)>/gi, '').trim()
-  if (!stripped) {
-    throw new Error(i18n.t('contextCompression.emptyResultError', { ns: 'agent' }))
+  if (signal?.aborted) {
+    throw new Error('aborted')
   }
 
   return result

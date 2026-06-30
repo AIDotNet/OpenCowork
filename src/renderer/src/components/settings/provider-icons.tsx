@@ -33,7 +33,8 @@ const providerIconSlugMap: Record<string, string> = {
   xiaomi: 'xiaomimimo',
   'xiaomi-coding': 'xiaomimimo',
   'bigmodel-coding': 'chatglm',
-  bigmodel: 'chatglm'
+  bigmodel: 'chatglm',
+  xai: 'xai'
 }
 
 const modelIconSlugMap: Record<string, string> = {

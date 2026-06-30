@@ -1,43 +1,18 @@
-import * as path from 'path'
-import * as os from 'os'
-import * as fs from 'fs'
-import { nanoid } from 'nanoid'
-import { getDb } from '../db/database'
-import * as projectsDao from '../db/projects-dao'
-import { safeSendToAllWindows } from '../window-ipc'
+import { getNativeWorker } from '../lib/native-worker'
+import { readChannelPlugins } from './channel-config-store'
+import { safeSendMessagePackToAllWindows } from '../window-ipc'
 import type { ChannelEvent, ChannelInstance, ChannelIncomingMessageData } from './channel-types'
 import type { ChannelManager } from './channel-manager'
 import { tryHandleCommand } from './plugin-commands'
 
-const PLUGINS_FILE = path.join(os.homedir(), '.open-cowork', 'plugins.json')
-
-function encodeSessionKeyPart(value: string): string {
-  return encodeURIComponent(value)
-}
-
-function buildPluginMessageSessionKey(pluginId: string, chatId: string): string {
-  return `plugin:${pluginId}:chat:${encodeSessionKeyPart(chatId)}`
-}
-
-function buildLegacyPluginMessageSessionKeyPrefix(pluginId: string, chatId: string): string {
-  return `plugin:${pluginId}:chat:${encodeSessionKeyPart(chatId)}:message:`
-}
-
-function shouldReplaceSessionTitle(
-  currentTitle: string | undefined,
-  nextTitle: string | undefined
-): boolean {
-  const current = (currentTitle ?? '').trim()
-  const next = (nextTitle ?? '').trim()
-  if (!next || current === next) return false
-
-  return (
-    current.length === 0 ||
-    current === 'New Conversation' ||
-    current === 'New Chat' ||
-    /^oc_/i.test(current) ||
-    /^Plugin\s+/i.test(current)
-  )
+interface NativePluginRouteSessionResult {
+  success: boolean
+  sessionId?: string | null
+  sessionTitle?: string | null
+  projectId?: string | null
+  workingFolder?: string | null
+  sshConnectionId?: string | null
+  error?: string | null
 }
 
 let _pluginManager: ChannelManager | null = null
@@ -52,121 +27,59 @@ export function setPluginManager(pm: ChannelManager): void {
  * and notifies the renderer to trigger the Agent Loop for auto-reply.
  */
 export function handleChannelAutoReply(event: ChannelEvent): void {
+  void handleChannelAutoReplyAsync(event)
+}
+
+async function handleChannelAutoReplyAsync(event: ChannelEvent): Promise<void> {
   if (event.type !== 'incoming_message') return
 
   const data = event.data as ChannelIncomingMessageData
   if (!data || !data.chatId || (!data.content && !data.images?.length && !data.audio)) return
 
   const pluginId = event.pluginId
-  const compositeKey = buildPluginMessageSessionKey(pluginId, data.chatId)
-  const legacyCompositeKeyPrefix = buildLegacyPluginMessageSessionKeyPrefix(pluginId, data.chatId)
 
   try {
-    const db = getDb()
-
     let pluginInstance: ChannelInstance | undefined
     try {
-      if (fs.existsSync(PLUGINS_FILE)) {
-        const plugins = JSON.parse(fs.readFileSync(PLUGINS_FILE, 'utf-8')) as ChannelInstance[]
-        pluginInstance = plugins.find((p) => p.id === pluginId)
-      }
+      const plugins = await readChannelPlugins()
+      pluginInstance = plugins.find((p) => p.id === pluginId)
     } catch {
       /* ignore read errors */
     }
 
-    const pluginProject = pluginInstance?.projectId
-      ? projectsDao.getProject(pluginInstance.projectId)
-      : undefined
-    const pluginWorkDir = pluginProject?.working_folder ?? ''
-    const pluginSshConnectionId = pluginProject?.ssh_connection_id ?? null
-
-    let session = db
-      .prepare('SELECT id, title, project_id FROM sessions WHERE external_chat_id = ? LIMIT 1')
-      .get(compositeKey) as { id: string; title: string; project_id?: string | null } | undefined
-
-    if (!session) {
-      session = db
-        .prepare(
-          `SELECT id, title, project_id
-             FROM sessions
-            WHERE plugin_id = ? AND external_chat_id LIKE ?
-            ORDER BY updated_at DESC
-            LIMIT 1`
-        )
-        .get(pluginId, `${legacyCompositeKeyPrefix}%`) as
-        | { id: string; title: string; project_id?: string | null }
-        | undefined
-
-      if (session) {
-        db.prepare('UPDATE sessions SET external_chat_id = ? WHERE id = ?').run(
-          compositeKey,
-          session.id
-        )
-      }
-    }
-
-    const now = Date.now()
-    const sessionProviderId = pluginInstance?.providerId ?? null
-    const sessionModelId = pluginInstance?.model ?? null
-    const sessionModelSelectionMode = sessionProviderId && sessionModelId ? 'manual' : 'inherit'
-
-    if (!session) {
-      const sessionId = nanoid()
-      const title = data.chatName || data.senderName || data.chatId
-      db.prepare(
-        `INSERT INTO sessions (id, title, icon, mode, created_at, updated_at, project_id, working_folder, ssh_connection_id, pinned, plugin_id, external_chat_id, provider_id, model_id, model_selection_mode)
-         VALUES (?, ?, NULL, 'cowork', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
-      ).run(
-        sessionId,
-        title,
-        now,
-        now,
-        pluginProject?.id ?? null,
-        pluginWorkDir || null,
-        pluginSshConnectionId,
+    const routedSession = await getNativeWorker().request<NativePluginRouteSessionResult>(
+      'db/plugin-route-session',
+      {
         pluginId,
-        compositeKey,
-        sessionProviderId,
-        sessionModelId,
-        sessionModelSelectionMode
-      )
-      session = { id: sessionId, title, project_id: pluginProject?.id ?? null }
-    } else {
-      if (pluginProject) {
-        db.prepare(
-          `UPDATE sessions
-              SET updated_at = ?,
-                  project_id = ?,
-                  working_folder = ?,
-                  ssh_connection_id = ?
-            WHERE id = ?`
-        ).run(now, pluginProject.id, pluginWorkDir || null, pluginSshConnectionId, session.id)
-      } else {
-        db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, session.id)
-      }
+        chatId: data.chatId,
+        chatName: data.chatName ?? null,
+        senderName: data.senderName ?? null,
+        projectId: pluginInstance?.projectId ?? null,
+        providerId: pluginInstance?.providerId ?? null,
+        modelId: pluginInstance?.model ?? null
+      },
+      120_000
+    )
 
-      if (sessionProviderId || sessionModelId) {
-        db.prepare(
-          'UPDATE sessions SET provider_id = ?, model_id = ?, model_selection_mode = ? WHERE id = ?'
-        ).run(sessionProviderId, sessionModelId, sessionModelSelectionMode, session.id)
-      }
-
-      const betterTitle = data.chatName || data.senderName
-      if (shouldReplaceSessionTitle(session.title, betterTitle)) {
-        db.prepare('UPDATE sessions SET title = ? WHERE id = ?').run(betterTitle, session.id)
-        session.title = betterTitle
-      }
+    if (!routedSession.success || !routedSession.sessionId) {
+      throw new Error(routedSession.error || 'Native plugin session routing failed')
     }
+
+    const sessionId = routedSession.sessionId
+    const sessionTitle =
+      routedSession.sessionTitle || data.chatName || data.senderName || data.chatId
+    const pluginWorkDir = routedSession.workingFolder ?? ''
+    const pluginSshConnectionId = routedSession.sshConnectionId ?? null
 
     // ── Command interception: handle /help, /new, /init, /status etc. before agent loop ──
     // Always attempt command parsing — tryHandleCommand handles @mention stripping internally
     if (_pluginManager && data.content?.trim()) {
-      const commandResult = tryHandleCommand({
+      const commandResult = await tryHandleCommand({
         pluginId,
         pluginType: event.pluginType,
         chatId: data.chatId,
         data,
-        sessionId: session.id,
+        sessionId,
         pluginWorkDir,
         pluginManager: _pluginManager
       })
@@ -188,15 +101,15 @@ export function handleChannelAutoReply(event: ChannelEvent): void {
     const supportsStreaming = !!(service?.supportsStreaming && service?.sendStreamingMessage)
 
     // Notify renderer to trigger Agent Loop auto-reply
-    safeSendToAllWindows('plugin:session-task', {
-      sessionId: session.id,
+    const taskPayload = {
+      sessionId,
       pluginId,
       pluginType: event.pluginType,
       chatId: data.chatId,
       senderId: data.senderId,
       senderName: data.senderName,
       chatName: data.chatName,
-      sessionTitle: session.title,
+      sessionTitle,
       content:
         data.content ||
         (data.images?.length ? '[User sent an image]' : '') ||
@@ -206,14 +119,15 @@ export function handleChannelAutoReply(event: ChannelEvent): void {
       images: data.images,
       audio: data.audio,
       chatType: data.chatType,
-      projectId: pluginProject?.id ?? undefined,
+      projectId: routedSession.projectId ?? undefined,
       workingFolder: pluginWorkDir || undefined,
       sshConnectionId: pluginSshConnectionId
-    })
+    }
+    safeSendMessagePackToAllWindows('plugin:session-task', taskPayload)
 
     console.log(
       `[AutoReply] Routed message from ${data.senderName || data.senderId} ` +
-        `in chat ${data.chatId} to session ${session.id}`
+        `in chat ${data.chatId} to session ${sessionId}`
     )
   } catch (err) {
     console.error('[AutoReply] Failed to route incoming message:', err)

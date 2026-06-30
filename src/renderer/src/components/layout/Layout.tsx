@@ -32,6 +32,7 @@ import { AnimatePresence } from 'motion/react'
 import { PageTransition, PanelTransition } from '@renderer/components/animate-ui'
 import { openSessionOrFocusDetached } from '@renderer/lib/session-window'
 import { useShallow } from 'zustand/react/shallow'
+import { selectSessionPendingApproval } from '@renderer/lib/agent/session-scoped-agent-state'
 
 const SkillsPage = lazy(async () => {
   const mod = await import('@renderer/components/skills/SkillsPage')
@@ -139,8 +140,9 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const updateSessionMode = useChatStore((s) => s.updateSessionMode)
   const streamingMessageId = useChatStore((s) => s.streamingMessageId)
-  const pendingToolCallCount = useAgentStore((s) => s.pendingToolCalls.length)
-  const pendingApproval = useAgentStore((s) => s.pendingToolCalls[0] ?? null)
+  const { pendingApproval, pendingApprovalCount: pendingToolCallCount } = useAgentStore(
+    useShallow((s) => selectSessionPendingApproval(s, activeSessionId))
+  )
   const resolveApproval = useAgentStore((s) => s.resolveApproval)
   const initBackgroundProcessTracking = useAgentStore((s) => s.initBackgroundProcessTracking)
 

@@ -1,34 +1,60 @@
-import { ipcMain, session } from 'electron'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as os from 'os'
+import { session } from 'electron'
+import { getNativeWorker } from '../lib/native-worker'
+import { registerMessagePackHandler } from './messagepack-handler'
 
-const DATA_DIR = path.join(os.homedir(), '.open-cowork')
-const SETTINGS_FILE = 'settings.json'
-const FLUSH_DEBOUNCE_MS = 2000
+const SETTINGS_NATIVE_TIMEOUT_MS = 60_000
 
-function getSettingsPath(): string {
-  return path.join(DATA_DIR, SETTINGS_FILE)
+type MutationResult = {
+  success: boolean
+  error?: string | null
 }
 
-// --- In-memory cache + debounced disk writes ---
-
 let settingsCache: Record<string, unknown> | null = null
-let dirty = false
-let flushTimer: ReturnType<typeof setTimeout> | null = null
+let settingsHydrated = false
+let hydratePromise: Promise<Record<string, unknown>> | null = null
+let pendingWrite: Promise<unknown> | null = null
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+async function nativeSettingsRequest<T>(method: string, params?: unknown): Promise<T> {
+  return await getNativeWorker().request<T>(method, params ?? {}, SETTINGS_NATIVE_TIMEOUT_MS)
+}
+
+export async function initializeSettingsCache(): Promise<Record<string, unknown>> {
+  if (settingsHydrated && settingsCache) return settingsCache
+  if (hydratePromise) return hydratePromise
+
+  return await reloadSettingsCache()
+}
+
+export async function reloadSettingsCache(): Promise<Record<string, unknown>> {
+  if (hydratePromise) return hydratePromise
+
+  hydratePromise = nativeSettingsRequest<Record<string, unknown>>('settings/read')
+    .then((settings) => {
+      settingsCache = isPlainRecord(settings) ? settings : {}
+      settingsHydrated = true
+      return settingsCache
+    })
+    .catch((err) => {
+      if (!settingsCache) settingsCache = {}
+      console.error('[Settings] Native read error:', err)
+      return settingsCache
+    })
+    .finally(() => {
+      hydratePromise = null
+    })
+
+  return await hydratePromise
+}
+
+// Synchronous callers read the hydrated in-memory snapshot. Startup now hydrates this before use.
 export function readSettings(): Record<string, unknown> {
   if (settingsCache) return settingsCache
-  try {
-    const filePath = getSettingsPath()
-    if (fs.existsSync(filePath)) {
-      settingsCache = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
-      return settingsCache!
-    }
-  } catch {
-    // Return empty on any error
-  }
   settingsCache = {}
+  void initializeSettingsCache()
   return settingsCache
 }
 
@@ -64,48 +90,11 @@ export function readShellEnvironmentVariablesText(): string {
     : ''
 }
 
-function flushSettingsToDisk(): void {
-  if (!dirty || !settingsCache) return
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true })
-    }
-    const filePath = getSettingsPath()
-    const tmpPath = filePath + '.tmp'
-    fs.writeFileSync(tmpPath, JSON.stringify(settingsCache, null, 2), 'utf-8')
-    fs.renameSync(tmpPath, filePath)
-    dirty = false
-  } catch (err) {
-    console.error('[Settings] Flush error:', err)
-  }
-}
-
-function scheduleDiskFlush(): void {
-  dirty = true
-  if (flushTimer) return
-  flushTimer = setTimeout(() => {
-    flushTimer = null
-    flushSettingsToDisk()
-  }, FLUSH_DEBOUNCE_MS)
-}
-
-function writeSettings(settings: Record<string, unknown>): void {
-  settingsCache = settings
-  scheduleDiskFlush()
-}
-
-export function replaceSettingsForSync(settings: Record<string, unknown>): void {
-  settingsCache = settings
-  dirty = true
-  flushSettingsSync()
-}
-
-export function flushSettingsSync(): void {
-  if (flushTimer) {
-    clearTimeout(flushTimer)
-    flushTimer = null
-  }
-  flushSettingsToDisk()
+export async function flushSettingsSync(): Promise<void> {
+  if (!pendingWrite) return
+  await pendingWrite.catch((err) => {
+    console.error('[Settings] Pending native write failed:', err)
+  })
 }
 
 function normalizeProxyUrl(value: unknown): string {
@@ -125,17 +114,38 @@ async function applySystemProxy(proxyUrl: string): Promise<void> {
   }
 }
 
+async function setSettingsValue(key: string, value: unknown): Promise<void> {
+  const settings = await initializeSettingsCache()
+  if (value === undefined || value === null) {
+    delete settings[key]
+  } else {
+    settings[key] = value
+  }
+  settingsCache = settings
+
+  pendingWrite = nativeSettingsRequest<MutationResult>('settings/set', { key, value })
+    .then((result) => {
+      if (!result.success) {
+        throw new Error(result.error || 'Native settings set failed')
+      }
+    })
+    .finally(() => {
+      pendingWrite = null
+    })
+  await pendingWrite
+}
+
 export function registerSettingsHandlers(): void {
-  ipcMain.handle('settings:get', async (_event, key?: string) => {
-    const settings = readSettings()
+  void initializeSettingsCache()
+
+  registerMessagePackHandler<string | undefined>('settings:get', async (key) => {
+    const settings = await initializeSettingsCache()
     if (key) return settings[key]
     return settings
   })
 
-  ipcMain.handle('settings:set', async (_event, args: { key: string; value: unknown }) => {
-    const settings = readSettings()
-    settings[args.key] = args.value
-    writeSettings(settings)
+  registerMessagePackHandler<{ key: string; value: unknown }>('settings:set', async (args) => {
+    await setSettingsValue(args.key, args.value)
 
     if (args.key === 'systemProxyUrl') {
       await applySystemProxy(normalizeProxyUrl(args.value))

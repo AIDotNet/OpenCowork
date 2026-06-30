@@ -118,7 +118,6 @@
     "loadFailed": "負荷に失敗しました",
     "saveFailed": "保存失敗",
     "downloadFailed": "ダウンロード失敗",
-    "zipFailed": "アーカイブディレクトリに失敗",
     "uploadFailed": "アップロード失敗",
     "deleteFailed": "失敗した削除",
     "renameFailed": "名前が失敗しました",
@@ -291,9 +290,7 @@
       "cancel": "キャンセル",
       "clear": "クリア",
       "stages": {
-        "compress": "圧縮する",
         "upload": "アップロード",
-        "remote_unzip": "リモート unzip",
         "cleanup": "クリーンアップ",
         "done": "完了しました",
         "error": "失敗した",

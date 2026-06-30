@@ -118,7 +118,6 @@
     "loadFailed": "Non caricata",
     "saveFailed": "Non riuscito a salvare",
     "downloadFailed": "Download non riuscito",
-    "zipFailed": "Non riuscita ad archiviare la directory",
     "uploadFailed": "Caricamento fallito",
     "deleteFailed": "Eliminare fallito",
     "renameFailed": "Rinominare fallito",
@@ -287,13 +286,11 @@
     },
     "uploads": {
       "title": "Caricamenti",
-      "description": "Tracciare la compressione, caricare, staccare da remoto e pulire il progresso.",
+      "description": "Tracciare il trasferimento e la pulizia.",
       "cancel": "Annulla",
       "clear": "Libero",
       "stages": {
-        "compress": "Compressione",
         "upload": "Caricamento",
-        "remote_unzip": "Unzip remoto",
         "cleanup": "Pulizia",
         "done": "Completato",
         "error": "Fatta.",

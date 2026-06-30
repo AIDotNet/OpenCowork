@@ -12,7 +12,8 @@ import {
   Cable,
   ClipboardList,
   Target,
-  Puzzle
+  Puzzle,
+  Shapes
 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { Switch } from '@renderer/components/ui/switch'
@@ -37,6 +38,11 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { listCommands, type CommandCatalogItem } from '@renderer/lib/commands/command-loader'
 import { resolvePluginsForProject, useAppPluginStore } from '@renderer/stores/app-plugin-store'
 import { APP_PLUGIN_DESCRIPTORS, type AppPluginId } from '@renderer/lib/app-plugin/types'
+import {
+  resolveEffectiveActiveExtensionIds,
+  useExtensionStore
+} from '@renderer/stores/extension-store'
+import { refreshExtensionTools } from '@renderer/lib/extensions/extension-tools'
 
 interface SkillsMenuProps {
   onSelectSkill: (skillName: string) => void
@@ -77,6 +83,64 @@ export function SkillsMenu({
 }: SkillsMenuProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const [open, setOpen] = React.useState(false)
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          data-tour="composer-plus"
+          variant="ghost"
+          size="icon-sm"
+          className={cn('size-8 shrink-0 rounded-lg', triggerClassName)}
+          disabled={disabled}
+          aria-label={t('skills.addActions')}
+          title={t('skills.addActions')}
+        >
+          <Plus className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+
+      {open && (
+        <SkillsMenuContent
+          onSelectSkill={onSelectSkill}
+          onSelectCommand={onSelectCommand}
+          onSelectPlugin={onSelectPlugin}
+          onAttachMedia={onAttachMedia}
+          projectId={projectId}
+          showChannels={showChannels}
+          menuClassName={menuClassName}
+          showModeToggles={showModeToggles}
+          planModeEnabled={planModeEnabled}
+          goalModeEnabled={goalModeEnabled}
+          planModeDisabled={planModeDisabled}
+          goalModeDisabled={goalModeDisabled}
+          onPlanModeChange={onPlanModeChange}
+          onGoalModeChange={onGoalModeChange}
+          setOpen={setOpen}
+        />
+      )}
+    </DropdownMenu>
+  )
+}
+
+function SkillsMenuContent({
+  onSelectSkill,
+  onSelectCommand,
+  onSelectPlugin,
+  onAttachMedia,
+  projectId,
+  showChannels = true,
+  menuClassName,
+  showModeToggles = true,
+  planModeEnabled = false,
+  goalModeEnabled = false,
+  planModeDisabled = false,
+  goalModeDisabled = false,
+  onPlanModeChange,
+  onGoalModeChange,
+  setOpen
+}: SkillsMenuProps & { setOpen: (open: boolean) => void }): React.JSX.Element {
+  const { t } = useTranslation('chat')
   const [commands, setCommands] = React.useState<CommandCatalogItem[]>([])
   const [commandsLoading, setCommandsLoading] = React.useState(false)
   const skills = useSkillsStore((s) => s.skills)
@@ -160,18 +224,34 @@ export function SkillsMenu({
       ),
     [mcpServers, mcpStatuses, projectId]
   )
+  const extensions = useExtensionStore((s) => s.extensions)
+  const activeExtensionIdsByProject = useExtensionStore((s) => s.activeExtensionIdsByProject)
+  const activeExtensionIds = React.useMemo(
+    () =>
+      resolveEffectiveActiveExtensionIds({
+        projectId,
+        activeExtensionIdsByProject,
+        extensions
+      }),
+    [activeExtensionIdsByProject, extensions, projectId]
+  )
+  const availableExtensions = React.useMemo(
+    () => extensions.filter((extension) => extension.enabled),
+    [extensions]
+  )
+  const toggleActiveExtension = useExtensionStore((s) => s.toggleActiveExtension)
+  const loadExtensions = useExtensionStore((s) => s.loadExtensions)
 
   const openSettingsPage = useUIStore((s) => s.openSettingsPage)
   const showModeSection = showModeToggles && Boolean(onPlanModeChange || onGoalModeChange)
 
   React.useEffect(() => {
-    if (!open) return
-
     loadSkills()
     loadProviders()
     loadChannels()
     loadMcpServers()
     refreshAllMcpServers()
+    loadExtensions()
 
     let cancelled = false
     setCommandsLoading(true)
@@ -190,392 +270,452 @@ export function SkillsMenu({
     return () => {
       cancelled = true
     }
-  }, [open, loadSkills, loadProviders, loadChannels, loadMcpServers, refreshAllMcpServers])
+  }, [
+    loadSkills,
+    loadProviders,
+    loadChannels,
+    loadMcpServers,
+    refreshAllMcpServers,
+    loadExtensions
+  ])
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          data-tour="composer-plus"
-          variant="ghost"
-          size="icon-sm"
-          className={cn('size-8 shrink-0 rounded-lg', triggerClassName)}
-          disabled={disabled}
-          aria-label={t('skills.addActions')}
-          title={t('skills.addActions')}
-        >
-          <Plus className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
+    <DropdownMenuContent align="start" className={cn('w-56', menuClassName)}>
+      <DropdownMenuLabel>{t('skills.addToChat')}</DropdownMenuLabel>
+      <DropdownMenuSeparator />
 
-      <DropdownMenuContent align="start" className={cn('w-56', menuClassName)}>
-        <DropdownMenuLabel>{t('skills.addToChat')}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
+      {onAttachMedia && (
+        <>
+          <DropdownMenuItem
+            onClick={() => {
+              setOpen(false)
+              requestAnimationFrame(() => {
+                onAttachMedia()
+              })
+            }}
+          >
+            <Paperclip className="mr-2 size-4" />
+            <span>{t('skills.attachMedia')}</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </>
+      )}
 
-        {onAttachMedia && (
-          <>
-            <DropdownMenuItem
-              onClick={() => {
-                setOpen(false)
-                requestAnimationFrame(() => {
-                  onAttachMedia()
-                })
-              }}
-            >
-              <Paperclip className="mr-2 size-4" />
-              <span>{t('skills.attachMedia')}</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
-        )}
-
-        {showModeSection && (
-          <>
-            <DropdownMenuGroup>
-              {onPlanModeChange && (
-                <DropdownMenuItem
-                  disabled={planModeDisabled}
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    onPlanModeChange(!planModeEnabled)
-                  }}
-                  className="justify-between"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <ClipboardList className="size-4" />
-                    <span>{t('input.planModeMenu', { defaultValue: 'Plan Mode' })}</span>
-                  </span>
-                  <Switch
-                    size="sm"
-                    checked={planModeEnabled}
-                    disabled={planModeDisabled}
-                    tabIndex={-1}
-                    className="pointer-events-none ml-3"
-                  />
-                </DropdownMenuItem>
-              )}
-              {onGoalModeChange && (
-                <DropdownMenuItem
-                  disabled={goalModeDisabled}
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    onGoalModeChange(!goalModeEnabled)
-                  }}
-                  className="justify-between"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Target className="size-4" />
-                    <span>{t('input.pursueGoalMenu', { defaultValue: 'Pursue Goal' })}</span>
-                  </span>
-                  <Switch
-                    size="sm"
-                    checked={goalModeEnabled}
-                    disabled={goalModeDisabled}
-                    tabIndex={-1}
-                    className="pointer-events-none ml-3"
-                  />
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-          </>
-        )}
-
-        <DropdownMenuGroup>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Command className="mr-2 size-4" />
-              <span>{t('skills.commandsLabel')}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent
-                className={cn('w-64 max-h-80 overflow-y-auto', menuClassName)}
+      {showModeSection && (
+        <>
+          <DropdownMenuGroup>
+            {onPlanModeChange && (
+              <DropdownMenuItem
+                disabled={planModeDisabled}
+                onSelect={(event) => {
+                  event.preventDefault()
+                  onPlanModeChange(!planModeEnabled)
+                }}
+                className="justify-between"
               >
-                <DropdownMenuLabel>{t('skills.availableCommands')}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {commandsLoading ? (
-                  <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
-                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                    {t('skills.loadingCommands')}
-                  </div>
-                ) : commands.length === 0 ? (
-                  <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                    <p>{t('skills.noCommands')}</p>
-                    <p className="mt-1 text-[10px] opacity-70">~/.open-cowork/commands/</p>
-                  </div>
-                ) : (
-                  commands.map((command) => (
-                    <DropdownMenuItem
-                      key={command.name}
-                      onClick={() => {
-                        onSelectCommand?.(command.name)
-                        setOpen(false)
-                      }}
-                      className="flex flex-col items-start gap-1 py-2"
-                    >
-                      <span className="font-medium">/{command.name}</span>
-                      {command.summary && (
-                        <span className="line-clamp-2 text-xs text-muted-foreground">
-                          {command.summary}
-                        </span>
-                      )}
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
-        </DropdownMenuGroup>
-
-        <DropdownMenuSeparator />
-
-        <DropdownMenuGroup>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Sparkles className="mr-2 size-4" />
-              <span>{t('skills.skillsLabel')}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent
-                className={cn('w-64 max-h-80 overflow-y-auto', menuClassName)}
-              >
-                <DropdownMenuLabel>{t('skills.availableSkills')}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {loading ? (
-                  <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
-                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                    {t('skills.loadingSkills')}
-                  </div>
-                ) : visibleSkills.length === 0 ? (
-                  <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                    <p>{t('skills.noSkills')}</p>
-                    <p className="mt-1 text-[10px] opacity-70">~/.open-cowork/skills/</p>
-                  </div>
-                ) : (
-                  visibleSkills.map((skill) => (
-                    <DropdownMenuItem
-                      key={skill.name}
-                      onClick={() => {
-                        onSelectSkill(skill.name)
-                        setOpen(false)
-                      }}
-                      className="flex flex-col items-start gap-1 py-2"
-                    >
-                      <span className="font-medium">{skill.name}</span>
-                      <span className="line-clamp-2 text-xs text-muted-foreground">
-                        {skill.description}
-                      </span>
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
-        </DropdownMenuGroup>
-
-        <DropdownMenuSeparator />
-
-        {showChannels && (
-          <>
-            <DropdownMenuGroup>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <MessageSquare className="mr-2 size-4" />
-                  <span>{t('skills.channelsLabel')}</span>
-                  {activeChannelIds.length > 0 && (
-                    <span className="ml-auto text-[10px] text-muted-foreground">
-                      {activeChannelIds.length}
-                    </span>
-                  )}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuPortal>
-                  <DropdownMenuSubContent
-                    className={cn('w-56 max-h-80 overflow-y-auto', menuClassName)}
-                  >
-                    <DropdownMenuLabel>{t('skills.availableChannels')}</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {configuredChannels.length === 0 ? (
-                      <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                        <p>{t('skills.noChannels')}</p>
-                        <p className="mt-1 text-[10px] opacity-70">
-                          {t('skills.configureInSettings')}
-                        </p>
-                      </div>
-                    ) : (
-                      configuredChannels.map((channel) => {
-                        const isActive = activeChannelIds.includes(channel.id)
-                        return (
-                          <DropdownMenuItem
-                            key={channel.id}
-                            onSelect={(event) => {
-                              event.preventDefault()
-                              toggleActiveChannel(channel.id, projectId)
-                            }}
-                            className="flex cursor-pointer items-center gap-2 py-1.5"
-                          >
-                            <span
-                              className={`flex size-4 items-center justify-center rounded border ${
-                                isActive
-                                  ? 'border-primary bg-primary text-primary-foreground'
-                                  : 'border-muted-foreground/30'
-                              }`}
-                            >
-                              {isActive && <Check className="size-3" />}
-                            </span>
-                            <span className="flex-1 truncate text-xs">{channel.name}</span>
-                            <span className="text-[10px] text-muted-foreground">
-                              {channel.type}
-                            </span>
-                          </DropdownMenuItem>
-                        )
-                      })
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setOpen(false)
-                        openSettingsPage('channel')
-                      }}
-                      className="text-xs"
-                    >
-                      <Settings2 className="mr-2 size-3.5" />
-                      {t('skills.configureChannels')}
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuPortal>
-              </DropdownMenuSub>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-          </>
-        )}
-
-        {onSelectPlugin && (
-          <>
-            <DropdownMenuGroup>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Puzzle className="mr-2 size-4" />
-                  <span>{t('skills.pluginsLabel')}</span>
-                  {availablePlugins.length > 0 && (
-                    <span className="ml-auto text-[10px] text-muted-foreground">
-                      {availablePlugins.length}
-                    </span>
-                  )}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuPortal>
-                  <DropdownMenuSubContent
-                    className={cn('w-64 max-h-80 overflow-y-auto', menuClassName)}
-                  >
-                    <DropdownMenuLabel>{t('skills.availablePlugins')}</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {availablePlugins.length === 0 ? (
-                      <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                        <p>{t('skills.noPlugins')}</p>
-                      </div>
-                    ) : (
-                      availablePlugins.map((plugin) => (
-                        <DropdownMenuItem
-                          key={plugin.id}
-                          onClick={() => {
-                            onSelectPlugin(plugin.id)
-                            setOpen(false)
-                          }}
-                          className="flex flex-col items-start gap-1 py-2"
-                        >
-                          <span className="font-medium">{plugin.title}</span>
-                          <span className="line-clamp-2 text-xs text-muted-foreground">
-                            {plugin.description}
-                          </span>
-                        </DropdownMenuItem>
-                      ))
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setOpen(false)
-                        openSettingsPage('plugin')
-                      }}
-                      className="text-xs"
-                    >
-                      <Settings2 className="mr-2 size-3.5" />
-                      {t('skills.configurePlugins')}
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuPortal>
-              </DropdownMenuSub>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-          </>
-        )}
-
-        <DropdownMenuGroup>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Cable className="mr-2 size-4" />
-              <span>{t('skills.mcpLabel')}</span>
-              {activeMcpIds.length > 0 && (
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  {activeMcpIds.length}
+                <span className="flex min-w-0 items-center gap-2">
+                  <ClipboardList className="size-4" />
+                  <span>{t('input.planModeMenu', { defaultValue: 'Plan Mode' })}</span>
                 </span>
-              )}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent
-                className={cn('w-56 max-h-80 overflow-y-auto', menuClassName)}
+                <Switch
+                  size="sm"
+                  checked={planModeEnabled}
+                  disabled={planModeDisabled}
+                  tabIndex={-1}
+                  className="pointer-events-none ml-3"
+                />
+              </DropdownMenuItem>
+            )}
+            {onGoalModeChange && (
+              <DropdownMenuItem
+                disabled={goalModeDisabled}
+                onSelect={(event) => {
+                  event.preventDefault()
+                  onGoalModeChange(!goalModeEnabled)
+                }}
+                className="justify-between"
               >
-                <DropdownMenuLabel>{t('skills.availableMcps')}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {connectedMcpServers.length === 0 ? (
-                  <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                    <p>{t('skills.noMcps')}</p>
-                    <p className="mt-1 text-[10px] opacity-70">{t('skills.configureMcps')}</p>
-                  </div>
-                ) : (
-                  connectedMcpServers.map((server) => {
-                    const isActive = activeMcpIds.includes(server.id)
-                    const toolCount = mcpTools[server.id]?.length ?? 0
-                    return (
-                      <DropdownMenuItem
-                        key={server.id}
-                        onSelect={(event) => {
-                          event.preventDefault()
-                          toggleActiveMcp(server.id, projectId)
-                        }}
-                        className="flex cursor-pointer items-center gap-2 py-1.5"
-                      >
-                        <span
-                          className={`flex size-4 items-center justify-center rounded border ${
-                            isActive
-                              ? 'border-primary bg-primary text-primary-foreground'
-                              : 'border-muted-foreground/30'
-                          }`}
+                <span className="flex min-w-0 items-center gap-2">
+                  <Target className="size-4" />
+                  <span>{t('input.pursueGoalMenu', { defaultValue: 'Pursue Goal' })}</span>
+                </span>
+                <Switch
+                  size="sm"
+                  checked={goalModeEnabled}
+                  disabled={goalModeDisabled}
+                  tabIndex={-1}
+                  className="pointer-events-none ml-3"
+                />
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+        </>
+      )}
+
+      <DropdownMenuGroup>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Command className="mr-2 size-4" />
+            <span>{t('skills.commandsLabel')}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent className={cn('w-64 max-h-80 overflow-y-auto', menuClassName)}>
+              <DropdownMenuLabel>{t('skills.availableCommands')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {commandsLoading ? (
+                <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
+                  <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                  {t('skills.loadingCommands')}
+                </div>
+              ) : commands.length === 0 ? (
+                <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                  <p>{t('skills.noCommands')}</p>
+                  <p className="mt-1 text-[10px] opacity-70">~/.open-cowork/commands/</p>
+                </div>
+              ) : (
+                commands.map((command) => (
+                  <DropdownMenuItem
+                    key={command.name}
+                    onClick={() => {
+                      onSelectCommand?.(command.name)
+                      setOpen(false)
+                    }}
+                    className="flex flex-col items-start gap-1 py-2"
+                  >
+                    <span className="font-medium">/{command.name}</span>
+                    {command.summary && (
+                      <span className="line-clamp-2 text-xs text-muted-foreground">
+                        {command.summary}
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                ))
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
+      </DropdownMenuGroup>
+
+      <DropdownMenuSeparator />
+
+      <DropdownMenuGroup>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Sparkles className="mr-2 size-4" />
+            <span>{t('skills.skillsLabel')}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent className={cn('w-64 max-h-80 overflow-y-auto', menuClassName)}>
+              <DropdownMenuLabel>{t('skills.availableSkills')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {loading ? (
+                <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
+                  <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                  {t('skills.loadingSkills')}
+                </div>
+              ) : visibleSkills.length === 0 ? (
+                <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                  <p>{t('skills.noSkills')}</p>
+                  <p className="mt-1 text-[10px] opacity-70">~/.open-cowork/skills/</p>
+                </div>
+              ) : (
+                visibleSkills.map((skill) => (
+                  <DropdownMenuItem
+                    key={skill.name}
+                    onClick={() => {
+                      onSelectSkill(skill.name)
+                      setOpen(false)
+                    }}
+                    className="flex flex-col items-start gap-1 py-2"
+                  >
+                    <span className="font-medium">{skill.name}</span>
+                    <span className="line-clamp-2 text-xs text-muted-foreground">
+                      {skill.description}
+                    </span>
+                  </DropdownMenuItem>
+                ))
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
+      </DropdownMenuGroup>
+
+      <DropdownMenuSeparator />
+
+      {showChannels && (
+        <>
+          <DropdownMenuGroup>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <MessageSquare className="mr-2 size-4" />
+                <span>{t('skills.channelsLabel')}</span>
+                {activeChannelIds.length > 0 && (
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    {activeChannelIds.length}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent
+                  className={cn('w-56 max-h-80 overflow-y-auto', menuClassName)}
+                >
+                  <DropdownMenuLabel>{t('skills.availableChannels')}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {configuredChannels.length === 0 ? (
+                    <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                      <p>{t('skills.noChannels')}</p>
+                      <p className="mt-1 text-[10px] opacity-70">
+                        {t('skills.configureInSettings')}
+                      </p>
+                    </div>
+                  ) : (
+                    configuredChannels.map((channel) => {
+                      const isActive = activeChannelIds.includes(channel.id)
+                      return (
+                        <DropdownMenuItem
+                          key={channel.id}
+                          onSelect={(event) => {
+                            event.preventDefault()
+                            toggleActiveChannel(channel.id, projectId)
+                          }}
+                          className="flex cursor-pointer items-center gap-2 py-1.5"
                         >
-                          {isActive && <Check className="size-3" />}
-                        </span>
-                        <span className="flex-1 truncate text-xs">{server.name}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {t('skills.mcpToolCount', { count: toolCount })}
+                          <span
+                            className={`flex size-4 items-center justify-center rounded border ${
+                              isActive
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-muted-foreground/30'
+                            }`}
+                          >
+                            {isActive && <Check className="size-3" />}
+                          </span>
+                          <span className="flex-1 truncate text-xs">{channel.name}</span>
+                          <span className="text-[10px] text-muted-foreground">{channel.type}</span>
+                        </DropdownMenuItem>
+                      )
+                    })
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setOpen(false)
+                      openSettingsPage('channel')
+                    }}
+                    className="text-xs"
+                  >
+                    <Settings2 className="mr-2 size-3.5" />
+                    {t('skills.configureChannels')}
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+        </>
+      )}
+
+      {onSelectPlugin && (
+        <>
+          <DropdownMenuGroup>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Puzzle className="mr-2 size-4" />
+                <span>{t('skills.pluginsLabel')}</span>
+                {availablePlugins.length > 0 && (
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    {availablePlugins.length}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent
+                  className={cn('w-64 max-h-80 overflow-y-auto', menuClassName)}
+                >
+                  <DropdownMenuLabel>{t('skills.availablePlugins')}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {availablePlugins.length === 0 ? (
+                    <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                      <p>{t('skills.noPlugins')}</p>
+                    </div>
+                  ) : (
+                    availablePlugins.map((plugin) => (
+                      <DropdownMenuItem
+                        key={plugin.id}
+                        onClick={() => {
+                          onSelectPlugin(plugin.id)
+                          setOpen(false)
+                        }}
+                        className="flex flex-col items-start gap-1 py-2"
+                      >
+                        <span className="font-medium">{plugin.title}</span>
+                        <span className="line-clamp-2 text-xs text-muted-foreground">
+                          {plugin.description}
                         </span>
                       </DropdownMenuItem>
-                    )
-                  })
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
-                    setOpen(false)
-                    openSettingsPage('mcp')
-                  }}
-                  className="text-xs"
-                >
-                  <Settings2 className="mr-2 size-3.5" />
-                  {t('skills.configureMcpServers')}
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+                    ))
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setOpen(false)
+                      openSettingsPage('plugin')
+                    }}
+                    className="text-xs"
+                  >
+                    <Settings2 className="mr-2 size-3.5" />
+                    {t('skills.configurePlugins')}
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+        </>
+      )}
+
+      <DropdownMenuGroup>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Shapes className="mr-2 size-4" />
+            <span>{t('skills.customExtensionsLabel')}</span>
+            {activeExtensionIds.length > 0 && (
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                {activeExtensionIds.length}
+              </span>
+            )}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent className={cn('w-64 max-h-80 overflow-y-auto', menuClassName)}>
+              <DropdownMenuLabel>{t('skills.availableCustomExtensions')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {availableExtensions.length === 0 ? (
+                <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                  <p>{t('skills.noCustomExtensions')}</p>
+                  <p className="mt-1 text-[10px] opacity-70">
+                    {t('skills.configureCustomExtensions')}
+                  </p>
+                </div>
+              ) : (
+                availableExtensions.map((extension) => {
+                  const isActive = activeExtensionIds.includes(extension.id)
+                  const toolCount = extension.manifest.tools.length
+                  return (
+                    <DropdownMenuItem
+                      key={extension.id}
+                      onSelect={(event) => {
+                        event.preventDefault()
+                        toggleActiveExtension(extension.id, projectId)
+                        void refreshExtensionTools()
+                      }}
+                      className="flex cursor-pointer items-center gap-2 py-1.5"
+                    >
+                      <span
+                        className={`flex size-4 items-center justify-center rounded border ${
+                          isActive
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-muted-foreground/30'
+                        }`}
+                      >
+                        {isActive && <Check className="size-3" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium">
+                          {extension.manifest.name}
+                        </span>
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {extension.id}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {t('skills.extensionToolCount', { count: toolCount })}
+                      </span>
+                    </DropdownMenuItem>
+                  )
+                })
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  setOpen(false)
+                  openSettingsPage('extension')
+                }}
+                className="text-xs"
+              >
+                <Settings2 className="mr-2 size-3.5" />
+                {t('skills.configureCustomExtensionSettings')}
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
+      </DropdownMenuGroup>
+      <DropdownMenuSeparator />
+
+      <DropdownMenuGroup>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Cable className="mr-2 size-4" />
+            <span>{t('skills.mcpLabel')}</span>
+            {activeMcpIds.length > 0 && (
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                {activeMcpIds.length}
+              </span>
+            )}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent className={cn('w-56 max-h-80 overflow-y-auto', menuClassName)}>
+              <DropdownMenuLabel>{t('skills.availableMcps')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {connectedMcpServers.length === 0 ? (
+                <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                  <p>{t('skills.noMcps')}</p>
+                  <p className="mt-1 text-[10px] opacity-70">{t('skills.configureMcps')}</p>
+                </div>
+              ) : (
+                connectedMcpServers.map((server) => {
+                  const isActive = activeMcpIds.includes(server.id)
+                  const toolCount = mcpTools[server.id]?.length ?? 0
+                  return (
+                    <DropdownMenuItem
+                      key={server.id}
+                      onSelect={(event) => {
+                        event.preventDefault()
+                        toggleActiveMcp(server.id, projectId)
+                      }}
+                      className="flex cursor-pointer items-center gap-2 py-1.5"
+                    >
+                      <span
+                        className={`flex size-4 items-center justify-center rounded border ${
+                          isActive
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-muted-foreground/30'
+                        }`}
+                      >
+                        {isActive && <Check className="size-3" />}
+                      </span>
+                      <span className="flex-1 truncate text-xs">{server.name}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {t('skills.mcpToolCount', { count: toolCount })}
+                      </span>
+                    </DropdownMenuItem>
+                  )
+                })
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  setOpen(false)
+                  openSettingsPage('mcp')
+                }}
+                className="text-xs"
+              >
+                <Settings2 className="mr-2 size-3.5" />
+                {t('skills.configureMcpServers')}
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
+      </DropdownMenuGroup>
+    </DropdownMenuContent>
   )
 }

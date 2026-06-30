@@ -42,7 +42,15 @@
       "Bash(awk 'NR<=4914' /Users/token/Desktop/code/OpenCowork/src/renderer/src/hooks/use-chat-actions.ts)",
       "Bash(grep -nE \"^\\\\s*\\(async function|function|const \\\\w+ = \\(async \\)?\\\\\\(|\\\\}\\\\s*$\\)\")",
       "Bash(awk 'NR>=2840 && NR<=2855' /Users/token/Desktop/code/OpenCowork/src/renderer/src/hooks/use-chat-actions.ts)",
-      "Bash(awk '{print $NF}')"
+      "Bash(awk '{print $NF}')",
+      "WebSearch",
+      "WebFetch(domain:docs.x.ai)",
+      "Bash(curl -sL --max-time 30 -A \"Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36\" https://docs.x.ai/docs/models -o /tmp/xai_models.html)",
+      "Bash(echo \"exit: $?\")",
+      "Read(//tmp/**)",
+      "Bash(curl -sL --max-time 15 -o /dev/null -w \"x.ai: HTTP %{http_code}, time %{time_total}s\\\\n\" https://x.ai)",
+      "Bash(curl -sL --max-time 15 -o /dev/null -w \"docs.x.ai: HTTP %{http_code}, time %{time_total}s\\\\n\" https://docs.x.ai)",
+      "Bash(curl -sL --max-time 15 -o /dev/null -w \"api.x.ai: HTTP %{http_code}, time %{time_total}s\\\\n\" https://api.x.ai)"
     ]
   }
 }

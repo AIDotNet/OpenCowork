@@ -1,6 +1,7 @@
-import { ipcMain } from 'electron'
 import * as http from 'http'
 import { URL } from 'url'
+import { encodeMessagePackPayload, toMessagePackChannel } from '../../shared/messagepack/binary-ipc'
+import { registerMessagePackHandler } from './messagepack-handler'
 
 interface OAuthStartArgs {
   requestId: string
@@ -52,7 +53,7 @@ function buildCallbackHtml(message: string): string {
 }
 
 export function registerOauthHandlers(): void {
-  ipcMain.handle('oauth:start', async (event, args: OAuthStartArgs) => {
+  registerMessagePackHandler<OAuthStartArgs>('oauth:start', async (args, event) => {
     const requestId = args.requestId
     if (!requestId) {
       return { error: 'requestId is required' }
@@ -91,7 +92,7 @@ export function registerOauthHandlers(): void {
               errorDescription: 'OAuth state mismatch',
               state
             }
-            sender.send('oauth:callback', payload)
+            sendOAuthCallback(sender, payload)
             res.statusCode = 400
             res.setHeader('Content-Type', 'text/html; charset=utf-8')
             res.end(buildCallbackHtml('State mismatch. You can close this window.'))
@@ -106,7 +107,7 @@ export function registerOauthHandlers(): void {
             error,
             errorDescription
           }
-          sender.send('oauth:callback', payload)
+          sendOAuthCallback(sender, payload)
 
           res.statusCode = 200
           res.setHeader('Content-Type', 'text/html; charset=utf-8')
@@ -118,7 +119,7 @@ export function registerOauthHandlers(): void {
             error: 'callback_error',
             errorDescription: err instanceof Error ? err.message : String(err)
           }
-          sender.send('oauth:callback', payload)
+          sendOAuthCallback(sender, payload)
           res.statusCode = 500
           res.setHeader('Content-Type', 'text/html; charset=utf-8')
           res.end(buildCallbackHtml('OAuth callback failed. You can close this window.'))
@@ -145,11 +146,16 @@ export function registerOauthHandlers(): void {
     })
   })
 
-  ipcMain.handle('oauth:stop', async (_event, args: { requestId: string }) => {
+  registerMessagePackHandler<{ requestId: string }>('oauth:stop', async (args) => {
     if (!args?.requestId) return { success: true }
     cleanup(args.requestId)
     return { success: true }
   })
+}
+
+function sendOAuthCallback(sender: Electron.WebContents, payload: OAuthCallbackPayload): void {
+  sender.send('oauth:callback', payload)
+  sender.send(toMessagePackChannel('oauth:callback'), encodeMessagePackPayload(payload))
 }
 
 function cleanup(requestId: string): void {

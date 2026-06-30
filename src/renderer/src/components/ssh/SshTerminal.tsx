@@ -138,23 +138,21 @@ export function SshTerminal({ sessionId }: SshTerminalProps): React.JSX.Element 
     }
 
     // Receive output from SSH
-    const outputCleanup = window.electron.ipcRenderer.on(
-      IPC.SSH_OUTPUT,
-      (_event: unknown, payload: { sessionId: string; data: string; seq?: number }) => {
-        if (payload.sessionId !== sessionId) return
-        const seq = typeof payload.seq === 'number' ? payload.seq : 0
+    const outputCleanup = ipcClient.on(IPC.SSH_OUTPUT, (payload) => {
+      const data = payload as { sessionId?: string; data?: string; seq?: number }
+      if (data.sessionId !== sessionId || typeof data.data !== 'string') return
+      const seq = typeof data.seq === 'number' ? data.seq : 0
 
-        if (!bufferLoaded) {
-          pendingChunks.push({ seq, data: payload.data })
-          return
-        }
-
-        if (seq && seq <= lastSeqRef.current) return
-        if (seq) lastSeqRef.current = seq
-
-        term.write(decodeBase64(payload.data))
+      if (!bufferLoaded) {
+        pendingChunks.push({ seq, data: data.data })
+        return
       }
-    )
+
+      if (seq && seq <= lastSeqRef.current) return
+      if (seq) lastSeqRef.current = seq
+
+      term.write(decodeBase64(data.data))
+    })
 
     const loadBuffer = async (): Promise<void> => {
       try {

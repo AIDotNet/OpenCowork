@@ -16,8 +16,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui
 import { cn } from '@renderer/lib/utils'
 import type { Project } from '@renderer/stores/chat-store'
 
+export type NewSessionProjectOption = Pick<
+  Project,
+  'id' | 'name' | 'pluginId' | 'workingFolder' | 'sshConnectionId'
+>
+
 interface NewSessionProjectSelectorProps {
-  projects: Project[]
+  projects: NewSessionProjectOption[]
   selectedProjectId: string | null
   allowNoProject?: boolean
   onSelectProject: (projectId: string | null) => void
@@ -52,6 +57,7 @@ export function NewSessionProjectSelector({
       ? t('input.sshMode', { defaultValue: 'SSH mode' })
       : t('input.localMode', { defaultValue: 'Local mode' })
     : t('input.globalSession', { defaultValue: 'Global session' })
+  const SelectedProjectIcon = selectedProject?.sshConnectionId ? Server : FolderOpen
 
   const selectProject = React.useCallback(
     (projectId: string | null): void => {
@@ -71,7 +77,7 @@ export function NewSessionProjectSelector({
   return (
     <div
       className={cn(
-        'mx-4 -mt-3 flex min-h-10 items-center gap-2 rounded-b-[18px] border border-t-0 border-border/45 bg-muted/35 px-3 py-1.5 text-xs shadow-sm backdrop-blur',
+        'mx-4 -mt-px flex min-h-10 items-center gap-2 rounded-b-[18px] border border-t-0 border-border/45 bg-muted/35 px-3 py-1.5 text-xs shadow-sm backdrop-blur',
         className
       )}
     >
@@ -82,7 +88,7 @@ export function NewSessionProjectSelector({
             className="inline-flex h-7 max-w-[220px] min-w-0 items-center gap-1.5 rounded-full bg-background/55 px-2.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
             aria-label={t('input.selectProject', { defaultValue: 'Select project' })}
           >
-            <FolderOpen className="size-3.5 shrink-0" />
+            <SelectedProjectIcon className="size-3.5 shrink-0" />
             <span className="min-w-0 truncate">{projectLabel}</span>
             <ChevronDown className="size-3 shrink-0 opacity-70" />
           </button>

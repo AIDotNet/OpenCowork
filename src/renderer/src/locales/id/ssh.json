@@ -118,7 +118,6 @@
     "loadFailed": "Gagal memuat",
     "saveFailed": "Gagal menyimpan",
     "downloadFailed": "Gagal mengunduh",
-    "zipFailed": "Gagal untuk arsip direktori",
     "uploadFailed": "Unggah gagal",
     "deleteFailed": "Hapus gagal",
     "renameFailed": "Ganti nama gagal",
@@ -287,13 +286,11 @@
     },
     "uploads": {
       "title": "Upload",
-      "description": "Kompres trek, unggah, unzip remote, dan kemajuan pembersihan.",
+      "description": "Lacak progres transfer dan pembersihan.",
       "cancel": "Batal",
       "clear": "Hapus",
       "stages": {
-        "compress": "Kompres",
         "upload": "Mengunggah",
-        "remote_unzip": "Buka remote",
         "cleanup": "Membersihkan",
         "done": "Selesai",
         "error": "Gagal",

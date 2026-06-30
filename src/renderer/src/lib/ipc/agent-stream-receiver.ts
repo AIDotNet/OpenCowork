@@ -3,6 +3,11 @@ import type {
   AgentStreamEvent
 } from '../../../../shared/agent-stream-protocol'
 import { AGENT_STREAM_PROTOCOL_VERSION } from '../../../../shared/agent-stream-protocol'
+import {
+  AGENT_STREAM_MSGPACK_CHANNEL,
+  decodeAgentStreamEnvelope
+} from '../../../../shared/messagepack/agent-stream-codec'
+import { ipcClient } from './ipc-client'
 
 type RunEventCallback = (event: AgentStreamEvent) => void
 type GlobalEventCallback = (runId: string, sessionId: string, event: AgentStreamEvent) => void
@@ -18,27 +23,20 @@ export class AgentStreamReceiver {
     this.attached = true
 
     window.electron.ipcRenderer.on(
-      'agent:stream',
-      (_ipcEvent: unknown, envelope: AgentStreamEnvelope) => {
-        if (envelope.v !== AGENT_STREAM_PROTOCOL_VERSION) {
-          console.warn('[AgentStream] Unknown protocol version', envelope.v)
-          return
-        }
-
-        const lastSeq = this.lastSeqByRun.get(envelope.runId) ?? -1
-        if (envelope.seq > lastSeq + 1) {
+      AGENT_STREAM_MSGPACK_CHANNEL,
+      (_ipcEvent: unknown, bytes: ArrayBuffer | ArrayBufferView) => {
+        const startedAt = performance.now()
+        try {
+          const envelope = decodeAgentStreamEnvelope(bytes)
+          this.acceptEnvelope(envelope, {
+            byteLength: getByteLength(bytes),
+            decodeMs: Math.round((performance.now() - startedAt) * 100) / 100
+          })
+        } catch (error) {
           console.warn(
-            `[AgentStream] Gap detected for run ${envelope.runId}: expected ${lastSeq + 1}, got ${envelope.seq}`
+            '[AgentStream] Failed to decode MessagePack envelope',
+            error instanceof Error ? error.message : String(error)
           )
-        }
-        this.lastSeqByRun.set(envelope.runId, envelope.seq)
-
-        for (const event of envelope.events) {
-          this.dispatch(envelope.runId, envelope.sessionId, event)
-        }
-
-        if (envelope.events.some((e) => e.type === 'loop_end' || e.type === 'error')) {
-          this.lastSeqByRun.delete(envelope.runId)
         }
       }
     )
@@ -72,7 +70,43 @@ export class AgentStreamReceiver {
   }
 
   notifySessionVisibility(sessionId: string, visible: boolean): void {
-    window.electron.ipcRenderer.send('agent:session-visibility', { sessionId, visible })
+    ipcClient.send('agent:session-visibility', { sessionId, visible })
+  }
+
+  private acceptEnvelope(
+    envelope: AgentStreamEnvelope,
+    metrics?: { byteLength: number; decodeMs: number }
+  ): void {
+    if (envelope.v !== AGENT_STREAM_PROTOCOL_VERSION) {
+      console.warn('[AgentStream] Unknown protocol version', envelope.v)
+      return
+    }
+
+    const lastSeq = this.lastSeqByRun.get(envelope.runId)
+    if (lastSeq !== undefined && envelope.seq > lastSeq + 1) {
+      console.warn(
+        `[AgentStream] Gap detected for run ${envelope.runId}: expected ${lastSeq + 1}, got ${envelope.seq}`
+      )
+    }
+    this.lastSeqByRun.set(envelope.runId, envelope.seq)
+
+    if (shouldLogMessagePackTrace()) {
+      console.debug('[AgentStream] MessagePack envelope decoded', {
+        runId: envelope.runId,
+        sessionId: envelope.sessionId,
+        seq: envelope.seq,
+        events: envelope.events.length,
+        ...metrics
+      })
+    }
+
+    for (const event of envelope.events) {
+      this.dispatch(envelope.runId, envelope.sessionId, event)
+    }
+
+    if (envelope.events.some((e) => e.type === 'loop_end' || e.type === 'error')) {
+      this.lastSeqByRun.delete(envelope.runId)
+    }
   }
 
   private dispatch(runId: string, sessionId: string, event: AgentStreamEvent): void {
@@ -90,3 +124,15 @@ export class AgentStreamReceiver {
 }
 
 export const agentStream = new AgentStreamReceiver()
+
+function getByteLength(bytes: ArrayBuffer | ArrayBufferView): number {
+  return bytes instanceof ArrayBuffer ? bytes.byteLength : bytes.byteLength
+}
+
+function shouldLogMessagePackTrace(): boolean {
+  try {
+    return localStorage.getItem('openCowork.msgpackTrace') === '1'
+  } catch {
+    return false
+  }
+}

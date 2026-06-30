@@ -1,4 +1,4 @@
-import { getDb } from './database'
+import { getNativeWorker } from '../lib/native-worker'
 
 export interface DrawRunRow {
   id: string
@@ -14,12 +14,23 @@ export interface DrawRunRow {
   updated_at: number
 }
 
-export function listDrawRuns(): DrawRunRow[] {
-  const db = getDb()
-  return db.prepare('SELECT * FROM draw_runs ORDER BY created_at DESC').all() as DrawRunRow[]
+interface DrawRunMutationResult {
+  success: boolean
+  changed: number
+  error?: string | null
 }
 
-export function saveDrawRun(run: {
+function assertMutation(result: DrawRunMutationResult, operation: string): void {
+  if (!result.success) {
+    throw new Error(result.error || `Native draw run ${operation} failed`)
+  }
+}
+
+export function listDrawRuns(): Promise<DrawRunRow[]> {
+  return getNativeWorker().request<DrawRunRow[]>('db/draw-runs-list', {}, 120_000)
+}
+
+export async function saveDrawRun(run: {
   id: string
   prompt: string
   providerName: string
@@ -31,43 +42,29 @@ export function saveDrawRun(run: {
   imagesJson: string
   errorJson?: string | null
   updatedAt: number
-}): void {
-  const db = getDb()
-  db.prepare(
-    `INSERT OR REPLACE INTO draw_runs (
-      id,
-      prompt,
-      provider_name,
-      model_name,
-      mode,
-      meta_json,
-      created_at,
-      is_generating,
-      images_json,
-      error_json,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    run.id,
-    run.prompt,
-    run.providerName,
-    run.modelName,
-    run.mode ?? 'image',
-    run.metaJson ?? null,
-    run.createdAt,
-    run.isGenerating ? 1 : 0,
-    run.imagesJson,
-    run.errorJson ?? null,
-    run.updatedAt
+}): Promise<void> {
+  const result = await getNativeWorker().request<DrawRunMutationResult>(
+    'db/draw-runs-save',
+    run,
+    120_000
   )
+  assertMutation(result, 'save')
 }
 
-export function deleteDrawRun(id: string): void {
-  const db = getDb()
-  db.prepare('DELETE FROM draw_runs WHERE id = ?').run(id)
+export async function deleteDrawRun(id: string): Promise<void> {
+  const result = await getNativeWorker().request<DrawRunMutationResult>(
+    'db/draw-runs-delete',
+    { id },
+    120_000
+  )
+  assertMutation(result, 'delete')
 }
 
-export function clearDrawRuns(): void {
-  const db = getDb()
-  db.prepare('DELETE FROM draw_runs').run()
+export async function clearDrawRuns(): Promise<void> {
+  const result = await getNativeWorker().request<DrawRunMutationResult>(
+    'db/draw-runs-clear',
+    {},
+    120_000
+  )
+  assertMutation(result, 'clear')
 }

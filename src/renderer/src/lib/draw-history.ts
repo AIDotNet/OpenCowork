@@ -1,5 +1,11 @@
 import type { ImageErrorCode } from '@renderer/lib/api/types'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
+import {
+  DB_DRAW_RUNS_CLEAR_MSGPACK_CHANNEL,
+  DB_DRAW_RUNS_DELETE_MSGPACK_CHANNEL,
+  DB_DRAW_RUNS_LIST_MSGPACK_CHANNEL,
+  DB_DRAW_RUNS_SAVE_MSGPACK_CHANNEL
+} from '../../../shared/messagepack/binary-ipc'
 
 export type DrawRunMode = 'image' | 'gif'
 
@@ -124,7 +130,7 @@ export async function listPersistedDrawRuns(
   interruptedMessage: string,
   options?: { activeRunIds?: ReadonlySet<string> }
 ): Promise<DrawRun[]> {
-  const rows = (await ipcClient.invoke('db:draw-runs:list')) as DrawRunRow[]
+  const rows = await invokeMessagePackBinary<DrawRunRow[]>(DB_DRAW_RUNS_LIST_MSGPACK_CHANNEL, {})
   const activeRunIds = options?.activeRunIds ?? new Set<string>()
   const runs = rows.map((row) => fromRow(row, interruptedMessage, activeRunIds))
 
@@ -139,7 +145,7 @@ export async function listPersistedDrawRuns(
 }
 
 export async function savePersistedDrawRun(run: DrawRun): Promise<void> {
-  await ipcClient.invoke('db:draw-runs:save', {
+  await invokeMessagePackBinary(DB_DRAW_RUNS_SAVE_MSGPACK_CHANNEL, {
     id: run.id,
     prompt: run.prompt,
     providerName: run.providerName,
@@ -155,9 +161,9 @@ export async function savePersistedDrawRun(run: DrawRun): Promise<void> {
 }
 
 export async function deletePersistedDrawRun(id: string): Promise<void> {
-  await ipcClient.invoke('db:draw-runs:delete', id)
+  await invokeMessagePackBinary(DB_DRAW_RUNS_DELETE_MSGPACK_CHANNEL, id)
 }
 
 export async function clearPersistedDrawRuns(): Promise<void> {
-  await ipcClient.invoke('db:draw-runs:clear')
+  await invokeMessagePackBinary(DB_DRAW_RUNS_CLEAR_MSGPACK_CHANNEL, {})
 }

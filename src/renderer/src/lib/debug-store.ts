@@ -6,11 +6,13 @@ export interface RequestTraceInfo {
   providerId?: string
   providerBuiltinId?: string
   model?: string
-  executionPath?: 'node' | 'sidecar'
+  executionPath?: 'sidecar'
 }
 
 const MAX_DEBUG_STORE_ENTRIES = 80
 const MAX_DEBUG_BODY_CHARS = 2_000
+const MAX_RESIDENT_DEBUG_BODY_CHARS = 4_000
+const MAX_PERSISTED_DEBUG_BODY_CHARS = 8_000
 
 /**
  * Lightweight in-memory store for per-message request metadata.
@@ -35,13 +37,54 @@ function stripLargeBody(info: RequestDebugInfo): RequestDebugInfo {
   }
 }
 
-/** Shrink request body before persisting to usage DB — full bodies are UI-only in dev mode. */
-export function truncateRequestDebugForPersistence(info: RequestDebugInfo): RequestDebugInfo {
-  const max = 8_000
-  if (!info.body || info.body.length <= max) return info
+function truncateDebugText(value: string | undefined, max: number): string | undefined {
+  if (!value || value.length <= max) return value
+  return `${value.slice(0, max)}\n... [truncated, ${value.length} chars total]`
+}
+
+function truncateRequestDebugPayload(info: RequestDebugInfo, max: number): RequestDebugInfo {
   return {
     ...info,
-    body: `${info.body.slice(0, max)}\n... [truncated, ${info.body.length} chars total]`
+    body: truncateDebugText(info.body, max),
+    contextWindowBody: truncateDebugText(info.contextWindowBody, max)
+  }
+}
+
+/**
+ * Shrink request payloads before keeping them on resident message objects.
+ * Full bodies stay in the capped debug-store for the current dev session only.
+ */
+export function createResidentRequestDebugInfo(info: RequestDebugInfo): RequestDebugInfo {
+  return truncateRequestDebugPayload(info, MAX_RESIDENT_DEBUG_BODY_CHARS)
+}
+
+/** Shrink request payloads before persisting to usage DB — full bodies are UI-only in dev mode. */
+export function truncateRequestDebugForPersistence(info: RequestDebugInfo): RequestDebugInfo {
+  return truncateRequestDebugPayload(info, MAX_PERSISTED_DEBUG_BODY_CHARS)
+}
+
+export function getRequestDebugStoreStats(): {
+  entries: number
+  debugEntries: number
+  bodyChars: number
+  contextWindowChars: number
+} {
+  let debugEntries = 0
+  let bodyChars = 0
+  let contextWindowChars = 0
+
+  for (const trace of _store.values()) {
+    if (!trace.debugInfo) continue
+    debugEntries += 1
+    bodyChars += trace.debugInfo.body?.length ?? 0
+    contextWindowChars += trace.debugInfo.contextWindowBody?.length ?? 0
+  }
+
+  return {
+    entries: _store.size,
+    debugEntries,
+    bodyChars,
+    contextWindowChars
   }
 }
 

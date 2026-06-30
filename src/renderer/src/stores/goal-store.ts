@@ -1,5 +1,17 @@
 import { create } from 'zustand'
 import { ipcClient } from '../lib/ipc/ipc-client'
+import { invokeMessagePackBinary } from '../lib/ipc/messagepack-ipc-client'
+import {
+  DB_GOALS_ACCOUNT_MSGPACK_CHANNEL,
+  DB_GOALS_CLEAR_MSGPACK_CHANNEL,
+  DB_GOALS_CREATE_MSGPACK_CHANNEL,
+  DB_GOALS_GET_MSGPACK_CHANNEL,
+  DB_GOALS_LIST_MSGPACK_CHANNEL,
+  DB_GOALS_SET_MSGPACK_CHANNEL,
+  DB_GOALS_UPDATE_MSGPACK_CHANNEL,
+  DB_GOAL_EVENTS_ADD_MSGPACK_CHANNEL,
+  DB_GOAL_EVENTS_LIST_MSGPACK_CHANNEL
+} from '../../../shared/messagepack/binary-ipc'
 
 export type SessionGoalStatus =
   | 'active'
@@ -251,7 +263,10 @@ export const useGoalStore = create<GoalStore>((set, get) => ({
 
   loadGoalsFromDb: async () => {
     try {
-      const rows = (await ipcClient.invoke('db:goals:list')) as SessionGoalRow[]
+      const rows = await invokeMessagePackBinary<SessionGoalRow[]>(
+        DB_GOALS_LIST_MSGPACK_CHANNEL,
+        {}
+      )
       const goalsBySession: Record<string, SessionGoal> = {}
       for (const row of rows) {
         const goal = rowToGoal(row)
@@ -269,7 +284,10 @@ export const useGoalStore = create<GoalStore>((set, get) => ({
     if (cached && !force) return cached
 
     try {
-      const row = (await ipcClient.invoke('db:goals:get', sessionId)) as SessionGoalRow | null
+      const row = await invokeMessagePackBinary<SessionGoalRow | null>(
+        DB_GOALS_GET_MSGPACK_CHANNEL,
+        sessionId
+      )
       const goal = row ? rowToGoal(row) : undefined
       set((state) => {
         const next = { ...state.goalsBySession }
@@ -293,11 +311,14 @@ export const useGoalStore = create<GoalStore>((set, get) => ({
     if (goalEventsIpcUnavailable) return cached ?? EMPTY_SESSION_GOAL_EVENTS
 
     try {
-      const rows = (await ipcClient.invoke('db:goal-events:list', {
-        sessionId,
-        goalId: options.goalId,
-        limit: options.limit ?? 40
-      })) as SessionGoalEventRow[]
+      const rows = await invokeMessagePackBinary<SessionGoalEventRow[]>(
+        DB_GOAL_EVENTS_LIST_MSGPACK_CHANNEL,
+        {
+          sessionId,
+          goalId: options.goalId,
+          limit: options.limit ?? 40
+        }
+      )
       const events = rows.map(rowToEvent)
       set((state) => ({
         goalEventsBySession: {
@@ -321,7 +342,10 @@ export const useGoalStore = create<GoalStore>((set, get) => ({
 
   createGoal: async (args) => {
     try {
-      const result = (await ipcClient.invoke('db:goals:create', args)) as GoalMutationResult
+      const result = await invokeMessagePackBinary<GoalMutationResult>(
+        DB_GOALS_CREATE_MSGPACK_CHANNEL,
+        args
+      )
       if (result.error) return { success: false, error: result.error }
       const goal = asGoal(result)
       if (!goal) return { success: false, error: 'Goal was not created' }
@@ -335,7 +359,10 @@ export const useGoalStore = create<GoalStore>((set, get) => ({
 
   setGoal: async (args) => {
     try {
-      const result = (await ipcClient.invoke('db:goals:set', args)) as GoalMutationResult
+      const result = await invokeMessagePackBinary<GoalMutationResult>(
+        DB_GOALS_SET_MSGPACK_CHANNEL,
+        args
+      )
       if (result.error) return { success: false, error: result.error }
       const goal = asGoal(result)
       if (!goal) return { success: false, error: 'Goal was not set' }
@@ -349,10 +376,13 @@ export const useGoalStore = create<GoalStore>((set, get) => ({
 
   updateGoal: async (sessionId, patch) => {
     try {
-      const result = (await ipcClient.invoke('db:goals:update', {
-        sessionId,
-        patch
-      })) as GoalMutationResult
+      const result = await invokeMessagePackBinary<GoalMutationResult>(
+        DB_GOALS_UPDATE_MSGPACK_CHANNEL,
+        {
+          sessionId,
+          patch
+        }
+      )
       if (result.error) return { success: false, error: result.error }
       const goal = asGoal(result)
       if (!goal) return { success: false, error: 'Goal was not updated' }
@@ -366,7 +396,10 @@ export const useGoalStore = create<GoalStore>((set, get) => ({
 
   clearGoal: async (sessionId) => {
     try {
-      const result = (await ipcClient.invoke('db:goals:clear', sessionId)) as GoalMutationResult
+      const result = await invokeMessagePackBinary<GoalMutationResult>(
+        DB_GOALS_CLEAR_MSGPACK_CHANNEL,
+        sessionId
+      )
       if (result.error) return { success: false, cleared: false, error: result.error }
       set((state) => {
         const next = { ...state.goalsBySession }
@@ -382,7 +415,10 @@ export const useGoalStore = create<GoalStore>((set, get) => ({
 
   accountGoalUsage: async (input) => {
     try {
-      const result = (await ipcClient.invoke('db:goals:account', input)) as GoalMutationResult
+      const result = await invokeMessagePackBinary<GoalMutationResult>(
+        DB_GOALS_ACCOUNT_MSGPACK_CHANNEL,
+        input
+      )
       if (result.error) return { success: false, error: result.error }
       const goal = asGoal(result)
       if (goal) upsertGoal(set, goal)
@@ -401,7 +437,10 @@ export const useGoalStore = create<GoalStore>((set, get) => ({
     }
 
     try {
-      const result = (await ipcClient.invoke('db:goal-events:add', args)) as GoalEventMutationResult
+      const result = await invokeMessagePackBinary<GoalEventMutationResult>(
+        DB_GOAL_EVENTS_ADD_MSGPACK_CHANNEL,
+        args
+      )
       if (result.error) return { success: false, error: result.error }
       if (!result.event) return { success: false, error: 'Goal event was not recorded' }
       const event = rowToEvent(result.event)

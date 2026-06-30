@@ -118,7 +118,6 @@
     "loadFailed": "Versäumnis zu laden",
     "saveFailed": "Nicht gerettet",
     "downloadFailed": "Download fehlgeschlagen",
-    "zipFailed": "Im Archivverzeichnis fehlgeschlagen",
     "uploadFailed": "Upload fehlgeschlagen",
     "deleteFailed": "Löschen fehlgeschlagen",
     "renameFailed": "Rename fehlgeschlagen",
@@ -287,13 +286,11 @@
     },
     "uploads": {
       "title": "Uploads",
-      "description": "Verfolgen Sie Kompression, Upload, Remote Unzip und Bereinigungsfortschritt.",
+      "description": "Verfolgen Sie Übertragung und Bereinigung.",
       "cancel": "Stornierung",
       "clear": "klar",
       "stages": {
-        "compress": "Verdichten",
         "upload": "Hochladen",
-        "remote_unzip": "Fernbedienung",
         "cleanup": "Aufräumen",
         "done": "Abgeschlossen",
         "error": "Fehlgeschlagen",

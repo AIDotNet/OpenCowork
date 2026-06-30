@@ -15,11 +15,11 @@ import {
 } from 'lucide-react'
 import { TodoStatusList } from '@renderer/components/chat/TodoCard'
 import { Button } from '@renderer/components/ui/button'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
+import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
 import { cn } from '@renderer/lib/utils'
 import { useChatStore } from '@renderer/stores/chat-store'
-import type { GitStatusDetailed, GitStatusFile } from '@renderer/stores/git-store'
+import type { GitStatusDetailed } from '@renderer/stores/git-store'
 import { getSessionInputDraftKey, useInputDraftStore } from '@renderer/stores/input-draft-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
 import { useTaskStore, type TaskItem } from '@renderer/stores/task-store'
@@ -27,9 +27,10 @@ import { useTeamStore } from '@renderer/stores/team-store'
 import { useTerminalStore, type LocalTerminalSession } from '@renderer/stores/terminal-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import type { TeamTask } from '@renderer/lib/agent/teams/types'
+import { toMessagePackChannel } from '../../../../shared/messagepack/binary-ipc'
 
 const EMPTY_TASKS: TaskItem[] = []
-const MAX_DIFFS_FOR_LINE_SUMMARY = 24
+const RUNTIME_GIT_SUMMARY_CACHE_MS = 5_000
 
 interface RuntimeStatusPanelProps {
   sessionId?: string | null
@@ -91,44 +92,12 @@ function uniqueChangedFileCount(status: GitStatusDetailed): number {
   return files.size
 }
 
-function summarizePatchLines(patch: string): { added: number; deleted: number } {
-  let added = 0
-  let deleted = 0
-
-  for (const line of patch.split(/\r?\n/)) {
-    if (line.startsWith('+++') || line.startsWith('---')) continue
-    if (line.startsWith('+')) added += 1
-    if (line.startsWith('-')) deleted += 1
-  }
-
-  return { added, deleted }
+function hasTrackedChanges(status: GitStatusDetailed): boolean {
+  return status.staged.length > 0 || status.unstaged.length > 0 || status.conflicted.length > 0
 }
 
-function collectDiffTargets(
-  status: GitStatusDetailed
-): Array<{ file: GitStatusFile; staged: boolean }> {
-  const seen = new Set<string>()
-  const targets: Array<{ file: GitStatusFile; staged: boolean }> = []
-
-  const addTarget = (file: GitStatusFile, staged: boolean): void => {
-    const key = `${staged ? 'staged' : 'worktree'}:${file.path}`
-    if (seen.has(key)) return
-    seen.add(key)
-    targets.push({ file, staged })
-  }
-
-  for (const file of status.staged) addTarget(file, true)
-  for (const file of status.unstaged) addTarget(file, false)
-  for (const file of status.conflicted) addTarget(file, false)
-
-  return targets
-}
-
-function useRuntimeGitSummary(
-  workingFolder: string | null,
-  sshConnectionId: string | null
-): RuntimeGitSummary {
-  const [summary, setSummary] = React.useState<RuntimeGitSummary>({
+function createEmptyRuntimeGitSummary(): RuntimeGitSummary {
+  return {
     loading: false,
     branch: null,
     ahead: 0,
@@ -139,26 +108,101 @@ function useRuntimeGitSummary(
     dirty: false,
     truncatedLineSummary: false,
     error: null
+  }
+}
+
+type GitLineSummaryResult = GitResultBase & {
+  added?: number
+  deleted?: number
+  binary?: number
+}
+
+const runtimeGitSummaryCache = new Map<string, { expiresAt: number; summary: RuntimeGitSummary }>()
+const runtimeGitSummaryRequests = new Map<string, Promise<RuntimeGitSummary>>()
+
+function runtimeGitSummaryCacheKey(workingFolder: string, sshConnectionId: string | null): string {
+  return `${sshConnectionId ?? 'local'}:${workingFolder}`
+}
+
+async function loadRuntimeGitSummary(
+  workingFolder: string,
+  sshConnectionId: string | null
+): Promise<RuntimeGitSummary> {
+  const statusResult = await invokeMessagePackBinary<
+    GitResultBase & { status?: GitStatusDetailed }
+  >(toMessagePackChannel(IPC.GIT_GET_STATUS_DETAILED), {
+    cwd: workingFolder,
+    sshConnectionId
   })
 
+  if (!statusResult.success || !statusResult.status) {
+    return {
+      ...createEmptyRuntimeGitSummary(),
+      error: statusResult.error ?? 'Git status unavailable'
+    }
+  }
+
+  const status = statusResult.status
+  const dirty =
+    status.staged.length > 0 ||
+    status.unstaged.length > 0 ||
+    status.untracked.length > 0 ||
+    status.conflicted.length > 0
+
+  let added: number | null = null
+  let deleted: number | null = null
+  if (hasTrackedChanges(status)) {
+    const lineSummary = await invokeMessagePackBinary<GitLineSummaryResult>(
+      toMessagePackChannel(IPC.GIT_GET_LINE_SUMMARY),
+      {
+        cwd: workingFolder,
+        sshConnectionId
+      }
+    )
+    if (lineSummary.success) {
+      added = lineSummary.added ?? 0
+      deleted = lineSummary.deleted ?? 0
+    }
+  }
+
+  return {
+    loading: false,
+    branch: status.branch,
+    upstream: status.upstream,
+    ahead: status.ahead,
+    behind: status.behind,
+    changedFileCount: uniqueChangedFileCount(status),
+    added,
+    deleted,
+    dirty,
+    truncatedLineSummary: false,
+    error: null
+  }
+}
+
+function useRuntimeGitSummary(
+  workingFolder: string | null,
+  sshConnectionId: string | null,
+  enabled: boolean
+): RuntimeGitSummary {
+  const [summary, setSummary] = React.useState<RuntimeGitSummary>(createEmptyRuntimeGitSummary)
+
   React.useEffect(() => {
-    if (!workingFolder) {
-      setSummary({
-        loading: false,
-        branch: null,
-        ahead: 0,
-        behind: 0,
-        changedFileCount: 0,
-        added: null,
-        deleted: null,
-        dirty: false,
-        truncatedLineSummary: false,
-        error: null
-      })
+    if (!enabled || !workingFolder) {
+      setSummary(createEmptyRuntimeGitSummary())
       return
     }
 
     let disposed = false
+    const targetWorkingFolder = workingFolder
+    const targetSshConnectionId = sshConnectionId
+    const cacheKey = runtimeGitSummaryCacheKey(targetWorkingFolder, targetSshConnectionId)
+    const cached = runtimeGitSummaryCache.get(cacheKey)
+    const now = Date.now()
+    if (cached && cached.expiresAt > now) {
+      setSummary(cached.summary)
+      return
+    }
 
     setSummary((current) => ({
       ...current,
@@ -167,68 +211,23 @@ function useRuntimeGitSummary(
     }))
 
     async function loadGitSummary(): Promise<void> {
-      const statusResult = (await ipcClient.invoke(IPC.GIT_GET_STATUS_DETAILED, {
-        cwd: workingFolder,
-        sshConnectionId
-      })) as GitResultBase & { status?: GitStatusDetailed }
-
-      if (disposed) return
-
-      if (!statusResult.success || !statusResult.status) {
-        setSummary({
-          loading: false,
-          branch: null,
-          ahead: 0,
-          behind: 0,
-          changedFileCount: 0,
-          added: null,
-          deleted: null,
-          dirty: false,
-          truncatedLineSummary: false,
-          error: statusResult.error ?? 'Git status unavailable'
+      let request = runtimeGitSummaryRequests.get(cacheKey)
+      if (!request) {
+        request = loadRuntimeGitSummary(targetWorkingFolder, targetSshConnectionId)
+        runtimeGitSummaryRequests.set(cacheKey, request)
+        void request.finally(() => {
+          if (runtimeGitSummaryRequests.get(cacheKey) === request) {
+            runtimeGitSummaryRequests.delete(cacheKey)
+          }
         })
-        return
       }
 
-      const status = statusResult.status
-      const diffTargets = collectDiffTargets(status)
-      const visibleDiffTargets = diffTargets.slice(0, MAX_DIFFS_FOR_LINE_SUMMARY)
-      let added = 0
-      let deleted = 0
-
-      for (const target of visibleDiffTargets) {
-        const diffResult = (await ipcClient.invoke(IPC.GIT_GET_FILE_DIFF, {
-          cwd: workingFolder,
-          sshConnectionId,
-          filePath: target.file.path,
-          staged: target.staged
-        })) as GitResultBase & { diff?: string }
-
-        if (disposed) return
-        if (!diffResult.success || !diffResult.diff) continue
-
-        const next = summarizePatchLines(diffResult.diff)
-        added += next.added
-        deleted += next.deleted
-      }
-
-      setSummary({
-        loading: false,
-        branch: status.branch,
-        upstream: status.upstream,
-        ahead: status.ahead,
-        behind: status.behind,
-        changedFileCount: uniqueChangedFileCount(status),
-        added: diffTargets.length > 0 ? added : null,
-        deleted: diffTargets.length > 0 ? deleted : null,
-        dirty:
-          status.staged.length > 0 ||
-          status.unstaged.length > 0 ||
-          status.untracked.length > 0 ||
-          status.conflicted.length > 0,
-        truncatedLineSummary: diffTargets.length > visibleDiffTargets.length,
-        error: null
+      const nextSummary = await request
+      runtimeGitSummaryCache.set(cacheKey, {
+        expiresAt: Date.now() + RUNTIME_GIT_SUMMARY_CACHE_MS,
+        summary: nextSummary
       })
+      if (!disposed) setSummary(nextSummary)
     }
 
     void loadGitSummary()
@@ -236,7 +235,7 @@ function useRuntimeGitSummary(
     return () => {
       disposed = true
     }
-  }, [sshConnectionId, workingFolder])
+  }, [enabled, sshConnectionId, workingFolder])
 
   return summary
 }
@@ -340,6 +339,7 @@ export function RuntimeStatusPanel({
   )
   const rightPanelOpen = useUIStore((state) => state.rightPanelOpen)
   const runtimeStatusPanelOpen = useUIStore((state) => state.runtimeStatusPanelOpen)
+  const visible = Boolean(resolvedSessionId && runtimeStatusPanelOpen && !rightPanelOpen)
   const sourceFiles = useInputDraftStore(
     useShallow((state) => {
       if (!resolvedSessionId) return []
@@ -360,7 +360,7 @@ export function RuntimeStatusPanel({
       ? (state.connections.find((item) => item.id === context.sshConnectionId)?.name ?? null)
       : null
   )
-  const gitSummary = useRuntimeGitSummary(context.workingFolder, context.sshConnectionId)
+  const gitSummary = useRuntimeGitSummary(context.workingFolder, context.sshConnectionId, visible)
   const initTerminals = useTerminalStore((state) => state.init)
   const refreshTerminalSessions = useTerminalStore((state) => state.refreshSessions)
   const closeTerminalSession = useTerminalStore((state) => state.closeSession)
@@ -377,8 +377,6 @@ export function RuntimeStatusPanel({
     [activeTeam?.tasks]
   )
   const tasks = sessionTasks.length > 0 ? sessionTasks : teamTasks
-  const visible = Boolean(resolvedSessionId && runtimeStatusPanelOpen && !rightPanelOpen)
-
   React.useEffect(() => {
     initTerminals()
   }, [initTerminals])

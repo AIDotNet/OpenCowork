@@ -15,6 +15,11 @@ export interface SessionScopedAgentSelection {
   signature: string
 }
 
+export interface SessionPendingApprovalSelection {
+  pendingApproval: ToolCallState | null
+  pendingApprovalCount: number
+}
+
 export interface SessionScopedAgentSelectionOptions {
   mode?: 'live' | 'coarse'
 }
@@ -52,6 +57,11 @@ const EMPTY_SESSION_AGENT_SELECTION: SessionScopedAgentSelection = {
   isSessionRunning: false,
   hasOrchestrationData: false,
   signature: 'empty'
+}
+
+const EMPTY_SESSION_PENDING_APPROVAL_SELECTION: SessionPendingApprovalSelection = {
+  pendingApproval: null,
+  pendingApprovalCount: 0
 }
 
 const sessionScopedAgentSelectionCache = new Map<string, SessionScopedAgentSelection>()
@@ -179,6 +189,25 @@ function hasRunningToolCall(toolCalls: ToolCallState[]): boolean {
   return toolCalls.some(
     (toolCall) => toolCall.status === 'running' || toolCall.status === 'streaming'
   )
+}
+
+export function selectSessionPendingApproval(
+  state: SessionScopedAgentStateSource,
+  sessionId: string | null | undefined
+): SessionPendingApprovalSelection {
+  if (!sessionId) return EMPTY_SESSION_PENDING_APPROVAL_SELECTION
+
+  const toolCalls = getSessionToolCalls(state, sessionId)
+  const pendingApprovals = toolCalls.pending.filter(
+    (toolCall) => toolCall.status === 'pending_approval'
+  )
+
+  if (pendingApprovals.length === 0) return EMPTY_SESSION_PENDING_APPROVAL_SELECTION
+
+  return {
+    pendingApproval: pendingApprovals[0],
+    pendingApprovalCount: pendingApprovals.length
+  }
 }
 
 export function selectSessionScopedAgentState(

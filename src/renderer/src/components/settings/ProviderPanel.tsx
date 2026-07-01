@@ -109,6 +109,7 @@ import {
   normalizeResponsesImageGenerationOutputCompression,
   normalizeResponsesImageGenerationPartialImages
 } from '@renderer/lib/api/responses-image-generation'
+import { resolveProviderUserAgent } from '@renderer/lib/api/api-user-agent'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { ProviderIcon, ModelIcon } from './provider-icons'
@@ -369,10 +370,11 @@ async function fetchModelsFromProvider(
   oauth?: AIProvider['oauth']
 ): Promise<AIModelConfig[]> {
   const useAnthropicCompatAuth = builtinId === 'longcat'
+  const resolvedUserAgent = resolveProviderUserAgent(userAgent)
 
   if (builtinId === 'openrouter') {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (userAgent) headers['User-Agent'] = userAgent
+    headers['User-Agent'] = resolvedUserAgent
     const result = (await ipcClient.invoke('api:request', {
       url: 'https://openrouter.ai/api/frontend/models/find',
       method: 'GET',
@@ -395,7 +397,7 @@ async function fetchModelsFromProvider(
       'Content-Type': 'application/json'
     }
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
-    if (userAgent) headers['User-Agent'] = userAgent
+    headers['User-Agent'] = resolvedUserAgent
     if (isMoonshotProviderConfig({ providerBuiltinId: builtinId, baseUrl })) {
       Object.assign(headers, await buildMoonshotCommonHeaders(oauth?.deviceId))
     }
@@ -435,7 +437,7 @@ async function fetchModelsFromProvider(
         headers['x-api-key'] = apiKey
       }
     }
-    if (userAgent) headers['User-Agent'] = userAgent
+    headers['User-Agent'] = resolvedUserAgent
     const result = (await ipcClient.invoke('api:request', {
       url,
       method: 'GET',
@@ -2050,7 +2052,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         'openai-responses'
       )
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (activeProvider.userAgent) headers['User-Agent'] = activeProvider.userAgent
+      headers['User-Agent'] = resolveProviderUserAgent(activeProvider.userAgent)
       if (activeProvider.oauth?.accessToken) {
         headers['Authorization'] = `Bearer ${activeProvider.oauth.accessToken}`
       }
@@ -2140,7 +2142,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         requestType
       )
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (activeProvider.userAgent) headers['User-Agent'] = activeProvider.userAgent
+      headers['User-Agent'] = resolveProviderUserAgent(activeProvider.userAgent)
       if (isMoonshotProviderConfig(activeProvider)) {
         Object.assign(headers, await buildMoonshotCommonHeaders(activeProvider.oauth?.deviceId))
       }

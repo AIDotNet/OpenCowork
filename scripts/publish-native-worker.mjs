@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, rmSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 
@@ -11,6 +12,7 @@ const projectPath = join(
   'OpenCowork.Native.Worker.csproj'
 )
 const outputDir = join(repoRoot, 'resources', 'native-worker')
+const tempOutputDir = mkdtempSync(join(tmpdir(), 'open-cowork-native-worker-'))
 const nugetSource = process.env.OPEN_COWORK_NUGET_SOURCE || 'https://nuget.azure.cn/v3/index.json'
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
@@ -23,8 +25,7 @@ function currentRid() {
   throw new Error(`Unsupported native worker platform: ${platform}/${arch}`)
 }
 
-rmSync(outputDir, { recursive: true, force: true })
-mkdirSync(outputDir, { recursive: true })
+mkdirSync(tempOutputDir, { recursive: true })
 
 const result = spawnSync(
   'dotnet',
@@ -38,7 +39,7 @@ const result = spawnSync(
     '--source',
     nugetSource,
     '-o',
-    outputDir,
+    tempOutputDir,
     '/p:PublishAot=true',
     '/p:StripSymbols=true'
   ],
@@ -49,5 +50,11 @@ const result = spawnSync(
 )
 
 if (result.status !== 0) {
+  rmSync(tempOutputDir, { recursive: true, force: true })
   process.exit(result.status ?? 1)
 }
+
+rmSync(outputDir, { recursive: true, force: true })
+mkdirSync(outputDir, { recursive: true })
+cpSync(tempOutputDir, outputDir, { recursive: true })
+rmSync(tempOutputDir, { recursive: true, force: true })

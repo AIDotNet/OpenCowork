@@ -2193,10 +2193,7 @@ internal static class OpenAIChatRuntime
     private static void ApplyHeaders(HttpRequestMessage request, JsonElement provider, string apiKey)
     {
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        if (JsonHelpers.GetString(provider, "userAgent") is { Length: > 0 } userAgent)
-        {
-            request.Headers.UserAgent.ParseAdd(userAgent);
-        }
+        ApiUserAgent.Apply(request, provider);
         if (JsonHelpers.GetString(provider, "organization") is { Length: > 0 } organization)
         {
             request.Headers.TryAddWithoutValidation("OpenAI-Organization", organization);
@@ -2210,6 +2207,7 @@ internal static class OpenAIChatRuntime
             request.Headers.TryAddWithoutValidation("Chatgpt-Account-Id", accountId);
         }
         ApplyHeaderOverrides(request, provider);
+        ApiUserAgent.Ensure(request, provider);
     }
 
     private static void ApplyHeaderOverrides(HttpRequestMessage request, JsonElement provider)
@@ -2247,11 +2245,9 @@ internal static class OpenAIChatRuntime
             ["Content-Type"] = "application/json",
             ["Authorization"] = "Bearer ***"
         };
-        if (JsonHelpers.GetString(provider, "userAgent") is { Length: > 0 } userAgent)
-        {
-            headers["User-Agent"] = userAgent;
-        }
+        ApiUserAgent.ApplyDebug(headers, provider);
         ApplyDebugHeaderOverrides(headers, provider);
+        ApiUserAgent.EnsureDebug(headers, provider);
         return headers;
     }
 

@@ -208,10 +208,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         request.Headers.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             JsonHelpers.GetString(provider, "apiKey") ?? string.Empty);
-        if (JsonHelpers.GetString(provider, "userAgent") is { Length: > 0 } userAgent)
-        {
-            request.Headers.UserAgent.ParseAdd(userAgent);
-        }
+        ApiUserAgent.Apply(request, provider);
         if (JsonHelpers.GetString(provider, "organization") is { Length: > 0 } organization)
         {
             request.Headers.TryAddWithoutValidation("OpenAI-Organization", organization);
@@ -236,16 +233,14 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             request,
             provider,
             header => ShouldSkipCodexOAuthHeader(provider, header));
+        ApiUserAgent.Ensure(request, provider);
     }
 
     private static void ApplyOpenAIWebSocketHeaders(ClientWebSocket socket, JsonElement provider)
     {
         socket.Options.SetRequestHeader("Authorization", $"Bearer {JsonHelpers.GetString(provider, "apiKey") ?? string.Empty}");
         socket.Options.SetRequestHeader(ResponsesWebSocketBetaHeader, ResponsesWebSocketBetaValue);
-        if (JsonHelpers.GetString(provider, "userAgent") is { Length: > 0 } userAgent)
-        {
-            socket.Options.SetRequestHeader("User-Agent", userAgent);
-        }
+        ApiUserAgent.Apply(socket, provider);
         if (JsonHelpers.GetString(provider, "organization") is { Length: > 0 } organization)
         {
             socket.Options.SetRequestHeader("OpenAI-Organization", organization);
@@ -276,10 +271,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         {
             headers[ResponsesWebSocketBetaHeader] = ResponsesWebSocketBetaValue;
         }
-        if (JsonHelpers.GetString(provider, "userAgent") is { Length: > 0 } userAgent)
-        {
-            headers["User-Agent"] = userAgent;
-        }
+        ApiUserAgent.ApplyDebug(headers, provider);
         if (JsonHelpers.GetString(provider, "serviceTier") is { Length: > 0 } serviceTier)
         {
             headers["service_tier"] = serviceTier;
@@ -288,6 +280,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             headers,
             provider,
             header => ShouldSkipCodexOAuthHeader(provider, header));
+        ApiUserAgent.EnsureDebug(headers, provider);
         return headers;
     }
 
@@ -316,7 +309,18 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                 model);
             if (value.Length > 0)
             {
-                socket.Options.SetRequestHeader(property.Name, value);
+                if (property.Name.Equals("User-Agent", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!ApiUserAgent.IsUsable(value))
+                    {
+                        continue;
+                    }
+                    socket.Options.SetRequestHeader(property.Name, ApiUserAgent.Resolve(value));
+                }
+                else
+                {
+                    socket.Options.SetRequestHeader(property.Name, value);
+                }
             }
         }
     }

@@ -657,11 +657,9 @@ internal static class AgentRuntimeGeminiProvider
     {
         var apiKey = JsonHelpers.GetString(provider, "apiKey") ?? string.Empty;
         request.Headers.TryAddWithoutValidation("x-goog-api-key", apiKey);
-        if (JsonHelpers.GetString(provider, "userAgent") is { Length: > 0 } userAgent)
-        {
-            request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
-        }
+        ApiUserAgent.Apply(request, provider);
         ApplyHeaderOverrides(request, provider);
+        ApiUserAgent.Ensure(request, provider);
     }
 
     private static void ApplyHeaderOverrides(HttpRequestMessage request, JsonElement provider)
@@ -704,10 +702,7 @@ internal static class AgentRuntimeGeminiProvider
             ["Content-Type"] = "application/json",
             ["x-goog-api-key"] = "***"
         };
-        if (JsonHelpers.GetString(provider, "userAgent") is { Length: > 0 } userAgent)
-        {
-            headers["User-Agent"] = userAgent;
-        }
+        ApiUserAgent.ApplyDebug(headers, provider);
         return headers;
     }
 

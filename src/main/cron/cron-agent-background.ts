@@ -27,6 +27,7 @@ import {
   type CronRunStatus
 } from '../db/cron-dao'
 import { getNativeAgentRuntimeManager } from '../ipc/native-agent-runtime'
+import { getDefaultApiUserAgent, resolveApiUserAgent } from '../lib/api-user-agent'
 
 const DEFAULT_AGENT = 'CronAgent'
 const RESPONSES_SESSION_SCOPE_AGENT_MAIN = 'agent-main'
@@ -560,7 +561,7 @@ function buildProviderConfigById(
     ...(provider.allowInsecureTls !== undefined
       ? { allowInsecureTls: provider.allowInsecureTls }
       : {}),
-    ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
+    userAgent: resolveApiUserAgent(provider.userAgent),
     ...(requestOverrides ? { requestOverrides } : {}),
     ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
     ...(provider.oauth?.accountId ? { accountId: provider.oauth.accountId } : {}),
@@ -656,7 +657,8 @@ async function resolveCronProviderConfig(
       typeof settings.baseUrl === 'string' && settings.baseUrl ? settings.baseUrl : undefined,
     model: fallbackModel,
     maxTokens: Number(settings.maxTokens ?? 32000),
-    temperature: Number(settings.temperature ?? 0.7)
+    temperature: Number(settings.temperature ?? 0.7),
+    userAgent: getDefaultApiUserAgent()
   }
 }
 

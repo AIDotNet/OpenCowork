@@ -522,6 +522,7 @@ function createNativeWorkerEnv(): NodeJS.ProcessEnv {
   if (readBooleanEnv('OPEN_COWORK_NATIVE_DEBUG') === null && !app.isPackaged) {
     env.OPEN_COWORK_NATIVE_DEBUG = '1'
   }
+  env.OPEN_COWORK_APP_VERSION = app.getVersion().trim()
   env.OPEN_COWORK_NATIVE_SLOW_MS ??= String(getNativeWorkerSlowRequestMs())
   return env
 }
@@ -608,6 +609,15 @@ function resolveNativeWorkerPath(): string | null {
 
   const executableName =
     process.platform === 'win32' ? 'OpenCowork.Native.Worker.exe' : 'OpenCowork.Native.Worker'
+  const debugWorkerPath = path.join(
+    process.cwd(),
+    'sidecars',
+    'OpenCowork.Native.Worker',
+    'bin',
+    'Debug',
+    'net10.0',
+    executableName
+  )
   const releaseNativePath = path.join(
     process.cwd(),
     'sidecars',
@@ -643,9 +653,11 @@ function resolveNativeWorkerPath(): string | null {
           executableName
         )
       ]
-    : [releaseNativePath, resourceWorkerPath, releasePublishPath]
+    : [debugWorkerPath, resourceWorkerPath, releaseNativePath, releasePublishPath]
 
-  return candidates.find(isNativeWorkerCandidateReady) ?? null
+  return app.isPackaged
+    ? (candidates.find(isNativeWorkerCandidateReady) ?? null)
+    : findNewestNativeWorkerCandidate(candidates)
 }
 
 function getCurrentRid(): string {
@@ -659,8 +671,10 @@ function isNativeWorkerCandidateReady(candidate: string): boolean {
   if (!fs.existsSync(candidate)) return false
 
   const candidateDir = path.dirname(candidate)
-  const sqliteLibrary = getSqliteNativeLibraryNames().find((name) =>
-    fs.existsSync(path.join(candidateDir, name))
+  const sqliteLibrary = getSqliteNativeLibraryNames().find(
+    (name) =>
+      fs.existsSync(path.join(candidateDir, name)) ||
+      fs.existsSync(path.join(candidateDir, 'runtimes', getCurrentRid(), 'native', name))
   )
   if (sqliteLibrary) return true
 
@@ -669,6 +683,18 @@ function isNativeWorkerCandidateReady(candidate: string): boolean {
     expected: getSqliteNativeLibraryNames()
   })
   return false
+}
+
+function findNewestNativeWorkerCandidate(candidates: string[]): string | null {
+  const ready = candidates
+    .filter(isNativeWorkerCandidateReady)
+    .map((candidate) => ({
+      candidate,
+      mtimeMs: fs.statSync(candidate).mtimeMs
+    }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+
+  return ready[0]?.candidate ?? null
 }
 
 function getSqliteNativeLibraryNames(): string[] {

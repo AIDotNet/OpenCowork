@@ -17,10 +17,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         }
         request.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
         request.Headers.TryAddWithoutValidation("anthropic-beta", BuildAnthropicBetaHeader(provider));
-        if (JsonHelpers.GetString(provider, "userAgent") is { Length: > 0 } userAgent)
-        {
-            request.Headers.UserAgent.ParseAdd(userAgent);
-        }
+        ApiUserAgent.Apply(request, provider);
     }
 
     private static IReadOnlyDictionary<string, string> BuildDebugHeaders(JsonElement provider)
@@ -40,10 +37,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         {
             headers["x-api-key"] = "***";
         }
-        if (JsonHelpers.GetString(provider, "userAgent") is { Length: > 0 } userAgent)
-        {
-            headers["User-Agent"] = userAgent;
-        }
+        ApiUserAgent.ApplyDebug(headers, provider);
         return headers;
     }
 

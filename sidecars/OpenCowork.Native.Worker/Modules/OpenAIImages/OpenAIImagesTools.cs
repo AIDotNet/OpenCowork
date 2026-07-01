@@ -442,10 +442,7 @@ internal static class OpenAIImagesTools
         request.Headers.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             JsonHelpers.GetString(provider, "apiKey") ?? string.Empty);
-        if (JsonHelpers.GetString(provider, "userAgent") is { Length: > 0 } userAgent)
-        {
-            request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
-        }
+        ApiUserAgent.Apply(request, provider);
         if (JsonHelpers.GetString(provider, "organization") is { Length: > 0 } organization)
         {
             request.Headers.TryAddWithoutValidation("OpenAI-Organization", organization);
@@ -455,6 +452,7 @@ internal static class OpenAIImagesTools
             request.Headers.TryAddWithoutValidation("OpenAI-Project", project);
         }
         ApplyHeaderOverrides(request, provider);
+        ApiUserAgent.Ensure(request, provider);
     }
 
     private static void ApplyHeaderOverrides(HttpRequestMessage request, JsonElement provider)

@@ -217,10 +217,9 @@ internal static class UserSoulCatalog
     private static void ApplyCommonHeaders(HttpRequestMessage request, JsonElement parameters, string accept)
     {
         request.Headers.Accept.ParseAdd(accept);
-        var userAgent = JsonHelpers.GetString(parameters, "userAgent")?.Trim();
         request.Headers.TryAddWithoutValidation(
             "User-Agent",
-            string.IsNullOrWhiteSpace(userAgent) ? "OpenCowork" : userAgent);
+            ApiUserAgent.Resolve(JsonHelpers.GetString(parameters, "userAgent")));
 
         var apiKey = JsonHelpers.GetString(parameters, "apiKey")?.Trim();
         if (!string.IsNullOrWhiteSpace(apiKey))

@@ -13,6 +13,7 @@ import { builtinProviderPresets } from './providers'
 import type { BuiltinProviderPreset } from './providers'
 import { resolveCopilotApiBaseUrl, resolveCopilotModelId } from '../lib/auth/copilot'
 import { normalizeResponsesImageGenerationConfig } from '../lib/api/responses-image-generation'
+import { resolveProviderUserAgent } from '../lib/api/api-user-agent'
 import { configStorage } from '../lib/ipc/config-storage'
 import { useSettingsStore } from './settings-store'
 
@@ -1223,7 +1224,7 @@ export const useProviderStore = create<ProviderStore>()(
           enablePromptCache: activeModel?.enablePromptCache,
           enableSystemPromptCache: activeModel?.enableSystemPromptCache,
           cacheTtl: activeModel?.cacheTtl ?? provider.cacheTtl,
-          ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
+          userAgent: resolveProviderUserAgent(provider.userAgent),
           ...(requestOverrides ? { requestOverrides } : {}),
           ...(provider.instructionsPrompt
             ? { instructionsPrompt: provider.instructionsPrompt }
@@ -1343,7 +1344,7 @@ export const useProviderStore = create<ProviderStore>()(
           enablePromptCache: model?.enablePromptCache,
           enableSystemPromptCache: model?.enableSystemPromptCache,
           cacheTtl: model?.cacheTtl ?? provider.cacheTtl,
-          ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
+          userAgent: resolveProviderUserAgent(provider.userAgent),
           ...(requestOverrides ? { requestOverrides } : {}),
           ...(provider.instructionsPrompt
             ? { instructionsPrompt: provider.instructionsPrompt }
@@ -1444,7 +1445,7 @@ export const useProviderStore = create<ProviderStore>()(
           enablePromptCache: fastModel?.enablePromptCache,
           enableSystemPromptCache: fastModel?.enableSystemPromptCache,
           cacheTtl: fastModel?.cacheTtl ?? provider.cacheTtl,
-          ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
+          userAgent: resolveProviderUserAgent(provider.userAgent),
           ...(requestOverrides ? { requestOverrides } : {}),
           ...(provider.instructionsPrompt
             ? { instructionsPrompt: provider.instructionsPrompt }

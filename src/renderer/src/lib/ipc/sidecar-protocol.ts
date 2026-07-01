@@ -9,6 +9,7 @@ import type {
 } from '../api/types'
 import type { ToolCallState } from '../agent/types'
 import type { CompressionConfig } from '../agent/context-compression'
+import { resolveProviderUserAgent } from '../api/api-user-agent'
 import { summarizeToolInputForHistory } from '../tools/tool-input-sanitizer'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 
@@ -365,7 +366,7 @@ function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig {
     ...(provider.reasoningEffort ? { reasoningEffort: provider.reasoningEffort } : {}),
     ...(provider.providerId ? { providerId: provider.providerId } : {}),
     ...(provider.providerBuiltinId ? { providerBuiltinId: provider.providerBuiltinId } : {}),
-    ...(provider.userAgent ? { userAgent: provider.userAgent } : {}),
+    userAgent: resolveProviderUserAgent(provider.userAgent),
     ...(provider.sessionId ? { sessionId: provider.sessionId } : {}),
     ...(provider.responsesSessionScope
       ? { responsesSessionScope: provider.responsesSessionScope }

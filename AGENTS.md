@@ -1,4 +1,4 @@
-# Repository Guidelines
+﻿# Repository Guidelines
 
 ## Project Structure & Module Organization
 
@@ -25,6 +25,9 @@ src/
 │   ├── lib/           # Agent loop, tools, API clients, utilities
 │   ├── locales/       # i18n JSON files (en/zh plus 11 other languages)
 │   └── stores/        # Zustand stores
+├── components/        # Shared React components (cross-cutting)
+├── hooks/             # Shared React hooks (cross-cutting)
+├── lib/               # Shared utilities (cross-cutting)
 └── shared/            # Cross-process TypeScript contracts
 ```
 
@@ -96,3 +99,18 @@ Examples from the history: `feat(app): add code workspace and runtime enhancemen
 - Include a brief description of what changed and why.
 - Attach screenshots for UI changes.
 - Ensure `npm run typecheck` and `npm run lint` pass.
+
+## Security & Configuration Tips
+
+- **Environment variables:** Store API keys in `~/.open-cowork/.env` (auto-loaded). Never commit `.env` files.
+- **Native modules:** `better-sqlite3`, `robotjs`, `ssh2`, `node-pty` require Electron-compatible builds. Run `npm run postinstall` after dependency changes.
+- **Data isolation:** Each user's data lives in `~/.open-cowork/`. The app never accesses system-wide credentials or other user directories.
+- **IPC security:** All renderer-to-main communication goes through typed IPC channels. Never expose raw Node.js APIs to the renderer.
+
+## Agent-Specific Instructions
+
+When modifying agent behavior:
+- **Prompts:** Session prompts live in `src/renderer/src/lib/prompts/`. Each mode (`chat`, `cowork`, `code`, etc.) has its own prompt template.
+- **Tools:** New tools must be registered in `src/renderer/src/lib/tools/index.ts` and follow the existing interface pattern.
+- **Runtime:** The agent runtime (`js-agent-runtime.ts`) is provider-agnostic. Test with at least two different LLM providers when changing runtime logic.
+- **MCP integration:** Model Context Protocol tools are loaded dynamically. Changes to MCP handling require testing with both connected and disconnected MCP servers.

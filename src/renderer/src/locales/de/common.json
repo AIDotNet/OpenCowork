@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "● Version {{version}} ist verfügbar",
       "availableDescription": "Klicken Sie auf \"Jetzt aktualisieren\", um den Download zu starten",
+      "readyTitle": "Update v{{version}} ist bereit",
+      "readyDescription": "Das Update wurde heruntergeladen. Wählen Sie Jetzt aktualisieren, um neu zu starten und zu installieren.",
       "buttonLabel": "Update v {{version}}",
+      "readyShort": "Bereit v{{version}}",
       "buttonTooltip": "Eine neue Version ist verfügbar.",
+      "readyButtonTooltip": "Das Update wurde heruntergeladen. Klicken Sie zum Installieren.",
       "currentVersion": "Stromstärke v {{version}}",
       "latestVersion": "Neueste v {{version}}",
       "releaseNotes": "Release Notes",
@@ -251,12 +255,16 @@
       "downloadingProgress": "Download Update {{progress}} %",
       "actions": {
         "updateNow": "Update jetzt",
-        "remindLater": "Erinnere mich später"
+        "remindLater": "Erinnere mich später",
+        "installNow": "Update jetzt",
+        "updateLater": "Später aktualisieren"
       },
       "downloadFailed": "Download fehlgeschlagen",
       "delayed": "Update verschoben",
       "downloadedTitle": "Update heruntergeladen",
-      "downloadedDescription": "Fassung {{version}} wird nach dem Neustart installiert",
+      "downloadedDescription": "Version {{version}} ist bereit zur Installation.",
+      "installing": "Update wird vorbereitet...",
+      "installFailed": "Update konnte nicht gestartet werden",
       "failed": "Update fehlgeschlagen"
     },
     "errors": {

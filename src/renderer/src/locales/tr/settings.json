@@ -170,7 +170,7 @@
     "autoApprove": "Auto-approve araç aramaları",
     "autoApproveDesc": "Tüm araç aramaları için izin onayı alın",
     "autoUpdate": "Otomatik olarak kontrol ve uygulamayı güncelleyin",
-    "autoUpdateDesc": "Varsayılan olarak kullanılabilir.Başlangıçta güncelleştirmeler ve otomatik olarak indirmeler ve yeni sürümler yüklemeleri için kontroller.Ne zaman engelli, güncellemeler manuel kalır.",
+    "autoUpdateDesc": "Varsayılan olarak etkindir. Başlangıçta güncellemeleri kontrol eder, yeni sürümleri otomatik indirir ve kurulum için yeniden başlatmadan önce sorar. Devre dışı bırakılırsa güncellemeler manuel kalır.",
     "update": {
       "status": "Güncelleme durumu",
       "currentVersion": "Current v {{version}}",
@@ -184,7 +184,8 @@
       "newVersionAvailable": "Yeni bir sürüm (v) {{version}}) mevcuttur.",
       "downloading": "Downloading update...",
       "downloadingWithProgress": "Downloading update... {{progress}} % % % % % % % % %",
-      "downloadedRestarting": "Update v {{version}} Yüklemek için yeniden başlamak..."
+      "downloadedReady": "v{{version}} güncellemesi indirildi. Yeniden başlatıp yüklemek için Şimdi güncelle'ye tıklayın.",
+      "installing": "Güncelleme hazırlanıyor…"
     },
     "projectDefaultDirectory": {
       "title": "Varsayılan proje rehberi",
@@ -200,7 +201,7 @@
     "devModeDesc": "Hatalar gerçekleştiğinde AI yanıtlarındaki istek debug bilgileri göster",
     "contextCompression": "Context Memory",
     "contextCompressionDesc": "Konuşma bağlam pencere sınırına yaklaştığında, otomatik olarak tarih mesajlarını sıkıştırın ve temel bilgileri korur",
-    "contextCompressionEnabled": "Enabled: Auto-compress bağlam kullanımı %90'ı aştığında, orijinal görev ve son mesajlar tamamen korunmuş olacaktır.",
+    "contextCompressionEnabled": "Etkin: geçmişi mevcut modelin bağlam uzunluğu ve sıkıştırma eşiğine göre otomatik sıkıştırır; özet ve sıkıştırma noktasından sonraki mesajları korur",
     "editorWorkspace": "Enable editör çalışma alanı farkındalık",
     "editorWorkspaceDesc": "Kod editörleri için tercih edilen URI bağlamı olarak çalışan klasörü kullanın",
     "editorWorkspaceEnabled": "Enabled: Yerel dosyalar mevcut çalışma klasörüne bağlanır ve hafif haç semantics yeniden kullanılabilir",

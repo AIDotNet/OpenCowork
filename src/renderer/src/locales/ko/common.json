@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "🎉 버전 {{version}} 사용 가능",
       "availableDescription": "\"지금 업데이트\"를 클릭하면 다운로드가 시작됩니다",
+      "readyTitle": "v{{version}} 업데이트 준비 완료",
+      "readyDescription": "업데이트가 다운로드되었습니다. 지금 업데이트를 선택하면 다시 시작하고 설치합니다.",
       "buttonLabel": "v{{version}} 업데이트",
+      "readyShort": "준비됨 v{{version}}",
       "buttonTooltip": "새 버전이 있습니다. 클릭해 릴리스 노트를 확인하세요.",
+      "readyButtonTooltip": "업데이트가 다운로드되었습니다. 클릭해 설치하세요.",
       "currentVersion": "현재 v{{version}}",
       "latestVersion": "최신 v{{version}}",
       "releaseNotes": "릴리스 노트",
@@ -251,12 +255,16 @@
       "downloadingProgress": "업데이트 다운로드 중 {{progress}}%",
       "actions": {
         "updateNow": "지금 업데이트",
-        "remindLater": "나중에 알림"
+        "remindLater": "나중에 알림",
+        "installNow": "지금 업데이트",
+        "updateLater": "나중에 업데이트"
       },
       "downloadFailed": "다운로드 실패",
       "delayed": "업데이트를 나중으로 미룸",
       "downloadedTitle": "업데이트 다운로드 완료",
-      "downloadedDescription": "{{version}} 버전은 다시 시작 후 설치됩니다",
+      "downloadedDescription": "v{{version}} 업데이트를 설치할 준비가 되었습니다.",
+      "installing": "업데이트 준비 중...",
+      "installFailed": "업데이트를 시작하지 못했습니다",
       "failed": "업데이트 실패"
     },
     "errors": {

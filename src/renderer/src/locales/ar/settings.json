@@ -170,7 +170,7 @@
     "autoApprove": "المكالمات الهاتفية لأداة الموافقة على السيارات",
     "autoApproveDesc": "الحصول على إذن التزلج لجميع المكالمات",
     "autoUpdate": "التحقق والتحديث الآليان",
-    "autoUpdateDesc": "يمكن الحصول عليها عن طريق التقصير، التحقق من المستجدات المتعلقة بالبدء والتحميل التلقائي، وتركيب نسخ جديدة، وعندما يكون معوقا، يستكمل دليل البقاء.",
+    "autoUpdateDesc": "مفعل افتراضيا. يتحقق من التحديثات عند التشغيل، وينزل الإصدارات الجديدة تلقائيا، ثم يسأل قبل إعادة التشغيل للتثبيت. عند التعطيل تبقى التحديثات يدوية.",
     "update": {
       "status": "آخر حالة",
       "currentVersion": "Current v {{version}}",
@@ -184,7 +184,8 @@
       "newVersionAvailable": "نسخة جديدة (ت) {{version}} متاح",
       "downloading": "تحميل تحديث...",
       "downloadingWithProgress": "تحميل تحديث... {{progress}} النسبة المئوية",
-      "downloadedRestarting": "Update v {{version}} تم تحميلها، إعادة تركيبها..."
+      "downloadedReady": "تم تنزيل التحديث v{{version}}. انقر على التحديث الآن لإعادة التشغيل والتثبيت.",
+      "installing": "جار تحضير التحديث…"
     },
     "projectDefaultDirectory": {
       "title": "دليل المشروع الافتراضي",
@@ -200,7 +201,7 @@
     "devModeDesc": "يرجى تقديم معلومات عن انحراف الطلب في ردود منظمة العفو الدولية عند حدوث أخطاء",
     "contextCompression": "ضغط الذاكرة",
     "contextCompressionDesc": "عندما تقترب المحادثة من حدود النافذة، تضغط تلقائيا رسائل التاريخ وتحافظ على المعلومات الأساسية",
-    "contextCompressionEnabled": "Enabled: Auto-compress when context usage exceeds 90%, original task and recent messages will be fully preserved",
+    "contextCompressionEnabled": "مفعل: يضغط السجل تلقائيا حسب طول سياق النموذج الحالي وحد الضغط، مع حفظ ملخص والرسائل بعد نقطة الضغط",
     "editorWorkspace": "توعية المحررين في مجال العمل",
     "editorWorkspaceDesc": "Use the current session or project working folder as the preferred URI context for code editors",
     "editorWorkspaceEnabled": "Enabled: Local files bind to the current working folder and can reuse light weight cross-file semantics",

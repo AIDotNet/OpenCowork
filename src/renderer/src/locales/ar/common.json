@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "🎉 Version {{version}} متاحة",
       "availableDescription": "إضغط على \"مواعدة الآن\" لبدء التحميل",
+      "readyTitle": "التحديث v{{version}} جاهز",
+      "readyDescription": "تم تنزيل التحديث. اختر التحديث الآن لإعادة التشغيل والتثبيت.",
       "buttonLabel": "Update v {{version}}",
+      "readyShort": "جاهز v{{version}}",
       "buttonTooltip": "وهناك نسخة جديدة متاحة.",
+      "readyButtonTooltip": "تم تنزيل التحديث. انقر للتثبيت.",
       "currentVersion": "Current v {{version}}",
       "latestVersion": "Latest v {{version}}",
       "releaseNotes": "ملاحظات الإصدار",
@@ -251,12 +255,16 @@
       "downloadingProgress": "تحديث المعلومات {{progress}} النسبة المئوية",
       "actions": {
         "updateNow": "التحديث الآن",
-        "remindLater": "ذكريني لاحقا"
+        "remindLater": "ذكريني لاحقا",
+        "installNow": "التحديث الآن",
+        "updateLater": "التحديث لاحقا"
       },
       "downloadFailed": "الحمولة فشلت",
       "delayed": "آخر المستجدات",
       "downloadedTitle": "آخر تحميل",
-      "downloadedDescription": "Version {{version}} سوف تستقر بعد العودة",
+      "downloadedDescription": "الإصدار {{version}} جاهز للتثبيت.",
+      "installing": "جار تحضير التحديث...",
+      "installFailed": "فشل بدء التحديث",
       "failed": "آخر التطورات فشلت"
     },
     "errors": {

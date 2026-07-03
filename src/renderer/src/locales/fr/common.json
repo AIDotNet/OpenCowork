@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "Version {{version}} est disponible",
       "availableDescription": "Cliquez sur \"Mise à jour maintenant\" pour commencer à télécharger",
+      "readyTitle": "Mise à jour v{{version}} prête",
+      "readyDescription": "La mise à jour a été téléchargée. Choisissez Mettre à jour maintenant pour redémarrer et l'installer.",
       "buttonLabel": "Mise à jour v {{version}}",
+      "readyShort": "Prête v{{version}}",
       "buttonTooltip": "Une nouvelle version est disponible. Cliquez pour voir les notes de sortie.",
+      "readyButtonTooltip": "La mise à jour est téléchargée. Cliquez pour l'installer.",
       "currentVersion": "Actuellement v {{version}}",
       "latestVersion": "Dernière v {{version}}",
       "releaseNotes": "Notes de publication",
@@ -251,12 +255,16 @@
       "downloadingProgress": "Téléchargement de la mise à jour {{progress}} %",
       "actions": {
         "updateNow": "Mettre à jour",
-        "remindLater": "Rappelle-moi plus tard."
+        "remindLater": "Rappelle-moi plus tard.",
+        "installNow": "Mettre à jour",
+        "updateLater": "Mettre à jour plus tard"
       },
       "downloadFailed": "Le téléchargement a échoué",
       "delayed": "Mise à jour reportée",
       "downloadedTitle": "Mise à jour téléchargée",
-      "downloadedDescription": "Version {{version}} s'installe après le redémarrage",
+      "downloadedDescription": "La version {{version}} est prête à être installée.",
+      "installing": "Préparation de la mise à jour...",
+      "installFailed": "Impossible de lancer la mise à jour",
       "failed": "La mise à jour a échoué"
     },
     "errors": {

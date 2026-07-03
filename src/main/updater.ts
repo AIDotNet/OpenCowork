@@ -21,6 +21,7 @@ let checkForUpdatesPromise: Promise<unknown> | null = null
 let downloadUpdatePromise: Promise<unknown> | null = null
 let macUpdaterUnsupportedReason: string | null | undefined
 let lastReportedUpdaterError: { message: string; at: number } | null = null
+let downloadedUpdateVersion: string | null = null
 
 interface UpdaterLogger {
   info?: (...args: unknown[]) => void
@@ -391,7 +392,8 @@ function clearWindowProgress(getMainWindow: WindowGetter): void {
 }
 
 function handleUpdateDownloaded(info: { version: string }, options: AutoUpdateOptions): void {
-  console.log(`[Updater] Update ${info.version} downloaded. Installing...`)
+  console.log(`[Updater] Update ${info.version} downloaded. Waiting for user confirmation.`)
+  downloadedUpdateVersion = normalizeVersion(info.version) || info.version
   writeCrashLog('updater_update_downloaded', { version: info.version })
   clearWindowProgress(options.getMainWindow)
 
@@ -400,20 +402,35 @@ function handleUpdateDownloaded(info: { version: string }, options: AutoUpdateOp
     const payload = { version: info.version }
     safeSendMessagePackToWindow(win, 'update:downloaded', payload)
   }
+}
 
-  options.markAppWillQuit()
+function installDownloadedUpdate(
+  options: AutoUpdateOptions
+): { success: true } | { success: false; error: string } {
+  if (!downloadedUpdateVersion) {
+    return { success: false, error: 'No downloaded update is ready to install.' }
+  }
+
+  console.log(`[Updater] Installing downloaded update ${downloadedUpdateVersion}`)
+  writeCrashLog('updater_install_requested', { version: downloadedUpdateVersion })
 
   setTimeout(() => {
     try {
+      options.markAppWillQuit()
       autoUpdater.quitAndInstall(false, true)
     } catch (error) {
       const message = formatErrorMessage(error)
       console.error('[Updater] quitAndInstall failed:', error)
       writeCrashLog('updater_quit_and_install_failed', { message, error })
-      options.markAppWillQuit()
-      app.quit()
+
+      const win = getValidWindow(options.getMainWindow)
+      if (win) {
+        safeSendMessagePackToWindow(win, 'update:error', { error: message })
+      }
     }
-  }, 600)
+  }, 100)
+
+  return { success: true }
 }
 
 export function setupAutoUpdater(options: AutoUpdateOptions): void {
@@ -477,6 +494,13 @@ export function setupAutoUpdater(options: AutoUpdateOptions): void {
       return { success: false, error: message }
     }
   })
+
+  registerMessagePackHandler<void>('update:status', async () => ({
+    success: true,
+    downloadedVersion: downloadedUpdateVersion
+  }))
+
+  registerMessagePackHandler<void>('update:install', async () => installDownloadedUpdate(options))
 
   if (!app.isPackaged) {
     console.log('[Updater] Running in development mode - using dev-app-update.yml')

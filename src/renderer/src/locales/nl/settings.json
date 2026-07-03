@@ -170,7 +170,7 @@
     "autoApprove": "Aanroepen automatisch benaderen",
     "autoApproveDesc": "Toestemmingsbevestiging overslaan voor alle gereedschapsgesprekken",
     "autoUpdate": "De app automatisch controleren en bijwerken",
-    "autoUpdateDesc": "Standaard ingeschakeld. Controleert op updates bij het opstarten en automatisch downloadt en installeert nieuwere versies. Wanneer uitgeschakeld, blijven updates handmatig.",
+    "autoUpdateDesc": "Standaard ingeschakeld. Controleert bij het opstarten op updates, downloadt nieuwere versies automatisch en vraagt bevestiging voordat opnieuw wordt gestart om te installeren. Uitgeschakeld blijven updates handmatig.",
     "update": {
       "status": "Status bijwerken",
       "currentVersion": "Huidige {{version}}",
@@ -184,7 +184,8 @@
       "newVersionAvailable": "Een nieuwere versie (v {{version}}) is beschikbaar.",
       "downloading": "Downloaden van update...",
       "downloadingWithProgress": "Downloaden van update... {{progress}} %",
-      "downloadedRestarting": "Bijwerken v {{version}} Gedownload. Opnieuw starten met installeren..."
+      "downloadedReady": "Update v{{version}} gedownload. Klik op Nu bijwerken om opnieuw te starten en te installeren.",
+      "installing": "Update voorbereiden…"
     },
     "projectDefaultDirectory": {
       "title": "Standaard projectmap",
@@ -200,7 +201,7 @@
     "devModeDesc": "Debug-info tonen in AI-antwoorden wanneer er fouten optreden",
     "contextCompression": "Contextgeheugencompressie",
     "contextCompressionDesc": "Als conversatie de limiet van het contextvenster benadert, drukt u de geschiedenisberichten automatisch samen en bewaart u kerninformatie",
-    "contextCompressionEnabled": "Ingeschakeld: Automatisch comprimeren wanneer het contextgebruik meer dan 90% bedraagt, originele taak en recente berichten worden volledig bewaard",
+    "contextCompressionEnabled": "Ingeschakeld: comprimeert geschiedenis automatisch op basis van de contextlengte en compressiedrempel van het huidige model, met behoud van een samenvatting en berichten na het compressiepunt",
     "editorWorkspace": "Bewustzijn van de editor inschakelen",
     "editorWorkspaceDesc": "Gebruik de huidige sessie- of projectmap als de gewenste URI-context voor code-editors",
     "editorWorkspaceEnabled": "Ingeschakeld: Lokale bestanden binden aan de huidige werkmap en kunnen lichtgewicht cross-file semantics hergebruiken",

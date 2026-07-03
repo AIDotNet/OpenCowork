@@ -191,6 +191,8 @@ function App(): React.JSX.Element {
   const changelogDialogOpen = useUIStore((s) => s.changelogDialogOpen)
   const [updateDownloadPending, setUpdateDownloadPending] = useState(false)
   const [updateDownloadProgress, setUpdateDownloadProgress] = useState<number | null>(null)
+  const [downloadedUpdateVersion, setDownloadedUpdateVersion] = useState<string | null>(null)
+  const [installingUpdate, setInstallingUpdate] = useState(false)
   const appView = useMemo(() => getAppView(), [])
   const detachedSessionId = useMemo(() => getDetachedSessionId(), [])
   const sessionWindowView = appView === 'session' && !!detachedSessionId
@@ -695,24 +697,29 @@ function App(): React.JSX.Element {
         newVersion,
         releaseNotes: d.releaseNotes || ''
       })
+      setDownloadedUpdateVersion(null)
+      setInstallingUpdate(false)
       setUpdateDownloadPending(false)
       setUpdateDownloadProgress(null)
     })
 
     const offUpdateProgress = ipcClient.on('update:download-progress', (data: unknown) => {
       const d = data as { percent: number }
+      setDownloadedUpdateVersion(null)
       setUpdateDownloadPending(true)
       setUpdateDownloadProgress(typeof d.percent === 'number' ? d.percent : null)
     })
 
     const offUpdateDownloaded = ipcClient.on('update:downloaded', (data: unknown) => {
       const d = data as { version: string }
+      const version = normalizeVersion(d.version) || d.version
       setUpdateDownloadPending(false)
       setUpdateDownloadProgress(null)
-      setUpdateDialogOpen(false)
-      setAvailableUpdate(null)
+      setInstallingUpdate(false)
+      setDownloadedUpdateVersion(version)
+      setUpdateDialogOpen(true)
       toast.success(t('app.update.downloadedTitle'), {
-        description: t('app.update.downloadedDescription', { version: d.version })
+        description: t('app.update.downloadedDescription', { version })
       })
     })
 
@@ -720,8 +727,23 @@ function App(): React.JSX.Element {
       const d = data as { error: string }
       setUpdateDownloadPending(false)
       setUpdateDownloadProgress(null)
+      setInstallingUpdate(false)
       toast.error(t('app.update.failed'), { description: d.error })
     })
+
+    void (async () => {
+      const result = (await ipcClient.invoke(IPC.UPDATE_STATUS)) as
+        | { success: true; downloadedVersion: string | null }
+        | { success: false; error: string }
+
+      if (!result.success || !result.downloadedVersion) {
+        return
+      }
+
+      const version = normalizeVersion(result.downloadedVersion) || result.downloadedVersion
+      setDownloadedUpdateVersion(version)
+      setInstallingUpdate(false)
+    })()
 
     return () => {
       offUpdateAvailable()
@@ -738,9 +760,10 @@ function App(): React.JSX.Element {
 
     setUpdateDownloadPending(true)
     setUpdateDownloadProgress(null)
+    setDownloadedUpdateVersion(null)
     toast.info(t('app.update.downloading'))
 
-    const result = (await ipcClient.invoke('update:download')) as
+    const result = (await ipcClient.invoke(IPC.UPDATE_DOWNLOAD)) as
       | { success: true }
       | { success: false; error: string }
 
@@ -748,6 +771,27 @@ function App(): React.JSX.Element {
       setUpdateDownloadPending(false)
       toast.error(t('app.update.downloadFailed'), { description: result.error })
     }
+  }
+
+  const handleInstallDownloadedUpdate = async (): Promise<void> => {
+    if (!downloadedUpdateVersion || installingUpdate) {
+      return
+    }
+
+    setInstallingUpdate(true)
+    const result = (await ipcClient.invoke(IPC.UPDATE_INSTALL)) as
+      | { success: true }
+      | { success: false; error: string }
+
+    if (!result.success) {
+      setInstallingUpdate(false)
+      toast.error(t('app.update.installFailed'), { description: result.error })
+    }
+  }
+
+  const handlePostponeDownloadedUpdate = (): void => {
+    setUpdateDialogOpen(false)
+    toast.info(t('app.update.delayed'))
   }
 
   // Sync i18n language with settings store
@@ -810,6 +854,9 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener('unhandledrejection', handler)
   }, [t])
 
+  const hasUpdateNotice = Boolean(availableUpdate || downloadedUpdateVersion)
+  const updateDialogVersion = downloadedUpdateVersion ?? availableUpdate?.newVersion ?? ''
+
   if (sshWindowView) {
     return (
       <ErrorBoundary>
@@ -869,22 +916,25 @@ function App(): React.JSX.Element {
         <ThemeRuntimeSync />
         <Layout
           updateInfo={
-            availableUpdate
+            hasUpdateNotice
               ? {
-                  newVersion: availableUpdate.newVersion,
+                  newVersion: updateDialogVersion,
                   downloading: updateDownloadPending,
-                  downloadProgress: updateDownloadProgress
+                  downloadProgress: updateDownloadProgress,
+                  downloaded: !!downloadedUpdateVersion
                 }
               : null
           }
           onOpenUpdateDialog={() => setUpdateDialogOpen(true)}
         />
 
-        <Dialog open={!!availableUpdate && updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
+        <Dialog open={hasUpdateNotice && updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
           <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-2xl">
             <DialogHeader className="border-b px-6 py-5 pr-12">
               <DialogTitle>
-                {t('app.update.availableTitle', { version: availableUpdate?.newVersion ?? '' })}
+                {downloadedUpdateVersion
+                  ? t('app.update.readyTitle', { version: updateDialogVersion })
+                  : t('app.update.availableTitle', { version: updateDialogVersion })}
               </DialogTitle>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span>
@@ -895,7 +945,7 @@ function App(): React.JSX.Element {
                 <span>→</span>
                 <span>
                   {t('app.update.latestVersion', {
-                    version: availableUpdate?.newVersion ?? '-'
+                    version: updateDialogVersion || '-'
                   })}
                 </span>
               </div>
@@ -922,27 +972,52 @@ function App(): React.JSX.Element {
 
             <DialogFooter className="border-t px-6 py-4 sm:justify-between">
               <div className="text-xs text-muted-foreground">
-                {updateDownloadPending
-                  ? typeof updateDownloadProgress === 'number'
-                    ? t('app.update.downloadingProgress', {
-                        progress: Math.round(updateDownloadProgress)
-                      })
-                    : t('app.update.downloading')
-                  : t('app.update.availableDescription')}
-              </div>
-              <div className="flex flex-col-reverse gap-2 sm:flex-row">
-                <Button variant="outline" onClick={() => setUpdateDialogOpen(false)}>
-                  {t('app.update.actions.remindLater')}
-                </Button>
-                <Button onClick={() => void handleUpdateNow()} disabled={updateDownloadPending}>
-                  {updateDownloadPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-                  {updateDownloadPending
+                {downloadedUpdateVersion
+                  ? t('app.update.readyDescription')
+                  : updateDownloadPending
                     ? typeof updateDownloadProgress === 'number'
                       ? t('app.update.downloadingProgress', {
                           progress: Math.round(updateDownloadProgress)
                         })
                       : t('app.update.downloading')
-                    : t('app.update.actions.updateNow')}
+                    : t('app.update.availableDescription')}
+              </div>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  onClick={
+                    downloadedUpdateVersion
+                      ? handlePostponeDownloadedUpdate
+                      : () => setUpdateDialogOpen(false)
+                  }
+                  disabled={installingUpdate}
+                >
+                  {downloadedUpdateVersion
+                    ? t('app.update.actions.updateLater')
+                    : t('app.update.actions.remindLater')}
+                </Button>
+                <Button
+                  onClick={() =>
+                    downloadedUpdateVersion
+                      ? void handleInstallDownloadedUpdate()
+                      : void handleUpdateNow()
+                  }
+                  disabled={updateDownloadPending || installingUpdate}
+                >
+                  {(updateDownloadPending || installingUpdate) && (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  )}
+                  {downloadedUpdateVersion
+                    ? installingUpdate
+                      ? t('app.update.installing')
+                      : t('app.update.actions.installNow')
+                    : updateDownloadPending
+                      ? typeof updateDownloadProgress === 'number'
+                        ? t('app.update.downloadingProgress', {
+                            progress: Math.round(updateDownloadProgress)
+                          })
+                        : t('app.update.downloading')
+                      : t('app.update.actions.updateNow')}
                 </Button>
               </div>
             </DialogFooter>

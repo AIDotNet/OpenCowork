@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "Versi: {{version}} tersedia",
       "availableDescription": "Klik \"Update now\" untuk mulai mengunduh",
+      "readyTitle": "Update v{{version}} siap",
+      "readyDescription": "Update telah diunduh. Pilih Update sekarang untuk memulai ulang dan memasang.",
       "buttonLabel": "Update v {{version}}",
+      "readyShort": "Siap v{{version}}",
       "buttonTooltip": "Versi baru tersedia. Klik untuk melihat catatan rilis.",
+      "readyButtonTooltip": "Update telah diunduh. Klik untuk memasang.",
       "currentVersion": "v saat ini {{version}}",
       "latestVersion": "Terakhir v {{version}}",
       "releaseNotes": "Rilis catatan",
@@ -251,12 +255,16 @@
       "downloadingProgress": "Mengunduh pemutakhiran {{progress}} %",
       "actions": {
         "updateNow": "Mutakhirkan sekarang",
-        "remindLater": "Ingatkan aku nanti."
+        "remindLater": "Ingatkan aku nanti.",
+        "installNow": "Update sekarang",
+        "updateLater": "Update nanti"
       },
       "downloadFailed": "Gagal mengunduh",
       "delayed": "Perbarui ditunda",
       "downloadedTitle": "Mutakhirkan diunduh",
-      "downloadedDescription": "Versi {{version}} akan memasang setelah restart",
+      "downloadedDescription": "Versi {{version}} siap dipasang.",
+      "installing": "Menyiapkan update...",
+      "installFailed": "Gagal memulai update",
       "failed": "Pemutakhiran gagal"
     },
     "errors": {

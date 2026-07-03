@@ -247,8 +247,12 @@
     "update": {
       "availableTitle": "🎉 新版本 {{version}} 可用",
       "availableDescription": "点击“立即更新”开始下载",
+      "readyTitle": "更新 v{{version}} 已准备好",
+      "readyDescription": "更新已下载完成。选择“立即更新”将重启应用并安装。",
       "buttonLabel": "更新 v{{version}}",
+      "readyShort": "可更新 v{{version}}",
       "buttonTooltip": "发现新版本，点击查看更新内容",
+      "readyButtonTooltip": "更新已下载，点击安装",
       "currentVersion": "当前版本 v{{version}}",
       "latestVersion": "最新版本 v{{version}}",
       "releaseNotes": "更新说明",
@@ -258,12 +262,16 @@
       "downloadingProgress": "正在下载更新 {{progress}}%",
       "actions": {
         "updateNow": "立即更新",
-        "remindLater": "稍后提醒"
+        "remindLater": "稍后提醒",
+        "installNow": "立即更新",
+        "updateLater": "稍后更新"
       },
       "downloadFailed": "下载失败",
       "delayed": "已推迟更新",
       "downloadedTitle": "更新已下载",
-      "downloadedDescription": "版本 {{version}} 将在重启后安装",
+      "downloadedDescription": "版本 {{version}} 已准备好安装。",
+      "installing": "正在准备更新...",
+      "installFailed": "启动更新失败",
       "failed": "更新失败"
     },
     "errors": {

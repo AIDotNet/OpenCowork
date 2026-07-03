@@ -258,7 +258,9 @@ const MESSAGEPACK_INVOKE_CHANNELS = new Set<string>([
   'team-runtime:manifest:update',
   'team-runtime:messages:consume',
   'update:check',
-  'update:download'
+  'update:download',
+  'update:status',
+  'update:install'
 ])
 
 const MESSAGEPACK_SEND_CHANNELS = new Set<string>([

@@ -170,7 +170,7 @@
     "autoApprove": "Auto-approvare le chiamate degli strumenti",
     "autoApproveDesc": "Salta la conferma del permesso per tutte le chiamate degli strumenti",
     "autoUpdate": "Controllare e aggiornare automaticamente l'app",
-    "autoUpdateDesc": "Controlla gli aggiornamenti sull'avvio e scarica automaticamente e installa le versioni più recenti. Quando disabilitato, gli aggiornamenti rimangono manuali.",
+    "autoUpdateDesc": "Attivo per impostazione predefinita. Controlla gli aggiornamenti all'avvio, scarica automaticamente le nuove versioni e chiede conferma prima di riavviare per installare. Se disattivato, gli aggiornamenti restano manuali.",
     "update": {
       "status": "Stato di aggiornamento",
       "currentVersion": "Corrente v {{version}}",
@@ -184,7 +184,8 @@
       "newVersionAvailable": "Una versione più recente (v {{version}}) è disponibile.",
       "downloading": "Scarica l'aggiornamento...",
       "downloadingWithProgress": "Scarica l'aggiornamento... {{progress}} %",
-      "downloadedRestarting": "Aggiornamento v {{version}} Scaricare. Riavviare per installare..."
+      "downloadedReady": "Aggiornamento v{{version}} scaricato. Fai clic su Aggiorna ora per riavviare e installare.",
+      "installing": "Preparazione aggiornamento…"
     },
     "projectDefaultDirectory": {
       "title": "Directory di progetto predefinito",
@@ -200,7 +201,7 @@
     "devModeDesc": "Mostra informazioni debug in risposte AI quando si verificano errori",
     "contextCompression": "Compressione della memoria del contesto",
     "contextCompressionDesc": "Quando la conversazione si avvicina al limite di finestra di contesto, comprimere automaticamente i messaggi di storia e conservare le informazioni di base",
-    "contextCompressionEnabled": "Abilitato: Autocompress quando l'utilizzo del contesto supera il 90%, compito originale e messaggi recenti saranno completamente conservati",
+    "contextCompressionEnabled": "Abilitato: comprime automaticamente la cronologia in base alla lunghezza del contesto e alla soglia di compressione del modello corrente, conservando un riepilogo e i messaggi dopo il punto di compressione",
     "editorWorkspace": "Abilitare la consapevolezza del workspace dell'editor",
     "editorWorkspaceDesc": "Utilizzare la cartella di lavoro di sessione o progetto corrente come contesto URI preferito per gli editor di codice",
     "editorWorkspaceEnabled": "Abilitato: I file locali si legano alla cartella di lavoro corrente e possono riutilizzare semantica leggera cross-file",

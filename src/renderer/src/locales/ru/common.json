@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "Версия {{version}} Доступен",
       "availableDescription": "Нажмите «Обновить сейчас», чтобы начать загрузку",
+      "readyTitle": "Обновление v{{version}} готово",
+      "readyDescription": "Обновление загружено. Выберите Обновить сейчас, чтобы перезапустить приложение и установить его.",
       "buttonLabel": "Обновление v {{version}}",
+      "readyShort": "Готово v{{version}}",
       "buttonTooltip": "Доступна новая версия. Нажмите, чтобы просмотреть заметки о выпуске.",
+      "readyButtonTooltip": "Обновление загружено. Нажмите, чтобы установить.",
       "currentVersion": "Текущий v {{version}}",
       "latestVersion": "Последний v {{version}}",
       "releaseNotes": "Запись выпуска",
@@ -251,12 +255,16 @@
       "downloadingProgress": "Скачать обновление {{progress}} %",
       "actions": {
         "updateNow": "Обновление сейчас",
-        "remindLater": "Напомни мне позже"
+        "remindLater": "Напомни мне позже",
+        "installNow": "Обновить сейчас",
+        "updateLater": "Обновить позже"
       },
       "downloadFailed": "Скачать Не удалось",
       "delayed": "Обновление отложено",
       "downloadedTitle": "Обновление загружено",
-      "downloadedDescription": "Версия {{version}} Устанавливается после перезапуска",
+      "downloadedDescription": "Версия {{version}} готова к установке.",
+      "installing": "Подготовка обновления...",
+      "installFailed": "Не удалось запустить обновление",
       "failed": "Обновление провалилось"
     },
     "errors": {

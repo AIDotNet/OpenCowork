@@ -170,7 +170,7 @@
     "autoApprove": "Auto-approbation des appels d'outils",
     "autoApproveDesc": "Passer la confirmation de l'autorisation pour tous les appels d'outils",
     "autoUpdate": "Vérifier et mettre à jour automatiquement l'application",
-    "autoUpdateDesc": "Activé par défaut. Vérifie les mises à jour au démarrage et télécharge automatiquement et installe les versions les plus récentes.",
+    "autoUpdateDesc": "Activé par défaut. Vérifie les mises à jour au démarrage, télécharge automatiquement les nouvelles versions, puis demande avant de redémarrer pour installer.",
     "update": {
       "status": "État de mise à jour",
       "currentVersion": "Actuellement v {{version}}",
@@ -184,7 +184,8 @@
       "newVersionAvailable": "Une version plus récente (v {{version}}) est disponible.",
       "downloading": "Téléchargement de la mise à jour...",
       "downloadingWithProgress": "Téléchargement de la mise à jour... {{progress}} %",
-      "downloadedRestarting": "Mise à jour v {{version}} Redémarrage pour installer..."
+      "downloadedReady": "Mise à jour v{{version}} téléchargée. Cliquez sur Mettre à jour pour redémarrer et installer.",
+      "installing": "Préparation de la mise à jour…"
     },
     "projectDefaultDirectory": {
       "title": "Répertoire de projets par défaut",
@@ -200,7 +201,7 @@
     "devModeDesc": "Afficher les informations de débogage dans les réponses AI lorsque des erreurs se produisent",
     "contextCompression": "Contexte Compression de mémoire",
     "contextCompressionDesc": "Lorsque la conversation approche de la limite de fenêtre contextuelle, compresser automatiquement les messages d'historique et préserver l'information de base",
-    "contextCompressionEnabled": "Active: Auto-compress lorsque l'utilisation du contexte dépasse 90 %, la tâche originale et les messages récents seront entièrement conservés",
+    "contextCompressionEnabled": "Activé : compresse automatiquement l'historique selon la longueur de contexte et le seuil de compression du modèle actuel, en conservant un résumé et les messages après le point de compression",
     "editorWorkspace": "Activer la sensibilisation à l'espace de travail de l'éditeur",
     "editorWorkspaceDesc": "Utiliser le dossier de travail de session ou de projet actuel comme contexte URI préféré pour les éditeurs de code",
     "editorWorkspaceEnabled": "Activé: les fichiers locaux se lient au dossier de travail actuel et peuvent réutiliser la sémantique légère des fichiers croisés",

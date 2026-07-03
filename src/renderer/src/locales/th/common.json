@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "○ รุ่น {{version}} มี",
       "availableDescription": "คลิก \"Update เดี๋ยวนี้\" เพื่อเริ่มดาวน์โหลด",
+      "readyTitle": "อัปเดต v{{version}} พร้อมแล้ว",
+      "readyDescription": "ดาวน์โหลดอัปเดตเสร็จแล้ว เลือกอัปเดตตอนนี้เพื่อเริ่มใหม่และติดตั้ง",
       "buttonLabel": "ปรับปรุง v {{version}}",
+      "readyShort": "พร้อม v{{version}}",
       "buttonTooltip": "มีเวอร์ชันใหม่อยู่ คลิกเพื่อดูบันทึกการทํางาน",
+      "readyButtonTooltip": "ดาวน์โหลดอัปเดตแล้ว คลิกเพื่อติดตั้ง",
       "currentVersion": "ตัว v ปัจจุบัน {{version}}",
       "latestVersion": "รุ่นล่าสุด v {{version}}",
       "releaseNotes": "ปลดปล่อยบันทึกช่วยจํา",
@@ -251,12 +255,16 @@
       "downloadingProgress": "กําลังดาวน์โหลดข้อมูลล่าสุด {{progress}} %",
       "actions": {
         "updateNow": "ปรับปรุงเดี๋ยวนี้",
-        "remindLater": "เตือนฉันด้วยนะ"
+        "remindLater": "เตือนฉันด้วยนะ",
+        "installNow": "อัปเดตตอนนี้",
+        "updateLater": "อัปเดตภายหลัง"
       },
       "downloadFailed": "การดาวน์โหลดล้มเหลว",
       "delayed": "ปรับปรุงการเลื่อนบิต",
       "downloadedTitle": "ดาวน์โหลดใหม่",
-      "downloadedDescription": "รุ่น {{version}} จะติดตั้งเมื่อเริ่มการทํางานใหม่",
+      "downloadedDescription": "รุ่น {{version}} พร้อมติดตั้งแล้ว",
+      "installing": "กําลังเตรียมอัปเดต...",
+      "installFailed": "เริ่มอัปเดตไม่สําเร็จ",
       "failed": "การอัปเดตล้มเหลว"
     },
     "errors": {

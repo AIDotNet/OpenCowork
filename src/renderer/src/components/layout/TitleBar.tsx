@@ -40,6 +40,7 @@ interface TitleBarUpdateInfo {
   newVersion: string
   downloading: boolean
   downloadProgress: number | null
+  downloaded: boolean
 }
 
 interface TitleBarProps {
@@ -371,11 +372,17 @@ export function TitleBar({
                           progress: Math.round(updateInfo.downloadProgress)
                         })
                       : tCommon('app.update.downloading')
-                    : tCommon('app.update.buttonLabel', { version: updateInfo.newVersion })}
+                    : updateInfo.downloaded
+                      ? tCommon('app.update.readyShort', { version: updateInfo.newVersion })
+                      : tCommon('app.update.buttonLabel', { version: updateInfo.newVersion })}
                 </span>
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{tCommon('app.update.buttonTooltip')}</TooltipContent>
+            <TooltipContent>
+              {updateInfo.downloaded
+                ? tCommon('app.update.readyButtonTooltip')
+                : tCommon('app.update.buttonTooltip')}
+            </TooltipContent>
           </Tooltip>
         )}
 

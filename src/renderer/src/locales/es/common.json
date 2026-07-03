@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "introductoria {{version}} disponible",
       "availableDescription": "Haga clic en \"Actualizar ahora\" para comenzar a descargar",
+      "readyTitle": "Actualización v{{version}} lista",
+      "readyDescription": "La actualización ya se descargó. Elige Actualizar ahora para reiniciar e instalarla.",
       "buttonLabel": "Actualización v {{version}}",
+      "readyShort": "Lista v{{version}}",
       "buttonTooltip": "Una nueva versión está disponible. Haga clic para ver notas de lanzamiento.",
+      "readyButtonTooltip": "La actualización se descargó. Haz clic para instalarla.",
       "currentVersion": "Corriente v {{version}}",
       "latestVersion": "Última v {{version}}",
       "releaseNotes": "Notas de lanzamiento",
@@ -251,12 +255,16 @@
       "downloadingProgress": "Actualización de descarga {{progress}} %",
       "actions": {
         "updateNow": "Actualización",
-        "remindLater": "Recuérdame más tarde"
+        "remindLater": "Recuérdame más tarde",
+        "installNow": "Actualizar ahora",
+        "updateLater": "Actualizar más tarde"
       },
       "downloadFailed": "Descarga fallido",
       "delayed": "Actualización pospuesta",
       "downloadedTitle": "Actualización descargada",
-      "downloadedDescription": "Versión {{version}} se instalará después de reiniciar",
+      "downloadedDescription": "La versión {{version}} está lista para instalarse.",
+      "installing": "Preparando actualización...",
+      "installFailed": "No se pudo iniciar la actualización",
       "failed": "Actualización fallada"
     },
     "errors": {

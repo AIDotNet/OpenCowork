@@ -170,7 +170,7 @@
     "autoApprove": "Auto-approve 도구 호출",
     "autoApproveDesc": "모든 도구 호출에 대한 권한 확인",
     "autoUpdate": "자동 검사 및 앱 업데이트",
-    "autoUpdateDesc": "기본적으로 사용 시작 및 자동 다운로드에 대한 업데이트를 확인하고 새로운 버전을 설치합니다. 장애가 있을 때, 업데이트가 설명서입니다.",
+    "autoUpdateDesc": "기본적으로 켜져 있습니다. 시작 시 업데이트를 확인하고 새 버전을 자동 다운로드한 뒤 설치를 위해 다시 시작하기 전에 확인합니다. 끄면 업데이트는 수동으로 유지됩니다.",
     "update": {
       "status": "업데이트 상태",
       "currentVersion": "현재 v{{version}}",
@@ -184,7 +184,8 @@
       "newVersionAvailable": "새로운 버전 (v{{version}})을 사용할 수 있습니다.",
       "downloading": "다운로드 업데이트 ...",
       "downloadingWithProgress": "다운로드 업데이트 ... {{progress}} %",
-      "downloadedRestarting": "v{{version}} 업데이트 다운로드. 설치에 재시작 ..."
+      "downloadedReady": "v{{version}} 업데이트가 다운로드되었습니다. 지금 업데이트를 클릭하면 다시 시작하고 설치합니다.",
+      "installing": "업데이트 준비 중…"
     },
     "projectDefaultDirectory": {
       "title": "Default 프로젝트 디렉토리",
@@ -200,7 +201,7 @@
     "devModeDesc": "오류가 발생했을 때 AI 응답에서 요청 디버그 정보 표시",
     "contextCompression": "Context 메모리 압축",
     "contextCompressionDesc": "대화가 문맥 창 제한에 접근할 때, 자동으로 역사 메시지를 압축하고 핵심 정보를 보존",
-    "contextCompressionEnabled": "Enabled: context 사용법이 90%를 초과할 때 자동 압축, 본래 일 및 최근 메시지는 완전히 보존될 것입니다",
+    "contextCompressionEnabled": "사용: 현재 모델의 컨텍스트 길이와 압축 임계값에 따라 기록을 자동 압축하고 요약과 압축 지점 이후 메시지를 보존합니다",
     "editorWorkspace": "Enable Editor 작업 공간 인식",
     "editorWorkspaceDesc": "코드 편집기에 대한 선호 URI 컨텍스트로 현재 세션 또는 프로젝트 작업 폴더를 사용하십시오.",
     "editorWorkspaceEnabled": "Enabled: 현재 작업 폴더에 바인딩하고 경량 크로스 파일 semantics를 재사용할 수 있습니다",

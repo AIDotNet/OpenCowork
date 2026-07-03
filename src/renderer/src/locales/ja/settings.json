@@ -170,7 +170,7 @@
     "autoApprove": "自動承認ツールコール",
     "autoApproveDesc": "すべてのツールコールの許可確認をスキップ",
     "autoUpdate": "アプリの自動チェックと更新",
-    "autoUpdateDesc": "デフォルトで有効 スタートアップのアップデートをチェックし、自動的に新しいバージョンをダウンロードしてインストールします。 無効な場合、更新はマニュアルを維持します。",
+    "autoUpdateDesc": "デフォルトで有効です。起動時に更新を確認し、新しいバージョンを自動でダウンロードします。インストールのために再起動する前に確認します。無効にすると更新は手動になります。",
     "update": {
       "status": "更新状況",
       "currentVersion": "現在のv{{version}}",
@@ -184,7 +184,8 @@
       "newVersionAvailable": "新しいバージョン(v{{version}})が利用可能です。",
       "downloading": "ダウンロード更新...",
       "downloadingWithProgress": "ダウンロード更新... {{progress}}%",
-      "downloadedRestarting": "ダウンロードしたv{{version}}を更新します。 インストールする再起動..."
+      "downloadedReady": "更新 v{{version}} をダウンロードしました。今すぐ更新をクリックすると再起動してインストールします。",
+      "installing": "更新を準備中…"
     },
     "projectDefaultDirectory": {
       "title": "デフォルトプロジェクトディレクトリ",
@@ -200,7 +201,7 @@
     "devModeDesc": "エラーが発生した場合にAIレスポンスでデバッグリクエスト情報を表示する",
     "contextCompression": "コンテキスト記憶圧縮",
     "contextCompressionDesc": "会話がコンテキストウィンドウの制限に近づくと、履歴メッセージを自動的に圧縮し、コア情報を保存します。",
-    "contextCompressionEnabled": "有効: コンテキスト使用が90%を超えた場合の自動圧縮、元のタスクおよび最近のメッセージは完全に保存されます",
+    "contextCompressionEnabled": "有効: 現在のモデルのコンテキスト長と圧縮しきい値に基づいて履歴を自動圧縮し、要約と圧縮地点以降のメッセージを保持します",
     "editorWorkspace": "エディタワークスペースの意識を高める",
     "editorWorkspaceDesc": "現在のセッションまたはプロジェクト作業フォルダを、コードエディタの好みの URI コンテキストとして使用",
     "editorWorkspaceEnabled": "有効:ローカルファイルは、現在の作業フォルダにバインドし、軽量クロスファイルセマティクスを再利用することができます",

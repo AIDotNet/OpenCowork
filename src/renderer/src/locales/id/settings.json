@@ -170,7 +170,7 @@
     "autoApprove": "Panggilan tool otomatis",
     "autoApproveDesc": "Lewati konfirmasi ijin untuk semua panggilan alat",
     "autoUpdate": "Otomatis periksa dan perbarui aplikasi",
-    "autoUpdateDesc": "Diaktifkan secara baku. Memeriksa pemutakhiran pada startup dan otomatis mengunduh dan memasang versi yang lebih baru. Ketika dinonaktifkan, pemutakhiran tetap manual.",
+    "autoUpdateDesc": "Diaktifkan secara baku. Memeriksa update saat startup, mengunduh versi baru otomatis, lalu meminta konfirmasi sebelum memulai ulang untuk memasang. Jika dinonaktifkan, update tetap manual.",
     "update": {
       "status": "Pemutakhiran status",
       "currentVersion": "v saat ini {{version}}",
@@ -184,7 +184,8 @@
       "newVersionAvailable": "Versi baru (v {{version}}) tersedia.",
       "downloading": "Mengunduh pemutakhiran...",
       "downloadingWithProgress": "Mengunduh pemutakhiran... {{progress}} %",
-      "downloadedRestarting": "Update v {{version}} Diunduh. Mulai lagi memasang..."
+      "downloadedReady": "Update v{{version}} telah diunduh. Klik Update sekarang untuk memulai ulang dan memasang.",
+      "installing": "Menyiapkan update…"
     },
     "projectDefaultDirectory": {
       "title": "Direktori projek bawaan",
@@ -200,7 +201,7 @@
     "devModeDesc": "Tampilkan informasi debug permintaan dalam respon AI ketika kesalahan terjadi",
     "contextCompression": "Kompresi Memori Konteks",
     "contextCompressionDesc": "Ketika percakapan mendekati batas konteks jendela, secara otomatis mengkompres pesan riwayat dan melestarikan informasi core",
-    "contextCompressionEnabled": "Diaktifkan: Otomatis-kompress ketika penggunaan konteks melebihi 90%, tugas asli dan pesan baru-baru ini akan sepenuhnya terjaga",
+    "contextCompressionEnabled": "Diaktifkan: otomatis mengompresi riwayat sesuai panjang konteks dan ambang kompresi model saat ini, sambil menyimpan ringkasan dan pesan setelah titik kompresi",
     "editorWorkspace": "Aktifkan kesadaran area kerja penyunting",
     "editorWorkspaceDesc": "Gunakan sesi saat ini atau folder kerja proyek sebagai konteks URI yang disukai bagi penyunting kode",
     "editorWorkspaceEnabled": "Diaktifkan: Berkas lokal mengikat ke folder kerja saat ini dan dapat memakai ulang semantik berkas ringan",

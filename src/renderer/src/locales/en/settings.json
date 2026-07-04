@@ -11,6 +11,10 @@
       "about": "About"
     }
   },
+  "pet": {
+    "title": "Desktop Pet",
+    "subtitle": "A little capybara that lives on your desktop"
+  },
   "profile": {
     "title": "Profile",
     "subtitle": "Local identity and token activity",

@@ -15,6 +15,7 @@ import {
   resolveCacheCreationCost
 } from '@renderer/lib/format-tokens'
 import { truncateRequestDebugForPersistence } from '@renderer/lib/debug-store'
+import { accruePetExpFromUsage } from '@renderer/lib/pet/pet-exp'
 import {
   USAGE_ACTIVITY_BY_MODEL_MSGPACK_CHANNEL,
   USAGE_ACTIVITY_BY_PROVIDER_MSGPACK_CHANNEL,
@@ -221,6 +222,14 @@ export async function recordUsageEvent(input: {
   }
   const costs = computeCosts(normalizedUsage, model)
   const createdAt = input.createdAt ?? Date.now()
+
+  // Feed the desktop pet: token usage converts to pet experience.
+  void accruePetExpFromUsage({
+    modelId: resolvedModelId,
+    modelName: model?.name ?? resolvedModelId,
+    inputPrice: model?.inputPrice,
+    tokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)
+  })
 
   await invokeMessagePackBinary(USAGE_EVENTS_ADD_MSGPACK_CHANNEL, {
     id: nanoid(),

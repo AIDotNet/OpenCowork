@@ -58,6 +58,12 @@ import { autoConnectMcpServers, registerMcpHandlers } from './ipc/mcp-handlers'
 import { registerCronHandlers } from './ipc/cron-handlers'
 import { registerInputHandlers } from './ipc/input-handlers'
 import { registerNotifyHandlers } from './ipc/notify-handlers'
+import {
+  registerPetHandlers,
+  togglePetWindow,
+  openPetWindowOnStartupIfEnabled,
+  installBuiltinPets
+} from './ipc/pet-handlers'
 import { registerScreenshotHandlers } from './ipc/screenshot-handlers'
 import { registerWebSearchHandlers } from './ipc/web-search-handlers'
 import { registerBrowserHandlers } from './ipc/browser-handlers'
@@ -949,6 +955,13 @@ function createTray(): void {
 
       click: () => showSshWindow()
     },
+    {
+      label: 'Show/Hide Pet',
+
+      click: () => {
+        void togglePetWindow()
+      }
+    },
 
     { type: 'separator' },
 
@@ -1362,6 +1375,7 @@ if (gotSingleInstanceLock) {
 
     await runLoggedStartupStepAsync('load_persisted_jobs', loadPersistedJobs)
     registerNotifyHandlers()
+    registerPetHandlers({ loadRendererWindow, showMainWindow })
     registerWebSearchHandlers()
     registerBrowserHandlers()
     registerOauthHandlers()
@@ -1452,6 +1466,8 @@ if (gotSingleInstanceLock) {
     scheduleUsageEventsStartupCleanup()
 
     createTray()
+
+    void installBuiltinPets().then(() => openPetWindowOnStartupIfEnabled())
 
     setupAutoUpdater({
       getMainWindow: () => mainWindow,

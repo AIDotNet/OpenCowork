@@ -23,7 +23,8 @@ import {
   RefreshCw,
   Puzzle,
   Terminal,
-  UserRound
+  UserRound,
+  PawPrint
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { AnimatePresence } from 'motion/react'
@@ -78,6 +79,7 @@ import { McpPanel } from './McpPanel'
 import { WebSearchPanel } from './WebSearchPanel'
 import { SkillsMarketPanel } from './SkillsMarketPanel'
 import { MigrationPanel } from './MigrationPanel'
+import { PetPanel } from './PetPanel'
 import { GlobalThemePanel } from './GlobalThemePanel'
 import { AnalyticsOverview } from './AnalyticsOverview'
 import { ProfilePanel } from './ProfilePanel'
@@ -426,6 +428,12 @@ const menuGroupDefs: Array<{
         icon: <Terminal className="size-4" />,
         labelKey: 'system.title',
         descKey: 'system.subtitle'
+      },
+      {
+        id: 'pet',
+        icon: <PawPrint className="size-4" />,
+        labelKey: 'pet.title',
+        descKey: 'pet.subtitle'
       }
     ]
   },
@@ -3549,6 +3557,7 @@ const panelMap: Record<SettingsTab, () => React.JSX.Element> = {
   model: ModelPanel,
   websearch: WebSearchPanel,
   skillsmarket: SkillsMarketPanel,
+  pet: PetPanel,
   about: AboutPanel
 }
 
@@ -3656,7 +3665,7 @@ export function SettingsPage(): React.JSX.Element {
                   className={
                     effectiveSettingsTab === 'analytics'
                       ? 'w-full max-w-none px-6 pb-16 pt-10'
-                      : effectiveSettingsTab === 'profile'
+                      : effectiveSettingsTab === 'profile' || effectiveSettingsTab === 'pet'
                         ? 'mx-auto w-full max-w-5xl px-6 pb-16 pt-10'
                         : 'mx-auto max-w-2xl px-8 pb-16 pt-10'
                   }

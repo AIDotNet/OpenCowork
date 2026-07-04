@@ -356,6 +356,16 @@ function App(): React.JSX.Element {
     []
   )
 
+  // Navigate to the pet studio when requested from the pet window's menu.
+  useEffect(() => {
+    if (sessionWindowView || sshWindowView) return
+    return ipcClient.on('pet:sync-event', (payload) => {
+      if ((payload as { kind?: string } | null)?.kind === 'open-studio') {
+        useUIStore.getState().openSettingsPage('pet')
+      }
+    })
+  }, [sessionWindowView, sshWindowView])
+
   useEffect(() => {
     const offSessionUpdated = ipcClient.on(IPC.CHAT_SESSION_UPDATED, (data: unknown) => {
       const payload = data as {

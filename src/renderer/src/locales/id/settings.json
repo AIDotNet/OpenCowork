@@ -11,6 +11,10 @@
       "about": "Tentang"
     }
   },
+  "pet": {
+    "title": "Peliharaan Desktop",
+    "subtitle": "Kapibara kecil yang tinggal di desktop Anda"
+  },
   "profile": {
     "title": "Profil",
     "subtitle": "Identitas lokal dan aktivitas token",

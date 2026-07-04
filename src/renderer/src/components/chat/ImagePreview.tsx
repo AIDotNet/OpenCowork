@@ -346,12 +346,9 @@ export function ImagePreview({
               exit={{ scale: 0.9 }}
               src={effectiveSrc}
               alt={alt}
-              className="max-h-[calc(100vh-7rem)] max-w-[calc(100vw-2rem)] object-contain"
+              className="h-full w-full object-contain"
               onLoad={handleImageLoad}
               onClick={(e) => e.stopPropagation()}
-              {...(imageDimensions
-                ? { width: imageDimensions.width, height: imageDimensions.height }
-                : {})}
             />
 
             {/* Close hint */}

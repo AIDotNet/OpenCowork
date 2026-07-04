@@ -11,6 +11,10 @@
       "about": "Über"
     }
   },
+  "pet": {
+    "title": "Desktop-Haustier",
+    "subtitle": "Ein kleines Capybara, das auf deinem Desktop wohnt"
+  },
   "profile": {
     "title": "Profil",
     "subtitle": "Lokale Identität und Token-Aktivität",

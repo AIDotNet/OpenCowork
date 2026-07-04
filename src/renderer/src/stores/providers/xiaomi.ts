@@ -78,6 +78,30 @@ const xiaomiTextModels: AIModelConfig[] = [
     supportsFunctionCall: true,
     supportsThinking: true,
     thinkingConfig: xiaomiThinkingConfig
+  },
+  {
+    id: 'mimo-v2.5-tts',
+    name: 'MiMo V2.5 TTS',
+    icon: 'mimo',
+    enabled: true,
+    category: 'speech',
+    audio: true
+  },
+  {
+    id: 'mimo-v2.5-tts-voicedesign',
+    name: 'MiMo V2.5 TTS VoiceDesign',
+    icon: 'mimo',
+    enabled: true,
+    category: 'speech',
+    audio: true
+  },
+  {
+    id: 'mimo-v2.5-tts-voiceclone',
+    name: 'MiMo V2.5 TTS VoiceClone',
+    icon: 'mimo',
+    enabled: true,
+    category: 'speech',
+    audio: true
   }
 ]
 

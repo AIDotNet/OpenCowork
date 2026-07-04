@@ -11,6 +11,10 @@
       "about": "Giới thiệu"
     }
   },
+  "pet": {
+    "title": "Thú cưng màn hình",
+    "subtitle": "Một chú capybara nhỏ sống trên màn hình của bạn"
+  },
   "profile": {
     "title": "Hồ sơ",
     "subtitle": "Name",

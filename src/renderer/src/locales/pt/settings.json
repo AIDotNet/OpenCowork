@@ -11,6 +11,10 @@
       "about": "Sobre"
     }
   },
+  "pet": {
+    "title": "Mascote de desktop",
+    "subtitle": "Uma pequena capivara que vive na sua área de trabalho"
+  },
   "profile": {
     "title": "Perfil",
     "subtitle": "Identidade local e actividade do símbolo",

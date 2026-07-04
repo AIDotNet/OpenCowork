@@ -554,6 +554,8 @@ export interface AIModelConfig {
   supportsFunctionCall?: boolean
   /** Whether the model supports toggleable thinking/reasoning mode */
   supportsThinking?: boolean
+  /** Whether the model supports audio input/output */
+  audio?: boolean
   /** Whether the model supports OpenAI Computer Use via the Responses API */
   supportsComputerUse?: boolean
   /** Whether Computer Use is enabled for this model */

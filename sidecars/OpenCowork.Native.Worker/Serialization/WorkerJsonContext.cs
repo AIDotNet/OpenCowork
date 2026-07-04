@@ -37,6 +37,7 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(NativeGeneratedImage))]
 [JsonSerializable(typeof(NativeGeneratedImage[]))]
 [JsonSerializable(typeof(NativeOpenAIAudioTranscriptionResult))]
+[JsonSerializable(typeof(NativeOpenAIAudioSpeechResult))]
 [JsonSerializable(typeof(NativeExtensionToolExecutionResult))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(ImageReadResult))]

@@ -11,6 +11,10 @@
       "about": "À propos"
     }
   },
+  "pet": {
+    "title": "Animal de bureau",
+    "subtitle": "Un petit capybara qui vit sur votre bureau"
+  },
   "profile": {
     "title": "Profil",
     "subtitle": "Identité locale et activité symbolique",

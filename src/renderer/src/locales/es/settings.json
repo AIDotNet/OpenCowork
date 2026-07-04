@@ -11,6 +11,10 @@
       "about": "Acerca de"
     }
   },
+  "pet": {
+    "title": "Mascota de escritorio",
+    "subtitle": "Un pequeño capibara que vive en tu escritorio"
+  },
   "profile": {
     "title": "Perfil",
     "subtitle": "Identidad local y actividad de señalización",

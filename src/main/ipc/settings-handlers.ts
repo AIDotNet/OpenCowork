@@ -114,7 +114,7 @@ async function applySystemProxy(proxyUrl: string): Promise<void> {
   }
 }
 
-async function setSettingsValue(key: string, value: unknown): Promise<void> {
+export async function setSettingsValue(key: string, value: unknown): Promise<void> {
   const settings = await initializeSettingsCache()
   if (value === undefined || value === null) {
     delete settings[key]

@@ -11,6 +11,10 @@
       "about": "Informazioni su"
     }
   },
+  "pet": {
+    "title": "Animale da scrivania",
+    "subtitle": "Un piccolo capibara che vive sul tuo desktop"
+  },
   "profile": {
     "title": "Profilo",
     "subtitle": "Identità locale e attività di token",

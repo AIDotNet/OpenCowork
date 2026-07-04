@@ -11,6 +11,10 @@
       "about": "关于"
     }
   },
+  "pet": {
+    "title": "桌面宠物",
+    "subtitle": "住在你桌面上的小卡皮巴拉"
+  },
   "profile": {
     "title": "个人资料",
     "subtitle": "本地身份与 Token 活动",

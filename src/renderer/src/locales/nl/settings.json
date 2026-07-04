@@ -11,6 +11,10 @@
       "about": "Info"
     }
   },
+  "pet": {
+    "title": "Bureaublad-huisdier",
+    "subtitle": "Een kleine capibara die op je bureaublad woont"
+  },
   "profile": {
     "title": "Profiel",
     "subtitle": "Lokale identiteits- en tokenactiviteit",

@@ -11,6 +11,10 @@
       "about": "정보"
     }
   },
+  "pet": {
+    "title": "데스크톱 펫",
+    "subtitle": "데스크톱에 사는 작은 카피바라"
+  },
   "profile": {
     "title": "프로필",
     "subtitle": "로컬 정체성과 토큰 활동",

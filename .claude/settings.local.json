@@ -54,7 +54,11 @@
       "Skill(claude-api)",
       "Skill(claude-api:*)",
       "Bash(cat)",
-      "Bash(awk 'NR > 2 { *)"
+      "Bash(awk 'NR > 2 { *)",
+      "Bash(sips -g pixelWidth -g pixelHeight -g format /Users/token/Desktop/code/OpenCowork/logo.webp)",
+      "Bash(sips -z 256 256 /Users/token/Desktop/code/OpenCowork/logo.webp --out /tmp/capy-big.png)",
+      "Bash(sips -s format png -z 256 256 /Users/token/Desktop/code/OpenCowork/logo.webp --out /tmp/capy-big.png)",
+      "Bash(ls -la /tmp/capy-big.png)"
     ]
   }
 }

@@ -222,6 +222,7 @@ export type SettingsTab =
   | 'mcp'
   | 'websearch'
   | 'skillsmarket'
+  | 'pet'
   | 'about'
 
 export type DetailPanelContent =

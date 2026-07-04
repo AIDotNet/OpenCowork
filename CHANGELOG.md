@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.7] - 2026-07-04
+
+### Added
+
+- Implemented comprehensive capybara pet companion system with personality-driven interaction model
+- Added pet experience progression system with level-based milestones and stat tracking
+- Implemented pet skin management system with customizable appearance options
+- Added pet agent runtime for proactive companion behavior and voice integration
+- Implemented pet memory system for contextual awareness and personality persistence
+- Added pet pose/animation system with 13 different animation states (idle, sleep, eat, play, swim, bathe, etc.)
+- Created pet studio for pose generation, expression customization, and skin preview
+- Added native worker OpenAI Audio module with configurable audio processing and streaming support
+
+### Changed
+
+- Removed documentation website from main repository (consolidate in separate docs project)
+- Enhanced provider stores (Routin AI, Xiaomi) with new capability management
+- Improved IPC messagepack channel routing with additional serialization support
+- Refined usage analytics tracking with enhanced provider metrics
+- Improved C# native worker OpenAI Audio Models with robust deserialization and error handling
+
+### Technical
+
+- Integrated multi-modal pet agent with adaptive response generation
+- Implemented pet persistence layer with Zustand-based state management
+- Added pet-specific IPC handlers for lifecycle and data synchronization
+- Extended localization system with pet UI and messaging (en/zh)
+
 ## [1.0.6] - 2026-07-03
 
 ### Added

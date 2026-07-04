@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "🎉 Version {{version}} mevcuttur.",
       "availableDescription": "Click \"Update now\" to start indir",
+      "readyTitle": "v{{version}} güncellemesi hazır",
+      "readyDescription": "Güncelleme indirildi. Yeniden başlatıp yüklemek için Şimdi güncelle seçin.",
       "buttonLabel": "Update v {{version}}",
+      "readyShort": "Hazır v{{version}}",
       "buttonTooltip": "Yeni bir versiyon mevcuttur. sürüm notlarını görüntülemek için tıklayın.",
+      "readyButtonTooltip": "Güncelleme indirildi. Yüklemek için tıklayın.",
       "currentVersion": "Current v {{version}}",
       "latestVersion": "En son v {{version}}",
       "releaseNotes": "Yayın notları",
@@ -251,12 +255,16 @@
       "downloadingProgress": "Downloading update {{progress}} % % % % % % % % %",
       "actions": {
         "updateNow": "Güncelleme şimdi",
-        "remindLater": "Beni daha sonra Remind"
+        "remindLater": "Beni daha sonra Remind",
+        "installNow": "Şimdi güncelle",
+        "updateLater": "Daha sonra güncelle"
       },
       "downloadFailed": "Download başarısız",
       "delayed": "Güncelleme ertelendi",
       "downloadedTitle": "Güncelleme indir",
-      "downloadedDescription": "Version Version Version {{version}} Yeniden başlatmadan sonra yüklenecek",
+      "downloadedDescription": "v{{version}} yüklemeye hazır.",
+      "installing": "Güncelleme hazırlanıyor...",
+      "installFailed": "Güncelleme başlatılamadı",
       "failed": "Güncelleme başarısız oldu"
     },
     "errors": {

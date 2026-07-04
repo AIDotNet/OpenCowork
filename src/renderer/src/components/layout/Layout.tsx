@@ -87,6 +87,7 @@ interface LayoutUpdateInfo {
   newVersion: string
   downloading: boolean
   downloadProgress: number | null
+  downloaded: boolean
 }
 
 interface LayoutProps {

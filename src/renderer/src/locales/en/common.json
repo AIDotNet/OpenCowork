@@ -247,8 +247,12 @@
     "update": {
       "availableTitle": "🎉 Version {{version}} is available",
       "availableDescription": "Click \"Update now\" to start downloading",
+      "readyTitle": "Update v{{version}} is ready",
+      "readyDescription": "The update has been downloaded. Choose Update now to restart and install it.",
       "buttonLabel": "Update v{{version}}",
+      "readyShort": "Ready v{{version}}",
       "buttonTooltip": "A new version is available. Click to view release notes.",
+      "readyButtonTooltip": "The update is downloaded. Click to install it.",
       "currentVersion": "Current v{{version}}",
       "latestVersion": "Latest v{{version}}",
       "releaseNotes": "Release notes",
@@ -258,12 +262,16 @@
       "downloadingProgress": "Downloading update {{progress}}%",
       "actions": {
         "updateNow": "Update now",
-        "remindLater": "Remind me later"
+        "remindLater": "Remind me later",
+        "installNow": "Update now",
+        "updateLater": "Update later"
       },
       "downloadFailed": "Download failed",
       "delayed": "Update postponed",
       "downloadedTitle": "Update downloaded",
-      "downloadedDescription": "Version {{version}} will install after restart",
+      "downloadedDescription": "Version {{version}} is ready to install.",
+      "installing": "Preparing update...",
+      "installFailed": "Failed to start update",
       "failed": "Update failed"
     },
     "errors": {

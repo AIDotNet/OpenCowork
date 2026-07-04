@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "Versie {{version}} is beschikbaar",
       "availableDescription": "Klik op \"Nu bijwerken\" om te beginnen met downloaden",
+      "readyTitle": "Update v{{version}} is klaar",
+      "readyDescription": "De update is gedownload. Kies Nu bijwerken om opnieuw te starten en te installeren.",
       "buttonLabel": "Bijwerken v {{version}}",
+      "readyShort": "Klaar v{{version}}",
       "buttonTooltip": "Een nieuwe versie is beschikbaar. Klik om de release notes te bekijken.",
+      "readyButtonTooltip": "De update is gedownload. Klik om te installeren.",
       "currentVersion": "Huidige {{version}}",
       "latestVersion": "Laatste v {{version}}",
       "releaseNotes": "Release notes",
@@ -251,12 +255,16 @@
       "downloadingProgress": "Update downloaden {{progress}} %",
       "actions": {
         "updateNow": "Nu bijwerken",
-        "remindLater": "Herinner me er later aan."
+        "remindLater": "Herinner me er later aan.",
+        "installNow": "Nu bijwerken",
+        "updateLater": "Later bijwerken"
       },
       "downloadFailed": "Downloaden is mislukt",
       "delayed": "Bijwerken uitgesteld",
       "downloadedTitle": "Gedownload bijwerken",
-      "downloadedDescription": "Versie {{version}} zal installeren na herstart",
+      "downloadedDescription": "Versie {{version}} is klaar om te installeren.",
+      "installing": "Update voorbereiden...",
+      "installFailed": "Update kon niet worden gestart",
       "failed": "Bijwerken mislukt"
     },
     "errors": {

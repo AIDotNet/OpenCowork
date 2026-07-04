@@ -174,7 +174,7 @@
     "autoApprove": "Auto-approve tool calls",
     "autoApproveDesc": "Skip permission confirmation for all tool calls",
     "autoUpdate": "Automatically check and update the app",
-    "autoUpdateDesc": "Enabled by default. Checks for updates on startup and automatically downloads and installs newer versions. When disabled, updates stay manual.",
+    "autoUpdateDesc": "Enabled by default. Checks for updates on startup and downloads newer versions automatically, then asks before restarting to install. When disabled, updates stay manual.",
     "update": {
       "status": "Update status",
       "currentVersion": "Current v{{version}}",
@@ -188,7 +188,8 @@
       "newVersionAvailable": "A newer version (v{{version}}) is available.",
       "downloading": "Downloading update…",
       "downloadingWithProgress": "Downloading update… {{progress}}%",
-      "downloadedRestarting": "Update v{{version}} downloaded. Restarting to install…"
+      "downloadedReady": "Update v{{version}} downloaded. Click Update now to restart and install.",
+      "installing": "Preparing update…"
     },
     "projectDefaultDirectory": {
       "title": "Default project directory",
@@ -204,7 +205,7 @@
     "devModeDesc": "Show request debug info in AI responses when errors occur",
     "contextCompression": "Context Memory Compression",
     "contextCompressionDesc": "When conversation approaches context window limit, automatically compress history messages and preserve core information",
-    "contextCompressionEnabled": "Enabled: Auto-compress when context usage exceeds 90%, original task and recent messages will be fully preserved",
+    "contextCompressionEnabled": "Enabled: Auto-compress according to the current model's context length and compression threshold, preserving a summary and messages after the compression point",
     "editorWorkspace": "Enable editor workspace awareness",
     "editorWorkspaceDesc": "Use the current session or project working folder as the preferred URI context for code editors",
     "editorWorkspaceEnabled": "Enabled: Local files bind to the current working folder and can reuse lightweight cross-file semantics",

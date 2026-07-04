@@ -521,6 +521,7 @@ function GeneralPanel(): React.JSX.Element {
   const [downloadingUpdate, setDownloadingUpdate] = useState(false)
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null)
   const [downloadedVersion, setDownloadedVersion] = useState<string | null>(null)
+  const [installingUpdate, setInstallingUpdate] = useState(false)
   const sessions = useChatStore((s) => s.sessions)
   const clearAllSessions = useChatStore((s) => s.clearAllSessions)
   const effectiveProjectDirectory =
@@ -592,6 +593,28 @@ function GeneralPanel(): React.JSX.Element {
     void checkForUpdates()
   }, [checkForUpdates, settings.autoUpdateEnabled])
 
+  useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      const result = (await ipcClient.invoke(IPC.UPDATE_STATUS)) as
+        | { success: true; downloadedVersion: string | null }
+        | { success: false; error: string }
+
+      if (cancelled || !result.success || !result.downloadedVersion) {
+        return
+      }
+
+      const version = normalizeVersion(result.downloadedVersion) || result.downloadedVersion
+      setDownloadedVersion(version)
+      setLatestVersion(version)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const updateAvailable = isNewerVersion(latestVersion, currentVersion)
 
   useEffect(() => {
@@ -612,12 +635,14 @@ function GeneralPanel(): React.JSX.Element {
       setDownloadingUpdate(false)
       setDownloadProgress(null)
       setDownloadedVersion(d.version)
+      setInstallingUpdate(false)
     })
 
     const offError = ipcClient.on(IPC.UPDATE_ERROR, (data: unknown) => {
       const d = data as { error: string }
       setDownloadingUpdate(false)
       setDownloadProgress(null)
+      setInstallingUpdate(false)
       setUpdateError(d.error)
     })
 
@@ -644,6 +669,23 @@ function GeneralPanel(): React.JSX.Element {
       setUpdateError(result.error)
     }
   }, [])
+
+  const handleInstallDownloadedUpdate = useCallback(async () => {
+    if (!downloadedVersion || installingUpdate) {
+      return
+    }
+
+    setUpdateError(null)
+    setInstallingUpdate(true)
+    const result = (await ipcClient.invoke(IPC.UPDATE_INSTALL)) as
+      | { success: true }
+      | { success: false; error: string }
+
+    if (!result.success) {
+      setInstallingUpdate(false)
+      setUpdateError(result.error)
+    }
+  }, [downloadedVersion, installingUpdate])
 
   const handleBackupSessions = useCallback(async () => {
     if (sessions.length === 0) {
@@ -764,7 +806,17 @@ function GeneralPanel(): React.JSX.Element {
             {checkingUpdate && <Loader2 className="mr-1 size-3 animate-spin" />}
             {checkingUpdate ? t('general.update.checking') : t('general.update.checkForUpdates')}
           </Button>
-          {updateAvailable && (
+          {downloadedVersion ? (
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => void handleInstallDownloadedUpdate()}
+              disabled={installingUpdate}
+            >
+              {installingUpdate && <Loader2 className="mr-1 size-3 animate-spin" />}
+              {installingUpdate ? t('general.update.installing') : t('general.update.updateNow')}
+            </Button>
+          ) : updateAvailable ? (
             <Button
               size="sm"
               className="h-7 text-xs"
@@ -774,7 +826,7 @@ function GeneralPanel(): React.JSX.Element {
               {downloadingUpdate && <Loader2 className="mr-1 size-3 animate-spin" />}
               {downloadingUpdate ? t('general.update.updating') : t('general.update.updateNow')}
             </Button>
-          )}
+          ) : null}
         </div>
         {updateError && (
           <p className="text-xs text-destructive">
@@ -786,7 +838,7 @@ function GeneralPanel(): React.JSX.Element {
             {t('general.update.upToDate')}
           </p>
         )}
-        {updateAvailable && !downloadingUpdate && (
+        {updateAvailable && !downloadingUpdate && !downloadedVersion && (
           <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
             {t('general.update.newVersionAvailable', { version: latestVersion })}
           </p>
@@ -802,7 +854,7 @@ function GeneralPanel(): React.JSX.Element {
         )}
         {downloadedVersion && (
           <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500">
-            {t('general.update.downloadedRestarting', { version: downloadedVersion })}
+            {t('general.update.downloadedReady', { version: downloadedVersion })}
           </p>
         )}
       </section>
@@ -1140,12 +1192,12 @@ function GeneralPanel(): React.JSX.Element {
 
       {/* Tool Parallelism */}
       <section className="space-y-3">
-        <div className="flex items-center justify-between max-w-lg">
-          <div>
+        <div className="flex items-start justify-between gap-3 max-w-lg">
+          <div className="min-w-0">
             <label className="text-sm font-medium">{t('general.maxParallelToolCalls')}</label>
             <p className="text-xs text-muted-foreground">{t('general.maxParallelToolCallsDesc')}</p>
           </div>
-          <span className="text-sm font-mono text-muted-foreground">
+          <span className="shrink-0 text-sm font-mono leading-5 text-muted-foreground">
             {settings.maxParallelToolCalls}
           </span>
         </div>
@@ -1188,8 +1240,8 @@ function GeneralPanel(): React.JSX.Element {
 
       {/* Sub-Agent Concurrency */}
       <section className="space-y-3">
-        <div className="flex items-center justify-between max-w-lg">
-          <div>
+        <div className="flex items-start justify-between gap-3 max-w-lg">
+          <div className="min-w-0">
             <label className="text-sm font-medium">
               {t('general.maxConcurrentSubAgents', { defaultValue: 'Max Concurrent Sub-Agents' })}
             </label>
@@ -1200,7 +1252,7 @@ function GeneralPanel(): React.JSX.Element {
               })}
             </p>
           </div>
-          <span className="text-sm font-mono text-muted-foreground">
+          <span className="shrink-0 text-sm font-mono leading-5 text-muted-foreground">
             {settings.maxConcurrentSubAgents}
           </span>
         </div>

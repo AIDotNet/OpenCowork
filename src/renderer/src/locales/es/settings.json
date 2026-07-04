@@ -174,7 +174,7 @@
     "autoApprove": "Llamadas automáticas de herramientas",
     "autoApproveDesc": "Saltar confirmación de permiso para todas las llamadas de herramienta",
     "autoUpdate": "Revise y actualice automáticamente la aplicación",
-    "autoUpdateDesc": "Activado por defecto. Chequea las actualizaciones de inicio y descarga automáticamente e instala versiones nuevas. Cuando está deshabilitado, las actualizaciones permanecen manual.",
+    "autoUpdateDesc": "Activado por defecto. Busca actualizaciones al iniciar, descarga versiones nuevas automáticamente y pregunta antes de reiniciar para instalar. Si se desactiva, las actualizaciones quedan manuales.",
     "update": {
       "status": "Estado de actualización",
       "currentVersion": "Corriente v {{version}}",
@@ -188,7 +188,8 @@
       "newVersionAvailable": "Una versión más nueva (v {{version}}) está disponible.",
       "downloading": "Descargar la actualización...",
       "downloadingWithProgress": "Descargar la actualización... {{progress}} %",
-      "downloadedRestarting": "Actualización v {{version}} descargado."
+      "downloadedReady": "Actualización v{{version}} descargada. Haz clic en Actualizar ahora para reiniciar e instalar.",
+      "installing": "Preparando actualización…"
     },
     "projectDefaultDirectory": {
       "title": "directorio de proyecto predeterminado",
@@ -204,7 +205,7 @@
     "devModeDesc": "Mostrar información de depuración de solicitud en respuestas de AI cuando se producen errores",
     "contextCompression": "Context Memory Compression",
     "contextCompressionDesc": "Cuando la conversación se acerca al límite de ventana contextual, comprime automáticamente los mensajes de historia y preserva la información básica",
-    "contextCompressionEnabled": "Habilitado: Auto-compresión cuando el uso del contexto supera el 90%, la tarea original y los mensajes recientes se conservarán completamente",
+    "contextCompressionEnabled": "Habilitado: comprime automáticamente el historial según la longitud de contexto y el umbral de compresión del modelo actual, conservando un resumen y los mensajes posteriores al punto de compresión",
     "editorWorkspace": "Activar la conciencia del espacio de trabajo del editor",
     "editorWorkspaceDesc": "Utilice la carpeta de trabajo actual de sesión o proyecto como el contexto URI preferido para los editores de códigos",
     "editorWorkspaceEnabled": "Habilitado: Los archivos locales se unen a la carpeta de trabajo actual y pueden reutilizar la semántica de perfil cruzado ligero",

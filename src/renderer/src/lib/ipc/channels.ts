@@ -251,6 +251,8 @@ export const IPC = {
   GIT_COMMIT: 'git:commit',
   UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_STATUS: 'update:status',
+  UPDATE_INSTALL: 'update:install',
   UPDATE_DOWNLOAD_PROGRESS: 'update:download-progress',
   UPDATE_DOWNLOADED: 'update:downloaded',
   UPDATE_ERROR: 'update:error',

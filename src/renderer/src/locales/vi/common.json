@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "Phiên bản {{version}} sẵn sàng",
       "availableDescription": "Nhấn \"Update now\" để bắt đầu tải về",
+      "readyTitle": "Bản cập nhật v{{version}} đã sẵn sàng",
+      "readyDescription": "Bản cập nhật đã được tải về. Chọn Cập nhật ngay để khởi động lại và cài đặt.",
       "buttonLabel": "Cập nhật v {{version}}",
+      "readyShort": "Sẵn sàng v{{version}}",
       "buttonTooltip": "Có sẵn một phiên bản mới. Nhấn để xem ghi chú nhả.",
+      "readyButtonTooltip": "Bản cập nhật đã tải về. Nhấn để cài đặt.",
       "currentVersion": "v hiện có {{version}}",
       "latestVersion": "Mới nhất v {{version}}",
       "releaseNotes": "Ghi chú",
@@ -251,12 +255,16 @@
       "downloadingProgress": "Đang tải về {{progress}} %s",
       "actions": {
         "updateNow": "Cập nhật bây giờ",
-        "remindLater": "Nhớ nhắc tôi sau nhé."
+        "remindLater": "Nhớ nhắc tôi sau nhé.",
+        "installNow": "Cập nhật ngay",
+        "updateLater": "Cập nhật sau"
       },
       "downloadFailed": "Tải về thất bại",
       "delayed": "Đã cập nhật",
       "downloadedTitle": "Cập nhật đã tải",
-      "downloadedDescription": "Phiên bản {{version}} cài đặt sau khi khởi chạy lại",
+      "downloadedDescription": "Phiên bản {{version}} đã sẵn sàng để cài đặt.",
+      "installing": "Đang chuẩn bị cập nhật...",
+      "installFailed": "Không thể bắt đầu cập nhật",
       "failed": "Cập nhật thất bại"
     },
     "errors": {

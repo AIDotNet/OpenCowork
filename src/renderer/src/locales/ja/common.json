@@ -240,8 +240,12 @@
     "update": {
       "availableTitle": "🎉 バージョン {{version}} が利用可能です",
       "availableDescription": "「今すぐ更新」をクリックするとダウンロードを開始します",
+      "readyTitle": "更新 v{{version}} の準備ができました",
+      "readyDescription": "更新のダウンロードが完了しました。今すぐ更新を選ぶと再起動してインストールします。",
       "buttonLabel": "v{{version}} を更新",
+      "readyShort": "準備完了 v{{version}}",
       "buttonTooltip": "新しいバージョンがあります。クリックしてリリースノートを確認してください。",
+      "readyButtonTooltip": "更新はダウンロード済みです。クリックしてインストールします。",
       "currentVersion": "現在 v{{version}}",
       "latestVersion": "最新 v{{version}}",
       "releaseNotes": "リリースノート",
@@ -251,12 +255,16 @@
       "downloadingProgress": "更新をダウンロード中 {{progress}}%",
       "actions": {
         "updateNow": "今すぐ更新",
-        "remindLater": "後で通知"
+        "remindLater": "後で通知",
+        "installNow": "今すぐ更新",
+        "updateLater": "後で更新"
       },
       "downloadFailed": "ダウンロードに失敗しました",
       "delayed": "更新を延期しました",
       "downloadedTitle": "更新をダウンロードしました",
-      "downloadedDescription": "バージョン {{version}} は再起動後にインストールされます",
+      "downloadedDescription": "バージョン {{version}} をインストールできます。",
+      "installing": "更新を準備中...",
+      "installFailed": "更新を開始できませんでした",
       "failed": "更新に失敗しました"
     },
     "errors": {

@@ -174,7 +174,7 @@
     "autoApprove": "Công cụ tự động khởi động gọi",
     "autoApproveDesc": "Bỏ qua xác nhận quyền hạn cho mọi cuộc gọi công cụ",
     "autoUpdate": "Tự động kiểm tra và cập nhật ứng dụng",
-    "autoUpdateDesc": "Bật theo mặc định. Kiểm tra cập nhật khi khởi chạy và tự động tải xuống và cài đặt phiên bản mới hơn. Khi tắt, cập nhật sẽ còn lại hướng dẫn.",
+    "autoUpdateDesc": "Bật theo mặc định. Kiểm tra cập nhật khi khởi chạy, tự động tải phiên bản mới và hỏi trước khi khởi động lại để cài đặt. Khi tắt, cập nhật sẽ thực hiện thủ công.",
     "update": {
       "status": "Cập nhật trạng thái",
       "currentVersion": "v hiện có {{version}}",
@@ -188,7 +188,8 @@
       "newVersionAvailable": "Phiên bản mới hơn (v {{version}} Có thể dùng.",
       "downloading": "Đang tải về...",
       "downloadingWithProgress": "Đang tải về... {{progress}} %s",
-      "downloadedRestarting": "Cập nhật v {{version}} Đang tải về. Đang khởi động lại để cài đặt..."
+      "downloadedReady": "Bản cập nhật v{{version}} đã tải về. Nhấn Cập nhật ngay để khởi động lại và cài đặt.",
+      "installing": "Đang chuẩn bị cập nhật…"
     },
     "projectDefaultDirectory": {
       "title": "Thư mục dự án mặc định",
@@ -204,7 +205,7 @@
     "devModeDesc": "Hiển thị thông tin gỡ lỗi yêu cầu trong đáp ứng AI khi có lỗi xảy ra",
     "contextCompression": "Comment",
     "contextCompressionDesc": "Khi cuộc trò chuyện tiến đến giới hạn cửa sổ ngữ cảnh, tự động nén thông điệp lịch sử và bảo tồn thông tin cốt lõi",
-    "contextCompressionEnabled": "Bật: Tự động nén khi sử dụng ngữ cảnh vượt quá 90%, tác vụ gốc và tin nhắn gần đây sẽ được bảo tồn đầy đủ",
+    "contextCompressionEnabled": "Bật: tự động nén lịch sử theo độ dài ngữ cảnh và ngưỡng nén của mô hình hiện tại, giữ lại bản tóm tắt và các tin nhắn sau điểm nén",
     "editorWorkspace": "Bật khả năng nhận thức vùng làm việc của trình soạn thảo",
     "editorWorkspaceDesc": "Dùng phiên chạy hoặc dự án làm việc thư mục hiện thời như là ngữ cảnh URI ưa thích cho các trình soạn thảo mã",
     "editorWorkspaceEnabled": "Bật: các tập tin cục bộ được kết nối vào thư mục làm việc hiện thời và có thể sử dụng lại ngữ nghĩa chéo nhỏ",

@@ -174,7 +174,7 @@
     "autoApprove": "自动批准工具调用",
     "autoApproveDesc": "跳过所有工具调用的权限确认对话框",
     "autoUpdate": "自动检测并更新应用",
-    "autoUpdateDesc": "默认开启。启动时自动检查更新，发现新版本后自动下载并安装；关闭后仅保留手动检查与更新。",
+    "autoUpdateDesc": "默认开启。启动时自动检查更新，发现新版本后自动下载，并在安装前询问是否重启；关闭后仅保留手动检查与更新。",
     "update": {
       "status": "更新状态",
       "currentVersion": "当前 v{{version}}",
@@ -188,7 +188,8 @@
       "newVersionAvailable": "发现新版本（v{{version}}）。",
       "downloading": "正在下载更新…",
       "downloadingWithProgress": "正在下载更新… {{progress}}%",
-      "downloadedRestarting": "更新 v{{version}} 已下载，正在重启安装…"
+      "downloadedReady": "更新 v{{version}} 已下载。点击“立即更新”将重启并安装。",
+      "installing": "正在准备更新…"
     },
     "projectDefaultDirectory": {
       "title": "默认项目目录",
@@ -204,7 +205,7 @@
     "devModeDesc": "当错误发生时在AI响应中显示请求调试信息",
     "contextCompression": "上下文记忆压缩",
     "contextCompressionDesc": "当对话接近上下文窗口限制时，自动压缩历史消息并保留核心信息",
-    "contextCompressionEnabled": "已启用：当上下文使用超过 90% 时自动压缩，原始任务和近期消息将被完整保留",
+    "contextCompressionEnabled": "已启用：将按当前模型的上下文长度和压缩阈值自动压缩历史消息，保留压缩摘要和压缩点后的消息",
     "editorWorkspace": "启用编辑器工作区感知",
     "editorWorkspaceDesc": "让代码编辑器优先使用当前会话或项目的工作目录作为文件 URI 上下文",
     "editorWorkspaceEnabled": "已启用：本地文件将绑定到当前工作目录，基础跨文件语义能力可用",

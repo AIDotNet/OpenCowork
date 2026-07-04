@@ -174,7 +174,7 @@
     "autoApprove": "Aprovar automaticamente as chamadas de ferramentas",
     "autoApproveDesc": "Ignorar a confirmação de permissões para todas as chamadas de ferramentas",
     "autoUpdate": "Verificar e atualizar automaticamente o aplicativo",
-    "autoUpdateDesc": "Habilitado por padrão. Verifica se há atualizações na inicialização e automaticamente baixa e instala versões mais novas. Quando desabilitado, as atualizações permanecem manuais.",
+    "autoUpdateDesc": "Ativado por padrão. Verifica atualizações ao iniciar, baixa novas versões automaticamente e pergunta antes de reiniciar para instalar. Quando desativado, as atualizações ficam manuais.",
     "update": {
       "status": "Atualizar status",
       "currentVersion": "V atual {{version}}",
@@ -188,7 +188,8 @@
       "newVersionAvailable": "Uma versão mais recente (v {{version}}) está disponível.",
       "downloading": "A transferir a actualização...",
       "downloadingWithProgress": "A transferir a actualização... {{progress}} %",
-      "downloadedRestarting": "Actualizar v {{version}} baixado. Reiniciando para instalar..."
+      "downloadedReady": "Atualização v{{version}} baixada. Clique em Atualizar agora para reiniciar e instalar.",
+      "installing": "Preparando atualização…"
     },
     "projectDefaultDirectory": {
       "title": "Directório por omissão do projecto",
@@ -204,7 +205,7 @@
     "devModeDesc": "Mostrar informações de depuração de pedidos nas respostas de IA quando ocorrerem erros",
     "contextCompression": "Compressão de Memória de Contexto",
     "contextCompressionDesc": "Quando a conversa se aproxima do limite da janela de contexto, comprimir automaticamente as mensagens de histórico e preservar as informações principais",
-    "contextCompressionEnabled": "Activado: Auto- compressão quando o uso do contexto exceder 90%, a tarefa original e as mensagens recentes serão totalmente preservadas",
+    "contextCompressionEnabled": "Ativado: comprime automaticamente o histórico conforme o comprimento de contexto e o limite de compressão do modelo atual, preservando um resumo e as mensagens após o ponto de compressão",
     "editorWorkspace": "Activar a sensibilização do espaço de trabalho do editor",
     "editorWorkspaceDesc": "Use a pasta de trabalho atual ou projeto como o contexto preferido de URI para editores de código",
     "editorWorkspaceEnabled": "Activado: Os ficheiros locais ligam- se à pasta de trabalho actual e podem reutilizar semânticas de ficheiros cruzados leves",

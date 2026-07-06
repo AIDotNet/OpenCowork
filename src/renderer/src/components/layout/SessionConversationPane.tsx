@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   Check,
@@ -65,6 +65,10 @@ const TERMINAL_DOCK_TRANSITION = {
   ease: [0.22, 1, 0.36, 1] as const
 }
 
+// Dock the runtime status panel (320px) only when the remaining conversation
+// area keeps a comfortable reading width; below this the panel floats instead.
+const RUNTIME_STATUS_DOCK_MIN_PANE_WIDTH = 960
+
 export function SessionConversationPane({
   sessionId,
   allowOpenInNewWindow = true,
@@ -125,6 +129,17 @@ export function SessionConversationPane({
   const clearSessionMessages = useChatStore((state) => state.clearSessionMessages)
   const deleteSession = useChatStore((state) => state.deleteSession)
   const paneRef = useRef<HTMLDivElement | null>(null)
+  const [runtimeStatusDocked, setRuntimeStatusDocked] = useState(false)
+  useEffect(() => {
+    const node = paneRef.current
+    if (!node) return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0
+      setRuntimeStatusDocked(width >= RUNTIME_STATUS_DOCK_MIN_PANE_WIDTH)
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
   const [copiedAll, setCopiedAll] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
@@ -248,301 +263,304 @@ export function SessionConversationPane({
   }
 
   return (
-    <div ref={paneRef} className="relative flex min-w-0 flex-1 flex-col bg-background">
-      <RuntimeStatusPanel sessionId={resolvedSessionId} />
-      <div
-        className={cn(
-          'flex shrink-0 items-center gap-3 px-4 pt-3',
-          showInlineSessionTitle ? (compactSessionHeader ? 'pb-1' : 'pb-2') : 'pb-2 pt-2'
-        )}
-      >
-        <div className="min-w-0 flex-1">
-          {showInlineSessionTitle ? (
-            <div className="flex min-w-0 items-center gap-2">
-              <div
-                className={cn(
-                  'min-w-0 flex-1 truncate text-foreground',
-                  compactSessionHeader ? 'text-[13px] font-medium' : 'text-[14px] font-medium'
-                )}
-              >
-                {sessionView.title ?? t('sidebar.newChat', { defaultValue: 'New chat' })}
-              </div>
-              {sessionView.projectId ? (
-                <div className="flex min-w-0 max-w-[38%] shrink items-center gap-1.5 text-[11px] text-muted-foreground/65">
-                  <span className="shrink-0 text-muted-foreground/35">/</span>
-                  {sessionView.workingFolder ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="truncate cursor-default">
-                          {sessionView.projectName ??
-                            t('sidebar.projects', { defaultValue: 'Project' })}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>{sessionView.workingFolder}</TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <span className="truncate">
-                      {sessionView.projectName ??
-                        t('sidebar.projects', { defaultValue: 'Project' })}
-                    </span>
+    <div ref={paneRef} className="relative flex min-w-0 flex-1 bg-background">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div
+          className={cn(
+            'flex shrink-0 items-center gap-3 px-4 pt-3',
+            showInlineSessionTitle ? (compactSessionHeader ? 'pb-1' : 'pb-2') : 'pb-2 pt-2'
+          )}
+        >
+          <div className="min-w-0 flex-1">
+            {showInlineSessionTitle ? (
+              <div className="flex min-w-0 items-center gap-2">
+                <div
+                  className={cn(
+                    'min-w-0 flex-1 truncate text-foreground',
+                    compactSessionHeader ? 'text-[13px] font-medium' : 'text-[14px] font-medium'
                   )}
+                >
+                  {sessionView.title ?? t('sidebar.newChat', { defaultValue: 'New chat' })}
                 </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-1">
-          {showSessionActionBar ? (
-            <div className="flex items-center rounded-lg border border-border/60 bg-background/70 p-0.5 shadow-sm backdrop-blur-sm">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                    onClick={handleTogglePanelWidth}
-                  >
-                    {conversationPanelFullWidth ? (
-                      <Minimize2 className="size-4" />
+                {sessionView.projectId ? (
+                  <div className="flex min-w-0 max-w-[38%] shrink items-center gap-1.5 text-[11px] text-muted-foreground/65">
+                    <span className="shrink-0 text-muted-foreground/35">/</span>
+                    {sessionView.workingFolder ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="truncate cursor-default">
+                            {sessionView.projectName ??
+                              t('sidebar.projects', { defaultValue: 'Project' })}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{sessionView.workingFolder}</TooltipContent>
+                      </Tooltip>
                     ) : (
-                      <Maximize2 className="size-4" />
+                      <span className="truncate">
+                        {sessionView.projectName ??
+                          t('sidebar.projects', { defaultValue: 'Project' })}
+                      </span>
                     )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {conversationPanelFullWidth
-                    ? t('layout.useStandardWidth', { defaultValue: 'Use standard width' })
-                    : t('layout.useFullWidth', { defaultValue: 'Use full width' })}
-                </TooltipContent>
-              </Tooltip>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
 
-              {hasProjectFolderAction || hasTranscriptActions ? (
-                <div className="mx-0.5 h-4 w-px bg-border/60" />
-              ) : null}
-
-              {hasProjectFolderAction ? (
+          <div className="flex shrink-0 items-center gap-1">
+            {showSessionActionBar ? (
+              <div className="flex items-center rounded-lg border border-border/60 bg-background/70 p-0.5 shadow-sm backdrop-blur-sm">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
                       size="icon"
                       className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                      onClick={() => void handleOpenWorkingFolder()}
+                      onClick={handleTogglePanelWidth}
                     >
-                      <ExternalLink className="size-4" />
+                      {conversationPanelFullWidth ? (
+                        <Minimize2 className="size-4" />
+                      ) : (
+                        <Maximize2 className="size-4" />
+                      )}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {t('layout.openFolder', { defaultValue: 'Open folder' })}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-
-              {hasProjectFolderAction && hasTranscriptActions ? (
-                <div className="mx-0.5 h-4 w-px bg-border/60" />
-              ) : null}
-
-              {hasTranscriptActions ? (
-                <>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                        onClick={handleCopyAll}
-                        disabled={isStreaming}
-                      >
-                        {copiedAll ? (
-                          <Check className="size-4 text-foreground" />
-                        ) : (
-                          <ClipboardCopy className="size-4" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t('layout.copyAll', { defaultValue: 'Copy conversation' })}
-                    </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                        onClick={() => void handleExportImage()}
-                        disabled={exporting || isStreaming}
-                      >
-                        {exporting ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          <ImageDown className="size-4" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t('layout.exportImage', { defaultValue: 'Copy as image' })}
-                    </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                        onClick={() => void handleClearConversation()}
-                        disabled={isStreaming}
-                      >
-                        <Eraser className="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{clearConversationLabel}</TooltipContent>
-                  </Tooltip>
-                </>
-              ) : null}
-
-              <div className="mx-0.5 h-4 w-px bg-border/60" />
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
-                  {hasProjectFolderAction ? (
-                    <DropdownMenuItem onClick={() => void handleOpenWorkingFolder()}>
-                      <ExternalLink className="size-4" />
-                      {t('layout.openFolder', { defaultValue: 'Open folder' })}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {allowOpenInNewWindow ? (
-                    <DropdownMenuItem onClick={() => void handleOpenInWindow()}>
-                      <ExternalLink className="size-4" />
-                      {t('sidebar.openInNewWindow', { defaultValue: 'Open in new window' })}
-                    </DropdownMenuItem>
-                  ) : null}
-                  <DropdownMenuItem onClick={handleOpenRenameDialog}>
-                    <Pencil className="size-4" />
-                    {renameSessionLabel}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleTogglePanelWidth}>
-                    {conversationPanelFullWidth ? (
-                      <Minimize2 className="size-4" />
-                    ) : (
-                      <Maximize2 className="size-4" />
-                    )}
                     {conversationPanelFullWidth
                       ? t('layout.useStandardWidth', { defaultValue: 'Use standard width' })
                       : t('layout.useFullWidth', { defaultValue: 'Use full width' })}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={handleCopyAll}
-                    disabled={isStreaming || !hasTranscriptActions}
-                  >
-                    {copiedAll ? (
-                      <Check className="size-4" />
-                    ) : (
-                      <ClipboardCopy className="size-4" />
-                    )}
-                    {t('layout.copyAll', { defaultValue: 'Copy conversation' })}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => void handleExportImage()}
-                    disabled={exporting || isStreaming || !hasTranscriptActions}
-                  >
-                    {exporting ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <ImageDown className="size-4" />
-                    )}
-                    {t('layout.exportImage', { defaultValue: 'Copy as image' })}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => void handleClearConversation()}
-                    disabled={sessionView.messageCount === 0}
-                  >
-                    <Eraser className="size-4" />
-                    {clearConversationLabel}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => void handleDeleteSession()}
-                  >
-                    <Trash2 className="size-4" />
-                    {t('layout.deleteConversation', { defaultValue: 'Delete conversation' })}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+                  </TooltipContent>
+                </Tooltip>
+
+                {hasProjectFolderAction || hasTranscriptActions ? (
+                  <div className="mx-0.5 h-4 w-px bg-border/60" />
+                ) : null}
+
+                {hasProjectFolderAction ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
+                        onClick={() => void handleOpenWorkingFolder()}
+                      >
+                        <ExternalLink className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t('layout.openFolder', { defaultValue: 'Open folder' })}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+
+                {hasProjectFolderAction && hasTranscriptActions ? (
+                  <div className="mx-0.5 h-4 w-px bg-border/60" />
+                ) : null}
+
+                {hasTranscriptActions ? (
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
+                          onClick={handleCopyAll}
+                          disabled={isStreaming}
+                        >
+                          {copiedAll ? (
+                            <Check className="size-4 text-foreground" />
+                          ) : (
+                            <ClipboardCopy className="size-4" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t('layout.copyAll', { defaultValue: 'Copy conversation' })}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
+                          onClick={() => void handleExportImage()}
+                          disabled={exporting || isStreaming}
+                        >
+                          {exporting ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <ImageDown className="size-4" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t('layout.exportImage', { defaultValue: 'Copy as image' })}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
+                          onClick={() => void handleClearConversation()}
+                          disabled={isStreaming}
+                        >
+                          <Eraser className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{clearConversationLabel}</TooltipContent>
+                    </Tooltip>
+                  </>
+                ) : null}
+
+                <div className="mx-0.5 h-4 w-px bg-border/60" />
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    {hasProjectFolderAction ? (
+                      <DropdownMenuItem onClick={() => void handleOpenWorkingFolder()}>
+                        <ExternalLink className="size-4" />
+                        {t('layout.openFolder', { defaultValue: 'Open folder' })}
+                      </DropdownMenuItem>
+                    ) : null}
+                    {allowOpenInNewWindow ? (
+                      <DropdownMenuItem onClick={() => void handleOpenInWindow()}>
+                        <ExternalLink className="size-4" />
+                        {t('sidebar.openInNewWindow', { defaultValue: 'Open in new window' })}
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem onClick={handleOpenRenameDialog}>
+                      <Pencil className="size-4" />
+                      {renameSessionLabel}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleTogglePanelWidth}>
+                      {conversationPanelFullWidth ? (
+                        <Minimize2 className="size-4" />
+                      ) : (
+                        <Maximize2 className="size-4" />
+                      )}
+                      {conversationPanelFullWidth
+                        ? t('layout.useStandardWidth', { defaultValue: 'Use standard width' })
+                        : t('layout.useFullWidth', { defaultValue: 'Use full width' })}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={handleCopyAll}
+                      disabled={isStreaming || !hasTranscriptActions}
+                    >
+                      {copiedAll ? (
+                        <Check className="size-4" />
+                      ) : (
+                        <ClipboardCopy className="size-4" />
+                      )}
+                      {t('layout.copyAll', { defaultValue: 'Copy conversation' })}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => void handleExportImage()}
+                      disabled={exporting || isStreaming || !hasTranscriptActions}
+                    >
+                      {exporting ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <ImageDown className="size-4" />
+                      )}
+                      {t('layout.exportImage', { defaultValue: 'Copy as image' })}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => void handleClearConversation()}
+                      disabled={sessionView.messageCount === 0}
+                    >
+                      <Eraser className="size-4" />
+                      {clearConversationLabel}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => void handleDeleteSession()}
+                    >
+                      <Trash2 className="size-4" />
+                      {t('layout.deleteConversation', { defaultValue: 'Delete conversation' })}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div key={conversationRoot} className="flex min-h-0 flex-1 flex-col">
+          <MessageList
+            sessionId={resolvedSessionId}
+            fullWidth={conversationPanelFullWidth}
+            onRetry={retryLastMessage}
+            onContinue={continueLastToolExecution}
+            onEditUserMessage={editAndResend}
+            onDeleteMessage={deleteMessage}
+          />
+          <InputArea
+            sessionId={resolvedSessionId}
+            onSend={(text, images, options) =>
+              void sendMessage(text, images, undefined, resolvedSessionId, undefined, undefined, {
+                ...options,
+                clearCompletedTasksOnTurnStart: true
+              })
+            }
+            onStop={stopStreaming}
+            onSelectFolder={sessionView.projectId ? () => setFolderDialogOpen(true) : undefined}
+            workingFolder={sessionView.workingFolder}
+            hideWorkingFolderIndicator
+            onCompressContext={manualCompressContext}
+            isStreaming={isStreaming}
+            fullWidth={conversationPanelFullWidth}
+          />
+          {animationsEnabled ? (
+            <AnimatePresence initial={false}>
+              {showTerminalDock ? (
+                <motion.div
+                  key={`terminal-dock-${sessionView.projectId}`}
+                  initial={{ height: 0, opacity: 0, y: 12 }}
+                  animate={{ height: 'auto', opacity: 1, y: 0 }}
+                  exit={{ height: 0, opacity: 0, y: 12 }}
+                  transition={{
+                    height: TERMINAL_DOCK_TRANSITION,
+                    y: TERMINAL_DOCK_TRANSITION,
+                    opacity: { duration: 0.16, ease: 'easeOut' }
+                  }}
+                  className="min-h-0 overflow-hidden"
+                  style={{ willChange: 'height, opacity, transform' }}
+                >
+                  <ProjectTerminalDock
+                    projectId={sessionView.projectId!}
+                    projectName={sessionView.projectName}
+                    workingFolder={sessionView.workingFolder ?? null}
+                    sshConnectionId={sessionView.sshConnectionId}
+                  />
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          ) : showTerminalDock ? (
+            <ProjectTerminalDock
+              projectId={sessionView.projectId!}
+              projectName={sessionView.projectName}
+              workingFolder={sessionView.workingFolder ?? null}
+              sshConnectionId={sessionView.sshConnectionId}
+            />
           ) : null}
         </div>
       </div>
 
-      <div key={conversationRoot} className="flex min-h-0 flex-1 flex-col">
-        <MessageList
-          sessionId={resolvedSessionId}
-          fullWidth={conversationPanelFullWidth}
-          onRetry={retryLastMessage}
-          onContinue={continueLastToolExecution}
-          onEditUserMessage={editAndResend}
-          onDeleteMessage={deleteMessage}
-        />
-        <InputArea
-          sessionId={resolvedSessionId}
-          onSend={(text, images, options) =>
-            void sendMessage(text, images, undefined, resolvedSessionId, undefined, undefined, {
-              ...options,
-              clearCompletedTasksOnTurnStart: true
-            })
-          }
-          onStop={stopStreaming}
-          onSelectFolder={sessionView.projectId ? () => setFolderDialogOpen(true) : undefined}
-          workingFolder={sessionView.workingFolder}
-          hideWorkingFolderIndicator
-          onCompressContext={manualCompressContext}
-          isStreaming={isStreaming}
-          fullWidth={conversationPanelFullWidth}
-        />
-        {animationsEnabled ? (
-          <AnimatePresence initial={false}>
-            {showTerminalDock ? (
-              <motion.div
-                key={`terminal-dock-${sessionView.projectId}`}
-                initial={{ height: 0, opacity: 0, y: 12 }}
-                animate={{ height: 'auto', opacity: 1, y: 0 }}
-                exit={{ height: 0, opacity: 0, y: 12 }}
-                transition={{
-                  height: TERMINAL_DOCK_TRANSITION,
-                  y: TERMINAL_DOCK_TRANSITION,
-                  opacity: { duration: 0.16, ease: 'easeOut' }
-                }}
-                className="min-h-0 overflow-hidden"
-                style={{ willChange: 'height, opacity, transform' }}
-              >
-                <ProjectTerminalDock
-                  projectId={sessionView.projectId!}
-                  projectName={sessionView.projectName}
-                  workingFolder={sessionView.workingFolder ?? null}
-                  sshConnectionId={sessionView.sshConnectionId}
-                />
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-        ) : showTerminalDock ? (
-          <ProjectTerminalDock
-            projectId={sessionView.projectId!}
-            projectName={sessionView.projectName}
-            workingFolder={sessionView.workingFolder ?? null}
-            sshConnectionId={sessionView.sshConnectionId}
-          />
-        ) : null}
-      </div>
+      <RuntimeStatusPanel sessionId={resolvedSessionId} docked={runtimeStatusDocked} />
 
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
         <DialogContent className="sm:max-w-sm">

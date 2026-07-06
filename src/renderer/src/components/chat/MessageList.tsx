@@ -586,12 +586,15 @@ function countImageBlocks(content: UnifiedMessage['content']): number {
   return content.filter((block) => block.type === 'image' || block.type === 'image_error').length
 }
 
+function getCompactLocatorGapPx(total: number): number {
+  return Math.max(3.5, Math.min(9, 176 / (Math.max(2, total) - 1)))
+}
+
 function getCompactLocatorMarkerTop(index: number, total: number): string {
   const safeTotal = Math.max(1, total)
   if (safeTotal === 1) return '50%'
 
-  const gapPx = Math.max(3.5, Math.min(9, 176 / (safeTotal - 1)))
-  const offsetPx = (index - (safeTotal - 1) / 2) * gapPx
+  const offsetPx = (index - (safeTotal - 1) / 2) * getCompactLocatorGapPx(safeTotal)
 
   return `calc(50% + ${Number(offsetPx.toFixed(2))}px)`
 }
@@ -728,8 +731,13 @@ function UserMessageLocator({
                   defaultValue: 'Jump to user message {{index}}: {{preview}}'
                 })}
                 title={item.preview}
-                className="pointer-events-auto group/marker absolute right-0 flex h-6 w-11 -translate-y-1/2 items-center justify-end rounded-sm outline-none"
-                style={{ top: getCompactLocatorMarkerTop(itemIndex, items.length) }}
+                className="pointer-events-auto group/marker absolute right-0 flex w-11 -translate-y-1/2 items-center justify-end rounded-sm outline-none"
+                style={{
+                  top: getCompactLocatorMarkerTop(itemIndex, items.length),
+                  // Hit areas must tile without overlap: taller buttons would let the
+                  // next (later-in-DOM) marker steal hover below each line.
+                  height: getCompactLocatorGapPx(items.length)
+                }}
                 onPointerEnter={() => setPreviewMessageId(item.id)}
                 onPointerLeave={() => setPreviewMessageId(null)}
                 onFocus={() => setPreviewMessageId(item.id)}
@@ -1328,11 +1336,12 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
 
     lastScrollOffsetRef.current = currentOffset
 
-    if (
-      scrolledUp &&
-      distanceToBottom > STREAMING_AUTO_SCROLL_STOP_THRESHOLD &&
-      !isProgrammaticScroll
-    ) {
+    // While streaming, keep the wider escape distance so minor jitter does not
+    // detach the follow mode; when idle, any deliberate upward scroll releases it.
+    const followReleaseThreshold = isSessionOutputting
+      ? STREAMING_AUTO_SCROLL_STOP_THRESHOLD
+      : threshold
+    if (scrolledUp && distanceToBottom > followReleaseThreshold && !isProgrammaticScroll) {
       autoScrollModeRef.current = 'off'
     } else if (nextAtBottom && isSessionOutputting && autoScrollModeRef.current === 'off') {
       autoScrollModeRef.current = 'stream'
@@ -1400,8 +1409,12 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
         markProgrammaticScroll()
         setActiveUserLocatorMessageId(messageId)
         setHighlightedMessageId(messageId)
+        // offsetTop is relative to the absolutely-positioned virtual row wrapper and
+        // ignores its translateY, so derive the real position from bounding rects.
+        const targetTop =
+          ref.scrollTop + (target.getBoundingClientRect().top - ref.getBoundingClientRect().top)
         ref.scrollTo({
-          top: Math.max(0, target.offsetTop - USER_LOCATOR_SCROLL_OFFSET),
+          top: Math.max(0, targetTop - USER_LOCATOR_SCROLL_OFFSET),
           behavior: 'smooth'
         })
 
@@ -1595,12 +1608,10 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     if (pendingInitialScrollSessionIdRef.current !== activeSessionId) return
     if (!(messages.length > 0 || streamingMessageId)) return
 
-    if (isSessionOutputting) {
-      autoScrollModeRef.current = 'stream'
-      requestScrollToBottom({ force: true, maxFrames: INITIAL_SCROLL_SETTLE_FRAMES })
-    } else {
-      requestScrollToBottom({ force: true, maxFrames: INITIAL_SCROLL_SETTLE_FRAMES })
-    }
+    // Enter a follow mode on open so the bottom anchor below keeps re-pinning
+    // while virtualized rows are measured; released on the first upward scroll.
+    autoScrollModeRef.current = isSessionOutputting ? 'stream' : 'user'
+    requestScrollToBottom({ force: true, maxFrames: INITIAL_SCROLL_SETTLE_FRAMES })
 
     pendingInitialScrollSessionIdRef.current = null
   }, [
@@ -1626,6 +1637,23 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     if (!canAutoScroll()) return
     requestScrollToBottom({ maxFrames: FOLLOW_BOTTOM_SETTLE_FRAMES })
   }, [canAutoScroll, pendingAskUserQuestion, requestScrollToBottom, rows.length])
+
+  // Bottom anchor: rows are virtualized with estimated heights, so a single
+  // scroll-to-bottom lands short once the real (larger) row heights are
+  // measured and the total size grows. Re-pin whenever the measured total size
+  // changes while we are following the bottom, until measurement converges.
+  const virtualListTotalSize = rowVirtualizer.getTotalSize()
+  React.useEffect(() => {
+    if (pendingAskUserQuestion) return
+    if (!canAutoScroll() && !isAtBottom) return
+    requestScrollToBottom({ force: true, maxFrames: FOLLOW_BOTTOM_SETTLE_FRAMES })
+  }, [
+    canAutoScroll,
+    isAtBottom,
+    pendingAskUserQuestion,
+    requestScrollToBottom,
+    virtualListTotalSize
+  ])
 
   React.useEffect(() => {
     if (!activeSessionId || isAwaitingInitialMessages || isLoadingOlderMessages) return

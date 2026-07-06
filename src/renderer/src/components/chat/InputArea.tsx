@@ -80,10 +80,12 @@ import { useChatStore } from '@renderer/stores/chat-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import {
+  getHomeInputDraftKey,
+  getProjectInputDraftKey,
   getSessionInputDraftKey,
-  hasInputDraftContent,
-  useInputDraftStore
-} from '@renderer/stores/input-draft-store'
+  type InputDraftContext
+} from '@renderer/lib/input-drafts'
+import { useInputDraftPersistence } from '@renderer/hooks/use-input-draft-persistence'
 import { useShallow } from 'zustand/react/shallow'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useTranslation } from 'react-i18next'
@@ -1939,19 +1941,57 @@ export function InputArea({
     activeProjectId,
     workingFolder
   })
-  const activeDraftKey = React.useMemo(
-    () => draftKeyOverride ?? (draftSessionId ? getSessionInputDraftKey(draftSessionId) : null),
-    [draftKeyOverride, draftSessionId]
-  )
-  const inputDraftHydrated = useInputDraftStore((s) => s.hydrated)
-  const persistedDraft = useInputDraftStore(
-    React.useCallback(
-      (state) => (activeDraftKey ? (state.draftsByKey[activeDraftKey] ?? null) : null),
-      [activeDraftKey]
-    )
-  )
-  const setPersistedDraft = useInputDraftStore((s) => s.setDraft)
-  const removePersistedDraft = useInputDraftStore((s) => s.removeDraft)
+  const activeDraftKey = React.useMemo(() => {
+    if (draftKeyOverride) return draftKeyOverride
+    if (draftSessionId) return getSessionInputDraftKey(draftSessionId)
+    if (activeProjectId) return getProjectInputDraftKey(activeProjectId, mode)
+    return getHomeInputDraftKey(mode)
+  }, [activeProjectId, draftKeyOverride, draftSessionId, mode])
+  const draftContext = React.useMemo<InputDraftContext>(() => {
+    if (draftKeyOverride) {
+      return {
+        scope: draftKeyOverride.startsWith('subagent:') ? 'subagent' : 'custom',
+        sessionId: draftSessionId,
+        projectId: activeProjectId,
+        mode,
+        workingFolder: workingFolder ?? null
+      }
+    }
+
+    if (draftSessionId) {
+      return {
+        scope: 'session',
+        sessionId: draftSessionId,
+        projectId: activeProjectId,
+        mode,
+        workingFolder: workingFolder ?? null
+      }
+    }
+
+    if (activeProjectId) {
+      return {
+        scope: 'project',
+        projectId: activeProjectId,
+        mode,
+        workingFolder: workingFolder ?? null
+      }
+    }
+
+    return {
+      scope: 'home',
+      mode,
+      workingFolder: workingFolder ?? null
+    }
+  }, [activeProjectId, draftKeyOverride, draftSessionId, mode, workingFolder])
+  const {
+    hydrated: inputDraftHydrated,
+    loadedDraft: persistedDraft,
+    saveDraft: savePersistedDraft,
+    removeDraft: removePersistedDraft
+  } = useInputDraftPersistence({
+    draftKey: activeDraftKey,
+    context: draftContext
+  })
   const draftReadyKeyRef = React.useRef<string | null>(null)
   const queuedMessagesSnapshotRef = React.useRef<PendingSessionMessageItem[]>(EMPTY_QUEUED_MESSAGES)
   const getQueuedMessagesSnapshot = React.useCallback(() => {
@@ -2776,12 +2816,7 @@ export function InputArea({
         selectedFiles: selectedFiles.map((file) => ({ ...file }))
       }
 
-      if (hasInputDraftContent(nextDraft)) {
-        setPersistedDraft(activeDraftKey, nextDraft)
-        return
-      }
-
-      removePersistedDraft(activeDraftKey)
+      void savePersistedDraft(nextDraft)
     }, 400)
 
     return () => clearTimeout(draftSaveTimerRef.current)
@@ -2790,10 +2825,9 @@ export function InputArea({
     attachedImages,
     finalSerializedText,
     inputDraftHydrated,
-    removePersistedDraft,
     selectedFiles,
     selectedSkill,
-    setPersistedDraft
+    savePersistedDraft
   ])
 
   // Consume pendingInsertText from FileTree clicks
@@ -3050,9 +3084,8 @@ export function InputArea({
   }, [])
 
   const resetComposer = React.useCallback((): void => {
-    if (activeDraftKey) {
-      removePersistedDraft(activeDraftKey)
-    }
+    clearTimeout(draftSaveTimerRef.current)
+    void removePersistedDraft()
 
     setDocumentNodes([])
     setSelectedFiles([])
@@ -3064,7 +3097,7 @@ export function InputArea({
     requestAnimationFrame(() => {
       editorRef.current?.setSelectionOffsets(0, 0)
     })
-  }, [activeDraftKey, removePersistedDraft])
+  }, [removePersistedDraft])
 
   const handleSend = React.useCallback((): void => {
     const liveEditorState = getLiveEditorState()

@@ -221,6 +221,8 @@
     "fastMode": "Fast Mode",
     "fastModeDesc": "Enable fast mode",
     "reasoningEffort": "Reasoning Effort",
+    "faster": "Faster",
+    "smarter": "Smarter",
     "backgroundCommandsCount": "{{count}} bg",
     "backgroundCommandsTooltip": "View and control background commands",
     "backgroundCommandsTitle": "Background commands ({{count}})",

@@ -51,6 +51,7 @@ import {
   MIN_CONTEXT_COMPRESSION_THRESHOLD
 } from '@renderer/lib/agent/context-compression'
 import { resolveSessionModelSelection } from '@renderer/lib/session-model-resolution'
+import { ReasoningEffortSlider } from './ReasoningEffortSlider'
 
 function formatContextLength(length?: number): string | null {
   if (!length) return null
@@ -139,30 +140,37 @@ function PillToggle({
   onClick,
   label,
   description,
+  compact = false,
   activeClassName = 'bg-violet-500 border-violet-500'
 }: {
   enabled: boolean
   onClick: () => void
   label: string
   description?: string
+  compact?: boolean
   activeClassName?: string
 }): React.JSX.Element {
   return (
     <button
       type="button"
+      title={compact ? label : undefined}
       className={cn(
-        'flex w-full items-center justify-between rounded-md px-2.5 py-2 text-xs transition-colors',
+        'flex items-center justify-between rounded-md text-xs transition-colors',
+        compact ? 'min-w-0 flex-1 gap-1.5 px-2 py-2' : 'w-full gap-3 px-2.5 py-2',
         enabled ? 'bg-muted/50 text-foreground' : 'text-foreground/75 hover:bg-muted/45'
       )}
       onClick={onClick}
     >
       <span className="flex min-w-0 flex-col text-left">
-        <span className="font-medium">{label}</span>
-        {description && <span className="text-[10px] text-muted-foreground">{description}</span>}
+        <span className={cn('font-medium', compact && 'truncate')}>{label}</span>
+        {description && !compact && (
+          <span className="text-[10px] text-muted-foreground">{description}</span>
+        )}
       </span>
       <span
         className={cn(
-          'ml-3 size-4 shrink-0 rounded-full border-2 transition-colors',
+          'shrink-0 rounded-full border-2 transition-colors',
+          compact ? 'size-3.5' : 'ml-3 size-4',
           enabled ? activeClassName : 'border-muted-foreground/30'
         )}
       />
@@ -593,7 +601,7 @@ function ModelSettingsPopover({
                 )}
 
                 {supportsThinking && levels && levels.length > 0 && (
-                  <div className={cn('px-2 py-1.5', !thinkingEnabled && 'opacity-60')}>
+                  <div className="px-2 py-1.5">
                     <div className="mb-2 flex items-end justify-between gap-3">
                       <div>
                         <div className="text-xs font-semibold text-foreground">
@@ -601,44 +609,26 @@ function ModelSettingsPopover({
                         </div>
                         <div className="text-[10px] text-muted-foreground">reasoning_effort</div>
                       </div>
+                      <span
+                        className={cn(
+                          'text-xs font-semibold uppercase tracking-wide',
+                          thinkingEnabled && effectiveReasoningEffort === levels[levels.length - 1]
+                            ? 'text-fuchsia-500 dark:text-fuchsia-400'
+                            : 'text-foreground/80'
+                        )}
+                      >
+                        {effectiveReasoningEffort}
+                      </span>
                     </div>
-                    <div
-                      className="relative grid gap-1"
-                      style={{ gridTemplateColumns: `repeat(${levels.length}, minmax(0, 1fr))` }}
-                    >
-                      <span className="absolute left-4 right-4 top-2.5 h-px bg-border" />
-                      {levels.map((level) => {
-                        const active = effectiveReasoningEffort === level && thinkingEnabled
-                        return (
-                          <button
-                            key={level}
-                            type="button"
-                            className="relative z-10 flex min-w-0 flex-col items-center gap-1 text-[10px]"
-                            title={tChat(`input.effortDesc.${level}`)}
-                            onClick={() => setEffort(level)}
-                          >
-                            <span
-                              className={cn(
-                                'flex size-5 items-center justify-center rounded-full border-2 bg-popover transition-colors',
-                                active
-                                  ? 'border-violet-400 text-violet-400'
-                                  : 'border-border text-muted-foreground'
-                              )}
-                            >
-                              {active && <span className="size-2 rounded-full bg-violet-400" />}
-                            </span>
-                            <span
-                              className={cn(
-                                'max-w-full truncate uppercase',
-                                active ? 'font-semibold text-foreground' : 'text-muted-foreground'
-                              )}
-                            >
-                              {level}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <ReasoningEffortSlider
+                      levels={levels}
+                      value={effectiveReasoningEffort}
+                      onChange={setEffort}
+                      dimmed={!thinkingEnabled}
+                      fasterLabel={t('topbar.faster')}
+                      smarterLabel={t('topbar.smarter')}
+                      ariaLabel={t('topbar.reasoningEffort')}
+                    />
                   </div>
                 )}
 
@@ -706,36 +696,44 @@ function ModelSettingsPopover({
                   </div>
                 )}
 
-                {supportsFastMode && (
-                  <PillToggle
-                    enabled={fastModeEnabled}
-                    onClick={() =>
-                      useSettingsStore
-                        .getState()
-                        .updateSettings({ fastModeEnabled: !fastModeEnabled })
-                    }
-                    label={t('topbar.fastMode')}
-                    description={t('topbar.fastModeDesc')}
-                    activeClassName="bg-amber-500 border-amber-500"
-                  />
-                )}
+                {(supportsFastMode ||
+                  supportsResponsesWebsocket ||
+                  supportsResponsesImageGeneration) && (
+                  <div className="flex items-stretch gap-1.5">
+                    {supportsFastMode && (
+                      <PillToggle
+                        compact
+                        enabled={fastModeEnabled}
+                        onClick={() =>
+                          useSettingsStore
+                            .getState()
+                            .updateSettings({ fastModeEnabled: !fastModeEnabled })
+                        }
+                        label={t('topbar.fastMode')}
+                        activeClassName="bg-amber-500 border-amber-500"
+                      />
+                    )}
 
-                {supportsResponsesWebsocket && (
-                  <PillToggle
-                    enabled={websocketEnabled}
-                    onClick={toggleResponsesWebsocket}
-                    label={tSettings('provider.responsesWebsocket')}
-                    activeClassName="bg-sky-500 border-sky-500"
-                  />
-                )}
+                    {supportsResponsesWebsocket && (
+                      <PillToggle
+                        compact
+                        enabled={websocketEnabled}
+                        onClick={toggleResponsesWebsocket}
+                        label={tSettings('provider.responsesWebsocket')}
+                        activeClassName="bg-sky-500 border-sky-500"
+                      />
+                    )}
 
-                {supportsResponsesImageGeneration && (
-                  <PillToggle
-                    enabled={responsesImageGenerationEnabled}
-                    onClick={toggleResponsesImageGeneration}
-                    label={tSettings('provider.responsesImageGeneration')}
-                    activeClassName="bg-emerald-500 border-emerald-500"
-                  />
+                    {supportsResponsesImageGeneration && (
+                      <PillToggle
+                        compact
+                        enabled={responsesImageGenerationEnabled}
+                        onClick={toggleResponsesImageGeneration}
+                        label={tSettings('provider.responsesImageGeneration')}
+                        activeClassName="bg-emerald-500 border-emerald-500"
+                      />
+                    )}
+                  </div>
                 )}
 
                 {supportsContextCompression && (

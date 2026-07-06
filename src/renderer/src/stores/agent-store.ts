@@ -1101,6 +1101,10 @@ function clearSessionRunChangeCache(
   }
 }
 
+// Concurrent refreshes for the same session share one IPC round-trip; several
+// components request the session change list on the same trigger.
+const sessionRunChangeRefreshInFlight = new Map<string, Promise<void>>()
+
 function ensureSessionToolCallCache(
   state: {
     sessionToolCallsCache: Record<string, SessionToolCallCache>
@@ -1845,24 +1849,32 @@ export const useAgentStore = create<AgentStore>()(
 
       refreshSessionRunChanges: async (sessionId) => {
         if (!sessionId) return
-        try {
-          const result = await invokeMessagePackBinary(
-            toMessagePackChannel(IPC.AGENT_CHANGES_LIST_SESSION),
-            { sessionId }
-          )
-          if (isAgentChangeError(result) || !Array.isArray(result)) return
-          set((state) => {
-            clearSessionRunChangeCache(state.runChangesByRunId, sessionId)
-            for (const item of result) {
-              if (!item || typeof item !== 'object' || !('runId' in item)) continue
-              const changeSet = item as AgentRunChangeSet
-              cacheRunChangeSet(state.runChangesByRunId, changeSet)
-            }
-            trimRunChangesMap(state.runChangesByRunId)
-          })
-        } catch {
-          // ignore fetch failures for ephemeral change journal state
-        }
+        const inFlight = sessionRunChangeRefreshInFlight.get(sessionId)
+        if (inFlight) return inFlight
+        const request = (async () => {
+          try {
+            const result = await invokeMessagePackBinary(
+              toMessagePackChannel(IPC.AGENT_CHANGES_LIST_SESSION),
+              { sessionId }
+            )
+            if (isAgentChangeError(result) || !Array.isArray(result)) return
+            set((state) => {
+              clearSessionRunChangeCache(state.runChangesByRunId, sessionId)
+              for (const item of result) {
+                if (!item || typeof item !== 'object' || !('runId' in item)) continue
+                const changeSet = item as AgentRunChangeSet
+                cacheRunChangeSet(state.runChangesByRunId, changeSet)
+              }
+              trimRunChangesMap(state.runChangesByRunId)
+            })
+          } catch {
+            // ignore fetch failures for ephemeral change journal state
+          } finally {
+            sessionRunChangeRefreshInFlight.delete(sessionId)
+          }
+        })()
+        sessionRunChangeRefreshInFlight.set(sessionId, request)
+        return request
       },
 
       undoRunChanges: async (runId) => {

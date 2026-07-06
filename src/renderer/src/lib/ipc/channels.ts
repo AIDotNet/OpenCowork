@@ -89,6 +89,13 @@ export const IPC = {
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
 
+  // Input Drafts
+  INPUT_DRAFT_GET: 'input-draft:get',
+  INPUT_DRAFT_SET: 'input-draft:set',
+  INPUT_DRAFT_REMOVE: 'input-draft:remove',
+  INPUT_DRAFT_LIST: 'input-draft:list',
+  INPUT_DRAFT_CLEANUP: 'input-draft:cleanup',
+
   // Extensions
   EXTENSION_LIST: 'extension:list',
   EXTENSION_INSTALL_FROM_FOLDER: 'extension:install-from-folder',

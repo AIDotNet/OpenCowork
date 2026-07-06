@@ -178,6 +178,11 @@ interface ModelThinkingIndicatorProps {
 const MARKDOWN_WRAPPER_CLASS = 'text-sm leading-relaxed text-foreground break-words'
 const THINK_OPEN_TAG_RE = /<\s*think\s*>/i
 const EMPTY_LIVE_TOOL_CALLS: ToolCallState[] = []
+// Stable defaults for optional array props: a `= []` inline default creates a
+// new reference on every render, which retriggers the run-change refresh
+// effect (its memoized deps chain off these) in a render/fetch loop.
+const EMPTY_INLINE_COMPACT_SUMMARIES: readonly UnifiedMessage[] = []
+const EMPTY_ID_LIST: readonly string[] = []
 
 function formatRetryDelay(delayMs: number): string {
   if (delayMs < 1000) return `${delayMs}ms`
@@ -1806,11 +1811,11 @@ export function AssistantMessage({
   usage,
   toolResults,
   liveToolCallMap,
-  inlineCompactSummaries = [],
+  inlineCompactSummaries = EMPTY_INLINE_COMPACT_SUMMARIES,
   msgId,
   sessionId,
-  sessionAssistantMessageIds = [],
-  sessionToolUseIds = [],
+  sessionAssistantMessageIds = EMPTY_ID_LIST,
+  sessionToolUseIds = EMPTY_ID_LIST,
   showRetry,
   showContinue,
   isLastAssistantMessage,

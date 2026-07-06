@@ -20,7 +20,11 @@ import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-clien
 import { cn } from '@renderer/lib/utils'
 import { useChatStore } from '@renderer/stores/chat-store'
 import type { GitStatusDetailed } from '@renderer/stores/git-store'
-import { getSessionInputDraftKey, useInputDraftStore } from '@renderer/stores/input-draft-store'
+import {
+  getCachedInputDraft,
+  getSessionInputDraftKey,
+  subscribeInputDraftCache
+} from '@renderer/lib/input-drafts'
 import { useSshStore } from '@renderer/stores/ssh-store'
 import { useTaskStore, type TaskItem } from '@renderer/stores/task-store'
 import { useTeamStore } from '@renderer/stores/team-store'
@@ -34,7 +38,12 @@ const RUNTIME_GIT_SUMMARY_CACHE_MS = 5_000
 
 interface RuntimeStatusPanelProps {
   sessionId?: string | null
+  docked?: boolean
 }
+
+const DOCKED_PANEL_CARD_WIDTH = 320
+// Track = card width + right margin, so the docked card matches the floating one.
+const DOCKED_PANEL_TRACK_WIDTH = DOCKED_PANEL_CARD_WIDTH + 12
 
 interface GitResultBase {
   success?: boolean
@@ -312,7 +321,8 @@ function RunningTerminalRow({
 }
 
 export function RuntimeStatusPanel({
-  sessionId = null
+  sessionId = null,
+  docked = false
 }: RuntimeStatusPanelProps): React.JSX.Element {
   const { t } = useTranslation('layout')
   const resolvedSessionId = useChatStore((state) => sessionId ?? state.activeSessionId)
@@ -340,13 +350,25 @@ export function RuntimeStatusPanel({
   const rightPanelOpen = useUIStore((state) => state.rightPanelOpen)
   const runtimeStatusPanelOpen = useUIStore((state) => state.runtimeStatusPanelOpen)
   const visible = Boolean(resolvedSessionId && runtimeStatusPanelOpen && !rightPanelOpen)
-  const sourceFiles = useInputDraftStore(
-    useShallow((state) => {
-      if (!resolvedSessionId) return []
-      const draft = state.draftsByKey[getSessionInputDraftKey(resolvedSessionId)]
-      return draft?.selectedFiles ?? []
-    })
+  const [sourceFiles, setSourceFiles] = React.useState(() =>
+    resolvedSessionId
+      ? (getCachedInputDraft(getSessionInputDraftKey(resolvedSessionId))?.selectedFiles ?? [])
+      : []
   )
+  React.useEffect(() => {
+    const syncSourceFiles = (): void => {
+      if (!resolvedSessionId) {
+        setSourceFiles([])
+        return
+      }
+      setSourceFiles(
+        getCachedInputDraft(getSessionInputDraftKey(resolvedSessionId))?.selectedFiles ?? []
+      )
+    }
+
+    syncSourceFiles()
+    return subscribeInputDraftCache(syncSourceFiles)
+  }, [resolvedSessionId])
   const sessionTasks = useTaskStore(
     useShallow((state) => {
       if (!resolvedSessionId) return EMPTY_TASKS
@@ -446,6 +468,133 @@ export function RuntimeStatusPanel({
           })
   const sourceTitle = sourceFiles.map((file) => file.sendPath).join('\n')
 
+  const panelBody = (
+    <div className="space-y-3">
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-xs font-medium text-muted-foreground">
+            {t('runtimeStatus.contextTitle')}
+          </h3>
+          {gitSummary.loading ? (
+            <Loader2 className="size-3.5 animate-spin text-muted-foreground/60" />
+          ) : null}
+        </div>
+        <div className="space-y-1.5">
+          <ContextRow
+            icon={<GitCompare className="size-3.5" />}
+            label={t('runtimeStatus.changes')}
+            value={changeLabel}
+          />
+          <ContextRow
+            icon={
+              context.sshConnectionId ? (
+                <Server className="size-3.5" />
+              ) : (
+                <Laptop className="size-3.5" />
+              )
+            }
+            label={t('runtimeStatus.target')}
+            value={targetLabel}
+          />
+          <ContextRow
+            icon={<Folder className="size-3.5" />}
+            label={t('runtimeStatus.workingFolder')}
+            value={
+              context.workingFolder
+                ? compactPath(context.workingFolder)
+                : t('runtimeStatus.noWorkingFolder')
+            }
+            title={context.workingFolder ?? undefined}
+          />
+          <ContextRow
+            icon={<GitBranch className="size-3.5" />}
+            label={t('runtimeStatus.branch')}
+            value={branchLabel}
+          />
+          <ContextRow
+            icon={<GitCompare className="size-3.5" />}
+            label={t('runtimeStatus.commitOrPush')}
+            value={syncLabel}
+          />
+          <ContextRow
+            icon={<Folder className="size-3.5" />}
+            label={t('runtimeStatus.sources')}
+            value={sourceLabel}
+            title={sourceTitle || undefined}
+            valueClassName={sourceFiles.length === 0 ? 'text-muted-foreground/70' : undefined}
+          />
+        </div>
+      </section>
+
+      <div className="h-px bg-border/70" />
+
+      <section className="space-y-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <ListChecks className="size-3.5" />
+          <span>{t('runtimeStatus.progressTitle')}</span>
+        </div>
+        {tasks.length > 0 ? (
+          <TodoStatusList tasks={tasks} embedded />
+        ) : (
+          <div className="rounded-md border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground/65">
+            {t('runtimeStatus.noTasks')}
+          </div>
+        )}
+      </section>
+
+      {runningTerminals.length > 0 ? (
+        <>
+          <div className="h-px bg-border/70" />
+          <section className="space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <SquareTerminal className="size-3.5" />
+              <span>{t('runtimeStatus.runningTerminals')}</span>
+              <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-300">
+                {runningTerminals.length}
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {runningTerminals.map((terminal) => (
+                <RunningTerminalRow
+                  key={terminal.id}
+                  terminal={terminal}
+                  closeTitle={t('runtimeStatus.closeTerminal')}
+                  onClose={(id) => void closeTerminalSession(id)}
+                />
+              ))}
+            </div>
+          </section>
+        </>
+      ) : null}
+    </div>
+  )
+
+  if (docked) {
+    return (
+      <AnimatePresence initial={false}>
+        {visible ? (
+          <motion.aside
+            key="runtime-status-panel-docked"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: DOCKED_PANEL_TRACK_WIDTH, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="relative z-30 min-h-0 shrink-0 self-stretch overflow-hidden"
+          >
+            <div
+              className="flex h-full flex-col items-end py-3 pr-3"
+              style={{ width: DOCKED_PANEL_TRACK_WIDTH }}
+            >
+              <div className="min-h-0 w-full overflow-y-auto rounded-lg border border-border/70 bg-background/95 p-3 shadow-[-8px_10px_34px_rgba(0,0,0,0.22)] backdrop-blur-xl">
+                {panelBody}
+              </div>
+            </div>
+          </motion.aside>
+        ) : null}
+      </AnimatePresence>
+    )
+  }
+
   return (
     <div className="pointer-events-none absolute inset-0 z-30">
       <AnimatePresence initial={false}>
@@ -459,106 +608,7 @@ export function RuntimeStatusPanel({
             className="pointer-events-auto absolute right-3 top-12 max-h-[min(420px,calc(100%-4rem))] w-[min(320px,calc(100%-1.5rem))] overflow-y-auto rounded-lg border border-border/70 bg-background/95 p-3 shadow-[-8px_10px_34px_rgba(0,0,0,0.22)] backdrop-blur-xl"
             style={{ transformOrigin: 'top right' }}
           >
-            <div className="space-y-3">
-              <section className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-medium text-muted-foreground">
-                    {t('runtimeStatus.contextTitle')}
-                  </h3>
-                  {gitSummary.loading ? (
-                    <Loader2 className="size-3.5 animate-spin text-muted-foreground/60" />
-                  ) : null}
-                </div>
-                <div className="space-y-1.5">
-                  <ContextRow
-                    icon={<GitCompare className="size-3.5" />}
-                    label={t('runtimeStatus.changes')}
-                    value={changeLabel}
-                  />
-                  <ContextRow
-                    icon={
-                      context.sshConnectionId ? (
-                        <Server className="size-3.5" />
-                      ) : (
-                        <Laptop className="size-3.5" />
-                      )
-                    }
-                    label={t('runtimeStatus.target')}
-                    value={targetLabel}
-                  />
-                  <ContextRow
-                    icon={<Folder className="size-3.5" />}
-                    label={t('runtimeStatus.workingFolder')}
-                    value={
-                      context.workingFolder
-                        ? compactPath(context.workingFolder)
-                        : t('runtimeStatus.noWorkingFolder')
-                    }
-                    title={context.workingFolder ?? undefined}
-                  />
-                  <ContextRow
-                    icon={<GitBranch className="size-3.5" />}
-                    label={t('runtimeStatus.branch')}
-                    value={branchLabel}
-                  />
-                  <ContextRow
-                    icon={<GitCompare className="size-3.5" />}
-                    label={t('runtimeStatus.commitOrPush')}
-                    value={syncLabel}
-                  />
-                  <ContextRow
-                    icon={<Folder className="size-3.5" />}
-                    label={t('runtimeStatus.sources')}
-                    value={sourceLabel}
-                    title={sourceTitle || undefined}
-                    valueClassName={
-                      sourceFiles.length === 0 ? 'text-muted-foreground/70' : undefined
-                    }
-                  />
-                </div>
-              </section>
-
-              <div className="h-px bg-border/70" />
-
-              <section className="space-y-2">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                  <ListChecks className="size-3.5" />
-                  <span>{t('runtimeStatus.progressTitle')}</span>
-                </div>
-                {tasks.length > 0 ? (
-                  <TodoStatusList tasks={tasks} embedded />
-                ) : (
-                  <div className="rounded-md border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground/65">
-                    {t('runtimeStatus.noTasks')}
-                  </div>
-                )}
-              </section>
-
-              {runningTerminals.length > 0 ? (
-                <>
-                  <div className="h-px bg-border/70" />
-                  <section className="space-y-2">
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <SquareTerminal className="size-3.5" />
-                      <span>{t('runtimeStatus.runningTerminals')}</span>
-                      <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-300">
-                        {runningTerminals.length}
-                      </span>
-                    </div>
-                    <div className="space-y-1.5">
-                      {runningTerminals.map((terminal) => (
-                        <RunningTerminalRow
-                          key={terminal.id}
-                          terminal={terminal}
-                          closeTitle={t('runtimeStatus.closeTerminal')}
-                          onClose={(id) => void closeTerminalSession(id)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                </>
-              ) : null}
-            </div>
+            {panelBody}
           </motion.aside>
         ) : null}
       </AnimatePresence>

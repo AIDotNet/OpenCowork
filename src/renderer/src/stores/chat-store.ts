@@ -42,7 +42,7 @@ import { usePlanStore } from './plan-store'
 import { useUIStore } from './ui-store'
 import { useBackgroundSessionStore } from './background-session-store'
 import { useSettingsStore } from './settings-store'
-import { useInputDraftStore } from './input-draft-store'
+import { removeSessionInputDraft } from '../lib/input-drafts'
 import {
   invalidateVisibleSessionCache,
   isSessionForeground
@@ -2775,7 +2775,7 @@ export const useChatStore = create<ChatStore>()(
           planState.deletePlan(plan.id)
         }
         taskState.deleteSessionTasks(sessionId)
-        useInputDraftStore.getState().removeSessionDraft(sessionId)
+        void removeSessionInputDraft(sessionId)
       }
       scheduleAfterNextPaint(() => cleanupDeletedSessionMessages(deletedMessageIds))
       const liveSessionId = agentState.liveSessionId
@@ -3619,7 +3619,7 @@ export const useChatStore = create<ChatStore>()(
       const plan = usePlanStore.getState().getPlanBySession(id)
       if (plan) usePlanStore.getState().deletePlan(plan.id)
       useTaskStore.getState().deleteSessionTasks(id)
-      useInputDraftStore.getState().removeSessionDraft(id)
+      void removeSessionInputDraft(id)
       scheduleAfterNextPaint(() => cleanupDeletedSessionMessages(deletedMessageIds))
       dbDeleteSession(id)
 
@@ -4095,7 +4095,7 @@ export const useChatStore = create<ChatStore>()(
         const plan = planState.getPlanBySession(id)
         if (plan) planState.deletePlan(plan.id)
         taskState.deleteSessionTasks(id)
-        useInputDraftStore.getState().removeSessionDraft(id)
+        void removeSessionInputDraft(id)
       }
       clearPendingMessageFlushes(deletedMessageIds)
       for (const messageId of deletedMessageIds) {
@@ -4170,7 +4170,7 @@ export const useChatStore = create<ChatStore>()(
       const plan = usePlanStore.getState().getPlanBySession(sessionId)
       if (plan) usePlanStore.getState().deletePlan(plan.id)
       useTaskStore.getState().deleteSessionTasks(sessionId)
-      useInputDraftStore.getState().removeSessionDraft(sessionId)
+      void removeSessionInputDraft(sessionId)
       useUIStore
         .getState()
         .syncSessionScopedState(
@@ -4226,7 +4226,7 @@ export const useChatStore = create<ChatStore>()(
       const plan = usePlanStore.getState().getPlanBySession(sessionId)
       if (plan) usePlanStore.getState().deletePlan(plan.id)
       useTaskStore.getState().deleteSessionTasks(sessionId)
-      useInputDraftStore.getState().removeSessionDraft(sessionId)
+      void removeSessionInputDraft(sessionId)
     },
 
     duplicateSession: async (sessionId) => {

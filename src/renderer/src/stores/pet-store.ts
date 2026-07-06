@@ -29,6 +29,8 @@ interface PetData {
   growth: number
   coins: number
   sleeping: boolean
+  /** When the current nap auto-wakes (epoch ms); 0 when awake. */
+  sleepEndsAt: number
   awayTask: PetAwayTask | null
   lastTickAt: number
   adoptedAt: number
@@ -88,6 +90,10 @@ export const STUDY_MIN_LEVEL = 6
 export const SOAK_MIN_LEVEL = 2
 export const WORK_DURATION_MS = 30 * 60_000
 export const STUDY_DURATION_MS = 20 * 60_000
+/** A nap is bounded — the pet auto-wakes after this long instead of sleeping forever. */
+export const SLEEP_DURATION_MS = 20 * 60_000
+/** Mood restored per minute of sleep (applied gradually each tick, not all at once). */
+export const SLEEP_MOOD_RECOVERY_PER_MIN = 2
 export const WORK_REWARD_COINS = 60
 export const WORK_REWARD_GROWTH = 30
 export const STUDY_REWARD_GROWTH = 240
@@ -135,7 +141,14 @@ function applyDecay(data: PetData, elapsedMs: number): Partial<PetData> {
   const cleanliness = clamp(data.cleanliness - 0.5 * restFactor * minutes)
 
   const uncomfortable = hunger < 30 || cleanliness < 30
-  const moodDelta = uncomfortable ? -1.2 * minutes : 0.6 * minutes
+  // Sleep is restorative: mood recovers gradually across the nap (a little each
+  // tick), and more slowly when the pet is hungry or dirty so needs still bite.
+  // Awake, mood drifts up when comfortable and sinks when a need is neglected.
+  const moodDelta = data.sleeping
+    ? SLEEP_MOOD_RECOVERY_PER_MIN * (uncomfortable ? 0.4 : 1) * minutes
+    : uncomfortable
+      ? -1.2 * minutes
+      : 0.6 * minutes
   const mood = clamp(data.mood + moodDelta)
 
   return { hunger, cleanliness, mood }
@@ -154,6 +167,7 @@ const initialData = (): PetData => ({
   growth: 0,
   coins: 120,
   sleeping: false,
+  sleepEndsAt: 0,
   awayTask: null,
   lastTickAt: Date.now(),
   adoptedAt: Date.now(),
@@ -174,6 +188,23 @@ export const usePetStore = create<PetStore>()(
         const state = get()
         const elapsed = now - state.lastTickAt
         if (elapsed < 1000) return
+
+        // A nap is time-limited. If it ends within this window, settle the
+        // sleeping portion and the awake portion separately so the restorative
+        // mood gain stops the instant the pet wakes — matters most on offline
+        // catch-up, where one tick can span the whole nap and then some.
+        if (state.sleeping && state.sleepEndsAt > 0 && now >= state.sleepEndsAt) {
+          const slept = { ...state, ...applyDecay(state, state.sleepEndsAt - state.lastTickAt) }
+          const awake = { ...slept, sleeping: false }
+          set({
+            ...applyDecay(awake, now - state.sleepEndsAt),
+            sleeping: false,
+            sleepEndsAt: 0,
+            lastTickAt: now
+          })
+          return
+        }
+
         set({ ...applyDecay(state, elapsed), lastTickAt: now })
       },
 
@@ -238,7 +269,11 @@ export const usePetStore = create<PetStore>()(
         const state = get()
         if (state.awayTask) return
         state.tick()
-        set({ sleeping: !get().sleeping })
+        if (get().sleeping) {
+          set({ sleeping: false, sleepEndsAt: 0 })
+        } else {
+          set({ sleeping: true, sleepEndsAt: Date.now() + SLEEP_DURATION_MS })
+        }
       },
 
       startWork: () => {
@@ -250,6 +285,7 @@ export const usePetStore = create<PetStore>()(
         const now = Date.now()
         set({
           sleeping: false,
+          sleepEndsAt: 0,
           awayTask: { kind: 'work', startedAt: now, endsAt: now + WORK_DURATION_MS }
         })
         return { ok: true }
@@ -265,6 +301,7 @@ export const usePetStore = create<PetStore>()(
         const now = Date.now()
         set({
           sleeping: false,
+          sleepEndsAt: 0,
           coins: state.coins - STUDY_COST,
           awayTask: { kind: 'study', startedAt: now, endsAt: now + STUDY_DURATION_MS }
         })
@@ -347,6 +384,7 @@ export const usePetStore = create<PetStore>()(
         growth: state.growth,
         coins: state.coins,
         sleeping: state.sleeping,
+        sleepEndsAt: state.sleepEndsAt,
         awayTask: state.awayTask,
         lastTickAt: state.lastTickAt,
         adoptedAt: state.adoptedAt,

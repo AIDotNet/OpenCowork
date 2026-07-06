@@ -221,6 +221,8 @@
     "fastMode": "Fast 模式",
     "fastModeDesc": "启用快速模式",
     "reasoningEffort": "推理强度",
+    "faster": "更快",
+    "smarter": "更强",
     "backgroundCommandsCount": "{{count}} 后台",
     "backgroundCommandsTooltip": "查看并操作后台命令",
     "backgroundCommandsTitle": "后台命令（{{count}}）",

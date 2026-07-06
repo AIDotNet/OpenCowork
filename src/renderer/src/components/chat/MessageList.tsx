@@ -230,8 +230,7 @@ interface MessageRowProps {
 const EMPTY_MESSAGES: UnifiedMessage[] = []
 const EMPTY_TEAM_HISTORY: ActiveTeam[] = []
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 24
-const STREAMING_AUTO_SCROLL_BOTTOM_THRESHOLD = 80
-const STREAMING_AUTO_SCROLL_STOP_THRESHOLD = 240
+const STREAMING_AUTO_SCROLL_BOTTOM_THRESHOLD = AUTO_SCROLL_BOTTOM_THRESHOLD
 const TAIL_STATIC_MESSAGE_COUNT = 4
 const TAIL_LIVE_MESSAGE_COUNT = 6
 const INITIAL_SCROLL_SETTLE_FRAMES = 2
@@ -1295,8 +1294,10 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
 
   const canAutoScroll = React.useCallback(() => {
     const mode = autoScrollModeRef.current
-    return mode === 'user' || (mode === 'stream' && canSessionTriggerStreamingAutoScroll)
-  }, [canSessionTriggerStreamingAutoScroll])
+    return (
+      mode === 'user' || (mode === 'stream' && canSessionTriggerStreamingAutoScroll && isAtBottom)
+    )
+  }, [canSessionTriggerStreamingAutoScroll, isAtBottom])
 
   const markProgrammaticScroll = React.useCallback(() => {
     programmaticScrollUntilRef.current = window.performance.now() + PROGRAMMATIC_SCROLL_GUARD_MS
@@ -1320,7 +1321,6 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     const threshold = isSessionOutputting
       ? STREAMING_AUTO_SCROLL_BOTTOM_THRESHOLD
       : AUTO_SCROLL_BOTTOM_THRESHOLD
-    const nextAtBottom = distanceToBottom <= threshold
     const previousOffset = lastScrollOffsetRef.current
     const currentOffset = ref.scrollTop
     const scrolledUp = currentOffset < previousOffset - BOTTOM_SCROLL_CORRECTION_EPSILON
@@ -1328,15 +1328,19 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
 
     lastScrollOffsetRef.current = currentOffset
 
-    if (
-      scrolledUp &&
-      distanceToBottom > STREAMING_AUTO_SCROLL_STOP_THRESHOLD &&
-      !isProgrammaticScroll
-    ) {
+    if (scrolledUp && !isProgrammaticScroll) {
       autoScrollModeRef.current = 'off'
-    } else if (nextAtBottom && isSessionOutputting && autoScrollModeRef.current === 'off') {
+      setIsAtBottom(false)
+      return
+    }
+
+    const physicallyAtBottom = distanceToBottom <= threshold
+    if (physicallyAtBottom && isSessionOutputting && autoScrollModeRef.current === 'off') {
       autoScrollModeRef.current = 'stream'
     }
+
+    const nextAtBottom =
+      physicallyAtBottom || (isSessionOutputting && autoScrollModeRef.current === 'stream')
 
     setIsAtBottom((prev) => (prev === nextAtBottom ? prev : nextAtBottom))
   }, [isSessionOutputting])

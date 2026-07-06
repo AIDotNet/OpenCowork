@@ -853,7 +853,7 @@
     "editedFiles_other": "Editado {{count}} archivos",
     "deletedFiles_one": "Suprimido {{count}} archivo",
     "deletedFiles_other": "Suprimido {{count}} archivos",
-    "ranCommandsInline": "Corrió. {{count}} comandos",
+    "ranCommandsInline": "{{count}} comando ejecutado",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Ampliar el espacio de trabajo {{count}} ejecución de herramientas)",
@@ -913,7 +913,8 @@
       "stackTrace": "Rastreo de escaleras",
       "copy": "Copiado",
       "copied": "Copiado"
-    }
+    },
+    "processTools": "Llamadas a herramientas"
   },
   "messageActions": {
     "fork": "Fork",
@@ -940,7 +941,11 @@
     "globResults": "Found {{count}} caminos {{suffix}}",
     "listedDirs": "Listed {{count}} directorios",
     "ranCommands": "Ran {{count}} comandos",
-    "ranCommandsTitle": "Ran {{count}} comandos"
+    "ranCommandsTitle": "Ran {{count}} comandos",
+    "readActions": "{{count}} lecturas",
+    "searchActions": "{{count}} búsquedas",
+    "listDirActions": "{{count}} listados de directorios",
+    "mcpCalls": "{{count}} llamadas MCP"
   },
   "fileChange": {
     "created": "creado",

@@ -34,6 +34,7 @@ interface BrowserToolCardProps {
   output?: ToolResultContent
   status: ToolCallStatus | 'completed'
   error?: string
+  forceOpen?: boolean
 }
 
 const CONTENT_TRANSITION = {
@@ -273,6 +274,7 @@ function statusLabel(
   if (status === 'running') return t('toolCall.executing')
   if (status === 'pending_approval') return t('permission.title')
   if (status === 'error') return t('error.label')
+  if (status === 'canceled') return t('toolCall.canceled', { defaultValue: 'Canceled' })
   return null
 }
 
@@ -281,13 +283,18 @@ export function BrowserToolCard({
   input,
   output,
   status,
-  error
+  error,
+  forceOpen = false
 }: BrowserToolCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const jsonOutput = parseStructuredOutput(output)
-  const parsedError = error || parseErrorMessage(output)
+  const canceledMessage =
+    status === 'canceled'
+      ? t('toolCall.noResult', { defaultValue: 'No tool result available' })
+      : null
+  const parsedError = error || parseErrorMessage(output) || canceledMessage
   const isRunning = status === 'streaming' || status === 'pending_approval' || status === 'running'
-  const hasError = status === 'error' || Boolean(parsedError)
+  const hasError = status === 'error' || status === 'canceled' || Boolean(parsedError)
 
   const { images, notes } = useMemo(() => {
     if (!Array.isArray(output)) {
@@ -303,9 +310,10 @@ export function BrowserToolCard({
   const autoOpenKey = `${isRunning ? 'active' : 'idle'}:${images.length}`
   const [openState, setOpenState] = useState<{ key: string; open: boolean }>(() => ({
     key: autoOpenKey,
-    open: isRunning || images.length > 0
+    open: forceOpen || isRunning || images.length > 0
   }))
-  const open = openState.key === autoOpenKey ? openState.open : isRunning || images.length > 0
+  const open =
+    forceOpen || (openState.key === autoOpenKey ? openState.open : isRunning || images.length > 0)
 
   const summary = buildSummary(name, input, jsonOutput, notes, t)
   const mainPreview = getMainPreview(name, jsonOutput)
@@ -336,12 +344,13 @@ export function BrowserToolCard({
     <div className="my-0 min-w-0 overflow-hidden">
       <button
         type="button"
-        onClick={() =>
+        onClick={() => {
+          if (forceOpen) return
           setOpenState({
             key: autoOpenKey,
             open: !open
           })
-        }
+        }}
         className="group w-full rounded-md px-2 py-0.5 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-accent/50"
       >
         <CompactToolCallHeader

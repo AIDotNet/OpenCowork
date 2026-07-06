@@ -66,8 +66,6 @@
     "clearConfirmDesc": "This will remove all messages in this conversation. This action cannot be undone.",
     "compressionBudget": "Compression Budget",
     "remaining": "remaining",
-    "compressionBudget": "Compression Budget",
-    "remaining": "remaining",
     "runtimeMetrics": {
       "input": "Uncached input",
       "cache": "Cache",
@@ -134,7 +132,6 @@
     "queueResume": "Resume",
     "queueEditing": "Edit queued message",
     "queueQuote": "Quote",
-    "queueQuoted": "Inserted into conversation",
     "queueQuoted": "Inserted into conversation",
     "queueImageCount": "{{count}} images",
     "queueImageOnly": "[Images only]",
@@ -918,9 +915,8 @@
     "editedFiles_other": "Edited {{count}} files",
     "deletedFiles_one": "Deleted {{count}} file",
     "deletedFiles_other": "Deleted {{count}} files",
-    "ranCommandsInline": "ran {{count}} commands",
     "processResponse": "response",
-    "processTools": "tools",
+    "processTools": "Tool calls",
     "thinkingStatus": "Thinking...",
     "streamingText": "streaming text",
     "activeTools": "{{count}} active tools",
@@ -999,7 +995,9 @@
       "stackTrace": "Stack trace",
       "copy": "Copy",
       "copied": "Copied"
-    }
+    },
+    "ranCommandsInline_one": "Ran {{count}} command",
+    "ranCommandsInline_other": "Ran {{count}} commands"
   },
   "messageActions": {
     "fork": "Fork",
@@ -1020,11 +1018,15 @@
   },
   "toolGroup": {
     "readFiles": "Read {{count}} files",
+    "readActions": "Read {{count}} times",
     "searchedPatterns": "Searched {{count}} patterns",
+    "searchActions": "Searched {{count}} times",
     "globbedPatterns": "Globbed {{count}} patterns",
     "grepResults": "{{matches}} matches in {{files}} files{{suffix}}",
     "globResults": "Found {{count}} paths{{suffix}}",
     "listedDirs": "Listed {{count}} directories",
+    "listDirActions": "Listed directories {{count}} times",
+    "mcpCalls": "Called MCP {{count}} times",
     "ranCommands": "Ran {{count}} commands",
     "ranCommandsTitle": "Ran {{count}} commands"
   },

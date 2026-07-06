@@ -853,7 +853,7 @@
     "editedFiles_other": "отредактированный {{count}} файлы",
     "deletedFiles_one": "Удаленный {{count}} файл",
     "deletedFiles_other": "Удаленный {{count}} файлы",
-    "ranCommandsInline": "бегать {{count}} командовать",
+    "ranCommandsInline": "Выполнено команд: {{count}}",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Расширение рабочего пространства ({{count}} инструментальные казни",
@@ -913,7 +913,8 @@
       "stackTrace": "След стека",
       "copy": "Копия",
       "copied": "Копирован"
-    }
+    },
+    "processTools": "Вызовы инструментов"
   },
   "messageActions": {
     "fork": "Вилка",
@@ -940,7 +941,11 @@
     "globResults": "Найден {{count}} пути {{suffix}}",
     "listedDirs": "перечисленный {{count}} справочники",
     "ranCommands": "Рана {{count}} командовать",
-    "ranCommandsTitle": "Рана {{count}} командовать"
+    "ranCommandsTitle": "Рана {{count}} командовать",
+    "readActions": "Чтений: {{count}}",
+    "searchActions": "Поисков: {{count}}",
+    "listDirActions": "Списков каталогов: {{count}}",
+    "mcpCalls": "Вызовов MCP: {{count}}"
   },
   "fileChange": {
     "created": "созданный",

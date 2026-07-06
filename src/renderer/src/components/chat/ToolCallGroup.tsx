@@ -33,6 +33,7 @@ function groupStatus(items: ToolCallGroupItem[]): ToolCallStatus | 'completed' {
   if (items.some((i) => i.status === 'running')) return 'running'
   if (items.some((i) => i.status === 'streaming')) return 'streaming'
   if (items.some((i) => i.status === 'pending_approval')) return 'pending_approval'
+  if (items.some((i) => i.status === 'canceled')) return 'canceled'
   if (items.every((i) => i.status === 'completed')) return 'completed'
   return 'running'
 }
@@ -95,21 +96,22 @@ export function ToolCallGroup({
   const { t } = useTranslation('chat')
   const status = groupStatus(items)
   const isActive = status === 'running' || status === 'streaming' || status === 'pending_approval'
+  const shouldForceOpen = isActive || status === 'error' || status === 'canceled'
 
-  const [expanded, setExpanded] = useState(isActive || !collapsible)
+  const [expanded, setExpanded] = useState(shouldForceOpen || !collapsible)
   const previousCollapsibleRef = React.useRef(collapsible)
 
   React.useEffect(() => {
     if (!collapsible) {
       setExpanded(true)
     } else if (!previousCollapsibleRef.current) {
-      setExpanded(isActive)
-    } else if (isActive) {
+      setExpanded(shouldForceOpen)
+    } else if (shouldForceOpen) {
       setExpanded(true)
     }
 
     previousCollapsibleRef.current = collapsible
-  }, [collapsible, isActive])
+  }, [collapsible, shouldForceOpen])
 
   const summaryLabel = groupSummaryLabel(toolName, items, t)
   const contentVisible = !collapsible || expanded
@@ -132,8 +134,12 @@ export function ToolCallGroup({
           <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-lime-500/25 text-lime-600 dark:text-lime-400">
             {isActive ? (
               <Loader2 className="size-3 animate-spin text-sky-500" />
-            ) : status === 'error' ? (
-              <X className="size-3 text-destructive" />
+            ) : status === 'error' || status === 'canceled' ? (
+              <X
+                className={
+                  status === 'error' ? 'size-3 text-destructive' : 'size-3 text-muted-foreground/60'
+                }
+              />
             ) : (
               <Check className="size-3 text-emerald-500" />
             )}

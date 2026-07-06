@@ -853,7 +853,7 @@
     "editedFiles_other": "{{count}} 파일 편집",
     "deletedFiles_one": "삭제 된 {{count}} 파일",
     "deletedFiles_other": "삭제 된 {{count}} 파일",
-    "ranCommandsInline": "ran {{count}} 명령",
+    "ranCommandsInline": "명령 실행 {{count}}회",
     "summarySeparator": "·",
     "moreKinds": "+{{count}}를",
     "showWorkspace": "workspace 확장 ({{count}} 도구 실행)",
@@ -913,7 +913,8 @@
       "stackTrace": "스택 추적",
       "copy": "관련 기사",
       "copied": "뚱 베어"
-    }
+    },
+    "processTools": "도구 호출"
   },
   "messageActions": {
     "fork": "사이트맵",
@@ -940,7 +941,11 @@
     "globResults": "{{count}} 경로{{suffix}}",
     "listedDirs": "{{count}} 디렉토리 목록",
     "ranCommands": "Ran {{count}} 명령",
-    "ranCommandsTitle": "Ran {{count}} 명령"
+    "ranCommandsTitle": "Ran {{count}} 명령",
+    "readActions": "읽기 {{count}}회",
+    "searchActions": "검색 {{count}}회",
+    "listDirActions": "디렉터리 목록 {{count}}회",
+    "mcpCalls": "MCP 호출 {{count}}회"
   },
   "fileChange": {
     "created": "제품정보",

@@ -853,7 +853,7 @@
     "editedFiles_other": "Edited {{count}} dosyaları dosyaları dosyaları dosyaları",
     "deletedFiles_one": "Deleted {{count}} Dosya dosyası",
     "deletedFiles_other": "Deleted {{count}} dosyaları dosyaları dosyaları dosyaları",
-    "ranCommandsInline": "koştu koştu ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran ran {{count}} komutlar komutlar komutlar komutlar",
+    "ranCommandsInline": "{{count}} komut çalıştırıldı",
     "summarySeparator": ",",
     "moreKinds": "+ + + + {{count}}",
     "showWorkspace": "Geniş çalışma alanı (İngilizce). {{count}} araç infazları)",
@@ -913,7 +913,8 @@
       "stackTrace": "Stack izler",
       "copy": "Kopya kopya",
       "copied": "Copied"
-    }
+    },
+    "processTools": "Araç çağrıları"
   },
   "messageActions": {
     "fork": "Fork",
@@ -940,7 +941,11 @@
     "globResults": "found {{count}} yolları yolları yolları yolları {{suffix}}",
     "listedDirs": "Listelendi {{count}} Yönetmenler",
     "ranCommands": "Ran Ran Ran {{count}} komutlar komutlar komutlar komutlar",
-    "ranCommandsTitle": "Ran Ran Ran {{count}} komutlar komutlar komutlar komutlar"
+    "ranCommandsTitle": "Ran Ran Ran {{count}} komutlar komutlar komutlar komutlar",
+    "readActions": "{{count}} okuma",
+    "searchActions": "{{count}} arama",
+    "listDirActions": "{{count}} dizin listeleme",
+    "mcpCalls": "{{count}} MCP çağrısı"
   },
   "fileChange": {
     "created": "Oluşturulmuş yaratılmış yaratılmış yaratılmış yaratılmış yaratılmış",

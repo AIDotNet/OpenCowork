@@ -853,7 +853,7 @@
     "editedFiles_other": "Edited {{count}} الملفات",
     "deletedFiles_one": "Deleted {{count}} ملف",
     "deletedFiles_other": "Deleted {{count}} الملفات",
-    "ranCommandsInline": "ركضت {{count}} الأوامر",
+    "ranCommandsInline": "تم تنفيذ {{count}} أمر",
     "summarySeparator": "..",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "التوسع في مجال العمل {{count}} عمليات الإعدام بالأدوات",
@@ -913,7 +913,8 @@
       "stackTrace": "تعقب",
       "copy": "نسخ",
       "copied": "Copied"
-    }
+    },
+    "processTools": "استدعاءات الأدوات"
   },
   "messageActions": {
     "fork": "Fork",
@@ -940,7 +941,11 @@
     "globResults": "وجدت {{count}} الطرق {{suffix}}",
     "listedDirs": "القائمة {{count}} الأدلة",
     "ranCommands": "ران {{count}} الأوامر",
-    "ranCommandsTitle": "ران {{count}} الأوامر"
+    "ranCommandsTitle": "ران {{count}} الأوامر",
+    "readActions": "قراءة {{count}} مرة",
+    "searchActions": "بحث {{count}} مرة",
+    "listDirActions": "عرض الأدلة {{count}} مرة",
+    "mcpCalls": "استدعاء MCP {{count}} مرة"
   },
   "fileChange": {
     "created": "أنشئت",

@@ -853,7 +853,7 @@
     "editedFiles_other": "Modifié {{count}} fichiers",
     "deletedFiles_one": "Supprimé {{count}} fichier",
     "deletedFiles_other": "Supprimé {{count}} fichiers",
-    "ranCommandsInline": "couru {{count}} commandes",
+    "ranCommandsInline": "{{count}} commande exécutée",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Élargir l'espace de travail ({{count}} exécutions d'outils)",
@@ -913,7 +913,8 @@
       "stackTrace": "Trace de la pile",
       "copy": "Copier",
       "copied": "Copié"
-    }
+    },
+    "processTools": "Appels d'outils"
   },
   "messageActions": {
     "fork": "Fourche",
@@ -940,7 +941,11 @@
     "globResults": "Trouvé {{count}} chemins {{suffix}}",
     "listedDirs": "Inscrit {{count}} répertoires",
     "ranCommands": "Courbé {{count}} commandes",
-    "ranCommandsTitle": "Courbé {{count}} commandes"
+    "ranCommandsTitle": "Courbé {{count}} commandes",
+    "readActions": "{{count}} lectures",
+    "searchActions": "{{count}} recherches",
+    "listDirActions": "{{count}} listes de répertoires",
+    "mcpCalls": "{{count}} appels MCP"
   },
   "fileChange": {
     "created": "créé",

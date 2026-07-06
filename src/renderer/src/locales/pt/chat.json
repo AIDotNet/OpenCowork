@@ -853,7 +853,7 @@
     "editedFiles_other": "Editado {{count}} ficheiros",
     "deletedFiles_one": "Removido {{count}} arquivo",
     "deletedFiles_other": "Removido {{count}} ficheiros",
-    "ranCommandsInline": "correu {{count}} comandos",
+    "ranCommandsInline": "{{count}} comando executado",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Expandir a área de trabalho ({{count}} execuções de ferramentas)",
@@ -913,7 +913,8 @@
       "stackTrace": "Rastreamento da pilha",
       "copy": "Copiar",
       "copied": "Copiado"
-    }
+    },
+    "processTools": "Chamadas de ferramentas"
   },
   "messageActions": {
     "fork": "Garfo",
@@ -940,7 +941,11 @@
     "globResults": "Encontrado {{count}} caminhos {{suffix}}",
     "listedDirs": "Listado {{count}} diretórios",
     "ranCommands": "Rando {{count}} comandos",
-    "ranCommandsTitle": "Rando {{count}} comandos"
+    "ranCommandsTitle": "Rando {{count}} comandos",
+    "readActions": "{{count}} leituras",
+    "searchActions": "{{count}} pesquisas",
+    "listDirActions": "{{count}} listagens de diretórios",
+    "mcpCalls": "{{count}} chamadas MCP"
   },
   "fileChange": {
     "created": "criado",

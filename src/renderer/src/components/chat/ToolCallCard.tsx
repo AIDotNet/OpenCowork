@@ -58,6 +58,7 @@ import {
   type CompactToolHeaderModel
 } from './CompactToolCallHeader'
 import { parseExtensionToolResult } from '@renderer/lib/extensions/extension-result'
+import { isMcpTool, parseMcpToolName } from '@renderer/lib/mcp/mcp-tools'
 
 interface ToolCallCardProps {
   toolUseId?: string
@@ -68,6 +69,7 @@ interface ToolCallCardProps {
   error?: string
   startedAt?: number
   completedAt?: number
+  forceOpen?: boolean
 }
 
 function getBashInputTerminalId(input: Record<string, unknown>): string | null {
@@ -85,6 +87,43 @@ function shallowEqualRecord(prev: Record<string, unknown>, next: Record<string, 
     if (!Object.is(prev[key], next[key])) return false
   }
   return true
+}
+
+function formatMcpToolDisplayName(name: string): string {
+  const parsed = parseMcpToolName(name)
+  const toolName = parsed?.toolName ?? name
+  const label = toolName
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .join(' ')
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : toolName
+}
+
+function McpToolIcon(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="size-3.5 text-white/90"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M7.2 15.8 10.8 12.2" />
+      <path d="M8.8 17.4 12.4 13.8" />
+      <path d="M10.4 10.8 13.2 8" />
+      <path d="M13.8 14.2 16.6 11.4" />
+      <path d="M9.8 11.2 12.8 14.2 15.2 11.8 12.2 8.8Z" fill="currentColor" stroke="none" />
+      <path
+        d="M7.2 15.8c-.6.6-.6 1.6 0 2.2s1.6.6 2.2 0l.6-.6-2.2-2.2Z"
+        fill="currentColor"
+        stroke="none"
+      />
+    </svg>
+  )
 }
 
 function toolResultContentEqual(
@@ -129,6 +168,7 @@ function areToolCallCardPropsEqual(prev: ToolCallCardProps, next: ToolCallCardPr
     prev.error === next.error &&
     prev.startedAt === next.startedAt &&
     prev.completedAt === next.completedAt &&
+    prev.forceOpen === next.forceOpen &&
     shallowEqualRecord(prev.input, next.input) &&
     toolResultContentEqual(prev.output, next.output)
   )
@@ -1037,7 +1077,7 @@ function BashOutputBlock({
 
         <pre
           ref={terminalRef}
-          className="max-h-[360px] min-h-[220px] overflow-auto whitespace-pre-wrap break-words px-3 py-2.5 text-[11px] leading-5 text-zinc-100"
+          className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words px-3 py-2.5 text-[11px] leading-5 text-zinc-100"
           style={{ fontFamily: MONO_FONT }}
         >
           {text}
@@ -2694,6 +2734,7 @@ function compactStatusLabel(
   if (status === 'running') return t('toolCall.executing')
   if (status === 'pending_approval') return t('permission.title')
   if (status === 'error') return t('error.label')
+  if (status === 'canceled') return t('toolCall.canceled', { defaultValue: 'Canceled' })
   return null
 }
 
@@ -3124,7 +3165,8 @@ function ToolCallCardInner({
   status,
   error,
   startedAt,
-  completedAt
+  completedAt,
+  forceOpen = false
 }: ToolCallCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const isProcessing = status === 'streaming' || status === 'running'
@@ -3139,20 +3181,32 @@ function ToolCallCardInner({
         : null
   const hasVisualOutput = hasImageBlocks(output)
   const isReadTextTool = name === 'Read' && !hasVisualOutput
-  const [open, setOpen] = React.useState((isActive && !isReadTextTool) || hasVisualOutput)
+  const [open, setOpen] = React.useState(
+    forceOpen || (isActive && !isReadTextTool) || hasVisualOutput
+  )
   // Text Read output can be large; only mount it after the user opens the Read card.
   const [readTextOutputRevealed, setReadTextOutputRevealed] = React.useState(false)
   const prevIsActiveRef = React.useRef(isActive)
   const wasLiveCommandToolRef = React.useRef(isLiveCommandTool)
   const toggleOpen = React.useCallback(() => {
+    if (forceOpen) return
     if (isLiveCommandTool) return
     if (name === 'Read' && !open) {
       setReadTextOutputRevealed(true)
     }
     setOpen((current) => !current)
-  }, [isLiveCommandTool, name, open])
+  }, [forceOpen, isLiveCommandTool, name, open])
 
   React.useEffect(() => {
+    if (forceOpen) {
+      setOpen(true)
+      if (isReadTextTool) {
+        setReadTextOutputRevealed(true)
+      }
+      prevIsActiveRef.current = isActive
+      wasLiveCommandToolRef.current = isLiveCommandTool
+      return
+    }
     if (hasVisualOutput) {
       setOpen(true)
       prevIsActiveRef.current = isActive
@@ -3184,7 +3238,14 @@ function ToolCallCardInner({
     }
     prevIsActiveRef.current = isActive
     wasLiveCommandToolRef.current = isLiveCommandTool
-  }, [hasVisualOutput, isActive, isLiveCommandTool, isReadTextTool, readTextOutputRevealed])
+  }, [
+    forceOpen,
+    hasVisualOutput,
+    isActive,
+    isLiveCommandTool,
+    isReadTextTool,
+    readTextOutputRevealed
+  ])
   const outputText = React.useMemo(() => outputAsString(output), [output])
   const extensionToolResult = React.useMemo(
     () => (open ? parseExtensionToolResult(output) : null),
@@ -3195,7 +3256,10 @@ function ToolCallCardInner({
     [input, name, outputText]
   )
   const displayName = React.useMemo(
-    () => t(`permission.toolLabels.${name}`, { defaultValue: name }),
+    () =>
+      isMcpTool(name)
+        ? formatMcpToolDisplayName(name)
+        : t(`permission.toolLabels.${name}`, { defaultValue: name }),
     [name, t]
   )
   const headerSummary = React.useMemo(() => {
@@ -3229,6 +3293,7 @@ function ToolCallCardInner({
     !!(input.content || input.content_preview)
   const elapsed =
     startedAt && completedAt ? ((completedAt - startedAt) / 1000).toFixed(1) + 's' : null
+  const isMcpToolCall = isMcpTool(name)
   const useCompactToolHeader = COMPACT_BUILTIN_TOOL_NAMES.has(name)
   const compactHeader = React.useMemo(() => {
     const model = buildCompactToolHeaderModel({
@@ -3278,7 +3343,9 @@ function ToolCallCardInner({
   return (
     <div
       className={cn(
-        useCompactToolHeader ? 'my-1 min-w-0 overflow-hidden' : 'my-5 min-w-0 overflow-hidden'
+        useCompactToolHeader || isMcpToolCall
+          ? 'my-1 min-w-0 overflow-hidden'
+          : 'my-5 min-w-0 overflow-hidden'
       )}
     >
       {/* Header — click to toggle */}
@@ -3287,7 +3354,9 @@ function ToolCallCardInner({
         className={cn(
           useCompactToolHeader
             ? 'group w-full rounded-lg p-0 text-left transition-colors'
-            : 'flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground'
+            : isMcpToolCall
+              ? 'group flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-foreground/92 transition-colors hover:bg-muted/35 hover:text-foreground dark:hover:bg-white/[0.035]'
+              : 'flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground'
         )}
       >
         {useCompactToolHeader ? (
@@ -3300,6 +3369,36 @@ function ToolCallCardInner({
             elapsed={elapsed}
             open={open}
           />
+        ) : isMcpToolCall ? (
+          <>
+            <span
+              className={cn(
+                'flex size-5 shrink-0 items-center justify-center rounded-full border border-white/18 bg-transparent text-white/90',
+                isProcessing && 'animate-pulse'
+              )}
+            >
+              <McpToolIcon />
+            </span>
+            <span className={cn('min-w-0 shrink truncate font-medium', toolNamePulseClass)}>
+              {displayName}
+            </span>
+            {status !== 'streaming' && headerSummary && !open ? (
+              <span className="min-w-0 flex-1 truncate text-muted-foreground/62">
+                {headerSummary}
+              </span>
+            ) : (
+              <span className="min-w-0 flex-1" />
+            )}
+            {elapsed && (
+              <span className="text-[10px] tabular-nums text-muted-foreground/55">{elapsed}</span>
+            )}
+            <ChevronDown
+              className={cn(
+                'size-3 shrink-0 text-muted-foreground/55 transition-transform duration-200 group-hover:text-foreground/80',
+                !open && '-rotate-90'
+              )}
+            />
+          </>
         ) : (
           <>
             <ToolStatusDot status={status} />

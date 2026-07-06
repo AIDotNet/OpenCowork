@@ -853,7 +853,7 @@
     "editedFiles_other": "Disunting {{count}} berkas",
     "deletedFiles_one": "Dihapus {{count}} berkas",
     "deletedFiles_other": "Dihapus {{count}} berkas",
-    "ranCommandsInline": "lari {{count}} perintah",
+    "ranCommandsInline": "Menjalankan {{count}} perintah",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Perluas area kerja ({{count}} alat eksekusi)",
@@ -913,7 +913,8 @@
       "stackTrace": "Pelacakan stack",
       "copy": "Salin",
       "copied": "Disalin"
-    }
+    },
+    "processTools": "Panggilan alat"
   },
   "messageActions": {
     "fork": "Garpu",
@@ -940,7 +941,11 @@
     "globResults": "Ditemukan {{count}} tapak {{suffix}}",
     "listedDirs": "Terdaftar {{count}} direktori",
     "ranCommands": "Ran {{count}} perintah",
-    "ranCommandsTitle": "Ran {{count}} perintah"
+    "ranCommandsTitle": "Ran {{count}} perintah",
+    "readActions": "{{count}} pembacaan",
+    "searchActions": "{{count}} pencarian",
+    "listDirActions": "{{count}} daftar direktori",
+    "mcpCalls": "{{count}} panggilan MCP"
   },
   "fileChange": {
     "created": "dibuat",

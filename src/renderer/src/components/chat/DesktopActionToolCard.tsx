@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -22,6 +22,7 @@ interface DesktopActionToolCardProps {
   output?: ToolResultContent
   status: ToolCallStatus | 'completed'
   error?: string
+  forceOpen?: boolean
 }
 
 const CONTENT_TRANSITION = {
@@ -64,14 +65,23 @@ export function DesktopActionToolCard({
   input,
   output,
   status,
-  error
+  error,
+  forceOpen = false
 }: DesktopActionToolCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
-  const parsedError = error || parseErrorMessage(output)
+  const canceledMessage =
+    status === 'canceled'
+      ? t('toolCall.noResult', { defaultValue: 'No tool result available' })
+      : null
+  const parsedError = error || parseErrorMessage(output) || canceledMessage
   const isRunning = status === 'streaming' || status === 'pending_approval' || status === 'running'
-  const [collapsed, setCollapsed] = useState(!isRunning)
-  const hasError = status === 'error' || Boolean(parsedError)
+  const [collapsed, setCollapsed] = useState(!(forceOpen || isRunning))
+  const hasError = status === 'error' || status === 'canceled' || Boolean(parsedError)
   const jsonOutput = parseStructuredOutput(output)
+
+  useEffect(() => {
+    if (forceOpen || isRunning) setCollapsed(false)
+  }, [forceOpen, isRunning])
 
   const { images, notes } = useMemo(() => {
     if (!Array.isArray(output)) {
@@ -162,7 +172,10 @@ export function DesktopActionToolCard({
           <motion.button
             type="button"
             whileTap={{ scale: 0.96 }}
-            onClick={() => setCollapsed((value) => !value)}
+            onClick={() => {
+              if (forceOpen) return
+              setCollapsed((value) => !value)
+            }}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <span>

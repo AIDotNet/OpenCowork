@@ -48,6 +48,7 @@ function compactBadgeClassName(tone: CompactBadgeTone = 'default'): string {
 
 function compactStatusBadgeClassName(status: ToolCallStatus | 'completed'): string {
   if (status === 'error') return compactBadgeClassName('red')
+  if (status === 'canceled') return compactBadgeClassName('default')
   if (status === 'pending_approval') return compactBadgeClassName('amber')
   if (status === 'running') return compactBadgeClassName('blue')
   if (status === 'streaming') return compactBadgeClassName('default')
@@ -72,6 +73,9 @@ function compactHeaderStateClassName(status: ToolCallStatus | 'completed', open:
 
 function compactIconShellClassName(status: ToolCallStatus | 'completed'): string {
   if (status === 'error') return 'border-destructive/25 bg-transparent text-destructive'
+  if (status === 'canceled') {
+    return 'border-muted-foreground/25 bg-transparent text-muted-foreground'
+  }
   if (status === 'running') return 'border-sky-500/25 bg-transparent text-sky-600 dark:text-sky-300'
   if (status === 'streaming') {
     return 'border-violet-500/25 bg-transparent text-violet-600 dark:text-violet-300'
@@ -91,6 +95,7 @@ function CompactLifecycleGlyph({
     return <Loader2 className="size-3 animate-spin" />
   }
   if (status === 'error') return <X className="size-3" />
+  if (status === 'canceled') return <X className="size-3" />
   if (status === 'completed') return <Check className="size-3" />
   return null
 }
@@ -109,6 +114,7 @@ export function CompactToolCallHeader({
     status === 'streaming' ||
     status === 'pending_approval' ||
     status === 'error' ||
+    status === 'canceled' ||
     status === 'completed'
   const lifecycleGlyph = hasLifecycleGlyph ? <CompactLifecycleGlyph status={status} /> : null
   const toolLabel = model.toolLabel ?? model.primary

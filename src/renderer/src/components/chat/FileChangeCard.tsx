@@ -40,6 +40,7 @@ interface FileChangeCardProps {
   startedAt?: number
   completedAt?: number
   trackedChange?: AgentRunFileChange
+  forceOpen?: boolean
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -542,6 +543,8 @@ function StatusIndicator({
       return <Loader2 className="size-3.5 animate-spin text-blue-500 shrink-0" />
     case 'error':
       return <XCircle className="size-3.5 text-destructive shrink-0" />
+    case 'canceled':
+      return <XCircle className="size-3.5 text-muted-foreground shrink-0" />
     case 'completed':
       return <CheckCircle2 className="size-3.5 text-green-500 shrink-0" />
     case 'pending_approval':
@@ -576,6 +579,12 @@ function CompactStatusDot({
       return (
         <span className="relative flex size-3.5 shrink-0 items-center justify-center">
           <span className="size-2 rounded-full bg-red-400" />
+        </span>
+      )
+    case 'canceled':
+      return (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <span className="size-2 rounded-full border border-muted-foreground/45" />
         </span>
       )
     case 'pending_approval':
@@ -1231,7 +1240,8 @@ export function FileChangeCard({
   error,
   startedAt,
   completedAt,
-  trackedChange
+  trackedChange,
+  forceOpen = false
 }: FileChangeCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const resolvedEdit = React.useMemo(() => resolveEditPayload(input), [input])
@@ -1241,7 +1251,7 @@ export function FileChangeCard({
     (name === 'Write' || name === 'Edit') && (status === 'streaming' || status === 'running')
   const isRealtimeWrite =
     name === 'Write' && !trackedChange && (status === 'streaming' || status === 'running')
-  const [collapsed, setCollapsed] = React.useState(!isActive)
+  const [collapsed, setCollapsed] = React.useState(!(forceOpen || isActive))
   const wasLiveFileMutationRef = React.useRef(isLiveFileMutation)
   const undoFileChange = useAgentStore((state) => state.undoFileChange)
   const [isUndoingFile, setIsUndoingFile] = React.useState(false)
@@ -1255,6 +1265,10 @@ export function FileChangeCard({
   const parsedOutputError =
     parsedOutput && !Array.isArray(parsedOutput) && typeof parsedOutput.error === 'string'
       ? parsedOutput.error.trim()
+      : null
+  const canceledMessage =
+    status === 'canceled'
+      ? t('toolCall.noResult', { defaultValue: 'No tool result available' })
       : null
   const isSuccess = !!(
     parsedOutput &&
@@ -1271,8 +1285,12 @@ export function FileChangeCard({
   const effectiveWriteOp = name === 'Write' ? (outputWriteOp ?? 'modify') : undefined
   const compactActionOp: CompactActionOp =
     name === 'Delete' ? 'delete' : name === 'Write' ? (effectiveWriteOp ?? 'modify') : 'modify'
-  const compactActionLabel =
-    compactActionOp === 'create'
+  const hasFailureStatus = status === 'error' || status === 'canceled'
+  const compactActionLabel = hasFailureStatus
+    ? status === 'canceled'
+      ? t('toolCall.canceled', { defaultValue: 'Canceled' })
+      : t('error.label', { defaultValue: 'Error' })
+    : compactActionOp === 'create'
       ? isActive
         ? t('fileChange.creating')
         : t('fileChange.created')
@@ -1286,7 +1304,7 @@ export function FileChangeCard({
   const isOutputError = outputStr
     ? Boolean(parsedOutputError) || (!parsedOutput && outputStr.length > 0)
     : false
-  const hasCompactError = status === 'error' || (isOutputError && !isSuccess)
+  const hasCompactError = hasFailureStatus || (isOutputError && !isSuccess)
   const compactEditDiff = React.useMemo(
     () => resolveEditSummaryDiff(resolvedEdit, trackedChange),
     [resolvedEdit, trackedChange]
@@ -1389,6 +1407,11 @@ export function FileChangeCard({
   }
 
   React.useEffect(() => {
+    if (forceOpen) {
+      setCollapsed(false)
+      wasLiveFileMutationRef.current = isLiveFileMutation
+      return
+    }
     if (isLiveFileMutation) {
       setCollapsed(false)
       wasLiveFileMutationRef.current = true
@@ -1398,7 +1421,7 @@ export function FileChangeCard({
       setCollapsed(true)
     }
     wasLiveFileMutationRef.current = false
-  }, [isLiveFileMutation])
+  }, [forceOpen, isLiveFileMutation])
 
   return (
     <div
@@ -1414,7 +1437,7 @@ export function FileChangeCard({
     >
       <button
         onClick={() => {
-          if (isLiveFileMutation) return
+          if (forceOpen || isLiveFileMutation) return
           setCollapsed((v) => !v)
         }}
         className={cn(
@@ -1439,14 +1462,20 @@ export function FileChangeCard({
             <span
               className={cn(
                 'flex size-5 shrink-0 items-center justify-center rounded-full border bg-transparent',
-                compactActionOp === 'create'
-                  ? 'border-lime-500/25 text-lime-600 dark:text-lime-400'
-                  : compactActionOp === 'delete'
-                    ? 'border-destructive/25 text-destructive'
-                    : 'border-lime-500/25 text-lime-600 dark:text-lime-400'
+                hasCompactError
+                  ? 'border-destructive/25 text-destructive'
+                  : compactActionOp === 'create'
+                    ? 'border-lime-500/25 text-lime-600 dark:text-lime-400'
+                    : compactActionOp === 'delete'
+                      ? 'border-destructive/25 text-destructive'
+                      : 'border-lime-500/25 text-lime-600 dark:text-lime-400'
               )}
             >
-              <CheckCircle2 className="size-3" />
+              {hasCompactError ? (
+                <XCircle className="size-3" />
+              ) : (
+                <CheckCircle2 className="size-3" />
+              )}
             </span>
             <span className="shrink-0 text-muted-foreground/55">files</span>
             <span className="shrink-0 text-muted-foreground/40">&gt;</span>
@@ -1484,7 +1513,12 @@ export function FileChangeCard({
               {hasCompactError ? (
                 <span
                   className="size-1.5 shrink-0 rounded-full bg-red-500 dark:bg-red-400"
-                  title={error || parsedOutputError || t('error.label', { ns: 'common' })}
+                  title={
+                    error ||
+                    parsedOutputError ||
+                    canceledMessage ||
+                    t('error.label', { ns: 'common' })
+                  }
                 />
               ) : trackedChange ? (
                 <span
@@ -1655,7 +1689,7 @@ export function FileChangeCard({
         </div>
       )}
 
-      {(error || (parsedOutputError && !error)) && (
+      {(error || (parsedOutputError && !error) || canceledMessage) && (
         <div
           className={cn(
             useCompactChangeLayout
@@ -1670,7 +1704,7 @@ export function FileChangeCard({
             )}
             style={{ fontFamily: MONO_FONT }}
           >
-            {error || parsedOutputError}
+            {error || parsedOutputError || canceledMessage}
           </p>
         </div>
       )}

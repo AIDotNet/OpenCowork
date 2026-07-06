@@ -853,7 +853,7 @@
     "editedFiles_other": "{{count}}ファイルを編集",
     "deletedFiles_one": "削除された{{count}}ファイル",
     "deletedFiles_other": "削除された{{count}}ファイル",
-    "ranCommandsInline": "ran {{count}} コマンド",
+    "ranCommandsInline": "コマンド実行 {{count}} 回",
     "summarySeparator": ",",
     "moreKinds": "+{{count}}の",
     "showWorkspace": "ワークスペースを拡大({{count}}ツールの実行)",
@@ -913,7 +913,8 @@
       "stackTrace": "スタックトレース",
       "copy": "コピー",
       "copied": "コピッド"
-    }
+    },
+    "processTools": "ツール呼び出し"
   },
   "messageActions": {
     "fork": "フォーク",
@@ -940,7 +941,11 @@
     "globResults": "発見された{{count}}パス{{suffix}}",
     "listedDirs": "{{count}}ディレクトリ",
     "ranCommands": "Ran {{count}}コマンド",
-    "ranCommandsTitle": "Ran {{count}}コマンド"
+    "ranCommandsTitle": "Ran {{count}}コマンド",
+    "readActions": "読み取り {{count}} 回",
+    "searchActions": "検索 {{count}} 回",
+    "listDirActions": "ディレクトリ一覧 {{count}} 回",
+    "mcpCalls": "MCP 呼び出し {{count}} 回"
   },
   "fileChange": {
     "created": "プロフィール",

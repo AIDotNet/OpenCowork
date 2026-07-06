@@ -853,7 +853,7 @@
     "editedFiles_other": "Uitgegeven {{count}} bestanden",
     "deletedFiles_one": "Verwijderd {{count}} bestand",
     "deletedFiles_other": "Verwijderd {{count}} bestanden",
-    "ranCommandsInline": "uitgevoerd {{count}} opdrachten",
+    "ranCommandsInline": "{{count}} opdracht uitgevoerd",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Werkblad uitbreiden ({{count}} gereedschapsuitvoeringen)",
@@ -913,7 +913,8 @@
       "stackTrace": "Stack trace",
       "copy": "Kopiëren",
       "copied": "gekopieerd"
-    }
+    },
+    "processTools": "Toolaanroepen"
   },
   "messageActions": {
     "fork": "Vork",
@@ -940,7 +941,11 @@
     "globResults": "Gevonden {{count}} paden {{suffix}}",
     "listedDirs": "Vermeld {{count}} mappen",
     "ranCommands": "Gereed {{count}} opdrachten",
-    "ranCommandsTitle": "Gereed {{count}} opdrachten"
+    "ranCommandsTitle": "Gereed {{count}} opdrachten",
+    "readActions": "{{count}} leesacties",
+    "searchActions": "{{count}} zoekacties",
+    "listDirActions": "{{count}} directorylijsten",
+    "mcpCalls": "{{count}} MCP-aanroepen"
   },
   "fileChange": {
     "created": "aangemaakt",

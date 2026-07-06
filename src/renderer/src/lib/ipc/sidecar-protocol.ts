@@ -434,7 +434,20 @@ function mapSidecarContentBlock(block: ContentBlock): SidecarContentBlock | null
   }
 }
 
+export function sanitizeSidecarMessageMeta(meta: MessageMeta | undefined): MessageMeta | undefined {
+  if (!meta) return undefined
+  if (!meta.compactSummary?.displayAnchor) return meta
+
+  const { displayAnchor: _displayAnchor, ...compactSummary } = meta.compactSummary
+  return {
+    ...meta,
+    compactSummary
+  }
+}
+
 function mapSidecarMessage(message: UnifiedMessage): SidecarUnifiedMessage | null {
+  const meta = sanitizeSidecarMessageMeta(message.meta)
+
   if (typeof message.content === 'string') {
     return {
       id: message.id,
@@ -444,7 +457,7 @@ function mapSidecarMessage(message: UnifiedMessage): SidecarUnifiedMessage | nul
       ...(message.usage ? { usage: message.usage } : {}),
       ...(message.providerResponseId ? { providerResponseId: message.providerResponseId } : {}),
       ...(message.source ? { source: message.source } : {}),
-      ...(message.meta ? { meta: message.meta } : {})
+      ...(meta ? { meta } : {})
     }
   }
 
@@ -463,7 +476,7 @@ function mapSidecarMessage(message: UnifiedMessage): SidecarUnifiedMessage | nul
     ...(message.usage ? { usage: message.usage } : {}),
     ...(message.providerResponseId ? { providerResponseId: message.providerResponseId } : {}),
     ...(message.source ? { source: message.source } : {}),
-    ...(message.meta ? { meta: message.meta } : {})
+    ...(meta ? { meta } : {})
   }
 }
 

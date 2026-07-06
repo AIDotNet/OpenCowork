@@ -853,7 +853,7 @@
     "editedFiles_other": "Modificato {{count}} file",
     "deletedFiles_one": "Eliminato {{count}} file",
     "deletedFiles_other": "Eliminato {{count}} file",
-    "ranCommandsInline": "corsa {{count}} comandi",
+    "ranCommandsInline": "{{count}} comando eseguito",
     "summarySeparator": "♪",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Spazio di lavoro esteso ({{count}} esecuzioni degli strumenti)",
@@ -913,7 +913,8 @@
       "stackTrace": "Traccia di stack",
       "copy": "Copia",
       "copied": "Copie"
-    }
+    },
+    "processTools": "Chiamate agli strumenti"
   },
   "messageActions": {
     "fork": "Forcella",
@@ -940,7 +941,11 @@
     "globResults": "Trovato {{count}} percorsi {{suffix}}",
     "listedDirs": "Elencato {{count}} directory",
     "ranCommands": "Ran {{count}} comandi",
-    "ranCommandsTitle": "Ran {{count}} comandi"
+    "ranCommandsTitle": "Ran {{count}} comandi",
+    "readActions": "{{count}} letture",
+    "searchActions": "{{count}} ricerche",
+    "listDirActions": "{{count}} elenchi di directory",
+    "mcpCalls": "{{count}} chiamate MCP"
   },
   "fileChange": {
     "created": "creato",

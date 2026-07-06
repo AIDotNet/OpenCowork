@@ -13,7 +13,8 @@ import {
 } from '@renderer/lib/api/responses-session-policy'
 import {
   buildSidecarAgentRunRequest,
-  isNativeSidecarProviderConfig
+  isNativeSidecarProviderConfig,
+  sanitizeSidecarMessageMeta
 } from '@renderer/lib/ipc/sidecar-protocol'
 import type {
   SidecarSlashCommandContext,
@@ -603,12 +604,18 @@ export async function runSidecarContextCompression(args: {
     throw new Error('Sidecar unavailable')
   }
 
+  const messages = args.messages.map((message) => {
+    const meta = sanitizeSidecarMessageMeta(message.meta)
+    if (meta === message.meta) return message
+    return meta ? { ...message, meta } : { ...message, meta: undefined }
+  })
+
   const result = await invokeMessagePackBinary<{
     messages: UnifiedMessage[]
     result: CompressionResult
   }>(toMessagePackChannel('agent:compress-context'), {
     provider: args.provider,
-    messages: args.messages,
+    messages,
     ...(typeof args.preserveCount === 'number' && Number.isFinite(args.preserveCount)
       ? { preserveCount: args.preserveCount }
       : {}),

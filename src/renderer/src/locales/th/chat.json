@@ -853,7 +853,7 @@
     "editedFiles_other": "แก้ไขแล้ว {{count}} แฟ้ม",
     "deletedFiles_one": "ลบแล้ว {{count}} แฟ้ม",
     "deletedFiles_other": "ลบแล้ว {{count}} แฟ้ม",
-    "ranCommandsInline": "วิ่ง {{count}} คําสั่ง",
+    "ranCommandsInline": "เรียกใช้คำสั่ง {{count}} ครั้ง",
     "summarySeparator": ".",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "ขอบเขตงาน {{count}} เครื่องมือประมวลผล)",
@@ -913,7 +913,8 @@
       "stackTrace": "พาธของสแต็ก",
       "copy": "คัดลอก",
       "copied": "คัดลอก"
-    }
+    },
+    "processTools": "การเรียกใช้เครื่องมือ"
   },
   "messageActions": {
     "fork": "ฟอร์ม",
@@ -940,7 +941,11 @@
     "globResults": "พบ {{count}} พาธ {{suffix}}",
     "listedDirs": "รายการ {{count}} ไดเรกทอรี",
     "ranCommands": "Run {{count}} คําสั่ง",
-    "ranCommandsTitle": "Run {{count}} คําสั่ง"
+    "ranCommandsTitle": "Run {{count}} คําสั่ง",
+    "readActions": "อ่าน {{count}} ครั้ง",
+    "searchActions": "ค้นหา {{count}} ครั้ง",
+    "listDirActions": "แสดงรายการไดเรกทอรี {{count}} ครั้ง",
+    "mcpCalls": "เรียก MCP {{count}} ครั้ง"
   },
   "fileChange": {
     "created": "สร้าง",

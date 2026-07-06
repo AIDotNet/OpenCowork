@@ -853,7 +853,7 @@
     "editedFiles_other": "Bearbeitet {{count}} Dateien",
     "deletedFiles_one": "Gelöscht {{count}} Datei",
     "deletedFiles_other": "Gelöscht {{count}} Dateien",
-    "ranCommandsInline": "Lauf {{count}} Befehle",
+    "ranCommandsInline": "{{count}} Befehl ausgeführt",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Arbeitsbereich erweitern () {{count}} Ausführung von Werkzeugen",
@@ -913,7 +913,8 @@
       "stackTrace": "Stapelspur",
       "copy": "Kopie",
       "copied": "kopiert"
-    }
+    },
+    "processTools": "Werkzeugaufrufe"
   },
   "messageActions": {
     "fork": "Gabel",
@@ -940,7 +941,11 @@
     "globResults": "Gefunden {{count}} Wege {{suffix}}",
     "listedDirs": "Aufgeführt {{count}} Verzeichnisse",
     "ranCommands": "Rasen {{count}} Befehle",
-    "ranCommandsTitle": "Rasen {{count}} Befehle"
+    "ranCommandsTitle": "Rasen {{count}} Befehle",
+    "readActions": "{{count}} Lesevorgänge",
+    "searchActions": "{{count}} Suchvorgänge",
+    "listDirActions": "{{count}} Verzeichnisauflistungen",
+    "mcpCalls": "{{count}} MCP-Aufrufe"
   },
   "fileChange": {
     "created": "geschaffen",

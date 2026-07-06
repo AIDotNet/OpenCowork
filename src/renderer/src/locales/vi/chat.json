@@ -853,7 +853,7 @@
     "editedFiles_other": "Đã sửa {{count}} Tập tin",
     "deletedFiles_one": "Xóa {{count}} Tập tin",
     "deletedFiles_other": "Xóa {{count}} Tập tin",
-    "ranCommandsInline": "Chạy {{count}} lệnh",
+    "ranCommandsInline": "Chạy lệnh {{count}} lần",
     "summarySeparator": ".",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Vùng làm việc mở rộng ({{count}} công cụ thực hiện)",
@@ -913,7 +913,8 @@
       "stackTrace": "Vết chồng",
       "copy": "Chép",
       "copied": "Sao chép"
-    }
+    },
+    "processTools": "Lệnh gọi công cụ"
   },
   "messageActions": {
     "fork": "Fork",
@@ -940,7 +941,11 @@
     "globResults": "Tìm thấy {{count}} các đường {{suffix}}",
     "listedDirs": "Đã liệt kê {{count}} Thư mục",
     "ranCommands": "Ran {{count}} lệnh",
-    "ranCommandsTitle": "Ran {{count}} lệnh"
+    "ranCommandsTitle": "Ran {{count}} lệnh",
+    "readActions": "Đọc {{count}} lần",
+    "searchActions": "Tìm kiếm {{count}} lần",
+    "listDirActions": "Liệt kê thư mục {{count}} lần",
+    "mcpCalls": "Gọi MCP {{count}} lần"
   },
   "fileChange": {
     "created": "tạo",

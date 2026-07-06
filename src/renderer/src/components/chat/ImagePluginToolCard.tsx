@@ -28,6 +28,7 @@ interface ImagePluginToolCardProps {
   output?: ToolResultContent
   status: ToolCallStatus | 'completed'
   error?: string
+  forceOpen?: boolean
 }
 
 const CONTENT_TRANSITION = {
@@ -115,7 +116,8 @@ export function ImagePluginToolCard({
   input,
   output,
   status,
-  error
+  error,
+  forceOpen = false
 }: ImagePluginToolCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const prompt = typeof input.prompt === 'string' ? input.prompt : ''
@@ -134,7 +136,12 @@ export function ImagePluginToolCard({
     }
   }, [output])
 
-  const parsedError = error || retryState?.errorMessage || parseErrorMessage(output)
+  const canceledMessage =
+    status === 'canceled'
+      ? t('toolCall.noResult', { defaultValue: 'No tool result available' })
+      : null
+  const parsedError =
+    error || retryState?.errorMessage || parseErrorMessage(output) || canceledMessage
   const isAwaitingRetry = retryState?.status === 'awaiting_retry'
   const isRunning =
     status === 'streaming' ||
@@ -142,12 +149,13 @@ export function ImagePluginToolCard({
     status === 'running' ||
     isAwaitingRetry
   const hasError =
-    !isAwaitingRetry && (status === 'error' || (!!parsedError && images.length === 0))
-  const [collapsed, setCollapsed] = useState(!isRunning)
+    !isAwaitingRetry &&
+    (status === 'error' || status === 'canceled' || (!!parsedError && images.length === 0))
+  const [collapsed, setCollapsed] = useState(!(forceOpen || isRunning))
 
   useEffect(() => {
-    if (isRunning) setCollapsed(false)
-  }, [isRunning])
+    if (forceOpen || isRunning) setCollapsed(false)
+  }, [forceOpen, isRunning])
 
   const statusLabel = isAwaitingRetry
     ? t('toolCall.imagePlugin.waitingRetry')
@@ -180,7 +188,10 @@ export function ImagePluginToolCard({
       <button
         type="button"
         aria-expanded={!collapsed}
-        onClick={() => setCollapsed((value) => !value)}
+        onClick={() => {
+          if (forceOpen) return
+          setCollapsed((value) => !value)
+        }}
         className={cn(
           'group flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] transition-colors hover:bg-muted/35 hover:text-foreground dark:hover:bg-white/[0.035]',
           hasError

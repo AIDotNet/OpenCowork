@@ -31,7 +31,7 @@ export interface TailToolExecutionState {
 
 const messageLookupCache = new WeakMap<UnifiedMessage[], Map<string, UnifiedMessage>>()
 const transcriptStaticAnalysisCache = new WeakMap<UnifiedMessage[], TranscriptStaticAnalysis>()
-const HIDDEN_MESSAGE_LIST_TOOL_NAMES = new Set(['TaskCreate', 'TaskUpdate'])
+const HIDDEN_MESSAGE_LIST_TOOL_NAMES = new Set(['TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList'])
 const THINK_OPEN_TAG_RE = /<\s*think\s*>/i
 
 // --- Signature-based fast cache for transcriptStaticAnalysis ---

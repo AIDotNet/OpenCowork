@@ -1,6 +1,7 @@
 import { Users, ClipboardList, MessageSquare, Trash2, RefreshCw, UserPlus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@renderer/lib/utils'
+import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ToolResultContent } from '@renderer/lib/api/types'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 
@@ -8,6 +9,8 @@ interface TeamEventCardProps {
   name: string
   input: Record<string, unknown>
   output?: ToolResultContent
+  status?: ToolCallStatus | 'completed'
+  error?: string
 }
 
 const toolConfig: Record<string, { icon: React.ReactNode; color: string; labelKey: string }> = {
@@ -49,7 +52,13 @@ function parseOutput(output?: ToolResultContent): Record<string, unknown> | null
   return parsed && !Array.isArray(parsed) ? parsed : null
 }
 
-export function TeamEventCard({ name, input, output }: TeamEventCardProps): React.JSX.Element {
+export function TeamEventCard({
+  name,
+  input,
+  output,
+  status,
+  error
+}: TeamEventCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const config = toolConfig[name] ?? {
     icon: <Users className="size-3.5" />,
@@ -58,7 +67,8 @@ export function TeamEventCard({ name, input, output }: TeamEventCardProps): Reac
   }
 
   const parsed = parseOutput(output)
-  const isError = parsed && 'error' in parsed
+  const isError =
+    status === 'error' || status === 'canceled' || !!error || !!(parsed && 'error' in parsed)
 
   // Build summary text based on tool type
   let summary = ''

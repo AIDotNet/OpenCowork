@@ -24,7 +24,8 @@ import {
   Puzzle,
   Terminal,
   UserRound,
-  PawPrint
+  PawPrint,
+  Anchor
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { AnimatePresence } from 'motion/react'
@@ -76,6 +77,7 @@ import { ChannelPanel } from './PluginPanel'
 import { AppPluginPanel } from './AppPluginPanel'
 import { ExtensionPanel } from './ExtensionPanel'
 import { McpPanel } from './McpPanel'
+import { HooksPanel } from './HooksPanel'
 import { WebSearchPanel } from './WebSearchPanel'
 import { SkillsMarketPanel } from './SkillsMarketPanel'
 import { MigrationPanel } from './MigrationPanel'
@@ -474,6 +476,12 @@ const menuGroupDefs: Array<{
         icon: <Sparkles className="size-4" />,
         labelKey: 'extension.title',
         descKey: 'extension.subtitle'
+      },
+      {
+        id: 'hooks',
+        icon: <Anchor className="size-4" />,
+        labelKey: 'hooks.title',
+        descKey: 'hooks.subtitle'
       },
       {
         id: 'mcp',
@@ -3604,6 +3612,7 @@ const panelMap: Record<SettingsTab, () => React.JSX.Element> = {
   modelManagement: ModelManagementPanel,
   plugin: AppPluginPanel,
   extension: ExtensionPanel,
+  hooks: HooksPanel,
   channel: ChannelPanel,
   mcp: McpPanel,
   model: ModelPanel,

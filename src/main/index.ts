@@ -73,6 +73,8 @@ import { registerImageGifHandlers } from './ipc/image-gif-handlers'
 import { registerGitHandlers } from './ipc/git-handlers'
 import { registerMigrationHandlers } from './ipc/migration-handlers'
 import { registerSyncHandlers } from './ipc/sync-handlers'
+import { registerHooksHandlers } from './ipc/hooks-handlers'
+import { initializeHookRuntimeSettings } from './hooks/hooks-service'
 import { registerSidecarHandlers, getSidecarManager } from './ipc/sidecar-manager'
 import { getNativeWorker, stopNativeWorker } from './lib/native-worker'
 import { registerTeamRuntimeHandlers } from './ipc/team-runtime-handlers'
@@ -1260,6 +1262,7 @@ if (gotSingleInstanceLock) {
       await runLoggedStartupStepAsync('native_worker_settings_startup', async () => {
         await getNativeWorker().ensureStarted()
         await initializeSettingsCache()
+        initializeHookRuntimeSettings()
       })
       console.log('[NativeWorker] settings startup ready')
     } catch (error) {
@@ -1360,6 +1363,7 @@ if (gotSingleInstanceLock) {
     registerScreenshotHandlers()
     registerInputHandlers()
     registerInputDraftHandlers()
+    registerHooksHandlers()
 
     registerSidecarHandlers()
     registerTeamRuntimeHandlers()

@@ -53,6 +53,12 @@ import {
   SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL,
   SIDECAR_APPROVAL_RESPONSE_MSGPACK_CHANNEL
 } from '../../../shared/messagepack/binary-ipc'
+import {
+  collectHookContextTexts,
+  HOOK_IPC_CHANNELS,
+  HOOK_USER_PROMPT_SOURCE_KIND,
+  type HookRunResult
+} from '../../../shared/hooks/types'
 import { clearPendingQuestions } from '@renderer/lib/tools/ask-user-tool'
 
 import { ACP_MODE_ALLOWED_TOOLS, PLAN_MODE_ALLOWED_TOOLS } from '@renderer/lib/tools/plan-tool'
@@ -566,10 +572,13 @@ export interface SendMessageOptions {
   selectedFileReferences?: SelectedFileReference[]
   /**
    * When set, the user message has already been appended to the transcript
-   * (e.g. via the quote action) and sendMessage should run the agent loop
-   * against it without inserting a duplicate user message.
+   * and sendMessage should run the agent loop against it without inserting a
+   * duplicate user message. This intentionally skips UserPromptSubmit because
+   * the message is already persisted.
    */
   preRenderedUserMessageId?: string
+  /** Hide an internal process-only queued message from the queue UI. */
+  hiddenFromQueueView?: boolean
   imageEdit?: {
     maskDataUrl?: string
   }
@@ -1838,8 +1847,7 @@ function setPendingSessionDispatchPaused(sessionId: string, paused: boolean): vo
 }
 
 function isHiddenFromQueueView(msg: QueuedSessionMessage): boolean {
-  // Quoted messages are already rendered; keep their process-only queue entry hidden.
-  return !!msg.options?.preRenderedUserMessageId
+  return msg.options?.hiddenFromQueueView === true
 }
 
 function replaceSessionPendingMessages(sessionId: string, next: QueuedSessionMessage[]): void {
@@ -2164,37 +2172,12 @@ export function quotePendingSessionMessageIntoConversation(
     return true
   }
 
-  // Render immediately; process after the current provider request finishes.
-  const textBlocks: Array<Extract<ContentBlock, { type: 'text' }>> = []
-  if (target.text) {
-    textBlocks.push({ type: 'text', text: target.text })
-  } else if (target.command) {
-    textBlocks.push({ type: 'text', text: `/${target.command.name}` })
-  }
-  let userContent: string | ContentBlock[]
-  if (hasImages) {
-    userContent = [...textBlocks, ...(target.images ?? []).map(imageAttachmentToContentBlock)]
-  } else if (textBlocks.length === 1 && textBlocks[0]?.type === 'text') {
-    userContent = textBlocks[0].text
-  } else {
-    userContent = textBlocks
-  }
-
-  const userMsg: UnifiedMessage = {
-    id: nanoid(),
-    role: 'user',
-    content: userContent,
-    createdAt: Date.now(),
-    source: 'quoted'
-  }
-  addMessageWithSync(sessionId, userMsg)
-
   const remaining = [...queue.slice(0, index), ...queue.slice(index + 1)]
   const processOnly: QueuedSessionMessage = {
     ...target,
     source: 'quoted',
     dispatchMode: 'after_loop',
-    options: { ...(target.options ?? {}), preRenderedUserMessageId: userMsg.id }
+    options: { ...(target.options ?? {}), hiddenFromQueueView: true }
   }
 
   replaceSessionPendingMessages(sessionId, [processOnly, ...remaining])
@@ -4072,6 +4055,40 @@ export function useChatActions(): {
         if (selectedFileReadContext.contextText) {
           turnRequestContextTexts.push(selectedFileReadContext.contextText)
         }
+        let hookAdjustedPrompt: string | null = null
+        if (shouldAppendUserMessage) {
+          const hookPrompt =
+            resolvedCommand.userText ||
+            (resolvedCommand.command ? `/${resolvedCommand.command.name}` : text) ||
+            ''
+          const hookResult = (await ipcClient.invoke(HOOK_IPC_CHANNELS.runUserPromptSubmit, {
+            sessionId,
+            projectId: sessionSnapshot?.projectId,
+            projectRoot: resolveSessionWorkingFolder(sessionSnapshot),
+            sshConnectionId: sessionSnapshot?.sshConnectionId ?? null,
+            prompt: hookPrompt,
+            sourceKind: isQueuedInsertion
+              ? HOOK_USER_PROMPT_SOURCE_KIND.queued
+              : source === 'quoted'
+                ? HOOK_USER_PROMPT_SOURCE_KIND.quoted
+                : resolvedCommand.command
+                  ? HOOK_USER_PROMPT_SOURCE_KIND.slashCommand
+                  : HOOK_USER_PROMPT_SOURCE_KIND.chat,
+            hasImages: Boolean(images?.length)
+          })) as HookRunResult
+          if (hookResult.blocked) {
+            clearPreflightIndicator()
+            toast.error('Message blocked by hook', {
+              description: hookResult.reason || 'A UserPromptSubmit hook blocked this message.'
+            })
+            dispatchNextQueuedMessage(sessionId)
+            return
+          }
+          if (hookResult.updatedPrompt) {
+            hookAdjustedPrompt = hookResult.updatedPrompt
+          }
+          turnRequestContextTexts.push(...collectHookContextTexts(hookResult))
+        }
         // Add user message (multi-modal when images attached)
         let expectedUserRequestMessage: UnifiedMessage | null = null
         if (shouldAppendUserMessage) {
@@ -4079,6 +4096,7 @@ export function useChatActions(): {
           const textBlocks: Array<Extract<ContentBlock, { type: 'text' }>> = []
           const hasImages = Boolean(images && images.length > 0)
           const textForUserBlock =
+            hookAdjustedPrompt ||
             resolvedCommand.userText ||
             (resolvedCommand.command ? `/${resolvedCommand.command.name}` : '') ||
             (isQueuedInsertion && hasImages && !resolvedCommand.command

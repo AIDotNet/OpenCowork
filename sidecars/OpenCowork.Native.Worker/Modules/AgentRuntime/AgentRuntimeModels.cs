@@ -27,6 +27,8 @@ internal sealed record AgentRuntimeReverseResponseResult(bool Ok);
 
 internal sealed record AgentRuntimeReverseRequestEnvelope(string Id, string Method, JsonElement Params);
 
+internal sealed record AgentRuntimeReverseCancelEnvelope(string Id, string Method);
+
 internal sealed record AgentRuntimeApprovalRequest(
     string RunId,
     string SessionId,

@@ -127,6 +127,11 @@ internal sealed class DbModule : IWorkerModule
         context.Register("db/messages-delete-last", DbMessageTools.DeleteLast);
         context.Register("db/messages-compact-session", DbMessageTools.CompactSession);
         context.Register("db/messages-usage-stats", DbMessageTools.UsageStats);
+        context.Register("db/hooks-trusts-list", DbHookTools.ListTrusts);
+        context.Register("db/hooks-trusts-upsert", DbHookTools.UpsertTrust);
+        context.Register("db/hooks-runs-insert", DbHookTools.InsertRun);
+        context.Register("db/hooks-runs-list", DbHookTools.ListRuns);
+        context.Register("db/hooks-runs-cleanup", DbHookTools.CleanupRuns);
         context.Register("db/usage-add-event", DbUsageWriterTools.AddEvent);
         context.Register("db/usage-maintenance", DbMaintenanceTools.UsageMaintenanceAsync);
         context.Register("db/usage-query", DbUsageAnalyticsTools.Query);

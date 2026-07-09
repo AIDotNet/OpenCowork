@@ -15,6 +15,95 @@
     "title": "Desktop Pet",
     "subtitle": "A little capybara that lives on your desktop"
   },
+  "hooks": {
+    "title": "Hooks",
+    "subtitle": "Manage OpenCowork lifecycle hooks.",
+    "loading": "Loading hooks...",
+    "empty": "No hooks are configured.",
+    "emptyForEvent": "No hooks are configured for this lifecycle event.",
+    "feature": {
+      "title": "Enable hooks",
+      "preview": "Preview",
+      "description": "Takes effect after restarting OpenCowork.",
+      "runtimeOn": "Active this session",
+      "runtimeOff": "Inactive this session",
+      "restartToEnable": "Restart OpenCowork to start running hooks.",
+      "restartToDisable": "Hooks remain active in this app session. Restart OpenCowork to stop running them."
+    },
+    "source": {
+      "exists": "Found",
+      "missing": "Missing"
+    },
+    "metrics": {
+      "total": "Total",
+      "pending": "Pending",
+      "invalid": "Invalid"
+    },
+    "review": {
+      "title": "All hooks",
+      "warning": "Trusting a hook allows its command to run locally as your user."
+    },
+    "list": {
+      "title": "All hooks"
+    },
+    "events": {
+      "SessionStart": {
+        "description": "Runs before a session starts, resumes, clears, restores from compact, or starts as a background task. Useful for adding session context."
+      },
+      "UserPromptSubmit": {
+        "description": "Runs before a user prompt is submitted. It can add context, update the prompt, or block the submission."
+      },
+      "PreToolUse": {
+        "description": "Runs after a tool call is generated and before it executes. It can update input or block risky calls."
+      },
+      "PermissionRequest": {
+        "description": "Runs before a tool permission prompt is shown. It can allow or deny the request."
+      },
+      "PostToolUse": {
+        "description": "Runs after a tool completes and before the result goes back to the model. It can add context or replace tool feedback."
+      },
+      "PreCompact": {
+        "description": "Runs before manual or automatic context compaction. It can add compaction guidance or block this compaction."
+      },
+      "PostCompact": {
+        "description": "Runs after context compaction finishes. Useful for adding follow-up guidance."
+      },
+      "SubagentStart": {
+        "description": "Runs before a sub-agent starts. It can add context or block the subtask."
+      },
+      "SubagentStop": {
+        "description": "Runs after a sub-agent finishes and before the result returns to the main session. It can validate or block the result."
+      },
+      "Stop": {
+        "description": "Runs when the current agent turn is about to end. Useful for final checks, extra notes, or blocking completion."
+      }
+    },
+    "status": {
+      "pending": "Pending",
+      "trusted": "Trusted",
+      "denied": "Denied",
+      "disabled": "Disabled",
+      "invalid": "Invalid",
+      "changed": "Changed"
+    },
+    "actions": {
+      "refresh": "Refresh",
+      "trust": "Use",
+      "deny": "Ignore",
+      "disable": "Disable",
+      "enable": "Enable",
+      "openConfig": "Open user config",
+      "openConfigShort": "Config",
+      "openArtifact": "Script"
+    },
+    "toasts": {
+      "trusted": "Hook enabled for use",
+      "denied": "Hook ignored",
+      "enabled": "Hook enabled",
+      "disabled": "Hook disabled",
+      "opened": "Opened source"
+    }
+  },
   "profile": {
     "title": "Profile",
     "subtitle": "Local identity and token activity",

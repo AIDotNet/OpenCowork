@@ -37,6 +37,22 @@ internal static class AgentRuntimeReverseRequests
 
             return await pending.Task.ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await context.EmitEventIgnoringCancellationAsync(
+                    "agent/reverse-cancel",
+                    new AgentRuntimeReverseCancelEnvelope(id, method),
+                    WorkerJsonContext.Default.AgentRuntimeReverseCancelEnvelope);
+            }
+            catch (Exception ex)
+            {
+                WorkerLog.Warn(
+                    $"reverse cancel notification failed id={id} method={method} error={ex.GetType().Name}: {ex.Message}");
+            }
+            throw;
+        }
         finally
         {
             Pending.TryRemove(id, out _);

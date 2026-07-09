@@ -66,13 +66,13 @@ internal static class OpenAIChatRuntime
         {
             if (state.IsCancellationRequested)
             {
-                await AgentRuntimeTools.EmitAsync(
+                await EmitLoopEndAsync(
+                    parameters,
                     state,
                     context,
-                    BuildLoopEndEvent(
-                        "aborted",
-                        fullCompressionApplied || captureFinalMessages,
-                        wireConversation));
+                    "aborted",
+                    fullCompressionApplied || captureFinalMessages,
+                    wireConversation);
                 return;
             }
 
@@ -86,64 +86,93 @@ internal static class OpenAIChatRuntime
                 compressionConfig is not null &&
                 ShouldCompress(lastInputTokens, compressionConfig))
             {
-                await AgentRuntimeTools.EmitAsync(
+                var preCompactHook = await AgentRuntimeHooks.RunCompactAsync(
+                    parameters,
                     state,
                     context,
-                    new AgentRuntimeStreamEvent("context_compression_start"));
-
-                if (state.IsCancellationRequested)
+                    "PreCompact",
+                    "auto",
+                    wireConversation.Count);
+                if (preCompactHook.Blocked)
+                {
+                    WorkerLog.Warn(
+                        $"agent context compression blocked by hook runId={state.RunId} reason={preCompactHook.Reason}");
+                    lastInputTokens = 0;
+                }
+                else
                 {
                     await AgentRuntimeTools.EmitAsync(
                         state,
                         context,
-                        BuildLoopEndEvent(
-                            "aborted",
-                            fullCompressionApplied || captureFinalMessages,
-                            wireConversation));
-                    return;
-                }
+                        new AgentRuntimeStreamEvent("context_compression_start"));
 
-                try
-                {
-                    var originalCount = wireConversation.Count;
-                    var preserveCount = iteration == 1 ? GetInitialCompressionPreserveCount(wireConversation) : 0;
-                    WorkerLog.Info(
-                        $"agent context compression start runId={state.RunId} tokens={lastInputTokens} " +
-                        $"messages={originalCount} preserveCount={preserveCount}");
-                    var compressed = await AgentRuntimeContextCompression.CompressMessagesAsync(
-                        wireConversation,
-                        provider,
-                        context,
-                        focusPrompt: null,
-                        preTokens: lastInputTokens,
-                        preserveCount,
-                        trigger: "auto");
-                    if (compressed.Result.Compressed)
+                    if (state.IsCancellationRequested)
                     {
-                        wireConversation = compressed.Messages.Select(message => message.Clone()).ToList();
-                        conversation = ReadConversation(wireConversation);
-                        fullCompressionApplied = true;
-                        var summarized = compressed.Result.MessagesSummarized ??
-                            Math.Max(0, originalCount - Math.Max(0, compressed.Messages.Length - 2));
-                        await AgentRuntimeTools.EmitAsync(
+                        await EmitLoopEndAsync(
+                            parameters,
                             state,
                             context,
-                            new AgentRuntimeStreamEvent(
-                                "context_compressed",
-                                OriginalCount: originalCount,
-                                NewCount: compressed.Messages.Length,
-                                KeptMessageCount: summarized,
-                                CompactArtifacts: ExtractCompactArtifacts(compressed.Messages)));
-                        WorkerLog.Info(
-                            $"agent context compression ok runId={state.RunId} original={originalCount} " +
-                            $"compressed={compressed.Messages.Length} summarized={summarized}");
-                        lastInputTokens = 0;
+                            "aborted",
+                            fullCompressionApplied || captureFinalMessages,
+                            wireConversation);
+                        return;
                     }
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    WorkerLog.Warn(
-                        $"agent context compression failed runId={state.RunId} error={ex.GetType().Name}: {ex.Message}");
+
+                    try
+                    {
+                        var originalCount = wireConversation.Count;
+                        var preserveCount = iteration == 1 ? GetInitialCompressionPreserveCount(wireConversation) : 0;
+                        WorkerLog.Info(
+                            $"agent context compression start runId={state.RunId} tokens={lastInputTokens} " +
+                            $"messages={originalCount} preserveCount={preserveCount}");
+                        var compressed = await AgentRuntimeContextCompression.CompressMessagesAsync(
+                            wireConversation,
+                            provider,
+                            context,
+                            focusPrompt: null,
+                            preTokens: lastInputTokens,
+                            preserveCount,
+                            trigger: "auto");
+                        if (compressed.Result.Compressed)
+                        {
+                            wireConversation = compressed.Messages.Select(message => message.Clone()).ToList();
+                            conversation = ReadConversation(wireConversation);
+                            fullCompressionApplied = true;
+                            var summarized = compressed.Result.MessagesSummarized ??
+                                Math.Max(0, originalCount - Math.Max(0, compressed.Messages.Length - 2));
+                            var postCompactHook = await AgentRuntimeHooks.RunCompactAsync(
+                                parameters,
+                                state,
+                                context,
+                                "PostCompact",
+                                "auto",
+                                originalCount,
+                                compressed.Messages.Length);
+                            if (postCompactHook.Blocked)
+                            {
+                                WorkerLog.Warn(
+                                    $"post compact hook requested block after auto compression runId={state.RunId} reason={postCompactHook.Reason}");
+                            }
+                            await AgentRuntimeTools.EmitAsync(
+                                state,
+                                context,
+                                new AgentRuntimeStreamEvent(
+                                    "context_compressed",
+                                    OriginalCount: originalCount,
+                                    NewCount: compressed.Messages.Length,
+                                    KeptMessageCount: summarized,
+                                    CompactArtifacts: ExtractCompactArtifacts(compressed.Messages)));
+                            WorkerLog.Info(
+                                $"agent context compression ok runId={state.RunId} original={originalCount} " +
+                                $"compressed={compressed.Messages.Length} summarized={summarized}");
+                            lastInputTokens = 0;
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        WorkerLog.Warn(
+                            $"agent context compression failed runId={state.RunId} error={ex.GetType().Name}: {ex.Message}");
+                    }
                 }
             }
 
@@ -163,13 +192,13 @@ internal static class OpenAIChatRuntime
 
             if (state.IsCancellationRequested)
             {
-                await AgentRuntimeTools.EmitAsync(
+                await EmitLoopEndAsync(
+                    parameters,
                     state,
                     context,
-                    BuildLoopEndEvent(
-                        "aborted",
-                        fullCompressionApplied || captureFinalMessages,
-                        wireConversation));
+                    "aborted",
+                    fullCompressionApplied || captureFinalMessages,
+                    wireConversation);
                 return;
             }
 
@@ -202,14 +231,20 @@ internal static class OpenAIChatRuntime
                 break;
             }
 
-            var toolResults = await ExecuteToolCallsAsync(
+            var toolExecution = await ExecuteToolCallsAsync(
                 parameters,
                 turn.ToolCalls,
                 state,
                 context);
+            var toolResults = toolExecution.ToolResults;
 
             conversation.Add(AgentRuntimeChatMessage.UserToolResults(toolResults));
             wireConversation.Add(CreateToolResultsWireMessage(toolResults));
+            foreach (var hookContext in toolExecution.HookContextTexts)
+            {
+                conversation.Add(new AgentRuntimeChatMessage("user", hookContext, [], []));
+                wireConversation.Add(CreateUserTextWireMessage(hookContext));
+            }
             if (!runtimePlanModeContextInjected &&
                 AgentRuntimePlanExecutor.IsPlanModeActiveForRun(state.RunId, parameters))
             {
@@ -232,13 +267,13 @@ internal static class OpenAIChatRuntime
             }
         }
 
-        await AgentRuntimeTools.EmitAsync(
+        await EmitLoopEndAsync(
+            parameters,
             state,
             context,
-            BuildLoopEndEvent(
-                state.StopReason ?? (completed ? "completed" : "max_iterations"),
-                fullCompressionApplied || captureFinalMessages,
-                wireConversation));
+            state.StopReason ?? (completed ? "completed" : "max_iterations"),
+            fullCompressionApplied || captureFinalMessages,
+            wireConversation);
     }
 
     internal static async Task<AgentRuntimeProviderTurnResult> ExecuteProviderTurnAsync(
@@ -300,6 +335,98 @@ internal static class OpenAIChatRuntime
                 Reason: reason,
                 Messages: wireConversation.Select(message => message.Clone()).ToArray())
             : new AgentRuntimeStreamEvent("loop_end", Reason: reason);
+    }
+
+    internal static Task EmitLoopEndFromOuterAsync(
+        JsonElement parameters,
+        AgentRuntimeTools.AgentRuntimeRunState state,
+        WorkerRequestContext context,
+        string reason)
+    {
+        return EmitLoopEndAsync(parameters, state, context, reason, false, []);
+    }
+
+    private static async Task EmitLoopEndAsync(
+        JsonElement parameters,
+        AgentRuntimeTools.AgentRuntimeRunState state,
+        WorkerRequestContext context,
+        string reason,
+        bool includeMessages,
+        IReadOnlyList<JsonElement> wireConversation)
+    {
+        AgentRuntimeHookResult? stopHook = null;
+        try
+        {
+            stopHook = await AgentRuntimeHooks.RunStopAsync(
+                parameters,
+                state,
+                context,
+                NormalizeStopReason(reason),
+                false,
+                FindLastAssistantText(wireConversation));
+        }
+        catch (OperationCanceledException)
+        {
+            WorkerLog.Warn($"stop hook canceled runId={state.RunId}; emitting loop_end");
+        }
+        if (stopHook?.Blocked == true)
+        {
+            WorkerLog.Warn(
+                $"stop hook requested block runId={state.RunId} reason={stopHook.Reason}; emitting loop_end without recursive continuation");
+        }
+        await AgentRuntimeTools.EmitAsync(
+            state,
+            context,
+            BuildLoopEndEvent(reason, includeMessages, wireConversation));
+    }
+
+    private static string NormalizeStopReason(string reason)
+    {
+        return reason switch
+        {
+            "completed" => "completed",
+            "max_iterations" => "max_iterations",
+            "aborted" => "aborted",
+            "cancelled" => "cancelled",
+            "error" => "error",
+            _ => "completed"
+        };
+    }
+
+    private static string? FindLastAssistantText(IReadOnlyList<JsonElement> wireConversation)
+    {
+        for (var index = wireConversation.Count - 1; index >= 0; index--)
+        {
+            var message = wireConversation[index];
+            if (message.ValueKind != JsonValueKind.Object ||
+                JsonHelpers.GetString(message, "role") != "assistant" ||
+                !message.TryGetProperty("content", out var content))
+            {
+                continue;
+            }
+            if (content.ValueKind == JsonValueKind.String)
+            {
+                return content.GetString();
+            }
+            if (content.ValueKind == JsonValueKind.Array)
+            {
+                var parts = new List<string>();
+                foreach (var block in content.EnumerateArray())
+                {
+                    if (block.ValueKind == JsonValueKind.Object &&
+                        JsonHelpers.GetString(block, "type") == "text" &&
+                        JsonHelpers.GetString(block, "text") is { Length: > 0 } text)
+                    {
+                        parts.Add(text);
+                    }
+                }
+                if (parts.Count > 0)
+                {
+                    return string.Join("\n", parts);
+                }
+            }
+        }
+        return null;
     }
 
     private static AgentLoopCompressionConfig? ReadLoopCompressionConfig(JsonElement parameters)
@@ -899,21 +1026,38 @@ internal static class OpenAIChatRuntime
         toolBuffers.Clear();
     }
 
-    private static async Task<List<AgentRuntimeToolResult>> ExecuteToolCallsAsync(
+    private static async Task<AgentRuntimeToolExecutionResult> ExecuteToolCallsAsync(
         JsonElement parameters,
         IReadOnlyList<AgentRuntimeNativeToolCall> toolCalls,
         AgentRuntimeTools.AgentRuntimeRunState state,
         WorkerRequestContext context)
     {
         var toolResults = new List<AgentRuntimeToolResult>(toolCalls.Count);
-        foreach (var call in toolCalls)
+        var hookContextTexts = new List<string>();
+        foreach (var originalCall in toolCalls)
         {
+            var call = originalCall;
             var nativeTool = AgentRuntimeNativeToolExecutor.CanExecute(call.Name, parameters);
             WorkerLog.Debug(
                 $"agent tool dispatch runId={state.RunId} tool={call.Name} id={call.Id} " +
                 $"executionPath={(nativeTool ? "native-aot" : "native-missing")}");
             var requiresApproval = JsonHelpers.GetBool(parameters, "forceApproval", false) ||
                 (nativeTool && AgentRuntimeNativeToolExecutor.RequiresApproval(call.Name, call.Input, parameters));
+
+            var preHook = await AgentRuntimeHooks.RunPreToolUseAsync(
+                parameters,
+                state,
+                context,
+                call,
+                requiresApproval);
+            AppendHookContextText(hookContextTexts, preHook);
+            if (preHook.UpdatedInput.HasValue && preHook.UpdatedInput.Value.ValueKind == JsonValueKind.Object)
+            {
+                call = call with { Input = preHook.UpdatedInput.Value.Clone() };
+                nativeTool = AgentRuntimeNativeToolExecutor.CanExecute(call.Name, parameters);
+                requiresApproval = JsonHelpers.GetBool(parameters, "forceApproval", false) ||
+                    (nativeTool && AgentRuntimeNativeToolExecutor.RequiresApproval(call.Name, call.Input, parameters));
+            }
             var pendingCall = new AgentRuntimeToolCallState(
                 call.Id,
                 call.Name,
@@ -932,6 +1076,29 @@ internal static class OpenAIChatRuntime
                         call.Input,
                         call.ExtraContent)));
 
+            if (preHook.Blocked)
+            {
+                var blockedContent = CreateStringElement(preHook.Reason ?? "Blocked by PreToolUse hook");
+                var blockedAt = NowMs();
+                await AgentRuntimeTools.EmitAsync(
+                    state,
+                    context,
+                    new AgentRuntimeStreamEvent(
+                        "tool_call_result",
+                        ToolCall: new AgentRuntimeToolCallState(
+                            call.Id,
+                            call.Name,
+                            call.Input,
+                            "error",
+                            blockedContent,
+                            preHook.Reason ?? "Blocked by PreToolUse hook",
+                            requiresApproval,
+                            blockedAt,
+                            blockedAt)));
+                toolResults.Add(new AgentRuntimeToolResult(call.Id, blockedContent, true));
+                break;
+            }
+
             if (requiresApproval)
             {
                 await AgentRuntimeTools.EmitAsync(
@@ -939,10 +1106,11 @@ internal static class OpenAIChatRuntime
                     context,
                     new AgentRuntimeStreamEvent("tool_call_approval_needed", ToolCall: pendingCall));
 
-                var approved = await RequestApprovalAsync(parameters, pendingCall, state, context);
-                if (!approved)
+                var approval = await RequestApprovalAsync(parameters, pendingCall, state, context);
+                if (!approval.Approved)
                 {
-                    var deniedContent = CreateStringElement("Permission denied by user");
+                    var deniedReason = approval.Reason ?? "Permission denied by user";
+                    var deniedContent = CreateStringElement(deniedReason);
                     var deniedAt = NowMs();
                     await AgentRuntimeTools.EmitAsync(
                         state,
@@ -955,7 +1123,7 @@ internal static class OpenAIChatRuntime
                                 call.Input,
                                 "error",
                                 deniedContent,
-                                "User denied permission",
+                                deniedReason,
                                 true,
                                 deniedAt,
                                 deniedAt)));
@@ -989,6 +1157,27 @@ internal static class OpenAIChatRuntime
             var completedAt = NowMs();
             var status = result.IsError ? "error" : "completed";
             var boundedContent = LimitToolResultContent(result.Content);
+            var hookToolResponse = RemoveImageDataForHookPayload(boundedContent);
+            var postHook = await AgentRuntimeHooks.RunPostToolUseAsync(
+                parameters,
+                state,
+                context,
+                call,
+                hookToolResponse,
+                result.IsError);
+            AppendHookContextText(hookContextTexts, postHook);
+            if (postHook.ReplacementToolFeedback.HasValue)
+            {
+                boundedContent = LimitToolResultContent(postHook.ReplacementToolFeedback.Value);
+                result = result with { IsError = false, Error = null };
+                status = "completed";
+            }
+            if (postHook.Blocked)
+            {
+                boundedContent = CreateStringElement(postHook.Reason ?? "Blocked by PostToolUse hook");
+                result = result with { IsError = true, Error = postHook.Reason ?? "Blocked by PostToolUse hook" };
+                status = "error";
+            }
             await AgentRuntimeTools.EmitAsync(
                 state,
                 context,
@@ -1008,12 +1197,46 @@ internal static class OpenAIChatRuntime
                 call.Id,
                 boundedContent,
                 result.IsError ? true : null));
+            if (postHook.Blocked)
+            {
+                break;
+            }
         }
 
-        return toolResults;
+        return new AgentRuntimeToolExecutionResult(toolResults, hookContextTexts);
     }
 
-    private static async Task<bool> RequestApprovalAsync(
+    private static void AppendHookContextText(List<string> target, AgentRuntimeHookResult hookResult)
+    {
+        if (!hookResult.HasContext)
+        {
+            return;
+        }
+
+        var lines = new List<string> { "<hook-context>" };
+        foreach (var systemMessage in hookResult.SystemMessages)
+        {
+            if (!string.IsNullOrWhiteSpace(systemMessage))
+            {
+                lines.Add("<system-message>");
+                lines.Add(systemMessage.Trim());
+                lines.Add("</system-message>");
+            }
+        }
+        foreach (var additionalContext in hookResult.AdditionalContext)
+        {
+            if (!string.IsNullOrWhiteSpace(additionalContext))
+            {
+                lines.Add("<additional-context>");
+                lines.Add(additionalContext.Trim());
+                lines.Add("</additional-context>");
+            }
+        }
+        lines.Add("</hook-context>");
+        target.Add(string.Join("\n", lines));
+    }
+
+    private static async Task<ApprovalDecision> RequestApprovalAsync(
         JsonElement parameters,
         AgentRuntimeToolCallState toolCall,
         AgentRuntimeTools.AgentRuntimeRunState state,
@@ -1028,8 +1251,16 @@ internal static class OpenAIChatRuntime
             "approval/request",
             request,
             state.CancellationToken);
-        return JsonHelpers.GetBool(result, "approved", false);
+        return new ApprovalDecision(
+            JsonHelpers.GetBool(result, "approved", false),
+            JsonHelpers.GetString(result, "reason"));
     }
+
+    private sealed record ApprovalDecision(bool Approved, string? Reason);
+
+    private sealed record AgentRuntimeToolExecutionResult(
+        List<AgentRuntimeToolResult> ToolResults,
+        List<string> HookContextTexts);
 
     private static RendererToolResult CreateMissingNativeToolResult(string toolName)
     {
@@ -1415,6 +1646,100 @@ internal static class OpenAIChatRuntime
 
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
         return document.RootElement.Clone();
+    }
+
+    private static JsonElement RemoveImageDataForHookPayload(JsonElement content)
+    {
+        if (content.ValueKind != JsonValueKind.Array || !ArrayContainsImageData(content))
+        {
+            return content.Clone();
+        }
+
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
+        {
+            writer.WriteStartArray();
+            foreach (var block in content.EnumerateArray())
+            {
+                if (TryWriteHookImageBlock(writer, block))
+                {
+                    continue;
+                }
+                block.WriteTo(writer);
+            }
+            writer.WriteEndArray();
+        }
+
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return document.RootElement.Clone();
+    }
+
+    private static bool ArrayContainsImageData(JsonElement content)
+    {
+        foreach (var block in content.EnumerateArray())
+        {
+            if (block.ValueKind == JsonValueKind.Object &&
+                JsonHelpers.GetString(block, "type") == "image" &&
+                block.TryGetProperty("source", out var source) &&
+                source.ValueKind == JsonValueKind.Object &&
+                source.TryGetProperty("data", out var data) &&
+                data.ValueKind == JsonValueKind.String)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool TryWriteHookImageBlock(Utf8JsonWriter writer, JsonElement block)
+    {
+        if (block.ValueKind != JsonValueKind.Object ||
+            JsonHelpers.GetString(block, "type") != "image" ||
+            !block.TryGetProperty("source", out var source) ||
+            source.ValueKind != JsonValueKind.Object ||
+            !source.TryGetProperty("data", out var data) ||
+            data.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var hasExternalLocator =
+            (source.TryGetProperty("filePath", out var filePathElement) &&
+                filePathElement.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(filePathElement.GetString())) ||
+            (source.TryGetProperty("url", out var urlElement) &&
+                urlElement.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(urlElement.GetString()));
+        var persistedFilePath = hasExternalLocator ? null : TryPersistToolResultImage(source);
+
+        writer.WriteStartObject();
+        foreach (var property in block.EnumerateObject())
+        {
+            if (!property.NameEquals("source"))
+            {
+                property.WriteTo(writer);
+                continue;
+            }
+
+            writer.WritePropertyName("source");
+            writer.WriteStartObject();
+            foreach (var sourceProperty in source.EnumerateObject())
+            {
+                if (sourceProperty.NameEquals("data"))
+                {
+                    continue;
+                }
+                sourceProperty.WriteTo(writer);
+            }
+            if (!string.IsNullOrWhiteSpace(persistedFilePath))
+            {
+                writer.WriteString("filePath", persistedFilePath);
+            }
+            writer.WriteBoolean("dataOmitted", true);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndObject();
+        return true;
     }
 
     private static bool TryWriteLimitedTextBlock(

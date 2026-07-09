@@ -2,6 +2,7 @@ import { getNativeWorker, type NativeWorkerRawEventFrame } from '../lib/native-w
 
 type RawEventHandler = (frame: NativeWorkerRawEventFrame) => void
 type RequestHandler = (id: number | string, method: string, params: unknown) => Promise<unknown>
+type ReverseCancelHandler = (id: number | string, method?: string) => void
 
 type NativeReverseRequest = {
   id?: number | string
@@ -18,8 +19,10 @@ export class NativeAgentRuntimeManager {
   private rawEventHandler: RawEventHandler | null = null
   private rawEventListeners = new Set<RawEventHandler>()
   private requestHandler: RequestHandler | null = null
+  private reverseCancelHandler: ReverseCancelHandler | null = null
   private unsubscribeRawAgentStream: (() => void) | null = null
   private unsubscribeReverseRequest: (() => void) | null = null
+  private unsubscribeReverseCancel: (() => void) | null = null
   private activeRunIds = new Set<string>()
 
   get isRunning(): boolean {
@@ -40,6 +43,11 @@ export class NativeAgentRuntimeManager {
 
   setRequestHandler(handler: RequestHandler): void {
     this.requestHandler = handler
+  }
+
+  setReverseCancelHandler(handler: ReverseCancelHandler): void {
+    this.reverseCancelHandler = handler
+    this.installEventBridge()
   }
 
   setSessionVisibility(sessionId: string, visible: boolean): void {
@@ -75,6 +83,8 @@ export class NativeAgentRuntimeManager {
     this.unsubscribeRawAgentStream = null
     this.unsubscribeReverseRequest?.()
     this.unsubscribeReverseRequest = null
+    this.unsubscribeReverseCancel?.()
+    this.unsubscribeReverseCancel = null
   }
 
   async request(method: string, params?: unknown, timeoutMs = 30_000): Promise<unknown> {
@@ -122,6 +132,21 @@ export class NativeAgentRuntimeManager {
         'agent/reverse-request',
         (params) => {
           void this.handleReverseRequest(params as NativeReverseRequest)
+        }
+      )
+    }
+
+    if (!this.unsubscribeReverseCancel) {
+      this.unsubscribeReverseCancel = getNativeWorker().onEvent(
+        'agent/reverse-cancel',
+        (params) => {
+          const request = params as NativeReverseRequest
+          const id = request?.id
+          if (typeof id !== 'number' && typeof id !== 'string') return
+          this.reverseCancelHandler?.(
+            id,
+            typeof request.method === 'string' ? request.method : undefined
+          )
         }
       )
     }

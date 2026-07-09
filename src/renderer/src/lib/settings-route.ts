@@ -20,6 +20,7 @@ const VALID_SETTINGS_TABS: ReadonlySet<SettingsTab> = new Set([
   'model',
   'plugin',
   'extension',
+  'hooks',
   'channel',
   'mcp',
   'websearch',

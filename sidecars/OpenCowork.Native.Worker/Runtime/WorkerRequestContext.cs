@@ -26,6 +26,14 @@ internal sealed class WorkerRequestContext
             CancellationToken);
     }
 
+    public ValueTask EmitEventIgnoringCancellationAsync<T>(string eventName, T parameters, JsonTypeInfo<T> typeInfo)
+    {
+        return emitEventAsync(
+            eventName,
+            writer => JsonSerializer.Serialize(writer, parameters, typeInfo),
+            CancellationToken.None);
+    }
+
     public ValueTask EmitMessagePackEventAsync(WorkerMessagePackEvent messagePackEvent)
     {
         return emitMessagePackEventAsync(messagePackEvent, CancellationToken);

@@ -176,6 +176,25 @@ internal static partial class AgentRuntimeSubAgentExecutor
             static state => ((AgentRuntimeTools.AgentRuntimeRunState)state!).Cancel("parent"),
             childState);
 
+        var startHook = await AgentRuntimeHooks.RunSubagentAsync(
+            parameters,
+            parentState,
+            context,
+            "SubagentStart",
+            childState.RunId,
+            definition.Name,
+            call.Id);
+        if (startHook.Blocked)
+        {
+            childState.Dispose();
+            return ErrorResult(startHook.Reason ?? "SubagentStart hook blocked sub-agent run");
+        }
+        if (startHook.HasContext)
+        {
+            childParameters = AppendHookRequestContexts(childParameters, startHook);
+            childState.ReplaceParameters(childParameters);
+        }
+
         await AgentRuntimeTools.EmitAsync(
             parentState,
             context,
@@ -209,6 +228,19 @@ internal static partial class AgentRuntimeSubAgentExecutor
         }
 
         var result = collector.BuildResult(childState.SubmittedReport);
+        var stopHook = await AgentRuntimeHooks.RunSubagentAsync(
+            parameters,
+            parentState,
+            context,
+            "SubagentStop",
+            childState.RunId,
+            definition.Name,
+            call.Id);
+        if (stopHook.Blocked)
+        {
+            var reason = stopHook.Reason ?? "SubagentStop hook blocked sub-agent result";
+            result = result with { Success = false, Output = reason, Error = reason };
+        }
         await AgentRuntimeTools.EmitAsync(
             parentState,
             context,
@@ -616,6 +648,60 @@ internal static partial class AgentRuntimeSubAgentExecutor
             writer.WriteBoolean("captureFinalMessages", true);
             writer.WriteBoolean("submitReportEnabled", true);
         });
+    }
+
+    private static JsonElement AppendHookRequestContexts(
+        JsonElement parameters,
+        AgentRuntimeHookResult hookResult)
+    {
+        return CreateObject(writer =>
+        {
+            foreach (var property in parameters.EnumerateObject())
+            {
+                if (property.NameEquals("requestContextTexts"))
+                {
+                    continue;
+                }
+                property.WriteTo(writer);
+            }
+
+            writer.WritePropertyName("requestContextTexts");
+            writer.WriteStartArray();
+            if (parameters.TryGetProperty("requestContextTexts", out var contexts) &&
+                contexts.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var context in contexts.EnumerateArray())
+                {
+                    if (context.ValueKind == JsonValueKind.String &&
+                        context.GetString() is { Length: > 0 })
+                    {
+                        context.WriteTo(writer);
+                    }
+                }
+            }
+            WriteHookRequestContextItems(writer, hookResult);
+            writer.WriteEndArray();
+        });
+    }
+
+    private static void WriteHookRequestContextItems(
+        Utf8JsonWriter writer,
+        AgentRuntimeHookResult hookResult)
+    {
+        foreach (var systemMessage in hookResult.SystemMessages)
+        {
+            if (!string.IsNullOrWhiteSpace(systemMessage))
+            {
+                writer.WriteStringValue($"<hook-system-message>\n{systemMessage.Trim()}\n</hook-system-message>");
+            }
+        }
+        foreach (var additionalContext in hookResult.AdditionalContext)
+        {
+            if (!string.IsNullOrWhiteSpace(additionalContext))
+            {
+                writer.WriteStringValue($"<hook-additional-context>\n{additionalContext.Trim()}\n</hook-additional-context>");
+            }
+        }
     }
 
     private static List<JsonElement> ReadToolDefinitions(JsonElement parameters)

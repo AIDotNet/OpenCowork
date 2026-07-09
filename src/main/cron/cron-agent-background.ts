@@ -28,6 +28,13 @@ import {
 } from '../db/cron-dao'
 import { getNativeAgentRuntimeManager } from '../ipc/native-agent-runtime'
 import { getDefaultApiUserAgent, resolveApiUserAgent } from '../lib/api-user-agent'
+import { runHooks } from '../hooks/hooks-service'
+import {
+  collectHookContextTexts,
+  HOOK_EVENTS,
+  HOOK_RUN_SOURCE,
+  HOOK_SESSION_START_SOURCE
+} from '../../shared/hooks/types'
 
 const DEFAULT_AGENT = 'CronAgent'
 const RESPONSES_SESSION_SCOPE_AGENT_MAIN = 'agent-main'
@@ -681,9 +688,17 @@ async function resolveCronAgentDefinition(agentId?: string | null): Promise<Agen
     }
 
     const sourceTools =
-      agent.allowedTools.length > 0 ? agent.allowedTools : Array.isArray(agent.tools) ? agent.tools : []
+      agent.allowedTools.length > 0
+        ? agent.allowedTools
+        : Array.isArray(agent.tools)
+          ? agent.tools
+          : []
     const maxIterations =
-      agent.maxIterations > 0 ? agent.maxIterations : (agent.maxTurns ?? 0) > 0 ? agent.maxTurns! : 15
+      agent.maxIterations > 0
+        ? agent.maxIterations
+        : (agent.maxTurns ?? 0) > 0
+          ? agent.maxTurns!
+          : 15
 
     return {
       name: agent.name,
@@ -986,7 +1001,34 @@ async function* runNativeAgentLoop(args: {
       pluginSenderName: args.toolCtx.pluginSenderName
     }
 
-    const result = (await manager.request('agent/run', runRequest, 30_000)) as NativeAgentRunResult
+    const sessionStartHook = await runHooks({
+      eventName: HOOK_EVENTS.sessionStart,
+      matcherValue: HOOK_SESSION_START_SOURCE.startup,
+      sessionId: args.toolCtx.sessionId ?? args.runId,
+      runId: args.runId,
+      projectRoot: args.toolCtx.workingFolder,
+      sshConnectionId: args.toolCtx.sshConnectionId,
+      input: {
+        source: HOOK_SESSION_START_SOURCE.startup,
+        runSource: HOOK_RUN_SOURCE.cron,
+        sessionMode: 'cron',
+        toolNames: args.config.tools.map((tool) => tool.name),
+        providerType: args.config.provider.type,
+        modelId: args.config.provider.model
+      }
+    })
+    if (sessionStartHook.blocked) {
+      throw new Error(sessionStartHook.reason || 'SessionStart hook blocked cron agent run')
+    }
+    const hookContextTexts = collectHookContextTexts(sessionStartHook)
+
+    const result = (await manager.request(
+      'agent/run',
+      hookContextTexts.length > 0
+        ? { ...runRequest, requestContextTexts: hookContextTexts }
+        : runRequest,
+      30_000
+    )) as NativeAgentRunResult
     if (!result.started || !result.runId) {
       throw new Error('Native cron agent run did not start')
     }
@@ -1567,7 +1609,10 @@ async function runCronAgentInternal(
 
   const runId = `run-${nanoid(8)}`
   const startedAt = executionState.get(jobId)?.startedAt ?? Date.now()
-  const providerConfig = await resolveCronProviderConfig(sourceProviderId ?? null, modelOverride ?? null)
+  const providerConfig = await resolveCronProviderConfig(
+    sourceProviderId ?? null,
+    modelOverride ?? null
+  )
   const definition = await resolveCronAgentDefinition(agentId)
   const availableTools = buildAllowedToolDefinitions(
     definition.allowedTools.length > 0 ? definition.allowedTools : FALLBACK_CRON_AGENT.allowedTools

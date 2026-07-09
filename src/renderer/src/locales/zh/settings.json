@@ -15,6 +15,95 @@
     "title": "桌面宠物",
     "subtitle": "住在你桌面上的小卡皮巴拉"
   },
+  "hooks": {
+    "title": "钩子",
+    "subtitle": "管理 OpenCowork 生命周期钩子。",
+    "loading": "正在加载钩子...",
+    "empty": "还没有配置钩子。",
+    "emptyForEvent": "这个生命周期事件还没有配置钩子。",
+    "feature": {
+      "title": "启用钩子",
+      "preview": "预览版",
+      "description": "重启 OpenCowork 后生效。",
+      "runtimeOn": "本次启动中生效",
+      "runtimeOff": "本次启动中未生效",
+      "restartToEnable": "重启 OpenCowork 后开始运行钩子。",
+      "restartToDisable": "本次启动中钩子仍会运行。重启 OpenCowork 后停止运行钩子。"
+    },
+    "source": {
+      "exists": "已找到",
+      "missing": "未找到"
+    },
+    "metrics": {
+      "total": "总数",
+      "pending": "待审核",
+      "invalid": "无效"
+    },
+    "review": {
+      "title": "全部列表",
+      "warning": "信任钩子等于允许它的命令以你的本机用户身份运行。"
+    },
+    "list": {
+      "title": "全部列表"
+    },
+    "events": {
+      "SessionStart": {
+        "description": "会话启动、恢复、清空、压缩恢复或后台任务开始前触发。适合补充会话上下文。"
+      },
+      "UserPromptSubmit": {
+        "description": "用户消息提交前触发。可以补充上下文、改写提示词，或阻止本次提交。"
+      },
+      "PreToolUse": {
+        "description": "工具调用生成后、真正执行前触发。可以调整输入或阻止危险调用。"
+      },
+      "PermissionRequest": {
+        "description": "工具需要用户确认时、确认弹窗出现前触发。可以允许或拒绝这次请求。"
+      },
+      "PostToolUse": {
+        "description": "工具执行完成后、结果交给模型前触发。可以补充上下文或替换工具反馈。"
+      },
+      "PreCompact": {
+        "description": "手动或自动压缩上下文前触发。可以补充压缩提示，或阻止本次压缩。"
+      },
+      "PostCompact": {
+        "description": "上下文压缩完成后触发。适合追加压缩后的提示或说明。"
+      },
+      "SubagentStart": {
+        "description": "子智能体启动前触发。可以补充上下文，或阻止这个子任务。"
+      },
+      "SubagentStop": {
+        "description": "子智能体结束后、结果回到主会话前触发。可以校验结果或阻止返回。"
+      },
+      "Stop": {
+        "description": "本轮 Agent 即将结束时触发。适合收尾检查、补充说明或阻止结束。"
+      }
+    },
+    "status": {
+      "pending": "待审核",
+      "trusted": "已信任",
+      "denied": "已拒绝",
+      "disabled": "已禁用",
+      "invalid": "配置错误",
+      "changed": "已变更"
+    },
+    "actions": {
+      "refresh": "刷新",
+      "trust": "确认使用",
+      "deny": "不使用",
+      "disable": "禁用",
+      "enable": "启用",
+      "openConfig": "打开用户配置",
+      "openConfigShort": "配置",
+      "openArtifact": "脚本"
+    },
+    "toasts": {
+      "trusted": "已确认使用",
+      "denied": "已设为不使用",
+      "enabled": "钩子已启用",
+      "disabled": "钩子已禁用",
+      "opened": "已打开来源"
+    }
+  },
   "profile": {
     "title": "个人资料",
     "subtitle": "本地身份与 Token 活动",

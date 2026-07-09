@@ -200,7 +200,11 @@ internal static class AgentRuntimeTools
 
             if (state.IsCancellationRequested)
             {
-                await EmitAsync(state, context, new AgentRuntimeStreamEvent("loop_end", Reason: "aborted"));
+                await OpenAIChatRuntime.EmitLoopEndFromOuterAsync(
+                    state.Parameters,
+                    state,
+                    context,
+                    "aborted");
                 return;
             }
 
@@ -208,7 +212,11 @@ internal static class AgentRuntimeTools
         }
         catch (OperationCanceledException) when (state.IsCancellationRequested)
         {
-            await EmitAsync(state, context, new AgentRuntimeStreamEvent("loop_end", Reason: "aborted"));
+            await OpenAIChatRuntime.EmitLoopEndFromOuterAsync(
+                state.Parameters,
+                state,
+                context,
+                "aborted");
         }
         catch (Exception ex)
         {
@@ -222,7 +230,11 @@ internal static class AgentRuntimeTools
                     ErrorType: ex.GetType().Name,
                     Details: ex.Message,
                     StackTrace: ex.StackTrace));
-            await EmitAsync(state, context, new AgentRuntimeStreamEvent("loop_end", Reason: "error"));
+            await OpenAIChatRuntime.EmitLoopEndFromOuterAsync(
+                state.Parameters,
+                state,
+                context,
+                "error");
         }
         finally
         {

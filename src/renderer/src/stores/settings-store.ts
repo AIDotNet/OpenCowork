@@ -256,6 +256,7 @@ interface SettingsStore {
   reasoningEffortByModel: Record<string, ReasoningEffortLevel>
   teamToolsEnabled: boolean
   builtinBrowserEnabled: boolean
+  hooksEnabled: boolean
   browserUserDataReuseEnabled: boolean
   browserUserDataSource: BrowserUserDataSource
   contextCompressionEnabled: boolean
@@ -371,6 +372,7 @@ export const useSettingsStore = create<SettingsStore>()(
       reasoningEffortByModel: {},
       teamToolsEnabled: false,
       builtinBrowserEnabled: true,
+      hooksEnabled: false,
       browserUserDataReuseEnabled: true,
       browserUserDataSource: DEFAULT_BROWSER_USER_DATA_SOURCE,
       contextCompressionEnabled: true,
@@ -478,7 +480,7 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'opencowork-settings',
-      version: 25,
+      version: 26,
       storage: createJSONStorage(() => ipcStorage),
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Record<string, unknown>
@@ -620,6 +622,9 @@ export const useSettingsStore = create<SettingsStore>()(
         }
         if (state.editorRemoteLanguageServiceEnabled === undefined) {
           state.editorRemoteLanguageServiceEnabled = false
+        }
+        if (typeof state.hooksEnabled !== 'boolean') {
+          state.hooksEnabled = false
         }
         if (
           state.maxParallelToolCalls === undefined ||
@@ -819,6 +824,7 @@ export const useSettingsStore = create<SettingsStore>()(
         lastProjectDirectory: state.lastProjectDirectory,
         recentWorkingTargets: state.recentWorkingTargets,
         builtinBrowserEnabled: state.builtinBrowserEnabled,
+        hooksEnabled: state.hooksEnabled,
         browserUserDataReuseEnabled: state.browserUserDataReuseEnabled,
         browserUserDataSource: normalizeBrowserUserDataSource(state.browserUserDataSource)
         // NOTE: apiKey is intentionally excluded from localStorage persistence.

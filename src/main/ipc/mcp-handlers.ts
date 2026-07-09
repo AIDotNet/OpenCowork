@@ -7,8 +7,22 @@ import {
   encodeMessagePackPayload,
   toMessagePackChannel
 } from '../../shared/messagepack/binary-ipc'
+import { HOOK_EVENTS } from '../../shared/hooks/types'
+import { runHooks } from '../hooks/hooks-service'
 
 const MCP_CONFIG_TIMEOUT_MS = 60_000
+
+export const MCP_REVERSE_METHODS = {
+  callTool: 'mcp:call-tool',
+  readResource: 'mcp:read-resource'
+} as const
+
+export const MCP_TOOL_HOOK_MODE = {
+  enabled: 'enabled',
+  disabled: 'disabled'
+} as const
+
+type McpToolHookMode = (typeof MCP_TOOL_HOOK_MODE)[keyof typeof MCP_TOOL_HOOK_MODE]
 
 let activeMcpManager: McpManager | null = null
 
@@ -160,14 +174,17 @@ export function registerMcpHandlers(mcpManager: McpManager): void {
   })
 
   // Call a tool on an MCP server
-  registerMcpMessagePackHandler<McpCallToolArgs>('mcp:call-tool', async (args) => {
+  registerMcpMessagePackHandler<McpCallToolArgs>(MCP_REVERSE_METHODS.callTool, async (args) => {
     return await executeMcpToolFromMain(args)
   })
 
   // Read a resource from an MCP server
-  registerMcpMessagePackHandler<McpReadResourceArgs>('mcp:read-resource', async (args) => {
-    return await readMcpResourceFromMain(args)
-  })
+  registerMcpMessagePackHandler<McpReadResourceArgs>(
+    MCP_REVERSE_METHODS.readResource,
+    async (args) => {
+      return await readMcpResourceFromMain(args)
+    }
+  )
 
   // List resources for a server
   registerMcpMessagePackHandler<string>('mcp:list-resources', (id) => {
@@ -213,18 +230,98 @@ function getActiveMcpManager(): McpManager {
   return activeMcpManager
 }
 
-export async function executeMcpToolFromMain({
-  serverId,
-  toolName,
-  args
-}: McpCallToolArgs): Promise<{ success: boolean; result?: unknown; error?: string }> {
+export async function executeMcpToolFromMain(
+  { serverId, toolName, args }: McpCallToolArgs,
+  options: { hookMode?: McpToolHookMode } = {}
+): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const hookToolName = `mcp__${serverId}__${toolName}`
+  const toolUseId = `mcp-${Date.now()}`
+  const hooksEnabled = options.hookMode !== MCP_TOOL_HOOK_MODE.disabled
+  let toolArgs = args
   try {
-    const result = await getActiveMcpManager().callTool(serverId, toolName, args)
+    if (hooksEnabled) {
+      const preHook = await runHooks({
+        eventName: HOOK_EVENTS.preToolUse,
+        matcherValue: hookToolName,
+        input: {
+          toolName: hookToolName,
+          toolUseId,
+          toolInput: args,
+          requiresApproval: false
+        }
+      })
+      if (preHook.blocked) {
+        return { success: false, error: preHook.reason || 'Blocked by PreToolUse hook' }
+      }
+      toolArgs = preHook.updatedInput ?? args
+    }
+    const result = await getActiveMcpManager().callTool(serverId, toolName, toolArgs)
+    if (!hooksEnabled) {
+      return { success: true, result }
+    }
+    const postHook = await runHooks({
+      eventName: HOOK_EVENTS.postToolUse,
+      matcherValue: hookToolName,
+      input: {
+        toolName: hookToolName,
+        toolUseId,
+        toolInput: toolArgs,
+        toolResponse: stripImageDataForHookPayload(result),
+        isError: false
+      }
+    })
+    if (postHook.blocked) {
+      return { success: false, error: postHook.reason || 'Blocked by PostToolUse hook' }
+    }
+    if ('replacementToolFeedback' in postHook) {
+      return { success: true, result: postHook.replacementToolFeedback }
+    }
     return { success: true, result }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
+    if (hooksEnabled) {
+      const postHook = await runHooks({
+        eventName: HOOK_EVENTS.postToolUse,
+        matcherValue: hookToolName,
+        input: {
+          toolName: hookToolName,
+          toolUseId,
+          toolInput: toolArgs,
+          toolResponse: msg,
+          isError: true
+        }
+      }).catch(() => null)
+      if (postHook?.blocked) {
+        return { success: false, error: postHook.reason || 'Blocked by PostToolUse hook' }
+      }
+      if (postHook && 'replacementToolFeedback' in postHook) {
+        return { success: true, result: postHook.replacementToolFeedback }
+      }
+    }
     return { success: false, error: msg }
   }
+}
+
+function stripImageDataForHookPayload(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripImageDataForHookPayload)
+  if (!isRecord(value)) return value
+  if (value.type === 'image' && isRecord(value.source) && typeof value.source.data === 'string') {
+    const { data: _data, ...sourceWithoutData } = value.source
+    return {
+      ...value,
+      source: {
+        ...sourceWithoutData,
+        dataOmitted: true
+      }
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, stripImageDataForHookPayload(entry)])
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 export async function readMcpResourceFromMain({

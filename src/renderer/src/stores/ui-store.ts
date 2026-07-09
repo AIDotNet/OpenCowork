@@ -218,6 +218,7 @@ export type SettingsTab =
   | 'model'
   | 'plugin'
   | 'extension'
+  | 'hooks'
   | 'channel'
   | 'mcp'
   | 'websearch'

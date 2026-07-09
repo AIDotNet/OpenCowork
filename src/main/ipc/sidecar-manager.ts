@@ -46,8 +46,24 @@ import {
   type CronJobRecord
 } from '../cron/cron-scheduler'
 import { getCronExecutionState } from '../cron/cron-agent-background'
-import { executeMcpToolFromMain, readMcpResourceFromMain } from './mcp-handlers'
+import {
+  executeMcpToolFromMain,
+  MCP_REVERSE_METHODS,
+  MCP_TOOL_HOOK_MODE,
+  readMcpResourceFromMain
+} from './mcp-handlers'
 import { executeJsExtensionToolInMain } from './extension-js-runtime'
+import { cancelHookRuns, runHooks } from '../hooks/hooks-service'
+import {
+  collectHookContextTexts,
+  HOOK_COMPACT_TRIGGER,
+  HOOK_EVENTS,
+  HOOK_PERMISSION_BEHAVIOR,
+  HOOK_REVERSE_METHODS,
+  HOOK_RUN_SOURCE,
+  HOOK_SESSION_START_SOURCE,
+  type HookRunSource
+} from '../../shared/hooks/types'
 
 const SIDECAR_RENDERER_REQUEST_TIMEOUT_MS = 10 * 60_000
 const DEBUG_BODY_TEMP_DIR = join(tmpdir(), 'opencowork-request-debug-bodies')
@@ -105,6 +121,7 @@ type SidecarBridgeManager = {
   setRequestHandler: (
     handler: (id: number | string, method: string, params: unknown) => Promise<unknown>
   ) => void
+  setReverseCancelHandler: (handler: (id: number | string, method?: string) => void) => void
   setSessionVisibility: (sessionId: string, visible: boolean) => void
   start: () => Promise<boolean>
   ensureStarted: () => Promise<boolean>
@@ -250,6 +267,144 @@ function asOptionalRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
+}
+
+function getProviderRecord(params: Record<string, unknown>): Record<string, unknown> {
+  return normalizeRendererRequestRecord(params.provider)
+}
+
+async function runSessionStartHook(params: unknown): Promise<unknown> {
+  const record = normalizeRendererRequestRecord(params)
+  const provider = getProviderRecord(record)
+  const tools = Array.isArray(record.tools) ? record.tools : []
+  const toolNames = tools
+    .map((tool) => normalizeRendererRequestRecord(tool).name)
+    .filter((name): name is string => typeof name === 'string' && name.length > 0)
+  const sessionId = readNonEmptyString(record.sessionId)
+  const runId = readNonEmptyString(record.runId)
+  const workingFolder = readNonEmptyString(record.workingFolder)
+  const sshConnectionId = readNonEmptyString(record.sshConnectionId)
+  const goalRunSource = readNonEmptyString(record.goalRunSource)
+  const hookResult = await runHooks({
+    eventName: HOOK_EVENTS.sessionStart,
+    matcherValue:
+      goalRunSource === HOOK_RUN_SOURCE.continue
+        ? HOOK_SESSION_START_SOURCE.resume
+        : HOOK_SESSION_START_SOURCE.startup,
+    sessionId,
+    runId,
+    projectRoot: workingFolder,
+    sshConnectionId,
+    input: {
+      source:
+        goalRunSource === HOOK_RUN_SOURCE.continue
+          ? HOOK_SESSION_START_SOURCE.resume
+          : HOOK_SESSION_START_SOURCE.startup,
+      runSource: resolveSessionStartRunSource(record),
+      sessionMode: readNonEmptyString(record.sessionMode),
+      toolNames,
+      providerType: readNonEmptyString(provider.type) ?? '',
+      modelId: readNonEmptyString(provider.model)
+    }
+  })
+  if (hookResult.blocked) {
+    throw new Error(hookResult.reason || 'SessionStart hook blocked agent run')
+  }
+  const hookContextTexts = collectHookContextTexts(hookResult)
+  if (hookContextTexts.length === 0) return params
+  return {
+    ...record,
+    requestContextTexts: [...readStringArray(record.requestContextTexts), ...hookContextTexts]
+  }
+}
+
+function resolveSessionStartRunSource(record: Record<string, unknown>): HookRunSource {
+  if (readNonEmptyString(record.goalRunSource) === HOOK_RUN_SOURCE.continue) {
+    return HOOK_RUN_SOURCE.continue
+  }
+  if (record.translation) return HOOK_RUN_SOURCE.translation
+  if (readNonEmptyString(record.pluginId)) return HOOK_RUN_SOURCE.pluginAutoReply
+  if (readNonEmptyString(record.cronJobId)) return HOOK_RUN_SOURCE.cron
+  return HOOK_RUN_SOURCE.chat
+}
+
+async function runPermissionRequestHook(params: unknown): Promise<{
+  handled: boolean
+  approved: boolean
+  reason?: string
+}> {
+  const record = normalizeRendererRequestRecord(params)
+  const toolCall = normalizeRendererRequestRecord(record.toolCall)
+  const toolName = readNonEmptyString(toolCall.name)
+  if (!toolName) return { handled: false, approved: false }
+  const hookResult = await runHooks({
+    eventName: HOOK_EVENTS.permissionRequest,
+    matcherValue: toolName,
+    sessionId: readNonEmptyString(record.sessionId),
+    runId: readNonEmptyString(record.runId),
+    input: {
+      toolName,
+      toolInput: toolCall.input ?? {},
+      reason: readNonEmptyString(record.reason),
+      sourceRequiresUserApproval: true
+    }
+  })
+  if (hookResult.blocked) {
+    return {
+      handled: true,
+      approved: false,
+      reason: hookResult.reason || 'Denied by hook'
+    }
+  }
+  const decision = hookResult.permissionDecision
+  if (decision?.behavior === HOOK_PERMISSION_BEHAVIOR.deny) {
+    return { handled: true, approved: false, reason: decision.message || 'Denied by hook' }
+  }
+  if (decision?.behavior === HOOK_PERMISSION_BEHAVIOR.allow) {
+    return { handled: true, approved: true, reason: decision.message }
+  }
+  return { handled: false, approved: false }
+}
+
+async function runManualCompactHooks(
+  phase: typeof HOOK_EVENTS.preCompact | typeof HOOK_EVENTS.postCompact,
+  params: unknown,
+  result?: unknown
+): Promise<void> {
+  const record = normalizeRendererRequestRecord(params)
+  const resultRecord = normalizeRendererRequestRecord(result)
+  const compressionResult = normalizeRendererRequestRecord(resultRecord.result)
+  const hookResult = await runHooks({
+    eventName: phase,
+    matcherValue: 'manual',
+    sessionId: readNonEmptyString(record.sessionId),
+    projectRoot: readNonEmptyString(record.workingFolder),
+    sshConnectionId: readNonEmptyString(record.sshConnectionId),
+    input: {
+      trigger: HOOK_COMPACT_TRIGGER.manual,
+      originalCount:
+        typeof compressionResult.originalCount === 'number'
+          ? compressionResult.originalCount
+          : undefined,
+      newCount:
+        typeof compressionResult.newCount === 'number' ? compressionResult.newCount : undefined
+    }
+  })
+  if (hookResult.blocked) {
+    if (phase === HOOK_EVENTS.postCompact) {
+      console.warn(
+        `[Hooks] PostCompact hook requested block after compression: ${hookResult.reason || 'Blocked by hook'}`
+      )
+      return
+    }
+    throw new Error(hookResult.reason || `${phase} hook blocked context compression`)
+  }
 }
 
 function normalizeInteractiveToolCall(toolCall: ToolCallStateWire): ToolCallState {
@@ -615,12 +770,32 @@ export function registerSidecarHandlers(): void {
     if (terminal) cleanupAgentRunIfTerminal(runId, true)
   })
 
+  manager.setReverseCancelHandler((id, method) => {
+    if (method === HOOK_REVERSE_METHODS.run) {
+      cancelHookRuns(String(id))
+    }
+  })
+
   manager.setRequestHandler(async (_id, method, params) => {
     // Reverse requests (approvals, renderer tool execution) must not overtake
     // stream events that were emitted before them.
     flushAllStreamBatches()
     switch (method) {
       case 'approval/request': {
+        const hookDecision: { handled: boolean; approved: boolean; reason?: string } =
+          await runPermissionRequestHook(params).catch((error) => {
+            console.warn(
+              `[Hooks] PermissionRequest failed: ${error instanceof Error ? error.message : String(error)}`
+            )
+            return { handled: false, approved: false }
+          })
+        if (hookDecision.handled) {
+          return {
+            approved: hookDecision.approved,
+            ...(hookDecision.reason ? { reason: hookDecision.reason } : {})
+          }
+        }
+
         const requestId = `sidecar-approval-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
         const targetWindow = resolveRendererTargetWindow(params, runWindowIds, sessionWindowIds)
 
@@ -649,6 +824,11 @@ export function registerSidecarHandlers(): void {
           }
         })
       }
+      case HOOK_REVERSE_METHODS.run:
+        return await runHooks({
+          ...(normalizeRendererRequestRecord(params) as unknown as Parameters<typeof runHooks>[0]),
+          cancellationKey: String(_id)
+        })
       case 'cron/schedule-job': {
         const cronParams = params as { job?: CronJobRecord } | null
         if (!cronParams?.job?.id) {
@@ -729,18 +909,21 @@ export function registerSidecarHandlers(): void {
         return desktopInputType((params ?? {}) as Parameters<typeof desktopInputType>[0])
       case DESKTOP_INPUT_SCROLL:
         return desktopInputScroll((params ?? {}) as Parameters<typeof desktopInputScroll>[0])
-      case 'mcp:call-tool': {
+      case MCP_REVERSE_METHODS.callTool: {
         const mcpArgs = (params ?? {}) as McpCallToolInvokeArgs
         if (!mcpArgs.serverId || !mcpArgs.toolName) {
           throw new Error('mcp:call-tool requires serverId and toolName')
         }
-        return await executeMcpToolFromMain({
-          serverId: mcpArgs.serverId,
-          toolName: mcpArgs.toolName,
-          args: mcpArgs.args ?? {}
-        })
+        return await executeMcpToolFromMain(
+          {
+            serverId: mcpArgs.serverId,
+            toolName: mcpArgs.toolName,
+            args: mcpArgs.args ?? {}
+          },
+          { hookMode: MCP_TOOL_HOOK_MODE.disabled }
+        )
       }
-      case 'mcp:read-resource': {
+      case MCP_REVERSE_METHODS.readResource: {
         const mcpArgs = (params ?? {}) as McpReadResourceInvokeArgs
         if (!mcpArgs.serverId) {
           throw new Error('mcp:read-resource requires serverId')
@@ -861,12 +1044,19 @@ export function registerSidecarHandlers(): void {
     const ready = await manager.ensureStarted()
     if (!ready) throw new Error('SIDECAR_UNAVAILABLE')
     const enrichedParams = await prepareGoalAwareAgentRunParams(params, manager)
+    const hookAdjustedParams = await runSessionStartHook(enrichedParams)
     try {
-      const result = (await manager.request('agent/run', enrichedParams, 60_000)) as {
+      const result = (await manager.request('agent/run', hookAdjustedParams, 60_000)) as {
         started: boolean
         runId: string
       }
-      rememberRendererOrigin(event, enrichedParams, runWindowIds, sessionWindowIds, result.runId)
+      rememberRendererOrigin(
+        event,
+        hookAdjustedParams,
+        runWindowIds,
+        sessionWindowIds,
+        result.runId
+      )
       console.log('[Sidecar] agent:run request accepted')
       return result
     } catch (error) {
@@ -908,7 +1098,10 @@ export function registerSidecarHandlers(): void {
   registerMessagePackInvokeHandler<unknown>('agent:compress-context', async (_event, params) => {
     const ready = await manager.ensureStarted()
     if (!ready) throw new Error('SIDECAR_UNAVAILABLE')
-    return await manager.request('agent/compress-context', params, 130_000)
+    await runManualCompactHooks(HOOK_EVENTS.preCompact, params)
+    const result = await manager.request('agent/compress-context', params, 130_000)
+    await runManualCompactHooks(HOOK_EVENTS.postCompact, params, result)
+    return result
   })
 
   ipcMain.on(toMessagePackChannel('agent:session-visibility'), (event, bytes: Uint8Array) => {

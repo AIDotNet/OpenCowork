@@ -21,6 +21,7 @@ internal static class DbSchemaMigrator
         CreateWorkItemTables(connection);
         CreateChannelAndCronTables(connection);
         CreateSshAndProjectTables(connection);
+        CreateHookTables(connection);
         CreateUsageTables(connection);
         CreateSyncTables(connection);
         ApplyAdditiveMigrations(connection);
@@ -522,6 +523,71 @@ internal static class DbSchemaMigrator
             """);
     }
 
+    private static void CreateHookTables(SqliteConnection connection)
+    {
+        Execute(connection, """
+            CREATE TABLE IF NOT EXISTS hook_trusts (
+              id TEXT PRIMARY KEY,
+              identity_key TEXT NOT NULL,
+              trust_key TEXT NOT NULL UNIQUE,
+              source_kind TEXT NOT NULL,
+              source_path TEXT NOT NULL,
+              source_real_path TEXT NOT NULL,
+              source_config_hash TEXT NOT NULL,
+              project_id TEXT,
+              project_root TEXT,
+              project_root_real_path TEXT,
+              event_name TEXT NOT NULL,
+              matcher TEXT NOT NULL,
+              handler_type TEXT NOT NULL,
+              command TEXT NOT NULL,
+              resolved_cwd TEXT NOT NULL,
+              env_fingerprint TEXT NOT NULL,
+              definition_hash TEXT NOT NULL,
+              artifact_hashes_json TEXT,
+              status TEXT NOT NULL,
+              local_disabled INTEGER NOT NULL DEFAULT 0,
+              snapshot_json TEXT NOT NULL,
+              last_reviewed_at INTEGER,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_hook_trusts_identity
+              ON hook_trusts(identity_key, updated_at);
+            CREATE INDEX IF NOT EXISTS idx_hook_trusts_source
+              ON hook_trusts(source_kind, source_real_path);
+            CREATE INDEX IF NOT EXISTS idx_hook_trusts_event
+              ON hook_trusts(event_name);
+
+            CREATE TABLE IF NOT EXISTS hook_runs (
+              id TEXT PRIMARY KEY,
+              trust_key TEXT NOT NULL,
+              run_id TEXT,
+              session_id TEXT,
+              event_name TEXT NOT NULL,
+              started_at INTEGER NOT NULL,
+              completed_at INTEGER,
+              duration_ms INTEGER,
+              status TEXT NOT NULL,
+              exit_code INTEGER,
+              skipped_reason TEXT,
+              stdout_preview TEXT,
+              stderr_preview TEXT,
+              decision_json TEXT,
+              error TEXT,
+              retained_until INTEGER
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_hook_runs_trust_started
+              ON hook_runs(trust_key, started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_hook_runs_session_started
+              ON hook_runs(session_id, started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_hook_runs_event_started
+              ON hook_runs(event_name, started_at DESC);
+            """);
+    }
+
     private static void CreateUsageTables(SqliteConnection connection)
     {
         Execute(connection, """
@@ -723,6 +789,8 @@ internal static class DbSchemaMigrator
         EnsureColumn(connection, "cron_runs", "working_folder_snapshot", "TEXT");
         EnsureColumn(connection, "cron_runs", "delivery_mode_snapshot", "TEXT");
         EnsureColumn(connection, "cron_runs", "delivery_target_snapshot", "TEXT");
+
+        EnsureColumn(connection, "hook_trusts", "local_disabled", "INTEGER NOT NULL DEFAULT 0");
     }
 
     private static void BackfillUsageActivity(SqliteConnection connection)

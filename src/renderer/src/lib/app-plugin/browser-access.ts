@@ -58,6 +58,19 @@ function domainMatches(hostname: string, domain: string): boolean {
 }
 
 export function getBrowserAccessDecision(url: string): BrowserAccessDecision {
+  let protocol: string | null = null
+  try {
+    protocol = new URL(url).protocol
+  } catch {
+    protocol = null
+  }
+
+  // Local resources (file://, about:, data:) have no network host — domain
+  // allow/block rules don't apply, so let them through.
+  if (protocol === 'file:' || protocol === 'about:' || protocol === 'data:') {
+    return { allowed: true }
+  }
+
   const hostname = getHostname(url)
   if (!hostname) {
     return { allowed: false, reason: `Invalid browser URL: ${url}` }

@@ -85,7 +85,7 @@ Usage notes:
 - The sub-agent's outputs should generally be trusted.
 - If a sub-agent's description says it should be used proactively for its domain, prefer launching it without waiting for the user to ask.
 - If the user explicitly asks for work to run "in parallel", you MUST send a single message with multiple Task tool_use blocks.
-- Set "run_in_background": true to run the sub-agent independently in the background. Your current turn ends after spawning and resumes automatically when the sub-agent finishes. If a team is active (or "team_name" is provided), the sub-agent is also registered as a teammate; otherwise it runs as a standalone background sub-agent.
+- Set "run_in_background": true to run the sub-agent independently in the background. Your current turn ends after spawning and resumes automatically when the sub-agent finishes. If a team is active, the sub-agent is also registered as a teammate; otherwise it runs as a standalone background sub-agent (never as a team).
 
 Example usage:
 
@@ -170,7 +170,7 @@ export function createTaskTool(_providerGetter: () => ProviderConfig): ToolHandl
               team_name: {
                 type: 'string',
                 description:
-                  'Optional team name. When provided (or when a team is active), the background sub-agent is registered as a teammate.'
+                  'Optional team name, only honored while a team is active — the background sub-agent is then registered as a teammate. Ignored when no team is active; the sub-agent runs standalone.'
               },
               subagent_type: {
                 type: 'string',

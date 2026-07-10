@@ -705,6 +705,7 @@
     "messageSent": "Message Sent",
     "teamDeleted": "Team Deleted",
     "teammateSpawned": "Teammate Spawned",
+    "backgroundAgentSpawned": "Background Agent Started",
     "failed": "failed"
   },
   "todo": {

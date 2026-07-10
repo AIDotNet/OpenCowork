@@ -134,7 +134,7 @@ export function BrowserPanel({
   const normalizeUrl = (url: string): string => {
     let normalized = url.trim()
     if (!normalized) return ''
-    if (!/^https?:\/\//i.test(normalized) && !normalized.startsWith('http://localhost')) {
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)) {
       normalized = `https://${normalized}`
     }
     return normalized

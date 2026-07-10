@@ -705,6 +705,7 @@
     "messageSent": "消息已发送",
     "teamDeleted": "团队已删除",
     "teammateSpawned": "队友已生成",
+    "backgroundAgentSpawned": "后台代理已启动",
     "failed": "失败"
   },
   "todo": {

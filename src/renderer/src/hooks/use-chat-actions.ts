@@ -1310,6 +1310,7 @@ function shouldAutoContinueLongRunningRun(options: {
   assistantMessageId: string
   loopEndReason: 'completed' | 'max_iterations' | 'aborted' | 'error' | null
   runUsedTools: boolean
+  spawnedBackgroundSubAgent: boolean
   preRunTaskSnapshot: string
   verificationPassIndex: number
 }): boolean {
@@ -1318,6 +1319,7 @@ function shouldAutoContinueLongRunningRun(options: {
     assistantMessageId,
     loopEndReason,
     runUsedTools,
+    spawnedBackgroundSubAgent,
     preRunTaskSnapshot,
     verificationPassIndex
   } = options
@@ -1327,6 +1329,7 @@ function shouldAutoContinueLongRunningRun(options: {
     return false
   const activeStatus = useAgentStore.getState().runningSessions[sessionId]
   if (activeStatus === 'running' || activeStatus === 'retrying') return false
+  if (spawnedBackgroundSubAgent) return false
 
   const messages = useChatStore.getState().getSessionMessages(sessionId)
   const assistantMessage = messages.find((message) => message.id === assistantMessageId)
@@ -4468,7 +4471,12 @@ export function useChatActions(): {
           workingFolder: sessionWorkingFolder,
           sshConnection
         })
-        const activeTeam = useTeamStore.getState().activeTeam
+        const storedActiveTeam = useTeamStore.getState().activeTeam
+        const activeTeam =
+          !settings.teamToolsEnabled ||
+          (storedActiveTeam?.sessionId && storedActiveTeam.sessionId !== sessionId)
+            ? null
+            : storedActiveTeam
         const isPlanMode = useUIStore.getState().isPlanModeEnabled(sessionId)
 
         if (
@@ -4900,6 +4908,7 @@ export function useChatActions(): {
           let streamDeltaBuffer: StreamDeltaBuffer | null = null
           const preRunTaskSnapshot = getTaskProgressSnapshot(sessionId)
           let runUsedTools = false
+          let runSpawnedBackgroundSubAgent = false
           let shouldAutoContinueLongRunning = false
           const liveToolNames = new Map<string, string>()
 
@@ -5631,6 +5640,13 @@ export function useChatActions(): {
                 case 'tool_call_result': {
                   liveToolNames.set(event.toolCall.id, event.toolCall.name)
                   clearToolInputPending(event.toolCall.id)
+                  if (
+                    event.toolCall.status === 'completed' &&
+                    event.toolCall.name === TASK_TOOL_NAME &&
+                    event.toolCall.input.run_in_background === true
+                  ) {
+                    runSpawnedBackgroundSubAgent = true
+                  }
                   if (event.toolCall.name === 'Write') {
                     console.log('[WriteTrace] tool_call_result', {
                       sessionId,
@@ -5882,6 +5898,7 @@ export function useChatActions(): {
                     assistantMessageId: assistantMsgId,
                     loopEndReason: event.reason,
                     runUsedTools,
+                    spawnedBackgroundSubAgent: runSpawnedBackgroundSubAgent,
                     preRunTaskSnapshot,
                     verificationPassIndex: 0
                   })

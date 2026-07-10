@@ -949,7 +949,44 @@ internal static partial class AgentRuntimeSubAgentExecutor
         // Agent-file tool fields are compatibility metadata only. The parent's tool list has
         // already passed session, mode, plugin, and global filtering and is authoritative here.
         _ = definition;
-        return ReadToolDefinitions(parameters, "tools");
+        var tools = ReadToolDefinitions(parameters, "tools");
+
+        // Give the sub-agent the full base tool set. The parent's `tools` list can be a strict
+        // subset of what is registered -- most importantly while the parent is in plan mode, where
+        // it is filtered down to read-only tools and carries no Write/Edit/Bash. A sub-agent runs
+        // outside plan mode (planMode/planExecution/planModeAllowedTools are stripped in
+        // BuildChildParameters), so inheriting that restricted list would leave it unable to do any
+        // real work. The renderer ships the remaining registered tools in `subAgentToolCatalog`;
+        // merge them in (deduped by name) unless expansion is explicitly disabled.
+        if (!JsonHelpers.GetBool(parameters, "subAgentToolExpansionDisabled", false))
+        {
+            var present = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var tool in tools)
+            {
+                if (JsonHelpers.GetString(tool, "name") is { Length: > 0 } name)
+                {
+                    present.Add(name);
+                }
+            }
+            foreach (var extra in ReadToolDefinitions(parameters, "subAgentToolCatalog"))
+            {
+                if (JsonHelpers.GetString(extra, "name") is { Length: > 0 } name &&
+                    present.Add(name))
+                {
+                    tools.Add(extra);
+                }
+            }
+        }
+
+        // Plan mode is a parent-session responsibility. Sub-agents can never finalize a plan:
+        // EnterPlanMode has no parent turn to gate, and ExitPlanMode reports "not in plan mode" or
+        // hits an empty plan file. Leaving the plan tools in the list only lets a sub-agent believe
+        // it must author/exit a plan and stall. Strip them so sub-agents cannot generate plans --
+        // the full base tool set minus plan creation.
+        tools.RemoveAll(tool =>
+            AgentRuntimePlanExecutor.IsPlanTool(JsonHelpers.GetString(tool, "name") ?? string.Empty));
+
+        return tools;
     }
 
     private static List<JsonElement> ReadToolDefinitions(JsonElement parameters, string propertyName)

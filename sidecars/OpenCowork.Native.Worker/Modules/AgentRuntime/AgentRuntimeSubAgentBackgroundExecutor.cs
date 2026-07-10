@@ -36,14 +36,22 @@ internal static partial class AgentRuntimeSubAgentExecutor
         WorkerRequestContext context,
         CancellationToken cancellationToken)
     {
-        var requestedTeamName = JsonHelpers.GetString(call.Input, "team_name")?.Trim();
-        if (string.IsNullOrWhiteSpace(requestedTeamName))
+        // A background Task may only register a teammate when team tools are active for this
+        // run (teams enabled in settings and a team scoped to this session). Without that, any
+        // team_name the model passes is ignored -- spawning a background sub-agent must never
+        // implicitly create a team.
+        string? requestedTeamName = null;
+        if (JsonHelpers.GetBool(parameters, "teamToolsActive", false))
         {
-            requestedTeamName = JsonHelpers.GetString(call.Input, "teamName")?.Trim();
-        }
-        if (string.IsNullOrWhiteSpace(requestedTeamName))
-        {
-            requestedTeamName = JsonHelpers.GetString(parameters, "activeTeamName")?.Trim();
+            requestedTeamName = JsonHelpers.GetString(call.Input, "team_name")?.Trim();
+            if (string.IsNullOrWhiteSpace(requestedTeamName))
+            {
+                requestedTeamName = JsonHelpers.GetString(call.Input, "teamName")?.Trim();
+            }
+            if (string.IsNullOrWhiteSpace(requestedTeamName))
+            {
+                requestedTeamName = JsonHelpers.GetString(parameters, "activeTeamName")?.Trim();
+            }
         }
         if (string.IsNullOrWhiteSpace(requestedTeamName))
         {

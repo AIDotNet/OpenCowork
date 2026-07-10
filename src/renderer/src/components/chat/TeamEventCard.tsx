@@ -70,6 +70,13 @@ export function TeamEventCard({
   const isError =
     status === 'error' || status === 'canceled' || !!error || !!(parsed && 'error' in parsed)
 
+  // A background Task is only a teammate when a team is in play (team_name in the input or
+  // reported back in the result). Otherwise it's a standalone background sub-agent and must
+  // not be presented with team wording.
+  const isStandaloneBackgroundTask =
+    name === 'Task' && !input.team_name && !input.teamName && !parsed?.team_name
+  const labelKey = isStandaloneBackgroundTask ? 'teamEvent.backgroundAgentSpawned' : config.labelKey
+
   // Build summary text based on tool type
   let summary = ''
   switch (name) {
@@ -110,7 +117,7 @@ export function TeamEventCard({
       <div className="flex items-center gap-2">
         <span className="text-cyan-500 shrink-0">{config.icon}</span>
         <span className="text-[11px] font-medium text-cyan-600 dark:text-cyan-400">
-          {config.labelKey ? t(config.labelKey) : name}
+          {labelKey ? t(labelKey) : name}
         </span>
         {isError && (
           <span className="text-[9px] text-destructive font-medium">{t('teamEvent.failed')}</span>

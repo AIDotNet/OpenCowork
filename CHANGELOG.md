@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.12] - 2026-07-10
+
+### Added
+
+- Added comprehensive permission management system with tool whitelist and command rules, enabling fine-grained control over which tools can be executed and under what conditions.
+- Added Permission Panel in settings for managing per-tool allowlists and command execution rules.
+- Added PermissionDialog UI component for real-time permission grant/deny approvals during tool execution.
+- Introduced `AgentRuntimePermissionPolicy` in native worker for enforcing permission rules on the C# sidecar.
+
+### Changed
+
+- Enhanced SkillsPanel to display and respect permission configurations for skill execution.
+- Improved ModelSwitcher with better provider selection feedback.
+- Refined native worker communication with updated permission policy enforcement across streaming and tool-execution flows.
+
 ## [1.0.11] - 2026-07-10
 
 ### Added

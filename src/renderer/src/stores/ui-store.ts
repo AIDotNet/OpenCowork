@@ -72,6 +72,7 @@ export interface RightPanelTabInstance {
   previewTabId?: string
   projectId?: string | null
   initialChangeId?: string | null
+  selectionRequestId?: number
   modified?: boolean
   createdAt: number
 }
@@ -1117,7 +1118,22 @@ export const useUIStore = create<UIStore>()(
           }
         }),
       openReviewTab: (initialChangeId) =>
-        get().openFilesTab('changes', undefined, undefined, initialChangeId),
+        set((state) => {
+          const rightPanelTabs = ensureReviewTab(state.rightPanelTabs).map((tab) => {
+            if (tab.id !== RIGHT_PANEL_REVIEW_TAB_ID || !initialChangeId) return tab
+            return {
+              ...tab,
+              initialChangeId,
+              selectionRequestId: (tab.selectionRequestId ?? 0) + 1
+            }
+          })
+
+          return {
+            rightPanelTabs,
+            rightPanelActiveTabId: RIGHT_PANEL_REVIEW_TAB_ID,
+            rightPanelOpen: true
+          }
+        }),
       ensureBrowserTab: (url, sessionId, projectId) =>
         set((state) => {
           const existing = state.rightPanelTabs.find((tab) => tab.kind === 'browser')

@@ -1,64 +1,27 @@
-import { Bot, ScrollText } from 'lucide-react'
+import { Check, CircleX, Clock3, Loader2, Maximize2, ScrollText, UserRound } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type { OrchestrationMember } from '@renderer/lib/orchestration/types'
 import { cn } from '@renderer/lib/utils'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
 
-function DotMatrix({ member }: { member: OrchestrationMember }): React.JSX.Element {
-  const total = 24
-  const progressFill = Math.round(total * Math.max(0, Math.min(1, member.progress)))
-  const filled =
-    member.status === 'completed'
-      ? total
-      : member.status === 'working'
-        ? Math.max(8, Math.min(total - 2, progressFill || 16))
-        : member.status === 'failed'
-          ? Math.max(8, progressFill || 18)
-          : Math.max(2, progressFill)
-
-  return (
-    <div
-      className="grid gap-[2px]"
-      style={{ gridTemplateColumns: 'repeat(12, 3px)' }}
-      aria-hidden="true"
-    >
-      {Array.from({ length: total }).map((_, index) => {
-        const isFilled = index < filled
-        return (
-          <span
-            key={index}
-            className={cn(
-              'block size-[3px] rounded-[1px] transition-colors',
-              !isFilled && 'bg-white/[0.08]',
-              isFilled &&
-                member.status === 'failed' &&
-                'bg-destructive/80 shadow-[0_0_5px_rgba(248,113,113,0.35)]',
-              isFilled &&
-                member.status !== 'failed' &&
-                'bg-[#8cff72] shadow-[0_0_5px_rgba(140,255,114,0.45)]'
-            )}
-          />
-        )
-      })}
-    </div>
-  )
+function getMemberIcon(): React.JSX.Element {
+  return <UserRound className="size-[17px]" strokeWidth={1.8} aria-hidden="true" />
 }
 
-function StatusDot({ status }: { status: OrchestrationMember['status'] }): React.JSX.Element {
+function getMemberDescription(member: OrchestrationMember, waitingLabel: string): string {
   return (
-    <span
-      className={cn(
-        'size-1.5 shrink-0 rounded-full',
-        status === 'failed' && 'bg-destructive/80',
-        status === 'working' && 'bg-[#8cff72] shadow-[0_0_6px_rgba(140,255,114,0.55)]',
-        status === 'completed' && 'bg-white/38',
-        status !== 'failed' && status !== 'working' && status !== 'completed' && 'bg-white/20'
-      )}
-    />
+    member.latestAction ||
+    member.summary ||
+    member.currentTaskLabel ||
+    member.description ||
+    waitingLabel
   )
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-function getMemberDescription(member: OrchestrationMember): string {
-  return member.latestAction || member.summary || member.currentTaskLabel || 'Waiting to execute'
+function normalizeInlineText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
 }
 
 function getPromptText(member: OrchestrationMember): string {
@@ -66,6 +29,7 @@ function getPromptText(member: OrchestrationMember): string {
 }
 
 function MemberHoverContent({ member }: { member: OrchestrationMember }): React.JSX.Element {
+  const { t } = useTranslation('chat')
   const promptText = getPromptText(member)
 
   return (
@@ -77,12 +41,12 @@ function MemberHoverContent({ member }: { member: OrchestrationMember }): React.
       <div className="space-y-3 p-3">
         <div className="flex items-center gap-2 border-b border-white/10 pb-3">
           <div className="flex size-8 items-center justify-center rounded-full border border-white/10 bg-[#1b1b1b] text-white/82">
-            <Bot className="size-4" />
+            {getMemberIcon()}
           </div>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium text-white/88">{member.name}</div>
             <div className="mt-0.5 text-[11px] text-white/45">
-              {member.agentName || member.role || 'subAgent'}
+              {member.agentName || member.role || t('subAgent.label', { defaultValue: 'subAgent' })}
             </div>
           </div>
         </div>
@@ -91,7 +55,7 @@ function MemberHoverContent({ member }: { member: OrchestrationMember }): React.
           <section className="space-y-1.5">
             <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] text-white/40">
               <ScrollText className="size-3" />
-              <span>Prompt</span>
+              <span>{t('subAgent.prompt', { defaultValue: 'Prompt' })}</span>
             </div>
             <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[12px] leading-5 text-white/72">
               {promptText}
@@ -99,7 +63,7 @@ function MemberHoverContent({ member }: { member: OrchestrationMember }): React.
           </section>
         ) : (
           <div className="rounded-lg border border-dashed border-white/10 bg-white/[0.02] px-2.5 py-2 text-[12px] text-white/45">
-            No prompt available
+            {t('subAgent.promptEmpty', { defaultValue: 'No prompt available' })}
           </div>
         )}
       </div>
@@ -114,60 +78,145 @@ export function OrchestrationMemberStrip({
   members: OrchestrationMember[]
   onOpenMember?: (member: OrchestrationMember) => void
 }): React.JSX.Element {
+  const { t } = useTranslation('chat')
+
   return (
-    <div className="space-y-2">
-      {members.slice(0, 6).map((member, index) => {
+    <div className="space-y-1.5">
+      {members.slice(0, 6).map((member) => {
+        const isWorking = member.status === 'working'
+        const isFailed = member.status === 'failed'
+        const isCompleted = member.status === 'completed'
+        const isStopped = member.status === 'stopped'
+        const statusLabel = isWorking
+          ? t('subAgent.working')
+          : isFailed
+            ? t('subAgent.failed')
+            : isCompleted
+              ? t('subAgent.done')
+              : isStopped
+                ? t('subAgent.stopped', { defaultValue: 'stopped' })
+                : t('subAgent.queued')
+        const waitingLabel = t('subAgent.waiting', { defaultValue: 'Waiting to execute' })
+        const failureFallback = t('subAgent.failureUnknown', {
+          defaultValue: 'SubAgent execution failed'
+        })
+        const detailText =
+          isFailed && member.errorMessage?.trim()
+            ? normalizeInlineText(member.errorMessage)
+            : getMemberDescription(member, isFailed ? failureFallback : waitingLabel)
+        const metaText = [
+          member.iteration > 0 ? t('subAgent.iter', { count: member.iteration }) : '',
+          member.toolCallCount > 0 ? t('subAgent.calls', { count: member.toolCallCount }) : '',
+          member.model?.trim() || ''
+        ]
+          .filter(Boolean)
+          .join(' · ')
+        const openLabel = t('subAgent.openNamedInPanel', {
+          name: member.name,
+          defaultValue: `Open ${member.name} in side panel`
+        })
         const card = (
-          <button
-            type="button"
-            onClick={() => onOpenMember?.(member)}
-            title={`${member.name} · ${getMemberDescription(member)}`}
+          <div
+            aria-busy={isWorking}
             className={cn(
-              'w-full rounded-[9px] bg-[#1f1f1f] px-3 py-2.5 text-left transition-colors',
-              'hover:bg-[#242424] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/35',
-              member.isSelected && 'ring-1 ring-emerald-400/25',
-              member.status === 'failed' && 'bg-[#241919] hover:bg-[#2a1c1c]'
+              'relative overflow-hidden rounded-lg border border-transparent bg-background/35',
+              'transition-[background-color,border-color,box-shadow,transform] duration-150',
+              'hover:-translate-y-px hover:border-border/65 hover:bg-background/70 hover:shadow-sm',
+              'dark:bg-white/[0.035] dark:hover:border-white/[0.09] dark:hover:bg-white/[0.06]',
+              member.isSelected && 'border-emerald-500/25 ring-1 ring-emerald-500/15',
+              isFailed &&
+                'border-destructive/20 bg-destructive/[0.035] hover:border-destructive/30 hover:bg-destructive/[0.05]'
             )}
           >
-            <div className="grid grid-cols-[32px_minmax(0,1fr)_auto] gap-x-3 gap-y-1">
-              <div
-                className={cn(
-                  'row-span-2 flex size-7 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#141414] text-white/82',
-                  member.status === 'working' && 'border-emerald-400/35 bg-emerald-400/10',
-                  member.status === 'failed' &&
-                    'border-destructive/35 bg-destructive/10 text-destructive'
-                )}
-              >
-                <Bot className="size-4" />
-              </div>
+            {isWorking ? (
+              <span className="absolute inset-y-2 left-0 w-px rounded-full bg-emerald-400/70 shadow-[0_0_8px_rgba(52,211,153,0.38)]" />
+            ) : null}
 
-              <div className="min-w-0 self-center">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-[13px] font-medium text-white/82">
-                    {member.name}
-                  </span>
-                  <StatusDot status={member.status} />
+            <button
+              type="button"
+              onClick={() => onOpenMember?.(member)}
+              title={`${member.name} · ${detailText}`}
+              className="w-full px-3 py-2.5 pr-12 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+            >
+              <div className="flex min-w-0 items-start gap-2.5">
+                <div
+                  className={cn(
+                    'relative mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full border border-violet-500/20 bg-violet-500/[0.07] text-violet-600',
+                    'dark:border-violet-300/[0.14] dark:bg-violet-300/[0.07] dark:text-violet-200/80'
+                  )}
+                >
+                  {getMemberIcon()}
                 </div>
-              </div>
 
-              <span className="self-center pl-3 text-[12px] font-semibold tabular-nums tracking-wide text-white/72">
-                {String(index + 1).padStart(2, '0')}
-              </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-[13px] font-medium text-foreground/88">
+                      {member.name}
+                    </span>
+                    <span
+                      className={cn(
+                        'inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10px] font-medium',
+                        isWorking &&
+                          'border-emerald-500/20 bg-emerald-500/[0.07] text-emerald-600 dark:text-emerald-300',
+                        isFailed && 'border-destructive/20 bg-destructive/[0.07] text-destructive',
+                        isCompleted && 'border-border/55 text-muted-foreground',
+                        !isWorking &&
+                          !isFailed &&
+                          !isCompleted &&
+                          'border-amber-500/20 bg-amber-500/[0.06] text-amber-600 dark:text-amber-300'
+                      )}
+                      role="status"
+                    >
+                      {isWorking ? (
+                        <Loader2 className="size-2.5 motion-safe:animate-spin" aria-hidden="true" />
+                      ) : isFailed ? (
+                        <CircleX className="size-2.5" aria-hidden="true" />
+                      ) : isCompleted ? (
+                        <Check className="size-2.5" aria-hidden="true" />
+                      ) : (
+                        <Clock3 className="size-2.5" aria-hidden="true" />
+                      )}
+                      <span>{statusLabel}</span>
+                    </span>
+                  </div>
 
-              <div className="min-w-0 self-end">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="-mt-1 h-4 w-3 shrink-0 rounded-bl-[5px] border-b border-l border-white/[0.14]" />
-                  <p className="truncate text-[12px] leading-5 text-white/55">
-                    {getMemberDescription(member)}
+                  <p
+                    className={cn(
+                      'mt-1 text-[12px] leading-4',
+                      isFailed
+                        ? 'line-clamp-2 break-words text-destructive/85'
+                        : 'truncate text-muted-foreground/75'
+                    )}
+                    title={isFailed ? detailText : undefined}
+                  >
+                    {detailText}
                   </p>
+
+                  {metaText ? (
+                    <p className="mt-1 truncate text-[10px] leading-4 text-muted-foreground/50">
+                      {metaText}
+                    </p>
+                  ) : null}
                 </div>
               </div>
+            </button>
 
-              <div className="self-end pb-1 pl-3">
-                <DotMatrix member={member} />
-              </div>
-            </div>
-          </button>
+            <button
+              type="button"
+              onClick={() => onOpenMember?.(member)}
+              className={cn(
+                'group/expand absolute right-3 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg bg-muted/55 text-muted-foreground',
+                'transition-[color,background-color,transform] duration-150',
+                'hover:bg-muted hover:text-foreground active:-translate-y-1/2 active:scale-95',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                'dark:bg-white/[0.055] dark:hover:bg-white/[0.09]'
+              )}
+              title={openLabel}
+              aria-label={openLabel}
+            >
+              <Maximize2 className="size-3.5 transition-transform duration-150 group-hover/expand:scale-105" />
+            </button>
+          </div>
         )
 
         return member.prompt?.trim() || member.description?.trim() ? (

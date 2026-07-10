@@ -388,7 +388,12 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
   const renderActivePanel = (tab: RightPanelTabInstance | undefined): React.ReactNode => {
     if (!tab) return null
     if (tab.kind === 'review') {
-      return <SessionChangeReviewPanel />
+      return (
+        <SessionChangeReviewPanel
+          initialChangeId={tab.initialChangeId}
+          selectionRequestId={tab.selectionRequestId}
+        />
+      )
     }
     if (tab.kind === 'files') {
       return (

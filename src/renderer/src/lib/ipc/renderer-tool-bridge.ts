@@ -2,6 +2,7 @@ import { handleNativeAskUserRequest } from '@renderer/lib/tools/ask-user-tool'
 import { handleNativeBrowserToolRequest } from '@renderer/lib/tools/browser-native-ui'
 import { handleNativePlanUiUpdate } from '@renderer/lib/tools/plan-native-ui'
 import { handleNativeTeamUiUpdate } from '@renderer/lib/agent/teams/team-native-ui'
+import { handleNativeSubAgentUiUpdate } from '@renderer/lib/agent/sub-agents/sub-agent-native-ui'
 import { decodeIpcMessagePack, invokeMessagePack } from '@renderer/lib/ipc/messagepack-ipc-client'
 import {
   SIDECAR_RENDERER_TOOL_REQUEST_MSGPACK_CHANNEL,
@@ -31,6 +32,7 @@ async function handleRendererToolRequest(payload: RendererToolRequestPayload): P
     payload?.method !== 'ask-user/request' &&
     payload?.method !== 'plan/ui-update' &&
     payload?.method !== 'team/ui-update' &&
+    payload?.method !== 'subagent/ui-update' &&
     payload?.method !== 'browser/tool-request'
   ) {
     return
@@ -66,6 +68,14 @@ async function handleRendererToolRequest(payload: RendererToolRequestPayload): P
       await sendRendererToolResponse({
         requestId: payload.requestId,
         result: await handleNativeTeamUiUpdate(payload.params)
+      })
+      return
+    }
+
+    if (payload.method === 'subagent/ui-update') {
+      await sendRendererToolResponse({
+        requestId: payload.requestId,
+        result: await handleNativeSubAgentUiUpdate(payload.params)
       })
       return
     }

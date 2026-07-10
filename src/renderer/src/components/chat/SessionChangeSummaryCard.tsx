@@ -140,12 +140,11 @@ export function SessionChangeSummaryCard({
 
   if (aggregatedChanges.length === 0) return null
 
-  const handleOpenReview = (): void => {
-    const firstChange = aggregatedChanges[0]
+  const handleOpenReview = (change: AggregatedFileChange = aggregatedChanges[0]): void => {
     openDetailPanel({
       type: 'change-review',
-      runId: latestChangeSet?.runId ?? firstChange?.runId ?? '',
-      initialChangeId: firstChange?.lastChangeId ?? null
+      runId: latestChangeSet?.runId ?? change.runId,
+      initialChangeId: change.lastChangeId
     })
   }
 
@@ -194,7 +193,7 @@ export function SessionChangeSummaryCard({
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
-          onClick={handleOpenReview}
+          onClick={() => handleOpenReview(change)}
         >
           <span
             className="min-w-0 flex-1 truncate text-[13px] text-foreground/90"
@@ -269,7 +268,7 @@ export function SessionChangeSummaryCard({
           <button
             type="button"
             className="inline-flex h-7 items-center rounded-md border border-border/70 px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-muted/50"
-            onClick={handleOpenReview}
+            onClick={() => handleOpenReview()}
           >
             {t('fileChange.reviewButton', { defaultValue: 'Review' })}
           </button>

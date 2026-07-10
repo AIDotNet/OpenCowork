@@ -34,6 +34,7 @@ import {
 
 interface SessionChangeReviewPanelProps {
   initialChangeId?: string | null
+  selectionRequestId?: number
 }
 
 const EMPTY_SESSION_MESSAGES: UnifiedMessage[] = []
@@ -302,7 +303,8 @@ function ChangeRow({
 }
 
 export function SessionChangeReviewPanel({
-  initialChangeId = null
+  initialChangeId = null,
+  selectionRequestId
 }: SessionChangeReviewPanelProps): React.JSX.Element {
   const { t } = useTranslation(['layout', 'chat', 'common'])
   const activeScopedSessionId = useUIStore((state) => state.activeScopedSessionId)
@@ -323,6 +325,7 @@ export function SessionChangeReviewPanel({
   const [isUndoingAll, setIsUndoingAll] = React.useState(false)
   const requestedRefreshKeyRef = React.useRef<string | null>(null)
   const lastInitialChangeIdRef = React.useRef<string | null>(null)
+  const lastSelectionRequestIdRef = React.useRef<number | undefined>(undefined)
 
   const assistantMessageIds = React.useMemo(() => {
     const ids = new Set<string>()
@@ -375,9 +378,12 @@ export function SessionChangeReviewPanel({
 
   React.useEffect(() => {
     const nextInitialChangeId = initialChangeId ?? null
+    const selectionRequested =
+      selectionRequestId !== undefined && lastSelectionRequestIdRef.current !== selectionRequestId
     setSelectedChangeId((current) => {
       const preferredId =
-        nextInitialChangeId && (lastInitialChangeIdRef.current !== nextInitialChangeId || !current)
+        nextInitialChangeId &&
+        (selectionRequested || lastInitialChangeIdRef.current !== nextInitialChangeId || !current)
           ? nextInitialChangeId
           : current
       if (!preferredId) return null
@@ -387,7 +393,8 @@ export function SessionChangeReviewPanel({
       return matched?.id ?? null
     })
     lastInitialChangeIdRef.current = nextInitialChangeId
-  }, [aggregatedChanges, initialChangeId])
+    lastSelectionRequestIdRef.current = selectionRequestId
+  }, [aggregatedChanges, initialChangeId, selectionRequestId])
 
   const summary = React.useMemo(
     () =>

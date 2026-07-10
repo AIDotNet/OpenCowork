@@ -669,6 +669,13 @@
     }
   },
   "subAgent": {
+    "label": "子代理",
+    "openNamedInPanel": "在右侧面板中打开 {{name}}",
+    "prompt": "任务 Prompt",
+    "promptEmpty": "暂无任务 Prompt",
+    "waiting": "等待执行",
+    "failureUnknown": "子代理执行失败",
+    "stopped": "已停止",
     "working": "工作中",
     "failed": "失败",
     "done": "完成",

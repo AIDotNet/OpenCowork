@@ -1110,6 +1110,7 @@ export function registerSidecarHandlers(): void {
       case 'ask-user/request':
       case 'plan/ui-update':
       case 'team/ui-update':
+      case 'subagent/ui-update':
       case 'browser/tool-request': {
         const requestId = `sidecar-${method.replace(/[^a-z0-9]+/gi, '-')}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
         const targetWindow = resolveRendererTargetWindow(params, runWindowIds, sessionWindowIds)
@@ -1120,7 +1121,9 @@ export function registerSidecarHandlers(): void {
               ? 'Browser tool request'
               : method === 'team/ui-update'
                 ? 'Team UI update request'
-                : 'Plan UI update request'
+                : method === 'subagent/ui-update'
+                  ? 'Sub-agent UI update request'
+                  : 'Plan UI update request'
 
         if (!targetWindow) {
           throw new Error(`No renderer available for ${requestLabel}`)

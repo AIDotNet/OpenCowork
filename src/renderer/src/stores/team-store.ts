@@ -121,7 +121,14 @@ export const useTeamStore = create<TeamStore>()(
               break
             }
             case 'team_message':
-              if (state.activeTeam) state.activeTeam.messages.push(eventWithSession.message)
+              if (
+                state.activeTeam &&
+                !state.activeTeam.messages.some(
+                  (message) => message.id === eventWithSession.message.id
+                )
+              ) {
+                state.activeTeam.messages.push(eventWithSession.message)
+              }
               break
             case 'team_end':
               if (state.activeTeam) {

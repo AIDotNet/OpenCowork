@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -138,7 +138,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
         try
         {
             var promptMessage = BuildPromptMessage(call.Input, definition.InitialPrompt);
-            var innerTools = ReadToolDefinitions(parameters);
+            var innerTools = ResolveSubAgentTools(parameters, definition);
             AddSubmitReportToolDefinition(innerTools);
 
             var provider = BuildProvider(parameters, definition);
@@ -283,7 +283,9 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 DefaultMaxTurns,
                 null,
                 null,
-                null);
+                null,
+                Array.Empty<string>(),
+                Array.Empty<string>());
         }
 
         foreach (var agent in LoadAgentDefinitions())
@@ -353,6 +355,12 @@ internal static partial class AgentRuntimeSubAgentExecutor
             maxTurns = DefaultMaxTurns;
         }
 
+        var declaredTools = GetFrontmatterStringList(frontmatter, "tools") ??
+            GetFrontmatterStringList(frontmatter, "allowedTools") ??
+            Array.Empty<string>();
+        var disallowedTools = GetFrontmatterStringList(frontmatter, "disallowedTools") ??
+            Array.Empty<string>();
+
         return new SubAgentDefinitionNative(
             name.Trim(),
             description.Trim(),
@@ -360,7 +368,9 @@ internal static partial class AgentRuntimeSubAgentExecutor
             maxTurns,
             GetFrontmatterString(frontmatter, "initialPrompt"),
             GetFrontmatterString(frontmatter, "model"),
-            GetFrontmatterDouble(frontmatter, "temperature"));
+            GetFrontmatterDouble(frontmatter, "temperature"),
+            declaredTools,
+            disallowedTools);
     }
 
     private static JsonElement BuildPromptMessage(JsonElement input, string? initialPrompt)
@@ -829,7 +839,8 @@ internal static partial class AgentRuntimeSubAgentExecutor
             "planMode",
             "planModeAllowedTools",
             "planRevision",
-            "planExecution"
+            "planExecution",
+            "subAgentToolExpansionDisabled"
         };
         if (!string.IsNullOrWhiteSpace(activeTeamName))
         {
@@ -931,10 +942,21 @@ internal static partial class AgentRuntimeSubAgentExecutor
         }
     }
 
-    private static List<JsonElement> ReadToolDefinitions(JsonElement parameters)
+    private static List<JsonElement> ResolveSubAgentTools(
+        JsonElement parameters,
+        SubAgentDefinitionNative definition)
+    {
+        // Agent-file tool fields are compatibility metadata only. The parent's tool list has
+        // already passed session, mode, plugin, and global filtering and is authoritative here.
+        _ = definition;
+        return ReadToolDefinitions(parameters, "tools");
+    }
+
+    private static List<JsonElement> ReadToolDefinitions(JsonElement parameters, string propertyName)
     {
         var result = new List<JsonElement>();
-        if (!parameters.TryGetProperty("tools", out var tools) || tools.ValueKind != JsonValueKind.Array)
+        if (!parameters.TryGetProperty(propertyName, out var tools) ||
+            tools.ValueKind != JsonValueKind.Array)
         {
             return result;
         }
@@ -1022,6 +1044,29 @@ internal static partial class AgentRuntimeSubAgentExecutor
         return double.TryParse(GetFrontmatterString(frontmatter, key), out var value) ? value : null;
     }
 
+    private static string[]? GetFrontmatterStringList(string frontmatter, string key)
+    {
+        var raw = GetFrontmatterString(frontmatter, key);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var normalized = raw.Trim();
+        if (normalized.StartsWith("[", StringComparison.Ordinal) &&
+            normalized.EndsWith("]", StringComparison.Ordinal))
+        {
+            normalized = normalized[1..^1];
+        }
+
+        var values = normalized
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(item => item.Trim().Trim('"', '\''))
+            .Where(item => item.Length > 0)
+            .ToArray();
+        return values.Length == 0 ? null : values;
+    }
+
     private static RendererToolResult ErrorResult(string message)
     {
         return new RendererToolResult(StringElement(EncodeError(message)), true, message);
@@ -1106,7 +1151,9 @@ internal static partial class AgentRuntimeSubAgentExecutor
         int MaxTurns,
         string? InitialPrompt,
         string? Model,
-        double? Temperature);
+        double? Temperature,
+        IReadOnlyList<string> DeclaredTools,
+        IReadOnlyList<string> DisallowedTools);
 
     private sealed class SubAgentTaskInvocation
     {

@@ -669,6 +669,13 @@
     }
   },
   "subAgent": {
+    "label": "subAgent",
+    "openNamedInPanel": "Open {{name}} in side panel",
+    "prompt": "Prompt",
+    "promptEmpty": "No prompt available",
+    "waiting": "Waiting to execute",
+    "failureUnknown": "SubAgent execution failed",
+    "stopped": "stopped",
     "working": "working",
     "failed": "failed",
     "done": "done",

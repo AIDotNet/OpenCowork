@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 
@@ -36,10 +36,29 @@ internal static partial class AgentRuntimeSubAgentExecutor
         WorkerRequestContext context,
         CancellationToken cancellationToken)
     {
+        var requestedTeamName = JsonHelpers.GetString(call.Input, "team_name")?.Trim();
+        if (string.IsNullOrWhiteSpace(requestedTeamName))
+        {
+            requestedTeamName = JsonHelpers.GetString(call.Input, "teamName")?.Trim();
+        }
+        if (string.IsNullOrWhiteSpace(requestedTeamName))
+        {
+            requestedTeamName = JsonHelpers.GetString(parameters, "activeTeamName")?.Trim();
+        }
+        if (string.IsNullOrWhiteSpace(requestedTeamName))
+        {
+            return await ExecuteStandaloneBackgroundTaskAsync(
+                call,
+                parameters,
+                parentState,
+                context,
+                cancellationToken);
+        }
+
         var teamName = AgentRuntimeTeamRuntimeStore.ResolveTeamName(call.Input, parameters);
         if (teamName.Length == 0)
         {
-            return ErrorResult("Background Task requires an active team. Call TeamCreate first.");
+            return ErrorResult("Background Task received an invalid team name.");
         }
 
         var memberName = JsonHelpers.GetString(call.Input, "name")?.Trim() ?? string.Empty;
@@ -72,7 +91,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
             definition,
             JsonHelpers.GetString(call.Input, "model")?.Trim());
         var promptMessage = BuildPromptMessage(call.Input, definition.InitialPrompt);
-        var innerTools = ReadToolDefinitions(parameters);
+        var innerTools = ResolveSubAgentTools(parameters, definition);
         AddSubmitReportToolDefinition(innerTools);
 
         var snapshot = AgentRuntimeTeamRuntimeStore.AddWorkerMember(
@@ -135,10 +154,16 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 parameters.Clone()),
             CancellationToken.None);
 
+        // The child owns its lifecycle. The parent loop observes this stop only
+        // after every tool call already emitted in the current assistant message
+        // has been processed, so multiple background launches still all start.
+        parentState.RequestStop("completed");
+
         return new RendererToolResult(
             StringElement(CreateObject(writer =>
             {
                 writer.WriteBoolean("success", true);
+                writer.WriteBoolean("background", true);
                 writer.WriteString("team_name", teamName);
                 writer.WriteString("member_id", memberId);
                 writer.WriteString("name", memberName);
@@ -149,10 +174,200 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 }
                 writer.WriteString(
                     "message",
-                    "Background teammate started in the .NET Native Worker. End your turn and use TeamStatus to check progress.");
+                    "Background teammate started in the .NET Native Worker. The main agent turn will resume automatically when the teammate reports completion.");
             }).GetRawText()),
             false,
             null);
+    }
+
+    private static async Task<RendererToolResult> ExecuteStandaloneBackgroundTaskAsync(
+        NativeToolCallView call,
+        JsonElement parameters,
+        AgentRuntimeTools.AgentRuntimeRunState parentState,
+        WorkerRequestContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        parentState.CancellationToken.ThrowIfCancellationRequested();
+
+        var prompt = JsonHelpers.GetString(call.Input, "prompt")?.Trim() ?? string.Empty;
+        if (prompt.Length == 0)
+        {
+            return ErrorResult("Background Task requires a non-empty `prompt`.");
+        }
+
+        var subAgentType = JsonHelpers.GetString(call.Input, "subagent_type")?.Trim();
+        if (string.IsNullOrWhiteSpace(subAgentType))
+        {
+            subAgentType = CustomSubAgentType;
+        }
+
+        var definition = ResolveDefinition(subAgentType, parameters, call.Input);
+        if (definition is null)
+        {
+            return ErrorResult($"Unknown subagent_type \"{subAgentType}\".");
+        }
+
+        var displayName = JsonHelpers.GetString(call.Input, "name")?.Trim();
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            displayName = definition.Name;
+        }
+
+        var provider = BuildProvider(
+            parameters,
+            definition,
+            JsonHelpers.GetString(call.Input, "model")?.Trim());
+        var promptMessage = BuildPromptMessage(call.Input, definition.InitialPrompt);
+        var innerTools = ResolveSubAgentTools(parameters, definition);
+        AddSubmitReportToolDefinition(innerTools);
+
+        var childRunId = $"background-subagent-{call.Id}-{Guid.NewGuid():N}";
+        var childParameters = BuildChildParameters(
+            parameters,
+            provider,
+            promptMessage,
+            innerTools,
+            definition,
+            call.Id,
+            childRunId);
+        var childState = new AgentRuntimeTools.AgentRuntimeRunState(childRunId, parentState.SessionId)
+        {
+            SuppressTransportEvents = true
+        };
+        childState.ReplaceParameters(childParameters);
+        var collector = new BackgroundSubAgentRunCollector();
+        childState.EventObserver = collector.ObserveAsync;
+
+        await AgentRuntimeTools.EmitAsync(
+            parentState,
+            context,
+            new AgentRuntimeStreamEvent(
+                "sub_agent_start",
+                SubAgentName: definition.Name,
+                ToolUseId: call.Id,
+                Input: call.Input.Clone(),
+                PromptMessage: promptMessage));
+
+        WorkerLog.Info(
+            $"standalone background sub-agent accepted name={displayName} runId={childRunId} " +
+            $"toolUseId={call.Id} sessionId={parentState.SessionId} agent={definition.Name}");
+
+        _ = Task.Run(
+            async () => await RunStandaloneBackgroundTaskAsync(
+                displayName,
+                definition.Name,
+                call.Id,
+                childState,
+                collector,
+                context),
+            CancellationToken.None);
+
+        parentState.RequestStop("completed");
+
+        return new RendererToolResult(
+            StringElement(CreateObject(writer =>
+            {
+                writer.WriteBoolean("success", true);
+                writer.WriteBoolean("background", true);
+                writer.WriteString("run_id", childRunId);
+                writer.WriteString("name", displayName);
+                writer.WriteString("subagent_type", definition.Name);
+                writer.WriteString(
+                    "message",
+                    "Standalone background sub-agent started. The main agent turn will resume automatically when it finishes.");
+            }).GetRawText()),
+            false,
+            null);
+    }
+
+    private static async Task RunStandaloneBackgroundTaskAsync(
+        string displayName,
+        string agentName,
+        string toolUseId,
+        AgentRuntimeTools.AgentRuntimeRunState childState,
+        BackgroundSubAgentRunCollector collector,
+        WorkerRequestContext context)
+    {
+        using var operation = WorkerMemory.TrackOperation("standalone-background-subagent");
+        try
+        {
+            WorkerLog.Debug(
+                $"standalone background sub-agent start name={displayName} runId={childState.RunId} " +
+                $"toolUseId={toolUseId} agent={agentName}");
+            await OpenAIChatRuntime.ExecuteLoopAsync(childState.Parameters, childState, context);
+        }
+        catch (OperationCanceledException)
+        {
+            collector.SetError("Background sub-agent was cancelled.");
+            childState.RequestStop("aborted");
+        }
+        catch (Exception ex)
+        {
+            collector.SetError(ex.Message);
+            WorkerLog.Warn(
+                $"standalone background sub-agent failed name={displayName} runId={childState.RunId} " +
+                $"toolUseId={toolUseId} error={ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            try
+            {
+                var result = collector.BuildResult(childState.SubmittedReport);
+                await EmitStandaloneBackgroundCompletionAsync(
+                    childState.SessionId,
+                    displayName,
+                    agentName,
+                    toolUseId,
+                    result,
+                    context);
+                WorkerLog.Info(
+                    $"standalone background sub-agent finalized name={displayName} runId={childState.RunId} " +
+                    $"toolUseId={toolUseId} success={result.Success} reportChars={result.Output.Length}");
+            }
+            catch (Exception ex)
+            {
+                WorkerLog.Warn(
+                    $"standalone background sub-agent completion delivery failed name={displayName} " +
+                    $"runId={childState.RunId} toolUseId={toolUseId} " +
+                    $"error={ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                AgentRuntimeNativeToolExecutor.ClearRun(childState.RunId);
+                childState.Dispose();
+                WorkerMemory.ReportCompletedWork(
+                    "standalone-background-subagent",
+                    pressureBytes: 0,
+                    forceTrim: true);
+            }
+        }
+    }
+
+    private static async Task EmitStandaloneBackgroundCompletionAsync(
+        string sessionId,
+        string displayName,
+        string agentName,
+        string toolUseId,
+        SubAgentResultNative result,
+        WorkerRequestContext context)
+    {
+        var payload = CreateObject(writer =>
+        {
+            writer.WriteString("action", "completed");
+            writer.WriteString("sessionId", sessionId);
+            writer.WriteString("displayName", displayName);
+            writer.WriteString("subAgentName", agentName);
+            writer.WriteString("toolUseId", toolUseId);
+            writer.WritePropertyName("result");
+            result.ToJson().WriteTo(writer);
+        });
+
+        await AgentRuntimeReverseRequests.RequestAsync(
+            context,
+            "subagent/ui-update",
+            payload,
+            CancellationToken.None);
     }
 
     private static async Task RunBackgroundTaskAsync(

@@ -1948,9 +1948,9 @@ export function InputArea({
   const activeDraftKey = React.useMemo(() => {
     if (draftKeyOverride) return draftKeyOverride
     if (draftSessionId) return getSessionInputDraftKey(draftSessionId)
-    if (activeProjectId) return getProjectInputDraftKey(activeProjectId, mode)
-    return getHomeInputDraftKey(mode)
-  }, [activeProjectId, draftKeyOverride, draftSessionId, mode])
+    if (activeProjectId) return getProjectInputDraftKey(activeProjectId)
+    return getHomeInputDraftKey()
+  }, [activeProjectId, draftKeyOverride, draftSessionId])
   const draftContext = React.useMemo<InputDraftContext>(() => {
     if (draftKeyOverride) {
       return {

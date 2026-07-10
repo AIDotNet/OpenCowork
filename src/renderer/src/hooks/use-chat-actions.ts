@@ -40,6 +40,7 @@ import {
   withWorkspacePromptCacheKey
 } from '@renderer/lib/agent/prompt-cache-key'
 import { subAgentEvents } from '@renderer/lib/agent/sub-agents/events'
+import { backgroundSubAgentCompletions } from '@renderer/lib/agent/sub-agents/background-events'
 import {
   clearLastTaskInvocation,
   parseSubAgentMeta,
@@ -1269,6 +1270,19 @@ function assistantLooksComplete(message?: UnifiedMessage): boolean {
   return LONG_RUNNING_COMPLETION_RE.test(extractMessagePlainText(message))
 }
 
+function assistantSpawnedBackgroundSubAgent(message?: UnifiedMessage): boolean {
+  return Boolean(
+    message &&
+    Array.isArray(message.content) &&
+    message.content.some(
+      (block) =>
+        block.type === 'tool_use' &&
+        block.name === TASK_TOOL_NAME &&
+        block.input.run_in_background === true
+    )
+  )
+}
+
 function hasLiveToolOrBackgroundWork(sessionId: string): boolean {
   const agentState = useAgentStore.getState()
   const toolCalls =
@@ -1316,6 +1330,10 @@ function shouldAutoContinueLongRunningRun(options: {
 
   const messages = useChatStore.getState().getSessionMessages(sessionId)
   const assistantMessage = messages.find((message) => message.id === assistantMessageId)
+  // A successful background Task deliberately ends this turn. Its completion
+  // event will resume the same session; the generic long-running continuation
+  // must not start an eager polling turn in the meantime.
+  if (assistantSpawnedBackgroundSubAgent(assistantMessage)) return false
   const taskSnapshotChanged = getTaskProgressSnapshot(sessionId) !== preRunTaskSnapshot
   const tasks = useTaskStore.getState().getTasksBySession(sessionId)
   const hasUnfinishedTasks = tasks.some(
@@ -2911,14 +2929,22 @@ function acquireGoalContinuationListener(): () => void {
   }
 }
 
-/** Queue of teammate messages to lead waiting to be processed */
-const pendingLeadMessages: { from: string; content: string }[] = []
+type PendingAgentWakeMessage = {
+  sessionId: string
+  sender: string
+  content: string
+  source: 'team' | 'subagent'
+}
+
+/** Completion/messages waiting to resume their originating main-agent session. */
+const pendingAgentWakeMessages: PendingAgentWakeMessage[] = []
+const autoTriggeringSessions = new Set<string>()
 
 /** Whether the global team-message listener is registered */
 let _teamLeadListenerActive = false
 
-/** Counter for consecutive auto-triggered turns (reset on user-initiated sendMessage) */
-let _autoTriggerCount = 0
+/** Per-session consecutive auto-trigger count (reset by user-initiated input). */
+const autoTriggerCounts = new Map<string, number>()
 const MAX_AUTO_TRIGGERS = 10
 // 0 => unlimited iterations (run until loop_end by completion/error/abort)
 const DEFAULT_AGENT_MAX_ITERATIONS = 0
@@ -2932,7 +2958,7 @@ function scheduleDrain(): void {
   if (_drainTimer) clearTimeout(_drainTimer)
   _drainTimer = setTimeout(() => {
     _drainTimer = null
-    drainLeadMessages()
+    drainAgentWakeMessages()
   }, DRAIN_DEBOUNCE_MS)
 }
 
@@ -2944,9 +2970,16 @@ let _autoTriggerPaused = false
  * to break the dead loop: abort → completion message → new turn → re-spawn.
  */
 export function resetTeamAutoTrigger(): void {
-  pendingLeadMessages.length = 0
-  _autoTriggerCount = 0
+  pendingAgentWakeMessages.length = 0
+  autoTriggerCounts.clear()
   _autoTriggerPaused = true
+}
+
+function enqueueAgentWakeMessage(message: PendingAgentWakeMessage): void {
+  const sessionId = message.sessionId.trim()
+  if (!sessionId) return
+  pendingAgentWakeMessages.push({ ...message, sessionId })
+  scheduleDrain()
 }
 
 function ensurePlanAwaitingReview(planId: string): Plan | null {
@@ -2996,8 +3029,8 @@ async function confirmPlanExecution(options?: { newSession?: boolean }): Promise
 }
 
 /**
- * Set up a persistent listener on teamEvents that captures messages
- * addressed to "lead" and auto-triggers a new main agent turn.
+ * Set up persistent completion listeners that auto-trigger the originating
+ * main-agent session after team or standalone background work completes.
  *
  * Called once; idempotent.
  */
@@ -3006,54 +3039,107 @@ function ensureTeamLeadListener(): void {
   _teamLeadListenerActive = true
 
   teamEvents.on((event) => {
-    if (event.type === 'team_message' && event.message.to === 'lead') {
-      pendingLeadMessages.push({ from: event.message.from, content: event.message.content })
-      scheduleDrain()
+    if (
+      event.type === 'team_message' &&
+      (event.message.to === 'lead' || event.message.to === 'all')
+    ) {
+      const sessionId =
+        event.sessionId ??
+        useTeamStore.getState().activeTeam?.sessionId ??
+        useChatStore.getState().activeSessionId
+      if (sessionId) {
+        enqueueAgentWakeMessage({
+          sessionId,
+          sender: event.message.from,
+          content: event.message.content,
+          source: 'team'
+        })
+      }
     }
     // Clear queue and reset counter when team is deleted
     if (event.type === 'team_end') {
-      pendingLeadMessages.length = 0
-      _autoTriggerCount = 0
+      for (let index = pendingAgentWakeMessages.length - 1; index >= 0; index -= 1) {
+        const message = pendingAgentWakeMessages[index]
+        if (
+          message.source === 'team' &&
+          (!event.sessionId || message.sessionId === event.sessionId)
+        ) {
+          pendingAgentWakeMessages.splice(index, 1)
+        }
+      }
+      if (event.sessionId) {
+        autoTriggerCounts.delete(event.sessionId)
+      } else {
+        autoTriggerCounts.clear()
+      }
       if (_drainTimer) {
         clearTimeout(_drainTimer)
         _drainTimer = null
       }
+      if (pendingAgentWakeMessages.length > 0) {
+        scheduleDrain()
+      }
     }
+  })
+
+  backgroundSubAgentCompletions.on((event) => {
+    const report = event.result.output.trim()
+    const error = event.result.error?.trim() ?? ''
+    const statusLine = event.result.success
+      ? `Background sub-agent ${event.displayName} completed.`
+      : `Background sub-agent ${event.displayName} failed.`
+    const details = [error ? `Error: ${error}` : '', report].filter(Boolean).join('\n\n')
+    enqueueAgentWakeMessage({
+      sessionId: event.sessionId,
+      sender: event.displayName,
+      content: details ? `${statusLine}\n\n${details}` : statusLine,
+      source: 'subagent'
+    })
   })
 }
 
 /**
- * Drain ALL pending lead messages as a single batched message.
- * Appends team progress info so the lead knows the overall status.
- * Skips if the active session's agent is already running.
+ * Drain one ready session at a time. Messages for a running session remain
+ * queued until that session's current loop finishes.
  */
-function drainLeadMessages(): void {
-  if (pendingLeadMessages.length === 0) return
+function drainAgentWakeMessages(): void {
+  if (pendingAgentWakeMessages.length === 0) return
   if (!_sendMessageFn) return
   if (_autoTriggerPaused) return
 
-  // Safety: stop auto-triggering after too many consecutive turns
-  if (_autoTriggerCount >= MAX_AUTO_TRIGGERS) {
-    console.warn(
-      `[Team] Auto-trigger limit reached (${MAX_AUTO_TRIGGERS}). ` +
-        `${pendingLeadMessages.length} messages pending. Waiting for user input.`
-    )
-    return
+  const sessionIds = new Set(useChatStore.getState().sessions.map((session) => session.id))
+  for (let index = pendingAgentWakeMessages.length - 1; index >= 0; index -= 1) {
+    if (!sessionIds.has(pendingAgentWakeMessages[index].sessionId)) {
+      pendingAgentWakeMessages.splice(index, 1)
+    }
   }
+  if (pendingAgentWakeMessages.length === 0) return
 
-  const activeSessionId = useChatStore.getState().activeSessionId
-  if (!activeSessionId) return
+  const readyMessage = pendingAgentWakeMessages.find(
+    (message) =>
+      !autoTriggeringSessions.has(message.sessionId) &&
+      !hasActiveSessionRun(message.sessionId) &&
+      (autoTriggerCounts.get(message.sessionId) ?? 0) < MAX_AUTO_TRIGGERS
+  )
+  if (!readyMessage) return
+  const targetSessionId = readyMessage.sessionId
+  const autoTriggerCount = autoTriggerCounts.get(targetSessionId) ?? 0
 
-  const status = useAgentStore.getState().runningSessions[activeSessionId]
-  if (status === 'running' || status === 'retrying') return
-
-  // Batch all pending messages into one combined message
-  const batch = pendingLeadMessages.splice(0, pendingLeadMessages.length)
-  const parts = batch.map((msg) => `[Team message from ${msg.from}]:\n${msg.content}`)
+  const batch = pendingAgentWakeMessages.filter((message) => message.sessionId === targetSessionId)
+  for (let index = pendingAgentWakeMessages.length - 1; index >= 0; index -= 1) {
+    if (pendingAgentWakeMessages[index].sessionId === targetSessionId) {
+      pendingAgentWakeMessages.splice(index, 1)
+    }
+  }
+  const parts = batch.map((message) =>
+    message.source === 'team'
+      ? `[Team message from ${message.sender}]:\n${message.content}`
+      : `[Background sub-agent ${message.sender}]:\n${message.content}`
+  )
 
   // Append team progress summary so the lead can decide whether to wait or summarize
   const team = useTeamStore.getState().activeTeam
-  if (team) {
+  if (team?.sessionId === targetSessionId && batch.some((message) => message.source === 'team')) {
     const total = team.tasks.length
     const completed = team.tasks.filter((t) => t.status === 'completed').length
     const inProgress = team.tasks.filter((t) => t.status === 'in_progress').length
@@ -3069,8 +3155,18 @@ function drainLeadMessages(): void {
   }
 
   const text = parts.join('\n\n')
-  _autoTriggerCount++
-  _sendMessageFn(text, undefined, 'team')
+  autoTriggerCounts.set(targetSessionId, autoTriggerCount + 1)
+  autoTriggeringSessions.add(targetSessionId)
+  void _sendMessageFn(text, undefined, 'team', targetSessionId)
+    .catch((error) => {
+      console.error('[AgentRuntime] Failed to resume session after background completion:', error)
+    })
+    .finally(() => {
+      autoTriggeringSessions.delete(targetSessionId)
+      if (pendingAgentWakeMessages.length > 0) scheduleDrain()
+    })
+
+  if (pendingAgentWakeMessages.length > 0) scheduleDrain()
 }
 
 function dispatchNextQueuedMessage(sessionId: string): boolean {
@@ -3767,7 +3863,12 @@ export function useChatActions(): {
     ): Promise<void> => {
       // Reset auto-trigger counter and unpause when user manually sends a message
       if (source !== 'team') {
-        _autoTriggerCount = 0
+        const manualSessionId = targetSessionId ?? useChatStore.getState().activeSessionId
+        if (manualSessionId) {
+          autoTriggerCounts.delete(manualSessionId)
+        } else {
+          autoTriggerCounts.clear()
+        }
         _autoTriggerPaused = false
       }
 
@@ -6090,11 +6191,10 @@ export function useChatActions(): {
                 new Notification('OpenCowork', { body: 'Agent finished working', silent: true })
               }
 
-              // If there's an active team, set up the lead message listener
-              // and drain any messages that arrived while the loop was running.
-              if (useTeamStore.getState().activeTeam) {
+              // Drain team or standalone sub-agent completions that arrived
+              // while this session's main-agent loop was still running.
+              if (useTeamStore.getState().activeTeam || pendingAgentWakeMessages.length > 0) {
                 ensureTeamLeadListener()
-                // Schedule a debounced drain to batch reports that arrive close together
                 scheduleDrain()
               }
             }
@@ -6111,7 +6211,7 @@ export function useChatActions(): {
   useEffect(() => {
     installMemoryAutomationDailyRollup()
     ensureTeamLeadListener()
-    if (useTeamStore.getState().activeTeam) {
+    if (useTeamStore.getState().activeTeam || pendingAgentWakeMessages.length > 0) {
       scheduleDrain()
     }
   }, [])

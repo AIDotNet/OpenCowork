@@ -29,12 +29,15 @@ export function getSessionInputDraftKey(sessionId: string): string {
   return `${SESSION_DRAFT_PREFIX}${sessionId}`
 }
 
-export function getHomeInputDraftKey(mode: string): string {
-  return `${HOME_DRAFT_PREFIX}${mode}`
+// Home/project composer drafts are intentionally NOT mode-scoped: switching
+// session mode must preserve whatever the user has typed, so all modes share a
+// single draft key per home/project.
+export function getHomeInputDraftKey(): string {
+  return `${HOME_DRAFT_PREFIX}default`
 }
 
-export function getProjectInputDraftKey(projectId: string, mode: string): string {
-  return `${PROJECT_DRAFT_PREFIX}${projectId}:${mode}`
+export function getProjectInputDraftKey(projectId: string): string {
+  return `${PROJECT_DRAFT_PREFIX}${projectId}`
 }
 
 export function hasInputDraftContent(

@@ -191,7 +191,7 @@ export function AgentErrorCard({
   return (
     <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
       <div className="flex gap-3">
-        <div className="mt-0.5 shrink-0 rounded-md bg-destructive/15 p-1.5">
+        <div className="mt-0.5 shrink-0 self-start rounded-md bg-destructive/15 p-1.5">
           <Icon className="size-4 text-destructive" />
         </div>
         <div className="min-w-0 flex-1">

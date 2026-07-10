@@ -85,7 +85,7 @@ Usage notes:
 - The sub-agent's outputs should generally be trusted.
 - If a sub-agent's description says it should be used proactively for its domain, prefer launching it without waiting for the user to ask.
 - If the user explicitly asks for work to run "in parallel", you MUST send a single message with multiple Task tool_use blocks.
-- Set "run_in_background": true to spawn a teammate that runs independently. Your turn ends after spawning - you will be notified automatically when the teammate finishes. Background mode requires an active team (TeamCreate).
+- Set "run_in_background": true to run the sub-agent independently in the background. Your current turn ends after spawning and resumes automatically when the sub-agent finishes. If a team is active (or "team_name" is provided), the sub-agent is also registered as a teammate; otherwise it runs as a standalone background sub-agent.
 
 Example usage:
 
@@ -160,17 +160,17 @@ export function createTaskTool(_providerGetter: () => ProviderConfig): ToolHandl
                 type: 'boolean',
                 const: true,
                 description:
-                  'Set to true to run this agent in the background as a teammate that runs independently. Your turn ends after spawning; you will be notified when the teammate finishes. Requires an active team (TeamCreate).'
+                  'Set to true to run this agent independently in the background. The current main-agent turn ends after spawning and resumes automatically when this sub-agent finishes.'
               },
               name: {
                 type: 'string',
                 description:
-                  'Name for the spawned teammate agent (required in background mode). Must be unique within the active team.'
+                  'Optional display name for a standalone background sub-agent. Required and unique when spawning into a team.'
               },
               team_name: {
                 type: 'string',
                 description:
-                  'Optional team name for spawning. Uses the current active team if omitted.'
+                  'Optional team name. When provided (or when a team is active), the background sub-agent is registered as a teammate.'
               },
               subagent_type: {
                 type: 'string',
@@ -191,10 +191,10 @@ export function createTaskTool(_providerGetter: () => ProviderConfig): ToolHandl
                 type: 'string',
                 enum: ['in-process'],
                 description:
-                  'Optional backend override for the teammate runtime. Background teammates execute in the .NET Native Worker.'
+                  'Optional backend override. Background sub-agents execute in the .NET Native Worker.'
               }
             },
-            required: ['description', 'prompt', 'run_in_background', 'name'],
+            required: ['description', 'prompt', 'run_in_background'],
             additionalProperties: false
           }
         ]

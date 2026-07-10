@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   ContentBlock,
   MessageMeta,
   ProviderConfig,
@@ -9,6 +9,7 @@ import type {
 } from '../api/types'
 import type { ToolCallState } from '../agent/types'
 import type { CompressionConfig } from '../agent/context-compression'
+import { toolRegistry } from '../agent/tool-registry'
 import { resolveProviderUserAgent } from '../api/api-user-agent'
 import { summarizeToolInputForHistory } from '../tools/tool-input-sanitizer'
 import { useSettingsStore } from '@renderer/stores/settings-store'
@@ -212,6 +213,7 @@ export interface SidecarAgentRunRequest {
   liveOverlayMessages?: SidecarUnifiedMessage[]
   provider: SidecarProviderConfig
   tools: SidecarToolDefinition[]
+  subAgentToolCatalog?: SidecarToolDefinition[]
   webSearch?: SidecarWebSearchConfig
   imagePluginProvider?: SidecarProviderConfig
   /**
@@ -626,6 +628,11 @@ export function buildSidecarAgentRunRequest(args: {
 
   const maxParallelTools = normalizeMaxParallelTools(args.maxParallelTools)
   const webSearch = mapSidecarWebSearchConfig(args.tools)
+  const parentToolNames = new Set(args.tools.map((tool) => tool.name))
+  const subAgentToolCatalog = toolRegistry
+    .getStableDefinitions()
+    .filter((tool) => !parentToolNames.has(tool.name))
+    .map(mapSidecarTool)
   // Global settings snapshot, applied to every run this module builds (incl. sub-agents,
   // which inherit the parent's parameters in the native worker).
   const permissionPolicy = toPermissionPolicySnapshot(useSettingsStore.getState().permissionPolicy)
@@ -656,6 +663,7 @@ export function buildSidecarAgentRunRequest(args: {
     ...(liveOverlayMessages.length > 0 ? { liveOverlayMessages } : {}),
     provider,
     tools: args.tools.map(mapSidecarTool),
+    ...(subAgentToolCatalog.length > 0 ? { subAgentToolCatalog } : {}),
     ...(webSearch ? { webSearch } : {}),
     ...(imagePluginProvider ? { imagePluginProvider } : {}),
     ...(subAgentProvider ? { subAgentProvider } : {}),

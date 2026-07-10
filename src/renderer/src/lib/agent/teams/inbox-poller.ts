@@ -5,14 +5,49 @@ import type {
   TeamRuntimePlanApprovalResponsePayload
 } from '../../../../../shared/team-runtime-types'
 import { useAgentStore } from '../../../stores/agent-store'
-import { useTeamStore } from '../../../stores/team-store'
+import { useTeamStore, type ActiveTeam } from '../../../stores/team-store'
 import type { TeamMessage } from './types'
+import { teamEvents } from './events'
 import { appendTeamRuntimeMessage, consumeTeamRuntimeMessages } from './runtime-client'
 
 let pollerTimer: ReturnType<typeof setInterval> | null = null
+let pollerStartedAt = 0
+let activePollTeamKey: string | null = null
 let lastLeadMessageTimestamp = 0
 const seenMessageIds = new Set<string>()
 const approvalRequestToToolCallId = new Map<string, string>()
+const LEAD_WAKE_MESSAGE_TYPES = new Set([
+  'message',
+  'broadcast',
+  'idle_notification',
+  'shutdown_response'
+])
+
+function getTeamPollKey(team: ActiveTeam): string {
+  return `${team.name}:${team.createdAt}`
+}
+
+function initializeTeamCursor(team: ActiveTeam, seedExistingMessages: boolean): void {
+  activePollTeamKey = getTeamPollKey(team)
+  seenMessageIds.clear()
+  approvalRequestToToolCallId.clear()
+
+  lastLeadMessageTimestamp = team.createdAt
+  if (seedExistingMessages) {
+    lastLeadMessageTimestamp = Math.max(lastLeadMessageTimestamp, team.lastRuntimeSyncAt ?? 0)
+    for (const message of team.messages) {
+      seenMessageIds.add(message.id)
+      lastLeadMessageTimestamp = Math.max(lastLeadMessageTimestamp, message.timestamp)
+    }
+  }
+}
+
+function clearTeamCursor(): void {
+  activePollTeamKey = null
+  lastLeadMessageTimestamp = 0
+  seenMessageIds.clear()
+  approvalRequestToToolCallId.clear()
+}
 
 function parseToolCall(content: string): ToolCallState | null {
   try {
@@ -107,7 +142,7 @@ export async function sendPlanApprovalResponse(params: {
   })
 }
 
-async function handleLeadMessage(message: TeamMessage): Promise<void> {
+async function handleLeadMessage(message: TeamMessage, sessionId?: string): Promise<void> {
   if (seenMessageIds.has(message.id)) return
   seenMessageIds.add(message.id)
   lastLeadMessageTimestamp = Math.max(lastLeadMessageTimestamp, message.timestamp)
@@ -159,34 +194,68 @@ async function handleLeadMessage(message: TeamMessage): Promise<void> {
       replyTo: message.from,
       source: 'teammate-plan'
     })
+    return
+  }
+
+  if (LEAD_WAKE_MESSAGE_TYPES.has(message.type)) {
+    teamEvents.emit({ type: 'team_message', sessionId, message })
   }
 }
 
 export function startTeamInboxPoller(): void {
   if (pollerTimer) return
 
+  pollerStartedAt = Date.now()
+  const initialTeam = useTeamStore.getState().activeTeam
+  if (initialTeam?.name) {
+    // Persisted messages belonged to an earlier app lifetime and must not wake
+    // the main agent again. New messages arriving after this cursor still do.
+    initializeTeamCursor(initialTeam, true)
+  }
+
   pollerTimer = setInterval(() => {
     const team = useTeamStore.getState().activeTeam
-    if (!team?.name) return
+    if (!team?.name) {
+      if (activePollTeamKey) clearTeamCursor()
+      return
+    }
+
+    const teamKey = getTeamPollKey(team)
+    if (activePollTeamKey !== teamKey) {
+      // A team created after the poller started is live. Do not seed from its
+      // snapshot: a very fast teammate may already have completed before this
+      // first interval and its report still needs to wake the main agent.
+      initializeTeamCursor(team, team.createdAt < pollerStartedAt)
+    }
+    const sessionId = team.sessionId
 
     void consumeTeamRuntimeMessages({
       teamName: team.name,
-      afterTimestamp: lastLeadMessageTimestamp,
+      // The runtime filter is strictly greater-than. Re-read the previous
+      // millisecond and rely on message IDs so two batches sharing one timestamp
+      // cannot strand the later message.
+      afterTimestamp: Math.max(0, lastLeadMessageTimestamp - 1),
       recipient: 'lead',
       includeBroadcast: true,
-      limit: 20
+      limit: 50
     })
       .then(async (messages) => {
+        const currentTeam = useTeamStore.getState().activeTeam
+        if (!currentTeam || getTeamPollKey(currentTeam) !== teamKey) return
+
         for (const message of messages) {
-          await handleLeadMessage({
-            id: message.id,
-            from: message.from,
-            to: message.to,
-            type: message.type,
-            content: message.content,
-            summary: message.summary,
-            timestamp: message.timestamp
-          })
+          await handleLeadMessage(
+            {
+              id: message.id,
+              from: message.from,
+              to: message.to,
+              type: message.type,
+              content: message.content,
+              summary: message.summary,
+              timestamp: message.timestamp
+            },
+            sessionId
+          )
         }
       })
       .catch((error) => {
@@ -200,4 +269,6 @@ export function stopTeamInboxPoller(): void {
     clearInterval(pollerTimer)
     pollerTimer = null
   }
+  clearTeamCursor()
+  pollerStartedAt = 0
 }

@@ -1,6 +1,6 @@
 import * as React from 'react'
 import Markdown from 'react-markdown'
-import { Users, ChevronDown } from 'lucide-react'
+import { Users, CircleUserRound, ChevronDown } from 'lucide-react'
 import { SlideIn } from '@renderer/components/animate-ui'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
@@ -58,21 +58,41 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function TeamNotification({ content }: { content: string }): React.JSX.Element {
+function AgentWakeNotification({ content }: { content: string }): React.JSX.Element {
   const [expanded, setExpanded] = React.useState(false)
-  const match = content.match(/^\[Team message from (.+?)\]:\n?/)
-  const from = match?.[1] ?? 'teammate'
+  const teamMatch = content.match(/^\[Team message from (.+?)\]:\n?/)
+  const subAgentMatch = content.match(/^\[Background sub-agent (.+?)\]:\n?/)
+  const match = teamMatch ?? subAgentMatch
+  const from = match?.[1] ?? 'agent'
   const body = match ? content.slice(match[0].length) : content
+  const isStandaloneSubAgent = Boolean(subAgentMatch)
+  const Icon = isStandaloneSubAgent ? CircleUserRound : Users
 
   return (
-    <div className="my-4 rounded-lg border border-cyan-500/30 bg-cyan-500/5">
+    <div
+      className={`my-4 rounded-lg border ${
+        isStandaloneSubAgent
+          ? 'border-violet-500/25 bg-violet-500/5'
+          : 'border-cyan-500/30 bg-cyan-500/5'
+      }`}
+    >
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-2 px-3 py-2 text-left cursor-pointer"
       >
-        <Users className="size-3.5 text-cyan-500 shrink-0" />
-        <span className="text-[11px] font-medium text-cyan-600 dark:text-cyan-400">{from}</span>
+        <Icon
+          className={`size-3.5 shrink-0 ${isStandaloneSubAgent ? 'text-violet-500' : 'text-cyan-500'}`}
+        />
+        <span
+          className={`text-[11px] font-medium ${
+            isStandaloneSubAgent
+              ? 'text-violet-600 dark:text-violet-400'
+              : 'text-cyan-600 dark:text-cyan-400'
+          }`}
+        >
+          {from}
+        </span>
         <span className="flex-1" />
         <ChevronDown
           className={`size-3.5 text-muted-foreground/50 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
@@ -83,7 +103,11 @@ function TeamNotification({ content }: { content: string }): React.JSX.Element {
         style={{ gridTemplateRows: expanded ? '1fr' : '0fr' }}
       >
         <div className="overflow-hidden">
-          <div className="border-t border-cyan-500/20 px-3 py-2 text-xs text-muted-foreground prose prose-sm dark:prose-invert max-w-none [&_h2]:text-sm [&_h2]:mt-3 [&_h2]:mb-1 [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0">
+          <div
+            className={`border-t px-3 py-2 text-xs text-muted-foreground prose prose-sm dark:prose-invert max-w-none [&_h2]:text-sm [&_h2]:mt-3 [&_h2]:mb-1 [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0 ${
+              isStandaloneSubAgent ? 'border-violet-500/20' : 'border-cyan-500/20'
+            }`}
+          >
             <Markdown
               remarkPlugins={MARKDOWN_REMARK_PLUGINS}
               rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
@@ -130,7 +154,7 @@ function MessageItemInner({
         }
         if (message.source === 'team') {
           return (
-            <TeamNotification
+            <AgentWakeNotification
               content={
                 typeof message.content === 'string'
                   ? message.content

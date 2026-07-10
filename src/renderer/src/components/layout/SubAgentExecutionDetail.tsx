@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { Bot } from 'lucide-react'
 import { InputArea } from '@renderer/components/chat/InputArea'
 import { TranscriptMessageList } from '@renderer/components/chat/TranscriptMessageList'
+import { buildRenderableMessageMeta } from '@renderer/components/chat/transcript-utils'
 import { useAgentStore, type SubAgentState } from '@renderer/stores/agent-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import type {
@@ -265,8 +266,14 @@ export function SubAgentExecutionDetail({
   })
   const { sendMessage, manualCompressContext } = useChatActions()
   const agent = agentDetail.agent
+  const hasRenderableAgentTranscript = agent?.transcript.length
+    ? buildRenderableMessageMeta(agent.transcript, agent.currentAssistantMessageId).length > 0
+    : false
 
   const fallbackReportText = React.useMemo(() => {
+    const fromAgent = agent?.errorMessage?.trim() || agent?.report.trim() || ''
+    if (fromAgent) return fromAgent
+
     const fromMessages = getFallbackReportFromMessages(toolUseId, sessionMessages)
     if (fromMessages) return fromMessages
 
@@ -275,15 +282,17 @@ export function SubAgentExecutionDetail({
           executedToolCalls.find((item) => item.id === toolUseId)?.output
         )
       : ''
-  }, [toolUseId, sessionMessages, executedToolCalls])
+  }, [agent?.errorMessage, agent?.report, toolUseId, sessionMessages, executedToolCalls])
 
   const fallbackDetailText = (fallbackReportText.trim() || inlineText?.trim() || '').trim()
   const fallbackInput = React.useMemo(
     () => findToolUseInput(toolUseId, sessionMessages),
     [toolUseId, sessionMessages]
   )
-  const fallbackDescription = fallbackInput?.description ? String(fallbackInput.description) : ''
-  const fallbackPrompt = getPromptText(fallbackInput)
+  const fallbackDescription =
+    agent?.description.trim() ||
+    (fallbackInput?.description ? String(fallbackInput.description) : '')
+  const fallbackPrompt = agent?.prompt.trim() || getPromptText(fallbackInput)
   const fallbackTranscript = React.useMemo(
     () =>
       buildFallbackTranscript({
@@ -295,12 +304,17 @@ export function SubAgentExecutionDetail({
     [toolUseId, fallbackDescription, fallbackPrompt, fallbackDetailText]
   )
 
-  const transcript = agent?.transcript ?? fallbackTranscript
+  const usesAgentTranscript = Boolean(agent && hasRenderableAgentTranscript)
+  const transcript = usesAgentTranscript && agent ? agent.transcript : fallbackTranscript
   const subAgentRequestModel = agent?.requestModel ?? getLatestTranscriptRequestModel(transcript)
-  const streamingMessageId = agent?.currentAssistantMessageId ?? null
-  const transcriptRevisionKey = agent
+  const streamingMessageId = usesAgentTranscript ? (agent?.currentAssistantMessageId ?? null) : null
+  const transcriptRevisionKey = usesAgentTranscript
     ? agentDetail.signature
-    : fallbackTranscript.map((message) => `${message.id}:${message._revision ?? 0}`).join('|')
+    : [
+        'fallback',
+        agentDetail.signature,
+        ...fallbackTranscript.map((message) => `${message.id}:${message._revision ?? 0}`)
+      ].join('|')
   const toolCalls = agent?.toolCalls
   const liveToolCallMap = React.useMemo(
     () => (toolCalls ? buildLiveToolCallMap(toolCalls) : null),
@@ -310,7 +324,7 @@ export function SubAgentExecutionDetail({
     ? `subagent:${resolvedSessionId}:${toolUseId ?? 'overview'}`
     : null
 
-  if (!agent && transcript.length === 0) {
+  if (transcript.length === 0) {
     return (
       <div
         className={cn(

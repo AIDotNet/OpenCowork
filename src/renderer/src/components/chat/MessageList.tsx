@@ -1697,6 +1697,56 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   }, [inlineCompactSummaryState.summaryIds, renderableMessages])
   const hasLoadOlderRow = loadedRangeStart > 0
   const virtualRowCount = rows.length + (hasLoadOlderRow ? 1 : 0)
+
+  const canAutoScroll = React.useCallback(() => {
+    const mode = autoScrollModeRef.current
+    return (
+      mode === 'user' || (mode === 'stream' && canSessionTriggerStreamingAutoScroll && isAtBottom)
+    )
+  }, [canSessionTriggerStreamingAutoScroll, isAtBottom])
+
+  // ---------------------------------------------------------------------------
+  // 【临时修复 / Temporary workaround · 2026-07-10】
+  //
+  // 背景：
+  // MessageList 用 @tanstack/react-virtual 把「整条 assistant 消息」当成一行。
+  // 用户在消息中部展开「工具调用」时，只是行内高度变大，但库默认会走
+  // resizeItem → applyScrollAdjustment：只要该行 start 在视口上方，就
+  // scrollTop += 整段高度差，导致点击位置被顶走。
+  //
+  // 官方原因：
+  // TanStack Virtual 默认补偿策略面向「普通列表行」：视口上方行变高时补 scroll，
+  // 避免历史列表量高后视口内容漂移。聊天场景（一行=整条消息、行内折叠展开）
+  // 默认语义不合适——可见行内部变高时，用户期望视口钉住、内容向下长。
+  //
+  // 社区同类反馈（仍 open）：
+  // https://github.com/TanStack/virtual/issues/1218
+  // 「applyScrollAdjustment causes chat stream viewport to drift downward when
+  //  a visible streaming item keeps growing」
+  // 结论与本场景一致：可见内容自己长高时，不补偿更稳；补偿会把视口拖跑。
+  //
+  // 本钩子是官方预留的策略入口（非业务侧 scrollTop 补丁）：
+  // shouldAdjustScrollPositionOnItemSizeChange
+  //
+  // 策略：
+  // 1) 正在 stick-to-bottom 跟随 → 不让 virtualizer 抢滚动（贴底仍走下方逻辑）
+  // 2) 自由浏览时，仅当「整行完全在视口上方」才补偿
+  // 3) 行与视口相交（中部展开工具调用）→ 不补偿，列表位置保持不动
+  //
+  // 后续维护：
+  // 若官方默认策略/聊天示例修好了 #1218（或提供 chat 专用 anchor 模式），
+  // 评估后可删除本回调，恢复库默认行为。删除前请对照 issue 与手测：
+  // 中部展开/收起工具调用、流式贴底、加载更早消息。
+  // ---------------------------------------------------------------------------
+  const shouldAdjustScrollPositionOnItemSizeChange = React.useCallback(
+    (item: { end: number }, _delta: number, instance: { scrollOffset: number | null }): boolean => {
+      if (canAutoScroll()) return false
+      const scrollOffset = instance.scrollOffset ?? 0
+      return item.end < scrollOffset
+    },
+    [canAutoScroll]
+  )
+
   const rowVirtualizer = useVirtualizer({
     count: virtualRowCount,
     getScrollElement: () => listRef.current,
@@ -1708,6 +1758,11 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       return row?.key ?? `row:${index}`
     }
   })
+  // 当前 @tanstack/react-virtual@3.14.5 的 VirtualizerOptions 类型未暴露该钩子，
+  // 但 virtual-core 实例属性存在且 resizeItem 会读它。必须挂到实例上，不能塞进 options
+  //（options 路径 TS 报错且运行时也不会赋到 this.shouldAdjust...）。
+  rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+    shouldAdjustScrollPositionOnItemSizeChange
   const pendingAskUserQuestion = React.useMemo(
     () => findPendingAskUserQuestion(rows, toolResultsLookup, messageLookup),
     [messageLookup, rows, toolResultsLookup]
@@ -1718,13 +1773,6 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     (!activeSessionLoaded || activeSessionMessageCount > 0 || loadedRangeStart > 0)
 
   const lastMessageRowIndex = rows.length - 1
-
-  const canAutoScroll = React.useCallback(() => {
-    const mode = autoScrollModeRef.current
-    return (
-      mode === 'user' || (mode === 'stream' && canSessionTriggerStreamingAutoScroll && isAtBottom)
-    )
-  }, [canSessionTriggerStreamingAutoScroll, isAtBottom])
 
   const markProgrammaticScroll = React.useCallback(() => {
     programmaticScrollUntilRef.current = window.performance.now() + PROGRAMMATIC_SCROLL_GUARD_MS

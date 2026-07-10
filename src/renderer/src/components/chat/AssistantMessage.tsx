@@ -60,6 +60,7 @@ import { FileChangeCard } from './FileChangeCard'
 import { BashArtifactsCard } from './BashArtifactsCard'
 import { SubAgentCard } from './SubAgentCard'
 import { ThinkingBlock } from './ThinkingBlock'
+import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 import { TeamEventCard } from './TeamEventCard'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { OrchestrationBlock } from './OrchestrationBlock'
@@ -2559,7 +2560,8 @@ export function AssistantMessage({
         .map((toolUseId) => {
           const item = toolExecutionOutline.itemByToolUseId.get(toolUseId)
           if (!item || item.visibility === 'hidden') return null
-          if (item.visibility === 'ordinary' && collapsed) return null
+          // Keep ordinary tools mounted for collapsible runs so close tween can measure height.
+          if (item.visibility === 'ordinary' && collapsed && !run.showToggle) return null
 
           const block = normalizedContent[item.blockIndex]
           if (!block || block.type !== 'tool_use') return null
@@ -2582,7 +2584,13 @@ export function AssistantMessage({
               onClick={() => toggleToolRunCollapsed(run)}
             />
           ) : null}
-          {renderedTools}
+          {run.showToggle ? (
+            <CollapsibleHeightPanel open={!collapsed} className="overflow-hidden">
+              <div className="space-y-2">{renderedTools}</div>
+            </CollapsibleHeightPanel>
+          ) : (
+            renderedTools
+          )}
         </React.Fragment>
       )
     }

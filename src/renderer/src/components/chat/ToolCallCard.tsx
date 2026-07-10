@@ -49,6 +49,7 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { Button } from '@renderer/components/ui/button'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
 import { inputSummary } from './tool-call-summary'
+import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
 import { ImagePreview } from './ImagePreview'
 import { ExtensionToolResultCard } from './ExtensionToolResultCard'
@@ -3456,212 +3457,204 @@ function ToolCallCardInner({
         )}
       </button>
 
-      {/* Expanded details */}
-      {open && (
-        <div
-          className={cn(
-            'min-w-0 overflow-hidden',
-            useCompactToolHeader
-              ? 'ml-3 mt-1.5 border-l border-border/45 pl-5 dark:border-white/[0.08]'
-              : 'mt-1.5 pl-5'
-          )}
-        >
-          <div
-            className={cn(
-              'space-y-2 pb-0.5',
-              useCompactToolHeader &&
-                'rounded-lg border border-border/55 bg-background/55 px-3 py-3 dark:border-white/[0.08] dark:bg-[#0d0d0e]'
-            )}
-          >
-            {hideLivePayload ? (
-              <div className="space-y-2">
-                <StructuredInput name={name} input={input} status={status} />
-                <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground/70">
-                  {t('toolCall.hiddenLivePayload')}
-                </div>
-              </div>
-            ) : (
-              <>
-                {/* Write: show content with syntax highlighting */}
-                {showSettledWriteContent &&
-                  name === 'Write' &&
-                  (() => {
-                    const writeContent = typeof input.content === 'string' ? input.content : null
-                    const writePreview =
-                      typeof input.content_preview === 'string' ? input.content_preview : null
-                    const writePreviewTail =
-                      typeof input.content_preview_tail === 'string'
-                        ? input.content_preview_tail
-                        : null
-                    const displayContent =
-                      writeContent ??
-                      (writePreviewTail
-                        ? `${writePreview}\n…\n${writePreviewTail}`
-                        : writePreview) ??
-                      ''
-                    const isOmitted = !writeContent && !!input.content_omitted
-                    const totalLines =
-                      typeof input.content_lines === 'number'
-                        ? input.content_lines
-                        : writeContent
-                          ? writeContent.split('\n').length
-                          : null
-                    return (
-                      <div>
-                        <div className="mb-1 flex items-center gap-1.5">
-                          <p className="text-xs font-medium text-muted-foreground">
-                            {t('toolCall.content')}
-                          </p>
-                          <span className="text-[9px] text-muted-foreground/55 font-mono">
-                            {detectLang(String(input.file_path ?? input.path ?? ''))}
-                            {totalLines !== null
-                              ? ` · ${t('toolCall.lineCount', { count: totalLines })}`
-                              : ''}
-                          </span>
-                          {isOmitted && (
-                            <span className="rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground/60">
-                              {t('toolCall.preview')}
-                            </span>
-                          )}
-                          {writeContent && <CopyBtn text={writeContent} />}
-                        </div>
-                        <LazySyntaxHighlighter
-                          language={detectLang(String(input.file_path ?? input.path ?? ''))}
-                          wrapLongLines
-                          customStyle={{
-                            margin: 0,
-                            padding: '0.5rem',
-                            borderRadius: '0.375rem',
-                            fontSize: '11px',
-                            maxHeight: '200px',
-                            overflow: 'auto',
-                            fontFamily: MONO_FONT
-                          }}
-                          codeTagProps={{ style: { fontFamily: 'inherit' } }}
-                        >
-                          {displayContent}
-                        </LazySyntaxHighlighter>
-                      </div>
-                    )
-                  })()}
-                {/* Structured Input — tool-specific rendering */}
-                {shouldShowStructuredInput && (
-                  <div className="space-y-2">
-                    <ToolDetailSectionHeader label={t('toolCall.parameters')} />
-                    <StructuredInput name={name} input={input} status={status} />
-                  </div>
-                )}
-                {shouldShowResultHeader && <ToolDetailSectionHeader label={t('toolCall.result')} />}
-                {/* Output — tool-specific rendering */}
-                {output && name === 'Read' && hasImageBlocks(output) && (
-                  <ImageOutputBlock output={output} />
-                )}
-                {shouldRenderOutputPanels &&
-                  output &&
-                  name === 'Read' &&
-                  !hasImageBlocks(output) &&
-                  readTextOutputRevealed &&
-                  outputText && (
-                    <ReadOutputBlock
-                      output={outputText}
-                      filePath={String(input.file_path ?? input.path ?? '')}
-                    />
-                  )}
-                {shouldRenderOutputPanels &&
-                  isCommandTool &&
-                  (status === 'running' ||
-                    status === 'streaming' ||
-                    outputText ||
-                    getBashInputTerminalId(input) ||
-                    getShellInputCommand(input)) && (
-                    <BashOutputBlock
-                      name={name}
-                      output={outputText ?? ''}
-                      input={input}
-                      toolUseId={toolUseId}
-                      status={status}
-                    />
-                  )}
-                {shouldRenderOutputPanels && output && name === 'Grep' && outputText && (
-                  <GrepOutputBlock output={outputText} pattern={String(input.pattern ?? '')} />
-                )}
-                {shouldRenderOutputPanels && output && name === 'Glob' && outputText && (
-                  <GlobOutputBlock output={outputText} />
-                )}
-                {shouldRenderOutputPanels && output && name === 'LS' && outputText && (
-                  <LSOutputBlock output={outputText} />
-                )}
-                {shouldRenderOutputPanels &&
-                  output &&
-                  ['Edit', 'Write', 'Delete'].includes(name) &&
-                  (() => {
-                    const s = outputText ?? ''
-                    const parsed = decodeStructuredToolResult(s)
-                    const success = !!(parsed && !Array.isArray(parsed) && parsed.success === true)
-                    return (
-                      <div className="flex items-center gap-1.5 text-xs">
-                        {success ? (
-                          <>
-                            <CheckCircle2 className="size-3 text-green-500" />
-                            <span className="text-green-500/70">
-                              {t('toolCall.appliedSuccessfully')}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="size-3 text-destructive" />
-                            <span className="text-destructive/70 font-mono truncate">
-                              {s.slice(0, 100)}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    )
-                  })()}
-                {shouldRenderOutputPanels && output && extensionToolResult && (
-                  <ExtensionToolResultCard output={output} />
-                )}
-                {shouldRenderOutputPanels &&
-                  output &&
-                  !extensionToolResult &&
-                  ![
-                    'Read',
-                    'Bash',
-                    'Shell',
-                    'PowerShell',
-                    'Grep',
-                    'Glob',
-                    'LS',
-                    'TaskCreate',
-                    'TaskUpdate',
-                    'TaskGet',
-                    'TaskList',
-                    'Edit',
-                    'Write',
-                    'Delete',
-                    'AskUserQuestion',
-                    'Skill',
-                    'visualize_show_widget'
-                  ].includes(name) &&
-                  (hasImageBlocks(output) ? (
-                    <ImageOutputBlock output={output} />
-                  ) : outputText ? (
-                    <OutputBlock output={outputText} />
-                  ) : null)}
-                {/* Error */}
-                {displayError && (
-                  <div>
-                    <p className="mb-1 text-xs font-medium text-destructive">{t('error.label')}</p>
-                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive font-mono">
-                      {displayError}
-                    </pre>
-                  </div>
-                )}
-              </>
-            )}
+      {/* Expanded details — same pixel-height tween as ThinkingBlock */}
+      <CollapsibleHeightPanel
+        open={open}
+        className={cn(
+          'min-w-0 overflow-hidden',
+          useCompactToolHeader
+            ? 'ml-3 mt-1.5 border-l border-border/45 pl-5 dark:border-white/[0.08]'
+            : 'mt-1.5 pl-5'
+        )}
+        contentClassName={cn(
+          'space-y-2 pb-0.5',
+          useCompactToolHeader &&
+            'rounded-lg border border-border/55 bg-background/55 px-3 py-3 dark:border-white/[0.08] dark:bg-[#0d0d0e]'
+        )}
+      >
+        {hideLivePayload ? (
+          <div className="space-y-2">
+            <StructuredInput name={name} input={input} status={status} />
+            <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground/70">
+              {t('toolCall.hiddenLivePayload')}
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <>
+            {/* Write: show content with syntax highlighting */}
+            {showSettledWriteContent &&
+              name === 'Write' &&
+              (() => {
+                const writeContent = typeof input.content === 'string' ? input.content : null
+                const writePreview =
+                  typeof input.content_preview === 'string' ? input.content_preview : null
+                const writePreviewTail =
+                  typeof input.content_preview_tail === 'string' ? input.content_preview_tail : null
+                const displayContent =
+                  writeContent ??
+                  (writePreviewTail ? `${writePreview}\n…\n${writePreviewTail}` : writePreview) ??
+                  ''
+                const isOmitted = !writeContent && !!input.content_omitted
+                const totalLines =
+                  typeof input.content_lines === 'number'
+                    ? input.content_lines
+                    : writeContent
+                      ? writeContent.split('\n').length
+                      : null
+                return (
+                  <div>
+                    <div className="mb-1 flex items-center gap-1.5">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {t('toolCall.content')}
+                      </p>
+                      <span className="text-[9px] text-muted-foreground/55 font-mono">
+                        {detectLang(String(input.file_path ?? input.path ?? ''))}
+                        {totalLines !== null
+                          ? ` · ${t('toolCall.lineCount', { count: totalLines })}`
+                          : ''}
+                      </span>
+                      {isOmitted && (
+                        <span className="rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground/60">
+                          {t('toolCall.preview')}
+                        </span>
+                      )}
+                      {writeContent && <CopyBtn text={writeContent} />}
+                    </div>
+                    <LazySyntaxHighlighter
+                      language={detectLang(String(input.file_path ?? input.path ?? ''))}
+                      wrapLongLines
+                      customStyle={{
+                        margin: 0,
+                        padding: '0.5rem',
+                        borderRadius: '0.375rem',
+                        fontSize: '11px',
+                        maxHeight: '200px',
+                        overflow: 'auto',
+                        fontFamily: MONO_FONT
+                      }}
+                      codeTagProps={{ style: { fontFamily: 'inherit' } }}
+                    >
+                      {displayContent}
+                    </LazySyntaxHighlighter>
+                  </div>
+                )
+              })()}
+            {/* Structured Input — tool-specific rendering */}
+            {shouldShowStructuredInput && (
+              <div className="space-y-2">
+                <ToolDetailSectionHeader label={t('toolCall.parameters')} />
+                <StructuredInput name={name} input={input} status={status} />
+              </div>
+            )}
+            {shouldShowResultHeader && <ToolDetailSectionHeader label={t('toolCall.result')} />}
+            {/* Output — tool-specific rendering */}
+            {output && name === 'Read' && hasImageBlocks(output) && (
+              <ImageOutputBlock output={output} />
+            )}
+            {shouldRenderOutputPanels &&
+              output &&
+              name === 'Read' &&
+              !hasImageBlocks(output) &&
+              readTextOutputRevealed &&
+              outputText && (
+                <ReadOutputBlock
+                  output={outputText}
+                  filePath={String(input.file_path ?? input.path ?? '')}
+                />
+              )}
+            {shouldRenderOutputPanels &&
+              isCommandTool &&
+              (status === 'running' ||
+                status === 'streaming' ||
+                outputText ||
+                getBashInputTerminalId(input) ||
+                getShellInputCommand(input)) && (
+                <BashOutputBlock
+                  name={name}
+                  output={outputText ?? ''}
+                  input={input}
+                  toolUseId={toolUseId}
+                  status={status}
+                />
+              )}
+            {shouldRenderOutputPanels && output && name === 'Grep' && outputText && (
+              <GrepOutputBlock output={outputText} pattern={String(input.pattern ?? '')} />
+            )}
+            {shouldRenderOutputPanels && output && name === 'Glob' && outputText && (
+              <GlobOutputBlock output={outputText} />
+            )}
+            {shouldRenderOutputPanels && output && name === 'LS' && outputText && (
+              <LSOutputBlock output={outputText} />
+            )}
+            {shouldRenderOutputPanels &&
+              output &&
+              ['Edit', 'Write', 'Delete'].includes(name) &&
+              (() => {
+                const s = outputText ?? ''
+                const parsed = decodeStructuredToolResult(s)
+                const success = !!(parsed && !Array.isArray(parsed) && parsed.success === true)
+                return (
+                  <div className="flex items-center gap-1.5 text-xs">
+                    {success ? (
+                      <>
+                        <CheckCircle2 className="size-3 text-green-500" />
+                        <span className="text-green-500/70">
+                          {t('toolCall.appliedSuccessfully')}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="size-3 text-destructive" />
+                        <span className="text-destructive/70 font-mono truncate">
+                          {s.slice(0, 100)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )
+              })()}
+            {shouldRenderOutputPanels && output && extensionToolResult && (
+              <ExtensionToolResultCard output={output} />
+            )}
+            {shouldRenderOutputPanels &&
+              output &&
+              !extensionToolResult &&
+              ![
+                'Read',
+                'Bash',
+                'Shell',
+                'PowerShell',
+                'Grep',
+                'Glob',
+                'LS',
+                'TaskCreate',
+                'TaskUpdate',
+                'TaskGet',
+                'TaskList',
+                'Edit',
+                'Write',
+                'Delete',
+                'AskUserQuestion',
+                'Skill',
+                'visualize_show_widget'
+              ].includes(name) &&
+              (hasImageBlocks(output) ? (
+                <ImageOutputBlock output={output} />
+              ) : outputText ? (
+                <OutputBlock output={outputText} />
+              ) : null)}
+            {/* Error */}
+            {displayError && (
+              <div>
+                <p className="mb-1 text-xs font-medium text-destructive">{t('error.label')}</p>
+                <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive font-mono">
+                  {displayError}
+                </pre>
+              </div>
+            )}
+          </>
+        )}
+      </CollapsibleHeightPanel>
     </div>
   )
 }

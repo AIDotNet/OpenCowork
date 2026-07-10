@@ -2,10 +2,10 @@ import * as React from 'react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight, ChevronDown, Loader2, Check, X } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ToolResultContent } from '@renderer/lib/api/types'
 import { inputSummary, summarizeSearchToolOutput } from './tool-call-summary'
+import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 
 const COMMAND_TOOL_NAMES = new Set(['Bash', 'Shell', 'PowerShell'])
 
@@ -156,23 +156,17 @@ export function ToolCallGroup({
         </button>
       ) : null}
 
-      <AnimatePresence initial={false}>
-        {contentVisible && (
-          <motion.div
-            initial={collapsible ? { height: 0, opacity: 0 } : false}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={collapsible ? { height: 0, opacity: 0 } : undefined}
-            transition={{ duration: collapsible ? 0.2 : 0 }}
-            className={
-              collapsible
-                ? 'ml-3 mt-1.5 overflow-hidden border-l border-border/50 pl-5 dark:border-white/[0.08]'
-                : 'overflow-visible'
-            }
-          >
-            {children}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <CollapsibleHeightPanel
+        open={contentVisible}
+        enabled={collapsible}
+        className={
+          collapsible
+            ? 'ml-3 mt-1.5 overflow-hidden border-l border-border/50 pl-5 dark:border-white/[0.08]'
+            : 'overflow-visible'
+        }
+      >
+        {children}
+      </CollapsibleHeightPanel>
     </div>
   )
 }

@@ -1071,23 +1071,28 @@ function isNativeWorkerCandidateReady(candidate: string): boolean {
       fs.existsSync(path.join(candidateDir, name)) ||
       fs.existsSync(path.join(candidateDir, 'runtimes', getCurrentRid(), 'native', name))
   )
-  if (sqliteLibrary) return true
-
-  console.warn('[NativeWorker] skipping candidate with missing SQLite native library', {
-    workerPath: candidate,
-    expected: getSqliteNativeLibraryNames()
-  })
-  return false
+  return Boolean(sqliteLibrary)
 }
 
 function findNewestNativeWorkerCandidate(candidates: string[]): string | null {
-  const ready = candidates
+  const existing = candidates.filter((candidate) => fs.existsSync(candidate))
+  const ready = existing
     .filter(isNativeWorkerCandidateReady)
     .map((candidate) => ({
       candidate,
       mtimeMs: fs.statSync(candidate).mtimeMs
     }))
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
+
+  if (ready.length === 0 && existing.length > 0) {
+    console.warn(
+      '[NativeWorker] no usable native worker candidate (missing SQLite native library)',
+      {
+        candidates: existing,
+        expected: getSqliteNativeLibraryNames()
+      }
+    )
+  }
 
   return ready[0]?.candidate ?? null
 }

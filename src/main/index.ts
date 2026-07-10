@@ -38,7 +38,8 @@ import { registerApiProxyHandlers } from './ipc/api-proxy'
 import {
   registerSettingsHandlers,
   flushSettingsSync,
-  initializeSettingsCache
+  initializeSettingsCache,
+  readSettings
 } from './ipc/settings-handlers'
 
 import { registerSkillsHandlers } from './ipc/skills-handlers'
@@ -159,7 +160,6 @@ function getEnvProxyUrl(): string | null {
 
 async function configureSystemProxy(): Promise<void> {
   try {
-    const { readSettings } = await import('./ipc/settings-handlers')
     const saved = readSettings().systemProxyUrl
     const proxyUrl = typeof saved === 'string' && saved.trim() ? saved.trim() : getEnvProxyUrl()
 

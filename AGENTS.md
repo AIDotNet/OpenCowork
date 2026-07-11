@@ -47,6 +47,7 @@ src/
 npm run dev          # Start Electron + Vite with hot reload
 npm run build        # Typecheck (main + renderer) then build
 npm run build:win    # Full Windows installer (electron-builder)
+npm run build:win:green # Windows no-install zip
 npm run build:mac    # macOS .dmg/zip
 npm run build:linux  # Linux .AppImage/.deb
 npm run lint         # ESLint with cache

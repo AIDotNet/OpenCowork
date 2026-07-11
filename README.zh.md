@@ -134,6 +134,7 @@ npm run dev
 | `npm run dev`       | 启动 Electron + Vite 热重载开发     |
 | `npm run build`     | 类型检查并构建生产版本              |
 | `npm run build:win` | 构建 Windows 安装包                 |
+| `npm run build:win:green` | 构建 Windows 免安装 zip      |
 | `npm run build:mac` | 构建 macOS .dmg/zip                |
 | `npm run build:linux` | 构建 Linux .AppImage/.deb        |
 | `npm run lint`      | ESLint 检查（带缓存）               |

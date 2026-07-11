@@ -247,6 +247,7 @@
     "update": {
       "availableTitle": "🎉 Version {{version}} is available",
       "availableDescription": "Click \"Update now\" to start downloading",
+      "manualDescription": "The no-install build does not support automatic updates yet. Download the latest version manually and replace the current folder after quitting the app.",
       "readyTitle": "Update v{{version}} is ready",
       "readyDescription": "The update has been downloaded. Choose Update now to restart and install it.",
       "buttonLabel": "Update v{{version}}",
@@ -262,6 +263,7 @@
       "downloadingProgress": "Downloading update {{progress}}%",
       "actions": {
         "updateNow": "Update now",
+        "openDownloadPage": "Open download page",
         "remindLater": "Remind me later",
         "installNow": "Update now",
         "updateLater": "Update later"

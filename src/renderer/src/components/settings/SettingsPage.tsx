@@ -127,6 +127,10 @@ import {
   DEFAULT_BUILTIN_SOUL_TEMPLATE_ID,
   type BuiltinSoulTemplateWithContent
 } from '../../../../shared/builtin-souls'
+import {
+  OPEN_COWORK_RELEASES_LATEST_URL,
+  type AppDistribution
+} from '../../../../shared/app-distribution'
 
 const DEFAULT_GLOBAL_MEMORY_TEMPLATES = {
   soul: '',
@@ -183,6 +187,16 @@ type GlobalMemoryFileState = {
   draftContent: string
   missingFile: boolean
   lastSavedAt: number | null
+}
+
+function normalizeDistribution(value: unknown): AppDistribution {
+  return value === 'green' ? 'green' : 'installer'
+}
+
+function normalizeReleaseUrl(value: unknown): string {
+  return typeof value === 'string' && value.startsWith('https://')
+    ? value
+    : OPEN_COWORK_RELEASES_LATEST_URL
 }
 
 const GLOBAL_MEMORY_FILE_META: Record<
@@ -555,6 +569,9 @@ function GeneralPanel(): React.JSX.Element {
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null)
   const [downloadedVersion, setDownloadedVersion] = useState<string | null>(null)
   const [installingUpdate, setInstallingUpdate] = useState(false)
+  const [distribution, setDistribution] = useState<AppDistribution>('installer')
+  const [supportsAutoInstall, setSupportsAutoInstall] = useState(true)
+  const [releaseUrl, setReleaseUrl] = useState(OPEN_COWORK_RELEASES_LATEST_URL)
   const sessions = useChatStore((s) => s.sessions)
   const clearAllSessions = useChatStore((s) => s.clearAllSessions)
   const effectiveProjectDirectory =
@@ -601,6 +618,9 @@ function GeneralPanel(): React.JSX.Element {
             available: boolean
             currentVersion: string
             latestVersion: string | null
+            distribution?: unknown
+            supportsAutoInstall?: unknown
+            releaseUrl?: unknown
           }
         | { success: false; error: string }
 
@@ -611,6 +631,9 @@ function GeneralPanel(): React.JSX.Element {
       }
 
       setLatestVersion(normalizeVersion(result.latestVersion))
+      setDistribution(normalizeDistribution(result.distribution))
+      setSupportsAutoInstall(result.supportsAutoInstall !== false)
+      setReleaseUrl(normalizeReleaseUrl(result.releaseUrl))
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -631,10 +654,25 @@ function GeneralPanel(): React.JSX.Element {
 
     void (async () => {
       const result = (await ipcClient.invoke(IPC.UPDATE_STATUS)) as
-        | { success: true; downloadedVersion: string | null }
+        | {
+            success: true
+            downloadedVersion: string | null
+            distribution?: unknown
+            supportsAutoInstall?: unknown
+            releaseUrl?: unknown
+          }
         | { success: false; error: string }
 
-      if (cancelled || !result.success || !result.downloadedVersion) {
+      if (cancelled || !result.success) {
+        return
+      }
+
+      const nextSupportsAutoInstall = result.supportsAutoInstall !== false
+      setDistribution(normalizeDistribution(result.distribution))
+      setSupportsAutoInstall(nextSupportsAutoInstall)
+      setReleaseUrl(normalizeReleaseUrl(result.releaseUrl))
+
+      if (!nextSupportsAutoInstall || !result.downloadedVersion) {
         return
       }
 
@@ -649,11 +687,22 @@ function GeneralPanel(): React.JSX.Element {
   }, [])
 
   const updateAvailable = isNewerVersion(latestVersion, currentVersion)
+  const manualUpdateAvailable = updateAvailable && !supportsAutoInstall
 
   useEffect(() => {
     const offAvailable = ipcClient.on(IPC.UPDATE_AVAILABLE, (data: unknown) => {
-      const d = data as { currentVersion: string; newVersion: string; releaseNotes: string }
+      const d = data as {
+        currentVersion: string
+        newVersion: string
+        releaseNotes: string
+        distribution?: unknown
+        supportsAutoInstall?: unknown
+        releaseUrl?: unknown
+      }
       setLatestVersion(normalizeVersion(d.newVersion))
+      setDistribution(normalizeDistribution(d.distribution))
+      setSupportsAutoInstall(d.supportsAutoInstall !== false)
+      setReleaseUrl(normalizeReleaseUrl(d.releaseUrl))
       setUpdateError(null)
     })
 
@@ -689,6 +738,12 @@ function GeneralPanel(): React.JSX.Element {
 
   const handleUpdateNow = useCallback(async () => {
     setUpdateError(null)
+
+    if (!supportsAutoInstall) {
+      await ipcClient.invoke(IPC.SHELL_OPEN_EXTERNAL, releaseUrl)
+      return
+    }
+
     setDownloadingUpdate(true)
     setDownloadProgress(null)
     setDownloadedVersion(null)
@@ -701,7 +756,7 @@ function GeneralPanel(): React.JSX.Element {
       setDownloadingUpdate(false)
       setUpdateError(result.error)
     }
-  }, [])
+  }, [releaseUrl, supportsAutoInstall])
 
   const handleInstallDownloadedUpdate = useCallback(async () => {
     if (!downloadedVersion || installingUpdate) {
@@ -816,12 +871,15 @@ function GeneralPanel(): React.JSX.Element {
             {latestVersion && (
               <> · {t('general.update.latestVersion', { version: latestVersion })}</>
             )}
+            {distribution === 'green' && <> · {t('general.update.greenBuild')}</>}
           </span>
         </div>
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-background/70 px-3 py-2">
           <div>
             <label className="text-sm font-medium">{t('general.autoUpdate')}</label>
-            <p className="text-xs text-muted-foreground">{t('general.autoUpdateDesc')}</p>
+            <p className="text-xs text-muted-foreground">
+              {supportsAutoInstall ? t('general.autoUpdateDesc') : t('general.autoUpdateGreenDesc')}
+            </p>
           </div>
           <Switch
             checked={settings.autoUpdateEnabled}
@@ -854,10 +912,16 @@ function GeneralPanel(): React.JSX.Element {
               size="sm"
               className="h-7 text-xs"
               onClick={() => void handleUpdateNow()}
-              disabled={downloadingUpdate}
+              disabled={supportsAutoInstall && downloadingUpdate}
             >
-              {downloadingUpdate && <Loader2 className="mr-1 size-3 animate-spin" />}
-              {downloadingUpdate ? t('general.update.updating') : t('general.update.updateNow')}
+              {supportsAutoInstall && downloadingUpdate && (
+                <Loader2 className="mr-1 size-3 animate-spin" />
+              )}
+              {supportsAutoInstall
+                ? downloadingUpdate
+                  ? t('general.update.updating')
+                  : t('general.update.updateNow')
+                : t('general.update.openDownloadPage')}
             </Button>
           ) : null}
         </div>
@@ -873,7 +937,9 @@ function GeneralPanel(): React.JSX.Element {
         )}
         {updateAvailable && !downloadingUpdate && !downloadedVersion && (
           <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
-            {t('general.update.newVersionAvailable', { version: latestVersion })}
+            {manualUpdateAvailable
+              ? t('general.update.manualDownloadHint', { version: latestVersion })
+              : t('general.update.newVersionAvailable', { version: latestVersion })}
           </p>
         )}
         {downloadingUpdate && (

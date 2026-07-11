@@ -134,6 +134,7 @@ npm run dev
 | `npm run dev`       | Start Electron + Vite with hot reload |
 | `npm run build`     | Typecheck then build for production   |
 | `npm run build:win` | Build Windows installer               |
+| `npm run build:win:green` | Build Windows no-install zip      |
 | `npm run build:mac` | Build macOS .dmg/zip                  |
 | `npm run build:linux` | Build Linux .AppImage/.deb         |
 | `npm run lint`      | ESLint with cache                     |

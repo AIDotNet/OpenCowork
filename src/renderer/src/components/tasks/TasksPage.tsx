@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { AnimatePresence, motion } from 'motion/react'
 import type { TFunction } from 'i18next'
 import {
   CalendarDays,
@@ -34,6 +35,7 @@ import { cn } from '@renderer/lib/utils'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { useChatStore } from '@renderer/stores/chat-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import {
   useCronStore,
   type CronJobEntry,
@@ -344,6 +346,7 @@ export function TasksPage(): React.JSX.Element {
   const loadRuns = useCronStore((state) => state.loadRuns)
   const sessionSummaries = useChatStore(selectTaskPageSessionSummaries)
   const projects = useChatStore((state) => state.projects)
+  const animationsEnabled = useSettingsStore((state) => state.animationsEnabled)
   const language = i18n.resolvedLanguage ?? i18n.language
   const locale = React.useMemo(() => resolveIntlLocale(language), [language])
 
@@ -949,85 +952,100 @@ export function TasksPage(): React.JSX.Element {
               </div>
             ) : (
               <div className="space-y-2">
-                {filteredTimelineItems.map((item) => {
-                  const meta = getSourceSessionMeta(item, sessionSummaryById, t)
-                  const status = getLatestRunStatus(item)
-                  return (
-                    <button
-                      key={item.jobId}
-                      type="button"
-                      className={cn(
-                        'w-full rounded-xl border px-3 py-3 text-left transition-colors',
-                        selectedItem?.jobId === item.jobId
-                          ? 'border-primary/40 bg-primary/5'
-                          : 'border-border/60 hover:bg-muted/40'
-                      )}
-                      onClick={() => setSelectedJobId(item.jobId)}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted">
-                          <Clock3 className="size-4 text-muted-foreground" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-sm font-medium text-foreground">
-                              {item.name}
-                            </span>
-                            <span
-                              className={cn(
-                                'rounded px-1.5 py-0.5 text-[10px] font-medium',
-                                getStatusClass(status, item.job)
+                <AnimatePresence initial={false}>
+                  {filteredTimelineItems.map((item) => {
+                    const meta = getSourceSessionMeta(item, sessionSummaryById, t)
+                    const status = getLatestRunStatus(item)
+                    return (
+                      <motion.button
+                        key={item.jobId}
+                        type="button"
+                        layout={animationsEnabled ? 'position' : undefined}
+                        initial={animationsEnabled ? { opacity: 0, y: 6 } : false}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={
+                          animationsEnabled
+                            ? { opacity: 0, transition: { duration: 0.12, ease: 'easeOut' } }
+                            : undefined
+                        }
+                        transition={
+                          animationsEnabled ? { duration: 0.18, ease: 'easeOut' } : { duration: 0 }
+                        }
+                        className={cn(
+                          'w-full rounded-xl border px-3 py-3 text-left transition-colors',
+                          selectedItem?.jobId === item.jobId
+                            ? 'border-primary/40 bg-primary/5'
+                            : 'border-border/60 hover:bg-muted/40'
+                        )}
+                        onClick={() => setSelectedJobId(item.jobId)}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted">
+                            <Clock3 className="size-4 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-sm font-medium text-foreground">
+                                {item.name}
+                              </span>
+                              <span
+                                className={cn(
+                                  'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                                  getStatusClass(status, item.job)
+                                )}
+                              >
+                                {getStatusLabel(status, t, item.job)}
+                              </span>
+                              {item.job && (
+                                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                  {scheduleKindLabel(item.job.schedule.kind, t)}
+                                </span>
                               )}
-                            >
-                              {getStatusLabel(status, t, item.job)}
-                            </span>
-                            {item.job && (
-                              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                                {scheduleKindLabel(item.job.schedule.kind, t)}
-                              </span>
-                            )}
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                            <span>
-                              {t('tasksPage.labelSource', { defaultValue: 'Source' })}: {meta.title}
-                            </span>
-                            {meta.model && (
-                              <span>
-                                {t('tasksPage.labelModel', { defaultValue: 'Model' })}: {meta.model}
-                              </span>
-                            )}
-                            {item.plannedTimes.length > 0 && (
-                              <span>
-                                {t('tasksPage.labelPlanned', { defaultValue: 'Planned' })}:{' '}
-                                {item.plannedTimes
-                                  .slice(0, 3)
-                                  .map((time) => formatTimeLabel(time, language))
-                                  .join(', ')}
-                                {item.plannedTimes.length > 3
-                                  ? t('tasksPage.moreCount', {
-                                      count: item.plannedTimes.length - 3,
-                                      defaultValue: '+{{count}}'
-                                    })
-                                  : ''}
-                              </span>
-                            )}
-                            {item.runs.length > 0 && (
-                              <span>
-                                {t('tasksPage.labelRuns', { defaultValue: 'Runs' })}:{' '}
-                                {item.runs.length}
-                              </span>
-                            )}
-                          </div>
-                          {meta.workingFolder && (
-                            <div className="mt-1 truncate text-[11px] text-muted-foreground">
-                              {meta.workingFolder}
                             </div>
-                          )}
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                              <span>
+                                {t('tasksPage.labelSource', { defaultValue: 'Source' })}:{' '}
+                                {meta.title}
+                              </span>
+                              {meta.model && (
+                                <span>
+                                  {t('tasksPage.labelModel', { defaultValue: 'Model' })}:{' '}
+                                  {meta.model}
+                                </span>
+                              )}
+                              {item.plannedTimes.length > 0 && (
+                                <span>
+                                  {t('tasksPage.labelPlanned', { defaultValue: 'Planned' })}:{' '}
+                                  {item.plannedTimes
+                                    .slice(0, 3)
+                                    .map((time) => formatTimeLabel(time, language))
+                                    .join(', ')}
+                                  {item.plannedTimes.length > 3
+                                    ? t('tasksPage.moreCount', {
+                                        count: item.plannedTimes.length - 3,
+                                        defaultValue: '+{{count}}'
+                                      })
+                                    : ''}
+                                </span>
+                              )}
+                              {item.runs.length > 0 && (
+                                <span>
+                                  {t('tasksPage.labelRuns', { defaultValue: 'Runs' })}:{' '}
+                                  {item.runs.length}
+                                </span>
+                              )}
+                            </div>
+                            {meta.workingFolder && (
+                              <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                                {meta.workingFolder}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </button>
-                  )
-                })}
+                      </motion.button>
+                    )
+                  })}
+                </AnimatePresence>
               </div>
             )}
           </div>

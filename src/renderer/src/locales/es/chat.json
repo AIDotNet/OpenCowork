@@ -446,18 +446,6 @@
       "copied": "Copiado",
       "copyImage": "Copiar imagen para el portapapeles"
     },
-    "submitReport": {
-      "submitted": "Informe presentado",
-      "submitting": "Presentación del informe",
-      "live": "vivo",
-      "preview": "vista previa",
-      "copy": "Informe de copia",
-      "chars": "chars",
-      "lines": "líneas",
-      "blocks": "bloques",
-      "previewContinues": "La vista previa continúa a medida que el informe fluye en...",
-      "waiting": "Esperando un mensaje..."
-    },
     "taskList": "Lista de tareas",
     "tasksDone": "{{completed}} / {{total}} hecho",
     "content": "Índice",

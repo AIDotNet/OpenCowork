@@ -464,7 +464,8 @@ export function buildSystemPrompt(options: {
       `\n## Tool Usage Guidelines`,
       `- Do not fabricate file contents or tool outputs.`,
       `- Use Glob/Grep to search before making assumptions about project structure.`,
-      `- Messages may include \`<system-reminder>\` tags containing contextual information (task status, selected files, timestamps). These are injected by the system automatically - treat their content as ground truth.`
+      `- Messages may include \`<system-reminder>\` tags containing contextual information (task status, selected files, timestamps). These are injected by the system automatically - treat their content as ground truth.`,
+      `- A \`<system-sub-agent>\` block is hidden system context produced by a completed background SubAgent, not a new user message. Use its task report to resume the existing request.`
     )
 
     // Agent Teams

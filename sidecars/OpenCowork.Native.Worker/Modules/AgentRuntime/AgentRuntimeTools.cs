@@ -174,7 +174,7 @@ internal static class AgentRuntimeTools
         var count = state.EnqueueMessages(parameters);
         WorkerLog.Debug($"agent run append messages runId={runId} count={count}");
         return WorkerResponse.Json(
-            new AgentRuntimeAppendMessagesResult(true, runId, count),
+            new AgentRuntimeAppendMessagesResult(count > 0, runId, count),
             WorkerJsonContext.Default.AgentRuntimeAppendMessagesResult);
     }
 
@@ -314,9 +314,11 @@ internal static class AgentRuntimeTools
     {
         private readonly CancellationTokenSource cancellation = new();
         private readonly ConcurrentQueue<JsonElement> queuedMessages = new();
+        private readonly object messageQueueSync = new();
         private long seq;
         private int queuedMessageCount;
         private int stopRequested;
+        private bool messageQueueClosed;
 
         public AgentRuntimeRunState(string runId, string sessionId)
         {
@@ -343,7 +345,9 @@ internal static class AgentRuntimeTools
 
         public string? StopReason { get; private set; }
 
-        public string? SubmittedReport { get; private set; }
+        public string? CancellationReason { get; private set; }
+
+        public AgentRuntimeSubAgentConcurrencyLease? SubAgentConcurrencyLease { get; set; }
 
         public AgentRuntimeTaskInvocation? LastTaskInvocation { get; private set; }
 
@@ -370,41 +374,66 @@ internal static class AgentRuntimeTools
                 return 0;
             }
 
-            var count = 0;
-            foreach (var message in messages.EnumerateArray())
+            lock (messageQueueSync)
             {
-                if (message.ValueKind != JsonValueKind.Object)
+                if (messageQueueClosed)
                 {
-                    continue;
+                    return 0;
                 }
-                queuedMessages.Enqueue(message.Clone());
-                count++;
-            }
 
-            if (count > 0)
-            {
-                Interlocked.Add(ref queuedMessageCount, count);
+                var count = 0;
+                foreach (var message in messages.EnumerateArray())
+                {
+                    if (message.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+                    queuedMessages.Enqueue(message.Clone());
+                    count++;
+                }
+
+                if (count > 0)
+                {
+                    Interlocked.Add(ref queuedMessageCount, count);
+                }
+                return count;
             }
-            return count;
         }
 
         public List<JsonElement> DrainQueuedMessages()
         {
-            var messages = new List<JsonElement>();
-            while (queuedMessages.TryDequeue(out var message))
+            lock (messageQueueSync)
             {
-                messages.Add(message);
+                var messages = new List<JsonElement>();
+                while (queuedMessages.TryDequeue(out var message))
+                {
+                    messages.Add(message);
+                }
+                if (messages.Count > 0)
+                {
+                    Interlocked.Add(ref queuedMessageCount, -messages.Count);
+                }
+                return messages;
             }
-            if (messages.Count > 0)
+        }
+
+        public bool TryCloseMessageQueueIfEmpty()
+        {
+            lock (messageQueueSync)
             {
-                Interlocked.Add(ref queuedMessageCount, -messages.Count);
+                if (QueuedMessageCount > 0)
+                {
+                    return false;
+                }
+
+                messageQueueClosed = true;
+                return true;
             }
-            return messages;
         }
 
         public void Cancel(string reason)
         {
-            _ = reason;
+            CancellationReason = string.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
             cancellation.Cancel();
         }
 
@@ -412,21 +441,6 @@ internal static class AgentRuntimeTools
         {
             StopReason = string.IsNullOrWhiteSpace(reason) ? "completed" : reason;
             Interlocked.Exchange(ref stopRequested, 1);
-        }
-
-        public bool TrySubmitReport(string report)
-        {
-            if (string.IsNullOrWhiteSpace(report))
-            {
-                return false;
-            }
-
-            if (SubmittedReport is null)
-            {
-                SubmittedReport = report.Trim();
-            }
-            RequestStop("completed");
-            return true;
         }
 
         public bool TryGetDuplicateTaskInvocation(
@@ -447,6 +461,10 @@ internal static class AgentRuntimeTools
 
         public void Dispose()
         {
+            lock (messageQueueSync)
+            {
+                messageQueueClosed = true;
+            }
             cancellation.Dispose();
         }
     }

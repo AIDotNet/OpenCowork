@@ -446,18 +446,6 @@
       "copied": "コピッド",
       "copyImage": "画像をクリップボードにコピーする"
     },
-    "submitReport": {
-      "submitted": "報告書提出",
-      "submitting": "報告書提出",
-      "live": "ライブ",
-      "preview": "プレビュー",
-      "copy": "コピーレポート",
-      "chars": "チャート",
-      "lines": "ライン",
-      "blocks": "ブロック",
-      "previewContinues": "プレビューはレポートストリームとして継続します...",
-      "waiting": "レポートテキストの待ち合わせ"
-    },
     "taskList": "タスクリスト",
     "tasksDone": "{{completed}}/{{total}}は完了しました",
     "content": "コンテンツ",

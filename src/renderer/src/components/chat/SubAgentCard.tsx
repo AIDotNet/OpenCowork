@@ -24,6 +24,7 @@ interface SubAgentCardProps {
   output?: ToolResultContent
   isLive?: boolean
   sessionId?: string | null
+  isBackground?: boolean
 }
 
 function getSubAgentIcon(agentName: string): React.ReactNode {
@@ -165,7 +166,8 @@ function SubAgentCardInner({
   input,
   output,
   isLive = false,
-  sessionId
+  sessionId,
+  isBackground = false
 }: SubAgentCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   void isLive
@@ -193,6 +195,7 @@ function SubAgentCardInner({
         isQueued: item.isQueued ?? false,
         reportStatus: item.reportStatus,
         success: item.success,
+        endReason: item.endReason,
         errorMessage: item.errorMessage,
         iteration: item.iteration,
         toolCallCount: item.toolCalls.length,
@@ -215,6 +218,7 @@ function SubAgentCardInner({
   const usage = tracked?.usage ?? histMeta?.usage ?? null
   const isQueued = tracked?.isQueued ?? false
   const reportStatus = tracked?.reportStatus
+  const endReason = tracked?.endReason
   const isRunning = (tracked?.isRunning ?? false) && !isQueued
   const isCompleted = !isRunning && !isQueued && (!!output || !!tracked)
   const historicalError = outputStr
@@ -266,7 +270,11 @@ function SubAgentCardInner({
         ? t('subAgent.synthesizing', { defaultValue: 'Synthesizing report…' })
         : t('subAgent.working')
       : isError
-        ? t('subAgent.failed')
+        ? endReason === 'max_iterations'
+          ? t('subAgent.maxIterations', { defaultValue: 'iteration limit reached' })
+          : endReason === 'aborted'
+            ? t('subAgent.aborted', { defaultValue: 'aborted' })
+            : t('subAgent.failed')
         : reportStatus === 'fallback'
           ? t('subAgent.doneSynthesized', { defaultValue: 'Done (synthesized)' })
           : t('subAgent.done')
@@ -334,6 +342,11 @@ function SubAgentCardInner({
         <div className="min-w-0 self-center">
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-[13px] font-medium text-white/82">{displayName}</span>
+            {isBackground ? (
+              <span className="shrink-0 rounded border border-cyan-400/20 bg-cyan-400/8 px-1.5 py-0.5 text-[9px] font-medium leading-none text-cyan-300/75">
+                {t('subAgent.background', { defaultValue: 'Background' })}
+              </span>
+            ) : null}
           </div>
         </div>
 

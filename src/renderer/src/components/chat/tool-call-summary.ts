@@ -273,26 +273,6 @@ export function inputSummary(
   }
   if (name === 'Task')
     return `[${input.subagent_type ?? '?'}] ${String(input.description ?? '').slice(0, 50)}`
-  if (name === 'SubmitReport') {
-    const chars =
-      typeof input.report_chars === 'number'
-        ? input.report_chars
-        : typeof input.report === 'string'
-          ? input.report.length
-          : typeof input.report_preview === 'string'
-            ? input.report_preview.length
-            : 0
-    const lines =
-      typeof input.report_lines === 'number'
-        ? input.report_lines
-        : typeof input.report === 'string'
-          ? input.report.split('\n').length
-          : 0
-    const metrics = [lines > 0 ? `${lines} lines` : '', chars > 0 ? `${chars} chars` : '']
-      .filter(Boolean)
-      .join(' / ')
-    return metrics ? `report: ${metrics}` : 'submitting report'
-  }
   if (name === 'visualize_show_widget') {
     const title = typeof input.title === 'string' ? input.title : ''
     const widgetCode = typeof input.widget_code === 'string' ? input.widget_code.trim() : ''

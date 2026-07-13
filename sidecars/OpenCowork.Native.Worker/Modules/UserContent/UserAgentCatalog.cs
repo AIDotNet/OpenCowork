@@ -247,8 +247,7 @@ internal static partial class UserAgentCatalog
             ["Read", "Glob", "Grep", "LS", "Bash"];
         var disallowedTools = GetFrontmatterStringList(frontmatter, "disallowedTools") ?? [];
         var maxTurns = GetFrontmatterInt(frontmatter, "maxTurns") ??
-            GetFrontmatterInt(frontmatter, "maxIterations") ??
-            0;
+            GetFrontmatterInt(frontmatter, "maxIterations");
         var result = new JsonObject
         {
             ["name"] = name,
@@ -256,10 +255,17 @@ internal static partial class UserAgentCatalog
             ["tools"] = ToJsonArray(tools),
             ["allowedTools"] = ToJsonArray(tools),
             ["disallowedTools"] = ToJsonArray(disallowedTools),
-            ["maxTurns"] = maxTurns,
-            ["maxIterations"] = maxTurns,
             ["systemPrompt"] = body.Length == 0 ? $"You are {name}, a specialized agent." : body
         };
+
+        // Preserve the distinction between an omitted limit (runtime default) and an
+        // explicit zero (unlimited). Returning zero for both would make the catalog lie
+        // about agents that still use the runtime's default turn limit.
+        if (maxTurns.HasValue)
+        {
+            result["maxTurns"] = maxTurns.Value;
+            result["maxIterations"] = maxTurns.Value;
+        }
 
         AddOptionalString(result, "icon", GetFrontmatterString(frontmatter, "icon"));
         AddOptionalString(result, "initialPrompt", GetFrontmatterString(frontmatter, "initialPrompt"));

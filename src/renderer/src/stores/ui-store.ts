@@ -1163,7 +1163,7 @@ export const useUIStore = create<UIStore>()(
             )
           }
         }),
-      ensureSubAgentTab: (toolUseId, inlineText, title, requestedSessionId) =>
+      ensureSubAgentTab: (toolUseId, inlineText, _title, requestedSessionId) =>
         set((state) => {
           const sessionId =
             normalizeScopeId(requestedSessionId) ??
@@ -1171,31 +1171,41 @@ export const useUIStore = create<UIStore>()(
             useChatStore.getState().activeSessionId ??
             null
           const tabScopeId = sessionId ?? 'global'
-          const tabId = toolUseId
-            ? `subagent:${tabScopeId}:${toolUseId}`
-            : `subagent:${tabScopeId}:overview`
-          const existing = state.rightPanelTabs.find((tab) => tab.id === tabId)
+          // A session owns one SubAgent tab. The selected run is navigation state inside that tab,
+          // rather than a separate right-panel tab for every Task tool call.
+          const tabId = `subagent:${tabScopeId}:overview`
+          const existing = state.rightPanelTabs.find(
+            (tab) => tab.kind === 'subagent' && (tab.sessionId ?? null) === sessionId
+          )
           const tab: RightPanelTabInstance = existing
             ? {
                 ...existing,
+                id: tabId,
                 sessionId: sessionId ?? existing.sessionId ?? null,
-                title: title?.trim() || existing.title,
-                inlineText: inlineText?.trim() ? inlineText : existing.inlineText
+                title: 'SubAgents',
+                toolUseId: toolUseId ?? null,
+                inlineText: inlineText?.trim() ? inlineText : null
               }
             : {
                 id: tabId,
                 kind: 'subagent',
-                title: title?.trim() || (toolUseId ? 'SubAgent' : 'SubAgents'),
+                title: 'SubAgents',
                 closable: true,
                 sessionId,
                 toolUseId: toolUseId ?? null,
                 inlineText: inlineText?.trim() ? inlineText : null,
                 createdAt: Date.now()
               }
+          const tabsWithoutScopedDuplicates = state.rightPanelTabs.filter(
+            (item) =>
+              item.kind !== 'subagent' ||
+              item === existing ||
+              (item.sessionId ?? null) !== sessionId
+          )
           const rightPanelTabs = ensureRightPanelTabs(
             existing
-              ? state.rightPanelTabs.map((item) => (item.id === tabId ? tab : item))
-              : [...state.rightPanelTabs, tab]
+              ? tabsWithoutScopedDuplicates.map((item) => (item === existing ? tab : item))
+              : [...tabsWithoutScopedDuplicates, tab]
           )
           return {
             selectedSubAgentToolUseId: toolUseId ?? null,

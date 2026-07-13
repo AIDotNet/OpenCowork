@@ -286,6 +286,8 @@ export type AgentStreamEvent =
       type: 'sub_agent_start'
       subAgentName: string
       toolUseId: string
+      mcpServerIds?: string[]
+      permissionMode?: 'default' | 'whitelist' | 'fullAccess'
       input: Record<string, unknown>
       promptMessage: MessageWire
     }
@@ -388,6 +390,8 @@ export interface SubAgentResultWire {
   reportSubmitted?: boolean
   toolCallCount: number
   iterations: number
+  endReason?: LoopEndReasonWire
+  messages?: MessageWire[]
   usage: TokenUsageWire
   error?: string
 }

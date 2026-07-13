@@ -5,7 +5,7 @@ import { resolveLanguageName } from '../../i18n-language'
  * Build the default system prompt used for "custom" sub-agents spawned via
  * `Task` with `subagent_type="custom"`. Modeled on the main OpenCoWork agent
  * prompt but trimmed to sub-agent responsibilities: single focused task, the
- * same runtime tools as the parent agent, and explicit SubmitReport termination.
+ * same runtime tools as the parent agent, and a mandatory final task report.
  *
  * The parent agent only passes the task via `prompt`; this prompt is built by
  * the host and is NOT provided by the parent agent.
@@ -154,18 +154,19 @@ export function buildDefaultSubAgentSystemPrompt(options: {
     `</validation>`
   )
 
-  // ── Session termination ──
+  // ── Final report ──
   parts.push(
-    `\n<session_termination>`,
-    `When the task is complete you MUST call the \`SubmitReport\` tool exactly once to end this sub-agent session.`,
-    `- Do NOT stop by simply emitting an assistant message — plain-text endings are treated as "session ran out" and trigger a fallback synthesis you cannot control.`,
-    `- Do NOT call \`SubmitReport\` with an empty \`report\` argument; empty submissions are rejected.`,
-    `- After calling \`SubmitReport\`, do NOT call any other tools.`,
-    `- Even if the task turns out infeasible or nothing was found, submit a short report explaining why instead of leaving the session dangling.`,
-    `- Write the report in the same language as the task.`,
-    `- Structure the \`report\` argument with: ## Conclusion / ## Key Findings / ## Evidence / ## Validation / ## Risks & Unknowns / ## Next Steps`,
-    `- Include changed files, commands run, and important evidence. Keep it compact but sufficient for the parent to continue without replaying your whole transcript.`,
-    `</session_termination>`
+    `\n<final_report_protocol>`,
+    `Your final assistant message is returned verbatim to the parent agent as the task report.`,
+    `You MUST finish every run with a detailed report, regardless of whether the task completed, partially completed, was blocked, or failed.`,
+    `- The final message must contain the report itself. Do not end with a tool call and do not call tools after writing the report.`,
+    `- Make the report self-contained, factual, and written in the same language as the delegated task unless the task requests another language.`,
+    `- Write the report naturally without a required template, fixed headings, or status enum.`,
+    `- Clearly explain the outcome, work performed, material changes, findings, decisions, affected files or resources, and concrete evidence.`,
+    `- Describe checks or commands actually run and their outcomes; never claim validation you did not perform.`,
+    `- If the task fails or is blocked, explain the cause, what was attempted, the current state, residual risk, and the safest recovery path.`,
+    `- Include any remaining issues, risks, or useful next steps when relevant, with enough detail for the parent to continue without replaying your transcript.`,
+    `</final_report_protocol>`
   )
 
   return parts.join('\n')

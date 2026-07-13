@@ -8,7 +8,7 @@ import type {
   ToolCallExtraContent,
   MessageRequestModelMeta
 } from '../../api/types'
-import type { ToolCallState } from '../types'
+import type { LoopEndReason, ToolCallState } from '../types'
 import type { ToolContext } from '../../tools/tool-types'
 
 // --- SubAgent Definition (static, registered at startup) ---
@@ -26,7 +26,7 @@ export interface SubAgentDefinition {
   tools: string[]
   /** Legacy catalog metadata retained for compatibility; not enforced at runtime. */
   disallowedTools: string[]
-  /** Max LLM turns before forced stop. Non-positive values fall back to a safety cap. */
+  /** Max LLM turns before forced stop. Zero means unlimited. */
   maxTurns: number
   /** Optional initial task prefix appended before runtime input. */
   initialPrompt?: string
@@ -70,12 +70,16 @@ export interface SubAgentResult {
   success: boolean
   /** Final text output resolved from the sub-agent's actual assistant messages. */
   output: string
-  /** Whether a non-empty final result was captured. */
+  /** Whether a non-empty final report was captured from the sub-agent's last text output. */
   reportSubmitted?: boolean
   /** Number of tool calls executed */
   toolCallCount: number
   /** Number of LLM iterations */
   iterations: number
+  /** Why the sub-agent loop stopped. */
+  endReason?: LoopEndReason
+  /** Complete, uncompressed conversation snapshot returned by the Native child loop. */
+  messages?: UnifiedMessage[]
   /** Aggregated token usage */
   usage: TokenUsage
   /** Error message if failed */
@@ -100,6 +104,8 @@ export type SubAgentEvent =
       type: 'sub_agent_start'
       subAgentName: string
       toolUseId: string
+      mcpServerIds?: string[]
+      permissionMode?: 'default' | 'whitelist' | 'fullAccess'
       input: Record<string, unknown>
       promptMessage: UnifiedMessage
     }

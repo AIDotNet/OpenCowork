@@ -12,8 +12,8 @@ export interface AgentInfo {
   tools: string[]
   allowedTools: string[]
   disallowedTools: string[]
-  maxTurns: number
-  maxIterations: number
+  maxTurns?: number
+  maxIterations?: number
   initialPrompt?: string
   background?: boolean
   model?: string
@@ -82,10 +82,7 @@ export function registerAgentsHandlers(): void {
   registerMessagePackHandler<{ path: string; content: string }, AgentMutationResult>(
     'agents:manage-save',
     async (args) => {
-      return nativeUserContentRequest<AgentMutationResult>(
-        'agents/manage-save',
-        agentParams(args)
-      )
+      return nativeUserContentRequest<AgentMutationResult>('agents/manage-save', agentParams(args))
     }
   )
 }

@@ -57,6 +57,7 @@ import type {
   UnifiedMessage
 } from '@renderer/lib/api/types'
 import { useSettingsStore } from '@renderer/stores/settings-store'
+import { AnimatePresence, motion } from 'motion/react'
 import { updateWebSearchToolRegistration } from '@renderer/lib/tools'
 import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
 import {
@@ -801,6 +802,10 @@ interface ComposerRuntimeStatusProps {
   contextCompressionStatusLabel: string
   model?: AIModelConfig | null
   className?: string
+  messagesOverride?: readonly UnifiedMessage[]
+  streamingMessageIdOverride?: string | null
+  usageOverride?: TokenUsage
+  showStatus?: boolean
 }
 
 function ComposerRuntimeStatus({
@@ -812,20 +817,26 @@ function ComposerRuntimeStatus({
   contextCompressionStatus,
   contextCompressionStatusLabel,
   model,
-  className
+  className,
+  messagesOverride,
+  streamingMessageIdOverride,
+  usageOverride,
+  showStatus = true
 }: ComposerRuntimeStatusProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const live = useChatStore(
     useShallow((s) => {
       const targetSessionId = sessionId
-      const streamingMessageId = s.streamingMessages[targetSessionId] ?? null
       const idx = s.sessionsById[targetSessionId]
+      const sessionMessages = idx !== undefined ? s.sessions[idx]?.messages : undefined
+      const messages = messagesOverride ?? sessionMessages
+      const streamingMessageId = messagesOverride
+        ? (streamingMessageIdOverride ?? null)
+        : (s.streamingMessages[targetSessionId] ?? null)
       const totals = createEmptyRuntimeUsageTotals()
-      const message =
-        idx !== undefined && streamingMessageId
-          ? s.sessions[idx]?.messages.find((item) => item.id === streamingMessageId)
-          : undefined
-      const messages = idx !== undefined ? s.sessions[idx]?.messages : undefined
+      const message = streamingMessageId
+        ? messages?.find((item) => item.id === streamingMessageId)
+        : undefined
       if (messages) {
         const { providers } = useProviderStore.getState()
         for (const item of messages) {
@@ -842,6 +853,14 @@ function ComposerRuntimeStatus({
             null
           addUsageToTotals(totals, item.usage, msgModelCfg)
         }
+      }
+      let effectiveTotals = totals
+      if (messagesOverride && usageOverride) {
+        const authoritativeTotals = createEmptyRuntimeUsageTotals()
+        addUsageToTotals(authoritativeTotals, usageOverride, model)
+        authoritativeTotals.latestRequestTiming =
+          authoritativeTotals.latestRequestTiming ?? totals.latestRequestTiming
+        effectiveTotals = authoritativeTotals
       }
       const messageIndex =
         messages && streamingMessageId
@@ -866,28 +885,41 @@ function ComposerRuntimeStatus({
         currentInputTokens: normalizeTokenCount(message?.usage?.inputTokens),
         currentOutputTokens: normalizeTokenCount(message?.usage?.outputTokens),
         currentContextTokens: normalizeTokenCount(message?.usage?.contextTokens),
-        cumulativeInputTokens: totals.inputTokens,
-        cumulativeOutputTokens: totals.outputTokens,
-        cumulativeBillableInputTokens: totals.billableInputTokens,
-        cumulativeCacheReadTokens: totals.cacheReadTokens,
-        cumulativeCacheCreationTokens: totals.cacheCreationTokens,
-        cumulativeCacheCreation5mTokens: totals.cacheCreation5mTokens,
-        cumulativeCacheCreation1hTokens: totals.cacheCreation1hTokens,
-        cumulativeInputCost: totals.inputCost,
-        cumulativeOutputCost: totals.outputCost,
-        cumulativeCacheReadCost: totals.cacheReadCost,
-        cumulativeCacheCreationCost: totals.cacheCreationCost,
-        cumulativeTotalCost: totals.totalCost,
-        latestRequestTiming: totals.latestRequestTiming,
-        isGeneratingImage: streamingMessageId
-          ? Boolean(s.generatingImageMessages[streamingMessageId])
-          : false
+        cumulativeInputTokens: effectiveTotals.inputTokens,
+        cumulativeOutputTokens: effectiveTotals.outputTokens,
+        cumulativeBillableInputTokens: effectiveTotals.billableInputTokens,
+        cumulativeCacheReadTokens: effectiveTotals.cacheReadTokens,
+        cumulativeCacheCreationTokens: effectiveTotals.cacheCreationTokens,
+        cumulativeCacheCreation5mTokens: effectiveTotals.cacheCreation5mTokens,
+        cumulativeCacheCreation1hTokens: effectiveTotals.cacheCreation1hTokens,
+        cumulativeInputCost: effectiveTotals.inputCost,
+        cumulativeOutputCost: effectiveTotals.outputCost,
+        cumulativeCacheReadCost: effectiveTotals.cacheReadCost,
+        cumulativeCacheCreationCost: effectiveTotals.cacheCreationCost,
+        cumulativeTotalCost: effectiveTotals.totalCost,
+        latestRequestTiming: effectiveTotals.latestRequestTiming,
+        isGeneratingImage: messagesOverride
+          ? false
+          : streamingMessageId
+            ? Boolean(s.generatingImageMessages[streamingMessageId])
+            : false
       }
     })
   )
   const targetSessionId = live.targetSessionId
   const agentRuntime = useAgentStore(
     useShallow((s) => {
+      if (!showStatus) {
+        return {
+          sessionStatus: null,
+          retryAttempt: null,
+          retryMaxAttempts: null,
+          activeToolName: null,
+          pendingApprovalToolName: null,
+          activeSubAgentCount: 0
+        }
+      }
+
       const useLiveBuckets = targetSessionId === s.liveSessionId
       const cache = targetSessionId ? s.sessionToolCallsCache[targetSessionId] : undefined
       const subAgentCache = targetSessionId
@@ -902,7 +934,7 @@ function ComposerRuntimeStatus({
         .find((toolCall) => toolCall.status === 'streaming' || toolCall.status === 'running')
       const pendingApprovalTool = pending.find((toolCall) => toolCall.status === 'pending_approval')
       const activeSubAgentCount = Object.values(activeSubAgents).filter(
-        (subAgent) => subAgent.isRunning
+        (subAgent) => subAgent.isRunning && subAgent.sessionId === targetSessionId
       ).length
 
       return {
@@ -1308,11 +1340,17 @@ function ComposerRuntimeStatus({
           />
         </>
       )}
-      <span className="shrink-0 text-muted-foreground/35">/</span>
-      <span className={cn('inline-flex min-w-0 items-center gap-1 truncate', statusView.className)}>
-        <StatusIcon className={cn('size-3 shrink-0', statusView.spin && 'animate-spin')} />
-        <span className="min-w-0 truncate">{statusView.text}</span>
-      </span>
+      {showStatus ? (
+        <>
+          <span className="shrink-0 text-muted-foreground/35">/</span>
+          <span
+            className={cn('inline-flex min-w-0 items-center gap-1 truncate', statusView.className)}
+          >
+            <StatusIcon className={cn('size-3 shrink-0', statusView.spin && 'animate-spin')} />
+            <span className="min-w-0 truncate">{statusView.text}</span>
+          </span>
+        </>
+      ) : null}
       {totalCost !== null && totalCost > 0 && (
         <>
           <span className="shrink-0 text-muted-foreground/35">/</span>
@@ -1364,6 +1402,52 @@ function ComposerRuntimeStatus({
         </>
       )}
     </div>
+  )
+}
+
+export function RuntimeTokenStatistics({
+  sessionId,
+  messages,
+  streamingMessageId,
+  usage,
+  requestModel,
+  isStreaming = false,
+  className
+}: {
+  sessionId: string
+  messages: readonly UnifiedMessage[]
+  streamingMessageId?: string | null
+  usage?: TokenUsage
+  requestModel?: MessageRequestModelMeta | null
+  isStreaming?: boolean
+  className?: string
+}): React.JSX.Element {
+  const model = useProviderStore(
+    useShallow((state) => {
+      if (!requestModel?.modelId) return null
+      const provider = state.providers.find(
+        (item) =>
+          (!!requestModel.providerId && item.id === requestModel.providerId) ||
+          (!!requestModel.providerBuiltinId && item.builtinId === requestModel.providerBuiltinId)
+      )
+      return provider?.models.find((item) => item.id === requestModel.modelId) ?? null
+    })
+  )
+
+  return (
+    <ComposerRuntimeStatus
+      sessionId={sessionId}
+      isStreaming={isStreaming}
+      draftInputTokens={0}
+      contextCompressionStatus="idle"
+      contextCompressionStatusLabel=""
+      model={model}
+      messagesOverride={messages}
+      streamingMessageIdOverride={streamingMessageId}
+      usageOverride={usage}
+      showStatus={false}
+      className={className}
+    />
   )
 }
 
@@ -1610,6 +1694,7 @@ export function InputArea({
   const clarifyAutoAcceptRecommended = useSettingsStore(
     (state) => state.clarifyAutoAcceptRecommended
   )
+  const animationsEnabled = useSettingsStore((state) => state.animationsEnabled)
   const contentScrollRef = React.useRef<HTMLDivElement>(null)
   const editorRef = React.useRef<FileAwareEditorHandle | null>(null)
   const queueFileInputRef = React.useRef<HTMLInputElement>(null)
@@ -3852,223 +3937,236 @@ export function InputArea({
           )}
         >
           <div className="max-h-40 overflow-y-auto py-1">
-            {queuedMessages.map((msg, index) => {
-              const isEditing = editingQueueItemId === msg.id
-              const summaryText = summarizeQueuedMessage(msg.text)
-              const commandLabel = msg.command ? `/${msg.command.name}` : ''
-              const fallbackText =
-                summaryText ||
-                commandLabel ||
-                t('input.queueImageOnly', { defaultValue: '[Images only]' })
-              const quoteLabel = t('input.queueQuote', { defaultValue: 'Quote' })
+            <AnimatePresence initial={false}>
+              {queuedMessages.map((msg, index) => {
+                const isEditing = editingQueueItemId === msg.id
+                const summaryText = summarizeQueuedMessage(msg.text)
+                const commandLabel = msg.command ? `/${msg.command.name}` : ''
+                const fallbackText =
+                  summaryText ||
+                  commandLabel ||
+                  t('input.queueImageOnly', { defaultValue: '[Images only]' })
+                const quoteLabel = t('input.queueQuote', { defaultValue: 'Quote' })
 
-              return (
-                <div
-                  key={msg.id}
-                  className={cn(
-                    'border-b border-border/35 last:border-b-0',
-                    isEditing ? 'px-3 py-2' : 'group flex min-h-8 items-center gap-2 px-3 py-1'
-                  )}
-                >
-                  {isEditing ? (
-                    <div className="w-full space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-medium text-muted-foreground">
-                          {t('input.queueEditing', { defaultValue: 'Edit queued message' })}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                            onClick={() => saveQueuedMessage(msg.id)}
-                          >
-                            {t('action.save', { ns: 'common' })}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                            onClick={cancelEditQueuedMessage}
-                          >
-                            {t('action.cancel', { ns: 'common' })}
-                          </Button>
-                        </div>
-                      </div>
-                      {msg.command && (
-                        <div className="rounded-md border border-violet-500/20 bg-violet-500/5 px-2.5 py-1.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">
-                          /{msg.command.name}
-                        </div>
-                      )}
-                      <Textarea
-                        value={editingQueueText}
-                        onChange={(e) => setEditingQueueText(e.target.value)}
-                        onPaste={handleQueueEditPaste}
-                        className="composer-aux-textarea min-h-[56px] max-h-36 resize-none text-xs"
-                        rows={2}
-                      />
-                      {editingQueueImages.length > 0 && (
-                        <div className="flex gap-2 overflow-x-auto pb-1">
-                          {editingQueueImages.map((img) => (
-                            <div key={img.id} className="relative group/img shrink-0">
-                              <button
-                                type="button"
-                                className="block cursor-zoom-in rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                aria-label={t('userMessage.imagePreview')}
-                                title={t('userMessage.imagePreview')}
-                                onClick={() => setPreviewImage(img)}
-                              >
-                                <img
-                                  src={img.dataUrl}
-                                  alt=""
-                                  className="composer-image-thumb size-12 rounded-lg object-cover transition-transform group-hover/img:scale-[1.03]"
-                                />
-                              </button>
-                              <button
-                                type="button"
-                                className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm opacity-0 transition-opacity group-hover/img:opacity-100"
-                                aria-label={t('userMessage.removeImage')}
-                                title={t('userMessage.removeImage')}
-                                onClick={() => removeQueuedImage(img.id)}
-                              >
-                                <X className="size-2.5" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between gap-2">
-                        {editingQueueImages.length > 0 ? (
-                          <p className="text-[10px] text-muted-foreground">
-                            {t('input.queueImageCount', {
-                              defaultValue: '{{count}} images',
-                              count: editingQueueImages.length
-                            })}
-                          </p>
-                        ) : (
-                          <span />
-                        )}
-                        {supportsVision && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                            onClick={() => queueFileInputRef.current?.click()}
-                          >
-                            <ImagePlus className="size-3" />
-                            {t('input.attachImages')}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <CornerDownRight className="size-3 shrink-0 text-muted-foreground/65" />
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 text-left"
-                        title={fallbackText}
-                        onClick={() => startEditQueuedMessage(msg)}
-                      >
-                        <span className="block truncate text-xs leading-5 text-muted-foreground/90 group-hover:text-foreground">
-                          {fallbackText}
-                        </span>
-                      </button>
-                      {commandLabel && summaryText ? (
-                        <span className="hidden shrink-0 rounded border border-violet-500/20 px-1.5 py-0.5 text-[10px] text-violet-700 sm:inline-flex dark:text-violet-300">
-                          {commandLabel}
-                        </span>
-                      ) : null}
-                      {msg.images.length > 0 ? (
-                        <span className="hidden shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline-flex">
-                          {t('input.queueImageCount', {
-                            defaultValue: '{{count}} images',
-                            count: msg.images.length
-                          })}
-                        </span>
-                      ) : null}
-                      <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
-                        {isQueueDispatchPaused && index === 0 ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                            onClick={resumeQueuedMessages}
-                            title={t('input.queueResume', { defaultValue: 'Resume' })}
-                            aria-label={t('input.queueResume', { defaultValue: 'Resume' })}
-                          >
-                            <Send className="size-3" />
-                            <span className="hidden sm:inline">
-                              {t('input.queueResume', { defaultValue: 'Resume' })}
-                            </span>
-                          </Button>
-                        ) : null}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                          onClick={() => quoteQueuedMessage(msg.id)}
-                          title={quoteLabel}
-                          aria-label={quoteLabel}
-                        >
-                          <CornerDownRight className="size-3" />
-                          <span className="hidden sm:inline">{quoteLabel}</span>
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          onClick={() => removeQueuedMessage(msg.id)}
-                          title={t('action.delete', { ns: 'common' })}
-                          aria-label={t('action.delete', { ns: 'common' })}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
+                return (
+                  <motion.div
+                    key={msg.id}
+                    layout={animationsEnabled}
+                    initial={animationsEnabled ? { opacity: 0, y: 4 } : false}
+                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                    exit={
+                      animationsEnabled
+                        ? { opacity: 0, height: 0, minHeight: 0, paddingTop: 0, paddingBottom: 0 }
+                        : undefined
+                    }
+                    transition={
+                      animationsEnabled ? { duration: 0.18, ease: 'easeOut' } : { duration: 0 }
+                    }
+                    className={cn(
+                      'overflow-hidden border-b border-border/35 last:border-b-0',
+                      isEditing ? 'px-3 py-2' : 'group flex min-h-8 items-center gap-2 px-3 py-1'
+                    )}
+                  >
+                    {isEditing ? (
+                      <div className="w-full space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-medium text-muted-foreground">
+                            {t('input.queueEditing', { defaultValue: 'Edit queued message' })}
+                          </span>
+                          <div className="flex items-center gap-1">
                             <Button
                               type="button"
                               variant="ghost"
-                              size="icon"
-                              className="size-7 rounded-md text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                              title={t('action.more', { ns: 'common' })}
-                              aria-label={t('action.more', { ns: 'common' })}
+                              size="sm"
+                              className="h-7 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                              onClick={() => saveQueuedMessage(msg.id)}
                             >
-                              <Ellipsis className="size-3.5" />
+                              {t('action.save', { ns: 'common' })}
                             </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="min-w-36">
-                            {isQueueDispatchPaused ? (
-                              <DropdownMenuItem onSelect={resumeQueuedMessages}>
-                                <Send className="size-3.5" />
-                                {t('input.queueResume', { defaultValue: 'Resume' })}
-                              </DropdownMenuItem>
-                            ) : null}
-                            <DropdownMenuItem onSelect={() => quoteQueuedMessage(msg.id)}>
-                              <CornerDownRight className="size-3.5" />
-                              {quoteLabel}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onSelect={handleClearQueuedMessages}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                              onClick={cancelEditQueuedMessage}
                             >
-                              <Trash2 className="size-3.5" />
-                              {t('action.clear', { ns: 'common' })}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                              {t('action.cancel', { ns: 'common' })}
+                            </Button>
+                          </div>
+                        </div>
+                        {msg.command && (
+                          <div className="rounded-md border border-violet-500/20 bg-violet-500/5 px-2.5 py-1.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">
+                            /{msg.command.name}
+                          </div>
+                        )}
+                        <Textarea
+                          value={editingQueueText}
+                          onChange={(e) => setEditingQueueText(e.target.value)}
+                          onPaste={handleQueueEditPaste}
+                          className="composer-aux-textarea min-h-[56px] max-h-36 resize-none text-xs"
+                          rows={2}
+                        />
+                        {editingQueueImages.length > 0 && (
+                          <div className="flex gap-2 overflow-x-auto pb-1">
+                            {editingQueueImages.map((img) => (
+                              <div key={img.id} className="relative group/img shrink-0">
+                                <button
+                                  type="button"
+                                  className="block cursor-zoom-in rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  aria-label={t('userMessage.imagePreview')}
+                                  title={t('userMessage.imagePreview')}
+                                  onClick={() => setPreviewImage(img)}
+                                >
+                                  <img
+                                    src={img.dataUrl}
+                                    alt=""
+                                    className="composer-image-thumb size-12 rounded-lg object-cover transition-transform group-hover/img:scale-[1.03]"
+                                  />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm opacity-0 transition-opacity group-hover/img:opacity-100"
+                                  aria-label={t('userMessage.removeImage')}
+                                  title={t('userMessage.removeImage')}
+                                  onClick={() => removeQueuedImage(img.id)}
+                                >
+                                  <X className="size-2.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between gap-2">
+                          {editingQueueImages.length > 0 ? (
+                            <p className="text-[10px] text-muted-foreground">
+                              {t('input.queueImageCount', {
+                                defaultValue: '{{count}} images',
+                                count: editingQueueImages.length
+                              })}
+                            </p>
+                          ) : (
+                            <span />
+                          )}
+                          {supportsVision && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                              onClick={() => queueFileInputRef.current?.click()}
+                            >
+                              <ImagePlus className="size-3" />
+                              {t('input.attachImages')}
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </>
-                  )}
-                </div>
-              )
-            })}
+                    ) : (
+                      <>
+                        <CornerDownRight className="size-3 shrink-0 text-muted-foreground/65" />
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 text-left"
+                          title={fallbackText}
+                          onClick={() => startEditQueuedMessage(msg)}
+                        >
+                          <span className="block truncate text-xs leading-5 text-muted-foreground/90 group-hover:text-foreground">
+                            {fallbackText}
+                          </span>
+                        </button>
+                        {commandLabel && summaryText ? (
+                          <span className="hidden shrink-0 rounded border border-violet-500/20 px-1.5 py-0.5 text-[10px] text-violet-700 sm:inline-flex dark:text-violet-300">
+                            {commandLabel}
+                          </span>
+                        ) : null}
+                        {msg.images.length > 0 ? (
+                          <span className="hidden shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline-flex">
+                            {t('input.queueImageCount', {
+                              defaultValue: '{{count}} images',
+                              count: msg.images.length
+                            })}
+                          </span>
+                        ) : null}
+                        <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
+                          {isQueueDispatchPaused && index === 0 ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                              onClick={resumeQueuedMessages}
+                              title={t('input.queueResume', { defaultValue: 'Resume' })}
+                              aria-label={t('input.queueResume', { defaultValue: 'Resume' })}
+                            >
+                              <Send className="size-3" />
+                              <span className="hidden sm:inline">
+                                {t('input.queueResume', { defaultValue: 'Resume' })}
+                              </span>
+                            </Button>
+                          ) : null}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 rounded-md px-2 text-[10px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                            onClick={() => quoteQueuedMessage(msg.id)}
+                            title={quoteLabel}
+                            aria-label={quoteLabel}
+                          >
+                            <CornerDownRight className="size-3" />
+                            <span className="hidden sm:inline">{quoteLabel}</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => removeQueuedMessage(msg.id)}
+                            title={t('action.delete', { ns: 'common' })}
+                            aria-label={t('action.delete', { ns: 'common' })}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 rounded-md text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                                title={t('action.more', { ns: 'common' })}
+                                aria-label={t('action.more', { ns: 'common' })}
+                              >
+                                <Ellipsis className="size-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="min-w-36">
+                              {isQueueDispatchPaused ? (
+                                <DropdownMenuItem onSelect={resumeQueuedMessages}>
+                                  <Send className="size-3.5" />
+                                  {t('input.queueResume', { defaultValue: 'Resume' })}
+                                </DropdownMenuItem>
+                              ) : null}
+                              <DropdownMenuItem onSelect={() => quoteQueuedMessage(msg.id)}>
+                                <CornerDownRight className="size-3.5" />
+                                {quoteLabel}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onSelect={handleClearQueuedMessages}
+                              >
+                                <Trash2 className="size-3.5" />
+                                {t('action.clear', { ns: 'common' })}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </>
+                    )}
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
           </div>
         </div>
 
@@ -4239,32 +4337,44 @@ export function InputArea({
               ref={imagePreviewRef}
               className="shrink-0 flex gap-2 overflow-x-auto px-3 pt-3 pb-1"
             >
-              {attachedImages.map((img) => (
-                <div key={img.id} className="relative group/img shrink-0">
-                  <button
-                    type="button"
-                    className="block cursor-zoom-in rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={t('userMessage.imagePreview')}
-                    title={t('userMessage.imagePreview')}
-                    onClick={() => setPreviewImage(img)}
+              <AnimatePresence initial={false}>
+                {attachedImages.map((img) => (
+                  <motion.div
+                    key={img.id}
+                    layout={animationsEnabled}
+                    initial={animationsEnabled ? { opacity: 0, scale: 0.9 } : false}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={animationsEnabled ? { opacity: 0, scale: 0.9 } : undefined}
+                    transition={
+                      animationsEnabled ? { duration: 0.15, ease: 'easeOut' } : { duration: 0 }
+                    }
+                    className="relative group/img shrink-0"
                   >
-                    <img
-                      src={img.dataUrl}
-                      alt=""
-                      className="composer-image-thumb size-16 rounded-xl object-cover transition-transform group-hover/img:scale-[1.03]"
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    className="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-destructive text-destructive-foreground shadow-md opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center"
-                    aria-label={t('userMessage.removeImage')}
-                    title={t('userMessage.removeImage')}
-                    onClick={() => removeImage(img.id)}
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
-              ))}
+                    <button
+                      type="button"
+                      className="block cursor-zoom-in rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={t('userMessage.imagePreview')}
+                      title={t('userMessage.imagePreview')}
+                      onClick={() => setPreviewImage(img)}
+                    >
+                      <img
+                        src={img.dataUrl}
+                        alt=""
+                        className="composer-image-thumb size-16 rounded-xl object-cover transition-transform group-hover/img:scale-[1.03]"
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      className="absolute -top-1.5 -right-1.5 size-5 rounded-full bg-destructive text-destructive-foreground shadow-md opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center"
+                      aria-label={t('userMessage.removeImage')}
+                      title={t('userMessage.removeImage')}
+                      onClick={() => removeImage(img.id)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
           )}
 

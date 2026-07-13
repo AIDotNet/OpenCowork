@@ -4,10 +4,12 @@ import type { TFunction } from 'i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { MessageSquare, CircleHelp, Briefcase, Code2, ShieldCheck, ArrowDown } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
 import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useTeamStore, type ActiveTeam } from '@renderer/stores/team-store'
 import { cn } from '@renderer/lib/utils'
 import { MessageItem } from './MessageItem'
@@ -1368,6 +1370,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     fullWidth = false
   } = props
   const { t } = useTranslation('chat')
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const currentActiveSessionId = useChatStore((s) => s.activeSessionId)
   const targetSessionId = sessionId ?? currentActiveSessionId
   const sessionSelection = useChatStore(
@@ -1973,59 +1976,64 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     ]
   )
 
-  const loadOlderMessages = React.useCallback(async (): Promise<number> => {
-    if (!activeSessionId || isLoadingOlderMessages || loadedRangeStart <= 0) return 0
+  const loadOlderMessages = React.useCallback(
+    async (preserveResidentHistory = false): Promise<number> => {
+      if (!activeSessionId || isLoadingOlderMessages || loadedRangeStart <= 0) return 0
 
-    const ref = listRef.current
-    const previousScrollHeight = ref?.scrollHeight ?? 0
-    const previousScrollTop = ref?.scrollTop ?? 0
+      const ref = listRef.current
+      const previousScrollHeight = ref?.scrollHeight ?? 0
+      const previousScrollTop = ref?.scrollTop ?? 0
 
-    const startBefore = loadedRangeStart
-    autoScrollModeRef.current = 'off'
-    setIsLoadingOlderMessages(true)
-    try {
-      const loaded = await useChatStore.getState().loadOlderSessionMessages(activeSessionId)
-      // loadOlderSessionMessages reports the rows it read from the DB, but a
-      // running session's tail-trim can splice those same rows straight back off
-      // (getMessageWindowPreserveMode forces 'tail' while running). Treat "the
-      // window didn't actually grow older" as a stall so callers stop retrying.
-      const startAfter =
-        useChatStore.getState().sessions.find((s) => s.id === activeSessionId)?.loadedRangeStart ??
-        startBefore
-      if (loaded <= 0 || startAfter >= startBefore) {
-        stalledOlderLoadStartRef.current = startBefore
-        return loaded > 0 ? loaded : 0
-      }
-      stalledOlderLoadStartRef.current = null
-
-      await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => {
-          window.requestAnimationFrame(() => resolve())
-        })
-      })
-
-      const nextRef = listRef.current
-      if (nextRef) {
-        const scrollDelta = nextRef.scrollHeight - previousScrollHeight
-        if (scrollDelta !== 0) {
-          markProgrammaticScroll()
-          nextRef.scrollTop = Math.max(0, previousScrollTop + scrollDelta)
+      const startBefore = loadedRangeStart
+      autoScrollModeRef.current = 'off'
+      setIsLoadingOlderMessages(true)
+      try {
+        const loaded = await useChatStore
+          .getState()
+          .loadOlderSessionMessages(activeSessionId, undefined, { preserveResidentHistory })
+        // loadOlderSessionMessages reports the rows it read from the DB, but a
+        // running session's tail-trim can splice those same rows straight back off
+        // (getMessageWindowPreserveMode forces 'tail' while running). Treat "the
+        // window didn't actually grow older" as a stall so callers stop retrying.
+        const startAfter =
+          useChatStore.getState().sessions.find((s) => s.id === activeSessionId)
+            ?.loadedRangeStart ?? startBefore
+        if (loaded <= 0 || startAfter >= startBefore) {
+          stalledOlderLoadStartRef.current = startBefore
+          return loaded > 0 ? loaded : 0
         }
+        stalledOlderLoadStartRef.current = null
+
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => resolve())
+          })
+        })
+
+        const nextRef = listRef.current
+        if (nextRef) {
+          const scrollDelta = nextRef.scrollHeight - previousScrollHeight
+          if (scrollDelta !== 0) {
+            markProgrammaticScroll()
+            nextRef.scrollTop = Math.max(0, previousScrollTop + scrollDelta)
+          }
+        }
+        syncBottomState()
+        requestAssistantRailSync()
+        return loaded
+      } finally {
+        setIsLoadingOlderMessages(false)
       }
-      syncBottomState()
-      requestAssistantRailSync()
-      return loaded
-    } finally {
-      setIsLoadingOlderMessages(false)
-    }
-  }, [
-    activeSessionId,
-    isLoadingOlderMessages,
-    loadedRangeStart,
-    markProgrammaticScroll,
-    requestAssistantRailSync,
-    syncBottomState
-  ])
+    },
+    [
+      activeSessionId,
+      isLoadingOlderMessages,
+      loadedRangeStart,
+      markProgrammaticScroll,
+      requestAssistantRailSync,
+      syncBottomState
+    ]
+  )
 
   const requestScrollToBottom = React.useCallback(
     ({
@@ -2393,7 +2401,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                     <button
                       type="button"
                       className="rounded-full border border-border/70 bg-background/92 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-70"
-                      onClick={() => void loadOlderMessages()}
+                      onClick={() => void loadOlderMessages(true)}
                       disabled={isLoadingOlderMessages}
                     >
                       {isLoadingOlderMessages
@@ -2478,15 +2486,26 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
         onJump={handleJumpToAssistantMessage}
       />
 
-      {!isAtBottom && messages.length > 0 && (
-        <button
-          onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow-lg backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:text-foreground hover:shadow-xl"
-        >
-          <ArrowDown className="size-3" />
-          {t('messageList.scrollToBottom')}
-        </button>
-      )}
+      <AnimatePresence>
+        {!isAtBottom && messages.length > 0 && (
+          <motion.div
+            key="scroll-to-bottom"
+            className="absolute bottom-4 left-1/2 z-10"
+            initial={animationsEnabled ? { opacity: 0, scale: 0.9, y: 4, x: '-50%' } : false}
+            animate={{ opacity: 1, scale: 1, y: 0, x: '-50%' }}
+            exit={animationsEnabled ? { opacity: 0, scale: 0.9, y: 4, x: '-50%' } : undefined}
+            transition={animationsEnabled ? { duration: 0.15, ease: 'easeOut' } : { duration: 0 }}
+          >
+            <button
+              onClick={scrollToBottom}
+              className="flex items-center gap-1.5 rounded-full border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow-lg backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:text-foreground hover:shadow-xl"
+            >
+              <ArrowDown className="size-3" />
+              {t('messageList.scrollToBottom')}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 

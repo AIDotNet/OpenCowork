@@ -8,7 +8,6 @@ using System.Text.RegularExpressions;
 internal static partial class AgentRuntimeSubAgentExecutor
 {
     private const string TaskToolName = "Task";
-    private const string SubmitReportToolName = "SubmitReport";
     private const int DefaultMaxTurns = 12;
     private const int MaxRecentTaskInvocationKeys = 512;
     private const long RecentTaskInvocationTtlMs = 6 * 60 * 60 * 1_000;
@@ -28,21 +27,15 @@ internal static partial class AgentRuntimeSubAgentExecutor
         return string.Equals(toolName, TaskToolName, StringComparison.Ordinal);
     }
 
-    public static bool IsSubmitReportTool(string toolName)
-    {
-        return string.Equals(toolName, SubmitReportToolName, StringComparison.Ordinal);
-    }
-
     public static bool CanExecute(string toolName, JsonElement parameters)
     {
-        return IsTaskTool(toolName) ||
-            (IsSubmitReportTool(toolName) && JsonHelpers.GetBool(parameters, "submitReportEnabled", false));
+        _ = parameters;
+        return IsTaskTool(toolName);
     }
 
     public static bool IsSubAgentRun(JsonElement parameters)
     {
-        return JsonHelpers.GetBool(parameters, "submitReportEnabled", false) &&
-            !string.IsNullOrWhiteSpace(JsonHelpers.GetString(parameters, "callerAgent"));
+        return JsonHelpers.GetBool(parameters, "subAgentRun", false);
     }
 
     public static bool RequiresApproval(string toolName, JsonElement input)
@@ -58,37 +51,12 @@ internal static partial class AgentRuntimeSubAgentExecutor
         WorkerRequestContext context,
         CancellationToken cancellationToken)
     {
-        if (IsSubmitReportTool(call.Name))
-        {
-            return ExecuteSubmitReport(call, state);
-        }
-
         if (!IsTaskTool(call.Name))
         {
             return ErrorResult($"Native sub-agent tool not registered: {call.Name}");
         }
 
         return await ExecuteTaskAsync(call, parameters, state, context, cancellationToken);
-    }
-
-    private static RendererToolResult ExecuteSubmitReport(
-        NativeToolCallView call,
-        AgentRuntimeTools.AgentRuntimeRunState state)
-    {
-        var report = JsonHelpers.GetString(call.Input, "report")?.Trim() ?? string.Empty;
-        if (report.Length == 0)
-        {
-            var error =
-                "SubmitReport rejected: the `report` argument was empty. " +
-                "Call SubmitReport again with the full report body.";
-            return new RendererToolResult(StringElement(error), true, error);
-        }
-
-        state.TrySubmitReport(report);
-        return new RendererToolResult(
-            StringElement("Report submitted. This sub-agent session will now terminate."),
-            false,
-            null);
     }
 
     private static async Task<RendererToolResult> ExecuteTaskAsync(
@@ -135,11 +103,24 @@ internal static partial class AgentRuntimeSubAgentExecutor
             return ErrorResult("Task execution could not be registered for replay protection.");
         }
 
+        AgentRuntimeTools.AgentRuntimeRunState? childState = null;
+        AgentRuntimeSubAgentConcurrencyLease? pendingConcurrencyLease = null;
+        var parentLeaseWasYielded = YieldSubAgentConcurrencyLease(parentState);
         try
         {
+            // A synchronous parent is suspended while this Task runs, so yield its slot before
+            // the child joins the FIFO queue. The parent reacquires a slot in the outer finally.
+            pendingConcurrencyLease = await AcquireSubAgentConcurrencyLeaseAsync(
+                definition.Name,
+                call.Id,
+                call.Input,
+                parameters,
+                parentState,
+                context,
+                cancellationToken);
+
             var promptMessage = BuildPromptMessage(call.Input, definition.InitialPrompt);
             var innerTools = ResolveSubAgentTools(parameters, definition);
-            AddSubmitReportToolDefinition(innerTools);
 
             var provider = BuildProvider(parameters, definition);
             var childParameters = BuildChildParameters(
@@ -149,12 +130,14 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 innerTools,
                 definition,
                 call.Id);
-            var childState = new AgentRuntimeTools.AgentRuntimeRunState(
+            childState = new AgentRuntimeTools.AgentRuntimeRunState(
                 $"subagent-{call.Id}-{Guid.NewGuid():N}",
                 parentState.SessionId)
             {
-                SuppressTransportEvents = true
+                SuppressTransportEvents = true,
+                SubAgentConcurrencyLease = pendingConcurrencyLease
             };
+            pendingConcurrencyLease = null;
             childState.ReplaceParameters(childParameters);
 
             var collector = new SubAgentRunCollector(
@@ -180,7 +163,6 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 call.Id);
             if (startHook.Blocked)
             {
-                childState.Dispose();
                 var blockedResult = ErrorResult(startHook.Reason ?? "SubagentStart hook blocked sub-agent run");
                 CompleteSubAgentTaskInvocation(taskInvocation, blockedResult);
                 return blockedResult;
@@ -198,6 +180,8 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     "sub_agent_start",
                     SubAgentName: definition.Name,
                     ToolUseId: call.Id,
+                    McpServerIds: ResolveMcpServerIds(innerTools),
+                    PermissionMode: ResolvePermissionMode(parameters),
                     Input: call.Input.Clone(),
                     PromptMessage: promptMessage));
 
@@ -218,12 +202,8 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     $"sub-agent run failed parentRunId={parentState.RunId} toolUseId={call.Id} " +
                     $"agent={definition.Name} error={ex.GetType().Name}: {ex.Message}");
             }
-            finally
-            {
-                childState.Dispose();
-            }
 
-            var result = collector.BuildResult(childState.SubmittedReport);
+            var result = collector.BuildResult(childState.StopReason);
             var stopHook = await AgentRuntimeHooks.RunSubagentAsync(
                 parameters,
                 parentState,
@@ -245,7 +225,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     SubAgentName: definition.Name,
                     ToolUseId: call.Id,
                     Report: result.Output,
-                    Status: result.ReportSubmitted ? "submitted" : "missing"),
+                    Status: result.ReportCaptured ? "submitted" : "missing"),
                 new AgentRuntimeStreamEvent(
                     "sub_agent_end",
                     SubAgentName: definition.Name,
@@ -255,7 +235,10 @@ internal static partial class AgentRuntimeSubAgentExecutor
             var toolResult = result.Success
                 ? new RendererToolResult(StringElement(result.Output), false, null)
                 : new RendererToolResult(
-                    StringElement(EncodeError(result.Error ?? "SubAgent failed")),
+                    StringElement(
+                        string.IsNullOrWhiteSpace(result.Output)
+                            ? EncodeError(result.Error ?? "SubAgent failed")
+                            : result.Output),
                     true,
                     result.Error);
             CompleteSubAgentTaskInvocation(taskInvocation, toolResult);
@@ -266,6 +249,20 @@ internal static partial class AgentRuntimeSubAgentExecutor
             var errorResult = ErrorResult(ex.Message);
             CompleteSubAgentTaskInvocation(taskInvocation, errorResult);
             return errorResult;
+        }
+        finally
+        {
+            pendingConcurrencyLease?.Dispose();
+            if (childState is not null)
+            {
+                childState.SubAgentConcurrencyLease?.Dispose();
+                childState.SubAgentConcurrencyLease = null;
+                childState.Dispose();
+            }
+            await RestoreSubAgentConcurrencyLeaseAsync(
+                parentLeaseWasYielded,
+                parameters,
+                parentState);
         }
     }
 
@@ -350,7 +347,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
         var maxTurns = GetFrontmatterInt(frontmatter, "maxTurns") ??
             GetFrontmatterInt(frontmatter, "maxIterations") ??
             DefaultMaxTurns;
-        if (maxTurns <= 0)
+        if (maxTurns < 0)
         {
             maxTurns = DefaultMaxTurns;
         }
@@ -391,14 +388,9 @@ internal static partial class AgentRuntimeSubAgentExecutor
             writer.WriteString(
                 "text",
                 "<system-remind>\n" +
-                "Session termination protocol:\n" +
-                "- When you are done with the task, you MUST end the session by calling the `SubmitReport` tool exactly once.\n" +
-                "- Calling `SubmitReport` terminates this sub-agent session immediately -- do NOT call any other tools afterwards.\n" +
-                "- Do NOT stop by simply emitting an assistant message.\n" +
-                "- Do NOT call `SubmitReport` with an empty `report` argument.\n" +
-                "- Write the report in the same language as the user's request.\n" +
-                "\nStructure the `report` argument with these sections:\n" +
-                "## Conclusion\n## Key Findings\n## Evidence\n## Validation\n## Risks / Unknowns\n## Next Steps\n" +
+                "Your final assistant message is returned verbatim to the parent agent as the task report. " +
+                "End every run with a self-contained report, whether the task succeeded, partially succeeded, " +
+                "was blocked, or failed. Do not call tools after writing that final report.\n" +
                 "</system-remind>");
             writer.WriteEndObject();
             writer.WriteEndArray();
@@ -730,7 +722,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     BuildSubAgentPromptCacheKey(parentPromptCacheKey, definition.Name));
             }
 
-            writer.WriteString("systemPrompt", definition.SystemPrompt);
+            writer.WriteString("systemPrompt", BuildSubAgentSystemPrompt(definition.SystemPrompt));
             if (!string.IsNullOrWhiteSpace(modelOverride))
             {
                 writer.WriteString("model", modelOverride);
@@ -835,12 +827,14 @@ internal static partial class AgentRuntimeSubAgentExecutor
             "forceApproval",
             "callerAgent",
             "captureFinalMessages",
-            "submitReportEnabled",
+            "captureUncompressedFinalMessages",
+            "subAgentRun",
             "planMode",
             "planModeAllowedTools",
             "planRevision",
             "planExecution",
-            "subAgentToolExpansionDisabled"
+            "subAgentToolExpansionDisabled",
+            "subAgentConcurrencySlotInherited"
         };
         if (!string.IsNullOrWhiteSpace(activeTeamName))
         {
@@ -878,13 +872,15 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 tool.WriteTo(writer);
             }
             writer.WriteEndArray();
-            writer.WriteNumber("maxIterations", Math.Max(1, definition.MaxTurns));
+            writer.WriteNumber("maxIterations", Math.Max(0, definition.MaxTurns));
             writer.WriteBoolean(
                 "forceApproval",
                 JsonHelpers.GetBool(parentParameters, "forceApproval", false));
             writer.WriteString("callerAgent", definition.Name);
             writer.WriteBoolean("captureFinalMessages", true);
-            writer.WriteBoolean("submitReportEnabled", true);
+            writer.WriteBoolean("captureUncompressedFinalMessages", true);
+            writer.WriteBoolean("subAgentRun", true);
+            writer.WriteBoolean("subAgentConcurrencySlotInherited", true);
         });
     }
 
@@ -1009,43 +1005,6 @@ internal static partial class AgentRuntimeSubAgentExecutor
         return result;
     }
 
-    private static void AddSubmitReportToolDefinition(List<JsonElement> tools)
-    {
-        tools.RemoveAll(tool => string.Equals(
-            JsonHelpers.GetString(tool, "name"),
-            SubmitReportToolName,
-            StringComparison.Ordinal));
-        tools.Add(BuildSubmitReportToolDefinition());
-    }
-
-    private static JsonElement BuildSubmitReportToolDefinition()
-    {
-        return CreateObject(writer =>
-        {
-            writer.WriteString("name", SubmitReportToolName);
-            writer.WriteString(
-                "description",
-                "Submit your final work report and end this sub-agent session. " +
-                "You MUST call this tool exactly once when you have finished the task.");
-            writer.WritePropertyName("inputSchema");
-            writer.WriteStartObject();
-            writer.WriteString("type", "object");
-            writer.WritePropertyName("properties");
-            writer.WriteStartObject();
-            writer.WritePropertyName("report");
-            writer.WriteStartObject();
-            writer.WriteString("type", "string");
-            writer.WriteString("description", "The complete final report body. Must be non-empty.");
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-            writer.WritePropertyName("required");
-            writer.WriteStartArray();
-            writer.WriteStringValue("report");
-            writer.WriteEndArray();
-            writer.WriteEndObject();
-        });
-    }
-
     private static string BuildDefaultSystemPrompt(string? workingFolder)
     {
         var builder = new StringBuilder();
@@ -1058,7 +1017,26 @@ internal static partial class AgentRuntimeSubAgentExecutor
         {
             builder.AppendLine($"Working folder: {workingFolder}");
         }
-        builder.AppendLine("When complete, call SubmitReport exactly once with a concise but complete report.");
+        return builder.ToString();
+    }
+
+    private static string BuildSubAgentSystemPrompt(string systemPrompt)
+    {
+        var builder = new StringBuilder(systemPrompt.TrimEnd());
+        builder.AppendLine();
+        builder.AppendLine();
+        builder.AppendLine("<final_report_protocol>");
+        builder.AppendLine("Your final assistant message is the task report returned verbatim to the parent agent.");
+        builder.AppendLine("You MUST finish every run with a detailed report, regardless of whether the task completed, partially completed, was blocked, or failed.");
+        builder.AppendLine("The report must be self-contained, factual, and written in the same language as the delegated task unless the task requests another language.");
+        builder.AppendLine("Do not call tools after the final report and do not end with a tool call. The final assistant message must contain the report itself.");
+        builder.AppendLine();
+        builder.AppendLine("Write the report naturally without a required template, fixed headings, or status enum.");
+        builder.AppendLine("Clearly explain the outcome, work performed, material changes, findings, decisions, affected files or resources, and concrete evidence. For research, cite relevant sources and locations.");
+        builder.AppendLine("Describe checks or commands actually run and their outcomes. Never claim validation you did not perform.");
+        builder.AppendLine("If the task fails or is blocked, clearly explain the cause, what was attempted, the current state, and the safest recovery path.");
+        builder.AppendLine("Include any remaining issues, risks, or useful next steps when relevant, with enough detail for the parent to continue without replaying your transcript.");
+        builder.Append("</final_report_protocol>");
         return builder.ToString();
     }
 
@@ -1107,6 +1085,71 @@ internal static partial class AgentRuntimeSubAgentExecutor
     private static RendererToolResult ErrorResult(string message)
     {
         return new RendererToolResult(StringElement(EncodeError(message)), true, message);
+    }
+
+    private static string ResolveSubAgentEndReason(
+        string? observedReason,
+        string? fallbackReason,
+        string? error)
+    {
+        var reason = string.IsNullOrWhiteSpace(observedReason) ? fallbackReason : observedReason;
+        return reason switch
+        {
+            "completed" => "completed",
+            "max_iterations" => "max_iterations",
+            "aborted" or "cancelled" or "parent" or "team-delete" or "user" => "aborted",
+            "error" => "error",
+            _ => string.IsNullOrWhiteSpace(error) ? "completed" : "error"
+        };
+    }
+
+    private static string? ResolveSubAgentResultError(string? error, string endReason)
+    {
+        if (!string.IsNullOrWhiteSpace(error))
+        {
+            return error;
+        }
+
+        return endReason switch
+        {
+            "max_iterations" => "Sub-agent reached its maximum iteration limit before completing.",
+            "aborted" => "Sub-agent was aborted before completing.",
+            "error" => "Sub-agent stopped because of a runtime error.",
+            _ => null
+        };
+    }
+
+    private static string[] ResolveMcpServerIds(IReadOnlyList<JsonElement> tools)
+    {
+        const string prefix = "mcp__";
+        var serverIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var tool in tools)
+        {
+            var name = JsonHelpers.GetString(tool, "name");
+            if (string.IsNullOrWhiteSpace(name) || !name.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var separator = name.IndexOf("__", prefix.Length, StringComparison.Ordinal);
+            if (separator <= prefix.Length)
+            {
+                continue;
+            }
+            serverIds.Add(name[prefix.Length..separator]);
+        }
+
+        return serverIds.Order(StringComparer.Ordinal).ToArray();
+    }
+
+    private static string ResolvePermissionMode(JsonElement parameters)
+    {
+        return JsonHelpers.GetString(parameters, "permissionMode") switch
+        {
+            "fullAccess" => "fullAccess",
+            "whitelist" => "whitelist",
+            _ => "default"
+        };
     }
 
     private static RendererToolResult DuplicateTaskResult(string subAgentType, string previousReport)
@@ -1248,6 +1291,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
         private AgentRuntimeTokenUsage usage = new(0, 0);
         private int iterations;
         private int toolCallCount;
+        private string? endReason;
         private string? error;
 
         public SubAgentRunCollector(
@@ -1282,13 +1326,9 @@ internal static partial class AgentRuntimeSubAgentExecutor
             error = message;
         }
 
-        public SubAgentResultNative BuildResult(string? submittedReport)
+        public SubAgentResultNative BuildResult(string? fallbackEndReason)
         {
-            var output = submittedReport?.Trim();
-            if (string.IsNullOrWhiteSpace(output))
-            {
-                output = GetLastAssistantText(finalMessages);
-            }
+            var output = GetLastAssistantText(finalMessages);
             if (string.IsNullOrWhiteSpace(output))
             {
                 output = currentAssistantText.ToString().Trim();
@@ -1298,15 +1338,20 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 output = aggregatedText.ToString().Trim();
             }
 
-            var success = string.IsNullOrWhiteSpace(error);
+            var resolvedEndReason = ResolveSubAgentEndReason(endReason, fallbackEndReason, error);
+            var resolvedError = ResolveSubAgentResultError(error, resolvedEndReason);
+            var success = resolvedEndReason == "completed" && string.IsNullOrWhiteSpace(resolvedError);
+            var reportCaptured = !string.IsNullOrWhiteSpace(output);
             return new SubAgentResultNative(
                 success,
                 output ?? string.Empty,
-                !string.IsNullOrWhiteSpace(output),
+                reportCaptured,
                 toolCallCount,
                 iterations,
+                resolvedEndReason,
+                finalMessages.Select(message => message.Clone()).ToArray(),
                 usage,
-                error);
+                resolvedError);
         }
 
         private async Task ObserveOneAsync(AgentRuntimeStreamEvent item)
@@ -1429,6 +1474,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     break;
                 case "loop_end":
                     finalMessages = item.Messages ?? [];
+                    endReason = item.Reason;
                     break;
                 case "error":
                     error = item.Message;
@@ -1552,9 +1598,11 @@ internal static partial class AgentRuntimeSubAgentExecutor
     private sealed record SubAgentResultNative(
         bool Success,
         string Output,
-        bool ReportSubmitted,
+        bool ReportCaptured,
         int ToolCallCount,
         int Iterations,
+        string EndReason,
+        JsonElement[] Messages,
         AgentRuntimeTokenUsage Usage,
         string? Error)
     {
@@ -1564,9 +1612,19 @@ internal static partial class AgentRuntimeSubAgentExecutor
             {
                 writer.WriteBoolean("success", Success);
                 writer.WriteString("output", Output);
-                writer.WriteBoolean("reportSubmitted", ReportSubmitted);
+                // Keep the wire key for compatibility; it now means that the final text report
+                // was captured, not that a dedicated submission tool was invoked.
+                writer.WriteBoolean("reportSubmitted", ReportCaptured);
                 writer.WriteNumber("toolCallCount", ToolCallCount);
                 writer.WriteNumber("iterations", Iterations);
+                writer.WriteString("endReason", EndReason);
+                writer.WritePropertyName("messages");
+                writer.WriteStartArray();
+                foreach (var message in Messages)
+                {
+                    message.WriteTo(writer);
+                }
+                writer.WriteEndArray();
                 writer.WritePropertyName("usage");
                 WriteUsage(writer, Usage);
                 if (!string.IsNullOrWhiteSpace(Error))

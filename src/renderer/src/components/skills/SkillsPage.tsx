@@ -19,7 +19,9 @@ import {
   KeyRound
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { AnimatePresence, motion } from 'motion/react'
 import { cn } from '@renderer/lib/utils'
+import { FadeIn } from '@renderer/components/animate-ui/transitions'
 import {
   useSkillsStore,
   type ScanFileInfo,
@@ -263,6 +265,7 @@ function MarketProviderConfig(): React.JSX.Element {
 
 export function SkillsPage(): React.JSX.Element {
   const { t } = useTranslation('layout')
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const skills = useSkillsStore((s) => s.skills)
   const loading = useSkillsStore((s) => s.loading)
   const selectedSkill = useSkillsStore((s) => s.selectedSkill)
@@ -409,40 +412,44 @@ export function SkillsPage(): React.JSX.Element {
   )
 
   // ── MARKET TAB — full-width grid ─────────────────────────────────────
-  if (activeTab === 'market') {
-    return (
-      <div className="flex h-full flex-col">
-        {TopBar}
+  const marketContent = (
+    <FadeIn key="market" duration={0.15} className="flex-1 overflow-hidden flex flex-col">
+      {/* Hero */}
+      <div className="px-8 pt-8 pb-5 border-b shrink-0">
+        <div className="flex items-end gap-3 mb-1">
+          <h1 className="text-3xl font-bold tracking-tight">SKILLS</h1>
+          <span className="text-sm text-muted-foreground mb-1">
+            {t('skillsPage.skillCount', { count: marketSkills.length })}
+          </span>
+        </div>
+        <p className="text-sm text-muted-foreground">{t('skillsPage.marketDescription')}</p>
+      </div>
 
-        <div className="flex-1 overflow-hidden flex flex-col">
-          {/* Hero */}
-          <div className="px-8 pt-8 pb-5 border-b shrink-0">
-            <div className="flex items-end gap-3 mb-1">
-              <h1 className="text-3xl font-bold tracking-tight">SKILLS</h1>
-              <span className="text-sm text-muted-foreground mb-1">
-                {t('skillsPage.skillCount', { count: marketSkills.length })}
-              </span>
-            </div>
-            <p className="text-sm text-muted-foreground">{t('skillsPage.marketDescription')}</p>
+      {/* Grid */}
+      <div className="flex-1 overflow-y-auto p-8">
+        {marketLoading && marketSkills.length === 0 ? (
+          <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+            <Wand2 className="size-4 mr-2 animate-pulse" /> Loading...
           </div>
-
-          {/* Grid */}
-          <div className="flex-1 overflow-y-auto p-8">
-            {marketLoading && marketSkills.length === 0 ? (
-              <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-                <Wand2 className="size-4 mr-2 animate-pulse" /> Loading...
-              </div>
-            ) : marketSkills.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-2">
-                <Wand2 className="size-10 text-muted-foreground/20" />
-                <p className="text-sm text-muted-foreground">{t('skillsPage.noResults')}</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {marketSkills.map((ms) => (
+        ) : marketSkills.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <Wand2 className="size-10 text-muted-foreground/20" />
+            <p className="text-sm text-muted-foreground">{t('skillsPage.noResults')}</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <AnimatePresence initial={false}>
+                {marketSkills.map((ms) => (
+                  <motion.div
+                    key={ms.id}
+                    layout={animationsEnabled ? 'position' : false}
+                    initial={animationsEnabled ? { opacity: 0 } : false}
+                    animate={{ opacity: 1 }}
+                    exit={animationsEnabled ? { opacity: 0 } : undefined}
+                    transition={animationsEnabled ? { duration: 0.15 } : { duration: 0 }}
+                  >
                     <MarketSkillCard
-                      key={ms.id}
                       skill={ms}
                       installed={
                         installedNames.has(ms.slug.toLowerCase()) ||
@@ -450,207 +457,217 @@ export function SkillsPage(): React.JSX.Element {
                       }
                       onInstall={() => handleInstallMarket(ms)}
                     />
-                  ))}
-                </div>
-
-                {/* Load More */}
-                {marketSkills.length < marketTotal && (
-                  <div className="flex items-center justify-center py-4">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void loadMoreMarketSkills()}
-                      disabled={marketLoading}
-                    >
-                      {marketLoading ? (
-                        <>
-                          <Loader2 className="size-3.5 animate-spin mr-2" />
-                          Loading...
-                        </>
-                      ) : (
-                        `Load More (${marketSkills.length}/${marketTotal})`
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <SkillInstallDialog />
-      </div>
-    )
-  }
-
-  // ── INSTALLED TAB — split panel ─────────────────────────────────────────────
-  return (
-    <div className="flex h-full flex-col">
-      {TopBar}
-
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left list */}
-        <div className="flex w-64 shrink-0 flex-col border-r bg-muted/20 overflow-hidden">
-          <div className="flex-1 overflow-y-auto px-2 py-2">
-            {loading ? (
-              <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
-                Loading...
-              </div>
-            ) : filteredInstalled.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-1 py-8 text-center">
-                <Wand2 className="size-8 text-muted-foreground/30" />
-                <p className="text-xs text-muted-foreground">
-                  {skills.length === 0 ? t('skillsPage.noSkills') : t('skillsPage.noResults')}
-                </p>
-                {skills.length === 0 && (
-                  <p className="text-[10px] text-muted-foreground/60">
-                    {t('skillsPage.noSkillsDesc')}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-0.5">
-                {filteredInstalled.map((skill) => (
-                  <button
-                    key={skill.name}
-                    onClick={() => selectSkill(skill.name)}
-                    className={cn(
-                      'flex flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors',
-                      selectedSkill === skill.name
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-foreground hover:bg-muted'
-                    )}
-                  >
-                    <span className="text-xs font-medium truncate">{skill.name}</span>
-                    <span className="text-[10px] text-muted-foreground line-clamp-2">
-                      {skill.description}
-                    </span>
-                  </button>
+                  </motion.div>
                 ))}
-              </div>
-            )}
-          </div>
-        </div>
+              </AnimatePresence>
+            </div>
 
-        {/* Right detail */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {selectedSkill ? (
-            <>
-              <div className="flex items-center gap-2 border-b px-4 py-3 shrink-0">
-                <Wand2 className="size-4 shrink-0 text-primary" />
-                <h2 className="flex-1 text-sm font-semibold truncate">{selectedSkill}</h2>
-                <div className="flex items-center gap-1">
-                  {editing ? (
+            {/* Load More */}
+            {marketSkills.length < marketTotal && (
+              <div className="flex items-center justify-center py-4">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void loadMoreMarketSkills()}
+                  disabled={marketLoading}
+                >
+                  {marketLoading ? (
                     <>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7"
-                            onClick={() => setEditing(false)}
-                          >
-                            <Eye className="size-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('skillsPage.previewMode')}</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="default"
-                            size="icon"
-                            className="size-7"
-                            onClick={() => void handleSave()}
-                          >
-                            <Save className="size-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('skillsPage.save')}</TooltipContent>
-                      </Tooltip>
+                      <Loader2 className="size-3.5 animate-spin mr-2" />
+                      Loading...
                     </>
                   ) : (
+                    `Load More (${marketSkills.length}/${marketTotal})`
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </FadeIn>
+  )
+
+  // ── INSTALLED TAB — split panel ─────────────────────────────────────────────
+  const installedContent = (
+    <FadeIn key="installed" duration={0.15} className="flex flex-1 overflow-hidden">
+      {/* Left list */}
+      <div className="flex w-64 shrink-0 flex-col border-r bg-muted/20 overflow-hidden">
+        <div className="flex-1 overflow-y-auto px-2 py-2">
+          {loading ? (
+            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
+              Loading...
+            </div>
+          ) : filteredInstalled.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-1 py-8 text-center">
+              <Wand2 className="size-8 text-muted-foreground/30" />
+              <p className="text-xs text-muted-foreground">
+                {skills.length === 0 ? t('skillsPage.noSkills') : t('skillsPage.noResults')}
+              </p>
+              {skills.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/60">
+                  {t('skillsPage.noSkillsDesc')}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              <AnimatePresence initial={false}>
+                {filteredInstalled.map((skill) => (
+                  <motion.div
+                    key={skill.name}
+                    layout={animationsEnabled ? 'position' : false}
+                    initial={animationsEnabled ? { opacity: 0 } : false}
+                    animate={{ opacity: 1 }}
+                    exit={animationsEnabled ? { opacity: 0 } : undefined}
+                    transition={animationsEnabled ? { duration: 0.15 } : { duration: 0 }}
+                  >
+                    <button
+                      onClick={() => selectSkill(skill.name)}
+                      className={cn(
+                        'flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors',
+                        selectedSkill === skill.name
+                          ? 'bg-primary/10 text-primary'
+                          : 'text-foreground hover:bg-muted'
+                      )}
+                    >
+                      <span className="text-xs font-medium truncate">{skill.name}</span>
+                      <span className="text-[10px] text-muted-foreground line-clamp-2">
+                        {skill.description}
+                      </span>
+                    </button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Right detail */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {selectedSkill ? (
+          <>
+            <div className="flex items-center gap-2 border-b px-4 py-3 shrink-0">
+              <Wand2 className="size-4 shrink-0 text-primary" />
+              <h2 className="flex-1 text-sm font-semibold truncate">{selectedSkill}</h2>
+              <div className="flex items-center gap-1">
+                {editing ? (
+                  <>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
                           size="icon"
                           className="size-7"
-                          onClick={() => setEditing(true)}
+                          onClick={() => setEditing(false)}
                         >
-                          <Pencil className="size-3.5" />
+                          <Eye className="size-3.5" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>{t('skillsPage.editMode')}</TooltipContent>
+                      <TooltipContent>{t('skillsPage.previewMode')}</TooltipContent>
                     </Tooltip>
-                  )}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="default"
+                          size="icon"
+                          className="size-7"
+                          onClick={() => void handleSave()}
+                        >
+                          <Save className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('skillsPage.save')}</TooltipContent>
+                    </Tooltip>
+                  </>
+                ) : (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
                         className="size-7"
-                        onClick={() =>
-                          void useSkillsStore.getState().openSkillFolder(selectedSkill)
-                        }
+                        onClick={() => setEditing(true)}
                       >
-                        <FolderOpen className="size-3.5" />
+                        <Pencil className="size-3.5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t('skillsPage.openFolder')}</TooltipContent>
+                    <TooltipContent>{t('skillsPage.editMode')}</TooltipContent>
                   </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 text-destructive hover:text-destructive"
-                        onClick={() => void handleDelete(selectedSkill)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('skillsPage.delete')}</TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto">
-                {editing && editContent !== null ? (
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    className="w-full h-full resize-none border-0 bg-transparent p-4 text-xs leading-relaxed font-mono focus:outline-none"
-                    spellCheck={false}
-                  />
-                ) : skillContent ? (
-                  <div className="p-4 space-y-4">
-                    <pre className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90 font-mono">
-                      {skillContent}
-                    </pre>
-                    {skillFiles.length > 0 && (
-                      <div className="border-t pt-4">
-                        <FileListSection files={skillFiles} t={t} />
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
-                    Loading...
-                  </div>
                 )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7"
+                      onClick={() => void useSkillsStore.getState().openSkillFolder(selectedSkill)}
+                    >
+                      <FolderOpen className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('skillsPage.openFolder')}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-destructive hover:text-destructive"
+                      onClick={() => void handleDelete(selectedSkill)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('skillsPage.delete')}</TooltipContent>
+                </Tooltip>
               </div>
-            </>
-          ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-              <Wand2 className="size-10 text-muted-foreground/20" />
-              <p className="text-sm text-muted-foreground">{t('skillsPage.selectSkill')}</p>
-              <p className="text-xs text-muted-foreground/60">{t('skillsPage.selectSkillDesc')}</p>
             </div>
-          )}
-        </div>
-      </div>
 
+            <div className="flex-1 overflow-y-auto">
+              {editing && editContent !== null ? (
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  className="w-full h-full resize-none border-0 bg-transparent p-4 text-xs leading-relaxed font-mono focus:outline-none"
+                  spellCheck={false}
+                />
+              ) : skillContent ? (
+                <div className="p-4 space-y-4">
+                  <pre className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90 font-mono">
+                    {skillContent}
+                  </pre>
+                  {skillFiles.length > 0 && (
+                    <div className="border-t pt-4">
+                      <FileListSection files={skillFiles} t={t} />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
+                  Loading...
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+            <Wand2 className="size-10 text-muted-foreground/20" />
+            <p className="text-sm text-muted-foreground">{t('skillsPage.selectSkill')}</p>
+            <p className="text-xs text-muted-foreground/60">{t('skillsPage.selectSkillDesc')}</p>
+          </div>
+        )}
+      </div>
+    </FadeIn>
+  )
+
+  return (
+    <div className="flex h-full flex-col">
+      {TopBar}
+      <AnimatePresence mode="wait" initial={false}>
+        {activeTab === 'market' ? marketContent : installedContent}
+      </AnimatePresence>
       <SkillInstallDialog />
     </div>
   )

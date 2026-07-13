@@ -446,18 +446,6 @@
       "copied": "뚱 베어",
       "copyImage": "클립보드에 복사 이미지"
     },
-    "submitReport": {
-      "submitted": "자주 묻는 질문",
-      "submitting": "자주 묻는 질문",
-      "live": "이름 *",
-      "preview": "팟캐스트",
-      "copy": "본문 바로가기",
-      "chars": "사이트맵",
-      "lines": "제품정보",
-      "blocks": "관련 기사",
-      "previewContinues": "Preview는 보고서 스트림으로 계속 ...",
-      "waiting": "보고서 텍스트에 대한 대기 ..."
-    },
     "taskList": "작업 목록",
     "tasksDone": "{{completed}}/{{total}} 완료",
     "content": "이름 *",

@@ -446,18 +446,6 @@
       "copied": "Sao chép",
       "copyImage": "Chép ảnh vào bảng nháp"
     },
-    "submitReport": {
-      "submitted": "Thông báo",
-      "submitting": "Đang gửi báo cáo",
-      "live": "sống",
-      "preview": "ô xem thử",
-      "copy": "Sao chép báo cáo",
-      "chars": "ký tự",
-      "lines": "dòng",
-      "blocks": "khối",
-      "previewContinues": "Xem thử tiếp tục khi luồng báo cáo trong...",
-      "waiting": "Đang đợi tin báo..."
-    },
     "taskList": "Danh sách tác vụ",
     "tasksDone": "{{completed}} / {{total}} xong",
     "content": "Nội dung",

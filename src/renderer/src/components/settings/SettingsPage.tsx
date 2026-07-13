@@ -28,7 +28,7 @@ import {
   Anchor
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import { AnimatePresence } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useUIStore, type SettingsTab } from '@renderer/stores/ui-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import {
@@ -943,13 +943,29 @@ function GeneralPanel(): React.JSX.Element {
           </p>
         )}
         {downloadingUpdate && (
-          <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
-            {typeof downloadProgress === 'number'
-              ? t('general.update.downloadingWithProgress', {
-                  progress: Math.round(downloadProgress)
-                })
-              : t('general.update.downloading')}
-          </p>
+          <div className="space-y-1.5 rounded-md bg-amber-500/10 px-3 py-2">
+            <p className="text-xs text-amber-500">
+              {typeof downloadProgress === 'number'
+                ? t('general.update.downloadingWithProgress', {
+                    progress: Math.round(downloadProgress)
+                  })
+                : t('general.update.downloading')}
+            </p>
+            {typeof downloadProgress === 'number' && (
+              <div className="h-1 w-full overflow-hidden rounded-full bg-primary/15">
+                <motion.div
+                  className="h-full rounded-full bg-primary"
+                  initial={false}
+                  animate={{ width: `${Math.min(100, Math.max(0, downloadProgress))}%` }}
+                  transition={
+                    settings.animationsEnabled
+                      ? { ease: 'easeOut', duration: 0.3 }
+                      : { duration: 0 }
+                  }
+                />
+              </div>
+            )}
+          </div>
         )}
         {downloadedVersion && (
           <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500">
@@ -3721,6 +3737,7 @@ export function SettingsPage(): React.JSX.Element {
   const settingsTab = useUIStore((s) => s.settingsTab)
   const setSettingsTab = useUIStore((s) => s.setSettingsTab)
   const closeSettingsPage = useUIStore((s) => s.closeSettingsPage)
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const isMac = useMemo(() => /Mac/.test(navigator.userAgent), [])
 
   const effectiveSettingsTab = settingsTab === 'channel' ? 'general' : settingsTab
@@ -3768,14 +3785,23 @@ export function SettingsPage(): React.JSX.Element {
                     <button
                       key={item.id}
                       onClick={() => setSettingsTab(item.id)}
-                      className={`group flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors duration-150 ${
+                      className={`group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors duration-150 ${
                         active
-                          ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
+                          ? `font-medium text-sidebar-accent-foreground${
+                              animationsEnabled ? '' : ' bg-sidebar-accent'
+                            }`
                           : 'text-muted-foreground hover:bg-sidebar-accent/55 hover:text-foreground'
                       }`}
                     >
+                      {animationsEnabled && active && (
+                        <motion.div
+                          layoutId="settings-nav-active"
+                          className="absolute inset-0 rounded-lg bg-sidebar-accent"
+                          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                        />
+                      )}
                       <span
-                        className={`flex shrink-0 items-center justify-center transition-colors ${
+                        className={`relative z-10 flex shrink-0 items-center justify-center transition-colors ${
                           active
                             ? 'text-foreground'
                             : 'text-muted-foreground group-hover:text-foreground'
@@ -3783,7 +3809,9 @@ export function SettingsPage(): React.JSX.Element {
                       >
                         {item.icon}
                       </span>
-                      <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
+                      <span className="relative z-10 min-w-0 flex-1 truncate">
+                        {t(item.labelKey)}
+                      </span>
                     </button>
                   )
                 })}

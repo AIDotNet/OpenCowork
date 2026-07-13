@@ -310,6 +310,11 @@ export function buildToolExecutionOutline({
       continue
     }
 
+    // A Task owns a visible SubAgent card at this exact content position. Isolate it from
+    // adjacent ordinary tools so a collapsed Read/Edit run can never hide or move the card.
+    const isSubAgentTask = block.name === TASK_TOOL_NAME
+    if (isSubAgentTask) closePendingRun()
+
     const result = toolResults?.get(block.id)
     const liveToolCall = liveToolCallMap?.get(block.id)
     const liveInput = liveToolCall?.input
@@ -369,7 +374,11 @@ export function buildToolExecutionOutline({
       forceVisibleItemIds.add(block.id)
     }
 
-    if (boundaryAfterToolUseIds?.has(block.id) || boundaryAfterBlockIndices?.has(blockIndex)) {
+    if (
+      isSubAgentTask ||
+      boundaryAfterToolUseIds?.has(block.id) ||
+      boundaryAfterBlockIndices?.has(blockIndex)
+    ) {
       closePendingRun()
     }
   }

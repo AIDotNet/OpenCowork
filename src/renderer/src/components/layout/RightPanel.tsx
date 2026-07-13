@@ -13,15 +13,10 @@ import { useSshStore } from '@renderer/stores/ssh-store'
 import { useTerminalStore } from '@renderer/stores/terminal-store'
 import { BROWSER_PLUGIN_ID } from '@renderer/lib/app-plugin/types'
 import { cn } from '@renderer/lib/utils'
-import {
-  findSubAgentInSelection,
-  selectSessionScopedAgentState
-} from '@renderer/lib/agent/session-scoped-agent-state'
 import { RightPanelHeader } from './RightPanelHeader'
 import { BrowserPanel } from './BrowserPanel'
 import { PreviewPanel } from './PreviewPanel'
 import { SubAgentsPanel } from './SubAgentsPanel'
-import { SubAgentExecutionDetail } from './SubAgentExecutionDetail'
 import { AgentFilesPanel } from './AgentFilesPanel'
 import { SessionChangeReviewPanel } from '@renderer/components/layout/SessionChangeReviewPanel'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -252,20 +247,6 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
   const browserPluginEnabled = useAppPluginStore((state) =>
     Boolean(state.getPlugin(BROWSER_PLUGIN_ID, activeProjectId)?.enabled)
   )
-  const needsSubAgentTitleLookup =
-    rightPanelOpen &&
-    rightPanelTabs.some(
-      (tab) =>
-        tab.kind === 'subagent' &&
-        Boolean(tab.toolUseId) &&
-        (tab.sessionId ?? panelSessionId) === panelSessionId
-    )
-  const sessionAgentSelection = useAgentStore((state) =>
-    selectSessionScopedAgentState(state, needsSubAgentTitleLookup ? panelSessionId : null, {
-      mode: 'coarse'
-    })
-  )
-
   const tabs = useMemo(() => {
     const visibleTabs = rightPanelTabs
     if (!rightPanelOpen) return visibleTabs
@@ -280,19 +261,10 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
         return { ...tab, title: t('rightPanel.browser', { defaultValue: 'Browser' }) }
       }
       if (tab.kind !== 'subagent') return tab
-      if (!tab.toolUseId) {
-        const title = t('subAgentsPanel.title', { defaultValue: 'Task Runs' })
-        return title === tab.title ? tab : { ...tab, title }
-      }
-      const tabSessionId = tab.sessionId ?? panelSessionId
-      const agent =
-        tabSessionId === panelSessionId
-          ? findSubAgentInSelection(sessionAgentSelection, tab.toolUseId)
-          : null
-      const title = agent?.displayName ?? agent?.name ?? tab.title
+      const title = t('subAgentsPanel.title', { defaultValue: 'SubAgents' })
       return title === tab.title ? tab : { ...tab, title }
     })
-  }, [panelSessionId, rightPanelOpen, rightPanelTabs, sessionAgentSelection, t])
+  }, [rightPanelOpen, rightPanelTabs, t])
   const selectedTab =
     tabs.find((tab) => tab.id === activeTabId) ??
     tabs.find((tab) => tab.kind === 'review') ??
@@ -408,16 +380,7 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
       return <PreviewPanel embedded showTabStrip={false} />
     }
     if (tab.kind === 'subagent') {
-      return tab.toolUseId ? (
-        <SubAgentExecutionDetail
-          embedded
-          toolUseId={tab.toolUseId}
-          inlineText={tab.inlineText ?? undefined}
-          sessionId={tab.sessionId ?? panelSessionId}
-        />
-      ) : (
-        <SubAgentsPanel sessionId={tab.sessionId ?? panelSessionId} />
-      )
+      return <SubAgentsPanel sessionId={tab.sessionId ?? panelSessionId} />
     }
     if (tab.kind === 'terminal' && tab.terminalSource) {
       return (

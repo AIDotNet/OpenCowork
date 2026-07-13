@@ -228,6 +228,7 @@ function buildMessageSubAgents(
         prompt: getPromptText(block.input),
         isRunning: !result,
         success: result ? !parsedResult.error : null,
+        endReason: result ? (parsedResult.error ? 'error' : 'completed') : null,
         errorMessage: parsedResult.error,
         iteration: parsedResult.meta?.iterations ?? 0,
         toolCalls:
@@ -248,6 +249,8 @@ function buildMessageSubAgents(
         report: parsedResult.report,
         reportStatus: result ? (parsedResult.report.trim() ? 'submitted' : 'missing') : 'pending',
         usage: parsedResult.meta?.usage,
+        mcpServerIds: [],
+        permissionMode: 'default',
         startedAt: message.createdAt,
         completedAt
       })

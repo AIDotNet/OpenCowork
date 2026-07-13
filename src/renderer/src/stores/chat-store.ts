@@ -1302,7 +1302,11 @@ interface ChatStore {
   // Initialization
   loadFromDb: () => Promise<void>
   loadRecentSessionMessages: (sessionId: string, force?: boolean, limit?: number) => Promise<void>
-  loadOlderSessionMessages: (sessionId: string, limit?: number) => Promise<number>
+  loadOlderSessionMessages: (
+    sessionId: string,
+    limit?: number,
+    options?: { preserveResidentHistory?: boolean }
+  ) => Promise<number>
   loadMessageWindowAround: (
     sessionId: string,
     anchor: { messageId?: string | null; sortOrder?: number | null },
@@ -1528,6 +1532,11 @@ const REQUEST_CONTEXT_MAX_MESSAGES = 160
 const REQUEST_CONTEXT_HEAD_MESSAGES = 12
 const REQUEST_CONTEXT_SAFE_BOUNDARY_SCAN = 12
 
+// Explicit history expansion is a renderer-resident preference, not session data. Automatic
+// history backfill keeps the normal bounded window; clicking "load earlier" opts the current
+// resident session out of tail trimming until it is released or memory pressure asks us to trim.
+const _preservedResidentHistorySessionIds = new Set<string>()
+
 function normalizeSessionModelSelectionMode(
   value?: string | null,
   providerId?: string | null,
@@ -1699,6 +1708,7 @@ function cloneMessagesForNewSession(messages: UnifiedMessage[]): UnifiedMessage[
 }
 
 function trimSessionMessageWindow(session: Session, preserve: 'head' | 'tail' = 'tail'): void {
+  if (_preservedResidentHistorySessionIds.has(session.id)) return
   if (session.messages.length <= MESSAGE_WINDOW_MAX_SIZE) return
   const removableCount = session.messages.length - MESSAGE_WINDOW_MAX_SIZE
 
@@ -1799,6 +1809,8 @@ function releaseDormantSessionMemory(
 
   for (const session of state.sessions) {
     if (residentSessionIds.has(session.id)) continue
+
+    _preservedResidentHistorySessionIds.delete(session.id)
 
     delete session.promptSnapshot
 
@@ -3012,7 +3024,11 @@ export const useChatStore = create<ChatStore>()(
       }
     },
 
-    loadOlderSessionMessages: async (sessionId, limit = RECENT_SESSION_MESSAGE_PAGE_SIZE) => {
+    loadOlderSessionMessages: async (
+      sessionId,
+      limit = RECENT_SESSION_MESSAGE_PAGE_SIZE,
+      options
+    ) => {
       const session = get().sessions.find((s) => s.id === sessionId)
       if (!session) return 0
       if (!session.messagesLoaded) {
@@ -3062,6 +3078,9 @@ export const useChatStore = create<ChatStore>()(
           target.loadedRangeStart = offset
           target.loadedRangeEnd = Math.max(target.loadedRangeEnd, offset + target.messages.length)
           target.lastKnownMessageCount = target.messageCount
+          if (options?.preserveResidentHistory) {
+            _preservedResidentHistorySessionIds.add(sessionId)
+          }
           trimSessionMessageWindow(target, getMessageWindowPreserveMode(target, 'head'))
         })
         return olderMessages.length
@@ -3607,6 +3626,7 @@ export const useChatStore = create<ChatStore>()(
         _streamingDirtyMessageIds.delete(deletedStreamingMsgId)
       }
       clearDeferredMessageAdds(id)
+      _preservedResidentHistorySessionIds.delete(id)
 
       const agentState = useAgentStore.getState()
       const wasLiveSession = agentState.liveSessionId === id
@@ -4081,6 +4101,7 @@ export const useChatStore = create<ChatStore>()(
         state.sessionsById = {}
         state.activeSessionId = null
       })
+      _preservedResidentHistorySessionIds.clear()
       // Clean up agent-store, team-store, plan-store, task-store for all sessions
       const agentState = useAgentStore.getState()
       const teamState = useTeamStore.getState()
@@ -4214,6 +4235,7 @@ export const useChatStore = create<ChatStore>()(
       })
       clearPendingMessageFlushes(deletedMessageIds)
       clearDeferredMessageAdds(sessionId)
+      _preservedResidentHistorySessionIds.delete(sessionId)
       for (const messageId of deletedMessageIds) {
         _streamingDirtyMessageIds.delete(messageId)
       }
@@ -5080,6 +5102,8 @@ export const useChatStore = create<ChatStore>()(
     recoverFromRendererOom: async (sessionId) => {
       const targetSessionId = sessionId ?? get().activeSessionId
 
+      _preservedResidentHistorySessionIds.clear()
+
       set((state) => {
         state.sessions = state.sessions.map((session) => {
           if (session.id === targetSessionId) {
@@ -5150,6 +5174,7 @@ export const useChatStore = create<ChatStore>()(
     },
 
     trimResidentMessageWindows: () => {
+      _preservedResidentHistorySessionIds.clear()
       set((state) => {
         for (const session of state.sessions) {
           if (session.messages.length <= MESSAGE_WINDOW_MAX_SIZE) continue

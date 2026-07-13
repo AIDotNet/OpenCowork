@@ -1,7 +1,9 @@
 import * as React from 'react'
 import { ChevronDown, ChevronUp, ListChecks, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { AnimatePresence, motion } from 'motion/react'
 import { cn } from '@renderer/lib/utils'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import type { ToolResultContent } from '@renderer/lib/api/types'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import { useTaskStore, type TaskItem } from '@renderer/stores/task-store'
@@ -159,6 +161,7 @@ export function TaskCard({
   embedded = false
 }: TaskCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const liveStandaloneTasks = useTaskStore((s) => s.tasks)
   const activeTeam = useTeamStore((s) => s.activeTeam)
   const liveTeamTasks = React.useMemo(
@@ -273,33 +276,50 @@ export function TaskCard({
             </span>
           </button>
         )}
-        {displayTasks.map((task) => (
-          <div
-            key={task.id}
-            className={cn(
-              'flex items-start gap-2 rounded-md px-1.5 py-1',
-              task.id === focusedTaskId && 'bg-muted/40'
-            )}
-          >
-            <span className="mt-0.5">
-              <StatusDot status={task.status} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div
-                className={cn(
-                  'text-xs leading-relaxed',
-                  task.status === 'completed' && 'text-muted-foreground line-through',
-                  task.status === 'pending' && 'text-muted-foreground/70'
-                )}
-              >
-                {task.status === 'in_progress' && task.activeForm ? task.activeForm : task.subject}
-              </div>
-              {task.owner && (
-                <div className="text-[10px] text-muted-foreground/50">{task.owner}</div>
+        <AnimatePresence initial={false}>
+          {displayTasks.map((task) => (
+            <motion.div
+              key={task.id}
+              layout={animationsEnabled ? 'position' : false}
+              initial={animationsEnabled ? { opacity: 0, y: 4 } : false}
+              animate={{ opacity: 1, y: 0 }}
+              exit={animationsEnabled ? { opacity: 0 } : undefined}
+              transition={animationsEnabled ? { duration: 0.15, ease: 'easeOut' } : { duration: 0 }}
+              className={cn(
+                'flex items-start gap-2 rounded-md px-1.5 py-1',
+                task.id === focusedTaskId && 'bg-muted/40'
               )}
-            </div>
-          </div>
-        ))}
+            >
+              <motion.span
+                key={task.status}
+                className="mt-0.5"
+                initial={animationsEnabled ? { opacity: 0, scale: 0.6 } : false}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={
+                  animationsEnabled ? { duration: 0.15, ease: 'easeOut' } : { duration: 0 }
+                }
+              >
+                <StatusDot status={task.status} />
+              </motion.span>
+              <div className="min-w-0 flex-1">
+                <div
+                  className={cn(
+                    'text-xs leading-relaxed transition-colors duration-300',
+                    task.status === 'completed' && 'text-muted-foreground line-through',
+                    task.status === 'pending' && 'text-muted-foreground/70'
+                  )}
+                >
+                  {task.status === 'in_progress' && task.activeForm
+                    ? task.activeForm
+                    : task.subject}
+                </div>
+                {task.owner && (
+                  <div className="text-[10px] text-muted-foreground/50">{task.owner}</div>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
         {showPendingPlaceholder && (
           <div className="flex items-start gap-2 rounded-md px-1.5 py-1">
             <span className="mt-0.5">
@@ -323,6 +343,7 @@ export function TodoStatusList({
   className
 }: TodoStatusListProps): React.JSX.Element {
   const { t } = useTranslation('chat')
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const [expanded, setExpanded] = React.useState(false)
   const total = tasks.length || (pendingSubject ? 1 : 0)
   const completed = tasks.filter((task) => task.status === 'completed').length
@@ -378,33 +399,50 @@ export function TodoStatusList({
             </span>
           </button>
         )}
-        {displayTasks.map((task) => (
-          <div
-            key={task.id}
-            className={cn(
-              'flex items-start gap-2 rounded-md px-1.5 py-1',
-              task.id === focusedTaskId && 'bg-muted/40'
-            )}
-          >
-            <span className="mt-0.5">
-              <StatusDot status={task.status} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div
-                className={cn(
-                  'text-xs leading-relaxed',
-                  task.status === 'completed' && 'text-muted-foreground line-through',
-                  task.status === 'pending' && 'text-muted-foreground/70'
-                )}
-              >
-                {task.status === 'in_progress' && task.activeForm ? task.activeForm : task.subject}
-              </div>
-              {task.owner && (
-                <div className="text-[10px] text-muted-foreground/50">{task.owner}</div>
+        <AnimatePresence initial={false}>
+          {displayTasks.map((task) => (
+            <motion.div
+              key={task.id}
+              layout={animationsEnabled ? 'position' : false}
+              initial={animationsEnabled ? { opacity: 0, y: 4 } : false}
+              animate={{ opacity: 1, y: 0 }}
+              exit={animationsEnabled ? { opacity: 0 } : undefined}
+              transition={animationsEnabled ? { duration: 0.15, ease: 'easeOut' } : { duration: 0 }}
+              className={cn(
+                'flex items-start gap-2 rounded-md px-1.5 py-1',
+                task.id === focusedTaskId && 'bg-muted/40'
               )}
-            </div>
-          </div>
-        ))}
+            >
+              <motion.span
+                key={task.status}
+                className="mt-0.5"
+                initial={animationsEnabled ? { opacity: 0, scale: 0.6 } : false}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={
+                  animationsEnabled ? { duration: 0.15, ease: 'easeOut' } : { duration: 0 }
+                }
+              >
+                <StatusDot status={task.status} />
+              </motion.span>
+              <div className="min-w-0 flex-1">
+                <div
+                  className={cn(
+                    'text-xs leading-relaxed transition-colors duration-300',
+                    task.status === 'completed' && 'text-muted-foreground line-through',
+                    task.status === 'pending' && 'text-muted-foreground/70'
+                  )}
+                >
+                  {task.status === 'in_progress' && task.activeForm
+                    ? task.activeForm
+                    : task.subject}
+                </div>
+                {task.owner && (
+                  <div className="text-[10px] text-muted-foreground/50">{task.owner}</div>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
         {showPendingPlaceholder && (
           <div className="flex items-start gap-2 rounded-md px-1.5 py-1">
             <span className="mt-0.5">

@@ -1,27 +1,12 @@
 import { nanoid } from 'nanoid'
 import type { ContentBlock, UnifiedMessage } from '../../api/types'
 
-const SUB_AGENT_TERMINATION_PROTOCOL = `Session termination protocol:
-- When you are done with the task, you MUST end the session by calling the \`SubmitReport\` tool exactly once.
-- Calling \`SubmitReport\` terminates this sub-agent session immediately -- do NOT call any other tools afterwards.
-- Do NOT stop by simply emitting an assistant message. Plain-text endings are treated as "session ran out" and trigger a fallback report synthesis you cannot control.
-- Do NOT call \`SubmitReport\` with an empty \`report\` argument; empty submissions are rejected and you will be asked to retry.
-- Write the report in the same language as the user's request.
-- If evidence is incomplete, state the uncertainty inside the report, but still submit it.
-- Even when nothing useful is found, submit a short report instead of leaving the session dangling.
-
-Structure the \`report\` argument with these sections:
-## Conclusion
-## Key Findings
-## Evidence
-## Validation
-## Risks / Unknowns
-## Next Steps`
+const SUB_AGENT_FINAL_REPORT_REMINDER = `Your final assistant message is returned verbatim to the parent agent as the task report. End every run with a self-contained report, whether the task succeeded, partially succeeded, was blocked, or failed. Do not call tools after writing that final report.`
 
 function buildSubAgentSystemReminderBlock(): ContentBlock {
   return {
     type: 'text',
-    text: `<system-remind>\n${SUB_AGENT_TERMINATION_PROTOCOL}\n</system-remind>`
+    text: `<system-remind>\n${SUB_AGENT_FINAL_REPORT_REMINDER}\n</system-remind>`
   }
 }
 

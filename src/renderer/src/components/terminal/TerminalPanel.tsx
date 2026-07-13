@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
 import {
   ChevronDown,
   Ellipsis,
@@ -23,6 +24,8 @@ import {
   type UnifiedTerminalTab
 } from '@renderer/lib/terminal/unified-terminal-tabs'
 import { cn } from '@renderer/lib/utils'
+import { FadeIn } from '@renderer/components/animate-ui'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useTerminalStore } from '@renderer/stores/terminal-store'
 import { useSshStore } from '@renderer/stores/ssh-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -59,6 +62,7 @@ function StatusDot({
 
 export function TerminalPanel(): React.JSX.Element {
   const [sshPickerOpen, setSshPickerOpen] = useState(false)
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
 
   const localTabs = useTerminalStore((s) => s.tabs)
   const localActiveTabId = useTerminalStore((s) => s.activeTabId)
@@ -193,59 +197,94 @@ export function TerminalPanel(): React.JSX.Element {
 
       <div className="flex shrink-0 items-center gap-1 border-b bg-background/70 px-2 py-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden pb-0.5">
-          {tabs.length === 0 ? (
-            <span className="px-2 text-[11px] text-muted-foreground">No terminal sessions yet</span>
-          ) : (
-            tabs.map((tab) => {
-              const isActive = tab.id === activeTab?.id
-              const Icon = tab.icon
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={cn(
-                    'group flex h-8 shrink-0 items-center gap-2 rounded-md border px-2.5 text-left transition-colors',
-                    isActive
-                      ? 'border-primary/30 bg-primary/10 text-foreground'
-                      : 'border-transparent bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-                  )}
-                  onClick={() => handleSetActive(tab)}
-                  title={`${tab.title} · ${tab.meta}`}
-                >
-                  <Icon className="size-3.5 shrink-0" />
-                  <StatusDot status={tab.status} />
-                  <span className="max-w-[120px] truncate text-xs font-medium">{tab.title}</span>
-                  <Badge
-                    variant="secondary"
-                    className="h-4 shrink-0 rounded px-1.5 text-[9px] font-medium tracking-wide"
+          <AnimatePresence initial={false}>
+            {tabs.length === 0 ? (
+              <motion.span
+                key="terminal-tabs-empty"
+                initial={animationsEnabled ? { opacity: 0 } : false}
+                animate={{ opacity: 1 }}
+                exit={animationsEnabled ? { opacity: 0 } : undefined}
+                transition={{ duration: animationsEnabled ? 0.15 : 0 }}
+                className="px-2 text-[11px] text-muted-foreground"
+              >
+                No terminal sessions yet
+              </motion.span>
+            ) : (
+              tabs.map((tab) => {
+                const isActive = tab.id === activeTab?.id
+                const Icon = tab.icon
+                return (
+                  <motion.button
+                    key={tab.id}
+                    layout={animationsEnabled ? 'position' : false}
+                    initial={animationsEnabled ? { opacity: 0, scale: 0.95 } : false}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={animationsEnabled ? { opacity: 0, scale: 0.95 } : undefined}
+                    transition={
+                      animationsEnabled
+                        ? { type: 'spring', stiffness: 400, damping: 30 }
+                        : { duration: 0 }
+                    }
+                    type="button"
+                    className={cn(
+                      'group relative flex h-8 shrink-0 items-center rounded-md border border-transparent px-2.5 text-left transition-colors',
+                      isActive
+                        ? 'text-foreground'
+                        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                    )}
+                    onClick={() => handleSetActive(tab)}
+                    title={`${tab.title} · ${tab.meta}`}
                   >
-                    {tab.badge}
-                  </Badge>
-                  <span className="max-w-[96px] truncate text-[10px] text-muted-foreground/80">
-                    {tab.meta}
-                  </span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="ml-0.5 shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-muted/70 hover:text-foreground"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      void handleClose(tab)
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== 'Enter' && event.key !== ' ') return
-                      event.preventDefault()
-                      event.stopPropagation()
-                      void handleClose(tab)
-                    }}
-                    title="Close terminal"
-                  >
-                    <X className="size-3" />
-                  </span>
-                </button>
-              )
-            })
-          )}
+                    {isActive && (
+                      <motion.div
+                        layoutId={animationsEnabled ? 'terminal-tab-active' : undefined}
+                        transition={
+                          animationsEnabled
+                            ? { type: 'spring', stiffness: 400, damping: 32 }
+                            : { duration: 0 }
+                        }
+                        className="absolute inset-0 rounded-md border border-primary/30 bg-primary/10"
+                      />
+                    )}
+                    <span className="relative z-10 flex items-center gap-2">
+                      <Icon className="size-3.5 shrink-0" />
+                      <StatusDot status={tab.status} />
+                      <span className="max-w-[120px] truncate text-xs font-medium">
+                        {tab.title}
+                      </span>
+                      <Badge
+                        variant="secondary"
+                        className="h-4 shrink-0 rounded px-1.5 text-[9px] font-medium tracking-wide"
+                      >
+                        {tab.badge}
+                      </Badge>
+                      <span className="max-w-[96px] truncate text-[10px] text-muted-foreground/80">
+                        {tab.meta}
+                      </span>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="ml-0.5 shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-muted/70 hover:text-foreground"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void handleClose(tab)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Enter' && event.key !== ' ') return
+                          event.preventDefault()
+                          event.stopPropagation()
+                          void handleClose(tab)
+                        }}
+                        title="Close terminal"
+                      >
+                        <X className="size-3" />
+                      </span>
+                    </span>
+                  </motion.button>
+                )
+              })
+            )}
+          </AnimatePresence>
         </div>
 
         <DropdownMenu>
@@ -317,7 +356,7 @@ export function TerminalPanel(): React.JSX.Element {
             </div>
           ))
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-xs text-muted-foreground">
+          <FadeIn className="flex h-full flex-col items-center justify-center gap-3 text-xs text-muted-foreground">
             <SquareTerminal className="size-10 text-muted-foreground/40" />
             <div>Select a terminal to get started</div>
             <div className="flex items-center gap-2">
@@ -335,7 +374,7 @@ export function TerminalPanel(): React.JSX.Element {
                 SSH terminal
               </Button>
             </div>
-          </div>
+          </FadeIn>
         )}
       </div>
 

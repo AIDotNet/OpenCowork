@@ -446,18 +446,6 @@
       "copied": "Copie",
       "copyImage": "Copia immagine a clipboard"
     },
-    "submitReport": {
-      "submitted": "Relazione presentata",
-      "submitting": "Presentazione del rapporto",
-      "live": "dal vivo",
-      "preview": "anteprima",
-      "copy": "Rapporto di copia",
-      "chars": "chars",
-      "lines": "linee",
-      "blocks": "blocchi",
-      "previewContinues": "Anteprima continua come il report streams in...",
-      "waiting": "Aspettando il testo del rapporto..."
-    },
     "taskList": "Elenco delle attività",
     "tasksDone": "{{completed}} / {{total}} Fatto",
     "content": "Contenuto",

@@ -446,18 +446,6 @@
       "copied": "kopiert",
       "copyImage": "Kopieren des Bildes in die Zwischenablage"
     },
-    "submitReport": {
-      "submitted": "Vorgelegter Bericht",
-      "submitting": "Übermittlung des Berichts",
-      "live": "lebend",
-      "preview": "Vorschau",
-      "copy": "Kopierbericht",
-      "chars": "Baumkohl",
-      "lines": "Linien",
-      "blocks": "Blöcke",
-      "previewContinues": "Die Vorschau wird fortgesetzt, während der Bericht in...",
-      "waiting": "Warten auf Berichtstext..."
-    },
     "taskList": "Aufgabenliste",
     "tasksDone": "{{completed}} / {{total}} fertig",
     "content": "Inhalt",

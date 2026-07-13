@@ -187,7 +187,7 @@ function MessageItemInner({
             sessionId={sessionId}
             sessionAssistantMessageIds={sessionAssistantMessageIds}
             sessionToolUseIds={sessionToolUseIds}
-            showRetry
+            showRetry={renderMode !== 'transcript'}
             showContinue={showContinue && isLastAssistantMessage}
             isLastAssistantMessage={isLastAssistantMessage}
             onRetry={onRetryAssistantMessage}

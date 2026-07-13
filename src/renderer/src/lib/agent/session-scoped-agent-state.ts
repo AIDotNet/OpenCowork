@@ -103,6 +103,7 @@ function buildSubAgentRenderSignature(
     agent.name,
     agent.isRunning ? '1' : '0',
     agent.success === null ? '' : agent.success ? '1' : '0',
+    agent.endReason ?? '',
     agent.errorMessage ?? '',
     String(agent.iteration),
     String(agent.startedAt),
@@ -115,6 +116,8 @@ function buildSubAgentRenderSignature(
     agent.requestModel?.modelId ?? '',
     agent.requestModel?.modelName ?? '',
     agent.requestModel?.modelIcon ?? '',
+    agent.mcpServerIds?.join(',') ?? '',
+    agent.permissionMode ?? '',
     String(agent.toolCalls.length),
     buildToolCallStatusSignature(agent.toolCalls)
   ]

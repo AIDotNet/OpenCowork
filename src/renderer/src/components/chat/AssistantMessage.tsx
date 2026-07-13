@@ -33,6 +33,7 @@ import {
   CircleHelp
 } from 'lucide-react'
 import { FadeIn, ScaleIn } from '@renderer/components/animate-ui'
+import { AnimatePresence, motion } from 'motion/react'
 import { cn } from '@renderer/lib/utils'
 import { WebSearchBlock } from './WebSearchBlock'
 import { ImageGeneratingLoader } from './ImageGeneratingLoader'
@@ -1676,6 +1677,7 @@ export function AssistantMessage({
 }: AssistantMessageProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const devMode = useSettingsStore((s) => s.devMode)
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const liveOutputAnimationStyle = useSettingsStore((s) => s.liveOutputAnimationStyle)
   const liveComponentClassName = isStreaming
     ? getLiveOutputComponentClass(liveOutputAnimationStyle)
@@ -1864,7 +1866,7 @@ export function AssistantMessage({
     return map
   }, [isStreaming, liveToolCalls, liveToolCallMap])
   const orchestrationAnchorIndex = useMemo(() => {
-    if (!normalizedContent || !orchestrationRun) return -1
+    if (!normalizedContent || orchestrationRun?.kind !== 'team') return -1
     return normalizedContent.findIndex(
       (block) =>
         block.type === 'tool_use' && block.name === TASK_TOOL_NAME && !block.input.run_in_background
@@ -1872,16 +1874,18 @@ export function AssistantMessage({
   }, [normalizedContent, orchestrationRun])
   const outlineHiddenToolUseIds = useMemo(() => {
     if (!hiddenToolUseIds) return undefined
-    const anchorBlock =
-      orchestrationAnchorIndex >= 0 ? normalizedContent?.[orchestrationAnchorIndex] : null
-    if (!anchorBlock || anchorBlock.type !== 'tool_use' || !hiddenToolUseIds.has(anchorBlock.id)) {
-      return hiddenToolUseIds
-    }
 
+    // Orchestration summaries may hide their source Task calls. Task calls are also the
+    // chronological anchors for SubAgentCard, so keep every one visible and only let the
+    // orchestration layer hide non-Task team events.
     const ids = new Set(hiddenToolUseIds)
-    ids.delete(anchorBlock.id)
-    return ids
-  }, [hiddenToolUseIds, normalizedContent, orchestrationAnchorIndex])
+    for (const block of normalizedContent ?? []) {
+      if (block.type === 'tool_use' && block.name === TASK_TOOL_NAME) {
+        ids.delete(block.id)
+      }
+    }
+    return ids.size === hiddenToolUseIds.size ? hiddenToolUseIds : ids
+  }, [hiddenToolUseIds, normalizedContent])
   const trackedChangeByToolUseId = useMemo(() => {
     const map = new Map<string, AgentRunFileChange>()
     for (const change of runChangeSet?.changes ?? []) {
@@ -2276,11 +2280,11 @@ export function AssistantMessage({
       }
       if (hiddenToolUseIds?.has(block.id)) {
         const isOrchestrationAnchor =
-          orchestrationRun &&
+          orchestrationRun?.kind === 'team' &&
           block.name === TASK_TOOL_NAME &&
           !block.input.run_in_background &&
           blockIndex === orchestrationAnchorIndex
-        if (!isOrchestrationAnchor) return null
+        if (block.name !== TASK_TOOL_NAME && !isOrchestrationAnchor) return null
       }
       if (block.name === 'AskUserQuestion') {
         const result = toolResults?.get(block.id)
@@ -2346,39 +2350,26 @@ export function AssistantMessage({
         )
       }
       if (block.name === TASK_TOOL_NAME) {
-        if (block.input.run_in_background) {
-          const result = toolResults?.get(block.id)
-          return (
-            <FadeIn key={key} className={liveFadeInClassName}>
-              <TeamEventCard
+        const result = toolResults?.get(block.id)
+        return (
+          <React.Fragment key={key}>
+            {orchestrationRun?.kind === 'team' && blockIndex === orchestrationAnchorIndex ? (
+              <FadeIn className={liveFadeInClassName}>
+                <OrchestrationBlock run={orchestrationRun} />
+              </FadeIn>
+            ) : null}
+            <ScaleIn className={liveScaleInClassName}>
+              <SubAgentCard
                 name={block.name}
+                toolUseId={block.id}
                 input={block.input}
                 output={result?.content}
-                status={executionItem?.status}
-                error={executionItem?.error}
+                isLive={!!isStreaming}
+                sessionId={sessionId}
+                isBackground={block.input.run_in_background === true}
               />
-            </FadeIn>
-          )
-        }
-        const result = toolResults?.get(block.id)
-        if (orchestrationRun) {
-          return blockIndex === orchestrationAnchorIndex ? (
-            <FadeIn key={key} className={liveFadeInClassName}>
-              <OrchestrationBlock run={orchestrationRun} />
-            </FadeIn>
-          ) : null
-        }
-        return (
-          <ScaleIn key={key} className={liveScaleInClassName}>
-            <SubAgentCard
-              name={block.name}
-              toolUseId={block.id}
-              input={block.input}
-              output={result?.content}
-              isLive={!!isStreaming}
-              sessionId={sessionId}
-            />
-          </ScaleIn>
+            </ScaleIn>
+          </React.Fragment>
         )
       }
       if (['Write', 'Edit', 'Delete'].includes(block.name)) {
@@ -2597,7 +2588,7 @@ export function AssistantMessage({
 
     return (
       <div className="space-y-2">
-        {orchestrationRun && orchestrationAnchorIndex < 0 ? (
+        {orchestrationRun?.kind === 'team' && orchestrationAnchorIndex < 0 ? (
           <OrchestrationBlock run={orchestrationRun} />
         ) : null}
         {renderItemsWithInlineSummaries.map((item) => {
@@ -3073,31 +3064,40 @@ export function AssistantMessage({
   return (
     <div className="group/msg flex flex-col">
       <div className="min-w-0 overflow-hidden pl-1.5 sm:pl-2">
-        {requestRetryState && (
-          <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-            <RotateCcw className="mt-0.5 size-3.5 shrink-0 animate-spin" />
-            <div className="min-w-0">
-              <div className="font-medium">
-                {t('assistantMessage.retryingRequest', {
-                  defaultValue: 'Request retrying'
-                })}
+        <AnimatePresence>
+          {requestRetryState && (
+            <motion.div
+              key="request-retry"
+              initial={animationsEnabled ? { opacity: 0, y: 4 } : false}
+              animate={{ opacity: 1, y: 0 }}
+              exit={animationsEnabled ? { opacity: 0 } : undefined}
+              transition={animationsEnabled ? { duration: 0.15, ease: 'easeOut' } : { duration: 0 }}
+              className="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+            >
+              <RotateCcw className="mt-0.5 size-3.5 shrink-0 animate-spin" />
+              <div className="min-w-0">
+                <div className="font-medium">
+                  {t('assistantMessage.retryingRequest', {
+                    defaultValue: 'Request retrying'
+                  })}
+                </div>
+                <div className="mt-0.5 break-words text-[11px] text-amber-700/80 dark:text-amber-200/80">
+                  {t('assistantMessage.retryingRequestDetail', {
+                    defaultValue:
+                      'Attempt {{attempt}} / {{maxAttempts}} retry, resend after {{delay}}{{statusSuffix}}',
+                    attempt: requestRetryState.attempt,
+                    maxAttempts: requestRetryState.maxAttempts,
+                    delay: formatRetryDelay(requestRetryState.delayMs),
+                    statusSuffix: requestRetryState.statusCode
+                      ? `, status code ${requestRetryState.statusCode}`
+                      : ''
+                  })}
+                  {requestRetryState.reason ? ` · ${requestRetryState.reason}` : ''}
+                </div>
               </div>
-              <div className="mt-0.5 break-words text-[11px] text-amber-700/80 dark:text-amber-200/80">
-                {t('assistantMessage.retryingRequestDetail', {
-                  defaultValue:
-                    'Attempt {{attempt}} / {{maxAttempts}} retry, resend after {{delay}}{{statusSuffix}}',
-                  attempt: requestRetryState.attempt,
-                  maxAttempts: requestRetryState.maxAttempts,
-                  delay: formatRetryDelay(requestRetryState.delayMs),
-                  statusSuffix: requestRetryState.statusCode
-                    ? `, status code ${requestRetryState.statusCode}`
-                    : ''
-                })}
-                {requestRetryState.reason ? ` · ${requestRetryState.reason}` : ''}
-              </div>
-            </div>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
         {collapsed ? (
           <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
             <div className="max-h-10 overflow-hidden whitespace-pre-wrap break-words">
@@ -3107,7 +3107,7 @@ export function AssistantMessage({
         ) : (
           <>
             {renderContent()}
-            {!isStreaming && completionSummary && (
+            {!isStreaming && renderMode !== 'transcript' && completionSummary && (
               <CompletionSummaryBar summary={completionSummary} />
             )}
           </>

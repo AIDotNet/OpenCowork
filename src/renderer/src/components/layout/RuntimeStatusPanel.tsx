@@ -19,6 +19,7 @@ import { IPC } from '@renderer/lib/ipc/channels'
 import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
 import { cn } from '@renderer/lib/utils'
 import { useChatStore } from '@renderer/stores/chat-store'
+import { useAgentStore } from '@renderer/stores/agent-store'
 import type { GitStatusDetailed } from '@renderer/stores/git-store'
 import {
   getCachedInputDraft,
@@ -31,7 +32,10 @@ import { useTeamStore } from '@renderer/stores/team-store'
 import { useTerminalStore, type LocalTerminalSession } from '@renderer/stores/terminal-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import type { TeamTask } from '@renderer/lib/agent/teams/types'
+import { selectSessionScopedAgentState } from '@renderer/lib/agent/session-scoped-agent-state'
 import { toMessagePackChannel } from '../../../../shared/messagepack/binary-ipc'
+import { EMPTY_SESSION_MESSAGES, mergeSessionSubAgents } from './sub-agent-run-data'
+import { getAgentIcon, getAgentIconTone } from './sub-agent-visuals'
 
 const EMPTY_TASKS: TaskItem[] = []
 const RUNTIME_GIT_SUMMARY_CACHE_MS = 5_000
@@ -349,7 +353,29 @@ export function RuntimeStatusPanel({
   )
   const rightPanelOpen = useUIStore((state) => state.rightPanelOpen)
   const runtimeStatusPanelOpen = useUIStore((state) => state.runtimeStatusPanelOpen)
+  const openSubAgentsPanel = useUIStore((state) => state.openSubAgentsPanel)
   const visible = Boolean(resolvedSessionId && runtimeStatusPanelOpen && !rightPanelOpen)
+  const sessionMessages = useChatStore((state) =>
+    resolvedSessionId ? state.getSessionMessages(resolvedSessionId) : EMPTY_SESSION_MESSAGES
+  )
+  const { activeSubAgents, completedSubAgents, subAgentHistory } = useAgentStore((state) =>
+    selectSessionScopedAgentState(state, resolvedSessionId)
+  )
+  const subAgents = React.useMemo(
+    () =>
+      mergeSessionSubAgents({
+        sessionId: resolvedSessionId,
+        messages: sessionMessages,
+        activeSubAgents,
+        completedSubAgents,
+        subAgentHistory
+      }),
+    [activeSubAgents, completedSubAgents, resolvedSessionId, sessionMessages, subAgentHistory]
+  )
+  const runningSubAgentCount = subAgents.filter(
+    (agent) => agent.isRunning || Boolean(agent.isQueued)
+  ).length
+  const completedSubAgentCount = subAgents.length - runningSubAgentCount
   const [sourceFiles, setSourceFiles] = React.useState(() =>
     resolvedSessionId
       ? (getCachedInputDraft(getSessionInputDraftKey(resolvedSessionId))?.selectedFiles ?? [])
@@ -525,6 +551,56 @@ export function RuntimeStatusPanel({
           />
         </div>
       </section>
+
+      {subAgents.length > 0 ? (
+        <>
+          <div className="h-px bg-border/70" />
+          <section className="space-y-2">
+            <h3 className="text-xs font-medium text-muted-foreground">
+              {t('runtimeStatus.subAgents', { defaultValue: 'SubAgents' })}
+            </h3>
+            <button
+              type="button"
+              onClick={() => openSubAgentsPanel(null, resolvedSessionId)}
+              className="group flex w-full items-center gap-2 rounded-md px-0.5 py-0.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <span className="flex min-w-0 items-center -space-x-1">
+                {subAgents.slice(0, 4).map((agent) => {
+                  const displayName = agent.displayName ?? agent.name
+                  return (
+                    <span
+                      key={agent.toolUseId}
+                      className={cn(
+                        'flex size-5 items-center justify-center rounded-full border border-background bg-muted text-[10px]',
+                        getAgentIconTone(displayName),
+                        (agent.success === false || agent.errorMessage) && 'text-destructive'
+                      )}
+                      title={displayName}
+                    >
+                      {getAgentIcon(displayName)}
+                    </span>
+                  )
+                })}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground/80 transition-colors group-hover:text-foreground">
+                {runningSubAgentCount > 0
+                  ? t('runtimeStatus.subAgentsRunning', {
+                      defaultValue: '{{count}} running',
+                      count: runningSubAgentCount
+                    })
+                  : null}
+                {runningSubAgentCount > 0 && completedSubAgentCount > 0 ? ' · ' : null}
+                {completedSubAgentCount > 0
+                  ? t('runtimeStatus.subAgentsCompleted', {
+                      defaultValue: '{{count}} completed',
+                      count: completedSubAgentCount
+                    })
+                  : null}
+              </span>
+            </button>
+          </section>
+        </>
+      ) : null}
 
       <div className="h-px bg-border/70" />
 

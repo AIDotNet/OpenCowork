@@ -12,7 +12,7 @@ import type { CompressionConfig } from '../agent/context-compression'
 import { toolRegistry } from '../agent/tool-registry'
 import { resolveProviderUserAgent } from '../api/api-user-agent'
 import { summarizeToolInputForHistory } from '../tools/tool-input-sanitizer'
-import { useSettingsStore } from '@renderer/stores/settings-store'
+import { clampMaxConcurrentSubAgents, useSettingsStore } from '@renderer/stores/settings-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import {
   toPermissionPolicySnapshot,
@@ -228,7 +228,9 @@ export interface SidecarAgentRunRequest {
   workingFolder?: string
   maxIterations: number
   forceApproval: boolean
+  permissionMode: 'default' | 'whitelist' | 'fullAccess'
   maxParallelTools?: number
+  maxConcurrentSubAgents: number
   compression?: CompressionConfig
   sessionMode?: 'agent' | 'chat'
   planMode?: boolean
@@ -635,7 +637,9 @@ export function buildSidecarAgentRunRequest(args: {
     .map(mapSidecarTool)
   // Global settings snapshot, applied to every run this module builds (incl. sub-agents,
   // which inherit the parent's parameters in the native worker).
-  const permissionPolicy = toPermissionPolicySnapshot(useSettingsStore.getState().permissionPolicy)
+  const settings = useSettingsStore.getState()
+  const permissionPolicy = toPermissionPolicySnapshot(settings.permissionPolicy)
+  const maxConcurrentSubAgents = clampMaxConcurrentSubAgents(settings.maxConcurrentSubAgents)
   const imagePluginProvider = args.imagePluginProvider
     ? mapSidecarProvider(args.imagePluginProvider)
     : null
@@ -673,7 +677,13 @@ export function buildSidecarAgentRunRequest(args: {
     ...(args.compression ? { compression: args.compression } : {}),
     maxIterations: args.maxIterations,
     forceApproval: args.forceApproval,
+    permissionMode: settings.autoApprove
+      ? 'fullAccess'
+      : permissionPolicy
+        ? 'whitelist'
+        : 'default',
     ...(maxParallelTools !== undefined ? { maxParallelTools } : {}),
+    maxConcurrentSubAgents,
     ...(args.sessionMode ? { sessionMode: args.sessionMode } : {}),
     ...(args.planMode ? { planMode: true } : {}),
     ...(args.planModeAllowedTools && args.planModeAllowedTools.length > 0

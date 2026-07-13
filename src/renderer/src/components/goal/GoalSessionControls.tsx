@@ -27,7 +27,9 @@ import {
 import { Input } from '@renderer/components/ui/input'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
+import { CollapsibleHeightPanel } from '@renderer/components/chat/CollapsibleHeightPanel'
 import { cn } from '@renderer/lib/utils'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import {
   formatGoalElapsedSeconds,
   formatGoalTokens,
@@ -577,6 +579,7 @@ export function GoalSessionBar({
   const { goal, events } = useGoalSession(sessionId)
   const actions = useGoalActions(sessionId, goal)
   const [expanded, setExpanded] = React.useState(true)
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const activeRunStartedAt = useGoalStore((s) => {
     if (!sessionId || !goal) return null
     const activeRun = s.activeGoalRunsBySession[sessionId]
@@ -624,10 +627,22 @@ export function GoalSessionBar({
                   {formatGoalElapsedSeconds(liveTimeUsedSeconds)}
                 </span>
               </div>
-              {expanded && (
-                <p className="mt-1 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
-                  {goal.objective}
-                </p>
+              {animationsEnabled ? (
+                <CollapsibleHeightPanel
+                  open={expanded}
+                  className="overflow-hidden"
+                  contentClassName="pt-1"
+                >
+                  <p className="line-clamp-4 whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+                    {goal.objective}
+                  </p>
+                </CollapsibleHeightPanel>
+              ) : (
+                expanded && (
+                  <p className="mt-1 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+                    {goal.objective}
+                  </p>
+                )
               )}
             </div>
             <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground">

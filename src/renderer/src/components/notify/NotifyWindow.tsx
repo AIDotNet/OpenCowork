@@ -1,40 +1,27 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
 import { Bell, X, CheckCircle2, AlertCircle, Info, XCircle, Pin } from 'lucide-react'
 import { useNotifyStore, type NotifyItem, type NotifyType } from '@renderer/stores/notify-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 
 // ── Single toast card ──────────────────────────────────────────────
 
-function ToastCard({ item }: { item: NotifyItem }): React.JSX.Element {
+// forwardRef so AnimatePresence mode="popLayout" can measure/pop the card.
+const ToastCard = forwardRef<HTMLDivElement, { item: NotifyItem }>(function ToastCard(
+  { item },
+  ref
+) {
   const dismiss = useNotifyStore((s) => s.dismiss)
-  const [visible, setVisible] = useState(false)
-  const [progress, setProgress] = useState(100)
-  const closingRef = useRef(false)
-
-  useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 30)
-    return () => clearTimeout(t)
-  }, [])
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
 
   useEffect(() => {
     if (item.persistent) return // Don't auto-dismiss persistent notifications
-    const start = Date.now()
-    const interval = setInterval(() => {
-      const pct = Math.max(0, 100 - ((Date.now() - start) / item.duration) * 100)
-      setProgress(pct)
-      if (pct <= 0) clearInterval(interval)
-    }, 16)
-    const timer = setTimeout(() => handleClose(), item.duration)
-    return () => {
-      clearInterval(interval)
-      clearTimeout(timer)
-    }
-  }, [])
+    const timer = setTimeout(() => dismiss(item.id), item.duration)
+    return () => clearTimeout(timer)
+  }, [item.id, item.duration, item.persistent, dismiss])
 
   const handleClose = (): void => {
-    if (closingRef.current) return
-    closingRef.current = true
-    setVisible(false)
-    setTimeout(() => dismiss(item.id), 350)
+    dismiss(item.id)
   }
 
   const icons: Record<NotifyType, React.ReactNode> = {
@@ -63,13 +50,14 @@ function ToastCard({ item }: { item: NotifyItem }): React.JSX.Element {
   }
 
   return (
-    <div
-      style={{
-        transition: 'opacity 0.3s ease, transform 0.3s ease',
-        opacity: visible ? 1 : 0,
-        transform: visible ? 'translateX(0) scale(1)' : 'translateX(24px) scale(0.96)',
-        willChange: 'transform, opacity'
-      }}
+    <motion.div
+      ref={ref}
+      layout={animationsEnabled}
+      initial={animationsEnabled ? { opacity: 0, x: 24, scale: 0.96 } : false}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={animationsEnabled ? { opacity: 0, x: 24, scale: 0.96 } : undefined}
+      transition={animationsEnabled ? { duration: 0.3, ease: 'easeOut' } : { duration: 0 }}
+      style={{ pointerEvents: 'auto' }}
     >
       <div
         className={[
@@ -137,16 +125,18 @@ function ToastCard({ item }: { item: NotifyItem }): React.JSX.Element {
         {/* Progress bar (hidden for persistent) */}
         {!item.persistent && (
           <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-white/5">
-            <div
+            <motion.div
               className={`h-full ${bars[item.type]}`}
-              style={{ width: `${progress}%`, transition: 'none' }}
+              initial={{ width: '100%' }}
+              animate={{ width: '0%' }}
+              transition={{ duration: item.duration / 1000, ease: 'linear' }}
             />
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
   )
-}
+})
 
 // ── Toast container (rendered in App) ─────────────────────────────
 
@@ -165,11 +155,11 @@ export function NotifyToastContainer(): React.JSX.Element {
         pointerEvents: 'none'
       }}
     >
-      {items.map((item) => (
-        <div key={item.id} style={{ pointerEvents: 'auto' }}>
-          <ToastCard item={item} />
-        </div>
-      ))}
+      <AnimatePresence mode="popLayout">
+        {items.map((item) => (
+          <ToastCard key={item.id} item={item} />
+        ))}
+      </AnimatePresence>
     </div>
   )
 }

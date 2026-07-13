@@ -446,18 +446,6 @@
       "copied": "gekopieerd",
       "copyImage": "Afbeelding naar klembord kopiëren"
     },
-    "submitReport": {
-      "submitted": "Verslag ingediend",
-      "submitting": "Verslag indienen",
-      "live": "levend",
-      "preview": "voorbeeld",
-      "copy": "Rapport kopiëren",
-      "chars": "tekens",
-      "lines": "regels",
-      "blocks": "blokken",
-      "previewContinues": "Preview gaat verder als het rapport stroomt in...",
-      "waiting": "Wachten op bericht..."
-    },
     "taskList": "Takenlijst",
     "tasksDone": "{{completed}} ' {{total}} klaar",
     "content": "Inhoud",

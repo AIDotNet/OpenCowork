@@ -734,6 +734,18 @@ function mapToStreamEvent(raw: Record<string, unknown>): AgentStreamEvent | null
         type: 'sub_agent_start',
         subAgentName: str(raw.subAgentName),
         toolUseId: str(raw.toolUseId),
+        ...(Array.isArray(raw.mcpServerIds)
+          ? {
+              mcpServerIds: raw.mcpServerIds.filter(
+                (serverId): serverId is string => typeof serverId === 'string' && !!serverId.trim()
+              )
+            }
+          : {}),
+        ...(raw.permissionMode === 'default' ||
+        raw.permissionMode === 'whitelist' ||
+        raw.permissionMode === 'fullAccess'
+          ? { permissionMode: raw.permissionMode }
+          : {}),
         input: rec(raw.input),
         promptMessage
       }
@@ -894,6 +906,12 @@ function mapToStreamEvent(raw: Record<string, unknown>): AgentStreamEvent | null
     }
     case 'sub_agent_end': {
       const result = rec(raw.result)
+      const endReason = result.endReason
+      const messages = Array.isArray(result.messages)
+        ? result.messages
+            .map((message) => mapMessage(message))
+            .filter((message): message is MessageWire => message !== null)
+        : undefined
       return {
         type: 'sub_agent_end',
         subAgentName: str(raw.subAgentName),
@@ -906,6 +924,13 @@ function mapToStreamEvent(raw: Record<string, unknown>): AgentStreamEvent | null
             : {}),
           toolCallCount: num(result.toolCallCount),
           iterations: num(result.iterations),
+          ...(endReason === 'completed' ||
+          endReason === 'max_iterations' ||
+          endReason === 'aborted' ||
+          endReason === 'error'
+            ? { endReason }
+            : {}),
+          ...(messages && messages.length > 0 ? { messages } : {}),
           usage: (result.usage as TokenUsageWire) ?? { inputTokens: 0, outputTokens: 0 },
           ...(typeof result.error === 'string' ? { error: result.error } : {})
         }

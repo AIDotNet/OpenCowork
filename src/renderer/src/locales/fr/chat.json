@@ -446,18 +446,6 @@
       "copied": "Copié",
       "copyImage": "Copier l'image dans le presse-papiers"
     },
-    "submitReport": {
-      "submitted": "Rapport présenté",
-      "submitting": "Présentation du rapport",
-      "live": "vivant",
-      "preview": "aperçu",
-      "copy": "Copier le rapport",
-      "chars": "Chars",
-      "lines": "lignes",
-      "blocks": "blocs",
-      "previewContinues": "La prévisualisation se poursuit alors que le rapport s'affiche dans...",
-      "waiting": "En attendant le texte du rapport..."
-    },
     "taskList": "Liste des tâches",
     "tasksDone": "{{completed}} / {{total}} Fait",
     "content": "Contenu",

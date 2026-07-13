@@ -446,18 +446,6 @@
       "copied": "Copiado",
       "copyImage": "Copiar imagem para a área de transferência"
     },
-    "submitReport": {
-      "submitted": "Relatório apresentado",
-      "submitting": "Apresentação do relatório",
-      "live": "vivo",
-      "preview": "visualização",
-      "copy": "Copiar relatório",
-      "chars": "caracteres",
-      "lines": "linhas",
-      "blocks": "blocos",
-      "previewContinues": "A antevisão continua à medida que o relatório é transmitido em...",
-      "waiting": "À espera do texto do relatório..."
-    },
     "taskList": "Lista de tarefas",
     "tasksDone": "{{completed}} / {{total}} feito",
     "content": "Conteúdo",

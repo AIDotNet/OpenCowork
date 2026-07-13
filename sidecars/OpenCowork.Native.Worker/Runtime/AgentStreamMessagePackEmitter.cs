@@ -72,6 +72,8 @@ internal static class AgentStreamMessagePackEmitter
         WriteOptionalMessages(writer, streamEvent.Messages);
         WriteOptionalString(writer, "subAgentName", streamEvent.SubAgentName);
         WriteOptionalString(writer, "toolUseId", streamEvent.ToolUseId);
+        WriteOptionalStrings(writer, "mcpServerIds", streamEvent.McpServerIds);
+        WriteOptionalString(writer, "permissionMode", streamEvent.PermissionMode);
         WriteOptionalJson(writer, "input", streamEvent.Input);
         WriteOptionalJson(writer, "promptMessage", streamEvent.PromptMessage);
         WriteOptionalJson(writer, "assistantMessage", streamEvent.AssistantMessage);
@@ -121,6 +123,8 @@ internal static class AgentStreamMessagePackEmitter
         if (streamEvent.Messages is not null) count++;
         if (streamEvent.SubAgentName is not null) count++;
         if (streamEvent.ToolUseId is not null) count++;
+        if (streamEvent.McpServerIds is not null) count++;
+        if (streamEvent.PermissionMode is not null) count++;
         if (HasJson(streamEvent.Input)) count++;
         if (HasJson(streamEvent.PromptMessage)) count++;
         if (HasJson(streamEvent.AssistantMessage)) count++;
@@ -166,6 +170,17 @@ internal static class AgentStreamMessagePackEmitter
         if (value is null) return;
         writer.WriteString(name);
         writer.WriteString(value);
+    }
+
+    private static void WriteOptionalStrings(MessagePackWriter writer, string name, string[]? values)
+    {
+        if (values is null) return;
+        writer.WriteString(name);
+        writer.WriteArrayHeader(values.Length);
+        foreach (var value in values)
+        {
+            writer.WriteString(value);
+        }
     }
 
     private static void WriteOptionalJson(MessagePackWriter writer, string name, JsonElement? value)

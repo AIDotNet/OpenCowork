@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Play, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { AnimatePresence, motion } from 'motion/react'
 import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
 import { Badge } from '@renderer/components/ui/badge'
@@ -397,61 +398,76 @@ export function AutoMemoryPanel({
             {t('memory.auto.empty', { defaultValue: 'No auto memory records yet.' })}
           </p>
         ) : (
-          entries.map((entry) => (
-            <div
-              key={entry.id}
-              className="grid gap-2 rounded-md border border-border/60 bg-background/70 p-3"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <Badge variant={statusVariant(entry.status)}>
-                    {formatStatusLabel(t, entry.status)}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {formatKindLabel(t, entry.kind)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatTargetLabel(t, entry.target)}
-                  </span>
-                  {entry.rootScope && (
-                    <Badge variant="outline" className="text-[10px]">
-                      {entry.rootScope}
-                    </Badge>
-                  )}
-                </div>
-                <span className="text-[11px] text-muted-foreground">{formatEntryTime(entry)}</span>
-              </div>
-              <p className="text-sm leading-5 text-foreground/90">{entry.content}</p>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="min-w-0 break-all text-[11px] text-muted-foreground">
-                  {entry.filterReason
-                    ? `${formatFilterReasonLabel(t, entry.filterReason)}${
-                        entry.error ? `: ${entry.error}` : ''
-                      }`
-                    : entry.memoryRootId
-                      ? `${entry.memoryRootId}${entry.targetPath ? ` / ${entry.targetPath}` : ''}`
-                      : entry.targetPath ||
-                      t('memory.auto.noTargetPath', { defaultValue: 'No target path' })}
-                </p>
-                {entry.status === 'written' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => void handleUndo(entry)}
-                    disabled={undoingId === entry.id}
-                  >
-                    {undoingId === entry.id ? (
-                      <Loader2 className="mr-1.5 size-3 animate-spin" />
-                    ) : (
-                      <RotateCcw className="mr-1.5 size-3" />
+          <AnimatePresence initial={false}>
+            {entries.map((entry) => (
+              <motion.div
+                key={entry.id}
+                layout={settings.animationsEnabled}
+                initial={settings.animationsEnabled ? { opacity: 0, height: 0 } : false}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={settings.animationsEnabled ? { opacity: 0, height: 0 } : undefined}
+                transition={
+                  settings.animationsEnabled
+                    ? { duration: 0.2, ease: 'easeInOut' }
+                    : { duration: 0 }
+                }
+                className="overflow-hidden"
+              >
+                <div className="grid gap-2 rounded-md border border-border/60 bg-background/70 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <Badge variant={statusVariant(entry.status)}>
+                        {formatStatusLabel(t, entry.status)}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {formatKindLabel(t, entry.kind)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatTargetLabel(t, entry.target)}
+                      </span>
+                      {entry.rootScope && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {entry.rootScope}
+                        </Badge>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">
+                      {formatEntryTime(entry)}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-5 text-foreground/90">{entry.content}</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="min-w-0 break-all text-[11px] text-muted-foreground">
+                      {entry.filterReason
+                        ? `${formatFilterReasonLabel(t, entry.filterReason)}${
+                            entry.error ? `: ${entry.error}` : ''
+                          }`
+                        : entry.memoryRootId
+                          ? `${entry.memoryRootId}${entry.targetPath ? ` / ${entry.targetPath}` : ''}`
+                          : entry.targetPath ||
+                            t('memory.auto.noTargetPath', { defaultValue: 'No target path' })}
+                    </p>
+                    {entry.status === 'written' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => void handleUndo(entry)}
+                        disabled={undoingId === entry.id}
+                      >
+                        {undoingId === entry.id ? (
+                          <Loader2 className="mr-1.5 size-3 animate-spin" />
+                        ) : (
+                          <RotateCcw className="mr-1.5 size-3" />
+                        )}
+                        {t('memory.auto.undo', { defaultValue: 'Undo' })}
+                      </Button>
                     )}
-                    {t('memory.auto.undo', { defaultValue: 'Undo' })}
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         )}
       </div>
     </section>

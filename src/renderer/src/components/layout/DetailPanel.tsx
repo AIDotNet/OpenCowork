@@ -315,6 +315,16 @@ export function SubAgentExecutionDetailContent({
   }
 
   const status = getSubAgentStatus(agent)
+  const statusLabel =
+    agent.endReason === 'max_iterations'
+      ? t('subAgentsPanel.maxIterations', { defaultValue: 'Iteration limit reached' })
+      : agent.endReason === 'aborted'
+        ? t('subAgentsPanel.aborted', { defaultValue: 'Aborted' })
+        : status === 'running'
+          ? t('subAgentsPanel.running', { defaultValue: 'Running' })
+          : status === 'failed'
+            ? t('status.failed', { ns: 'common', defaultValue: 'Failed' })
+            : t('subAgentsPanel.completed', { defaultValue: 'Completed' })
   const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
   const summary = getSubAgentSummary(agent, inlineText)
   const taskSummary = [agent.description.trim(), agent.prompt.trim()].filter(Boolean).join('\n\n')
@@ -345,11 +355,7 @@ export function SubAgentExecutionDetailContent({
                     'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
                 )}
               >
-                {status === 'running'
-                  ? t('subAgentsPanel.running', { defaultValue: 'Running' })
-                  : status === 'failed'
-                    ? t('status.failed', { ns: 'common', defaultValue: 'Failed' })
-                    : t('subAgentsPanel.completed', { defaultValue: 'Completed' })}
+                {statusLabel}
               </Badge>
               <span className="flex items-center gap-1 text-xs text-muted-foreground/70">
                 <Clock className="size-3.5" />
@@ -503,13 +509,7 @@ export function SubAgentExecutionDetailContent({
                   <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground/55">
                     {t('subAgentsPanel.running', { defaultValue: 'Status' })}
                   </div>
-                  <div className="mt-1 text-foreground/85">
-                    {status === 'running'
-                      ? t('subAgentsPanel.running', { defaultValue: 'Running' })
-                      : status === 'failed'
-                        ? t('status.failed', { ns: 'common', defaultValue: 'Failed' })
-                        : t('subAgentsPanel.completed', { defaultValue: 'Completed' })}
-                  </div>
+                  <div className="mt-1 text-foreground/85">{statusLabel}</div>
                 </div>
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground/55">

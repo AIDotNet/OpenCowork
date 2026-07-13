@@ -81,6 +81,8 @@ internal sealed record AgentRuntimeStreamEvent(
     JsonElement[]? CompactArtifacts = null,
     string? SubAgentName = null,
     string? ToolUseId = null,
+    string[]? McpServerIds = null,
+    string? PermissionMode = null,
     JsonElement? Input = null,
     JsonElement? PromptMessage = null,
     JsonElement? AssistantMessage = null,

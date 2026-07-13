@@ -446,18 +446,6 @@
       "copied": "Disalin",
       "copyImage": "Salin gambar ke papan klip"
     },
-    "submitReport": {
-      "submitted": "Laporan yang diajukan",
-      "submitting": "Mengirimkan laporan",
-      "live": "hidup",
-      "preview": "pratinjau",
-      "copy": "Salin laporan",
-      "chars": "karakter",
-      "lines": "baris",
-      "blocks": "blok",
-      "previewContinues": "Pratilik berlanjut saat laporan mengalir...",
-      "waiting": "Menunggu teks laporan..."
-    },
     "taskList": "Daftar Tugas",
     "tasksDone": "{{completed}} / {{total}} selesai",
     "content": "Isi",

@@ -30,6 +30,23 @@ interface TranscriptMessageRowProps {
   liveToolCallMap?: Map<string, ToolCallState> | null
 }
 
+function isToolOnlyAssistantMessage(message: UnifiedMessage): boolean {
+  if (message.role !== 'assistant' || !Array.isArray(message.content)) return false
+
+  let hasToolUse = false
+  for (const block of message.content) {
+    if (block.type === 'tool_use') {
+      hasToolUse = true
+      continue
+    }
+    if (block.type === 'text' && !block.text.trim()) continue
+    if (block.type === 'thinking' && !block.thinking.trim()) continue
+    return false
+  }
+
+  return hasToolUse
+}
+
 const TranscriptMessageRow = React.memo(function TranscriptMessageRow({
   message,
   isStreaming,
@@ -39,8 +56,10 @@ const TranscriptMessageRow = React.memo(function TranscriptMessageRow({
   sessionId,
   liveToolCallMap
 }: TranscriptMessageRowProps): React.JSX.Element {
+  const isToolOnly = isToolOnlyAssistantMessage(message)
+
   return (
-    <div className="mx-auto max-w-3xl px-4 pb-6">
+    <div className={cn('mx-auto max-w-3xl px-4', isToolOnly ? 'pb-2' : 'pb-7')}>
       <MessageItem
         message={message}
         messageId={message.id}
@@ -67,10 +86,12 @@ function TranscriptMessageListInner({
   autoScrollToBottom = false
 }: TranscriptMessageListProps): React.JSX.Element {
   const scrollRef = React.useRef<HTMLDivElement>(null)
-  const transcriptAnalysis = React.useMemo(
-    () => buildTranscriptStaticAnalysis(messages),
-    [messages, revisionKey]
-  )
+  const transcriptAnalysis = React.useMemo(() => {
+    // SubAgent transcript blocks are updated in place while streaming; the revision signal
+    // intentionally invalidates analysis even when the messages array identity is stable.
+    void revisionKey
+    return buildTranscriptStaticAnalysis(messages)
+  }, [messages, revisionKey])
   const { messageLookup, toolResultsLookup } = transcriptAnalysis
   const renderableMeta = React.useMemo(
     () => buildRenderableMessageMetaFromAnalysis(transcriptAnalysis, streamingMessageId),

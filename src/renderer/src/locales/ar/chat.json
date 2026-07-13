@@ -446,18 +446,6 @@
       "copied": "Copied",
       "copyImage": "صورة مطبوعة للوحة"
     },
-    "submitReport": {
-      "submitted": "التقرير المقدم",
-      "submitting": "التقرير المقدم",
-      "live": "العيش",
-      "preview": "استعراض أولي",
-      "copy": "تقرير نسخ",
-      "chars": "chars",
-      "lines": "خطوط",
-      "blocks": "اللبنات",
-      "previewContinues": "ما زال العرض جارياً في التقرير",
-      "waiting": "في انتظار رسالة"
-    },
     "taskList": "قائمة المهام",
     "tasksDone": "{{completed}} / {{total}} القيام به",
     "content": "المضمون",

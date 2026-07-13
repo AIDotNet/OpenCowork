@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
 import {
@@ -434,6 +435,7 @@ export function SshPage(): React.JSX.Element {
   const theme = useSettingsStore((state) => state.theme)
   const themePreset = useSettingsStore((state) => state.themePreset)
   const sshTerminalThemePreset = useSettingsStore((state) => state.sshTerminalThemePreset)
+  const animationsEnabled = useSettingsStore((state) => state.animationsEnabled)
   const openTabs = useSshStore((state) => state.openTabs)
   const activeTabId = useSshStore((state) => state.activeTabId)
   const sessions = useSshStore((state) => state.sessions)
@@ -826,46 +828,79 @@ export function SshPage(): React.JSX.Element {
           ) : null}
 
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
-            {openTabs.map((tab) => {
-              const active = showTerminalView && tab.id === activeTabId
-              const session = tab.sessionId ? sessions[tab.sessionId] : null
-              const isConnected = session?.status === 'connected'
-              const isConnecting =
-                tab.type === 'terminal' &&
-                (tab.sessionId ? session?.status === 'connecting' : tab.status === 'connecting')
+            <AnimatePresence initial={false}>
+              {openTabs.map((tab) => {
+                const active = showTerminalView && tab.id === activeTabId
+                const session = tab.sessionId ? sessions[tab.sessionId] : null
+                const isConnected = session?.status === 'connected'
+                const isConnecting =
+                  tab.type === 'terminal' &&
+                  (tab.sessionId ? session?.status === 'connecting' : tab.status === 'connecting')
 
-              return (
-                <ChromePill
-                  key={tab.id}
-                  tone={shellTone}
-                  palette={shellPalette}
-                  active={active}
-                  className="max-w-[220px] min-w-[118px] pr-2"
-                  onClick={() => useSshStore.getState().setActiveTab(tab.id)}
-                >
-                  {tab.type === 'file' ? (
-                    <FileCode2 className="size-3.5 shrink-0" />
-                  ) : (
-                    <Terminal className="size-3.5 shrink-0" />
-                  )}
-                  <span className="truncate">{tab.title}</span>
-                  {isConnecting ? (
-                    <Loader2 className="size-3 animate-spin shrink-0" />
-                  ) : isConnected ? (
-                    <span className="size-2 shrink-0 rounded-full bg-current opacity-85" />
-                  ) : null}
-                  <span
-                    className="rounded-full p-1 transition-opacity hover:opacity-75"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleCloseTab(tab.id)
-                    }}
+                return (
+                  <motion.div
+                    key={tab.id}
+                    layout={animationsEnabled ? 'position' : false}
+                    initial={animationsEnabled ? { opacity: 0, scale: 0.95 } : false}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={animationsEnabled ? { opacity: 0, scale: 0.95 } : undefined}
+                    transition={
+                      animationsEnabled
+                        ? { type: 'spring', stiffness: 400, damping: 30 }
+                        : { duration: 0 }
+                    }
+                    className="flex"
                   >
-                    <X className="size-3" />
-                  </span>
-                </ChromePill>
-              )
-            })}
+                    <ChromePill
+                      tone={shellTone}
+                      palette={shellPalette}
+                      active={active}
+                      className="max-w-[220px] min-w-[118px] pr-2"
+                      onClick={() => useSshStore.getState().setActiveTab(tab.id)}
+                    >
+                      {tab.type === 'file' ? (
+                        <FileCode2 className="size-3.5 shrink-0" />
+                      ) : (
+                        <Terminal className="size-3.5 shrink-0" />
+                      )}
+                      <span className="truncate">{tab.title}</span>
+                      <AnimatePresence mode="wait" initial={false}>
+                        {isConnecting ? (
+                          <motion.span
+                            key="connecting"
+                            initial={animationsEnabled ? { opacity: 0 } : false}
+                            animate={{ opacity: 1 }}
+                            exit={animationsEnabled ? { opacity: 0 } : undefined}
+                            transition={{ duration: animationsEnabled ? 0.12 : 0 }}
+                            className="flex shrink-0"
+                          >
+                            <Loader2 className="size-3 animate-spin" />
+                          </motion.span>
+                        ) : isConnected ? (
+                          <motion.span
+                            key="connected"
+                            initial={animationsEnabled ? { opacity: 0 } : false}
+                            animate={{ opacity: 0.85 }}
+                            exit={animationsEnabled ? { opacity: 0 } : undefined}
+                            transition={{ duration: animationsEnabled ? 0.12 : 0 }}
+                            className="size-2 shrink-0 rounded-full bg-current"
+                          />
+                        ) : null}
+                      </AnimatePresence>
+                      <span
+                        className="rounded-full p-1 transition-opacity hover:opacity-75"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleCloseTab(tab.id)
+                        }}
+                      >
+                        <X className="size-3" />
+                      </span>
+                    </ChromePill>
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
           </div>
 
           <button

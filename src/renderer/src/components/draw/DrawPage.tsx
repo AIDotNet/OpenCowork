@@ -51,6 +51,7 @@ import {
 import { Switch } from '@renderer/components/ui/switch'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
+import { AnimatePresence, FadeIn, ScaleIn } from '@renderer/components/animate-ui/transitions'
 import { ImageGenerationErrorCard } from '@renderer/components/chat/ImageGenerationErrorCard'
 import { ImagePreview } from '@renderer/components/chat/ImagePreview'
 import { ModelIcon, ProviderIcon } from '@renderer/components/settings/provider-icons'
@@ -1772,7 +1773,7 @@ export function DrawPage(): React.JSX.Element {
             {(gifAssets.gif || gifAssets.grid) && (
               <div className="mt-4 grid gap-3 lg:grid-cols-2">
                 {gifAssets.gif && (
-                  <div>
+                  <ScaleIn key={`${run.id}-gif`}>
                     <p className="mb-2 text-xs font-medium text-muted-foreground">
                       {t('drawPage.gifOutputLabel')}
                     </p>
@@ -1781,10 +1782,10 @@ export function DrawPage(): React.JSX.Element {
                       alt={run.prompt}
                       filePath={gifAssets.gif.filePath}
                     />
-                  </div>
+                  </ScaleIn>
                 )}
                 {gifAssets.grid && (
-                  <div>
+                  <ScaleIn key={`${run.id}-grid`} delay={0.05}>
                     <p className="mb-2 text-xs font-medium text-muted-foreground">
                       {t('drawPage.gifGridLabel')}
                     </p>
@@ -1793,7 +1794,7 @@ export function DrawPage(): React.JSX.Element {
                       alt={run.prompt}
                       filePath={gifAssets.grid.filePath}
                     />
-                  </div>
+                  </ScaleIn>
                 )}
               </div>
             )}
@@ -1809,12 +1810,12 @@ export function DrawPage(): React.JSX.Element {
                 <CollapsibleContent className="pt-3">
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {gifAssets.frames.map((image, index) => (
-                      <div key={image.id}>
+                      <ScaleIn key={image.id} delay={index * 0.05}>
                         <p className="mb-2 text-xs font-medium text-muted-foreground">
                           {t('drawPage.gifFrameLabel', { index: index + 1 })}
                         </p>
                         <ImagePreview src={image.src} alt={run.prompt} filePath={image.filePath} />
-                      </div>
+                      </ScaleIn>
                     ))}
                   </div>
                 </CollapsibleContent>
@@ -1826,13 +1827,10 @@ export function DrawPage(): React.JSX.Element {
               !gifAssets.grid &&
               gifAssets.frames.length === 0 && (
                 <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                  {gifFallbackImages.map((image) => (
-                    <ImagePreview
-                      key={image.id}
-                      src={image.src}
-                      alt={run.prompt}
-                      filePath={image.filePath}
-                    />
+                  {gifFallbackImages.map((image, index) => (
+                    <ScaleIn key={image.id} delay={index * 0.05}>
+                      <ImagePreview src={image.src} alt={run.prompt} filePath={image.filePath} />
+                    </ScaleIn>
                   ))}
                 </div>
               )}
@@ -1840,13 +1838,10 @@ export function DrawPage(): React.JSX.Element {
         ) : (
           run.images.length > 0 && (
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
-              {run.images.map((image) => (
-                <ImagePreview
-                  key={image.id}
-                  src={image.src}
-                  alt={run.prompt}
-                  filePath={image.filePath}
-                />
+              {run.images.map((image, index) => (
+                <ScaleIn key={image.id} delay={index * 0.05}>
+                  <ImagePreview src={image.src} alt={run.prompt} filePath={image.filePath} />
+                </ScaleIn>
               ))}
             </div>
           )
@@ -2532,268 +2527,274 @@ export function DrawPage(): React.JSX.Element {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
-              {drawResultTab === 'history' ? (
-                historyRuns.length === 0 ? (
+            <AnimatePresence mode="wait" initial={false}>
+              <FadeIn key={drawResultTab} duration={0.15} className="flex-1 overflow-y-auto p-4">
+                {drawResultTab === 'history' ? (
+                  historyRuns.length === 0 ? (
+                    <div className="flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-border/70 bg-background/40 p-8 text-center">
+                      <div className="max-w-sm">
+                        <h3 className="text-sm font-semibold">{t('drawPage.historyEmptyTitle')}</h3>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {t('drawPage.historyEmptyDesc')}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">{historyRuns.map(renderRunCard)}</div>
+                  )
+                ) : currentRuns.length === 0 ? (
                   <div className="flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-border/70 bg-background/40 p-8 text-center">
                     <div className="max-w-sm">
-                      <h3 className="text-sm font-semibold">{t('drawPage.historyEmptyTitle')}</h3>
+                      <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <ImageIcon className="size-6" />
+                      </div>
+                      <h3 className="mt-4 text-base font-semibold">{t('drawPage.emptyTitle')}</h3>
                       <p className="mt-2 text-sm text-muted-foreground">
-                        {t('drawPage.historyEmptyDesc')}
+                        {t('drawPage.emptyDesc')}
                       </p>
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-4">{historyRuns.map(renderRunCard)}</div>
-                )
-              ) : currentRuns.length === 0 ? (
-                <div className="flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-border/70 bg-background/40 p-8 text-center">
-                  <div className="max-w-sm">
-                    <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                      <ImageIcon className="size-6" />
-                    </div>
-                    <h3 className="mt-4 text-base font-semibold">{t('drawPage.emptyTitle')}</h3>
-                    <p className="mt-2 text-sm text-muted-foreground">{t('drawPage.emptyDesc')}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {currentRuns.map((run) => {
-                    const gifAssets =
-                      run.mode === 'gif'
-                        ? getGifAssets(run)
-                        : { grid: null, gif: null, frames: [] as DrawRunImage[] }
-                    const gifFallbackImages =
-                      run.mode === 'gif'
-                        ? run.images.filter((image) => !image.kind || image.kind === 'generated')
-                        : []
-                    const errorDetails =
-                      run.error?.details ??
-                      (run.error && isNoImageOutputErrorMessage(run.error.message)
-                        ? buildNoImageOutputDetails(run, t)
-                        : undefined)
+                  <div className="space-y-4">
+                    {currentRuns.map((run) => {
+                      const gifAssets =
+                        run.mode === 'gif'
+                          ? getGifAssets(run)
+                          : { grid: null, gif: null, frames: [] as DrawRunImage[] }
+                      const gifFallbackImages =
+                        run.mode === 'gif'
+                          ? run.images.filter((image) => !image.kind || image.kind === 'generated')
+                          : []
+                      const errorDetails =
+                        run.error?.details ??
+                        (run.error && isNoImageOutputErrorMessage(run.error.message)
+                          ? buildNoImageOutputDetails(run, t)
+                          : undefined)
 
-                    return (
-                      <div
-                        key={run.id}
-                        className="rounded-2xl border bg-background/70 p-4 shadow-sm"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium leading-relaxed">{run.prompt}</p>
-                            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                              <Badge variant="secondary" className="text-[10px] font-normal">
-                                {run.providerName}
-                              </Badge>
-                              <Badge variant="outline" className="text-[10px] font-normal">
-                                {run.modelName}
-                              </Badge>
-                              <Badge variant="outline" className="text-[10px] font-normal">
-                                {run.mode === 'gif'
-                                  ? t('drawPage.modeGif')
-                                  : t('drawPage.modeImage')}
-                              </Badge>
-                              <span>{formatTime(run.createdAt)}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div
-                              className={cn(
-                                'flex items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-medium',
-                                run.isGenerating
-                                  ? 'bg-primary/10 text-primary'
-                                  : run.error
-                                    ? 'bg-destructive/10 text-destructive'
-                                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                              )}
-                            >
-                              {run.isGenerating ? (
-                                <Loader2 className="size-3.5 animate-spin" />
-                              ) : run.error ? (
-                                <Square className="size-3.5" />
-                              ) : (
-                                <Sparkles className="size-3.5" />
-                              )}
-                              {getRunStatusLabel(run, t)}
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => handleDeleteRun(run.id)}
-                              disabled={run.isGenerating}
-                              aria-label={t('drawPage.deleteRecord')}
-                              title={t('drawPage.deleteRecord')}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        {run.mode === 'gif' && (
-                          <div className="mt-4 flex flex-wrap items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 gap-1.5 text-xs"
-                              onClick={() => void handleRetryGifRun(run)}
-                              disabled={run.isGenerating || !run.meta?.gif}
-                            >
-                              <RefreshCcw className="size-3.5" />
-                              {t('drawPage.retryGif')}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 gap-1.5 text-xs"
-                              onClick={() =>
-                                void handleDownloadAsset(gifAssets.gif, 'animation.gif')
-                              }
-                              disabled={!gifAssets.gif}
-                            >
-                              <Download className="size-3.5" />
-                              {t('drawPage.downloadGif')}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 gap-1.5 text-xs"
-                              onClick={() => void handleDownloadAsset(gifAssets.grid, 'grid.png')}
-                              disabled={!gifAssets.grid}
-                            >
-                              <Download className="size-3.5" />
-                              {t('drawPage.downloadGrid')}
-                            </Button>
-                          </div>
-                        )}
-
-                        {run.isGenerating && run.previewImage && (
-                          <div className="mt-4">
-                            <div className="mb-2 flex items-center gap-2">
-                              <span className="text-xs font-medium text-muted-foreground">
-                                {t('drawPage.realtimePreview')}
-                              </span>
-                              {typeof run.previewImageIndex === 'number' && (
-                                <Badge variant="outline" className="text-[10px] font-normal">
-                                  {t('drawPage.previewIndex', {
-                                    index: run.previewImageIndex + 1
-                                  })}
+                      return (
+                        <div
+                          key={run.id}
+                          className="rounded-2xl border bg-background/70 p-4 shadow-sm"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium leading-relaxed">{run.prompt}</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                                <Badge variant="secondary" className="text-[10px] font-normal">
+                                  {run.providerName}
                                 </Badge>
-                              )}
+                                <Badge variant="outline" className="text-[10px] font-normal">
+                                  {run.modelName}
+                                </Badge>
+                                <Badge variant="outline" className="text-[10px] font-normal">
+                                  {run.mode === 'gif'
+                                    ? t('drawPage.modeGif')
+                                    : t('drawPage.modeImage')}
+                                </Badge>
+                                <span>{formatTime(run.createdAt)}</span>
+                              </div>
                             </div>
-                            <ImagePreview
-                              src={run.previewImage.src}
-                              alt={run.prompt}
-                              filePath={run.previewImage.filePath}
-                            />
-                          </div>
-                        )}
-
-                        {run.error && (
-                          <div className="mt-4">
-                            <ImageGenerationErrorCard
-                              code={run.error.code}
-                              message={run.error.message}
-                              details={errorDetails}
-                            />
-                          </div>
-                        )}
-
-                        {run.mode === 'gif' ? (
-                          <>
-                            {(gifAssets.gif || gifAssets.grid) && (
-                              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                                {gifAssets.gif && (
-                                  <div>
-                                    <p className="mb-2 text-xs font-medium text-muted-foreground">
-                                      {t('drawPage.gifOutputLabel')}
-                                    </p>
-                                    <ImagePreview
-                                      src={gifAssets.gif.src}
-                                      alt={run.prompt}
-                                      filePath={gifAssets.gif.filePath}
-                                    />
-                                  </div>
+                            <div className="flex items-center gap-2">
+                              <div
+                                className={cn(
+                                  'flex items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-medium',
+                                  run.isGenerating
+                                    ? 'bg-primary/10 text-primary'
+                                    : run.error
+                                      ? 'bg-destructive/10 text-destructive'
+                                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                                 )}
-                                {gifAssets.grid && (
-                                  <div>
-                                    <p className="mb-2 text-xs font-medium text-muted-foreground">
-                                      {t('drawPage.gifGridLabel')}
-                                    </p>
-                                    <ImagePreview
-                                      src={gifAssets.grid.src}
-                                      alt={run.prompt}
-                                      filePath={gifAssets.grid.filePath}
-                                    />
-                                  </div>
+                              >
+                                {run.isGenerating ? (
+                                  <Loader2 className="size-3.5 animate-spin" />
+                                ) : run.error ? (
+                                  <Square className="size-3.5" />
+                                ) : (
+                                  <Sparkles className="size-3.5" />
+                                )}
+                                {getRunStatusLabel(run, t)}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                onClick={() => handleDeleteRun(run.id)}
+                                disabled={run.isGenerating}
+                                aria-label={t('drawPage.deleteRecord')}
+                                title={t('drawPage.deleteRecord')}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+
+                          {run.mode === 'gif' && (
+                            <div className="mt-4 flex flex-wrap items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 gap-1.5 text-xs"
+                                onClick={() => void handleRetryGifRun(run)}
+                                disabled={run.isGenerating || !run.meta?.gif}
+                              >
+                                <RefreshCcw className="size-3.5" />
+                                {t('drawPage.retryGif')}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 gap-1.5 text-xs"
+                                onClick={() =>
+                                  void handleDownloadAsset(gifAssets.gif, 'animation.gif')
+                                }
+                                disabled={!gifAssets.gif}
+                              >
+                                <Download className="size-3.5" />
+                                {t('drawPage.downloadGif')}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 gap-1.5 text-xs"
+                                onClick={() => void handleDownloadAsset(gifAssets.grid, 'grid.png')}
+                                disabled={!gifAssets.grid}
+                              >
+                                <Download className="size-3.5" />
+                                {t('drawPage.downloadGrid')}
+                              </Button>
+                            </div>
+                          )}
+
+                          {run.isGenerating && run.previewImage && (
+                            <div className="mt-4">
+                              <div className="mb-2 flex items-center gap-2">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                  {t('drawPage.realtimePreview')}
+                                </span>
+                                {typeof run.previewImageIndex === 'number' && (
+                                  <Badge variant="outline" className="text-[10px] font-normal">
+                                    {t('drawPage.previewIndex', {
+                                      index: run.previewImageIndex + 1
+                                    })}
+                                  </Badge>
                                 )}
                               </div>
-                            )}
+                              <ImagePreview
+                                src={run.previewImage.src}
+                                alt={run.prompt}
+                                filePath={run.previewImage.filePath}
+                              />
+                            </div>
+                          )}
 
-                            {gifAssets.frames.length > 0 && (
-                              <Collapsible className="mt-4 rounded-xl border bg-muted/10 px-3 py-2">
-                                <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-left text-xs font-medium text-foreground">
-                                  <span>
-                                    {t('drawPage.framesSectionTitle', {
-                                      count: gifAssets.frames.length
-                                    })}
-                                  </span>
-                                  <ChevronDown className="size-4 text-muted-foreground" />
-                                </CollapsibleTrigger>
-                                <CollapsibleContent className="pt-3">
-                                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                                    {gifAssets.frames.map((image, index) => (
-                                      <div key={image.id}>
-                                        <p className="mb-2 text-xs font-medium text-muted-foreground">
-                                          {t('drawPage.gifFrameLabel', { index: index + 1 })}
-                                        </p>
+                          {run.error && (
+                            <div className="mt-4">
+                              <ImageGenerationErrorCard
+                                code={run.error.code}
+                                message={run.error.message}
+                                details={errorDetails}
+                              />
+                            </div>
+                          )}
+
+                          {run.mode === 'gif' ? (
+                            <>
+                              {(gifAssets.gif || gifAssets.grid) && (
+                                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                                  {gifAssets.gif && (
+                                    <ScaleIn key={`${run.id}-gif`}>
+                                      <p className="mb-2 text-xs font-medium text-muted-foreground">
+                                        {t('drawPage.gifOutputLabel')}
+                                      </p>
+                                      <ImagePreview
+                                        src={gifAssets.gif.src}
+                                        alt={run.prompt}
+                                        filePath={gifAssets.gif.filePath}
+                                      />
+                                    </ScaleIn>
+                                  )}
+                                  {gifAssets.grid && (
+                                    <ScaleIn key={`${run.id}-grid`} delay={0.05}>
+                                      <p className="mb-2 text-xs font-medium text-muted-foreground">
+                                        {t('drawPage.gifGridLabel')}
+                                      </p>
+                                      <ImagePreview
+                                        src={gifAssets.grid.src}
+                                        alt={run.prompt}
+                                        filePath={gifAssets.grid.filePath}
+                                      />
+                                    </ScaleIn>
+                                  )}
+                                </div>
+                              )}
+
+                              {gifAssets.frames.length > 0 && (
+                                <Collapsible className="mt-4 rounded-xl border bg-muted/10 px-3 py-2">
+                                  <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-left text-xs font-medium text-foreground">
+                                    <span>
+                                      {t('drawPage.framesSectionTitle', {
+                                        count: gifAssets.frames.length
+                                      })}
+                                    </span>
+                                    <ChevronDown className="size-4 text-muted-foreground" />
+                                  </CollapsibleTrigger>
+                                  <CollapsibleContent className="pt-3">
+                                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                                      {gifAssets.frames.map((image, index) => (
+                                        <ScaleIn key={image.id} delay={index * 0.05}>
+                                          <p className="mb-2 text-xs font-medium text-muted-foreground">
+                                            {t('drawPage.gifFrameLabel', { index: index + 1 })}
+                                          </p>
+                                          <ImagePreview
+                                            src={image.src}
+                                            alt={run.prompt}
+                                            filePath={image.filePath}
+                                          />
+                                        </ScaleIn>
+                                      ))}
+                                    </div>
+                                  </CollapsibleContent>
+                                </Collapsible>
+                              )}
+
+                              {gifFallbackImages.length > 0 &&
+                                !gifAssets.gif &&
+                                !gifAssets.grid &&
+                                gifAssets.frames.length === 0 && (
+                                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                                    {gifFallbackImages.map((image, index) => (
+                                      <ScaleIn key={image.id} delay={index * 0.05}>
                                         <ImagePreview
                                           src={image.src}
                                           alt={run.prompt}
                                           filePath={image.filePath}
                                         />
-                                      </div>
+                                      </ScaleIn>
                                     ))}
                                   </div>
-                                </CollapsibleContent>
-                              </Collapsible>
-                            )}
-
-                            {gifFallbackImages.length > 0 &&
-                              !gifAssets.gif &&
-                              !gifAssets.grid &&
-                              gifAssets.frames.length === 0 && (
-                                <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                                  {gifFallbackImages.map((image) => (
+                                )}
+                            </>
+                          ) : (
+                            run.images.length > 0 && (
+                              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                                {run.images.map((image, index) => (
+                                  <ScaleIn key={image.id} delay={index * 0.05}>
                                     <ImagePreview
-                                      key={image.id}
                                       src={image.src}
                                       alt={run.prompt}
                                       filePath={image.filePath}
                                     />
-                                  ))}
-                                </div>
-                              )}
-                          </>
-                        ) : (
-                          run.images.length > 0 && (
-                            <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                              {run.images.map((image) => (
-                                <ImagePreview
-                                  key={image.id}
-                                  src={image.src}
-                                  alt={run.prompt}
-                                  filePath={image.filePath}
-                                />
-                              ))}
-                            </div>
-                          )
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
+                                  </ScaleIn>
+                                ))}
+                              </div>
+                            )
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </FadeIn>
+            </AnimatePresence>
           </div>
         </div>
       </div>

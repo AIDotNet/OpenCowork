@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { RequestRetryState, ToolCallState } from '../lib/agent/types'
+import type { LoopEndReason, RequestRetryState, ToolCallState } from '../lib/agent/types'
 import type { SubAgentEvent } from '../lib/agent/sub-agents/types'
 import type {
   ToolResultContent,
@@ -31,9 +31,7 @@ const approvalMetadata = new Map<
 >()
 
 const MAX_TRACKED_TOOL_CALLS = 200
-const MAX_TRACKED_SUBAGENT_TOOL_CALLS = 80
 const MAX_COMPLETED_SUBAGENTS = 30
-const MAX_SUBAGENT_HISTORY = 50
 const MAX_STREAMING_TEXT_CHARS = 8_000
 const MAX_TOOL_INPUT_PREVIEW_CHARS = 6_000
 const MAX_TOOL_OUTPUT_TEXT_CHARS = 8_000
@@ -43,9 +41,6 @@ const MAX_BACKGROUND_PROCESS_OUTPUT_CHARS = 12_000
 const MAX_BACKGROUND_PROCESS_ENTRIES = 60
 const MAX_RUN_CHANGESETS = 40
 const BACKGROUND_PROCESS_OUTPUT_FLUSH_MS = 80
-const MAX_SUBAGENT_TRANSCRIPT_MESSAGES = 31
-const MAX_ACTIVE_SUBAGENT_TRANSCRIPT_CHARS = 128 * 1024
-const MAX_COMPLETED_SUBAGENT_TOOL_CALLS = 12
 const AGENT_STORE_STORAGE_KEY = 'opencowork-agent'
 const AGENT_HISTORY_STORAGE_KEY = 'opencowork-agent-history'
 const AGENT_HISTORY_PERSIST_DEBOUNCE_MS = 500
@@ -62,38 +57,9 @@ function sigHasEntry(sig: string, value: string): boolean {
 }
 
 function trimSubAgentTranscript(sa: { transcript: UnifiedMessage[] }): void {
-  if (sa.transcript.length > MAX_SUBAGENT_TRANSCRIPT_MESSAGES) {
-    const first = sa.transcript[0]
-    const tail = sa.transcript.slice(-(MAX_SUBAGENT_TRANSCRIPT_MESSAGES - 1))
-    sa.transcript.splice(
-      0,
-      sa.transcript.length,
-      ...(first && !tail.some((message) => message.id === first.id) ? [first, ...tail] : tail)
-    )
-  }
-
-  while (
-    sa.transcript.length > 1 &&
-    estimateMessagesContentChars(sa.transcript) > MAX_ACTIVE_SUBAGENT_TRANSCRIPT_CHARS
-  ) {
-    sa.transcript.splice(1, 1)
-  }
-}
-
-function estimateMessagesContentChars(messages: UnifiedMessage[]): number {
-  let total = 0
-  for (const message of messages) {
-    if (typeof message.content === 'string') {
-      total += message.content.length
-      continue
-    }
-    try {
-      total += JSON.stringify(message.content).length
-    } catch {
-      total += 0
-    }
-  }
-  return total
+  // Intentionally retain the complete child conversation. Completed sub-agents are first-class
+  // persisted conversations, so trimming here would make their detail view irrecoverable.
+  void sa
 }
 
 function normalizeToolInput(
@@ -259,6 +225,8 @@ export interface SubAgentState {
   /** True while waiting on the sub-agent concurrency limiter, before the inner loop starts. */
   isQueued?: boolean
   success: boolean | null
+  /** Terminal loop reason reported by the sub-agent runtime. */
+  endReason: LoopEndReason | null
   errorMessage: string | null
   iteration: number
   toolCalls: ToolCallState[]
@@ -270,6 +238,10 @@ export interface SubAgentState {
   reportStatus: SubAgentReportStatus
   usage?: TokenUsage
   requestModel?: MessageRequestModelMeta
+  /** MCP server IDs captured from this sub-agent's immutable launch toolset. */
+  mcpServerIds?: string[]
+  /** Permission control snapshot captured when this sub-agent launched. */
+  permissionMode?: 'default' | 'whitelist' | 'fullAccess'
   startedAt: number
   completedAt: number | null
 }
@@ -384,46 +356,20 @@ function trimCompletedSubAgentsMap(map: Record<string, SubAgentState>): void {
 }
 
 function trimSubAgentHistory(history: SubAgentState[]): void {
-  if (history.length <= MAX_SUBAGENT_HISTORY) return
-  history.splice(0, history.length - MAX_SUBAGENT_HISTORY)
+  // History is persisted as the canonical record for every sub-agent. Do not evict older runs.
+  void history
 }
 
-const MAX_HISTORY_TRANSCRIPT_MESSAGES = MAX_SUBAGENT_TRANSCRIPT_MESSAGES
-const MAX_HISTORY_TOOL_CALLS = 30
-const MAX_HISTORY_REPORT_CHARS = 4_000
-
 function compactSubAgentTranscriptForHistory(transcript: UnifiedMessage[]): UnifiedMessage[] {
-  if (transcript.length <= MAX_HISTORY_TRANSCRIPT_MESSAGES) return transcript
-
-  const first = transcript[0]
-  const tail = transcript.slice(-(MAX_HISTORY_TRANSCRIPT_MESSAGES - 1))
-  if (!first || tail.some((message) => message.id === first.id)) {
-    return transcript.slice(-MAX_HISTORY_TRANSCRIPT_MESSAGES)
-  }
-
-  return [first, ...tail]
+  return transcript
 }
 
 function compactSubAgentForHistory(sa: SubAgentState): SubAgentState {
-  const compactedTranscript = sa.isRunning ? compactSubAgentTranscriptForHistory(sa.transcript) : []
   return {
     ...sa,
-    streamingText: '',
-    prompt: truncateText(sa.prompt, MAX_HISTORY_REPORT_CHARS),
-    description: truncateText(sa.description, MAX_HISTORY_REPORT_CHARS),
+    streamingText: sa.isRunning ? sa.streamingText : '',
     currentAssistantMessageId: sa.isRunning ? sa.currentAssistantMessageId : null,
-    report:
-      sa.report.length > MAX_HISTORY_REPORT_CHARS
-        ? `${sa.report.slice(0, MAX_HISTORY_REPORT_CHARS)}\n[truncated]`
-        : sa.report,
-    toolCalls:
-      sa.toolCalls.length >
-      (sa.isRunning ? MAX_HISTORY_TOOL_CALLS : MAX_COMPLETED_SUBAGENT_TOOL_CALLS)
-        ? sa.toolCalls.slice(
-            -(sa.isRunning ? MAX_HISTORY_TOOL_CALLS : MAX_COMPLETED_SUBAGENT_TOOL_CALLS)
-          )
-        : sa.toolCalls,
-    transcript: compactedTranscript
+    transcript: compactSubAgentTranscriptForHistory(sa.transcript)
   }
 }
 
@@ -459,6 +405,7 @@ function upsertSubAgentHistory(history: SubAgentState[], sa: SubAgentState): voi
       existing.prompt === snapshot.prompt &&
       existing.isRunning === snapshot.isRunning &&
       existing.success === snapshot.success &&
+      existing.endReason === snapshot.endReason &&
       existing.errorMessage === snapshot.errorMessage &&
       existing.iteration === snapshot.iteration &&
       existing.streamingText === snapshot.streamingText &&
@@ -469,8 +416,10 @@ function upsertSubAgentHistory(history: SubAgentState[], sa: SubAgentState): voi
       existing.completedAt === snapshot.completedAt &&
       JSON.stringify(existing.usage) === JSON.stringify(snapshot.usage) &&
       JSON.stringify(existing.requestModel) === JSON.stringify(snapshot.requestModel) &&
-      existing.transcript.length === snapshot.transcript.length &&
-      existing.toolCalls.length === snapshot.toolCalls.length
+      JSON.stringify(existing.mcpServerIds) === JSON.stringify(snapshot.mcpServerIds) &&
+      existing.permissionMode === snapshot.permissionMode &&
+      JSON.stringify(existing.transcript) === JSON.stringify(snapshot.transcript) &&
+      JSON.stringify(existing.toolCalls) === JSON.stringify(snapshot.toolCalls)
     ) {
       return
     }
@@ -632,6 +581,20 @@ function buildSubAgentSummary(agent: SubAgentState): SubAgentState {
   return cloneSubAgentStateSnapshot(agent)
 }
 
+function upsertSessionSubAgentSummary(
+  state: { sessionSubAgentSummaries: Record<string, SubAgentState[]> },
+  agent: SubAgentState,
+  fallbackSessionId?: string
+): void {
+  const sessionId = agent.sessionId ?? fallbackSessionId
+  if (!sessionId) return
+  const previous = state.sessionSubAgentSummaries[sessionId] ?? []
+  state.sessionSubAgentSummaries[sessionId] = [
+    buildSubAgentSummary(agent),
+    ...previous.filter((item) => item.toolUseId !== agent.toolUseId)
+  ]
+}
+
 function buildPersistedSubAgentSnapshot(agent: SubAgentState): SubAgentState {
   const snapshot = buildSubAgentSummary(agent)
   if (!snapshot.isRunning) return snapshot
@@ -646,7 +609,7 @@ function buildPersistedSubAgentSnapshot(agent: SubAgentState): SubAgentState {
 }
 
 function compactSubAgentListForPersistence(items: SubAgentState[]): SubAgentState[] {
-  return items.slice(-MAX_SUBAGENT_HISTORY).map(buildPersistedSubAgentSnapshot)
+  return items.map(buildPersistedSubAgentSnapshot)
 }
 
 function compactSessionSubAgentSummariesForPersistence(
@@ -720,7 +683,7 @@ function findSubAgentState(
   sessionId?: string
 ): SubAgentState | null {
   const direct = state.activeSubAgents[id] ?? state.completedSubAgents[id]
-  if (direct) {
+  if (direct && (!sessionId || direct.sessionId === sessionId)) {
     syncSessionSubAgentState(state, sessionId, id, direct)
     return direct
   }
@@ -747,7 +710,22 @@ function normalizePersistedAgentRecord(raw: string | null): Record<string, unkno
 
 function normalizePersistedSubAgentList(value: unknown): SubAgentState[] {
   if (!Array.isArray(value)) return []
-  return compactSubAgentListForPersistence(value as SubAgentState[])
+  return compactSubAgentListForPersistence(value as SubAgentState[]).map((agent) => ({
+    ...agent,
+    endReason:
+      agent.endReason === 'completed' ||
+      agent.endReason === 'max_iterations' ||
+      agent.endReason === 'aborted' ||
+      agent.endReason === 'error'
+        ? agent.endReason
+        : agent.isRunning
+          ? null
+          : agent.success === true
+            ? 'completed'
+            : agent.success === false
+              ? 'error'
+              : null
+  }))
 }
 
 function normalizePersistedSessionSummaries(value: unknown): Record<string, SubAgentState[]> {
@@ -1470,8 +1448,20 @@ export const useAgentStore = create<AgentStore>()(
               executed: cloneToolCallArray(state.executedToolCalls)
             }
             state.sessionSubAgentLiveCache[prevSessionId] = {
-              active: cloneSubAgentMap(state.activeSubAgents),
-              completed: cloneSubAgentMap(state.completedSubAgents)
+              active: cloneSubAgentMap(
+                Object.fromEntries(
+                  Object.entries(state.activeSubAgents).filter(
+                    ([, subAgent]) => subAgent.sessionId === prevSessionId
+                  )
+                )
+              ),
+              completed: cloneSubAgentMap(
+                Object.fromEntries(
+                  Object.entries(state.completedSubAgents).filter(
+                    ([, subAgent]) => subAgent.sessionId === prevSessionId
+                  )
+                )
+              )
             }
           }
 
@@ -1952,6 +1942,7 @@ export const useAgentStore = create<AgentStore>()(
                 isRunning: false,
                 isQueued: true,
                 success: null,
+                endReason: null,
                 errorMessage: null,
                 iteration: 0,
                 toolCalls: [],
@@ -1971,7 +1962,7 @@ export const useAgentStore = create<AgentStore>()(
                 state.sessionSubAgentSummaries[sessionId] = [
                   buildSubAgentSummary(state.activeSubAgents[id]),
                   ...previous.filter((item) => item.toolUseId !== id)
-                ].slice(0, MAX_SUBAGENT_HISTORY)
+                ]
                 shouldPersistSubAgentHistory = true
               }
               // A queued sub-agent is not "running" — derived running state is
@@ -2000,6 +1991,8 @@ export const useAgentStore = create<AgentStore>()(
               if (existing?.isQueued) {
                 existing.isRunning = true
                 existing.isQueued = false
+                existing.mcpServerIds = event.mcpServerIds ?? []
+                existing.permissionMode = event.permissionMode ?? 'default'
                 existing.reportStatus = 'pending'
                 existing.transcript = [event.promptMessage]
                 existing.startedAt = Date.now()
@@ -2009,7 +2002,7 @@ export const useAgentStore = create<AgentStore>()(
                   state.sessionSubAgentSummaries[sessionId] = [
                     buildSubAgentSummary(existing),
                     ...previous.filter((item) => item.toolUseId !== id)
-                  ].slice(0, MAX_SUBAGENT_HISTORY)
+                  ]
                   shouldPersistSubAgentHistory = true
                 }
                 rebuildRunningSubAgentDerived(state)
@@ -2032,6 +2025,7 @@ export const useAgentStore = create<AgentStore>()(
                 isRunning: true,
                 isQueued: false,
                 success: null,
+                endReason: null,
                 errorMessage: null,
                 iteration: 0,
                 toolCalls: [],
@@ -2042,6 +2036,8 @@ export const useAgentStore = create<AgentStore>()(
                 reportStatus: 'pending',
                 usage: undefined,
                 requestModel: undefined,
+                mcpServerIds: event.mcpServerIds ?? [],
+                permissionMode: event.permissionMode ?? 'default',
                 startedAt: Date.now(),
                 completedAt: null
               }
@@ -2051,7 +2047,7 @@ export const useAgentStore = create<AgentStore>()(
                 state.sessionSubAgentSummaries[sessionId] = [
                   buildSubAgentSummary(state.activeSubAgents[id]),
                   ...previous.filter((item) => item.toolUseId !== id)
-                ].slice(0, MAX_SUBAGENT_HISTORY)
+                ]
                 shouldPersistSubAgentHistory = true
               }
               rebuildRunningSubAgentDerived(state)
@@ -2145,6 +2141,9 @@ export const useAgentStore = create<AgentStore>()(
                 if (event.usage) {
                   sa.usage = mergeMessageUsage(sa.usage, event.usage)
                 }
+                upsertSubAgentHistory(state.subAgentHistory, sa)
+                upsertSessionSubAgentSummary(state, sa, sessionId)
+                shouldPersistSubAgentHistory = true
               }
               break
             }
@@ -2154,6 +2153,7 @@ export const useAgentStore = create<AgentStore>()(
                 sa.transcript.push(event.message)
                 trimSubAgentTranscript(sa)
                 upsertSubAgentHistory(state.subAgentHistory, sa)
+                upsertSessionSubAgentSummary(state, sa, sessionId)
                 shouldPersistSubAgentHistory = true
               }
               break
@@ -2161,10 +2161,12 @@ export const useAgentStore = create<AgentStore>()(
             case 'sub_agent_user_message': {
               const sa = findSubAgentState(state, id, sessionId)
               if (sa?.isRunning) {
+                if (sa.transcript.some((message) => message.id === event.message.id)) break
                 finalizeAssistantMessage(sa)
                 sa.transcript.push(event.message)
                 trimSubAgentTranscript(sa)
                 upsertSubAgentHistory(state.subAgentHistory, sa)
+                upsertSessionSubAgentSummary(state, sa, sessionId)
                 shouldPersistSubAgentHistory = true
               }
               break
@@ -2175,6 +2177,7 @@ export const useAgentStore = create<AgentStore>()(
                 sa.report = event.report
                 sa.reportStatus = event.status
                 upsertSubAgentHistory(state.subAgentHistory, sa)
+                upsertSessionSubAgentSummary(state, sa, sessionId)
                 shouldPersistSubAgentHistory = true
               }
               break
@@ -2198,9 +2201,6 @@ export const useAgentStore = create<AgentStore>()(
                 } else {
                   sa.toolCalls.push(normalizedToolCall)
                 }
-                if (sa.toolCalls.length > MAX_TRACKED_SUBAGENT_TOOL_CALLS) {
-                  sa.toolCalls.splice(0, sa.toolCalls.length - MAX_TRACKED_SUBAGENT_TOOL_CALLS)
-                }
               }
               break
             }
@@ -2220,14 +2220,24 @@ export const useAgentStore = create<AgentStore>()(
               if (sa) {
                 sa.isRunning = false
                 sa.success = event.result.success
+                sa.endReason =
+                  event.result.endReason ?? (event.result.success ? 'completed' : 'error')
                 sa.errorMessage = event.result.error ?? null
                 sa.completedAt = Date.now()
-                finalizeAssistantMessage(sa)
+                if (
+                  event.result.messages?.length &&
+                  event.result.messages.length >= sa.transcript.length
+                ) {
+                  sa.transcript = event.result.messages
+                  sa.currentAssistantMessageId = null
+                } else {
+                  finalizeAssistantMessage(sa)
+                }
                 if (!sa.report.trim() && event.result.output.trim()) {
                   sa.report = event.result.output
                 }
                 sa.usage = event.result.usage
-                sa.reportStatus = sa.report.trim()
+                sa.reportStatus = event.result.reportSubmitted
                   ? sa.reportStatus === 'fallback'
                     ? 'fallback'
                     : 'submitted'
@@ -2240,7 +2250,7 @@ export const useAgentStore = create<AgentStore>()(
                   state.sessionSubAgentSummaries[targetSessionId] = [
                     buildSubAgentSummary(sa),
                     ...previous.filter((item) => item.toolUseId !== id)
-                  ].slice(0, MAX_SUBAGENT_HISTORY)
+                  ]
                 }
                 upsertSubAgentHistory(state.subAgentHistory, sa)
                 shouldPersistSubAgentHistory = true

@@ -502,7 +502,7 @@ function summarizeActiveTeamForPromptCache(activeTeam: ActiveTeam | null | undef
   }
 }
 
-type MessageSource = 'team' | 'queued' | 'continue' | 'quoted'
+type MessageSource = 'team' | 'subagent' | 'queued' | 'continue' | 'quoted'
 type PendingSessionDispatchMode = 'after_loop' | 'interrupt_next'
 const SELECTED_FILE_READ_MAX_LINES = 1_000
 const SELECTED_FILE_TEXT_READ_BLOCKED_EXTENSIONS = new Set([
@@ -1228,8 +1228,7 @@ function reconcileSubAgentCompletionFromTaskToolCall(
     (structured && typeof structured.error === 'string' ? structured.error : undefined)
   const structuredResult =
     structured && typeof structured.result === 'string' ? structured.result : ''
-  const report =
-    error && !structuredResult ? '' : structuredResult || (structured ? '' : payloadText)
+  const report = structuredResult || (structured ? '' : payloadText)
   const subAgentName = String(toolCall.input.subagent_type ?? tracked.displayName ?? tracked.name)
 
   agentStore.handleSubAgentEvent(
@@ -2932,36 +2931,55 @@ function acquireGoalContinuationListener(): () => void {
   }
 }
 
-type PendingAgentWakeMessage = {
+type PendingTeamWakeMessage = {
   sessionId: string
   sender: string
   content: string
-  source: 'team' | 'subagent'
 }
 
-/** Completion/messages waiting to resume their originating main-agent session. */
-const pendingAgentWakeMessages: PendingAgentWakeMessage[] = []
+type PendingSubAgentWakeMessage = {
+  sessionId: string
+  sender: string
+  content: string
+}
+
+/** Teammate messages waiting to resume their originating lead-agent session. */
+const pendingTeamWakeMessages: PendingTeamWakeMessage[] = []
+/** Background SubAgent completions waiting to resume their originating main-agent session. */
+const pendingSubAgentWakeMessages: PendingSubAgentWakeMessage[] = []
 const autoTriggeringSessions = new Set<string>()
 
 /** Whether the global team-message listener is registered */
 let _teamLeadListenerActive = false
+/** Whether the global background SubAgent completion listener is registered */
+let _backgroundSubAgentListenerActive = false
 
-/** Per-session consecutive auto-trigger count (reset by user-initiated input). */
-const autoTriggerCounts = new Map<string, number>()
+/** Per-session consecutive auto-trigger counts (reset by user-initiated input). */
+const teamAutoTriggerCounts = new Map<string, number>()
+const subAgentAutoTriggerCounts = new Map<string, number>()
 const MAX_AUTO_TRIGGERS = 10
 // 0 => unlimited iterations (run until loop_end by completion/error/abort)
 const DEFAULT_AGENT_MAX_ITERATIONS = 0
 
-/** Debounce timer for batching teammate reports before draining */
-let _drainTimer: ReturnType<typeof setTimeout> | null = null
+/** Independent debounce timers keep team and background SubAgent recovery paths isolated. */
+let _teamDrainTimer: ReturnType<typeof setTimeout> | null = null
+let _subAgentDrainTimer: ReturnType<typeof setTimeout> | null = null
 const DRAIN_DEBOUNCE_MS = 800
 
 /** Schedule a debounced drain — collects reports arriving within the window into one batch */
-function scheduleDrain(): void {
-  if (_drainTimer) clearTimeout(_drainTimer)
-  _drainTimer = setTimeout(() => {
-    _drainTimer = null
-    drainAgentWakeMessages()
+function scheduleTeamDrain(): void {
+  if (_teamDrainTimer) clearTimeout(_teamDrainTimer)
+  _teamDrainTimer = setTimeout(() => {
+    _teamDrainTimer = null
+    drainTeamWakeMessages()
+  }, DRAIN_DEBOUNCE_MS)
+}
+
+function scheduleSubAgentDrain(): void {
+  if (_subAgentDrainTimer) clearTimeout(_subAgentDrainTimer)
+  _subAgentDrainTimer = setTimeout(() => {
+    _subAgentDrainTimer = null
+    drainSubAgentWakeMessages()
   }, DRAIN_DEBOUNCE_MS)
 }
 
@@ -2973,16 +2991,33 @@ let _autoTriggerPaused = false
  * to break the dead loop: abort → completion message → new turn → re-spawn.
  */
 export function resetTeamAutoTrigger(): void {
-  pendingAgentWakeMessages.length = 0
-  autoTriggerCounts.clear()
+  pendingTeamWakeMessages.length = 0
+  pendingSubAgentWakeMessages.length = 0
+  teamAutoTriggerCounts.clear()
+  subAgentAutoTriggerCounts.clear()
   _autoTriggerPaused = true
+  if (_teamDrainTimer) {
+    clearTimeout(_teamDrainTimer)
+    _teamDrainTimer = null
+  }
+  if (_subAgentDrainTimer) {
+    clearTimeout(_subAgentDrainTimer)
+    _subAgentDrainTimer = null
+  }
 }
 
-function enqueueAgentWakeMessage(message: PendingAgentWakeMessage): void {
+function enqueueTeamWakeMessage(message: PendingTeamWakeMessage): void {
   const sessionId = message.sessionId.trim()
   if (!sessionId) return
-  pendingAgentWakeMessages.push({ ...message, sessionId })
-  scheduleDrain()
+  pendingTeamWakeMessages.push({ ...message, sessionId })
+  scheduleTeamDrain()
+}
+
+function enqueueSubAgentWakeMessage(message: PendingSubAgentWakeMessage): void {
+  const sessionId = message.sessionId.trim()
+  if (!sessionId) return
+  pendingSubAgentWakeMessages.push({ ...message, sessionId })
+  scheduleSubAgentDrain()
 }
 
 function ensurePlanAwaitingReview(planId: string): Plan | null {
@@ -3031,12 +3066,7 @@ async function confirmPlanExecution(options?: { newSession?: boolean }): Promise
   })
 }
 
-/**
- * Set up persistent completion listeners that auto-trigger the originating
- * main-agent session after team or standalone background work completes.
- *
- * Called once; idempotent.
- */
+/** Set up the persistent teammate listener. Called once; idempotent. */
 function ensureTeamLeadListener(): void {
   if (_teamLeadListenerActive) return
   _teamLeadListenerActive = true
@@ -3051,98 +3081,112 @@ function ensureTeamLeadListener(): void {
         useTeamStore.getState().activeTeam?.sessionId ??
         useChatStore.getState().activeSessionId
       if (sessionId) {
-        enqueueAgentWakeMessage({
+        enqueueTeamWakeMessage({
           sessionId,
           sender: event.message.from,
-          content: event.message.content,
-          source: 'team'
+          content: event.message.content
         })
       }
     }
     // Clear queue and reset counter when team is deleted
     if (event.type === 'team_end') {
-      for (let index = pendingAgentWakeMessages.length - 1; index >= 0; index -= 1) {
-        const message = pendingAgentWakeMessages[index]
-        if (
-          message.source === 'team' &&
-          (!event.sessionId || message.sessionId === event.sessionId)
-        ) {
-          pendingAgentWakeMessages.splice(index, 1)
+      for (let index = pendingTeamWakeMessages.length - 1; index >= 0; index -= 1) {
+        const message = pendingTeamWakeMessages[index]
+        if (!event.sessionId || message.sessionId === event.sessionId) {
+          pendingTeamWakeMessages.splice(index, 1)
         }
       }
       if (event.sessionId) {
-        autoTriggerCounts.delete(event.sessionId)
+        teamAutoTriggerCounts.delete(event.sessionId)
       } else {
-        autoTriggerCounts.clear()
+        teamAutoTriggerCounts.clear()
       }
-      if (_drainTimer) {
-        clearTimeout(_drainTimer)
-        _drainTimer = null
+      if (_teamDrainTimer) {
+        clearTimeout(_teamDrainTimer)
+        _teamDrainTimer = null
       }
-      if (pendingAgentWakeMessages.length > 0) {
-        scheduleDrain()
+      if (pendingTeamWakeMessages.length > 0) {
+        scheduleTeamDrain()
       }
     }
   })
+}
+
+/** Set up the standalone background SubAgent completion listener. Called once; idempotent. */
+function ensureBackgroundSubAgentListener(): void {
+  if (_backgroundSubAgentListenerActive) return
+  _backgroundSubAgentListenerActive = true
 
   backgroundSubAgentCompletions.on((event) => {
+    const chatStore = useChatStore.getState()
+    const ownerMessage = chatStore
+      .getSessionMessages(event.sessionId)
+      .find(
+        (message) =>
+          message.role === 'assistant' &&
+          Array.isArray(message.content) &&
+          message.content.some((block) => block.type === 'tool_use' && block.id === event.toolUseId)
+      )
+    if (ownerMessage) {
+      const aggregatedUsage: TokenUsage = ownerMessage.usage
+        ? { ...ownerMessage.usage }
+        : { inputTokens: 0, outputTokens: 0 }
+      mergeUsage(aggregatedUsage, event.result.usage)
+      chatStore.updateMessage(event.sessionId, ownerMessage.id, { usage: aggregatedUsage })
+    }
+
     const report = event.result.output.trim()
     const error = event.result.error?.trim() ?? ''
     const statusLine = event.result.success
       ? `Background sub-agent ${event.displayName} completed.`
       : `Background sub-agent ${event.displayName} failed.`
     const details = [error ? `Error: ${error}` : '', report].filter(Boolean).join('\n\n')
-    enqueueAgentWakeMessage({
+    enqueueSubAgentWakeMessage({
       sessionId: event.sessionId,
       sender: event.displayName,
-      content: details ? `${statusLine}\n\n${details}` : statusLine,
-      source: 'subagent'
+      content: details ? `${statusLine}\n\n${details}` : statusLine
     })
   })
 }
 
 /**
- * Drain one ready session at a time. Messages for a running session remain
- * queued until that session's current loop finishes.
+ * Resume a team lead with visible teammate notifications. This path intentionally
+ * remains separate from standalone background SubAgent completion handling.
  */
-function drainAgentWakeMessages(): void {
-  if (pendingAgentWakeMessages.length === 0) return
+function drainTeamWakeMessages(): void {
+  if (pendingTeamWakeMessages.length === 0) return
   if (!_sendMessageFn) return
   if (_autoTriggerPaused) return
 
   const sessionIds = new Set(useChatStore.getState().sessions.map((session) => session.id))
-  for (let index = pendingAgentWakeMessages.length - 1; index >= 0; index -= 1) {
-    if (!sessionIds.has(pendingAgentWakeMessages[index].sessionId)) {
-      pendingAgentWakeMessages.splice(index, 1)
+  for (let index = pendingTeamWakeMessages.length - 1; index >= 0; index -= 1) {
+    if (!sessionIds.has(pendingTeamWakeMessages[index].sessionId)) {
+      pendingTeamWakeMessages.splice(index, 1)
     }
   }
-  if (pendingAgentWakeMessages.length === 0) return
+  if (pendingTeamWakeMessages.length === 0) return
 
-  const readyMessage = pendingAgentWakeMessages.find(
+  const readyMessage = pendingTeamWakeMessages.find(
     (message) =>
       !autoTriggeringSessions.has(message.sessionId) &&
       !hasActiveSessionRun(message.sessionId) &&
-      (autoTriggerCounts.get(message.sessionId) ?? 0) < MAX_AUTO_TRIGGERS
+      (teamAutoTriggerCounts.get(message.sessionId) ?? 0) < MAX_AUTO_TRIGGERS
   )
   if (!readyMessage) return
   const targetSessionId = readyMessage.sessionId
-  const autoTriggerCount = autoTriggerCounts.get(targetSessionId) ?? 0
+  const autoTriggerCount = teamAutoTriggerCounts.get(targetSessionId) ?? 0
 
-  const batch = pendingAgentWakeMessages.filter((message) => message.sessionId === targetSessionId)
-  for (let index = pendingAgentWakeMessages.length - 1; index >= 0; index -= 1) {
-    if (pendingAgentWakeMessages[index].sessionId === targetSessionId) {
-      pendingAgentWakeMessages.splice(index, 1)
+  const batch = pendingTeamWakeMessages.filter((message) => message.sessionId === targetSessionId)
+  for (let index = pendingTeamWakeMessages.length - 1; index >= 0; index -= 1) {
+    if (pendingTeamWakeMessages[index].sessionId === targetSessionId) {
+      pendingTeamWakeMessages.splice(index, 1)
     }
   }
-  const parts = batch.map((message) =>
-    message.source === 'team'
-      ? `[Team message from ${message.sender}]:\n${message.content}`
-      : `[Background sub-agent ${message.sender}]:\n${message.content}`
-  )
+  const parts = batch.map((message) => `[Team message from ${message.sender}]:\n${message.content}`)
 
   // Append team progress summary so the lead can decide whether to wait or summarize
   const team = useTeamStore.getState().activeTeam
-  if (team?.sessionId === targetSessionId && batch.some((message) => message.source === 'team')) {
+  if (team?.sessionId === targetSessionId) {
     const total = team.tasks.length
     const completed = team.tasks.filter((t) => t.status === 'completed').length
     const inProgress = team.tasks.filter((t) => t.status === 'in_progress').length
@@ -3158,18 +3202,92 @@ function drainAgentWakeMessages(): void {
   }
 
   const text = parts.join('\n\n')
-  autoTriggerCounts.set(targetSessionId, autoTriggerCount + 1)
+  teamAutoTriggerCounts.set(targetSessionId, autoTriggerCount + 1)
   autoTriggeringSessions.add(targetSessionId)
   void _sendMessageFn(text, undefined, 'team', targetSessionId)
     .catch((error) => {
-      console.error('[AgentRuntime] Failed to resume session after background completion:', error)
+      console.error('[AgentRuntime] Failed to resume team lead after teammate message:', error)
     })
     .finally(() => {
       autoTriggeringSessions.delete(targetSessionId)
-      if (pendingAgentWakeMessages.length > 0) scheduleDrain()
+      if (pendingTeamWakeMessages.length > 0) scheduleTeamDrain()
+      if (pendingSubAgentWakeMessages.length > 0) scheduleSubAgentDrain()
     })
 
-  if (pendingAgentWakeMessages.length > 0) scheduleDrain()
+  if (pendingTeamWakeMessages.length > 0) scheduleTeamDrain()
+}
+
+function escapeSystemSubAgentContent(content: string): string {
+  return content.replace(/<\/system-sub-agent>/gi, '<\\/system-sub-agent>')
+}
+
+function buildSystemSubAgentContext(batch: PendingSubAgentWakeMessage[]): string {
+  const reports = batch.map(
+    (message) =>
+      `[Background sub-agent ${escapeSystemSubAgentContent(message.sender)}]:\n` +
+      escapeSystemSubAgentContent(message.content)
+  )
+  return [
+    '<system-sub-agent>',
+    'The following background SubAgent task information was generated automatically. Use it as internal context when continuing the current task; it is not a new user message.',
+    '',
+    reports.join('\n\n'),
+    '</system-sub-agent>'
+  ].join('\n')
+}
+
+/**
+ * Resume a main Agent from standalone background SubAgent completions. The completion
+ * report is request-only context and is never appended to the visible user transcript.
+ */
+function drainSubAgentWakeMessages(): void {
+  if (pendingSubAgentWakeMessages.length === 0) return
+  if (!_sendMessageFn) return
+  if (_autoTriggerPaused) return
+
+  const sessionIds = new Set(useChatStore.getState().sessions.map((session) => session.id))
+  for (let index = pendingSubAgentWakeMessages.length - 1; index >= 0; index -= 1) {
+    if (!sessionIds.has(pendingSubAgentWakeMessages[index].sessionId)) {
+      pendingSubAgentWakeMessages.splice(index, 1)
+    }
+  }
+  if (pendingSubAgentWakeMessages.length === 0) return
+
+  const readyMessage = pendingSubAgentWakeMessages.find(
+    (message) =>
+      !autoTriggeringSessions.has(message.sessionId) &&
+      !hasActiveSessionRun(message.sessionId) &&
+      (subAgentAutoTriggerCounts.get(message.sessionId) ?? 0) < MAX_AUTO_TRIGGERS
+  )
+  if (!readyMessage) return
+  const targetSessionId = readyMessage.sessionId
+  const autoTriggerCount = subAgentAutoTriggerCounts.get(targetSessionId) ?? 0
+
+  const batch = pendingSubAgentWakeMessages.filter(
+    (message) => message.sessionId === targetSessionId
+  )
+  for (let index = pendingSubAgentWakeMessages.length - 1; index >= 0; index -= 1) {
+    if (pendingSubAgentWakeMessages[index].sessionId === targetSessionId) {
+      pendingSubAgentWakeMessages.splice(index, 1)
+    }
+  }
+
+  const context = buildSystemSubAgentContext(batch)
+  subAgentAutoTriggerCounts.set(targetSessionId, autoTriggerCount + 1)
+  autoTriggeringSessions.add(targetSessionId)
+  void _sendMessageFn(context, undefined, 'subagent', targetSessionId, null, undefined, {
+    hiddenFromQueueView: true
+  })
+    .catch((error) => {
+      console.error('[AgentRuntime] Failed to resume session after SubAgent completion:', error)
+    })
+    .finally(() => {
+      autoTriggeringSessions.delete(targetSessionId)
+      if (pendingSubAgentWakeMessages.length > 0) scheduleSubAgentDrain()
+      if (pendingTeamWakeMessages.length > 0) scheduleTeamDrain()
+    })
+
+  if (pendingSubAgentWakeMessages.length > 0) scheduleSubAgentDrain()
 }
 
 function dispatchNextQueuedMessage(sessionId: string): boolean {
@@ -3865,12 +3983,14 @@ export function useChatActions(): {
       options?: SendMessageOptions
     ): Promise<void> => {
       // Reset auto-trigger counter and unpause when user manually sends a message
-      if (source !== 'team') {
+      if (source !== 'team' && source !== 'subagent') {
         const manualSessionId = targetSessionId ?? useChatStore.getState().activeSessionId
         if (manualSessionId) {
-          autoTriggerCounts.delete(manualSessionId)
+          teamAutoTriggerCounts.delete(manualSessionId)
+          subAgentAutoTriggerCounts.delete(manualSessionId)
         } else {
-          autoTriggerCounts.clear()
+          teamAutoTriggerCounts.clear()
+          subAgentAutoTriggerCounts.clear()
         }
         _autoTriggerPaused = false
       }
@@ -4025,6 +4145,7 @@ export function useChatActions(): {
           options?.clearCompletedTasksOnTurnStart &&
           source !== 'continue' &&
           source !== 'team' &&
+          source !== 'subagent' &&
           shouldClearCompletedSessionTasks(sessionId)
         ) {
           useTaskStore.getState().deleteSessionTasks(sessionId)
@@ -4232,9 +4353,10 @@ export function useChatActions(): {
 
         const sessionSnapshot = useChatStore.getState().sessions.find((s) => s.id === sessionId)
         const sessionMode = sessionSnapshot?.mode ?? uiStore.mode
-        // A quoted message is already rendered in the transcript; skip re-inserting it.
+        // Quoted messages are already rendered; SubAgent wake-ups are request-only context.
         const preRenderedUserMessageId = options?.preRenderedUserMessageId
-        const shouldAppendUserMessage = source !== 'continue' && !preRenderedUserMessageId
+        const shouldAppendUserMessage =
+          source !== 'continue' && source !== 'subagent' && !preRenderedUserMessageId
         const selectedFileReadContext =
           shouldAppendUserMessage && source !== 'team'
             ? await buildSelectedFileReadContext({
@@ -4247,6 +4369,9 @@ export function useChatActions(): {
         const turnRequestContextTexts: string[] = []
         if (isQueuedInsertion) {
           turnRequestContextTexts.push(QUEUED_MESSAGE_SYSTEM_REMIND)
+        }
+        if (source === 'subagent' && text.trim()) {
+          turnRequestContextTexts.push(text.trim())
         }
         if (appliedGoalObjective) {
           turnRequestContextTexts.push(buildGoalMessageSystemReminder(appliedGoalObjective))
@@ -6208,11 +6333,16 @@ export function useChatActions(): {
                 new Notification('OpenCowork', { body: 'Agent finished working', silent: true })
               }
 
-              // Drain team or standalone sub-agent completions that arrived
-              // while this session's main-agent loop was still running.
-              if (useTeamStore.getState().activeTeam || pendingAgentWakeMessages.length > 0) {
+              // Drain teammate messages or standalone SubAgent completions that arrived
+              // while this session's main-agent loop was still running. Each uses its
+              // own recovery path and request semantics.
+              if (useTeamStore.getState().activeTeam || pendingTeamWakeMessages.length > 0) {
                 ensureTeamLeadListener()
-                scheduleDrain()
+                scheduleTeamDrain()
+              }
+              if (pendingSubAgentWakeMessages.length > 0) {
+                ensureBackgroundSubAgentListener()
+                scheduleSubAgentDrain()
               }
             }
           }
@@ -6228,8 +6358,12 @@ export function useChatActions(): {
   useEffect(() => {
     installMemoryAutomationDailyRollup()
     ensureTeamLeadListener()
-    if (useTeamStore.getState().activeTeam || pendingAgentWakeMessages.length > 0) {
-      scheduleDrain()
+    ensureBackgroundSubAgentListener()
+    if (useTeamStore.getState().activeTeam || pendingTeamWakeMessages.length > 0) {
+      scheduleTeamDrain()
+    }
+    if (pendingSubAgentWakeMessages.length > 0) {
+      scheduleSubAgentDrain()
     }
   }, [])
 

@@ -2,7 +2,7 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { Bot } from 'lucide-react'
-import { InputArea } from '@renderer/components/chat/InputArea'
+import { RuntimeTokenStatistics } from '@renderer/components/chat/InputArea'
 import { TranscriptMessageList } from '@renderer/components/chat/TranscriptMessageList'
 import { buildRenderableMessageMeta } from '@renderer/components/chat/transcript-utils'
 import { useAgentStore, type SubAgentState } from '@renderer/stores/agent-store'
@@ -14,7 +14,6 @@ import type {
   UnifiedMessage
 } from '@renderer/lib/api/types'
 import { cn } from '@renderer/lib/utils'
-import { stopSessionStreaming, useChatActions } from '@renderer/hooks/use-chat-actions'
 import { parseSubAgentMeta } from '@renderer/lib/agent/sub-agents/create-tool'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import {
@@ -35,6 +34,7 @@ function buildSubAgentDetailSignature(agent: SubAgentState | null): string {
     agent.toolUseId,
     agent.sessionId ?? '',
     agent.isRunning ? '1' : '0',
+    agent.endReason ?? '',
     String(agent.iteration),
     String(agent.toolCalls.length),
     String(agent.transcript.length),
@@ -44,6 +44,8 @@ function buildSubAgentDetailSignature(agent: SubAgentState | null): string {
     agent.requestModel?.modelId ?? '',
     agent.requestModel?.modelName ?? '',
     agent.requestModel?.modelIcon ?? '',
+    agent.mcpServerIds?.join(',') ?? '',
+    agent.permissionMode ?? '',
     String(currentAssistant?._revision ?? ''),
     lastMessage?.id ?? '',
     String(lastMessage?._revision ?? ''),
@@ -223,11 +225,6 @@ export function SubAgentExecutionDetail({
   const { t } = useTranslation('layout')
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const resolvedSessionId = sessionId ?? activeSessionId
-  const sessionWorkingFolder = useChatStore((s) =>
-    resolvedSessionId
-      ? (s.sessions.find((session) => session.id === resolvedSessionId)?.workingFolder ?? undefined)
-      : undefined
-  )
   const agentDetail = useAgentStore(
     useShallow((s) => {
       const sessionAgentSelection = selectSessionScopedAgentState(s, resolvedSessionId)
@@ -258,13 +255,6 @@ export function SubAgentExecutionDetail({
       : EMPTY_SESSION_MESSAGES
   )
   const executedToolCalls = useAgentStore((s) => s.executedToolCalls)
-  const isSessionStreaming = useAgentStore((s) => {
-    if (!resolvedSessionId) return false
-    const status = s.runningSessions[resolvedSessionId]
-    if (status === 'running' || status === 'retrying') return true
-    return s.runningSubAgentSessionIdsSig.split('\u0000').includes(resolvedSessionId)
-  })
-  const { sendMessage, manualCompressContext } = useChatActions()
   const agent = agentDetail.agent
   const hasRenderableAgentTranscript = agent?.transcript.length
     ? buildRenderableMessageMeta(agent.transcript, agent.currentAssistantMessageId).length > 0
@@ -320,10 +310,6 @@ export function SubAgentExecutionDetail({
     () => (toolCalls ? buildLiveToolCallMap(toolCalls) : null),
     [toolCalls]
   )
-  const composerDraftKey = resolvedSessionId
-    ? `subagent:${resolvedSessionId}:${toolUseId ?? 'overview'}`
-    : null
-
   if (transcript.length === 0) {
     return (
       <div
@@ -354,28 +340,17 @@ export function SubAgentExecutionDetail({
         autoScrollToBottom={Boolean(agent?.isRunning)}
       />
       {resolvedSessionId ? (
-        <InputArea
-          sessionId={resolvedSessionId}
-          onSend={(text, images, options) =>
-            void sendMessage(
-              text,
-              images,
-              undefined,
-              resolvedSessionId,
-              undefined,
-              undefined,
-              options
-            )
-          }
-          onStop={() => stopSessionStreaming(resolvedSessionId)}
-          workingFolder={sessionWorkingFolder}
-          hideWorkingFolderIndicator
-          onCompressContext={manualCompressContext}
-          isStreaming={isSessionStreaming}
-          draftKeyOverride={composerDraftKey}
-          readOnlyModel={subAgentRequestModel}
-          fullWidth
-        />
+        <div className="shrink-0 border-t border-border/60 bg-background/95 px-4 py-2 backdrop-blur-sm">
+          <RuntimeTokenStatistics
+            sessionId={resolvedSessionId}
+            messages={transcript}
+            streamingMessageId={streamingMessageId}
+            usage={agent?.usage}
+            requestModel={subAgentRequestModel}
+            isStreaming={Boolean(agent?.isRunning)}
+            className="overflow-x-auto [scrollbar-width:none]"
+          />
+        </div>
       ) : null}
     </div>
   )

@@ -131,6 +131,31 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             startedAt = Stopwatch.GetTimestamp();
             await ExecuteHttpSseAsync(httpUrl, body, provider, parseState, state, context, startedAt);
         }
+        catch (OperationCanceledException ex) when (
+            !useWebSocket &&
+            !state.IsCancellationRequested &&
+            !parseState.ReceivedAnyMessage)
+        {
+            // HttpClient reports request timeouts as OperationCanceledException. Retrying is
+            // safe only before the provider has emitted an event; otherwise a replay could
+            // duplicate streamed text or tool execution.
+            WorkerLog.Warn(
+                "responses HTTP request interrupted before first event; retrying once " +
+                $"url={httpUrl} error={ex.GetType().Name}: {ex.Message}");
+            parseState = new ResponsesParseState();
+            await EmitRequestDebugAsync(
+                parameters,
+                provider,
+                state,
+                context,
+                httpUrl,
+                useWebSocket: false,
+                body,
+                model,
+                transport);
+            startedAt = Stopwatch.GetTimestamp();
+            await ExecuteHttpSseAsync(httpUrl, body, provider, parseState, state, context, startedAt);
+        }
 
         FlushPendingToolCalls(parseState);
         var totalMs = ElapsedMs(startedAt);

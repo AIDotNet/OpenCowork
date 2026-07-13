@@ -39,6 +39,19 @@ import {
 const DEFAULT_AGENT = 'CronAgent'
 const RESPONSES_SESSION_SCOPE_AGENT_MAIN = 'agent-main'
 
+const CRON_FINAL_REPORT_PROTOCOL = `<final_report_protocol>
+Your final assistant message is persisted verbatim as the cron run report.
+You MUST finish every run with a detailed report, regardless of whether the task completed, partially completed, was blocked, or failed.
+The report must be self-contained, factual, and written in the same language as the scheduled task unless the task requests another language.
+Complete any required delivery action before writing the report. Do not call tools after the final report and do not end with a tool call.
+
+Write the report naturally without a required template, fixed headings, or status enum.
+Clearly explain the outcome, work performed, material actions or changes, findings, affected files or resources, delivery actions, and concrete evidence.
+Describe checks or commands actually run and their outcomes. Never claim validation you did not perform.
+If the task fails or is blocked, clearly explain the cause, what was attempted, the current state, and the safest recovery path.
+Include any remaining issues, risks, or useful next steps when relevant, with enough detail for the user to understand this run without replaying the transcript.
+</final_report_protocol>`
+
 const FALLBACK_CRON_AGENT = {
   name: DEFAULT_AGENT,
   description: 'Scheduled task agent for cron jobs',
@@ -72,11 +85,8 @@ const SUPPORTED_BACKGROUND_TOOLS = new Set([
   'Bash',
   'Notify',
   'PluginSendMessage',
-  'PluginReplyMessage',
-  'SubmitReport'
+  'PluginReplyMessage'
 ])
-
-const SUBMIT_REPORT_TOOL_NAME = 'SubmitReport'
 
 type ProviderType =
   | 'anthropic'
@@ -756,6 +766,10 @@ async function resolveCronAgentDefinition(agentId?: string | null): Promise<Agen
   return FALLBACK_CRON_AGENT
 }
 
+function buildCronAgentSystemPrompt(systemPrompt: string): string {
+  return `${systemPrompt.trim()}\n\n${CRON_FINAL_REPORT_PROTOCOL}`
+}
+
 type NativeAgentRunResult = {
   started?: boolean
   runId?: string
@@ -1252,17 +1266,6 @@ const BACKGROUND_TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
       },
       required: ['plugin_id', 'message_id', 'content']
     }
-  },
-  [SUBMIT_REPORT_TOOL_NAME]: {
-    name: SUBMIT_REPORT_TOOL_NAME,
-    description: 'Submit the final report and end this agent session.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        report: { type: 'string', description: 'The complete final report body' }
-      },
-      required: ['report']
-    }
   }
 }
 
@@ -1309,6 +1312,27 @@ function appendText(messages: UnifiedMessage[], text: string): void {
     return
   }
   blocks.push({ type: 'text', text })
+}
+
+function getLastAssistantText(messages: UnifiedMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role !== 'assistant') continue
+    if (typeof message.content === 'string') {
+      const text = message.content.trim()
+      if (text) return text
+      continue
+    }
+
+    const text = message.content
+      .filter((block): block is TextBlock => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+      .trim()
+    if (text) return text
+  }
+
+  return ''
 }
 
 function appendThinking(messages: UnifiedMessage[], thinking: string): void {
@@ -1704,7 +1728,7 @@ async function runCronAgentInternal(
 
   const innerProvider: ProviderConfig = {
     ...providerConfig,
-    systemPrompt: definition.systemPrompt,
+    systemPrompt: buildCronAgentSystemPrompt(definition.systemPrompt),
     model: modelOverride || definition.model || providerConfig.model,
     temperature: definition.temperature ?? providerConfig.temperature,
     sessionId: sessionId ?? jobId,
@@ -1745,10 +1769,10 @@ async function runCronAgentInternal(
       : ''
   const deliveryInstructions =
     pluginId && pluginChatId
-      ? `When finished, call **PluginSendMessage** EXACTLY ONCE with plugin_id="${pluginId}" and chat_id="${pluginChatId}" to send a friendly result summary back through the channel. After sending, STOP.`
-      : 'When finished, call **Notify** EXACTLY ONCE to send a friendly desktop result summary. After calling Notify, STOP.'
+      ? `When the work is finished, call **PluginSendMessage** EXACTLY ONCE with plugin_id="${pluginId}" and chat_id="${pluginChatId}" to send a friendly result summary back through the channel. Then write the final task report as your last assistant message and stop.`
+      : 'When the work is finished, call **Notify** EXACTLY ONCE to send a friendly desktop result summary. Then write the final task report as your last assistant message and stop.'
 
-  const cronContext = `You are a scheduled task assistant running cron job (ID: ${jobId}).\nAgent: ${definition.name}\n${deliveryTarget ? `Target session: ${deliveryTarget}` : ''}${channelInfo}\n\n## Your Task\n${prompt}\n\n## Delivery Instructions\n${deliveryInstructions}\n\nMatch the language of the task prompt in your delivery message (Chinese task → Chinese reply, English task → English reply). Be concise and friendly.\n\nBegin working on this task now.`
+  const cronContext = `You are a scheduled task assistant running cron job (ID: ${jobId}).\nAgent: ${definition.name}\n${deliveryTarget ? `Target session: ${deliveryTarget}` : ''}${channelInfo}\n\n## Your Task\n${prompt}\n\n## Delivery Instructions\n${deliveryInstructions}\n\nMatch the language of the task prompt in both the delivery message and final report (Chinese task → Chinese reply, English task → English reply). Be concise and friendly.\n\n<system-remind>\nYour final assistant message is persisted verbatim as this cron run's report. End every run with a self-contained report whether the task completed, partially completed, was blocked, or failed. Complete delivery before the report, and do not call tools after the report.\n</system-remind>\n\nBegin working on this task now.`
 
   const transcriptMessages: UnifiedMessage[] = [
     {
@@ -1784,7 +1808,6 @@ async function runCronAgentInternal(
     sharedState: { deliveryUsed: false }
   }
 
-  let output = ''
   let toolCallCount = 0
   let iterationCount = 0
   let error: string | undefined
@@ -1872,7 +1895,6 @@ async function runCronAgentInternal(
         case 'thinking_encrypted':
           break
         case 'text_delta':
-          output += event.text
           appendText(transcriptMessages, event.text)
           markTranscriptDirty()
           break
@@ -1969,7 +1991,7 @@ async function runCronAgentInternal(
     : error
       ? 'error'
       : 'success'
-  const outputSummary = output.slice(0, 2000)
+  const outputSummary = getLastAssistantText(transcriptMessages)
 
   await appendLog('end', status)
   await updateRunRecord(runId, {

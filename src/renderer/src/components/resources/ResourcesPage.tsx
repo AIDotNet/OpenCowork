@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Brain, Command, Eye, Loader2, Pencil, Plus, Save, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { AnimatePresence, motion } from 'motion/react'
 import { toast } from 'sonner'
 import { cn } from '@renderer/lib/utils'
+import { FadeIn } from '@renderer/components/animate-ui/transitions'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import {
   useResourcesStore,
   type ManagedResourceItem,
@@ -41,6 +44,7 @@ function SourceBadge({ source }: { source: ManagedResourceItem['source'] }): Rea
 
 export function ResourcesPage(): React.JSX.Element {
   const { t } = useTranslation('layout')
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const activeKind = useResourcesStore((s) => s.activeKind)
   const searchQuery = useResourcesStore((s) => s.searchQuery)
   const agents = useResourcesStore((s) => s.agents)
@@ -258,159 +262,183 @@ export function ResourcesPage(): React.JSX.Element {
           <div className="border-b px-3 py-2 text-xs text-muted-foreground">
             {t('resourcesPage.listTitle', { defaultValue: 'Resource list' })}
           </div>
-          <div className="flex-1 overflow-y-auto px-2 py-2">
-            {listLoading ? (
-              <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
-                <Loader2 className="mr-2 size-3.5 animate-spin" />
-                {t('resourcesPage.loadingList', { defaultValue: 'Loading list...' })}
-              </div>
-            ) : filteredItems.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-                <p className="text-sm text-muted-foreground">
-                  {t('resourcesPage.empty', { defaultValue: 'No available resources' })}
-                </p>
-                <p className="text-xs text-muted-foreground/70">
-                  {t('resourcesPage.emptyDesc', {
-                    defaultValue: 'Try switching type or modifying search term'
-                  })}
-                </p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {filteredItems.map((item) => {
-                  const selected = currentSelectedId === item.id
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => void selectResource(item.id, activeKind)}
-                      className={cn(
-                        'rounded-lg border px-3 py-2 text-left transition-colors',
-                        selected
-                          ? 'border-primary/30 bg-primary/10'
-                          : 'border-transparent bg-background/70 hover:bg-muted'
-                      )}
-                    >
-                      <div className="flex items-start gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium">{item.name}</div>
-                          <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
-                            {item.description ||
-                              t('resourcesPage.noDescription', { defaultValue: 'No summary' })}
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 flex-col items-end gap-1">
-                          <SourceBadge source={item.source} />
-                          {item.kind === 'commands' && item.effective ? (
-                            <Badge variant="outline">
-                              {t('resourcesPage.effective', { defaultValue: 'Active' })}
-                            </Badge>
-                          ) : null}
-                        </div>
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+          <AnimatePresence mode="wait" initial={false}>
+            <FadeIn key={activeKind} duration={0.15} className="flex-1 overflow-y-auto px-2 py-2">
+              {listLoading ? (
+                <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
+                  <Loader2 className="mr-2 size-3.5 animate-spin" />
+                  {t('resourcesPage.loadingList', { defaultValue: 'Loading list...' })}
+                </div>
+              ) : filteredItems.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    {t('resourcesPage.empty', { defaultValue: 'No available resources' })}
+                  </p>
+                  <p className="text-xs text-muted-foreground/70">
+                    {t('resourcesPage.emptyDesc', {
+                      defaultValue: 'Try switching type or modifying search term'
+                    })}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  <AnimatePresence initial={false}>
+                    {filteredItems.map((item) => {
+                      const selected = currentSelectedId === item.id
+                      return (
+                        <motion.div
+                          key={item.id}
+                          layout={animationsEnabled ? 'position' : false}
+                          initial={animationsEnabled ? { opacity: 0 } : false}
+                          animate={{ opacity: 1 }}
+                          exit={animationsEnabled ? { opacity: 0 } : undefined}
+                          transition={animationsEnabled ? { duration: 0.15 } : { duration: 0 }}
+                        >
+                          <button
+                            onClick={() => void selectResource(item.id, activeKind)}
+                            className={cn(
+                              'w-full rounded-lg border px-3 py-2 text-left transition-colors',
+                              selected
+                                ? 'border-primary/30 bg-primary/10'
+                                : 'border-transparent bg-background/70 hover:bg-muted'
+                            )}
+                          >
+                            <div className="flex items-start gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-sm font-medium">{item.name}</div>
+                                <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+                                  {item.description ||
+                                    t('resourcesPage.noDescription', {
+                                      defaultValue: 'No summary'
+                                    })}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 flex-col items-end gap-1">
+                                <SourceBadge source={item.source} />
+                                {item.kind === 'commands' && item.effective ? (
+                                  <Badge variant="outline">
+                                    {t('resourcesPage.effective', { defaultValue: 'Active' })}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                            </div>
+                          </button>
+                        </motion.div>
+                      )
+                    })}
+                  </AnimatePresence>
+                </div>
+              )}
+            </FadeIn>
+          </AnimatePresence>
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {selectedResource ? (
-            <>
-              <div className="flex items-start gap-3 border-b px-4 py-3 shrink-0">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h2 className="truncate text-sm font-semibold">{selectedResource.name}</h2>
-                    <SourceBadge source={selectedResource.source} />
-                    {selectedResource.kind === 'commands' && selectedResource.effective ? (
-                      <Badge variant="outline">
-                        {t('resourcesPage.effective', { defaultValue: 'Active' })}
-                      </Badge>
-                    ) : null}
+          <AnimatePresence mode="wait" initial={false}>
+            {selectedResource ? (
+              <FadeIn
+                key={`${selectedResource.kind}:${selectedResource.id}`}
+                duration={0.15}
+                className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
+                <div className="flex items-start gap-3 border-b px-4 py-3 shrink-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h2 className="truncate text-sm font-semibold">{selectedResource.name}</h2>
+                      <SourceBadge source={selectedResource.source} />
+                      {selectedResource.kind === 'commands' && selectedResource.effective ? (
+                        <Badge variant="outline">
+                          {t('resourcesPage.effective', { defaultValue: 'Active' })}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {selectedResource.description}
+                    </p>
+                    <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground/80">
+                      {selectedResource.path}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {selectedResource.description}
-                  </p>
-                  <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground/80">
-                    {selectedResource.path}
-                  </p>
+                  <div className="flex items-center gap-1">
+                    {editing ? (
+                      <>
+                        <Button variant="ghost" size="icon-sm" onClick={() => setEditing(false)}>
+                          <Eye className="size-3.5" />
+                        </Button>
+                        <Button size="icon-sm" onClick={() => void handleSave()} disabled={saving}>
+                          {saving ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Save className="size-3.5" />
+                          )}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => setEditing(true)}
+                        disabled={!selectedResource.editable}
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  {editing ? (
-                    <>
-                      <Button variant="ghost" size="icon-sm" onClick={() => setEditing(false)}>
-                        <Eye className="size-3.5" />
-                      </Button>
-                      <Button size="icon-sm" onClick={() => void handleSave()} disabled={saving}>
-                        {saving ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : (
-                          <Save className="size-3.5" />
-                        )}
-                      </Button>
-                    </>
+
+                {!selectedResource.editable ? (
+                  <div className="border-b bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
+                    {t('resourcesPage.readonlyNotice', {
+                      defaultValue:
+                        'This is a built-in resource, current version only supports preview, not direct editing.'
+                    })}
+                  </div>
+                ) : null}
+
+                {error ? (
+                  <div className="border-b bg-destructive/5 px-4 py-2 text-xs text-destructive">
+                    {error}
+                  </div>
+                ) : null}
+
+                <div className="flex-1 overflow-y-auto">
+                  {detailLoading ? (
+                    <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      {t('resourcesPage.loadingDetail', { defaultValue: 'Loading content...' })}
+                    </div>
+                  ) : editing ? (
+                    <textarea
+                      value={draftContent ?? ''}
+                      onChange={(event) => setDraftContent(event.target.value)}
+                      className="h-full w-full resize-none border-0 bg-transparent p-4 font-mono text-xs leading-relaxed focus:outline-none"
+                      spellCheck={false}
+                    />
                   ) : (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => setEditing(true)}
-                      disabled={!selectedResource.editable}
-                    >
-                      <Pencil className="size-3.5" />
-                    </Button>
+                    <pre className="whitespace-pre-wrap break-words p-4 font-mono text-xs leading-relaxed text-foreground/90">
+                      {selectedResource.content}
+                    </pre>
                   )}
                 </div>
-              </div>
-
-              {!selectedResource.editable ? (
-                <div className="border-b bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
-                  {t('resourcesPage.readonlyNotice', {
+              </FadeIn>
+            ) : (
+              <FadeIn
+                key="resources-detail-empty"
+                duration={0.15}
+                className="flex flex-1 flex-col items-center justify-center gap-2 text-center"
+              >
+                <p className="text-sm text-muted-foreground">
+                  {t('resourcesPage.selectTitle', { defaultValue: 'Select a resource' })}
+                </p>
+                <p className="text-xs text-muted-foreground/70">
+                  {t('resourcesPage.selectDesc', {
                     defaultValue:
-                      'This is a built-in resource, current version only supports preview, not direct editing.'
+                      'Switch resource type on the left and select specific entries in the list.'
                   })}
-                </div>
-              ) : null}
-
-              {error ? (
-                <div className="border-b bg-destructive/5 px-4 py-2 text-xs text-destructive">
-                  {error}
-                </div>
-              ) : null}
-
-              <div className="flex-1 overflow-y-auto">
-                {detailLoading ? (
-                  <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                    {t('resourcesPage.loadingDetail', { defaultValue: 'Loading content...' })}
-                  </div>
-                ) : editing ? (
-                  <textarea
-                    value={draftContent ?? ''}
-                    onChange={(event) => setDraftContent(event.target.value)}
-                    className="h-full w-full resize-none border-0 bg-transparent p-4 font-mono text-xs leading-relaxed focus:outline-none"
-                    spellCheck={false}
-                  />
-                ) : (
-                  <pre className="whitespace-pre-wrap break-words p-4 font-mono text-xs leading-relaxed text-foreground/90">
-                    {selectedResource.content}
-                  </pre>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-              <p className="text-sm text-muted-foreground">
-                {t('resourcesPage.selectTitle', { defaultValue: 'Select a resource' })}
-              </p>
-              <p className="text-xs text-muted-foreground/70">
-                {t('resourcesPage.selectDesc', {
-                  defaultValue:
-                    'Switch resource type on the left and select specific entries in the list.'
-                })}
-              </p>
-            </div>
-          )}
+                </p>
+              </FadeIn>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </div>

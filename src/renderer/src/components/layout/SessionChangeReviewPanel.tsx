@@ -1,10 +1,12 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
+import { AnimatePresence, motion } from 'motion/react'
 import { Check, ChevronDown, Copy, FileCode, Loader2, RefreshCw, RotateCcw, X } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { MONO_FONT } from '@renderer/lib/constants'
 import { cn } from '@renderer/lib/utils'
 import { useAgentStore } from '@renderer/stores/agent-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import type { UnifiedMessage } from '@renderer/lib/api/types'
@@ -207,6 +209,7 @@ function ChangeRow({
   onToggle: () => void
 }): React.JSX.Element {
   const { t } = useTranslation(['chat', 'common'])
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const undoFileChange = useAgentStore((state) => state.undoFileChange)
   const [isUndoing, setIsUndoing] = React.useState(false)
   const actionableChanges = React.useMemo(() => actionableSourceChanges(change), [change])
@@ -224,8 +227,25 @@ function ChangeRow({
     }
   }
 
+  const renderExpanded = (): React.JSX.Element => (
+    <div className="border-t border-border/50 px-4 pb-4 pt-3">
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
+        <span className={cn(statusTone(change))}>{t(statusLabelKey(change))}</span>
+        <span className="text-muted-foreground">
+          {t(`fileChange.transport.${change.transport}`)}
+        </span>
+      </div>
+      <ChangeDetail change={change} />
+    </div>
+  )
+
   return (
-    <div
+    <motion.div
+      layout={animationsEnabled ? 'position' : false}
+      initial={animationsEnabled ? { opacity: 0, y: -4 } : false}
+      animate={animationsEnabled ? { opacity: 1, y: 0 } : undefined}
+      exit={animationsEnabled ? { opacity: 0 } : undefined}
+      transition={{ duration: 0.15, ease: 'easeOut' }}
       className={cn(
         'overflow-hidden border-b border-border/50 transition-colors last:border-b-0',
         expanded ? 'bg-muted/30' : 'hover:bg-muted/20'
@@ -287,18 +307,25 @@ function ChangeRow({
         )}
       </div>
 
-      {expanded ? (
-        <div className="border-t border-border/50 px-4 pb-4 pt-3">
-          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
-            <span className={cn(statusTone(change))}>{t(statusLabelKey(change))}</span>
-            <span className="text-muted-foreground">
-              {t(`fileChange.transport.${change.transport}`)}
-            </span>
-          </div>
-          <ChangeDetail change={change} />
-        </div>
+      {animationsEnabled ? (
+        <AnimatePresence initial={false}>
+          {expanded ? (
+            <motion.div
+              key="diff"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              {renderExpanded()}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      ) : expanded ? (
+        renderExpanded()
       ) : null}
-    </div>
+    </motion.div>
   )
 }
 
@@ -521,17 +548,19 @@ export function SessionChangeReviewPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {aggregatedChanges.map((change) => (
-          <ChangeRow
-            key={change.id}
-            change={change}
-            summary={summariesByChangeId[change.id] ?? { added: 0, deleted: 0 }}
-            expanded={change.id === selectedChangeId}
-            onToggle={() =>
-              setSelectedChangeId((current) => (current === change.id ? null : change.id))
-            }
-          />
-        ))}
+        <AnimatePresence initial={false}>
+          {aggregatedChanges.map((change) => (
+            <ChangeRow
+              key={change.id}
+              change={change}
+              summary={summariesByChangeId[change.id] ?? { added: 0, deleted: 0 }}
+              expanded={change.id === selectedChangeId}
+              onToggle={() =>
+                setSelectedChangeId((current) => (current === change.id ? null : change.id))
+              }
+            />
+          ))}
+        </AnimatePresence>
       </div>
     </div>
   )

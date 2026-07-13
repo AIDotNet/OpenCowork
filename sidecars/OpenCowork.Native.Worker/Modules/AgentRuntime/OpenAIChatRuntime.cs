@@ -54,6 +54,13 @@ internal static class OpenAIChatRuntime
         var hasIterationLimit = requestedMaxIterations > 0;
         var providerTurnOnly = JsonHelpers.GetBool(parameters, "providerTurnOnly", false);
         var captureFinalMessages = JsonHelpers.GetBool(parameters, "captureFinalMessages", false);
+        var captureUncompressedFinalMessages = JsonHelpers.GetBool(
+            parameters,
+            "captureUncompressedFinalMessages",
+            false);
+        var uncompressedWireConversation = captureUncompressedFinalMessages
+            ? wireConversation.Select(message => message.Clone()).ToList()
+            : null;
         var completed = false;
         var fullCompressionApplied = false;
         var runtimePlanModeContextInjected = wireConversation.Any(MessageHasPlanModeContext);
@@ -73,7 +80,7 @@ internal static class OpenAIChatRuntime
                     context,
                     "aborted",
                     fullCompressionApplied || captureFinalMessages,
-                    wireConversation);
+                    uncompressedWireConversation ?? wireConversation);
                 return;
             }
 
@@ -115,7 +122,7 @@ internal static class OpenAIChatRuntime
                             context,
                             "aborted",
                             fullCompressionApplied || captureFinalMessages,
-                            wireConversation);
+                            uncompressedWireConversation ?? wireConversation);
                         return;
                     }
 
@@ -180,7 +187,10 @@ internal static class OpenAIChatRuntime
             var injectedMessages = state.DrainQueuedMessages();
             if (injectedMessages.Count > 0)
             {
-                wireConversation.AddRange(injectedMessages.Select(message => message.Clone()));
+                var injectedClones = injectedMessages.Select(message => message.Clone()).ToArray();
+                wireConversation.AddRange(injectedClones);
+                uncompressedWireConversation?.AddRange(
+                    injectedClones.Select(message => message.Clone()));
                 conversation.AddRange(ReadConversation(injectedMessages));
                 WorkerLog.Debug(
                     $"agent loop injected queued messages runId={state.RunId} count={injectedMessages.Count}");
@@ -199,13 +209,15 @@ internal static class OpenAIChatRuntime
                     context,
                     "aborted",
                     fullCompressionApplied || captureFinalMessages,
-                    wireConversation);
+                    uncompressedWireConversation ?? wireConversation);
                 return;
             }
 
             var turn = await ExecuteTurnAsync(parameters, provider, conversation, state, context);
             conversation.Add(turn.AssistantMessage);
-            wireConversation.Add(CreateAssistantWireMessage(turn.AssistantMessage, turn.Usage));
+            var assistantWireMessage = CreateAssistantWireMessage(turn.AssistantMessage, turn.Usage);
+            wireConversation.Add(assistantWireMessage);
+            uncompressedWireConversation?.Add(assistantWireMessage.Clone());
             if (turn.Usage?.ContextTokens is > 0)
             {
                 lastInputTokens = turn.Usage.ContextTokens.Value;
@@ -217,6 +229,10 @@ internal static class OpenAIChatRuntime
                     state,
                     context,
                     new AgentRuntimeStreamEvent("iteration_end", StopReason: turn.StopReason));
+                if (!state.TryCloseMessageQueueIfEmpty())
+                {
+                    continue;
+                }
                 completed = true;
                 break;
             }
@@ -240,17 +256,23 @@ internal static class OpenAIChatRuntime
             var toolResults = toolExecution.ToolResults;
 
             conversation.Add(AgentRuntimeChatMessage.UserToolResults(toolResults));
-            wireConversation.Add(CreateToolResultsWireMessage(toolResults));
+            var toolResultsWireMessage = CreateToolResultsWireMessage(toolResults);
+            wireConversation.Add(toolResultsWireMessage);
+            uncompressedWireConversation?.Add(toolResultsWireMessage.Clone());
             foreach (var hookContext in toolExecution.HookContextTexts)
             {
                 conversation.Add(new AgentRuntimeChatMessage("user", hookContext, [], []));
-                wireConversation.Add(CreateUserTextWireMessage(hookContext));
+                var hookContextWireMessage = CreateUserTextWireMessage(hookContext);
+                wireConversation.Add(hookContextWireMessage);
+                uncompressedWireConversation?.Add(hookContextWireMessage.Clone());
             }
             if (!runtimePlanModeContextInjected &&
                 AgentRuntimePlanExecutor.IsPlanModeActiveForRun(state.RunId, parameters))
             {
                 conversation.Add(new AgentRuntimeChatMessage("user", PlanModeTurnContextText, [], []));
-                wireConversation.Add(CreateUserTextWireMessage(PlanModeTurnContextText));
+                var planModeWireMessage = CreateUserTextWireMessage(PlanModeTurnContextText);
+                wireConversation.Add(planModeWireMessage);
+                uncompressedWireConversation?.Add(planModeWireMessage.Clone());
                 runtimePlanModeContextInjected = true;
             }
             await AgentRuntimeTools.EmitAsync(
@@ -274,7 +296,7 @@ internal static class OpenAIChatRuntime
             context,
             state.StopReason ?? (completed ? "completed" : "max_iterations"),
             fullCompressionApplied || captureFinalMessages,
-            wireConversation);
+            uncompressedWireConversation ?? wireConversation);
     }
 
     internal static async Task<AgentRuntimeProviderTurnResult> ExecuteProviderTurnAsync(
@@ -1089,7 +1111,10 @@ internal static class OpenAIChatRuntime
         AgentRuntimeNativeToolCall call,
         JsonElement parameters)
     {
+        // A nested parent cooperatively yields and reacquires its current slot around each Task.
+        // Keep those calls serial so concurrent children cannot race the same parent lease.
         return !JsonHelpers.GetBool(parameters, "forceApproval", false) &&
+            !JsonHelpers.GetBool(parameters, "subAgentConcurrencySlotInherited", false) &&
             AgentRuntimeSubAgentExecutor.IsTaskTool(call.Name) &&
             !JsonHelpers.GetBool(call.Input, "run_in_background", false);
     }

@@ -22,7 +22,7 @@ interface SlideProps extends BaseTransitionProps {
 
 // ─── Spring Configs ───
 
-const spring = {
+export const spring = {
   stiff: { type: 'spring', stiffness: 400, damping: 30 },
   smooth: { type: 'spring', stiffness: 300, damping: 30, mass: 0.8 },
   slow: { type: 'spring', stiffness: 200, damping: 40 }
@@ -140,13 +140,34 @@ ScaleIn.displayName = 'ScaleIn'
 
 /**
  * PageTransition - Full page/panel replacement transition
+ *
+ * Default: fade + slight rise on enter, quick fade on exit. Designed for
+ * `<AnimatePresence mode="wait">` — exit is opacity-only and short so page
+ * switches stay snappy. Callers can override any motion prop via `...props`.
  */
 export const PageTransition = forwardRef<HTMLDivElement, BaseTransitionProps>(
-  ({ children, className, ...props }, ref) => {
+  (
+    { children, className, delay = 0, duration = 0.18, as: Component = motion.div, ...props },
+    ref
+  ) => {
+    const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
+
     return (
-      <motion.div ref={ref} className={cn('size-full', className)} {...props}>
+      <Component
+        ref={ref}
+        initial={animationsEnabled ? { opacity: 0, y: 8 } : false}
+        animate={{ opacity: 1, y: 0 }}
+        exit={
+          animationsEnabled
+            ? { opacity: 0, transition: { duration: 0.12, ease: ease.out } }
+            : undefined
+        }
+        transition={animationsEnabled ? { duration, delay, ease: ease.out } : { duration: 0 }}
+        className={cn('size-full', className)}
+        {...props}
+      >
         {children}
-      </motion.div>
+      </Component>
     )
   }
 )

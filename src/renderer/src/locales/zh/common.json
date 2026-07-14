@@ -247,6 +247,7 @@
     "update": {
       "availableTitle": "🎉 新版本 {{version}} 可用",
       "availableDescription": "点击“立即更新”开始下载",
+      "manualDescription": "免安装版暂不支持自动更新。请手动下载新版，退出应用后覆盖当前目录。",
       "readyTitle": "更新 v{{version}} 已准备好",
       "readyDescription": "更新已下载完成。选择“立即更新”将重启应用并安装。",
       "buttonLabel": "更新 v{{version}}",
@@ -262,6 +263,7 @@
       "downloadingProgress": "正在下载更新 {{progress}}%",
       "actions": {
         "updateNow": "立即更新",
+        "openDownloadPage": "打开下载页",
         "remindLater": "稍后提醒",
         "installNow": "立即更新",
         "updateLater": "稍后更新"

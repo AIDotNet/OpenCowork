@@ -5,6 +5,7 @@ import { autoUpdater } from 'electron-updater'
 import { writeCrashLog } from './crash-logger'
 import { safeSendMessagePackToWindow } from './window-ipc'
 import { readSettings } from './ipc/settings-handlers'
+import { getUpdateDistributionInfo, isAutoInstallUpdateSupported } from './distribution'
 
 type WindowGetter = () => BrowserWindow | null
 type QuitMarker = () => void
@@ -21,6 +22,9 @@ let downloadUpdatePromise: Promise<unknown> | null = null
 let macUpdaterUnsupportedReason: string | null | undefined
 let lastReportedUpdaterError: { message: string; at: number } | null = null
 let downloadedUpdateVersion: string | null = null
+
+const GREEN_UPDATE_MESSAGE =
+  'The no-install build does not support automatic updates. Download the latest version manually and replace the current folder after quitting the app.'
 
 interface UpdaterLogger {
   info?: (...args: unknown[]) => void
@@ -361,7 +365,8 @@ async function handleUpdateAvailable(
   const payload = {
     currentVersion,
     newVersion,
-    releaseNotes
+    releaseNotes,
+    ...getUpdateDistributionInfo()
   }
   safeSendMessagePackToWindow(win, 'update:available', payload)
 
@@ -406,6 +411,10 @@ function handleUpdateDownloaded(info: { version: string }, options: AutoUpdateOp
 function installDownloadedUpdate(
   options: AutoUpdateOptions
 ): { success: true } | { success: false; error: string } {
+  if (!isAutoInstallUpdateSupported()) {
+    return { success: false, error: GREEN_UPDATE_MESSAGE }
+  }
+
   if (!downloadedUpdateVersion) {
     return { success: false, error: 'No downloaded update is ready to install.' }
   }
@@ -439,6 +448,9 @@ export async function requestUpdateCheck(): Promise<
       currentVersion: string
       latestVersion: string | null
       skipped: boolean
+      distribution: ReturnType<typeof getUpdateDistributionInfo>['distribution']
+      supportsAutoInstall: boolean
+      releaseUrl: string
     }
   | { success: false; error: string }
 > {
@@ -458,7 +470,8 @@ export async function requestUpdateCheck(): Promise<
         available: false,
         currentVersion,
         latestVersion: null,
-        skipped: true
+        skipped: true,
+        ...getUpdateDistributionInfo()
       }
     }
 
@@ -469,7 +482,8 @@ export async function requestUpdateCheck(): Promise<
       available,
       currentVersion,
       latestVersion,
-      skipped: false
+      skipped: false,
+      ...getUpdateDistributionInfo()
     }
   } catch (error) {
     const message = formatErrorMessage(error)
@@ -485,10 +499,23 @@ export async function requestUpdateDownload(): Promise<
   | {
       success: false
       error: string
+      manualDownload?: boolean
+      distribution?: ReturnType<typeof getUpdateDistributionInfo>['distribution']
+      supportsAutoInstall?: boolean
+      releaseUrl?: string
     }
 > {
   try {
     console.log('[Updater] User requested download')
+    if (!isAutoInstallUpdateSupported()) {
+      return {
+        success: false,
+        manualDownload: true,
+        error: GREEN_UPDATE_MESSAGE,
+        ...getUpdateDistributionInfo()
+      }
+    }
+
     const unsupportedReason = getUpdaterUnsupportedReason()
     if (unsupportedReason) {
       return { success: false, error: unsupportedReason }
@@ -508,10 +535,14 @@ export async function requestUpdateDownload(): Promise<
 export function getUpdateStatus(): {
   success: true
   downloadedVersion: string | null
+  distribution: ReturnType<typeof getUpdateDistributionInfo>['distribution']
+  supportsAutoInstall: boolean
+  releaseUrl: string
 } {
   return {
     success: true,
-    downloadedVersion: downloadedUpdateVersion
+    downloadedVersion: isAutoInstallUpdateSupported() ? downloadedUpdateVersion : null,
+    ...getUpdateDistributionInfo()
   }
 }
 
@@ -563,6 +594,11 @@ export function setupAutoUpdater(options: AutoUpdateOptions): void {
 
   autoUpdater.on('update-available', (info) => {
     void handleUpdateAvailable(info, options)
+
+    if (!isAutoInstallUpdateSupported()) {
+      console.log('[Updater] No-install build detected. Waiting for manual download.')
+      return
+    }
 
     if (!isAutoUpdateEnabled()) {
       console.log('[Updater] Auto update is disabled. Waiting for manual download.')

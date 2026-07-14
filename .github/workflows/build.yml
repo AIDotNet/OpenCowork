@@ -194,14 +194,36 @@ jobs:
           name: open-cowork-build-output
           path: out
 
-      - name: Package (${{ matrix.platform }}-${{ matrix.artifact_arch }})
-        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.build_arch }} --publish never
+      - name: Package Windows installer (${{ matrix.artifact_arch }})
+        if: matrix.platform == 'win'
+        run: npx electron-builder --win nsis --${{ matrix.build_arch }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ELECTRON_BUILDER_BINARIES_MIRROR: https://cdn.npmmirror.com/binaries/electron-builder-binaries/
           # Windows 代码签名 (可选)
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD || '' }}
+
+      - name: Package Windows green zip (${{ matrix.artifact_arch }})
+        if: matrix.platform == 'win'
+        run: >-
+          npx electron-builder --win zip --${{ matrix.build_arch }}
+          -c.extraMetadata.opencoworkDistribution=green
+          -c.directories.output=dist-green
+          --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://cdn.npmmirror.com/binaries/electron-builder-binaries/
+          # Windows 代码签名 (可选)
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD || '' }}
+
+      - name: Package Linux (${{ matrix.artifact_arch }})
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --linux --${{ matrix.build_arch }} --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://cdn.npmmirror.com/binaries/electron-builder-binaries/
 
       # ── 上传构建产物 ──
 
@@ -211,19 +233,72 @@ jobs:
         run: |
           mkdir -p release-assets
 
-          exe_file=$(find dist -maxdepth 1 -type f -name '*.exe' ! -name '*.blockmap' | head -n 1)
-          blockmap_file=$(find dist -maxdepth 1 -type f -name '*.exe.blockmap' | head -n 1)
+          mapfile -t setup_files < <(find dist -maxdepth 1 -type f -name '*-setup.exe')
+          mapfile -t blockmap_files < <(find dist -maxdepth 1 -type f -name '*-setup.exe.blockmap')
+          mapfile -t green_zip_files < <(find dist-green -maxdepth 1 -type f -name '*.zip')
+          mapfile -t installer_asars < <(find dist -path '*/resources/app.asar' -type f)
+          mapfile -t green_asars < <(find dist-green -path '*/resources/app.asar' -type f)
 
-          if [ -z "$exe_file" ]; then
-            echo "❌ No Windows installer artifact found"
+          if [ "${#setup_files[@]}" -ne 1 ]; then
+            echo "❌ Expected exactly one Windows installer artifact, found ${#setup_files[@]}"
+            printf '  %s\n' "${setup_files[@]}"
             exit 1
           fi
 
-          cp "$exe_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}-setup.exe"
-
-          if [ -n "$blockmap_file" ]; then
-            cp "$blockmap_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}-setup.exe.blockmap"
+          if [ "${#blockmap_files[@]}" -ne 1 ]; then
+            echo "❌ Expected exactly one Windows installer blockmap, found ${#blockmap_files[@]}"
+            printf '  %s\n' "${blockmap_files[@]}"
+            exit 1
           fi
+
+          if [ "${#green_zip_files[@]}" -ne 1 ]; then
+            echo "❌ Expected exactly one Windows green zip, found ${#green_zip_files[@]}"
+            printf '  %s\n' "${green_zip_files[@]}"
+            exit 1
+          fi
+
+          if [ "${#installer_asars[@]}" -ne 1 ]; then
+            echo "❌ Expected exactly one Windows installer app.asar, found ${#installer_asars[@]}"
+            printf '  %s\n' "${installer_asars[@]}"
+            exit 1
+          fi
+
+          if [ "${#green_asars[@]}" -ne 1 ]; then
+            echo "❌ Expected exactly one Windows green app.asar, found ${#green_asars[@]}"
+            printf '  %s\n' "${green_asars[@]}"
+            exit 1
+          fi
+
+          npx --no-install asar extract-file "${installer_asars[0]}" package.json > release-assets/installer-package.json
+          npx --no-install asar extract-file "${green_asars[0]}" package.json > release-assets/green-package.json
+
+          node <<'NODE'
+          const fs = require('fs')
+          const installer = JSON.parse(fs.readFileSync('release-assets/installer-package.json', 'utf8'))
+          const green = JSON.parse(fs.readFileSync('release-assets/green-package.json', 'utf8'))
+
+          if (installer.opencoworkDistribution === 'green') {
+            console.error('Installer package metadata must not be marked as green')
+            process.exit(1)
+          }
+
+          if (green.opencoworkDistribution !== 'green') {
+            console.error('Green package metadata must include opencoworkDistribution=green')
+            process.exit(1)
+          }
+
+          console.log('Validated Windows distribution metadata')
+          NODE
+
+          rm -f release-assets/installer-package.json release-assets/green-package.json
+
+          setup_file="${setup_files[0]}"
+          blockmap_file="${blockmap_files[0]}"
+          green_zip_file="${green_zip_files[0]}"
+
+          cp "$setup_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}-setup.exe"
+          cp "$blockmap_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}-setup.exe.blockmap"
+          cp "$green_zip_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}-green.zip"
 
       - name: Patch Windows update metadata
         if: matrix.platform == 'win' && matrix.artifact_arch == 'amd64'
@@ -244,6 +319,37 @@ jobs:
             "
           fi
 
+      - name: Validate Windows update metadata
+        if: matrix.platform == 'win' && matrix.artifact_arch == 'amd64'
+        shell: bash
+        run: |
+          if [ ! -f "dist/latest.yml" ]; then
+            echo "❌ dist/latest.yml is missing"
+            exit 1
+          fi
+
+          node <<'NODE'
+          const fs = require('fs')
+          const p = 'dist/latest.yml'
+          const c = fs.readFileSync(p, 'utf8')
+          const expected = 'OpenCowork-win-amd64-setup.exe'
+
+          if (/green/i.test(c)) {
+            console.error('latest.yml must not reference the green zip')
+            process.exit(1)
+          }
+
+          const exeRefs = [...c.matchAll(/(?:path|url):\s*["']?([^"'\s]+\.exe)["']?/g)].map(
+            (match) => match[1]
+          )
+          if (exeRefs.length === 0 || exeRefs.some((ref) => ref !== expected)) {
+            console.error('latest.yml exe references must all point to ' + expected + ':', exeRefs)
+            process.exit(1)
+          }
+
+          console.log('Validated latest.yml for Windows installer updates')
+          NODE
+
       - name: Upload Windows artifacts
         if: matrix.platform == 'win'
         uses: actions/upload-artifact@v6
@@ -252,6 +358,7 @@ jobs:
           path: |
             release-assets/*.exe
             release-assets/*.exe.blockmap
+            release-assets/*.zip
             dist/latest*.yml
           if-no-files-found: error
           retention-days: 30
@@ -304,7 +411,7 @@ jobs:
         if: matrix.platform == 'linux' && matrix.artifact_arch == 'amd64'
         shell: bash
         run: |
-          for yml in dist/latest-linux.yml dist/latest.yml; do
+          for yml in dist/latest-linux.yml; do
             [ -f "$yml" ] || continue
             node -e "
               const fs = require('fs');
@@ -329,7 +436,7 @@ jobs:
             release-assets/*.AppImage
             release-assets/*.AppImage.zsync
             release-assets/*.deb
-            dist/latest*.yml
+            dist/latest-linux.yml
           if-no-files-found: error
           retention-days: 30
 
@@ -347,7 +454,7 @@ jobs:
           done
 
           if [ "${{ matrix.artifact_arch }}" = "amd64" ]; then
-            for file in dist/latest*.yml; do
+            for file in dist/latest-linux.yml; do
               [ -f "$file" ] || continue
               echo "  ⬆️  $(basename "$file")"
               gh release upload "${TAG_NAME}" "$file" --clobber

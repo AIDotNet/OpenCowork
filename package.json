@@ -20,6 +20,7 @@
     "postinstall": "node ./scripts/postinstall.mjs",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
+    "build:win:green": "npm run build && electron-builder --win zip -c.extraMetadata.opencoworkDistribution=green -c.directories.output=dist-green --publish never",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux"
   },

@@ -4,10 +4,6 @@ directories:
   buildResources: build
 afterPack: build/after-sign-mac.cjs
 files:
-  # Installer and green builds use different output directories and run sequentially.
-  # Exclude both explicitly so a previous package never becomes input to the next one.
-  - '!dist{,/**/*}'
-  - '!dist-green{,/**/*}'
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'

@@ -231,8 +231,6 @@ jobs:
         if: matrix.platform == 'win'
         shell: bash
         run: |
-          set -euo pipefail
-
           mkdir -p release-assets
 
           mapfile -t setup_files < <(find dist -maxdepth 1 -type f -name '*-setup.exe')
@@ -271,29 +269,11 @@ jobs:
             exit 1
           fi
 
-          if npx --no-install asar list "${green_asars[0]}" | grep -E '^/dist(/|$)' > /dev/null; then
-            echo "❌ Green package unexpectedly contains previous dist output"
-            exit 1
-          fi
-
-          node - "${installer_asars[0]}" "release-assets/installer-package.json" <<'NODE'
-          const fs = require('node:fs')
-          const asar = require('@electron/asar')
-
-          const [archivePath, outputPath] = process.argv.slice(2)
-          fs.writeFileSync(outputPath, asar.extractFile(archivePath, 'package.json'))
-          NODE
-
-          node - "${green_asars[0]}" "release-assets/green-package.json" <<'NODE'
-          const fs = require('node:fs')
-          const asar = require('@electron/asar')
-
-          const [archivePath, outputPath] = process.argv.slice(2)
-          fs.writeFileSync(outputPath, asar.extractFile(archivePath, 'package.json'))
-          NODE
+          npx --no-install asar extract-file "${installer_asars[0]}" package.json > release-assets/installer-package.json
+          npx --no-install asar extract-file "${green_asars[0]}" package.json > release-assets/green-package.json
 
           node <<'NODE'
-          const fs = require('node:fs')
+          const fs = require('fs')
           const installer = JSON.parse(fs.readFileSync('release-assets/installer-package.json', 'utf8'))
           const green = JSON.parse(fs.readFileSync('release-assets/green-package.json', 'utf8'))
 

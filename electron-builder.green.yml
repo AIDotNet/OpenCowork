@@ -1,0 +1,5 @@
+extends: ./electron-builder.yml
+directories:
+  output: dist-green
+extraMetadata:
+  opencoworkDistribution: green

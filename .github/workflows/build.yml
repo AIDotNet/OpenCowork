@@ -208,8 +208,7 @@ jobs:
         if: matrix.platform == 'win'
         run: >-
           npx electron-builder --win zip --${{ matrix.build_arch }}
-          -c.extraMetadata.opencoworkDistribution=green
-          -c.directories.output=dist-green
+          --config electron-builder.green.yml
           --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

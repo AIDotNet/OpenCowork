@@ -2293,8 +2293,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
       let method = 'POST'
       let body: string | undefined
       if (isAnthropic) {
-        url = `${baseUrl}/v1/models`
-        method = 'GET'
+        url = `${baseUrl}/v1/messages`
         if (useAnthropicCompatAuth) {
           headers['Authorization'] = `Bearer ${activeProvider.apiKey}`
           headers['x-api-key'] = activeProvider.apiKey
@@ -2303,17 +2302,27 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         }
         headers['anthropic-version'] = '2023-06-01'
         applyHeaderOverrides(model)
+        body = JSON.stringify({
+          model,
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'Hi' }],
+          ...(activeProvider.requestOverrides?.body ?? {})
+        })
       } else if (isResponses) {
-        url = `${baseUrl}/models`
+        url = `${baseUrl}/responses`
         if (activeProvider.builtinId === 'codex-oauth') {
           url = withCodexClientVersion(url, headers['User-Agent'])
         }
-        method = 'GET'
         if (authToken) headers['Authorization'] = `Bearer ${authToken}`
         if (activeProvider.oauth?.accountId) {
           headers['Chatgpt-Account-Id'] = activeProvider.oauth.accountId
         }
         applyHeaderOverrides(model)
+        body = JSON.stringify({
+          model,
+          input: "Hi",
+          ...(activeProvider.requestOverrides?.body ?? {})
+        })
       } else {
         url = `${baseUrl}/chat/completions`
         if (authToken) headers['Authorization'] = `Bearer ${authToken}`

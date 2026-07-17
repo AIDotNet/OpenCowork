@@ -9,7 +9,7 @@ Create OpenCowork Custom Extensions, not App plugins or message channel plugins.
 
 Before creating or changing an extension, read `references/extension-v1.md`. When the extension
 should also bundle skills, sub-agents, slash commands, MCP servers, or persistent state,
-additionally read `references/extension-v2.md`.
+additionally read `references/extension.md`.
 
 ## Workflow
 

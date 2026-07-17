@@ -306,32 +306,43 @@ export function SshTerminal({ sessionId }: SshTerminalProps): React.JSX.Element 
       className="relative flex h-full flex-col overflow-hidden"
       style={{ backgroundColor: terminalTheme.background }}
     >
-      {/* Disconnected overlay */}
-      {session && session.status !== 'connected' && session.status !== 'connecting' && (
-        <div className="workspace-terminal-overlay absolute inset-0 z-10 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <Badge variant="destructive" className="rounded-full px-3 py-1 text-xs">
-              {session.status === 'error'
-                ? t('terminal.errorMessage')
-                : t('terminal.disconnectedMessage')}
-            </Badge>
-            {session.error ? (
-              <p className="max-w-xs text-[10px]" style={{ color: terminalTheme.foreground }}>
-                {session.error}
-              </p>
-            ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-1 h-8 gap-1 rounded-full text-xs"
-              onClick={() => void handleReconnect()}
-            >
-              <RotateCcw className="size-3" />
-              {t('terminal.reconnect')}
-            </Button>
-          </div>
+      {/* Reconnecting banner: scrollback stays visible, main process retries */}
+      {session?.status === 'reconnecting' && (
+        <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-2 bg-amber-500/90 px-3 py-1.5 text-xs font-medium text-black">
+          <RotateCcw className="size-3 animate-spin" />
+          {t('terminal.reconnecting')}
         </div>
       )}
+
+      {/* Disconnected overlay */}
+      {session &&
+        session.status !== 'connected' &&
+        session.status !== 'connecting' &&
+        session.status !== 'reconnecting' && (
+          <div className="workspace-terminal-overlay absolute inset-0 z-10 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-2 text-center">
+              <Badge variant="destructive" className="rounded-full px-3 py-1 text-xs">
+                {session.status === 'error'
+                  ? t('terminal.errorMessage')
+                  : t('terminal.disconnectedMessage')}
+              </Badge>
+              {session.error ? (
+                <p className="max-w-xs text-[10px]" style={{ color: terminalTheme.foreground }}>
+                  {session.error}
+                </p>
+              ) : null}
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-1 h-8 gap-1 rounded-full text-xs"
+                onClick={() => void handleReconnect()}
+              >
+                <RotateCcw className="size-3" />
+                {t('terminal.reconnect')}
+              </Button>
+            </div>
+          </div>
+        )}
 
       {/* Terminal container with context menu */}
       <ContextMenu>

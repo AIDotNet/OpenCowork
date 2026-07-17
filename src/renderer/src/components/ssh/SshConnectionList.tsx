@@ -190,7 +190,8 @@ function inferSshOsKind(connection: SshConnection): SshOsKind {
   if (/\b(win|windows|rdp)\b/.test(text)) return 'windows'
   if (text.includes('ubuntu') || connection.authType === 'password') return 'ubuntu'
   if (text.includes('debian')) return 'debian'
-  if (text.includes('centos') || text.includes('rocky') || text.includes('almalinux')) return 'centos'
+  if (text.includes('centos') || text.includes('rocky') || text.includes('almalinux'))
+    return 'centos'
   if (text.includes('fedora')) return 'fedora'
   if (text.includes('macos') || text.includes('darwin')) return 'macos'
   return 'linux'
@@ -208,7 +209,10 @@ function SshOsBadge({ kind }: { kind: SshOsKind }): React.JSX.Element {
     >
       {kind === 'windows' ? (
         <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
-          <path fill="currentColor" d="M3 5.4 10.8 4v7.4H3V5.4Zm8.8-1.6L21 2.2v9.2h-9.2V3.8ZM3 12.6h7.8V20L3 18.6v-6Zm8.8 0H21v9.2l-9.2-1.6v-7.6Z" />
+          <path
+            fill="currentColor"
+            d="M3 5.4 10.8 4v7.4H3V5.4Zm8.8-1.6L21 2.2v9.2h-9.2V3.8ZM3 12.6h7.8V20L3 18.6v-6Zm8.8 0H21v9.2l-9.2-1.6v-7.6Z"
+          />
         </svg>
       ) : kind === 'ubuntu' ? (
         <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
@@ -216,11 +220,20 @@ function SshOsBadge({ kind }: { kind: SshOsKind }): React.JSX.Element {
           <circle cx="18.3" cy="7.2" r="2.2" fill="currentColor" />
           <circle cx="18.3" cy="16.8" r="2.2" fill="currentColor" />
           <circle cx="6.4" cy="12" r="2.2" fill="currentColor" />
-          <path fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" d="m15.3 9.5 1.5-1.1M15.3 14.5l1.5 1.1M8.1 12H6.4" />
+          <path
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="2"
+            d="m15.3 9.5 1.5-1.1M15.3 14.5l1.5 1.1M8.1 12H6.4"
+          />
         </svg>
       ) : kind === 'macos' ? (
         <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
-          <path fill="currentColor" d="M16.8 2.8c.1 1.2-.4 2.3-1.1 3.1-.8.9-2 1.5-3.1 1.4-.1-1.1.4-2.3 1.1-3.1.8-.9 2.1-1.5 3.1-1.4Zm3.5 14.6c-.5 1.1-.8 1.6-1.5 2.6-1 1.4-2.4 3.1-4.1 3.1-1.5 0-1.9-1-3.9-1s-2.4 1-3.9 1c-1.7 0-3-1.5-4-2.9-2.7-3.9-3-8.5-1.3-11 1.2-1.8 3.1-2.8 4.9-2.8 1.8 0 2.9 1 4.3 1 1.4 0 2.3-1 4.4-1 1.6 0 3.3.9 4.5 2.3-3.9 2.1-3.3 7.7.6 8.7Z" />
+          <path
+            fill="currentColor"
+            d="M16.8 2.8c.1 1.2-.4 2.3-1.1 3.1-.8.9-2 1.5-3.1 1.4-.1-1.1.4-2.3 1.1-3.1.8-.9 2.1-1.5 3.1-1.4Zm3.5 14.6c-.5 1.1-.8 1.6-1.5 2.6-1 1.4-2.4 3.1-4.1 3.1-1.5 0-1.9-1-3.9-1s-2.4 1-3.9 1c-1.7 0-3-1.5-4-2.9-2.7-3.9-3-8.5-1.3-11 1.2-1.8 3.1-2.8 4.9-2.8 1.8 0 2.9 1 4.3 1 1.4 0 2.3-1 4.4-1 1.6 0 3.3.9 4.5 2.3-3.9 2.1-3.3 7.7.6 8.7Z"
+          />
         </svg>
       ) : (
         <span className="text-[11px] font-bold uppercase leading-none">
@@ -253,10 +266,11 @@ function HostRow({
   onTest: () => void
 }): React.JSX.Element {
   const { t } = useTranslation('ssh')
+  const sessionBusy = session?.status === 'connecting' || session?.status === 'reconnecting'
   const statusTone =
     session?.status === 'connected'
       ? 'text-[var(--ssh-success)]'
-      : session?.status === 'connecting' || isTesting
+      : sessionBusy || isTesting
         ? 'text-[var(--ssh-warning)]'
         : testOk === false
           ? 'text-[var(--ssh-danger)]'
@@ -264,7 +278,7 @@ function HostRow({
   const statusText =
     session?.status === 'connected'
       ? t('list.online')
-      : session?.status === 'connecting'
+      : sessionBusy
         ? t('connecting')
         : isTesting
           ? t('testing')
@@ -353,7 +367,11 @@ function HostRow({
           title={t('testConnection')}
           aria-label={t('testConnection')}
         >
-          {isTesting ? <Loader2 className="size-3.5 animate-spin" /> : <Activity className="size-3.5" />}
+          {isTesting ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Activity className="size-3.5" />
+          )}
         </button>
       </div>
     </div>
@@ -748,7 +766,11 @@ function HostsWorkspace({
               className="inline-flex items-center gap-1 rounded-[8px] px-2 py-1 text-[13px] text-[#d4d4d8] hover:bg-[#212121] hover:text-white"
               onClick={() => setSidebarCollapsed((current) => !current)}
             >
-              {sidebarCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+              {sidebarCollapsed ? (
+                <PanelLeftOpen className="size-4" />
+              ) : (
+                <PanelLeftClose className="size-4" />
+              )}
               {!sidebarCollapsed ? <span>收起</span> : null}
             </button>
             <button
@@ -786,7 +808,9 @@ function HostsWorkspace({
               type="button"
               className={cn(
                 'rounded-[8px] px-3 py-1.5 text-[13px]',
-                selectedGroupId == null ? 'bg-[#232323] text-white' : 'text-[#b6b6b6] hover:bg-[#212121]'
+                selectedGroupId == null
+                  ? 'bg-[#232323] text-white'
+                  : 'text-[#b6b6b6] hover:bg-[#212121]'
               )}
               onClick={() => setSelectedGroupId(null)}
             >
@@ -862,7 +886,9 @@ function HostsWorkspace({
                   <div className="mx-auto flex size-16 items-center justify-center rounded-[18px] border border-[#3a3a3a] bg-[#1d1d1d] text-[#6ee787]">
                     <Server className="size-7" />
                   </div>
-                  <div className="mt-5 text-[18px] font-semibold text-white">{t('noConnections')}</div>
+                  <div className="mt-5 text-[18px] font-semibold text-white">
+                    {t('noConnections')}
+                  </div>
                   <div className="mt-2 text-[13px] leading-6 text-[#8b8b8b]">
                     {searchQuery.trim() ? t('workspace.noSearchMatches') : t('noConnectionsDesc')}
                   </div>

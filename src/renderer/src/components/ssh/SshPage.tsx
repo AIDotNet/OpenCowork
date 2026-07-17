@@ -578,14 +578,19 @@ export function SshPage(): React.JSX.Element {
     (activeTab
       ? (Object.values(sessions).find(
           (session) =>
-            session.connectionId === activeTab.connectionId && session.status === 'connected'
+            session.connectionId === activeTab.connectionId &&
+            (session.status === 'connected' || session.status === 'reconnecting')
         ) ?? null)
       : null)
   const showTerminalView = workspaceSection === 'terminal' && !!activeTabId && openTabs.length > 0
   const activeConnection = activeTab
     ? (connections.find((connection) => connection.id === activeTab.connectionId) ?? null)
     : null
-  const terminalConnected = !!workspaceSession && workspaceSession.status === 'connected'
+  // A reconnecting session keeps the terminal workspace mounted so scrollback
+  // survives the automatic retry loop.
+  const terminalConnected =
+    !!workspaceSession &&
+    (workspaceSession.status === 'connected' || workspaceSession.status === 'reconnecting')
   const activeConnectionAddress = activeConnection
     ? `${activeConnection.username}@${activeConnection.host}:${activeConnection.port}`
     : null

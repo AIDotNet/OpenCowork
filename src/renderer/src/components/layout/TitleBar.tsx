@@ -343,34 +343,27 @@ export function TitleBar({
             <TooltipTrigger asChild>
               <Button
                 variant="outline"
-                size="sm"
-                className="titlebar-no-drag inline-flex h-7 max-w-[min(16rem,24vw)] shrink-0 overflow-hidden border-amber-500/30 bg-amber-500/10 px-2 text-[10px] text-amber-600 hover:bg-amber-500/15 dark:text-amber-400 xl:shrink"
+                size="icon"
+                className="titlebar-no-drag h-6 w-6 shrink-0 border-amber-500/30 bg-amber-500/10 text-amber-600 hover:bg-amber-500/15 dark:text-amber-400"
                 onClick={onOpenUpdateDialog}
               >
-                <span className="shrink-0">
-                  {updateInfo.downloading ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Download className="size-3.5" />
-                  )}
-                </span>
-                <span className="hidden truncate xl:inline">
-                  {updateInfo.downloading
-                    ? typeof updateInfo.downloadProgress === 'number'
-                      ? tCommon('app.update.downloadingShort', {
-                          progress: Math.round(updateInfo.downloadProgress)
-                        })
-                      : tCommon('app.update.downloading')
-                    : updateInfo.downloaded
-                      ? tCommon('app.update.readyShort', { version: updateInfo.newVersion })
-                      : tCommon('app.update.buttonLabel', { version: updateInfo.newVersion })}
-                </span>
+                {updateInfo.downloading ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Download className="size-3.5" />
+                )}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {updateInfo.downloaded
-                ? tCommon('app.update.readyButtonTooltip')
-                : tCommon('app.update.buttonTooltip')}
+              {updateInfo.downloading
+                ? typeof updateInfo.downloadProgress === 'number'
+                  ? tCommon('app.update.downloadingProgress', {
+                      progress: Math.round(updateInfo.downloadProgress)
+                    })
+                  : tCommon('app.update.downloading')
+                : updateInfo.downloaded
+                  ? `${tCommon('app.update.readyShort', { version: updateInfo.newVersion })}`
+                  : `${tCommon('app.update.buttonLabel', { version: updateInfo.newVersion })}`}
             </TooltipContent>
           </Tooltip>
         )}

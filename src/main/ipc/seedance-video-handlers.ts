@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import { getNativeWorker } from '../lib/native-worker'
 
 /**
- * Background video (Seedance) generation. All work — submitting the task, polling
+ * Background video generation. All work — submitting the task, polling
  * for completion, downloading and persisting the mp4 — runs here in the main
  * process, decoupled from the renderer. The renderer starts a job, then only
  * receives `seedance-video:job-update` status events (and can query status on
@@ -27,6 +27,16 @@ interface VideoJob {
 const POLL_INTERVAL_MS = 4000
 const MAX_WAIT_MS = 10 * 60 * 1000
 const jobs = new Map<string, VideoJob>()
+
+type VideoOperation = 'generate' | 'status' | 'download'
+
+function getWorkerMethod(provider: unknown, operation: VideoOperation): string {
+  const type =
+    provider && typeof provider === 'object' && 'type' in provider
+      ? (provider as { type?: unknown }).type
+      : undefined
+  return `${type === 'xai-video' ? 'xai-video' : 'seedance-video'}/${operation}`
+}
 
 function publicJob(job: VideoJob): Omit<VideoJob, 'taskId'> {
   const { taskId: _taskId, ...rest } = job
@@ -64,7 +74,7 @@ async function pollJob(job: VideoJob, provider: unknown): Promise<void> {
     }
     try {
       const st = (await getNativeWorker().request(
-        'seedance-video/status',
+        getWorkerMethod(provider, 'status'),
         { provider, taskId: job.taskId },
         60_000
       )) as { status?: string; videoUrl?: string; error?: string }
@@ -79,11 +89,14 @@ async function pollJob(job: VideoJob, provider: unknown): Promise<void> {
           return
         }
         const dl = (await worker.request(
-          'seedance-video/download',
+          getWorkerMethod(provider, 'download'),
           { videoUrl: st.videoUrl },
           120_000
-        )) as { data?: string; mediaType?: string }
-        if (dl?.data) {
+        )) as { filePath?: string; data?: string; mediaType?: string }
+        if (dl?.filePath) {
+          job.filePath = dl.filePath
+          job.mediaType = dl.mediaType || 'video/mp4'
+        } else if (dl?.data) {
           const mediaType = dl.mediaType || 'video/mp4'
           const ext = mediaType.includes('webm') ? '.webm' : '.mp4'
           const filePath = join(getVideosDir(), `${Date.now()}-${randomUUID()}${ext}`)
@@ -122,15 +135,25 @@ export function registerSeedanceVideoHandlers(): void {
     'seedance-video:start',
     async (
       _event,
-      args: { provider: unknown; prompt: string; images?: unknown[] }
+      args: {
+        provider: unknown
+        prompt: string
+        images?: unknown[]
+        video?: { duration?: number; aspectRatio?: string; resolution?: string }
+      }
     ): Promise<{ jobId?: string; status?: string; error?: string }> => {
       try {
         const created = (await getNativeWorker().request(
-          'seedance-video/generate',
-          { provider: args.provider, prompt: args.prompt, images: args.images ?? [] },
+          getWorkerMethod(args.provider, 'generate'),
+          {
+            provider: args.provider,
+            prompt: args.prompt,
+            images: args.images ?? [],
+            video: args.video
+          },
           300_000
         )) as { id?: string }
-        if (!created?.id) return { error: 'Seedance returned no task id.' }
+        if (!created?.id) return { error: 'Video provider returned no task id.' }
         const jobId = randomUUID()
         const job: VideoJob = {
           jobId,

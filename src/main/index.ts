@@ -13,9 +13,9 @@ import {
   type IpcMainEvent
 } from 'electron'
 
-import { join, extname } from 'path'
+import { join, extname, resolve, sep } from 'path'
 import { pathToFileURL } from 'url'
-import { mkdirSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { homedir, hostname, release, totalmem } from 'os'
 import { randomUUID } from 'crypto'
 import { spawn } from 'child_process'
@@ -29,6 +29,11 @@ import icon from '../../resources/icon.png?asset'
 import icon_mac from '../../resources/icon-mac.png?asset'
 
 import { registerFsHandlers } from './ipc/fs-handlers'
+import {
+  registerLocalMediaSchemePrivileges,
+  registerLocalMediaProtocolHandler
+} from './local-media-protocol'
+import { registerCodeGraphHandlers } from './ipc/codegraph-handlers'
 import { registerAgentChangeHandlers } from './ipc/agent-change-handlers'
 
 import { registerShellHandlers } from './ipc/shell-handlers'
@@ -41,6 +46,7 @@ import {
   initializeSettingsCache,
   readSettings
 } from './ipc/settings-handlers'
+import { registerAgentHistoryHandlers } from './ipc/agent-history-handlers'
 
 import { registerSkillsHandlers } from './ipc/skills-handlers'
 import { registerSoulsHandlers } from './ipc/souls-handlers'
@@ -56,7 +62,7 @@ import { registerAiProviderHandlers } from './ipc/ai-provider-handlers'
 import { registerExtensionHandlers } from './ipc/extension-handlers'
 import { registerChannelHandlers, autoStartChannels } from './ipc/channel-handlers'
 import { ChannelManager } from './channels/channel-manager'
-import { autoConnectMcpServers, registerMcpHandlers } from './ipc/mcp-handlers'
+import { registerMcpHandlers } from './ipc/mcp-handlers'
 import { registerCronHandlers } from './ipc/cron-handlers'
 import { registerInputHandlers } from './ipc/input-handlers'
 import { registerInputDraftHandlers } from './ipc/input-draft-handlers'
@@ -80,6 +86,7 @@ import {
   getNativeWorker,
   latchNativeWorkerShutdown,
   setNativeWorkerStartupBarrier,
+  stopCodeGraphWorker,
   stopNativeWorker
 } from './lib/native-worker'
 import { registerTeamRuntimeHandlers } from './ipc/team-runtime-handlers'
@@ -339,7 +346,12 @@ function persistGeneratedImageFile(args: {
 }
 
 type ClipboardWriteImageArgs = { data: string }
-type ImagePersistGeneratedArgs = { data?: string; mediaType?: string; url?: string }
+type ImagePersistGeneratedArgs = {
+  data?: string
+  mediaType?: string
+  url?: string
+  filePath?: string
+}
 type ImageFetchBase64Args = { url: string }
 
 function registerBinaryInvokeHandler<TArgs>(
@@ -376,8 +388,26 @@ async function handleImagePersistGenerated(
       buffer = Buffer.from(args.data, 'base64')
     } else if (typeof args.url === 'string' && args.url.trim()) {
       buffer = await downloadUrlBuffer(args.url)
+    } else if (typeof args.filePath === 'string' && args.filePath.trim()) {
+      const allowedRoot = resolve(homedir(), '.open-cowork', 'media', 'images')
+      const filePath = resolve(args.filePath)
+      const comparisonPath = process.platform === 'win32' ? filePath.toLowerCase() : filePath
+      const comparisonRoot =
+        process.platform === 'win32' ? `${allowedRoot.toLowerCase()}${sep}` : `${allowedRoot}${sep}`
+      if (!comparisonPath.startsWith(comparisonRoot)) {
+        return { error: 'Generated image path is outside the native media directory' }
+      }
+      if (statSync(filePath).size > 32 * 1024 * 1024) {
+        return { error: 'Generated image exceeds the 32 MiB persistence limit' }
+      }
+      buffer = readFileSync(filePath)
+      return {
+        filePath,
+        mediaType: args.mediaType || guessMimeTypeFromExtension(extname(filePath)),
+        data: buffer.toString('base64')
+      }
     } else {
-      return { error: 'Missing image data or url' }
+      return { error: 'Missing image data, url or filePath' }
     }
 
     return persistGeneratedImageFile({
@@ -1292,11 +1322,13 @@ app.on('before-quit', () => {
   flushBuiltInBrowserStorage()
   void flushSettingsSync()
   void stopNativeWorker()
+  void stopCodeGraphWorker()
 })
 
 startNativeCrashReporter()
 runLoggedStartupStep('configure_chromium_cache_paths', configureChromiumCachePaths)
 runLoggedStartupStep('configure_renderer_heap_limit', configureRendererHeapLimit)
+runLoggedStartupStep('register_local_media_scheme', registerLocalMediaSchemePrivileges)
 
 // 防止dev环境和生产环境冲突，导致无法启动
 runLoggedStartupStep('set_app_name', () => {
@@ -1415,9 +1447,12 @@ if (gotSingleInstanceLock) {
     }))
     registerWindowControlHandlers()
 
+    runLoggedStartupStep('register_local_media_protocol', registerLocalMediaProtocolHandler)
+
     // Register IPC handlers
 
     registerFsHandlers()
+    registerCodeGraphHandlers()
     registerAgentChangeHandlers()
 
     registerShellHandlers()
@@ -1425,6 +1460,7 @@ if (gotSingleInstanceLock) {
     registerApiProxyHandlers()
 
     registerSettingsHandlers()
+    registerAgentHistoryHandlers()
 
     registerSkillsHandlers()
     registerSoulsHandlers()
@@ -1555,11 +1591,6 @@ if (gotSingleInstanceLock) {
       .catch((error) => {
         console.warn('[Channels] Startup failed:', error)
       })
-    void networkConfigurationReady
-      .then(() => autoConnectMcpServers(mcpManager))
-      .catch((error) => {
-        console.warn('[MCP] Auto-connect failed:', error)
-      })
     void runLoggedStartupStepAsync('sidecar_global_startup', () =>
       getSidecarManager().ensureStarted()
     )
@@ -1605,6 +1636,7 @@ app.on('window-all-closed', () => {
   closeAllSshSessions()
   cancelAllJobs()
   void stopNativeWorker()
+  void stopCodeGraphWorker()
   getSidecarManager()
     .stop()
     .catch(() => {})

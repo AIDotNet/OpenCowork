@@ -78,20 +78,6 @@ function registerMcpMessagePackHandler<TArgs>(
   })
 }
 
-export async function autoConnectMcpServers(mcpManager: McpManager): Promise<void> {
-  const servers = (await readServers()).filter((server) => server.enabled)
-
-  await Promise.allSettled(
-    servers.map(async (server) => {
-      try {
-        await mcpManager.connectServer(server)
-      } catch (err) {
-        console.error(`[MCP] Auto-connect failed for ${server.name} (${server.id}):`, err)
-      }
-    })
-  )
-}
-
 // ── Register IPC handlers ──
 
 export function registerMcpHandlers(mcpManager: McpManager): void {

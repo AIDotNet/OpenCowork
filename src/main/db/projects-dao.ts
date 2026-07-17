@@ -1,4 +1,4 @@
-import * as os from 'os'
+﻿import * as os from 'os'
 import * as path from 'path'
 import { getNativeWorker } from '../lib/native-worker'
 import { readSettings } from '../ipc/settings-handlers'
@@ -12,6 +12,7 @@ export interface ProjectRow {
   pinned: number
   created_at: number
   updated_at: number
+  session_count: number
 }
 
 interface ProjectFindResult {

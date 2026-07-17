@@ -66,6 +66,8 @@ interface PendingConflictState {
 interface NativeSyncFileSnapshotResult {
   success: boolean
   records: SyncRecord[]
+  nextCursor?: string | null
+  done?: boolean
   error?: string | null
 }
 
@@ -112,52 +114,81 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 
 async function captureSyncFileSnapshot(): Promise<NativeSyncFileSnapshotResult> {
   console.log('[SyncFiles][Native] capture snapshot start')
-  const result = await getNativeWorker().request<NativeSyncFileSnapshotResult>(
-    'sync/files-capture',
-    {},
-    SYNC_NATIVE_TIMEOUT_MS
-  )
-  if (!result.success) {
-    throw new Error(result.error || 'Native sync file snapshot failed')
+  const records: SyncRecord[] = []
+  let cursor: string | null = null
+  let pages = 0
+  do {
+    const result = await getNativeWorker().request<NativeSyncFileSnapshotResult>(
+      'sync/files-capture',
+      { cursor, limit: 100 },
+      SYNC_NATIVE_TIMEOUT_MS
+    )
+    if (!result.success) {
+      throw new Error(result.error || 'Native sync file snapshot failed')
+    }
+    records.push(...result.records)
+    pages += 1
+    if (result.done === true) break
+    if (!result.nextCursor) {
+      throw new Error('Native sync file snapshot returned an incomplete page without a cursor')
+    }
+    cursor = result.nextCursor
+  } while (pages < 10_000)
+
+  if (pages >= 10_000) {
+    throw new Error('Native sync file snapshot exceeded the page safety limit')
   }
   console.log('[SyncFiles][Native] capture snapshot done', {
-    records: result.records.length
+    records: records.length,
+    pages
   })
-  return result
+  return { success: true, records, done: true }
 }
 
 async function applySyncFileRecords(records: SyncRecord[]): Promise<void> {
   if (records.length === 0) return
   console.log('[SyncFiles][Native] apply files start', { records: records.length })
-  const result = await getNativeWorker().request<NativeSyncFileMutationResult>(
-    'sync/files-apply',
-    { records },
-    SYNC_NATIVE_TIMEOUT_MS
-  )
-  if (!result.success) {
-    throw new Error(result.error || 'Native sync file apply failed')
+  let changed = 0
+  let settingsChanged = false
+  for (let offset = 0; offset < records.length; offset += 50) {
+    const result = await getNativeWorker().request<NativeSyncFileMutationResult>(
+      'sync/files-apply',
+      { records: records.slice(offset, offset + 50) },
+      SYNC_NATIVE_TIMEOUT_MS
+    )
+    if (!result.success) {
+      throw new Error(result.error || 'Native sync file apply failed')
+    }
+    changed += result.changed
+    settingsChanged ||= result.settingsChanged === true
   }
-  if (result.settingsChanged) {
+  if (settingsChanged) {
     await reloadSettingsCache()
   }
-  console.log('[SyncFiles][Native] apply files done', { changed: result.changed })
+  console.log('[SyncFiles][Native] apply files done', { changed })
 }
 
 async function deleteSyncFileRecords(recordIds: string[]): Promise<void> {
   if (recordIds.length === 0) return
   console.log('[SyncFiles][Native] delete files start', { records: recordIds.length })
-  const result = await getNativeWorker().request<NativeSyncFileMutationResult>(
-    'sync/files-delete',
-    { recordIds },
-    SYNC_NATIVE_TIMEOUT_MS
-  )
-  if (!result.success) {
-    throw new Error(result.error || 'Native sync file delete failed')
+  let changed = 0
+  let settingsChanged = false
+  for (let offset = 0; offset < recordIds.length; offset += 200) {
+    const result = await getNativeWorker().request<NativeSyncFileMutationResult>(
+      'sync/files-delete',
+      { recordIds: recordIds.slice(offset, offset + 200) },
+      SYNC_NATIVE_TIMEOUT_MS
+    )
+    if (!result.success) {
+      throw new Error(result.error || 'Native sync file delete failed')
+    }
+    changed += result.changed
+    settingsChanged ||= result.settingsChanged === true
   }
-  if (result.settingsChanged) {
+  if (settingsChanged) {
     await reloadSettingsCache()
   }
-  console.log('[SyncFiles][Native] delete files done', { changed: result.changed })
+  console.log('[SyncFiles][Native] delete files done', { changed })
 }
 
 async function captureLocalSnapshot(providerId: string, deviceId: string): Promise<LocalSnapshot> {

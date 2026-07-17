@@ -1,4 +1,4 @@
-import { getNativeWorker } from '../lib/native-worker'
+﻿import { getNativeWorker } from '../lib/native-worker'
 
 export interface SessionRow {
   id: string
@@ -13,6 +13,7 @@ export interface SessionRow {
   plan_id: string | null
   pinned: number
   plugin_id: string | null
+  external_chat_id: string | null
   provider_id: string | null
   model_id: string | null
   model_selection_mode: string | null
@@ -39,6 +40,9 @@ interface SessionClearAllResult {
   error?: string | null
 }
 
+export interface SessionClearProjectResult extends SessionClearAllResult {}
+
+
 async function requestMutation(method: string, params: object): Promise<SessionMutationResult> {
   const result = await getNativeWorker().request<SessionMutationResult>(method, params, 120_000)
   if (!result.success) {
@@ -47,8 +51,12 @@ async function requestMutation(method: string, params: object): Promise<SessionM
   return result
 }
 
-export function listSessions(limit = 2000, offset = 0): Promise<SessionRow[]> {
-  return getNativeWorker().request<SessionRow[]>('db/sessions-list', { limit, offset }, 120_000)
+export function listSessions(
+  limit = 2000,
+  offset = 0,
+  projectId?: string | null
+): Promise<SessionRow[]> {
+  return getNativeWorker().request<SessionRow[]>('db/sessions-list', { limit, offset, projectId }, 120_000)
 }
 
 export async function getSession(id: string): Promise<SessionRow | undefined> {
@@ -116,6 +124,21 @@ export async function clearAllSessions(): Promise<SessionClearAllResult> {
   )
   if (!result.success) {
     throw new Error(result.error || 'Native session clear-all failed')
+  }
+  return result
+}
+
+export async function clearProjectSessions(
+  projectId: string,
+  excludeSessionIds: string[] = []
+): Promise<SessionClearProjectResult> {
+  const result = await getNativeWorker().request<SessionClearProjectResult>(
+    'db/sessions-clear-project',
+    { projectId, excludeSessionIds },
+    120_000
+  )
+  if (!result.success) {
+    throw new Error(result.error || 'Native project session clear failed')
   }
   return result
 }

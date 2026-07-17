@@ -1,4 +1,4 @@
-import { ipcMain as electronIpcMain } from 'electron'
+﻿import { ipcMain as electronIpcMain } from 'electron'
 import { initializeDatabase } from '../db/database'
 import * as sessionsDao from '../db/sessions-dao'
 import * as projectsDao from '../db/projects-dao'
@@ -54,6 +54,7 @@ import {
   DB_PROJECTS_LIST_MSGPACK_CHANNEL,
   DB_PROJECTS_UPDATE_MSGPACK_CHANNEL,
   DB_SESSIONS_CLEAR_ALL_MSGPACK_CHANNEL,
+  DB_SESSIONS_CLEAR_PROJECT_MSGPACK_CHANNEL,
   DB_SESSIONS_CREATE_MSGPACK_CHANNEL,
   DB_SESSIONS_DELETE_MSGPACK_CHANNEL,
   DB_SESSIONS_GET_MSGPACK_CHANNEL,
@@ -159,6 +160,7 @@ async function emitSessionUpdated(sessionId: string, reason: string): Promise<vo
 
   safeSendMessagePackToAllWindows(CHAT_SESSION_UPDATED, {
     reason,
+    projectId: session.project_id ?? null,
     session
   })
 }
@@ -166,12 +168,14 @@ async function emitSessionUpdated(sessionId: string, reason: string): Promise<vo
 function emitSessionDeleted(
   sessionId: string,
   reason: string,
-  options?: RegisterDbHandlersOptions
+  options?: RegisterDbHandlersOptions,
+  projectId?: string | null
 ): void {
   options?.onSessionDeleted?.(sessionId)
   safeSendMessagePackToAllWindows(CHAT_SESSION_DELETED, {
     reason,
-    sessionId
+    sessionId,
+    ...(projectId ? { projectId } : {})
   })
 }
 
@@ -336,8 +340,11 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
 
   // --- Sessions ---
 
-  ipcMain.handle(DB_SESSIONS_LIST_MSGPACK_CHANNEL, async () => {
-    return encodeMessagePackPayload(await sessionsDao.listSessions())
+  ipcMain.handle(DB_SESSIONS_LIST_MSGPACK_CHANNEL, async (_event, bytes?: Uint8Array) => {
+    const args = bytes && bytes.byteLength > 0
+      ? decodeMessagePackPayload<{ projectId?: string | null }>(bytes)
+      : undefined
+    return encodeMessagePackPayload(await sessionsDao.listSessions(2000, 0, args?.projectId))
   })
 
   ipcMain.handle(DB_SESSIONS_GET_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
@@ -406,7 +413,16 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
     for (const sessionId of sessionIds) {
       emitSessionDeleted(sessionId, 'session-cleared', options)
     }
-    return encodeMessagePackPayload({ success: true })
+    return encodeMessagePackPayload(result)
+  })
+
+  ipcMain.handle(DB_SESSIONS_CLEAR_PROJECT_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<{ projectId: string; excludeSessionIds?: string[] }>(bytes)
+    const result = await sessionsDao.clearProjectSessions(args.projectId, args.excludeSessionIds ?? [])
+    for (const sessionId of result.sessionIds) {
+      emitSessionDeleted(sessionId, 'project-session-cleared', options)
+    }
+    return encodeMessagePackPayload(result)
   })
 
   // --- Messages ---

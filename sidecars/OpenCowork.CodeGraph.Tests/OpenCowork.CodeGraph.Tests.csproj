@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- WS-B TDD oracle. net10.0 JIT test host — NOT AOT, reflection-enabled JSON is
+       fine here (xUnit/Test.Sdk need reflection). Deliberately kept out of any
+       `dotnet publish` graph: the worker Exe publishes AOT; this project is only ever
+       run via `dotnet test`. Package versions are pinned to what is already in the
+       ~/.nuget cache so restore is fully offline. Microsoft.Data.Sqlite +
+       SQLitePCLRaw.bundle_e_sqlite3 are pinned to the SAME versions as the Core lib
+       so FTS5/bm25 behavior matches byte-for-byte (WS-B / R11). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <!-- Match Core's SQLite stack exactly (FTS5 + bm25 parity). -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OpenCowork.CodeGraph.Core\OpenCowork.CodeGraph.Core.csproj" />
+  </ItemGroup>
+</Project>

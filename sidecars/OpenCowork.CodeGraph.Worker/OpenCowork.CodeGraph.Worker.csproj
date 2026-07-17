@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
+    <StripSymbols>true</StripSymbols>
+  </PropertyGroup>
+  <!-- Thin AOT host: Program.Main + a one-module WorkerModuleCatalog { CodeGraphModule }.
+       The engine (module, storage, runtime primitives, tree-sitter binding) lives in Core.
+       Microsoft.Data.Sqlite + SQLitePCLRaw.bundle_e_sqlite3 (incl. the e_sqlite3 native
+       asset) flow transitively from the Core ProjectReference into this Exe's AOT publish
+       output — no direct PackageReference needed here. -->
+  <ItemGroup>
+    <!-- M0: the real IPC-host Program (needs the shared worker runtime) is deferred. -->
+    <Compile Remove="_deferred/**/*.cs" />
+    <None Include="_deferred/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenCowork.CodeGraph.Core\OpenCowork.CodeGraph.Core.csproj" />
+  </ItemGroup>
+</Project>

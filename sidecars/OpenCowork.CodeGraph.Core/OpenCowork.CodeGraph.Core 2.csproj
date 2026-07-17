@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- [LibraryImport] source-generated marshalling emits unsafe (byte*) code for the
+         tree-sitter P/Invoke binding. Required; the main worker omits it (no P/Invoke). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <!-- Global-namespace, all-internal convention (matches the main worker). The thin
+       Worker Exe references this library and instantiates internal host/module types
+       (CodeGraphModule, the runtime primitives), so it needs internals visibility. -->
+  <ItemGroup>
+    <!-- M0: the IPC-host module (CodeGraphModule) is runtime-infra-coupled and deferred
+         to the shared-runtime follow-up; keep it out of the M0 compile. -->
+    <Compile Remove="_deferred/**/*.cs" />
+    <None Include="_deferred/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="OpenCowork.CodeGraph.Worker" />
+    <InternalsVisibleTo Include="OpenCowork.CodeGraph.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Shared worker runtime/transport/host (IWorkerModule, WorkerResponse, dispatch,
+         msgpack IPC, SystemModule). CodeGraphModule implements IWorkerModule from here. -->
+    <ProjectReference Include="..\OpenCowork.Worker.Runtime\OpenCowork.Worker.Runtime.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+  </ItemGroup>
+</Project>

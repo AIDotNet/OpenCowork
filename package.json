@@ -1,6 +1,6 @@
 {
   "name": "open-cowork",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Open-source desktop platform for multi-agent AI collaboration with local tools and workplace integration",
   "main": "./out/main/index.js",
   "author": "example.com",

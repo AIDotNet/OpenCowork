@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2026-07-17
+
+### Added
+
+- Added Kimi K3 model support with parameter carry toggles and quota display for Kimi provider.
+- Enhanced CodeGraph RPC daemon with code visualization, indexing UI, and worker runtime support.
+- Enhanced canvas assistant with local tool loop, draggable panel, context chips, and per-project session persistence.
+
+### Changed
+
+- Refactored SSH module with complete lifecycle rewrite (connection handling, IPC handlers, terminal components, and store management).
+- Removed legacy sidecar module and cleaned up unused email-drafter and post-to-x skills.
+- Enhanced MessagePack IPC serialization and shared type definitions for improved data fidelity.
+- Improved renderer stores, tools, settings UI, and internationalization across multiple components.
+- Updated native worker with CodeGraph executor and enhanced tool support.
+- Refined sidecar management and file handling in main IPC layer.
+
+### Fixed
+
+- Improved SSH terminal session management and JSON parsing robustness.
+
 ## [1.2.0] - 2026-07-15
 
 ### Added

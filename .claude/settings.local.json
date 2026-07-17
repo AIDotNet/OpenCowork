@@ -67,7 +67,10 @@
       "Bash(python3 -c ' *)",
       "Bash(sed -n '/@keyframes thinking-live-label-agile/,/^}/p' src/renderer/src/assets/main.css)",
       "Bash(sed -n '/@keyframes pending-assistant-bar-breathe/,/^}/p' src/renderer/src/assets/main.css)",
-      "Bash(rm -f ssh-stage.tmp.mjs && git status)"
+      "Bash(rm -f ssh-stage.tmp.mjs && git status)",
+      "Bash(pkill -f \"npm run dev\")",
+      "Bash(lsof -ti:5173)",
+      "Bash(xargs kill -9)"
     ],
     "additionalDirectories": [
       "/Users/token/Desktop/code/OpenCowork"

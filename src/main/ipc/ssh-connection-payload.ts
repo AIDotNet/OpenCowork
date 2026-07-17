@@ -1,4 +1,7 @@
-import { getSshConnection, type SshConfigConnection } from '../ssh/ssh-config'
+import {
+  getConnectionWithSecrets as getSshConnection,
+  type SshConnectionWithSecrets as SshConfigConnection
+} from '../ssh/repository'
 
 function parseOpenSshJumpString(
   raw: string

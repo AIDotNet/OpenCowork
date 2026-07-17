@@ -1,32 +1,47 @@
-import { app, ipcMain, BrowserWindow } from 'electron'
-import { Client, type ConnectConfig, type ClientChannel } from 'ssh2'
-import * as fs from 'fs'
+import { app, ipcMain } from 'electron'
 import * as path from 'path'
 import {
-  startSshConfigWatcher,
-  initializeSshConfigCache,
-  onSshConfigChange,
-  listSshGroups,
-  createSshGroup,
-  updateSshGroup,
-  deleteSshGroup,
-  listSshConnections,
-  getSshConnection,
-  createSshConnection,
-  updateSshConnection,
-  deleteSshConnection,
-  getOpenSshHostConfig,
-  type SshConfigGroup,
-  type SshConfigConnection,
-  type OpenSshHostConfig
-} from '../ssh/ssh-config'
+  initializeSshRepository,
+  onSshRepositoryChange,
+  listGroups as listSshGroups,
+  createGroup,
+  updateGroup,
+  deleteGroup as deleteSshGroup,
+  listConnections as listSshConnections,
+  getConnectionWithSecrets as getSshConnection,
+  createConnection,
+  updateConnection as updateSshConnection,
+  deleteConnection as deleteSshConnection,
+  type SshGroup as SshConfigGroup,
+  type SshConnectionMeta,
+  type SshConnectionPatch,
+  type SshConnectionWithSecrets as SshConfigConnection
+} from '../ssh/repository'
+import { execSshCommand, localSshFsRequest, LOCAL_SSH_FS_METHODS } from '../ssh/sftp-service'
+import {
+  startUploadTask,
+  cancelUploadTask,
+  startTransferTask,
+  cancelTransferTask,
+  type TransferStartArgs
+} from '../ssh/transfer-service'
+import {
+  openSshTerminal,
+  closeSshTerminal,
+  writeSshTerminal,
+  resizeSshTerminal,
+  getSshTerminalBuffer,
+  listSshTerminals,
+  closeSshConnectionHandles,
+  closeAllSshConnections
+} from '../ssh/connection-manager'
 import {
   applySshImport,
   exportSshConfig,
   previewSshImport,
   type SshImportAction,
   type SshImportSource
-} from '../ssh/ssh-transfer'
+} from '../ssh/import-export'
 import {
   buildFileSnapshot,
   buildOpaqueExistingSnapshot,
@@ -34,48 +49,16 @@ import {
   registerSshChangeAdapter,
   type FileSnapshot
 } from './agent-change-handlers'
-import { safeSendMessagePackToAllWindows, safeSendMessagePackToWindow } from '../window-ipc'
-import { getNativeWorker } from '../lib/native-worker'
-import { toNativeSshConnection } from './ssh-connection-payload'
+import { safeSendMessagePackToAllWindows } from '../window-ipc'
 import {
   decodeMessagePackPayload,
   encodeMessagePackPayload,
   toMessagePackChannel
 } from '../../shared/messagepack/binary-ipc'
 
-// ── SSH Session Manager ──
+// Terminal sessions live in the connection manager (src/main/ssh/
+// connection-manager.ts); this file only registers the IPC surface.
 
-interface SshSession {
-  id: string
-  connectionId: string
-  client: Client
-  shell: ClientChannel | null
-  status: 'connecting' | 'connected' | 'disconnected' | 'error'
-  error?: string
-  outputSeq: number
-  outputBuffer: { seq: number; data: Buffer }[]
-  outputBufferSize: number
-  jumpClient?: Client
-}
-
-interface ResolvedJumpTarget {
-  source: 'alias' | 'connectionId' | 'string'
-  label: string
-  connection: SshConfigConnection
-}
-
-interface LayeredSshError {
-  stage: 'jump_connect' | 'jump_auth' | 'target_connect' | 'target_auth' | 'config'
-  message: string
-  cause?: unknown
-}
-
-const sshSessions = new Map<string, SshSession>()
-;(
-  globalThis as typeof globalThis & { __openCoworkSshSessions?: typeof sshSessions }
-).__openCoworkSshSessions = sshSessions
-let nextSessionId = 1
-const MAX_OUTPUT_BUFFER_BYTES = 1024 * 1024
 const DEFAULT_TEXT_LINE_READ_LIMIT = 1_000
 const TEXT_READ_BLOCKED_EXTENSIONS = new Set([
   '.png',
@@ -103,7 +86,6 @@ const TEXT_READ_BLOCKED_EXTENSIONS = new Set([
   '.tar'
 ])
 let sshConfigWatcherAttached = false
-let nativeSshEventsRegistered = false
 
 type SshClientSession = {
   connectionId: string
@@ -133,26 +115,6 @@ interface NativeSshFileTransferResult {
   error?: string | null
   path?: string | null
   bytes?: number | null
-}
-
-interface NativeSshUploadProgressEvent {
-  taskId: string
-  connectionId: string
-  stage: UploadStage
-  progress?: UploadProgress | null
-  message?: string | null
-}
-
-interface NativeSshTransferProgressEvent {
-  taskId: string
-  type: TransferTaskType
-  stage: TransferStage
-  sourceConnectionId?: string | null
-  targetConnectionId?: string | null
-  progress?: TransferProgress | null
-  message?: string | null
-  currentItem?: string | null
-  conflictPolicy?: SshConflictPolicy | null
 }
 
 interface NativeSshFileMutationResult {
@@ -231,64 +193,6 @@ function clampTextLineReadLimit(maxLines?: number): number {
   return Math.max(1, Math.min(DEFAULT_TEXT_LINE_READ_LIMIT, Math.floor(maxLines)))
 }
 
-type UploadStage = 'upload' | 'cleanup' | 'done' | 'error' | 'canceled'
-
-type UploadProgress = {
-  current?: number
-  total?: number
-  percent?: number
-}
-
-type UploadEvent = {
-  taskId: string
-  connectionId: string
-  stage: UploadStage
-  progress?: UploadProgress
-  message?: string
-}
-
-type UploadTaskState = {
-  taskId: string
-  connectionId: string
-  canceled: boolean
-  cancel: (reason?: string) => Promise<void>
-}
-
-type SshConflictPolicy = 'skip' | 'overwrite' | 'duplicate'
-
-type TransferTaskType = 'upload' | 'download' | 'remote-copy'
-
-type TransferStage = 'preparing' | 'transferring' | 'cleanup' | 'done' | 'error' | 'canceled'
-
-type TransferProgress = {
-  currentBytes?: number
-  totalBytes?: number
-  percent?: number
-  processedItems?: number
-  totalItems?: number
-}
-
-type TransferEvent = {
-  taskId: string
-  type: TransferTaskType
-  stage: TransferStage
-  sourceConnectionId?: string | null
-  targetConnectionId?: string | null
-  progress?: TransferProgress
-  message?: string
-  currentItem?: string
-  conflictPolicy?: SshConflictPolicy
-}
-
-type TransferTaskState = {
-  taskId: string
-  type: TransferTaskType
-  sourceConnectionId?: string | null
-  targetConnectionId?: string | null
-  canceled: boolean
-  cancel: (reason?: string) => Promise<void>
-}
-
 type SearchLimitReason = 'max_results' | 'max_output_bytes' | 'timeout' | 'max_depth' | null
 type GrepMatchKind = 'match' | 'context'
 type GrepOutputMode = 'matches' | 'files_with_matches' | 'files_without_matches' | 'count'
@@ -337,9 +241,6 @@ type SshGrepResult = {
   error?: string
 }
 
-const uploadTasks = new Map<string, UploadTaskState>()
-const transferTasks = new Map<string, TransferTaskState>()
-
 function logSshDebug(message: string, details: Record<string, unknown>): void {
   if (!isSshDebugEnabled()) return
   console.log(`[SSH] ${message}`, details)
@@ -351,63 +252,6 @@ function isSshDebugEnabled(): boolean {
     return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase())
   }
   return !app.isPackaged
-}
-
-function broadcastUploadEvent(evt: UploadEvent): void {
-  safeSendMessagePackToAllWindows('ssh:fs:upload:events', evt)
-}
-
-function broadcastTransferEvent(evt: TransferEvent): void {
-  safeSendMessagePackToAllWindows('ssh:fs:transfer:events', evt)
-}
-
-function isNativeSshUploadProgressEvent(value: unknown): value is NativeSshUploadProgressEvent {
-  if (typeof value !== 'object' || value === null) return false
-  const event = value as NativeSshUploadProgressEvent
-  return (
-    typeof event.taskId === 'string' &&
-    typeof event.connectionId === 'string' &&
-    typeof event.stage === 'string'
-  )
-}
-
-function isNativeSshTransferProgressEvent(value: unknown): value is NativeSshTransferProgressEvent {
-  if (typeof value !== 'object' || value === null) return false
-  const event = value as NativeSshTransferProgressEvent
-  return (
-    typeof event.taskId === 'string' &&
-    typeof event.type === 'string' &&
-    typeof event.stage === 'string'
-  )
-}
-
-function ensureNativeSshEventBridge(): void {
-  if (nativeSshEventsRegistered) return
-  nativeSshEventsRegistered = true
-  getNativeWorker().onEvent('ssh/upload-progress', (params) => {
-    if (!isNativeSshUploadProgressEvent(params)) return
-    broadcastUploadEvent({
-      taskId: params.taskId,
-      connectionId: params.connectionId,
-      stage: params.stage,
-      progress: params.progress ?? undefined,
-      message: params.message ?? undefined
-    })
-  })
-  getNativeWorker().onEvent('ssh/transfer-progress', (params) => {
-    if (!isNativeSshTransferProgressEvent(params)) return
-    broadcastTransferEvent({
-      taskId: params.taskId,
-      type: params.type,
-      stage: params.stage,
-      sourceConnectionId: params.sourceConnectionId ?? null,
-      targetConnectionId: params.targetConnectionId ?? null,
-      progress: params.progress ?? undefined,
-      message: params.message ?? undefined,
-      currentItem: params.currentItem ?? undefined,
-      conflictPolicy: params.conflictPolicy ?? undefined
-    })
-  })
 }
 
 function nowStamp(): string {
@@ -456,18 +300,10 @@ interface SshConnectionRow {
   updated_at: number
 }
 
-function broadcastToRenderer(channel: string, data: unknown): void {
-  const win = BrowserWindow.getAllWindows()[0]
-  if (win) {
-    safeSendMessagePackToWindow(win, channel, data)
-  }
-}
-
 function ensureSshConfigWatcher(): void {
   if (sshConfigWatcherAttached) return
   sshConfigWatcherAttached = true
-  startSshConfigWatcher()
-  onSshConfigChange(() => {
+  onSshRepositoryChange(() => {
     safeSendMessagePackToAllWindows('ssh:config:changed', {})
   })
 }
@@ -482,7 +318,7 @@ function toGroupRow(group: SshConfigGroup): SshGroupRow {
   }
 }
 
-function toConnectionRow(connection: SshConfigConnection): SshConnectionRow {
+function toConnectionRow(connection: SshConnectionMeta): SshConnectionRow {
   return {
     id: connection.id,
     group_id: connection.groupId,
@@ -503,274 +339,27 @@ function toConnectionRow(connection: SshConfigConnection): SshConnectionRow {
   }
 }
 
-function buildConnectConfig(connection: SshConfigConnection): ConnectConfig {
-  if (!connection) throw new Error('Connection not found')
-
-  const config: ConnectConfig = {
-    host: connection.host,
-    port: connection.port,
-    username: connection.username,
-    keepaliveInterval: (connection.keepAliveInterval ?? 60) * 1000,
-    keepaliveCountMax: 3,
-    readyTimeout: 30000
-  }
-
-  if (connection.authType === 'password') {
-    if (!connection.password) {
-      throw new Error('Password is required for password authentication')
-    }
-    config.password = connection.password
-  } else if (connection.authType === 'privateKey') {
-    if (!connection.privateKeyPath) {
-      throw new Error('Private key path is required for private key authentication')
-    }
-    try {
-      config.privateKey = fs.readFileSync(connection.privateKeyPath, 'utf-8')
-    } catch (err) {
-      throw new Error(`Failed to read private key: ${err}`)
-    }
-    if (connection.passphrase) {
-      config.passphrase = connection.passphrase
-    }
-  } else if (connection.authType === 'agent') {
-    config.agent =
-      process.platform === 'win32'
-        ? '\\\\.\\pipe\\openssh-ssh-agent'
-        : process.env.SSH_AUTH_SOCK || undefined
-  } else {
-    throw new Error(`Unsupported authentication type: ${connection.authType}`)
-  }
-
-  return config
-}
-
-function toLayeredError(
-  stage: LayeredSshError['stage'],
-  message: string,
-  cause?: unknown
-): LayeredSshError {
-  return { stage, message, cause }
-}
-
-function isAuthFailureMessage(message: string): boolean {
-  return message.includes('All configured authentication methods failed')
-}
-
-function formatLayeredError(
-  err: unknown,
-  fallbackAuthType?: SshConfigConnection['authType']
-): string {
-  if (err && typeof err === 'object' && 'stage' in err && 'message' in err) {
-    const layered = err as LayeredSshError
-    const raw = layered.message || ''
-    if (layered.stage === 'jump_auth') {
-      return `Jump host authentication failed: ${raw}`
-    }
-    if (layered.stage === 'jump_connect') {
-      return `Jump host connection failed: ${raw}`
-    }
-    if (layered.stage === 'target_auth') {
-      if (fallbackAuthType === 'password')
-        return 'Target host password authentication failed, please check your password.'
-      if (fallbackAuthType === 'privateKey')
-        return 'Target host private key authentication failed, please check key or passphrase.'
-      if (fallbackAuthType === 'agent')
-        return 'Target host SSH Agent authentication failed, please check Agent status.'
-      return `Target host authentication failed: ${raw}`
-    }
-    if (layered.stage === 'target_connect') {
-      return `Target host connection failed: ${raw}`
-    }
-    return raw
-  }
-
-  const message = err instanceof Error ? err.message : String(err)
-  if (message.includes('ECONNREFUSED')) return 'Connection refused, please check host and port.'
-  if (message.includes('ETIMEDOUT') || message.includes('timeout'))
-    return 'Connection timed out, please check network reachability.'
-  if (message.includes('ENOTFOUND') || message.includes('getaddrinfo'))
-    return 'Host not resolvable, please check hostname or IP.'
-  if (isAuthFailureMessage(message)) {
-    if (fallbackAuthType === 'password')
-      return 'Password authentication failed, please check password.'
-    if (fallbackAuthType === 'privateKey')
-      return 'Private key authentication failed, please check key file and passphrase.'
-    if (fallbackAuthType === 'agent')
-      return 'SSH Agent authentication failed, please check Agent availability.'
-  }
-  return message
-}
-
-function createDerivedConnection(
-  base: SshConfigConnection,
-  patch: Partial<SshConfigConnection>
-): SshConfigConnection {
-  return {
-    ...base,
-    ...patch,
-    id: patch.id ?? base.id,
-    name: patch.name ?? base.name,
-    host: patch.host ?? base.host,
-    port: patch.port ?? base.port,
-    username: patch.username ?? base.username,
-    authType: patch.authType ?? base.authType,
-    password: patch.password ?? base.password,
-    privateKeyPath: patch.privateKeyPath ?? base.privateKeyPath,
-    passphrase: patch.passphrase ?? base.passphrase,
-    keepAliveInterval: patch.keepAliveInterval ?? base.keepAliveInterval,
-    proxyJump: patch.proxyJump ?? base.proxyJump
-  }
-}
-
-function parseOpenSshJumpString(
-  raw: string
-): { username?: string; host: string; port?: number } | null {
-  const value = raw.trim()
-  if (!value) return null
-  const match = value.match(/^(?:(?<username>[^@]+)@)?(?<host>[^:]+?)(?::(?<port>\d+))?$/)
-  if (!match?.groups?.host) return null
-  const port = match.groups.port ? Number.parseInt(match.groups.port, 10) : undefined
-  return {
-    username: match.groups.username,
-    host: match.groups.host,
-    port: Number.isFinite(port) ? port : undefined
-  }
-}
-
-function openSshHostToConnection(
-  alias: string,
-  hostConfig: OpenSshHostConfig,
-  target: SshConfigConnection
-): SshConfigConnection {
-  return createDerivedConnection(target, {
-    id: `alias:${alias}`,
-    name: alias,
-    host: hostConfig.hostName ?? alias,
-    port: hostConfig.port ?? 22,
-    username: hostConfig.user ?? target.username,
-    authType: hostConfig.identityFile ? 'privateKey' : target.authType,
-    privateKeyPath: hostConfig.identityFile ?? target.privateKeyPath,
-    password: hostConfig.identityFile ? null : target.password,
-    passphrase: hostConfig.identityFile ? target.passphrase : target.passphrase,
-    proxyJump: null
-  })
-}
-
-async function resolveProxyJumpTarget(
-  target: SshConfigConnection
-): Promise<ResolvedJumpTarget | null> {
-  const raw = target.proxyJump?.trim()
-  if (!raw) return null
-
-  const aliasConfig = await getOpenSshHostConfig(raw)
-  if (aliasConfig) {
-    return {
-      source: 'alias',
-      label: raw,
-      connection: openSshHostToConnection(raw, aliasConfig, target)
-    }
-  }
-
-  const saved = getSshConnection(raw)
-  if (saved) {
-    return {
-      source: 'connectionId',
-      label: saved.name || saved.id,
-      connection: createDerivedConnection(saved, { proxyJump: null })
-    }
-  }
-
-  const parsed = parseOpenSshJumpString(raw)
-  if (!parsed) return null
-  return {
-    source: 'string',
-    label: raw,
-    connection: createDerivedConnection(target, {
-      id: `jump:${raw}`,
-      name: raw,
-      host: parsed.host,
-      port: parsed.port ?? 22,
-      username: parsed.username ?? target.username,
-      proxyJump: null
-    })
-  }
-}
-
 export async function execNativeSshCommand(
   connectionId: string,
   command: string,
   timeout = 60_000
 ): Promise<NativeSshExecResult> {
-  const connection = getSshConnection(connectionId)
-  if (!connection) {
-    return {
-      success: false,
-      exitCode: 1,
-      stdout: '',
-      stderr: 'Connection not found',
-      error: 'Connection not found'
-    }
-  }
-
-  return await getNativeWorker().request<NativeSshExecResult>(
-    'ssh/exec',
-    {
-      connection: toNativeSshConnection(connection),
-      command,
-      timeoutMs: timeout
-    },
-    timeout + 30_000
-  )
+  return await execSshCommand(connectionId, command, timeout)
 }
 
 async function nativeSshFsRequest<T>(
   method: string,
   connectionId: string,
   params: Record<string, unknown> = {},
-  timeout = 60_000
+  _timeout = 60_000
 ): Promise<T> {
-  const connection = getSshConnection(connectionId)
-  if (!connection) {
+  if (!getSshConnection(connectionId)) {
     throw new Error('Connection not found')
   }
-
-  return await getNativeWorker().request<T>(
-    method,
-    {
-      connection: toNativeSshConnection(connection),
-      ...params
-    },
-    timeout + 30_000
-  )
-}
-
-async function nativeSshRemoteCopyRequest<T>(
-  method: string,
-  sourceConnectionId: string,
-  targetConnectionId: string,
-  params: Record<string, unknown> = {},
-  timeout = 60_000
-): Promise<T> {
-  const sourceConnection = getSshConnection(sourceConnectionId)
-  if (!sourceConnection) {
-    throw new Error('Source connection not found')
+  if (!LOCAL_SSH_FS_METHODS.has(method)) {
+    throw new Error(`Unsupported SSH fs method: ${method}`)
   }
-  const targetConnection = getSshConnection(targetConnectionId)
-  if (!targetConnection) {
-    throw new Error('Target connection not found')
-  }
-
-  return await getNativeWorker().request<T>(
-    method,
-    {
-      sourceConnection: toNativeSshConnection(sourceConnection),
-      targetConnection: toNativeSshConnection(targetConnection),
-      sourceConnectionId,
-      targetConnectionId,
-      ...params
-    },
-    timeout + 30_000
-  )
+  return (await localSshFsRequest(method, connectionId, params)) as T
 }
 
 async function resolveNativeSshPath(connectionId: string, inputPath: string): Promise<string> {
@@ -789,81 +378,6 @@ async function resolveNativeSshPath(connectionId: string, inputPath: string): Pr
     resolvedPath: result.path
   })
   return result.path
-}
-
-async function connectClient(client: Client, config: ConnectConfig): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    client
-      .once('ready', () => resolve())
-      .once('error', (err) => reject(err))
-      .connect(config)
-  })
-}
-
-async function connectWithProxyJump(
-  connection: SshConfigConnection
-): Promise<{ client: Client; jumpClient?: Client }> {
-  const targetConfig = buildConnectConfig(connection)
-  const jumpTarget = await resolveProxyJumpTarget(connection)
-  if (!jumpTarget) {
-    const client = new Client()
-    await connectClient(client, targetConfig)
-    return { client }
-  }
-
-  const jumpClient = new Client()
-  try {
-    await connectClient(jumpClient, buildConnectConfig(jumpTarget.connection))
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    throw isAuthFailureMessage(message)
-      ? toLayeredError('jump_auth', message, err)
-      : toLayeredError('jump_connect', message, err)
-  }
-
-  const targetClient = new Client()
-  try {
-    const stream = await new Promise<ClientChannel>((resolve, reject) => {
-      jumpClient.forwardOut('127.0.0.1', 0, connection.host, connection.port, (err, channel) => {
-        if (err) return reject(err)
-        resolve(channel)
-      })
-    })
-
-    await connectClient(targetClient, { ...targetConfig, sock: stream })
-    return { client: targetClient, jumpClient }
-  } catch (err) {
-    try {
-      jumpClient.end()
-    } catch {
-      // ignore
-    }
-    const message = err instanceof Error ? err.message : String(err)
-    throw isAuthFailureMessage(message)
-      ? toLayeredError('target_auth', message, err)
-      : toLayeredError('target_connect', message, err)
-  }
-}
-
-function recordOutput(session: SshSession, data: Buffer): void {
-  session.outputSeq += 1
-  const seq = session.outputSeq
-  const chunk = Buffer.from(data)
-
-  session.outputBuffer.push({ seq, data: chunk })
-  session.outputBufferSize += chunk.length
-
-  while (session.outputBufferSize > MAX_OUTPUT_BUFFER_BYTES && session.outputBuffer.length > 1) {
-    const removed = session.outputBuffer.shift()
-    if (!removed) break
-    session.outputBufferSize -= removed.data.length
-  }
-
-  broadcastToRenderer('ssh:output', {
-    sessionId: session.id,
-    data: chunk.toString('base64'),
-    seq
-  })
 }
 
 type SshOutputBufferArgs = { sessionId: string; sinceSeq?: number }
@@ -910,18 +424,7 @@ function registerSshMessagePackHandler<TArgs>(
 }
 
 async function handleSshOutputBuffer(args: SshOutputBufferArgs): Promise<unknown> {
-  const session = sshSessions.get(args.sessionId)
-  if (!session) return { error: 'Session not found' }
-
-  const sinceSeq = args.sinceSeq ?? 0
-  const chunks = session.outputBuffer
-    .filter((entry) => entry.seq > sinceSeq)
-    .map((entry) => entry.data.toString('base64'))
-
-  return {
-    lastSeq: session.outputSeq,
-    chunks
-  }
+  return getSshTerminalBuffer(args.sessionId, args.sinceSeq ?? 0)
 }
 
 async function handleSshReadFile(args: SshReadFileArgs): Promise<unknown> {
@@ -1202,9 +705,8 @@ export async function registerSshHandlers(): Promise<void> {
     writeText: writeSshTextFile,
     deleteFile: deleteSshFile
   })
-  await initializeSshConfigCache()
+  await initializeSshRepository()
   ensureSshConfigWatcher()
-  ensureNativeSshEventBridge()
 
   // ── Group CRUD ──
 
@@ -1220,13 +722,10 @@ export async function registerSshHandlers(): Promise<void> {
     'ssh:group:create',
     async (args) => {
       try {
-        const now = Date.now()
-        await createSshGroup({
+        await createGroup({
           id: args.id,
           name: args.name,
-          sortOrder: args.sortOrder ?? 0,
-          createdAt: now,
-          updatedAt: now
+          sortOrder: args.sortOrder ?? 0
         })
         return { success: true }
       } catch (err) {
@@ -1301,413 +800,36 @@ export async function registerSshHandlers(): Promise<void> {
     localPath: string
     kind?: 'file' | 'folder'
   }>('ssh:fs:upload:start', async (args) => {
-    const taskId = `ssh-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     try {
-      const localStat = await fs.promises.stat(args.localPath)
-      const kind: 'file' | 'folder' = args.kind
-        ? args.kind
-        : localStat.isDirectory()
-          ? 'folder'
-          : 'file'
-
-      const task: UploadTaskState = {
-        taskId,
-        connectionId: args.connectionId,
-        canceled: false,
-        cancel: async (): Promise<void> => {
-          if (task.canceled) return
-          task.canceled = true
-          await getNativeWorker()
-            .request<NativeSshFileMutationResult>('ssh/fs-upload-abort', { taskId }, 10_000)
-            .catch((error) => console.warn('[SSH] Native upload abort failed:', error))
-          broadcastUploadEvent({
-            taskId,
-            connectionId: args.connectionId,
-            stage: 'canceled',
-            message: 'Canceled'
-          })
-        }
-      }
-      uploadTasks.set(taskId, task)
-
-      if (kind === 'file') {
-        void (async () => {
-          try {
-            broadcastUploadEvent({
-              taskId,
-              connectionId: args.connectionId,
-              stage: 'upload',
-              progress: { current: 0, total: localStat.size, percent: 0 },
-              message: 'Uploading...'
-            })
-
-            const result = await nativeSshFsRequest<NativeSshFileTransferResult>(
-              'ssh/fs-upload-file',
-              args.connectionId,
-              {
-                taskId,
-                connectionId: args.connectionId,
-                localPath: args.localPath,
-                remoteDir: args.remoteDir
-              },
-              30 * 60_000
-            )
-            if (task.canceled) return
-            if (!result.success) {
-              throw new Error(result.error ?? 'SSH upload failed')
-            }
-            broadcastUploadEvent({
-              taskId,
-              connectionId: args.connectionId,
-              stage: 'done',
-              progress: {
-                current: result.bytes ?? localStat.size,
-                total: localStat.size,
-                percent: 100
-              },
-              message: 'Upload complete'
-            })
-          } catch (err) {
-            broadcastUploadEvent({
-              taskId,
-              connectionId: args.connectionId,
-              stage: task.canceled ? 'canceled' : 'error',
-              message: String(err)
-            })
-          } finally {
-            uploadTasks.delete(taskId)
-          }
-        })()
-
-        return { taskId }
-      }
-
-      void (async () => {
-        try {
-          broadcastUploadEvent({
-            taskId,
-            connectionId: args.connectionId,
-            stage: 'upload',
-            message: 'Preparing upload...'
-          })
-
-          const result = await nativeSshFsRequest<NativeSshFileTransferResult>(
-            'ssh/fs-upload-directory',
-            args.connectionId,
-            {
-              taskId,
-              connectionId: args.connectionId,
-              localPath: args.localPath,
-              remoteDir: args.remoteDir
-            },
-            2 * 60 * 60_000
-          )
-          if (task.canceled) return
-          if (!result.success) {
-            throw new Error(result.error ?? 'SSH directory upload failed')
-          }
-
-          const bytes = result.bytes ?? 0
-          broadcastUploadEvent({
-            taskId,
-            connectionId: args.connectionId,
-            stage: 'done',
-            progress: { current: bytes, total: bytes, percent: 100 },
-            message: 'Upload complete'
-          })
-        } catch (err) {
-          broadcastUploadEvent({
-            taskId,
-            connectionId: args.connectionId,
-            stage: task.canceled ? 'canceled' : 'error',
-            message: String(err)
-          })
-        } finally {
-          uploadTasks.delete(taskId)
-        }
-      })()
-
-      return { taskId }
+      return await startUploadTask(args)
     } catch (err) {
-      uploadTasks.delete(taskId)
       return { error: String(err) }
     }
   })
 
   registerSshMessagePackHandler<{ taskId: string }>('ssh:fs:upload:cancel', async (args) => {
-    const task = uploadTasks.get(args.taskId)
-    if (!task) return { error: 'Task not found' }
-    try {
-      await task.cancel('Canceled by user')
-      return { success: true }
-    } catch (err) {
-      return { error: String(err) }
-    }
+    return cancelUploadTask(args.taskId)
   })
 
-  registerSshMessagePackHandler<
-    | {
-        type: 'upload'
-        connectionId: string
-        remoteDir: string
-        localPaths: string[]
-        conflictPolicy?: SshConflictPolicy
-      }
-    | {
-        type: 'download'
-        connectionId: string
-        remotePaths: string[]
-        localDir: string
-        conflictPolicy?: SshConflictPolicy
-      }
-    | {
-        type: 'remote-copy'
-        sourceConnectionId: string
-        targetConnectionId: string
-        sourcePaths: string[]
-        targetDir: string
-        conflictPolicy?: SshConflictPolicy
-      }
-  >('ssh:fs:transfer:start', async (args) => {
-    const taskId = `ssh-transfer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const conflictPolicy = args.conflictPolicy ?? 'skip'
-
+  registerSshMessagePackHandler<TransferStartArgs>('ssh:fs:transfer:start', async (args) => {
     try {
-      logSshDebug('transfer start', {
-        taskId,
-        type: args.type,
-        conflictPolicy,
-        sourceConnectionId:
-          args.type === 'remote-copy' ? args.sourceConnectionId : args.connectionId,
-        targetConnectionId:
-          args.type === 'upload'
-            ? args.connectionId
-            : args.type === 'remote-copy'
-              ? args.targetConnectionId
-              : null,
-        itemCount:
-          args.type === 'upload'
-            ? args.localPaths.length
-            : args.type === 'download'
-              ? args.remotePaths.length
-              : args.sourcePaths.length
-      })
-
-      const task: TransferTaskState = {
-        taskId,
-        type: args.type,
-        sourceConnectionId:
-          args.type === 'remote-copy' ? args.sourceConnectionId : args.connectionId,
-        targetConnectionId:
-          args.type === 'upload'
-            ? args.connectionId
-            : args.type === 'remote-copy'
-              ? args.targetConnectionId
-              : null,
-        canceled: false,
-        cancel: async () => {
-          task.canceled = true
-          broadcastTransferEvent({
-            taskId,
-            type: args.type,
-            stage: 'canceled',
-            sourceConnectionId: task.sourceConnectionId ?? null,
-            targetConnectionId: task.targetConnectionId ?? null,
-            message: 'Canceled by user',
-            conflictPolicy
-          })
-        }
-      }
-
-      transferTasks.set(taskId, task)
-
-      void (async () => {
-        try {
-          if (args.type === 'upload') {
-            if (!Array.isArray(args.localPaths) || args.localPaths.length === 0) {
-              throw new Error('No local paths selected for upload')
-            }
-
-            task.cancel = async (): Promise<void> => {
-              if (task.canceled) return
-              task.canceled = true
-              await getNativeWorker()
-                .request<NativeSshFileMutationResult>(
-                  'ssh/fs-upload-abort',
-                  { taskId: task.taskId },
-                  10_000
-                )
-                .catch((error) => console.warn('[SSH] Native transfer upload abort failed:', error))
-              broadcastTransferEvent({
-                taskId,
-                type: task.type,
-                stage: 'canceled',
-                sourceConnectionId: task.sourceConnectionId ?? null,
-                targetConnectionId: task.targetConnectionId ?? null,
-                message: 'Canceled by user',
-                conflictPolicy
-              })
-            }
-
-            const result = await nativeSshFsRequest<NativeSshFileTransferResult>(
-              'ssh/fs-transfer-upload',
-              args.connectionId,
-              {
-                taskId,
-                connectionId: args.connectionId,
-                localPaths: args.localPaths,
-                remoteDir: args.remoteDir,
-                conflictPolicy
-              },
-              2 * 60 * 60_000
-            )
-            if (task.canceled) {
-              return
-            }
-            if (!result.success) {
-              throw new Error(result.error ?? 'SSH transfer upload failed')
-            }
-            return
-          } else if (args.type === 'download') {
-            if (!Array.isArray(args.remotePaths) || args.remotePaths.length === 0) {
-              throw new Error('No remote paths selected for download')
-            }
-
-            task.cancel = async (): Promise<void> => {
-              if (task.canceled) return
-              task.canceled = true
-              await getNativeWorker()
-                .request<NativeSshFileMutationResult>(
-                  'ssh/fs-download-abort',
-                  { taskId: task.taskId },
-                  10_000
-                )
-                .catch((error) =>
-                  console.warn('[SSH] Native transfer download abort failed:', error)
-                )
-              broadcastTransferEvent({
-                taskId,
-                type: task.type,
-                stage: 'canceled',
-                sourceConnectionId: task.sourceConnectionId ?? null,
-                targetConnectionId: task.targetConnectionId ?? null,
-                message: 'Canceled by user',
-                conflictPolicy
-              })
-            }
-
-            const result = await nativeSshFsRequest<NativeSshFileTransferResult>(
-              'ssh/fs-transfer-download',
-              args.connectionId,
-              {
-                taskId,
-                connectionId: args.connectionId,
-                remotePaths: args.remotePaths,
-                localDir: args.localDir,
-                conflictPolicy
-              },
-              2 * 60 * 60_000
-            )
-            if (task.canceled) {
-              return
-            }
-            if (!result.success) {
-              throw new Error(result.error ?? 'SSH transfer download failed')
-            }
-            return
-          } else {
-            if (!Array.isArray(args.sourcePaths) || args.sourcePaths.length === 0) {
-              throw new Error('No remote paths selected for copy')
-            }
-
-            task.cancel = async (): Promise<void> => {
-              if (task.canceled) return
-              task.canceled = true
-              await getNativeWorker()
-                .request<NativeSshFileMutationResult>(
-                  'ssh/fs-remote-copy-abort',
-                  { taskId: task.taskId },
-                  10_000
-                )
-                .catch((error) => console.warn('[SSH] Native remote-copy abort failed:', error))
-              broadcastTransferEvent({
-                taskId,
-                type: task.type,
-                stage: 'canceled',
-                sourceConnectionId: task.sourceConnectionId ?? null,
-                targetConnectionId: task.targetConnectionId ?? null,
-                message: 'Canceled by user',
-                conflictPolicy
-              })
-            }
-
-            const result = await nativeSshRemoteCopyRequest<NativeSshFileTransferResult>(
-              'ssh/fs-transfer-remote-copy',
-              args.sourceConnectionId,
-              args.targetConnectionId,
-              {
-                taskId,
-                sourcePaths: args.sourcePaths,
-                targetDir: args.targetDir,
-                conflictPolicy
-              },
-              2 * 60 * 60_000
-            )
-            if (task.canceled) {
-              return
-            }
-            if (!result.success) {
-              throw new Error(result.error ?? 'SSH remote copy failed')
-            }
-            return
-          }
-        } catch (err) {
-          broadcastTransferEvent({
-            taskId,
-            type: task.type,
-            stage: task.canceled ? 'canceled' : 'error',
-            sourceConnectionId: task.sourceConnectionId ?? null,
-            targetConnectionId: task.targetConnectionId ?? null,
-            message: task.canceled ? 'Transfer canceled' : String(err),
-            conflictPolicy
-          })
-        } finally {
-          transferTasks.delete(taskId)
-        }
-      })()
-
-      return { taskId }
+      return startTransferTask(args)
     } catch (err) {
-      transferTasks.delete(taskId)
       return { error: String(err) }
     }
   })
 
   registerSshMessagePackHandler<{ taskId: string }>('ssh:fs:transfer:cancel', async (args) => {
-    const task = transferTasks.get(args.taskId)
-    if (!task) return { error: 'Task not found' }
-    try {
-      logSshDebug('transfer cancel requested', {
-        taskId: args.taskId,
-        type: task.type,
-        sourceConnectionId: task.sourceConnectionId ?? null,
-        targetConnectionId: task.targetConnectionId ?? null
-      })
-      await task.cancel('Canceled by user')
-      return { success: true }
-    } catch (err) {
-      return { error: String(err) }
-    }
+    return cancelTransferTask(args.taskId)
   })
 
   registerSshMessagePackHandler<{ id: string; name?: string; sortOrder?: number }>(
     'ssh:group:update',
     async (args) => {
       try {
-        await updateSshGroup(args.id, {
+        await updateGroup(args.id, {
           name: args.name,
-          sortOrder: args.sortOrder,
-          updatedAt: Date.now()
+          sortOrder: args.sortOrder
         })
         return { success: true }
       } catch (err) {
@@ -1753,8 +875,7 @@ export async function registerSshHandlers(): Promise<void> {
     sortOrder?: number
   }>('ssh:connection:create', async (args) => {
     try {
-      const now = Date.now()
-      const connection: SshConfigConnection = {
+      await createConnection({
         id: args.id,
         groupId: args.groupId ?? null,
         name: args.name,
@@ -1769,12 +890,8 @@ export async function registerSshHandlers(): Promise<void> {
         defaultDirectory: args.defaultDirectory ?? null,
         proxyJump: args.proxyJump ?? null,
         keepAliveInterval: args.keepAliveInterval ?? 60,
-        sortOrder: args.sortOrder ?? 0,
-        lastConnectedAt: null,
-        createdAt: now,
-        updatedAt: now
-      }
-      await createSshConnection(connection)
+        sortOrder: args.sortOrder ?? 0
+      })
       return { success: true }
     } catch (err) {
       return { error: String(err) }
@@ -1799,7 +916,7 @@ export async function registerSshHandlers(): Promise<void> {
     sortOrder?: number
   }>('ssh:connection:update', async (args) => {
     try {
-      const patch: Partial<Omit<SshConfigConnection, 'id'>> = { updatedAt: Date.now() }
+      const patch: SshConnectionPatch = {}
       if (args.groupId !== undefined) patch.groupId = args.groupId
       if (args.name !== undefined) patch.name = args.name
       if (args.host !== undefined) patch.host = args.host
@@ -1827,12 +944,7 @@ export async function registerSshHandlers(): Promise<void> {
   registerSshMessagePackHandler<{ id: string }>('ssh:connection:delete', async (args) => {
     try {
       // Disconnect any active sessions for this connection
-      for (const [sessionId, session] of sshSessions) {
-        if (session.connectionId === args.id) {
-          session.client.end()
-          sshSessions.delete(sessionId)
-        }
-      }
+      closeSshConnectionHandles(args.id)
       await deleteSshConnection(args.id)
       return { success: true }
     } catch (err) {
@@ -1893,228 +1005,33 @@ export async function registerSshHandlers(): Promise<void> {
     }
   })
 
-  // ── Terminal Session: Connect ──
+  // ── Terminal sessions (backed by the shared connection manager) ──
 
   registerSshMessagePackHandler<{ connectionId: string }>('ssh:connect', async (args) => {
     try {
-      const connection = getSshConnection(args.connectionId)
-      if (!connection) return { error: 'Connection not found' }
-
-      const sessionId = `ssh-${nextSessionId++}`
-
-      const session: SshSession = {
-        id: sessionId,
-        connectionId: args.connectionId,
-        client: new Client(),
-        shell: null,
-        status: 'connecting',
-        outputSeq: 0,
-        outputBuffer: [],
-        outputBufferSize: 0
-      }
-      sshSessions.set(sessionId, session)
-
-      broadcastToRenderer('ssh:status', {
-        sessionId,
-        connectionId: args.connectionId,
-        status: 'connecting'
-      })
-
-      return new Promise((resolve) => {
-        const connectTimeout = setTimeout(() => {
-          session.status = 'error'
-          session.error = 'Connection timeout (30s)'
-          session.client.end()
-          sshSessions.delete(sessionId)
-          broadcastToRenderer('ssh:status', {
-            sessionId,
-            connectionId: args.connectionId,
-            status: 'error',
-            error: 'Connection timeout (30s)'
-          })
-          resolve({ error: 'Connection timeout (30s)' })
-        }, 30000)
-
-        void (async () => {
-          try {
-            const connected = await connectWithProxyJump(connection)
-            clearTimeout(connectTimeout)
-            session.client = connected.client
-            session.jumpClient = connected.jumpClient
-            session.status = 'connected'
-
-            session.client.on('error', (err) => {
-              session.status = 'error'
-              session.error = formatLayeredError(err, connection.authType)
-              broadcastToRenderer('ssh:status', {
-                sessionId,
-                connectionId: args.connectionId,
-                status: 'error',
-                error: session.error
-              })
-            })
-
-            session.client.on('close', () => {
-              if (session.status === 'connected' || session.status === 'connecting') {
-                session.status = 'disconnected'
-                broadcastToRenderer('ssh:status', {
-                  sessionId,
-                  connectionId: args.connectionId,
-                  status: 'disconnected'
-                })
-              }
-              session.jumpClient?.end()
-              sshSessions.delete(sessionId)
-            })
-
-            await updateSshConnection(args.connectionId, {
-              lastConnectedAt: Date.now(),
-              updatedAt: Date.now()
-            })
-
-            session.client.shell(
-              {
-                term: 'xterm-256color',
-                cols: 120,
-                rows: 30,
-                modes: {}
-              },
-              (err, stream) => {
-                if (err) {
-                  session.status = 'error'
-                  session.error = `Shell error: ${err.message}`
-                  broadcastToRenderer('ssh:status', {
-                    sessionId,
-                    connectionId: args.connectionId,
-                    status: 'error',
-                    error: session.error
-                  })
-                  resolve({ error: session.error })
-                  return
-                }
-
-                session.shell = stream
-
-                stream.on('data', (data: Buffer) => {
-                  recordOutput(session, data)
-                })
-
-                stream.stderr?.on('data', (data: Buffer) => {
-                  recordOutput(session, data)
-                })
-
-                stream.on('close', () => {
-                  session.status = 'disconnected'
-                  broadcastToRenderer('ssh:status', {
-                    sessionId,
-                    connectionId: args.connectionId,
-                    status: 'disconnected'
-                  })
-                  session.client.end()
-                  session.jumpClient?.end()
-                  sshSessions.delete(sessionId)
-                })
-
-                broadcastToRenderer('ssh:status', {
-                  sessionId,
-                  connectionId: args.connectionId,
-                  status: 'connected'
-                })
-
-                if (connection.startupCommand) {
-                  stream.write(connection.startupCommand + '\n')
-                }
-                if (connection.defaultDirectory) {
-                  stream.write(`cd ${connection.defaultDirectory}\n`)
-                }
-
-                resolve({ sessionId })
-              }
-            )
-          } catch (err) {
-            clearTimeout(connectTimeout)
-            session.status = 'error'
-            session.error = formatLayeredError(err, connection.authType)
-            sshSessions.delete(sessionId)
-            broadcastToRenderer('ssh:status', {
-              sessionId,
-              connectionId: args.connectionId,
-              status: 'error',
-              error: session.error
-            })
-            resolve({ error: session.error })
-          }
-        })()
-      })
+      return await openSshTerminal(args.connectionId)
     } catch (err) {
       return { error: String(err) }
     }
   })
 
-  // ── Terminal Session: Send data ──
-
-  const handleSshData = (args: { sessionId: string; data: string }): void => {
-    const session = sshSessions.get(args.sessionId)
-    if (session?.shell && session.status === 'connected') {
-      session.shell.write(args.data)
-    }
-  }
-
   ipcMain.on(toMessagePackChannel('ssh:data'), (_event, bytes: Uint8Array) => {
-    handleSshData(decodeMessagePackPayload<{ sessionId: string; data: string }>(bytes))
+    const args = decodeMessagePackPayload<{ sessionId: string; data: string }>(bytes)
+    writeSshTerminal(args.sessionId, args.data)
   })
-
-  // ── Terminal Session: Resize PTY ──
-
-  const handleSshResize = (args: { sessionId: string; cols: number; rows: number }): void => {
-    const session = sshSessions.get(args.sessionId)
-    if (session?.shell && session.status === 'connected') {
-      session.shell.setWindow(args.rows, args.cols, 0, 0)
-    }
-  }
 
   ipcMain.on(toMessagePackChannel('ssh:resize'), (_event, bytes: Uint8Array) => {
-    handleSshResize(
-      decodeMessagePackPayload<{ sessionId: string; cols: number; rows: number }>(bytes)
-    )
+    const args = decodeMessagePackPayload<{ sessionId: string; cols: number; rows: number }>(bytes)
+    resizeSshTerminal(args.sessionId, args.cols, args.rows)
   })
-
-  // ── Terminal Session: Disconnect ──
 
   registerSshMessagePackHandler<{ sessionId: string }>('ssh:disconnect', async (args) => {
-    const session = sshSessions.get(args.sessionId)
-    if (!session) return { error: 'Session not found' }
-
-    session.status = 'disconnected'
-    if (session.shell) session.shell.end()
-    session.client.end()
-    sshSessions.delete(args.sessionId)
-
-    broadcastToRenderer('ssh:status', {
-      sessionId: args.sessionId,
-      connectionId: session.connectionId,
-      status: 'disconnected'
-    })
-
-    return { success: true }
+    return closeSshTerminal(args.sessionId)
   })
-
-  // ── Terminal Session: List active sessions ──
 
   registerSshMessagePackHandler<void>('ssh:session:list', async () => {
-    const list: { id: string; connectionId: string; status: string; error?: string }[] = []
-    for (const session of sshSessions.values()) {
-      list.push({
-        id: session.id,
-        connectionId: session.connectionId,
-        status: session.status,
-        error: session.error
-      })
-    }
-    return list
+    return listSshTerminals()
   })
-
-  // ── Terminal Session: Output buffer ──
 
   registerSshMessagePackHandler<SshOutputBufferArgs>('ssh:output:buffer', handleSshOutputBuffer)
 
@@ -2270,13 +1187,5 @@ async function deleteSshFile(connectionId: string, filePath: string): Promise<vo
 // ── Cleanup ──
 
 export function closeAllSshSessions(): void {
-  for (const session of sshSessions.values()) {
-    try {
-      if (session.shell) session.shell.end()
-      session.client.end()
-    } catch {
-      // ignore
-    }
-  }
-  sshSessions.clear()
+  closeAllSshConnections()
 }

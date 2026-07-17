@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
 internal static class DbSessionTools
@@ -9,13 +9,22 @@ internal static class DbSessionTools
         {
             var limit = Math.Clamp(JsonHelpers.GetInt(parameters, "limit", 2000), 1, 10_000);
             var offset = Math.Max(0, JsonHelpers.GetInt(parameters, "offset", 0));
+            var hasProjectFilter = parameters.TryGetProperty("projectId", out var projectIdValue);
+            var projectId = hasProjectFilter && projectIdValue.ValueKind != JsonValueKind.Null
+                ? JsonHelpers.GetString(parameters, "projectId")
+                : null;
             using var connection = DbConnectionFactory.OpenReadWrite(parameters);
             using var command = connection.CreateCommand();
             command.CommandText = $"""
                 {SessionSelectSql}
+                 WHERE {(hasProjectFilter ? (projectId is null ? "project_id IS NULL" : "project_id = $projectId") : "1 = 1")}
                  ORDER BY updated_at DESC
                  LIMIT $limit OFFSET $offset
                 """;
+            if (projectId is not null)
+            {
+                command.Parameters.AddWithValue("$projectId", projectId);
+            }
             command.Parameters.AddWithValue("$limit", limit);
             command.Parameters.AddWithValue("$offset", offset);
             return WorkerResponse.Json(ReadSessionRows(command), WorkerJsonContext.Default.ListSessionRow);
@@ -160,6 +169,64 @@ internal static class DbSessionTools
                 connection,
                 transaction,
                 "DELETE FROM sessions WHERE plugin_id IS NULL");
+            transaction.Commit();
+
+            return WorkerResponse.Json(
+                new SessionClearAllResult(true, sessionIds, deletedMessages, deletedSessions, null),
+                WorkerJsonContext.Default.SessionClearAllResult);
+        }
+        catch (Exception ex)
+        {
+            return WorkerResponse.Json(
+                new SessionClearAllResult(false, new List<string>(), 0, 0, ex.Message),
+                WorkerJsonContext.Default.SessionClearAllResult);
+        }
+    }
+
+    public static WorkerResponse ClearProject(JsonElement parameters)
+    {
+        try
+        {
+            var projectId = RequireString(parameters, "projectId");
+            var excluded = new HashSet<string>(StringComparer.Ordinal);
+            if (parameters.TryGetProperty("excludeSessionIds", out var excludeValue) &&
+                excludeValue.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in excludeValue.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.String)
+                    {
+                        var id = item.GetString();
+                        if (!string.IsNullOrWhiteSpace(id)) excluded.Add(id);
+                    }
+                }
+            }
+
+            using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+            using var transaction = connection.BeginTransaction();
+            var sessionIds = GetProjectSessionIds(connection, transaction, projectId, excluded);
+            if (sessionIds.Count == 0)
+            {
+                transaction.Commit();
+                return WorkerResponse.Json(
+                    new SessionClearAllResult(true, sessionIds, 0, 0, null),
+                    WorkerJsonContext.Default.SessionClearAllResult);
+            }
+
+            var placeholders = string.Join(", ", sessionIds.Select((_, index) => $"$id{index}"));
+            var values = sessionIds
+                .Select((id, index) => new DbSql.SqlParam($"$id{index}", id))
+                .ToArray();
+            var deletedMessages = DbSql.ExecuteNonQuery(
+                connection,
+                transaction,
+                $"DELETE FROM messages WHERE session_id IN ({placeholders})",
+                values);
+            var deletedSessions = DbSql.ExecuteNonQuery(
+                connection,
+                transaction,
+                $"DELETE FROM sessions WHERE id IN ({placeholders})",
+                values);
             transaction.Commit();
 
             return WorkerResponse.Json(
@@ -472,6 +539,26 @@ internal static class DbSessionTools
             JsonValueKind.False => 0,
             _ => value.GetRawText()
         };
+    }
+
+    private static List<string> GetProjectSessionIds(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string projectId,
+        HashSet<string> excluded)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT id FROM sessions WHERE project_id = $projectId";
+        command.Parameters.AddWithValue("$projectId", projectId);
+        var ids = new List<string>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var id = reader.GetString(0);
+            if (!excluded.Contains(id)) ids.Add(id);
+        }
+        return ids;
     }
 
     private static List<string> GetNonPluginSessionIds(

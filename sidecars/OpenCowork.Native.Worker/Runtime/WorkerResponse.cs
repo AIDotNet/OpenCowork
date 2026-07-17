@@ -4,10 +4,12 @@ using System.Text.Json.Serialization.Metadata;
 internal sealed class WorkerResponse
 {
     private readonly Action<Utf8JsonWriter> resultWriter;
+    private readonly byte[]? messagePackResult;
 
-    private WorkerResponse(Action<Utf8JsonWriter> resultWriter)
+    private WorkerResponse(Action<Utf8JsonWriter> resultWriter, byte[]? messagePackResult = null)
     {
         this.resultWriter = resultWriter;
+        this.messagePackResult = messagePackResult;
     }
 
     public static WorkerResponse Json<T>(T result, JsonTypeInfo<T> typeInfo)
@@ -27,6 +29,24 @@ internal sealed class WorkerResponse
     public static WorkerResponse FromWriter(Action<Utf8JsonWriter> writeResult)
     {
         return new WorkerResponse(writeResult);
+    }
+
+    public static WorkerResponse DirectMessagePack(Action<WorkerMessagePackWriter> writeResult)
+    {
+        var writer = new WorkerMessagePackWriter();
+        writeResult(writer);
+        var result = writer.ToArray();
+        return new WorkerResponse(
+            jsonWriter => jsonWriter.WriteNullValue(),
+            result);
+    }
+
+    public static WorkerResponse DirectMessagePackJson(ReadOnlySpan<byte> jsonResult)
+    {
+        var result = MessagePackJsonTranscoder.FromJson(jsonResult);
+        return new WorkerResponse(
+            jsonWriter => jsonWriter.WriteNullValue(),
+            result);
     }
 
     public static WorkerResponse RawJson(string result)
@@ -53,5 +73,11 @@ internal sealed class WorkerResponse
     public byte[] ToJsonBytes(JsonElement? id)
     {
         return WorkerJson.WriteResponse(id, resultWriter);
+    }
+
+    public bool TryGetMessagePackResult(out ReadOnlyMemory<byte> result)
+    {
+        result = messagePackResult;
+        return messagePackResult is not null;
     }
 }

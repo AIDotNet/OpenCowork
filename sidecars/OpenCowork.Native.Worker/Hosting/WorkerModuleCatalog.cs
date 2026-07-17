@@ -14,14 +14,19 @@ internal static class WorkerModuleCatalog
         new ExtensionModule(),
         new AgentRuntimeModule(),
         new AgentChangeModule(),
+        new MediaFileModule(),
         new OpenAIImagesModule(),
         new OpenAIAudioModule(),
         new SeedanceVideoModule(),
+        new XaiVideoModule(),
         new WebModule(),
         new McpConfigModule(),
         new UserContentModule(),
         new ShellModule(),
         new TerminalModule(),
-        new SshModule()
+        new SshModule(),
+        // CodeGraph (source-merged engine): codegraph/* methods. Handlers gate on
+        // per-project state; registration never blocks boot (not in the required set).
+        new CodeGraphModule()
     ];
 }

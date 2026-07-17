@@ -5,6 +5,20 @@ using System.Text.Json;
 
 internal static class MessagePackJsonTranscoder
 {
+    public static JsonDocument ToJsonDocument(ReadOnlySpan<byte> messagePack)
+    {
+        var reader = new Reader(messagePack);
+        var buffer = new ArrayBufferWriter<byte>();
+
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            reader.WriteJsonValue(writer);
+        }
+
+        reader.EnsureComplete();
+        return JsonDocument.Parse(buffer.WrittenMemory);
+    }
+
     public static byte[] ToJsonBytes(ReadOnlySpan<byte> messagePack)
     {
         var reader = new Reader(messagePack);
@@ -24,6 +38,125 @@ internal static class MessagePackJsonTranscoder
         var buffer = new ArrayBufferWriter<byte>();
         WriteJsonElement(buffer, element);
         return buffer.WrittenMemory.ToArray();
+    }
+
+    public static byte[] FromJson(ReadOnlySpan<byte> json)
+    {
+        var reader = new Utf8JsonReader(json, isFinalBlock: true, state: default);
+        if (!reader.Read())
+        {
+            throw new InvalidDataException("JSON response is empty.");
+        }
+
+        var writer = new WorkerMessagePackWriter();
+        WriteJsonToken(ref reader, writer);
+        if (reader.Read())
+        {
+            throw new InvalidDataException("JSON response contains trailing data.");
+        }
+        return writer.ToArray();
+    }
+
+    private static void WriteJsonToken(
+        ref Utf8JsonReader reader,
+        WorkerMessagePackWriter writer)
+    {
+        switch (reader.TokenType)
+        {
+            case JsonTokenType.StartObject:
+                writer.WriteMapHeader(CountContainerItems(reader, countProperties: true));
+                while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+                {
+                    if (reader.TokenType != JsonTokenType.PropertyName)
+                    {
+                        throw new InvalidDataException("Invalid JSON object token sequence.");
+                    }
+                    writer.WriteString(reader.GetString() ?? string.Empty);
+                    if (!reader.Read())
+                    {
+                        throw new InvalidDataException("JSON object ended before its property value.");
+                    }
+                    WriteJsonToken(ref reader, writer);
+                }
+                break;
+            case JsonTokenType.StartArray:
+                writer.WriteArrayHeader(CountContainerItems(reader, countProperties: false));
+                while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+                {
+                    WriteJsonToken(ref reader, writer);
+                }
+                break;
+            case JsonTokenType.String:
+                writer.WriteString(reader.GetString() ?? string.Empty);
+                break;
+            case JsonTokenType.Number when reader.TryGetInt64(out var signed):
+                writer.WriteInt64(signed);
+                break;
+            case JsonTokenType.Number when reader.TryGetUInt64(out var unsigned):
+                writer.WriteUInt64(unsigned);
+                break;
+            case JsonTokenType.Number:
+                writer.WriteDouble(reader.GetDouble());
+                break;
+            case JsonTokenType.True:
+                writer.WriteBoolean(true);
+                break;
+            case JsonTokenType.False:
+                writer.WriteBoolean(false);
+                break;
+            case JsonTokenType.Null:
+                writer.WriteNil();
+                break;
+            default:
+                throw new InvalidDataException($"Unsupported JSON token: {reader.TokenType}");
+        }
+    }
+
+    private static int CountContainerItems(Utf8JsonReader start, bool countProperties)
+    {
+        var reader = start;
+        var nestedDepth = 0;
+        var count = 0;
+        while (reader.Read())
+        {
+            if (nestedDepth == 0)
+            {
+                if (countProperties && reader.TokenType == JsonTokenType.PropertyName)
+                {
+                    count++;
+                }
+                else if (!countProperties && IsValueToken(reader.TokenType))
+                {
+                    count++;
+                }
+            }
+
+            if (reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray)
+            {
+                nestedDepth++;
+            }
+            else if (reader.TokenType is JsonTokenType.EndObject or JsonTokenType.EndArray)
+            {
+                if (nestedDepth == 0)
+                {
+                    break;
+                }
+                nestedDepth--;
+            }
+        }
+        return count;
+    }
+
+    private static bool IsValueToken(JsonTokenType tokenType)
+    {
+        return tokenType is
+            JsonTokenType.StartObject or
+            JsonTokenType.StartArray or
+            JsonTokenType.String or
+            JsonTokenType.Number or
+            JsonTokenType.True or
+            JsonTokenType.False or
+            JsonTokenType.Null;
     }
 
     private static void WriteJsonElement(ArrayBufferWriter<byte> buffer, JsonElement element)

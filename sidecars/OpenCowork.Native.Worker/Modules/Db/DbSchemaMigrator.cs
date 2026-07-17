@@ -73,6 +73,19 @@ internal static class DbSchemaMigrator
               ON sessions(external_chat_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_project_id
               ON sessions(project_id);
+
+            CREATE TABLE IF NOT EXISTS sub_agent_history (
+              tool_use_id TEXT PRIMARY KEY,
+              session_id TEXT,
+              state_json TEXT NOT NULL,
+              sort_order INTEGER NOT NULL,
+              started_at INTEGER NOT NULL DEFAULT 0,
+              updated_at INTEGER NOT NULL,
+              FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sub_agent_history_session
+              ON sub_agent_history(session_id, started_at DESC);
             """);
     }
 

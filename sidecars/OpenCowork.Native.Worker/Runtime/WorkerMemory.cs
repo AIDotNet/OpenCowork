@@ -4,7 +4,7 @@ using System.Runtime;
 
 internal static class WorkerMemory
 {
-    private const long DefaultTrimThresholdBytes = 16L * 1024 * 1024;
+    private const long DefaultTrimThresholdBytes = 4L * 1024 * 1024;
     private const int DefaultTrimDelayMs = 2_000;
     private const int DefaultTrimCooldownMs = 5_000;
     private static readonly object Gate = new();
@@ -151,8 +151,6 @@ internal static class WorkerMemory
         try
         {
             GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
-            GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-            GC.WaitForPendingFinalizers();
             GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
         }
         catch (Exception ex)

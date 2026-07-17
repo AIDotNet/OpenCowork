@@ -4,7 +4,9 @@ using System.Text.Json;
 internal static class AgentRuntimeTools
 {
     private const int ProtocolVersion = 1;
+    private const int MaxConcurrentRuns = 8;
     private static readonly ConcurrentDictionary<string, AgentRuntimeRunState> ActiveRuns = new(StringComparer.Ordinal);
+    private static readonly SemaphoreSlim RunSlots = new(MaxConcurrentRuns, MaxConcurrentRuns);
     private static long generatedRunId;
 
     public static WorkerResponse Initialize(JsonElement parameters)
@@ -32,6 +34,9 @@ internal static class AgentRuntimeTools
             run.Cancel("shutdown");
         }
         ActiveRuns.Clear();
+        // Background sub-agent/team children are not in ActiveRuns; cancel them through
+        // the sub-agent registry so their global concurrency slots drain on shutdown.
+        AgentRuntimeSubAgentCancellationScope.CancelAll("shutdown");
         WorkerLog.Info("agent runtime shutdown");
         return WorkerResponse.Json(
             new AgentRuntimeInitializeResult(true, "native-aot", "0.1"),
@@ -84,14 +89,31 @@ internal static class AgentRuntimeTools
 
     public static Task<WorkerResponse> RunAsync(JsonElement parameters, WorkerRequestContext context)
     {
+        if (!RunSlots.Wait(0))
+        {
+            return Task.FromResult(WorkerResponse.Error(
+                $"Agent run quota exceeded ({MaxConcurrentRuns} concurrent runs)."));
+        }
+
         var runId = NormalizeRunId(JsonHelpers.GetString(parameters, "runId"));
         var sessionId = JsonHelpers.GetString(parameters, "sessionId")?.Trim() ?? string.Empty;
         var initialMessageCount = CountArray(parameters, "messages");
         var state = new AgentRuntimeRunState(runId, sessionId);
-        state.ReplaceParameters(parameters.Clone());
+        try
+        {
+            state.ReplaceParameters(parameters.Clone());
+        }
+        catch
+        {
+            RunSlots.Release();
+            state.Dispose();
+            throw;
+        }
 
         if (!ActiveRuns.TryAdd(runId, state))
         {
+            RunSlots.Release();
+            state.Dispose();
             return Task.FromResult(WorkerResponse.Error($"Agent run already exists: {runId}"));
         }
 
@@ -99,7 +121,10 @@ internal static class AgentRuntimeTools
             $"agent run accepted runtime=native-aot runId={runId} sessionId={FormatLogValue(sessionId)} " +
             $"messages={initialMessageCount}");
 
-        _ = Task.Run(async () => await ExecuteRunAsync(state, context), CancellationToken.None);
+        var backgroundContext = context.ForBackgroundOperation();
+        _ = Task.Run(
+            async () => await ExecuteRunAsync(state, backgroundContext),
+            CancellationToken.None);
 
         return Task.FromResult(WorkerResponse.Json(
             new AgentRuntimeRunResult(true, runId),
@@ -152,6 +177,19 @@ internal static class AgentRuntimeTools
         return WorkerResponse.Json(
             new AgentRuntimeStopResult(true, runId),
             WorkerJsonContext.Default.AgentRuntimeStopResult);
+    }
+
+    public static WorkerResponse CancelSubAgent(JsonElement parameters)
+    {
+        var toolUseId = JsonHelpers.GetString(parameters, "toolUseId")?.Trim();
+        var sessionId = JsonHelpers.GetString(parameters, "sessionId")?.Trim();
+        var count = AgentRuntimeSubAgentCancellationScope.Cancel(toolUseId, sessionId, "user");
+        WorkerLog.Info(
+            $"sub-agent cancel requested toolUseId={FormatLogValue(toolUseId ?? string.Empty)} " +
+            $"sessionId={FormatLogValue(sessionId ?? string.Empty)} cancelled={count}");
+        return WorkerResponse.Json(
+            new AgentRuntimeSubAgentCancelResult(count > 0, count),
+            WorkerJsonContext.Default.AgentRuntimeSubAgentCancelResult);
     }
 
     public static WorkerResponse AppendMessages(JsonElement parameters)
@@ -239,10 +277,11 @@ internal static class AgentRuntimeTools
         finally
         {
             ActiveRuns.TryRemove(state.RunId, out _);
+            RunSlots.Release();
             AgentRuntimeNativeToolExecutor.ClearRun(state.RunId);
             state.Dispose();
             WorkerLog.Info($"agent run finalized runtime=native-aot runId={state.RunId}");
-            WorkerMemory.ReportCompletedWork("agent-run", pressureBytes: 0, forceTrim: true);
+            WorkerMemory.ReportCompletedWork("agent-run", pressureBytes: 0);
         }
     }
 
@@ -465,6 +504,10 @@ internal static class AgentRuntimeTools
             {
                 messageQueueClosed = true;
             }
+            // Last-resort release: every executor path disposes the lease explicitly,
+            // but a leaked lease pins a process-wide sub-agent concurrency slot forever.
+            SubAgentConcurrencyLease?.Dispose();
+            SubAgentConcurrencyLease = null;
             cancellation.Dispose();
         }
     }

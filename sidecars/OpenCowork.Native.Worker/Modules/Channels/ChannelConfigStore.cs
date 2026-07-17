@@ -7,6 +7,7 @@ internal static class ChannelConfigStore
     private const string DataDirectoryName = ".open-cowork";
     private const string ConfigFileName = "plugins.json";
     private static readonly object Sync = new();
+    private static readonly JsonFileNodeCache<JsonArray> Cache = new();
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -153,27 +154,11 @@ internal static class ChannelConfigStore
     private static JsonArray ReadPlugins()
     {
         var filePath = GetConfigPath();
-        if (!File.Exists(filePath))
-        {
-            return [];
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(File.ReadAllBytes(filePath));
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-            {
-                WorkerLog.Warn("channel config file is not an array; ignoring invalid content");
-                return [];
-            }
-
-            return CloneElement(document.RootElement) as JsonArray ?? [];
-        }
-        catch (Exception ex)
-        {
-            WorkerLog.Warn($"channel config read failed error={ex.GetType().Name}: {ex.Message}");
-            return [];
-        }
+        return Cache.Read(
+            filePath,
+            JsonValueKind.Array,
+            static element => CloneElement(element) as JsonArray,
+            "channel config file") ?? [];
     }
 
     private static void WritePlugins(JsonArray plugins)
@@ -184,6 +169,7 @@ internal static class ChannelConfigStore
         var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
         File.WriteAllText(tempPath, plugins.ToJsonString(WriteOptions));
         File.Move(tempPath, filePath, true);
+        Cache.Store(filePath, plugins);
     }
 
     private static string GetConfigPath()
@@ -234,6 +220,6 @@ internal static class ChannelConfigStore
 
     private static WorkerResponse ToResponse(JsonNode node)
     {
-        return WorkerResponse.RawJson(node.ToJsonString());
+        return WorkerResponse.FromWriter(writer => node.WriteTo(writer));
     }
 }

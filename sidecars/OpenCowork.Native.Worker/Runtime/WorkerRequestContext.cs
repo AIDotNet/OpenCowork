@@ -9,14 +9,29 @@ internal sealed class WorkerRequestContext
     public WorkerRequestContext(
         Func<string, Action<Utf8JsonWriter>, CancellationToken, ValueTask> emitEventAsync,
         Func<WorkerMessagePackEvent, CancellationToken, ValueTask> emitMessagePackEventAsync,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CancellationToken connectionCancellationToken = default)
     {
         this.emitEventAsync = emitEventAsync;
         this.emitMessagePackEventAsync = emitMessagePackEventAsync;
         CancellationToken = cancellationToken;
+        ConnectionCancellationToken = connectionCancellationToken == default
+            ? cancellationToken
+            : connectionCancellationToken;
     }
 
     public CancellationToken CancellationToken { get; }
+
+    public CancellationToken ConnectionCancellationToken { get; }
+
+    public WorkerRequestContext ForBackgroundOperation()
+    {
+        return new WorkerRequestContext(
+            emitEventAsync,
+            emitMessagePackEventAsync,
+            ConnectionCancellationToken,
+            ConnectionCancellationToken);
+    }
 
     public ValueTask EmitEventAsync<T>(string eventName, T parameters, JsonTypeInfo<T> typeInfo)
     {

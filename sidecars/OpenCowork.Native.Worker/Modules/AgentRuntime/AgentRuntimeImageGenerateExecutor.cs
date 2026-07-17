@@ -10,6 +10,9 @@ internal static class AgentRuntimeImageGenerateExecutor
     private const string ToolName = "ImageGenerate";
     private const int MaxCount = 4;
     private const int MaxReferenceImages = 6;
+    private const int MaxReferenceImageBytes = 16 * 1024 * 1024;
+    private const int MaxReferenceImagesTotalBytes = 32 * 1024 * 1024;
+    private const int MaxGeneratedImageBytes = 32 * 1024 * 1024;
 
     private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
         timeout: TimeSpan.FromMinutes(10));
@@ -61,7 +64,8 @@ internal static class AgentRuntimeImageGenerateExecutor
             var generated = await OpenAIImagesTools.GenerateImagesForProviderAsync(
                 providerWithOverrides,
                 prompt,
-                referenceImages);
+                referenceImages,
+                cancellationToken: cancellationToken);
             if (generated.Count == 0)
             {
                 continue;
@@ -102,6 +106,7 @@ internal static class AgentRuntimeImageGenerateExecutor
         using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
         {
             writer.WriteStartArray();
+            var totalBytes = 0L;
             foreach (var reference in references)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -109,7 +114,15 @@ internal static class AgentRuntimeImageGenerateExecutor
                 byte[] bytes;
                 try
                 {
+                    var fileLength = new FileInfo(path).Length;
+                    if (fileLength > MaxReferenceImageBytes ||
+                        totalBytes + fileLength > MaxReferenceImagesTotalBytes)
+                    {
+                        throw new InvalidOperationException(
+                            $"Reference images exceed the {MaxReferenceImagesTotalBytes} byte request limit.");
+                    }
                     bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+                    totalBytes += bytes.Length;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -180,14 +193,26 @@ internal static class AgentRuntimeImageGenerateExecutor
         byte[] bytes;
         if (image.SourceType == "url")
         {
-            using var response = await Http.GetAsync(image.Data, cancellationToken);
+            using var response = await Http.GetAsync(
+                image.Data,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
             response.EnsureSuccessStatusCode();
             mediaType = response.Content.Headers.ContentType?.MediaType ?? mediaType;
-            bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            bytes = await MediaFileStore.ReadHttpContentBytesAsync(
+                response.Content,
+                MaxGeneratedImageBytes,
+                cancellationToken);
         }
         else
         {
-            bytes = Convert.FromBase64String(StripDataUriPrefix(image.Data));
+            var base64 = StripDataUriPrefix(image.Data);
+            if (base64.Length > ((MaxGeneratedImageBytes + 2L) / 3L) * 4L)
+            {
+                throw new InvalidOperationException(
+                    $"Generated image exceeds the {MaxGeneratedImageBytes} byte limit.");
+            }
+            bytes = Convert.FromBase64String(base64);
         }
 
         var outputDir = Path.Combine(
@@ -204,8 +229,7 @@ internal static class AgentRuntimeImageGenerateExecutor
 
         return new PersistedGeneratedImage(
             filePath,
-            mediaType,
-            Convert.ToBase64String(bytes));
+            mediaType);
     }
 
     private static JsonElement BuildToolResult(
@@ -233,8 +257,8 @@ internal static class AgentRuntimeImageGenerateExecutor
                 writer.WriteStartObject();
                 writer.WriteString("type", "base64");
                 writer.WriteString("mediaType", image.MediaType);
-                writer.WriteString("data", image.Base64Data);
                 writer.WriteString("filePath", image.FilePath);
+                writer.WriteBoolean("dataOmitted", true);
                 writer.WriteEndObject();
                 writer.WriteEndObject();
             }
@@ -416,6 +440,5 @@ internal static class AgentRuntimeImageGenerateExecutor
 
     private sealed record PersistedGeneratedImage(
         string FilePath,
-        string MediaType,
-        string Base64Data);
+        string MediaType);
 }

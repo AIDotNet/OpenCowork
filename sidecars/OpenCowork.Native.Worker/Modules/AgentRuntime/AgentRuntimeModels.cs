@@ -8,6 +8,8 @@ internal sealed record AgentRuntimeRunResult(bool Started, string RunId);
 
 internal sealed record AgentRuntimeCancelResult(bool Cancelled, string? RunId);
 
+internal sealed record AgentRuntimeSubAgentCancelResult(bool Cancelled, int Count);
+
 internal sealed record AgentRuntimeStopResult(bool Stopped, string? RunId);
 
 internal sealed record AgentRuntimeAppendMessagesResult(bool Appended, string? RunId, int Count);

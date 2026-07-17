@@ -165,6 +165,9 @@ internal static class AgentRuntimeSubAgentConcurrencyGate
             waiter.CancellationRegistration = cancellationToken.Register(
                 static state => CancelWaiter((Waiter)state!),
                 waiter);
+            WorkerLog.Info(
+                $"sub-agent concurrency queue enter active={activeCount} limit={limit} " +
+                $"waiting={Waiters.Count} holders=[{AgentRuntimeSubAgentCancellationScope.DescribeActive()}]");
             return new AgentRuntimeSubAgentConcurrencyAcquisition(true, waiter.Completion.Task);
         }
     }

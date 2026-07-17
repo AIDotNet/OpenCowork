@@ -7,6 +7,7 @@ internal static class McpConfigStore
     private const string DataDirectoryName = ".open-cowork";
     private const string ConfigFileName = "mcp-servers.json";
     private static readonly object Sync = new();
+    private static readonly JsonFileNodeCache<JsonArray> Cache = new();
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -129,27 +130,11 @@ internal static class McpConfigStore
     private static JsonArray ReadServers()
     {
         var filePath = GetConfigPath();
-        if (!File.Exists(filePath))
-        {
-            return [];
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(File.ReadAllBytes(filePath));
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-            {
-                WorkerLog.Warn("mcp config file is not an array; ignoring invalid content");
-                return [];
-            }
-
-            return CloneElement(document.RootElement) as JsonArray ?? [];
-        }
-        catch (Exception ex)
-        {
-            WorkerLog.Warn($"mcp config read failed error={ex.GetType().Name}: {ex.Message}");
-            return [];
-        }
+        return Cache.Read(
+            filePath,
+            JsonValueKind.Array,
+            static element => CloneElement(element) as JsonArray,
+            "MCP config file") ?? [];
     }
 
     private static void WriteServers(JsonArray servers)
@@ -160,6 +145,7 @@ internal static class McpConfigStore
         var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
         File.WriteAllText(tempPath, servers.ToJsonString(WriteOptions));
         File.Move(tempPath, filePath, true);
+        Cache.Store(filePath, servers);
     }
 
     private static string GetConfigPath()
@@ -210,6 +196,6 @@ internal static class McpConfigStore
 
     private static WorkerResponse ToResponse(JsonNode node)
     {
-        return WorkerResponse.RawJson(node.ToJsonString());
+        return WorkerResponse.FromWriter(writer => node.WriteTo(writer));
     }
 }

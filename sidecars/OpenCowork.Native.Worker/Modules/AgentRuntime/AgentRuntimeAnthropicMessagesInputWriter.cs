@@ -507,6 +507,13 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             return false;
         }
 
+        var data = JsonHelpers.GetString(source, "data");
+        var url = JsonHelpers.GetString(source, "url");
+        if (string.IsNullOrWhiteSpace(data) && string.IsNullOrWhiteSpace(url))
+        {
+            return false;
+        }
+
         writer.WriteStartObject();
         writer.WriteString("type", "image");
         writer.WritePropertyName("source");
@@ -516,11 +523,11 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         {
             writer.WriteString("media_type", mediaType);
         }
-        if (JsonHelpers.GetString(source, "data") is { Length: > 0 } data)
+        if (!string.IsNullOrWhiteSpace(data))
         {
             writer.WriteString("data", AgentRuntimeProviderSupport.StripDataUrlPrefix(data));
         }
-        if (JsonHelpers.GetString(source, "url") is { Length: > 0 } url)
+        if (!string.IsNullOrWhiteSpace(url))
         {
             writer.WriteString("url", url);
         }

@@ -1,4 +1,4 @@
-internal sealed class DbModule : IWorkerModule
+﻿internal sealed class DbModule : IWorkerModule
 {
     public string Name => "db";
 
@@ -13,6 +13,14 @@ internal sealed class DbModule : IWorkerModule
         context.Register("db/sessions-update", DbSessionTools.Update);
         context.Register("db/sessions-delete", DbSessionTools.Delete);
         context.Register("db/sessions-clear-all", DbSessionTools.ClearAll);
+        context.Register("db/sessions-clear-project", DbSessionTools.ClearProject);
+        context.Register("db/sub-agent-history-index", DbSubAgentHistoryTools.Index);
+        context.Register("db/sub-agent-history-list", DbSubAgentHistoryTools.List);
+        context.Register("db/sub-agent-history-apply", DbSubAgentHistoryTools.Apply);
+        context.Register("db/sub-agent-history-replace", DbSubAgentHistoryTools.Replace);
+        context.Register(
+            "db/sub-agent-history-migrate-settings",
+            DbSubAgentHistoryTools.MigrateLegacySettings);
         context.Register("db/projects-list", DbProjectTools.List);
         context.Register("db/projects-get", DbProjectTools.Get);
         context.Register("db/projects-find-by-plugin", DbProjectTools.FindByPluginId);
@@ -136,6 +144,7 @@ internal sealed class DbModule : IWorkerModule
         context.Register("db/usage-maintenance", DbMaintenanceTools.UsageMaintenanceAsync);
         context.Register("db/usage-query", DbUsageAnalyticsTools.Query);
         context.Register("db/sync-capture-local", DbSyncTools.CaptureLocal);
+        context.Register("db/sync-table-order", DbSyncTools.GetTableOrder);
         context.Register("db/sync-apply-db-merge", DbSyncTools.ApplyDbMerge);
         context.Register("db/sync-save-metadata", DbSyncTools.SaveMetadata);
         context.Register("db/qq-wakeup-resolve", DbQqWakeupTools.ResolveEligibility);

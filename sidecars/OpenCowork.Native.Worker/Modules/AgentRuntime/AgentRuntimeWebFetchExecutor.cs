@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -7,7 +8,11 @@ internal static class AgentRuntimeWebFetchExecutor
 {
     private const int DefaultTimeoutMs = 30_000;
     private const int MaxTimeoutMs = 120_000;
+    private const int MaxUrlsPerCall = 8;
+    private const int MaxResponseBytes = 4 * 1024 * 1024;
+    private const int MaxConcurrentFetches = 8;
     private static readonly HttpClient Http = CreateHttpClient();
+    private static readonly SemaphoreSlim FetchSlots = new(MaxConcurrentFetches, MaxConcurrentFetches);
 
     public static bool IsWebFetchTool(string toolName)
     {
@@ -30,7 +35,14 @@ internal static class AgentRuntimeWebFetchExecutor
             return EncodeError("Web fetch requires a url or urls input");
         }
 
-        var tasks = urls.Select(url => FetchUrlAsync(url, format, timeoutMs, cancellationToken)).ToArray();
+        if (urls.Count > MaxUrlsPerCall)
+        {
+            return EncodeError($"Web fetch accepts at most {MaxUrlsPerCall} URLs per call");
+        }
+
+        var tasks = urls
+            .Select(url => FetchUrlAsync(url, format, timeoutMs, cancellationToken))
+            .ToArray();
         var results = await Task.WhenAll(tasks);
         return EncodeResponse(results, format);
     }
@@ -109,12 +121,23 @@ internal static class AgentRuntimeWebFetchExecutor
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             timeoutCts.Token);
+        var slotAcquired = false;
 
         try
         {
+            await FetchSlots.WaitAsync(linkedCts.Token);
+            slotAcquired = true;
             using var request = new HttpRequestMessage(HttpMethod.Get, targetUrl);
-            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, linkedCts.Token);
-            var raw = await response.Content.ReadAsStringAsync(linkedCts.Token);
+            using var response = await Http.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                linkedCts.Token);
+            if (response.Content.Headers.ContentLength is > MaxResponseBytes)
+            {
+                throw new InvalidOperationException(
+                    $"Response exceeds the {MaxResponseBytes} byte WebFetch limit");
+            }
+            var raw = await ReadBoundedStringAsync(response.Content, linkedCts.Token);
             if (!response.IsSuccessStatusCode)
             {
                 throw new InvalidOperationException($"HTTP {(int)response.StatusCode}");
@@ -150,6 +173,47 @@ internal static class AgentRuntimeWebFetchExecutor
                 ? $"Request timeout after {timeoutMs}ms"
                 : ex.Message;
             return new WebFetchResult(targetUrl, null, null, string.Empty, format, message);
+        }
+        finally
+        {
+            if (slotAcquired)
+            {
+                FetchSlots.Release();
+            }
+        }
+    }
+
+    private static async Task<string> ReadBoundedStringAsync(
+        HttpContent content,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = await content.ReadAsStreamAsync(cancellationToken);
+        var buffer = ArrayPool<byte>.Shared.Rent(32 * 1024);
+        var output = new ArrayBufferWriter<byte>();
+        try
+        {
+            while (true)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken);
+                if (read == 0)
+                {
+                    break;
+                }
+                if (output.WrittenCount + read > MaxResponseBytes)
+                {
+                    throw new InvalidOperationException(
+                        $"Response exceeds the {MaxResponseBytes} byte WebFetch limit");
+                }
+
+                buffer.AsSpan(0, read).CopyTo(output.GetSpan(read));
+                output.Advance(read);
+            }
+
+            return Encoding.UTF8.GetString(output.WrittenSpan);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 

@@ -53,14 +53,36 @@ internal static class MessagePackFrameProtocol
         return MessagePackJsonTranscoder.ToJsonBytes(payload.Span);
     }
 
+    public static JsonDocument ConvertRequestToJsonDocument(ReadOnlyMemory<byte> payload)
+    {
+        return MessagePackJsonTranscoder.ToJsonDocument(payload.Span);
+    }
+
     public static byte[] ConvertResponseFromJson(ReadOnlyMemory<byte> json)
     {
-        using var document = JsonDocument.Parse(json);
-        return MessagePackJsonTranscoder.FromJson(document.RootElement);
+        return MessagePackJsonTranscoder.FromJson(json.Span);
     }
 
     public static byte[] EncodeResponse(WorkerResponse response, JsonElement? id)
     {
+        if (response.TryGetMessagePackResult(out var result))
+        {
+            var writer = new WorkerMessagePackWriter();
+            writer.WriteMapHeader(2);
+            writer.WriteString("id");
+            if (id.HasValue)
+            {
+                writer.WriteJsonElement(id.Value);
+            }
+            else
+            {
+                writer.WriteNil();
+            }
+            writer.WriteString("result");
+            writer.WriteRaw(result.Span);
+            return writer.ToArray();
+        }
+
         return ConvertResponseFromJson(response.ToJsonBytes(id));
     }
 

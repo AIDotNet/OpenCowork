@@ -96,8 +96,15 @@ internal static partial class AgentRuntimeSubAgentExecutor
         var parentLeaseWasYielded = YieldSubAgentConcurrencyLease(parentState);
         AgentRuntimeSubAgentConcurrencyLease? concurrencyLease = null;
         var concurrencyLeaseTransferred = false;
+        var cancelScope = AgentRuntimeSubAgentCancellationScope.Register(
+            call.Id,
+            parentState.SessionId,
+            "team");
         try
         {
+            using var acquireCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                cancelScope.Token);
             var acquiredConcurrencyLease = await AcquireSubAgentConcurrencyLeaseAsync(
                 definition.Name,
                 call.Id,
@@ -105,7 +112,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 parameters,
                 parentState,
                 context,
-                cancellationToken);
+                acquireCancellation.Token);
             concurrencyLease = acquiredConcurrencyLease;
             var taskId = ReadTaskId(call.Input);
             var provider = BuildProvider(
@@ -156,6 +163,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
             var collector = new BackgroundSubAgentRunCollector();
             childState.EventObserver = collector.ObserveAsync;
 
+            cancelScope.AttachRunState(childState);
             var handle = new BackgroundTeamRunHandle(teamName, memberId, childState);
             BackgroundTeamRuns[childRunId] = handle;
 
@@ -173,7 +181,8 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     childState,
                     collector,
                     context,
-                    parameters.Clone()),
+                    parameters.Clone(),
+                    cancelScope),
                 CancellationToken.None);
             concurrencyLeaseTransferred = true;
 
@@ -206,6 +215,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
         {
             if (!concurrencyLeaseTransferred)
             {
+                cancelScope.Dispose();
                 concurrencyLease?.Dispose();
                 await RestoreSubAgentConcurrencyLeaseAsync(
                     parentLeaseWasYielded,
@@ -246,8 +256,15 @@ internal static partial class AgentRuntimeSubAgentExecutor
         var parentLeaseWasYielded = YieldSubAgentConcurrencyLease(parentState);
         AgentRuntimeSubAgentConcurrencyLease? concurrencyLease = null;
         var concurrencyLeaseTransferred = false;
+        var cancelScope = AgentRuntimeSubAgentCancellationScope.Register(
+            call.Id,
+            parentState.SessionId,
+            "background");
         try
         {
+            using var acquireCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                cancelScope.Token);
             var acquiredConcurrencyLease = await AcquireSubAgentConcurrencyLeaseAsync(
                 definition.Name,
                 call.Id,
@@ -255,7 +272,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 parameters,
                 parentState,
                 context,
-                cancellationToken);
+                acquireCancellation.Token);
             concurrencyLease = acquiredConcurrencyLease;
             var displayName = JsonHelpers.GetString(call.Input, "name")?.Trim();
             if (string.IsNullOrWhiteSpace(displayName))
@@ -285,6 +302,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 SubAgentConcurrencyLease = acquiredConcurrencyLease
             };
             childState.ReplaceParameters(childParameters);
+            cancelScope.AttachRunState(childState);
             var collector = new BackgroundSubAgentRunCollector(
                 displayName,
                 definition.Name,
@@ -317,7 +335,8 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     call.Id,
                     childState,
                     collector,
-                    context),
+                    context,
+                    cancelScope),
                 CancellationToken.None);
             concurrencyLeaseTransferred = true;
 
@@ -342,6 +361,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
         {
             if (!concurrencyLeaseTransferred)
             {
+                cancelScope.Dispose();
                 concurrencyLease?.Dispose();
                 await RestoreSubAgentConcurrencyLeaseAsync(
                     parentLeaseWasYielded,
@@ -357,7 +377,8 @@ internal static partial class AgentRuntimeSubAgentExecutor
         string toolUseId,
         AgentRuntimeTools.AgentRuntimeRunState childState,
         BackgroundSubAgentRunCollector collector,
-        WorkerRequestContext context)
+        WorkerRequestContext context,
+        AgentRuntimeSubAgentCancellationScope cancelScope)
     {
         using var operation = WorkerMemory.TrackOperation("standalone-background-subagent");
         try
@@ -420,14 +441,14 @@ internal static partial class AgentRuntimeSubAgentExecutor
             }
             finally
             {
+                cancelScope.Dispose();
                 AgentRuntimeNativeToolExecutor.ClearRun(childState.RunId);
                 childState.SubAgentConcurrencyLease?.Dispose();
                 childState.SubAgentConcurrencyLease = null;
                 childState.Dispose();
                 WorkerMemory.ReportCompletedWork(
                     "standalone-background-subagent",
-                    pressureBytes: 0,
-                    forceTrim: true);
+                    pressureBytes: 0);
             }
         }
     }
@@ -467,7 +488,8 @@ internal static partial class AgentRuntimeSubAgentExecutor
         AgentRuntimeTools.AgentRuntimeRunState childState,
         BackgroundSubAgentRunCollector collector,
         WorkerRequestContext context,
-        JsonElement parameters)
+        JsonElement parameters,
+        AgentRuntimeSubAgentCancellationScope cancelScope)
     {
         using var operation = WorkerMemory.TrackOperation("team-background-task");
         try
@@ -512,12 +534,13 @@ internal static partial class AgentRuntimeSubAgentExecutor
             }
             finally
             {
+                cancelScope.Dispose();
                 BackgroundTeamRuns.TryRemove(childState.RunId, out _);
                 AgentRuntimeNativeToolExecutor.ClearRun(childState.RunId);
                 childState.SubAgentConcurrencyLease?.Dispose();
                 childState.SubAgentConcurrencyLease = null;
                 childState.Dispose();
-                WorkerMemory.ReportCompletedWork("team-background-task", pressureBytes: 0, forceTrim: true);
+                WorkerMemory.ReportCompletedWork("team-background-task", pressureBytes: 0);
             }
         }
     }

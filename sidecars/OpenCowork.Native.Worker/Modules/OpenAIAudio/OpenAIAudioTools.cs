@@ -6,6 +6,10 @@ using System.Text.Json;
 
 internal static class OpenAIAudioTools
 {
+    private const int MaxAudioInputBytes = 32 * 1024 * 1024;
+    private const int MaxAudioResponseBytes = 64 * 1024 * 1024;
+    private const int MaxTranscriptionResponseBytes = 4 * 1024 * 1024;
+    private const int MaxSpeechInputChars = 20_000;
     private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
         timeout: TimeSpan.FromMinutes(10));
 
@@ -14,8 +18,11 @@ internal static class OpenAIAudioTools
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    public static async Task<WorkerResponse> TranscribeAsync(JsonElement parameters)
+    public static async Task<WorkerResponse> TranscribeAsync(
+        JsonElement parameters,
+        WorkerRequestContext context)
     {
+        using var quota = await WorkerTaskQuotas.EnterMediaAsync(context.CancellationToken);
         var provider = GetObject(parameters, "provider");
         ValidateProvider(provider);
 
@@ -24,6 +31,11 @@ internal static class OpenAIAudioTools
         if (string.IsNullOrWhiteSpace(base64))
         {
             throw new InvalidOperationException("OpenAI audio transcription requires file.base64.");
+        }
+        if (base64.Length > ((MaxAudioInputBytes + 2L) / 3L) * 4L)
+        {
+            throw new InvalidOperationException(
+                $"OpenAI audio transcription input exceeds the {MaxAudioInputBytes} byte limit.");
         }
 
         byte[] bytes;
@@ -35,10 +47,20 @@ internal static class OpenAIAudioTools
         {
             throw new InvalidOperationException("OpenAI audio transcription received invalid base64 audio.", ex);
         }
+        if (bytes.Length > MaxAudioInputBytes)
+        {
+            throw new InvalidOperationException(
+                $"OpenAI audio transcription input exceeds the {MaxAudioInputBytes} byte limit.");
+        }
 
         var mediaType = NormalizeMediaType(JsonHelpers.GetString(file, "mediaType"));
         var fileName = NormalizeFileName(JsonHelpers.GetString(file, "fileName"), mediaType);
-        var text = await TranscribeAsync(provider, bytes, mediaType, fileName);
+        var text = await TranscribeAsync(
+            provider,
+            bytes,
+            mediaType,
+            fileName,
+            context.CancellationToken);
 
         return WorkerResponse.Json(
             new NativeOpenAIAudioTranscriptionResult(text),
@@ -49,7 +71,8 @@ internal static class OpenAIAudioTools
         JsonElement provider,
         byte[] bytes,
         string mediaType,
-        string fileName)
+        string fileName,
+        CancellationToken cancellationToken)
     {
         var url = $"{GetBaseUrl(provider)}/audio/transcriptions";
         using var content = new MultipartFormDataContent();
@@ -72,8 +95,15 @@ internal static class OpenAIAudioTools
 
         WorkerLog.Debug(
             $"openai audio transcription request model={JsonHelpers.GetString(provider, "model")} url={url} bytes={bytes.Length}");
-        using var response = await Http.SendAsync(request);
-        var responseText = await response.Content.ReadAsStringAsync();
+        using var response = await Http.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        var responseBytes = await MediaFileStore.ReadHttpContentBytesAsync(
+            response.Content,
+            MaxTranscriptionResponseBytes,
+            cancellationToken);
+        var responseText = Encoding.UTF8.GetString(responseBytes);
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
@@ -83,8 +113,11 @@ internal static class OpenAIAudioTools
         return ParseTranscriptionText(responseText);
     }
 
-    public static async Task<WorkerResponse> SpeechAsync(JsonElement parameters)
+    public static async Task<WorkerResponse> SpeechAsync(
+        JsonElement parameters,
+        WorkerRequestContext context)
     {
+        using var quota = await WorkerTaskQuotas.EnterMediaAsync(context.CancellationToken);
         var provider = GetObject(parameters, "provider");
         ValidateProvider(provider);
 
@@ -92,6 +125,11 @@ internal static class OpenAIAudioTools
         if (string.IsNullOrWhiteSpace(input))
         {
             throw new InvalidOperationException("OpenAI speech synthesis requires input text.");
+        }
+        if (input.Length > MaxSpeechInputChars)
+        {
+            throw new InvalidOperationException(
+                $"OpenAI speech synthesis input exceeds {MaxSpeechInputChars} characters.");
         }
 
         var voice = JsonHelpers.GetString(parameters, "voice")?.Trim();
@@ -102,8 +140,20 @@ internal static class OpenAIAudioTools
 
         var result = mode == "chat"
             ? await SynthesizeViaChatAsync(
-                provider, input, voice, instruction, format ?? "wav", chatStyle ?? "assistant")
-            : await SynthesizeViaSpeechAsync(provider, input, voice, instruction, format ?? "mp3");
+                provider,
+                input,
+                voice,
+                instruction,
+                format ?? "wav",
+                chatStyle ?? "assistant",
+                context.CancellationToken)
+            : await SynthesizeViaSpeechAsync(
+                provider,
+                input,
+                voice,
+                instruction,
+                format ?? "mp3",
+                context.CancellationToken);
 
         return WorkerResponse.Json(
             result,
@@ -116,7 +166,8 @@ internal static class OpenAIAudioTools
         string input,
         string? voice,
         string? instruction,
-        string format)
+        string format,
+        CancellationToken cancellationToken)
     {
         var url = $"{GetBaseUrl(provider)}/audio/speech";
         var buffer = new ArrayBufferWriter<byte>();
@@ -148,8 +199,13 @@ internal static class OpenAIAudioTools
             writer.WriteEndObject();
         }
 
-        var bytes = await PostForAudioBytesAsync(url, buffer, provider, "OpenAI speech synthesis");
-        return new NativeOpenAIAudioSpeechResult(Convert.ToBase64String(bytes), MapAudioMediaType(format));
+        var bytes = await PostForAudioBytesAsync(
+            url,
+            buffer,
+            provider,
+            "OpenAI speech synthesis",
+            cancellationToken);
+        return await PersistSpeechResultAsync(bytes, format, cancellationToken);
     }
 
     /// <summary>
@@ -166,7 +222,8 @@ internal static class OpenAIAudioTools
         string? voice,
         string? instruction,
         string format,
-        string chatStyle)
+        string chatStyle,
+        CancellationToken cancellationToken)
     {
         var url = $"{GetBaseUrl(provider)}/chat/completions";
         var buffer = new ArrayBufferWriter<byte>();
@@ -228,18 +285,38 @@ internal static class OpenAIAudioTools
             writer.WriteEndObject();
         }
 
-        var bytes = await PostForAudioBytesAsync(url, buffer, provider, "Chat speech synthesis");
+        var bytes = await PostForAudioBytesAsync(
+            url,
+            buffer,
+            provider,
+            "Chat speech synthesis",
+            cancellationToken);
         var responseText = Encoding.UTF8.GetString(bytes);
         var base64 = ParseChatAudioData(responseText)
             ?? throw new InvalidOperationException("Chat speech synthesis returned no audio data.");
-        return new NativeOpenAIAudioSpeechResult(base64, MapAudioMediaType(format));
+        if (base64.Length > ((MaxAudioResponseBytes + 2L) / 3L) * 4L)
+        {
+            throw new InvalidOperationException(
+                $"Chat speech synthesis audio exceeds the {MaxAudioResponseBytes} byte limit.");
+        }
+        byte[] audioBytes;
+        try
+        {
+            audioBytes = Convert.FromBase64String(NormalizeBase64(base64));
+        }
+        catch (FormatException ex)
+        {
+            throw new InvalidOperationException("Chat speech synthesis returned invalid base64 audio.", ex);
+        }
+        return await PersistSpeechResultAsync(audioBytes, format, cancellationToken);
     }
 
     private static async Task<byte[]> PostForAudioBytesAsync(
         string url,
         ArrayBufferWriter<byte> body,
         JsonElement provider,
-        string label)
+        string label,
+        CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, url);
         request.Content = new ByteArrayContent(body.WrittenSpan.ToArray());
@@ -248,8 +325,14 @@ internal static class OpenAIAudioTools
 
         WorkerLog.Debug(
             $"openai audio speech request model={JsonHelpers.GetString(provider, "model")} url={url}");
-        using var response = await Http.SendAsync(request);
-        var bytes = await response.Content.ReadAsByteArrayAsync();
+        using var response = await Http.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        var bytes = await MediaFileStore.ReadHttpContentBytesAsync(
+            response.Content,
+            MaxAudioResponseBytes,
+            cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             var errorText = Encoding.UTF8.GetString(bytes);
@@ -257,6 +340,34 @@ internal static class OpenAIAudioTools
                 $"{label} failed HTTP {(int)response.StatusCode}: {ExtractErrorMessage(errorText)}");
         }
         return bytes;
+    }
+
+    private static async Task<NativeOpenAIAudioSpeechResult> PersistSpeechResultAsync(
+        byte[] bytes,
+        string format,
+        CancellationToken cancellationToken)
+    {
+        if (bytes.Length > MaxAudioResponseBytes)
+        {
+            throw new InvalidOperationException(
+                $"Speech synthesis audio exceeds the {MaxAudioResponseBytes} byte limit.");
+        }
+
+        var mediaType = MapAudioMediaType(format);
+        var extension = format.Trim().ToLowerInvariant() switch
+        {
+            "wav" or "pcm" or "pcm16" => ".wav",
+            "opus" => ".opus",
+            "aac" => ".aac",
+            "flac" => ".flac",
+            _ => ".mp3"
+        };
+        var filePath = await MediaFileStore.WriteBytesAsync(
+            "audio",
+            extension,
+            bytes,
+            cancellationToken);
+        return new NativeOpenAIAudioSpeechResult(null, mediaType, filePath, bytes.Length);
     }
 
     private static string? ParseChatAudioData(string responseText)

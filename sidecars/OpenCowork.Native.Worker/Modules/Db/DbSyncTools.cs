@@ -5,37 +5,81 @@ internal static class DbSyncTools
 {
     private const string KeySeparator = "\u0000";
     private const string DbDomainPrefix = "db:";
+    private const int DefaultCapturePageSize = 500;
+    private const int MaxCapturePageSize = 2_000;
 
-    public static WorkerResponse CaptureLocal(JsonElement parameters)
+    public static WorkerResponse CaptureLocal(
+        JsonElement parameters,
+        WorkerRequestContext context)
     {
         try
         {
             var providerId = RequireString(parameters, "providerId");
+            var limit = Math.Clamp(
+                JsonHelpers.GetInt(parameters, "limit", DefaultCapturePageSize),
+                1,
+                MaxCapturePageSize);
+            var cursor = ParseCaptureCursor(JsonHelpers.GetString(parameters, "cursor"));
             using var connection = DbConnectionFactory.OpenReadWrite(parameters);
             var schemas = ListSyncTableSchemas(connection);
-            var records = CaptureDbRecords(connection, schemas);
-            var baseline = LoadBaseline(connection, providerId);
-            var tombstones = LoadTombstones(connection, providerId);
-
-            return WorkerResponse.Json(
-                new DbSyncSnapshotResult(
-                    true,
-                    records,
-                    baseline,
-                    tombstones,
-                    null),
-                WorkerJsonContext.Default.DbSyncSnapshotResult);
+            var page = CapturePage(
+                connection,
+                schemas,
+                providerId,
+                cursor,
+                limit,
+                context.CancellationToken);
+            return WriteCapturePage(page);
         }
         catch (Exception ex)
         {
-            return WorkerResponse.Json(
-                new DbSyncSnapshotResult(
-                    false,
-                    new List<DbSyncRecordDraft>(),
-                    new List<DbSyncBaselineRecordState>(),
-                    new List<DbSyncTombstone>(),
-                    ex.Message),
-                WorkerJsonContext.Default.DbSyncSnapshotResult);
+            return WriteCapturePage(new DbSyncCapturePage(
+                false,
+                [],
+                [],
+                [],
+                null,
+                true,
+                ex.Message));
+        }
+    }
+
+    public static WorkerResponse GetTableOrder(JsonElement parameters)
+    {
+        try
+        {
+            using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+            var schemas = ListSyncTableSchemas(connection).ToDictionary(
+                schema => schema.Name,
+                StringComparer.Ordinal);
+            var tables = SortTablesForUpsert(schemas);
+            return WorkerResponse.DirectMessagePack(writer =>
+            {
+                writer.WriteMapHeader(3);
+                writer.WriteString("success");
+                writer.WriteBoolean(true);
+                writer.WriteString("tables");
+                writer.WriteArrayHeader(tables.Count);
+                foreach (var table in tables)
+                {
+                    writer.WriteString(table);
+                }
+                writer.WriteString("error");
+                writer.WriteNil();
+            });
+        }
+        catch (Exception ex)
+        {
+            return WorkerResponse.DirectMessagePack(writer =>
+            {
+                writer.WriteMapHeader(3);
+                writer.WriteString("success");
+                writer.WriteBoolean(false);
+                writer.WriteString("tables");
+                writer.WriteArrayHeader(0);
+                writer.WriteString("error");
+                writer.WriteString(ex.Message);
+            });
         }
     }
 
@@ -89,21 +133,25 @@ internal static class DbSyncTools
             var providerId = RequireString(parameters, "providerId");
             var records = ReadMetadataRecords(parameters, "records");
             var tombstones = ReadTombstones(parameters, "tombstones");
+            var reset = JsonHelpers.GetBool(parameters, "reset", true);
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var changed = 0;
 
             using var connection = DbConnectionFactory.OpenReadWrite(parameters);
             using var transaction = connection.BeginTransaction();
-            changed += DbSql.ExecuteNonQuery(
-                connection,
-                transaction,
-                "DELETE FROM sync_record_state WHERE provider_id = $providerId",
-                new DbSql.SqlParam("$providerId", providerId));
-            changed += DbSql.ExecuteNonQuery(
-                connection,
-                transaction,
-                "DELETE FROM sync_tombstones WHERE provider_id = $providerId",
-                new DbSql.SqlParam("$providerId", providerId));
+            if (reset)
+            {
+                changed += DbSql.ExecuteNonQuery(
+                    connection,
+                    transaction,
+                    "DELETE FROM sync_record_state WHERE provider_id = $providerId",
+                    new DbSql.SqlParam("$providerId", providerId));
+                changed += DbSql.ExecuteNonQuery(
+                    connection,
+                    transaction,
+                    "DELETE FROM sync_tombstones WHERE provider_id = $providerId",
+                    new DbSql.SqlParam("$providerId", providerId));
+            }
 
             using var stateCommand = connection.CreateCommand();
             stateCommand.Transaction = transaction;
@@ -262,59 +310,167 @@ internal static class DbSyncTools
         return ordered;
     }
 
-    private static List<DbSyncRecordDraft> CaptureDbRecords(
+    private static DbSyncCapturePage CapturePage(
         SqliteConnection connection,
-        IReadOnlyList<DbSyncTableSchema> schemas)
+        IReadOnlyList<DbSyncTableSchema> schemas,
+        string providerId,
+        DbSyncCaptureCursor cursor,
+        int limit,
+        CancellationToken cancellationToken)
     {
-        var records = new List<DbSyncRecordDraft>();
-        foreach (var schema in schemas)
+        if (cursor.Phase == DbSyncCapturePhase.Records)
         {
-            using var command = connection.CreateCommand();
-            command.CommandText =
-                $"SELECT * FROM {QuoteIdent(schema.Name)} ORDER BY {string.Join(", ", schema.PkColumns.Select(QuoteIdent))}";
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
+            var records = new List<DbSyncCapturedRecord>(limit);
+            var tableIndex = Math.Clamp(cursor.TableIndex, 0, schemas.Count);
+            var offset = Math.Max(0, cursor.Offset);
+            while (tableIndex < schemas.Count && records.Count < limit)
             {
-                var rowValues = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-                long? updatedAt = null;
-                for (var index = 0; index < reader.FieldCount; index++)
+                cancellationToken.ThrowIfCancellationRequested();
+                var remaining = limit - records.Count;
+                var tableRows = CaptureTablePage(
+                    connection,
+                    schemas[tableIndex],
+                    offset,
+                    remaining + 1,
+                    cancellationToken);
+                var take = Math.Min(remaining, tableRows.Count);
+                for (var index = 0; index < take; index++)
                 {
-                    var name = reader.GetName(index);
-                    var value = ReadSqliteValueElement(reader, index);
-                    rowValues[name] = value;
-                    if ((name == "updated_at" || (updatedAt is null && name == "created_at"))
-                        && TryReadInt64(value, out var timestamp))
-                    {
-                        updatedAt = timestamp;
-                    }
+                    records.Add(tableRows[index]);
                 }
 
-                var recordId = NormalizeRecordId(schema.PkColumns.Select(column => rowValues[column]));
-                records.Add(new DbSyncRecordDraft
+                if (tableRows.Count > remaining)
                 {
-                    Domain = DbDomain(schema.Name),
-                    RecordId = recordId,
-                    Value = BuildDbRecordValue(schema.Name, rowValues),
-                    UpdatedAt = updatedAt
-                });
+                    return new DbSyncCapturePage(
+                        true,
+                        records,
+                        [],
+                        [],
+                        FormatCaptureCursor(DbSyncCapturePhase.Records, tableIndex, offset + take),
+                        false,
+                        null);
+                }
+
+                tableIndex++;
+                offset = 0;
             }
+
+            return new DbSyncCapturePage(
+                true,
+                records,
+                [],
+                [],
+                tableIndex < schemas.Count
+                    ? FormatCaptureCursor(DbSyncCapturePhase.Records, tableIndex, 0)
+                    : FormatCaptureCursor(DbSyncCapturePhase.Baseline, 0, 0),
+                false,
+                null);
         }
-        return records;
+
+        if (cursor.Phase == DbSyncCapturePhase.Baseline)
+        {
+            var rows = LoadBaselinePage(connection, providerId, cursor.Offset, limit + 1);
+            var hasMore = rows.Count > limit;
+            if (hasMore)
+            {
+                rows.RemoveAt(rows.Count - 1);
+            }
+            return new DbSyncCapturePage(
+                true,
+                [],
+                rows,
+                [],
+                hasMore
+                    ? FormatCaptureCursor(DbSyncCapturePhase.Baseline, 0, cursor.Offset + rows.Count)
+                    : FormatCaptureCursor(DbSyncCapturePhase.Tombstones, 0, 0),
+                false,
+                null);
+        }
+
+        var tombstones = LoadTombstonesPage(connection, providerId, cursor.Offset, limit + 1);
+        var moreTombstones = tombstones.Count > limit;
+        if (moreTombstones)
+        {
+            tombstones.RemoveAt(tombstones.Count - 1);
+        }
+        return new DbSyncCapturePage(
+            true,
+            [],
+            [],
+            tombstones,
+            moreTombstones
+                ? FormatCaptureCursor(DbSyncCapturePhase.Tombstones, 0, cursor.Offset + tombstones.Count)
+                : null,
+            !moreTombstones,
+            null);
     }
 
-    private static List<DbSyncBaselineRecordState> LoadBaseline(
+    private static List<DbSyncCapturedRecord> CaptureTablePage(
         SqliteConnection connection,
-        string providerId)
+        DbSyncTableSchema schema,
+        int offset,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            $"SELECT * FROM {QuoteIdent(schema.Name)} " +
+            $"ORDER BY {string.Join(", ", schema.PkColumns.Select(QuoteIdent))} " +
+            "LIMIT $limit OFFSET $offset";
+        command.Parameters.AddWithValue("$limit", limit);
+        command.Parameters.AddWithValue("$offset", offset);
+        using var reader = command.ExecuteReader();
+        var rows = new List<DbSyncCapturedRecord>(limit);
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var columns = new List<DbSyncCapturedColumn>(reader.FieldCount);
+            var primaryKeyValues = new Dictionary<string, object?>(StringComparer.Ordinal);
+            long? updatedAt = null;
+            for (var index = 0; index < reader.FieldCount; index++)
+            {
+                var name = reader.GetName(index);
+                var value = reader.IsDBNull(index) ? null : reader.GetValue(index);
+                columns.Add(new DbSyncCapturedColumn(name, value));
+                if (schema.PkColumns.Contains(name, StringComparer.Ordinal))
+                {
+                    primaryKeyValues[name] = value;
+                }
+                if (name == "updated_at" || (updatedAt is null && name == "created_at"))
+                {
+                    updatedAt = TryReadInt64(value, out var timestamp) ? timestamp : updatedAt;
+                }
+            }
+
+            rows.Add(new DbSyncCapturedRecord(
+                DbDomain(schema.Name),
+                NormalizeRecordId(schema.PkColumns.Select(column => primaryKeyValues[column])),
+                schema.Name,
+                columns,
+                updatedAt));
+        }
+        return rows;
+    }
+
+    private static List<DbSyncBaselineRecordState> LoadBaselinePage(
+        SqliteConnection connection,
+        string providerId,
+        int offset,
+        int limit)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT domain, record_id, content_hash
               FROM sync_record_state
              WHERE provider_id = $providerId
+             ORDER BY domain ASC, record_id ASC
+             LIMIT $limit OFFSET $offset
             """;
         command.Parameters.AddWithValue("$providerId", providerId);
+        command.Parameters.AddWithValue("$limit", limit);
+        command.Parameters.AddWithValue("$offset", offset);
         using var reader = command.ExecuteReader();
-        var rows = new List<DbSyncBaselineRecordState>();
+        var rows = new List<DbSyncBaselineRecordState>(limit);
         while (reader.Read())
         {
             rows.Add(new DbSyncBaselineRecordState
@@ -327,17 +483,25 @@ internal static class DbSyncTools
         return rows;
     }
 
-    private static List<DbSyncTombstone> LoadTombstones(SqliteConnection connection, string providerId)
+    private static List<DbSyncTombstone> LoadTombstonesPage(
+        SqliteConnection connection,
+        string providerId,
+        int offset,
+        int limit)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT domain, record_id, deleted_at, origin_device_id
               FROM sync_tombstones
              WHERE provider_id = $providerId
+             ORDER BY domain ASC, record_id ASC
+             LIMIT $limit OFFSET $offset
             """;
         command.Parameters.AddWithValue("$providerId", providerId);
+        command.Parameters.AddWithValue("$limit", limit);
+        command.Parameters.AddWithValue("$offset", offset);
         using var reader = command.ExecuteReader();
-        var rows = new List<DbSyncTombstone>();
+        var rows = new List<DbSyncTombstone>(limit);
         while (reader.Read())
         {
             rows.Add(new DbSyncTombstone
@@ -349,6 +513,177 @@ internal static class DbSyncTools
             });
         }
         return rows;
+    }
+
+    private static WorkerResponse WriteCapturePage(DbSyncCapturePage page)
+    {
+        return WorkerResponse.DirectMessagePack(writer =>
+        {
+            writer.WriteMapHeader(7);
+            writer.WriteString("success");
+            writer.WriteBoolean(page.Success);
+            writer.WriteString("records");
+            writer.WriteArrayHeader(page.Records.Count);
+            foreach (var record in page.Records)
+            {
+                WriteCapturedRecord(writer, record);
+            }
+            writer.WriteString("baseline");
+            writer.WriteArrayHeader(page.Baseline.Count);
+            foreach (var baseline in page.Baseline)
+            {
+                writer.WriteMapHeader(3);
+                writer.WriteString("domain");
+                writer.WriteString(baseline.Domain);
+                writer.WriteString("recordId");
+                writer.WriteString(baseline.RecordId);
+                writer.WriteString("contentHash");
+                writer.WriteString(baseline.ContentHash);
+            }
+            writer.WriteString("tombstones");
+            writer.WriteArrayHeader(page.Tombstones.Count);
+            foreach (var tombstone in page.Tombstones)
+            {
+                writer.WriteMapHeader(4);
+                writer.WriteString("domain");
+                writer.WriteString(tombstone.Domain);
+                writer.WriteString("recordId");
+                writer.WriteString(tombstone.RecordId);
+                writer.WriteString("deletedAt");
+                writer.WriteInt64(tombstone.DeletedAt);
+                writer.WriteString("originDeviceId");
+                writer.WriteString(tombstone.OriginDeviceId);
+            }
+            writer.WriteString("nextCursor");
+            if (page.NextCursor is { Length: > 0 })
+            {
+                writer.WriteString(page.NextCursor);
+            }
+            else
+            {
+                writer.WriteNil();
+            }
+            writer.WriteString("done");
+            writer.WriteBoolean(page.Done);
+            writer.WriteString("error");
+            if (page.Error is { Length: > 0 })
+            {
+                writer.WriteString(page.Error);
+            }
+            else
+            {
+                writer.WriteNil();
+            }
+        });
+    }
+
+    private static void WriteCapturedRecord(
+        WorkerMessagePackWriter writer,
+        DbSyncCapturedRecord record)
+    {
+        writer.WriteMapHeader(4);
+        writer.WriteString("domain");
+        writer.WriteString(record.Domain);
+        writer.WriteString("recordId");
+        writer.WriteString(record.RecordId);
+        writer.WriteString("value");
+        writer.WriteMapHeader(2);
+        writer.WriteString("table");
+        writer.WriteString(record.TableName);
+        writer.WriteString("row");
+        writer.WriteMapHeader(record.Columns.Count);
+        foreach (var column in record.Columns)
+        {
+            writer.WriteString(column.Name);
+            WriteSqliteMessagePackValue(writer, column.Value);
+        }
+        writer.WriteString("updatedAt");
+        if (record.UpdatedAt.HasValue)
+        {
+            writer.WriteInt64(record.UpdatedAt.Value);
+        }
+        else
+        {
+            writer.WriteNil();
+        }
+    }
+
+    private static void WriteSqliteMessagePackValue(WorkerMessagePackWriter writer, object? value)
+    {
+        switch (value)
+        {
+            case null:
+            case DBNull:
+                writer.WriteNil();
+                break;
+            case long longValue:
+                writer.WriteInt64(longValue);
+                break;
+            case int intValue:
+                writer.WriteInt64(intValue);
+                break;
+            case short shortValue:
+                writer.WriteInt64(shortValue);
+                break;
+            case byte byteValue:
+                writer.WriteUInt64(byteValue);
+                break;
+            case double doubleValue:
+                writer.WriteDouble(doubleValue);
+                break;
+            case float floatValue:
+                writer.WriteDouble(floatValue);
+                break;
+            case byte[] bytes:
+                writer.WriteString(Convert.ToBase64String(bytes));
+                break;
+            default:
+                writer.WriteString(Convert.ToString(
+                    value,
+                    System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
+                break;
+        }
+    }
+
+    private static DbSyncCaptureCursor ParseCaptureCursor(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return new DbSyncCaptureCursor(DbSyncCapturePhase.Records, 0, 0);
+        }
+
+        var parts = value.Split(':');
+        if (parts.Length != 3 ||
+            !int.TryParse(parts[1], out var tableIndex) ||
+            !int.TryParse(parts[2], out var offset) ||
+            tableIndex < 0 ||
+            offset < 0)
+        {
+            throw new InvalidOperationException("Invalid DB sync capture cursor.");
+        }
+
+        var phase = parts[0] switch
+        {
+            "r" => DbSyncCapturePhase.Records,
+            "b" => DbSyncCapturePhase.Baseline,
+            "t" => DbSyncCapturePhase.Tombstones,
+            _ => throw new InvalidOperationException("Invalid DB sync capture cursor phase.")
+        };
+        return new DbSyncCaptureCursor(phase, tableIndex, offset);
+    }
+
+    private static string FormatCaptureCursor(
+        DbSyncCapturePhase phase,
+        int tableIndex,
+        int offset)
+    {
+        var prefix = phase switch
+        {
+            DbSyncCapturePhase.Records => "r",
+            DbSyncCapturePhase.Baseline => "b",
+            _ => "t"
+        };
+        return $"{prefix}:{tableIndex}:{offset}";
     }
 
     private static int UpsertDbRecord(
@@ -489,71 +824,7 @@ internal static class DbSyncTools
             .ThenBy(item => $"{item.Domain}{KeySeparator}{item.RecordId}", StringComparer.Ordinal);
     }
 
-    private static JsonElement BuildDbRecordValue(
-        string tableName,
-        IReadOnlyDictionary<string, JsonElement> rowValues)
-    {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
-        {
-            writer.WriteStartObject();
-            writer.WriteString("table", tableName);
-            writer.WritePropertyName("row");
-            writer.WriteStartObject();
-            foreach (var (column, value) in rowValues)
-            {
-                writer.WritePropertyName(column);
-                value.WriteTo(writer);
-            }
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-        }
-
-        using var document = JsonDocument.Parse(stream.ToArray());
-        return document.RootElement.Clone();
-    }
-
-    private static JsonElement ReadSqliteValueElement(SqliteDataReader reader, int ordinal)
-    {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
-        {
-            if (reader.IsDBNull(ordinal))
-            {
-                writer.WriteNullValue();
-            }
-            else
-            {
-                var value = reader.GetValue(ordinal);
-                switch (value)
-                {
-                    case long longValue:
-                        writer.WriteNumberValue(longValue);
-                        break;
-                    case int intValue:
-                        writer.WriteNumberValue(intValue);
-                        break;
-                    case double doubleValue:
-                        writer.WriteNumberValue(doubleValue);
-                        break;
-                    case float floatValue:
-                        writer.WriteNumberValue(floatValue);
-                        break;
-                    case byte[] bytes:
-                        writer.WriteBase64StringValue(bytes);
-                        break;
-                    default:
-                        writer.WriteStringValue(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture));
-                        break;
-                }
-            }
-        }
-
-        using var document = JsonDocument.Parse(stream.ToArray());
-        return document.RootElement.Clone();
-    }
-
-    private static string NormalizeRecordId(IEnumerable<JsonElement> pkValues)
+    private static string NormalizeRecordId(IEnumerable<object?> pkValues)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
@@ -561,12 +832,49 @@ internal static class DbSyncTools
             writer.WriteStartArray();
             foreach (var value in pkValues)
             {
-                value.WriteTo(writer);
+                WriteSqliteJsonValue(writer, value);
             }
             writer.WriteEndArray();
         }
 
         return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static void WriteSqliteJsonValue(Utf8JsonWriter writer, object? value)
+    {
+        switch (value)
+        {
+            case null:
+            case DBNull:
+                writer.WriteNullValue();
+                break;
+            case long longValue:
+                writer.WriteNumberValue(longValue);
+                break;
+            case int intValue:
+                writer.WriteNumberValue(intValue);
+                break;
+            case short shortValue:
+                writer.WriteNumberValue(shortValue);
+                break;
+            case byte byteValue:
+                writer.WriteNumberValue(byteValue);
+                break;
+            case double doubleValue:
+                writer.WriteNumberValue(doubleValue);
+                break;
+            case float floatValue:
+                writer.WriteNumberValue(floatValue);
+                break;
+            case byte[] bytes:
+                writer.WriteBase64StringValue(bytes);
+                break;
+            default:
+                writer.WriteStringValue(Convert.ToString(
+                    value,
+                    System.Globalization.CultureInfo.InvariantCulture));
+                break;
+        }
     }
 
     private static List<object?> ParseRecordId(string recordId)
@@ -599,20 +907,38 @@ internal static class DbSyncTools
         };
     }
 
-    private static bool TryReadInt64(JsonElement value, out long result)
+    private static bool TryReadInt64(object? value, out long result)
     {
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out result))
-        {
-            return true;
-        }
-        if (value.ValueKind == JsonValueKind.String
-            && long.TryParse(value.GetString(), out result))
+        if (value is not null && long.TryParse(
+            Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture),
+            out result))
         {
             return true;
         }
         result = 0;
         return false;
     }
+
+    private enum DbSyncCapturePhase
+    {
+        Records,
+        Baseline,
+        Tombstones
+    }
+
+    private sealed record DbSyncCaptureCursor(
+        DbSyncCapturePhase Phase,
+        int TableIndex,
+        int Offset);
+
+    private sealed record DbSyncCapturePage(
+        bool Success,
+        List<DbSyncCapturedRecord> Records,
+        List<DbSyncBaselineRecordState> Baseline,
+        List<DbSyncTombstone> Tombstones,
+        string? NextCursor,
+        bool Done,
+        string? Error);
 
     private static string DbDomain(string tableName)
     {

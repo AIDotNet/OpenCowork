@@ -60,3 +60,12 @@ internal sealed record DbSyncMutationResult(
     bool Success,
     int Changed,
     string? Error);
+
+internal sealed record DbSyncCapturedColumn(string Name, object? Value);
+
+internal sealed record DbSyncCapturedRecord(
+    string Domain,
+    string RecordId,
+    string TableName,
+    List<DbSyncCapturedColumn> Columns,
+    long? UpdatedAt);

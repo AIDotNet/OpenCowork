@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Net.Sockets;
@@ -10,6 +11,16 @@ internal sealed class LocalIpcWorkerServer
     // sole client disconnects (or never shows up) keeps a crashed or SIGKILLed
     // parent from leaking an orphaned worker that idles forever with no owner.
     private static readonly TimeSpan FirstClientAcceptTimeout = TimeSpan.FromMinutes(2);
+    private static readonly int MaxConcurrentRequests = ReadLimit(
+        "OPEN_COWORK_NATIVE_MAX_CONCURRENT_REQUESTS",
+        defaultValue: Math.Clamp(Environment.ProcessorCount, 4, 12),
+        minimum: 1,
+        maximum: 64);
+    private static readonly int MaxOutstandingRequests = ReadLimit(
+        "OPEN_COWORK_NATIVE_MAX_OUTSTANDING_REQUESTS",
+        defaultValue: 128,
+        minimum: MaxConcurrentRequests,
+        maximum: 4096);
 
     private readonly WorkerDispatcher dispatcher;
     private readonly WorkerEndpoint endpoint;
@@ -131,8 +142,11 @@ internal sealed class LocalIpcWorkerServer
     {
         using var clientCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var writeLock = new SemaphoreSlim(1, 1);
-        var dispatchTasks = new List<Task>();
+        using var dispatchSlots = new SemaphoreSlim(MaxConcurrentRequests, MaxConcurrentRequests);
+        var activeRequests = new ConcurrentDictionary<string, CancellationTokenSource>(StringComparer.Ordinal);
+        var dispatchTasks = new ConcurrentDictionary<Task, byte>();
         var sawTraffic = false;
+        var outstandingRequests = 0;
 
         try
         {
@@ -145,17 +159,109 @@ internal sealed class LocalIpcWorkerServer
                 }
 
                 sawTraffic = true;
-                var task = HandleFrameAsync(stream, writeLock, frame, clientCts.Token);
-                dispatchTasks.Add(task);
-                dispatchTasks.RemoveAll(static item => item.IsCompleted);
+                ParsedWorkerRequest request;
+                try
+                {
+                    request = ParsedWorkerRequest.Parse(frame);
+                }
+                catch (Exception ex)
+                {
+                    var invalidResponse = MessagePackFrameProtocol.EncodeResponse(
+                        WorkerResponse.Error($"Invalid native worker request: {ex.Message}"),
+                        id: null);
+                    await WritePayloadAsync(stream, writeLock, invalidResponse, clientCts.Token);
+                    continue;
+                }
+
+                if (string.Equals(request.Method, "worker/cancel", StringComparison.Ordinal))
+                {
+                    CancelRequest(request.Parameters, activeRequests);
+                    request.Dispose();
+                    continue;
+                }
+
+                if (Interlocked.Increment(ref outstandingRequests) > MaxOutstandingRequests)
+                {
+                    Interlocked.Decrement(ref outstandingRequests);
+                    var busyResponse = MessagePackFrameProtocol.EncodeResponse(
+                        WorkerResponse.Error(
+                            $"Native worker request quota exceeded ({MaxOutstandingRequests} outstanding requests)."),
+                        request.Id);
+                    request.Dispose();
+                    await WritePayloadAsync(stream, writeLock, busyResponse, clientCts.Token);
+                    continue;
+                }
+
+                var requestCts = CancellationTokenSource.CreateLinkedTokenSource(clientCts.Token);
+                var requestKey = FormatRequestKey(request.Id);
+                if (requestKey is not null && !activeRequests.TryAdd(requestKey, requestCts))
+                {
+                    Interlocked.Decrement(ref outstandingRequests);
+                    requestCts.Dispose();
+                    var duplicateResponse = MessagePackFrameProtocol.EncodeResponse(
+                        WorkerResponse.Error("Duplicate native worker request id."),
+                        request.Id);
+                    request.Dispose();
+                    await WritePayloadAsync(stream, writeLock, duplicateResponse, clientCts.Token);
+                    continue;
+                }
+
+                var task = Task.Run(
+                    async () =>
+                    {
+                        var slotAcquired = false;
+                        try
+                        {
+                            await dispatchSlots.WaitAsync(requestCts.Token);
+                            slotAcquired = true;
+                            await HandleRequestAsync(
+                                stream,
+                                writeLock,
+                                request,
+                                requestCts.Token,
+                                clientCts.Token);
+                        }
+                        catch (Exception ex)
+                        {
+                            WorkerLog.Warn(
+                                $"request task stopped method={request.Method} " +
+                                $"error={ex.GetType().Name}: {ex.Message}");
+                        }
+                        finally
+                        {
+                            if (slotAcquired)
+                            {
+                                dispatchSlots.Release();
+                            }
+                            if (requestKey is not null)
+                            {
+                                activeRequests.TryRemove(
+                                    new KeyValuePair<string, CancellationTokenSource>(requestKey, requestCts));
+                            }
+                            requestCts.Dispose();
+                            request.Dispose();
+                            Interlocked.Decrement(ref outstandingRequests);
+                        }
+                    },
+                    CancellationToken.None);
+                dispatchTasks.TryAdd(task, 0);
+                _ = task.ContinueWith(
+                    completed => dispatchTasks.TryRemove(completed, out _),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
             }
         }
         finally
         {
             await clientCts.CancelAsync();
+            foreach (var activeRequest in activeRequests.Values)
+            {
+                activeRequest.Cancel();
+            }
             try
             {
-                await Task.WhenAll(dispatchTasks);
+                await Task.WhenAll(dispatchTasks.Keys);
             }
             catch (Exception ex)
             {
@@ -166,74 +272,66 @@ internal sealed class LocalIpcWorkerServer
         return sawTraffic;
     }
 
-    private async Task HandleFrameAsync(
+    private async Task HandleRequestAsync(
         Stream stream,
         SemaphoreSlim writeLock,
-        ReadOnlyMemory<byte> frame,
-        CancellationToken cancellationToken)
+        ParsedWorkerRequest request,
+        CancellationToken requestCancellationToken,
+        CancellationToken connectionCancellationToken)
     {
         using var operation = WorkerMemory.TrackOperation("ipc-frame");
-        var response = await DispatchFrameAsync(
-            frame,
+        var response = await DispatchRequestAsync(
+            request,
             (eventName, writeParameters, eventCancellationToken) =>
                 WriteEventFrameAsync(stream, writeLock, eventName, writeParameters, eventCancellationToken),
             (messagePackEvent, eventCancellationToken) =>
                 WriteMessagePackEventFrameAsync(stream, writeLock, messagePackEvent, eventCancellationToken),
-            cancellationToken);
-        await WritePayloadAsync(stream, writeLock, response, cancellationToken);
-        WorkerMemory.ReportCompletedWork("ipc-frame", frame.Length + response.Length);
+            requestCancellationToken,
+            connectionCancellationToken);
+        await WritePayloadAsync(stream, writeLock, response, connectionCancellationToken);
+        WorkerMemory.ReportCompletedWork("ipc-frame", request.FrameLength + response.Length);
     }
 
-    private async Task<byte[]> DispatchFrameAsync(
-        ReadOnlyMemory<byte> frame,
+    private async Task<byte[]> DispatchRequestAsync(
+        ParsedWorkerRequest request,
         Func<string, Action<Utf8JsonWriter>, CancellationToken, ValueTask> emitEventAsync,
         Func<WorkerMessagePackEvent, CancellationToken, ValueTask> emitMessagePackEventAsync,
-        CancellationToken cancellationToken)
+        CancellationToken requestCancellationToken,
+        CancellationToken connectionCancellationToken)
     {
         var startedAt = Stopwatch.GetTimestamp();
-        JsonElement? id = null;
-        var method = "<unknown>";
+        var id = request.Id;
+        var method = request.Method;
 
         try
         {
-            var requestJson = MessagePackFrameProtocol.ConvertRequestToJson(frame);
-            using var document = JsonDocument.Parse(requestJson);
-            var root = document.RootElement;
-
-            if (root.TryGetProperty("id", out var idElement))
-            {
-                id = idElement.Clone();
-            }
-
-            method = JsonHelpers.GetString(root, "method") ??
-                throw new InvalidOperationException("Missing method");
-            var parameters = root.TryGetProperty("params", out var paramsElement)
-                ? paramsElement
-                : default;
-
             var context = new WorkerRequestContext(
                 emitEventAsync,
                 emitMessagePackEventAsync,
-                cancellationToken);
-            var response = await dispatcher.DispatchAsync(method, parameters, context);
+                requestCancellationToken,
+                connectionCancellationToken);
+            var response = await dispatcher.DispatchAsync(method, request.Parameters, context);
             var encoded = MessagePackFrameProtocol.EncodeResponse(response, id);
             WorkerLog.RequestCompleted(
                 method,
                 FormatRequestId(id),
                 GetElapsedMilliseconds(startedAt),
-                frame.Length,
+                request.FrameLength,
                 encoded.Length,
                 error: null);
             return encoded;
         }
         catch (Exception ex)
         {
-            var encoded = MessagePackFrameProtocol.EncodeResponse(WorkerResponse.Error(ex.Message), id);
+            var errorMessage = ex is OperationCanceledException
+                ? $"Native worker request cancelled: {method}"
+                : ex.Message;
+            var encoded = MessagePackFrameProtocol.EncodeResponse(WorkerResponse.Error(errorMessage), id);
             WorkerLog.RequestCompleted(
                 method,
                 FormatRequestId(id),
                 GetElapsedMilliseconds(startedAt),
-                frame.Length,
+                request.FrameLength,
                 encoded.Length,
                 ex);
             return encoded;
@@ -310,6 +408,41 @@ internal sealed class LocalIpcWorkerServer
         };
     }
 
+    private static string? FormatRequestKey(JsonElement? id)
+    {
+        if (!id.HasValue || id.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return $"{id.Value.ValueKind}:{id.Value.GetRawText()}";
+    }
+
+    private static void CancelRequest(
+        JsonElement parameters,
+        ConcurrentDictionary<string, CancellationTokenSource> activeRequests)
+    {
+        if (parameters.ValueKind != JsonValueKind.Object ||
+            !parameters.TryGetProperty("requestId", out var requestId))
+        {
+            return;
+        }
+
+        var key = FormatRequestKey(requestId);
+        if (key is not null && activeRequests.TryGetValue(key, out var requestCts))
+        {
+            requestCts.Cancel();
+        }
+    }
+
+    private static int ReadLimit(string variableName, int defaultValue, int minimum, int maximum)
+    {
+        var raw = Environment.GetEnvironmentVariable(variableName);
+        return int.TryParse(raw, out var value)
+            ? Math.Clamp(value, minimum, maximum)
+            : Math.Clamp(defaultValue, minimum, maximum);
+    }
+
     private static void TryDeleteSocketFile(string path)
     {
         try
@@ -329,5 +462,65 @@ internal sealed class LocalIpcWorkerServer
     {
         var raw = Environment.GetEnvironmentVariable("OPEN_COWORK_MSGPACK_TRACE");
         return raw?.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "on";
+    }
+
+    private sealed class ParsedWorkerRequest : IDisposable
+    {
+        private readonly JsonDocument document;
+
+        private ParsedWorkerRequest(
+            JsonDocument document,
+            JsonElement? id,
+            string method,
+            JsonElement parameters,
+            int frameLength)
+        {
+            this.document = document;
+            Id = id;
+            Method = method;
+            Parameters = parameters;
+            FrameLength = frameLength;
+        }
+
+        public JsonElement? Id { get; }
+
+        public string Method { get; }
+
+        public JsonElement Parameters { get; }
+
+        public int FrameLength { get; }
+
+        public static ParsedWorkerRequest Parse(ReadOnlyMemory<byte> frame)
+        {
+            var document = MessagePackFrameProtocol.ConvertRequestToJsonDocument(frame);
+            try
+            {
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    throw new InvalidDataException("Request root must be an object.");
+                }
+
+                JsonElement? id = root.TryGetProperty("id", out var idElement)
+                    ? idElement.Clone()
+                    : null;
+                var method = JsonHelpers.GetString(root, "method") ??
+                    throw new InvalidOperationException("Missing method");
+                var parameters = root.TryGetProperty("params", out var paramsElement)
+                    ? paramsElement
+                    : default;
+                return new ParsedWorkerRequest(document, id, method, parameters, frame.Length);
+            }
+            catch
+            {
+                document.Dispose();
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            document.Dispose();
+        }
     }
 }

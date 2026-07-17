@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 internal sealed record SessionResetResult(
     bool Success,
@@ -85,3 +85,7 @@ internal sealed record SessionClearAllResult(
     int DeletedMessages,
     int DeletedSessions,
     string? Error);
+
+internal sealed record SessionClearProjectInput(
+    string ProjectId,
+    List<string>? ExcludeSessionIds);

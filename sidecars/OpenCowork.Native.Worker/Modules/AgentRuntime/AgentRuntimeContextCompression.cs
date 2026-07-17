@@ -57,7 +57,7 @@ internal static partial class AgentRuntimeContextCompression
         }
         finally
         {
-            WorkerMemory.ReportCompletedWork("context-compression", pressureBytes: 0, forceTrim: true);
+            WorkerMemory.ReportCompletedWork("context-compression", pressureBytes: 0);
         }
     }
 

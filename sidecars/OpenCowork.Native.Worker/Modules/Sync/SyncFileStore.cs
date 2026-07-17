@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -9,6 +10,9 @@ internal static class SyncFileStore
     private const string FileDomain = "file";
     private const string DataDirectoryName = ".open-cowork";
     private const string PromptCacheInstallIdConfigKey = "opencowork-prompt-cache-install-id";
+    private const int DefaultCapturePageSize = 100;
+    private const int MaxCapturePageSize = 500;
+    private const long MaxSyncFileBytes = 16L * 1024 * 1024;
 
     private static readonly string[] DataFileIncludes =
     [
@@ -34,25 +38,33 @@ internal static class SyncFileStore
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    public static async Task<WorkerResponse> CaptureAsync(JsonElement parameters)
+    public static async Task<WorkerResponse> CaptureAsync(
+        JsonElement parameters,
+        WorkerRequestContext context)
     {
         try
         {
-            var records = await CaptureRecordsAsync();
-            return ToResponse(new JsonObject
-            {
-                ["success"] = true,
-                ["records"] = new JsonArray(records.Select(record => (JsonNode?)record).ToArray())
-            });
+            var cursor = JsonHelpers.GetString(parameters, "cursor") ?? string.Empty;
+            var limit = Math.Clamp(
+                JsonHelpers.GetInt(parameters, "limit", DefaultCapturePageSize),
+                1,
+                MaxCapturePageSize);
+            var page = await CaptureRecordsPageAsync(
+                NormalizeRelativePath(cursor),
+                limit,
+                context.CancellationToken);
+            return WriteCapturePage(page, null);
         }
         catch (Exception ex)
         {
             WorkerLog.Warn($"sync file capture failed error={ex.GetType().Name}: {ex.Message}");
-            return ToResponse(Mutation(false, 0, false, ex.Message));
+            return WriteCapturePage(new SyncFileCapturePage([], null, true), ex.Message);
         }
     }
 
-    public static async Task<WorkerResponse> ApplyAsync(JsonElement parameters)
+    public static async Task<WorkerResponse> ApplyAsync(
+        JsonElement parameters,
+        WorkerRequestContext context)
     {
         var changed = 0;
         var settingsChanged = false;
@@ -61,6 +73,7 @@ internal static class SyncFileStore
         {
             foreach (var record in ReadRecords(parameters))
             {
+                context.CancellationToken.ThrowIfCancellationRequested();
                 if (!string.Equals(ReadString(record, "domain"), FileDomain, StringComparison.Ordinal))
                 {
                     continue;
@@ -78,7 +91,7 @@ internal static class SyncFileStore
                     throw new InvalidOperationException($"Refusing to write unsupported sync file: {relativePath}");
                 }
 
-                await ApplyRecordAsync(record, relativePath);
+                await ApplyRecordAsync(record, relativePath, context.CancellationToken);
                 changed += 1;
                 settingsChanged = settingsChanged || string.Equals(relativePath, "settings.json", StringComparison.Ordinal);
             }
@@ -93,7 +106,9 @@ internal static class SyncFileStore
         }
     }
 
-    public static Task<WorkerResponse> DeleteAsync(JsonElement parameters)
+    public static Task<WorkerResponse> DeleteAsync(
+        JsonElement parameters,
+        WorkerRequestContext context)
     {
         var changed = 0;
         var settingsChanged = false;
@@ -102,6 +117,7 @@ internal static class SyncFileStore
         {
             foreach (var recordId in ReadRecordIds(parameters))
             {
+                context.CancellationToken.ThrowIfCancellationRequested();
                 var relativePath = NormalizeRelativePath(recordId);
                 if (!ShouldIncludeDataRelativePath(relativePath))
                 {
@@ -153,47 +169,50 @@ internal static class SyncFileStore
         }
     }
 
-    private static async Task<List<JsonObject>> CaptureRecordsAsync()
+    private static async Task<SyncFileCapturePage> CaptureRecordsPageAsync(
+        string cursor,
+        int limit,
+        CancellationToken cancellationToken)
     {
-        var dataDir = GetDataDir();
-        var candidates = DataFileIncludes
-            .Select(fileName => Path.Combine(dataDir, fileName))
-            .Concat(DataDirectoryIncludes.Select(dirName => Path.Combine(dataDir, dirName)));
-        var filePaths = candidates.SelectMany(WalkFiles).Distinct(StringComparer.Ordinal).ToArray();
-        var records = new List<JsonObject>();
-
-        foreach (var filePath in filePaths)
+        var records = new List<SyncFileCapturedRecord>(limit);
+        using var enumerator = EnumerateSyncFilesAfter(cursor).GetEnumerator();
+        while (records.Count < limit && enumerator.MoveNext())
         {
-            var relativePath = GetDataRelativePath(filePath);
-            if (relativePath is null || !ShouldIncludeDataRelativePath(relativePath))
+            cancellationToken.ThrowIfCancellationRequested();
+            var filePath = enumerator.Current.FilePath;
+            var relativePath = enumerator.Current.RelativePath;
+            var length = new FileInfo(filePath).Length;
+            if (length > MaxSyncFileBytes)
             {
-                continue;
+                throw new InvalidOperationException(
+                    $"Sync file exceeds the {MaxSyncFileBytes} byte limit: {relativePath}");
             }
 
-            var data = Convert.ToBase64String(await ReadFileBytesForSyncAsync(relativePath, filePath));
-            var value = new JsonObject
-            {
-                ["path"] = relativePath,
-                ["data"] = data
-            };
+            var data = Convert.ToBase64String(await ReadFileBytesForSyncAsync(
+                relativePath,
+                filePath,
+                cancellationToken));
             var updatedAt = (long)Math.Floor(
                 (File.GetLastWriteTimeUtc(filePath) - DateTime.UnixEpoch).TotalMilliseconds);
 
-            records.Add(new JsonObject
-            {
-                ["domain"] = FileDomain,
-                ["recordId"] = relativePath,
-                ["hash"] = HashValue(value),
-                ["value"] = value.DeepClone(),
-                ["updatedAt"] = updatedAt
-            });
+            records.Add(new SyncFileCapturedRecord(
+                relativePath,
+                data,
+                HashFileValue(relativePath, data),
+                updatedAt));
         }
 
-        WorkerLog.Debug($"sync file capture records={records.Count}");
-        return records;
+        var hasMore = enumerator.MoveNext();
+        var nextCursor = hasMore && records.Count > 0 ? records[^1].RelativePath : null;
+        WorkerLog.Debug(
+            $"sync file capture records={records.Count} done={!hasMore} cursorSet={nextCursor is not null}");
+        return new SyncFileCapturePage(records, nextCursor, !hasMore);
     }
 
-    private static async Task ApplyRecordAsync(JsonObject record, string relativePath)
+    private static async Task ApplyRecordAsync(
+        JsonObject record,
+        string relativePath,
+        CancellationToken cancellationToken)
     {
         var targetPath = ResolveDataRelativePath(relativePath);
         if (targetPath is null)
@@ -240,13 +259,16 @@ internal static class SyncFileStore
 
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
         var tempPath = $"{targetPath}.{Guid.NewGuid():N}.tmp";
-        await File.WriteAllBytesAsync(tempPath, buffer);
+        await File.WriteAllBytesAsync(tempPath, buffer, cancellationToken);
         File.Move(tempPath, targetPath, true);
     }
 
-    private static async Task<byte[]> ReadFileBytesForSyncAsync(string relativePath, string filePath)
+    private static async Task<byte[]> ReadFileBytesForSyncAsync(
+        string relativePath,
+        string filePath,
+        CancellationToken cancellationToken)
     {
-        var bytes = await File.ReadAllBytesAsync(filePath);
+        var bytes = await File.ReadAllBytesAsync(filePath, cancellationToken);
         if (!string.Equals(relativePath, "config.json", StringComparison.Ordinal))
         {
             return bytes;
@@ -322,7 +344,9 @@ internal static class SyncFileStore
             yield break;
         }
 
-        foreach (var entry in Directory.EnumerateFileSystemEntries(rootPath))
+        foreach (var entry in Directory
+            .EnumerateFileSystemEntries(rootPath)
+            .OrderBy(static entry => entry, StringComparer.Ordinal))
         {
             var attributes = File.GetAttributes(entry);
             if ((attributes & FileAttributes.ReparsePoint) != 0)
@@ -340,6 +364,29 @@ internal static class SyncFileStore
             else
             {
                 yield return entry;
+            }
+        }
+    }
+
+    private static IEnumerable<SyncFilePath> EnumerateSyncFilesAfter(string cursor)
+    {
+        var dataDir = GetDataDir();
+        var roots = DataFileIncludes
+            .Concat(DataDirectoryIncludes)
+            .OrderBy(static value => value, StringComparer.Ordinal);
+        foreach (var root in roots)
+        {
+            foreach (var filePath in WalkFiles(Path.Combine(dataDir, root)))
+            {
+                var relativePath = GetDataRelativePath(filePath);
+                if (relativePath is null ||
+                    !ShouldIncludeDataRelativePath(relativePath) ||
+                    string.Compare(relativePath, cursor, StringComparison.Ordinal) <= 0)
+                {
+                    continue;
+                }
+
+                yield return new SyncFilePath(filePath, relativePath);
             }
         }
     }
@@ -462,6 +509,92 @@ internal static class SyncFileStore
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
+    private static string HashFileValue(string relativePath, string base64Data)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendUtf8(hash, "{\"data\":\"");
+        AppendUtf8Chunked(hash, base64Data);
+        AppendUtf8(hash, $"\",\"path\":{QuoteString(relativePath)}}}");
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+    }
+
+    private static void AppendUtf8(IncrementalHash hash, string value)
+    {
+        hash.AppendData(Encoding.UTF8.GetBytes(value));
+    }
+
+    private static void AppendUtf8Chunked(IncrementalHash hash, string value)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(32 * 1024);
+        try
+        {
+            var offset = 0;
+            while (offset < value.Length)
+            {
+                var charCount = Math.Min(16 * 1024, value.Length - offset);
+                var byteCount = Encoding.UTF8.GetBytes(
+                    value.AsSpan(offset, charCount),
+                    buffer.AsSpan());
+                hash.AppendData(buffer.AsSpan(0, byteCount));
+                offset += charCount;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static WorkerResponse WriteCapturePage(SyncFileCapturePage page, string? error)
+    {
+        return WorkerResponse.DirectMessagePack(writer =>
+        {
+            writer.WriteMapHeader(5);
+            writer.WriteString("success");
+            writer.WriteBoolean(error is null);
+            writer.WriteString("records");
+            writer.WriteArrayHeader(page.Records.Count);
+            foreach (var record in page.Records)
+            {
+                writer.WriteMapHeader(5);
+                writer.WriteString("domain");
+                writer.WriteString(FileDomain);
+                writer.WriteString("recordId");
+                writer.WriteString(record.RelativePath);
+                writer.WriteString("hash");
+                writer.WriteString(record.Hash);
+                writer.WriteString("value");
+                writer.WriteMapHeader(2);
+                writer.WriteString("path");
+                writer.WriteString(record.RelativePath);
+                writer.WriteString("data");
+                writer.WriteString(record.Base64Data);
+                writer.WriteString("updatedAt");
+                writer.WriteInt64(record.UpdatedAt);
+            }
+            writer.WriteString("nextCursor");
+            if (page.NextCursor is { Length: > 0 })
+            {
+                writer.WriteString(page.NextCursor);
+            }
+            else
+            {
+                writer.WriteNil();
+            }
+            writer.WriteString("done");
+            writer.WriteBoolean(page.Done);
+            writer.WriteString("error");
+            if (error is { Length: > 0 })
+            {
+                writer.WriteString(error);
+            }
+            else
+            {
+                writer.WriteNil();
+            }
+        });
+    }
+
     private static string StableStringify(JsonNode? value)
     {
         if (value is null)
@@ -536,4 +669,17 @@ internal static class SyncFileStore
     {
         return WorkerResponse.RawJson(node.ToJsonString(JsonOptions));
     }
+
+    private sealed record SyncFilePath(string FilePath, string RelativePath);
+
+    private sealed record SyncFileCapturedRecord(
+        string RelativePath,
+        string Base64Data,
+        string Hash,
+        long UpdatedAt);
+
+    private sealed record SyncFileCapturePage(
+        List<SyncFileCapturedRecord> Records,
+        string? NextCursor,
+        bool Done);
 }

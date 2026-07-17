@@ -6,6 +6,11 @@ using System.Text.Json;
 
 internal static class OpenAIImagesTools
 {
+    private const int MaxInputImages = 8;
+    private const int MaxInputImageBytes = 32 * 1024 * 1024;
+    private const int MaxImageResponseBytes = 64 * 1024 * 1024;
+    private const int MaxOutputImageBytes = 32 * 1024 * 1024;
+    private const int MaxReturnedImages = 8;
     private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
         timeout: TimeSpan.FromMinutes(10));
 
@@ -14,7 +19,9 @@ internal static class OpenAIImagesTools
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    public static async Task<WorkerResponse> GenerateAsync(JsonElement parameters)
+    public static async Task<WorkerResponse> GenerateAsync(
+        JsonElement parameters,
+        WorkerRequestContext context)
     {
         var provider = GetObject(parameters, "provider");
         var prompt = JsonHelpers.GetString(parameters, "prompt") ?? string.Empty;
@@ -24,10 +31,18 @@ internal static class OpenAIImagesTools
         }
         var action = JsonHelpers.GetString(parameters, "action");
         var responseImages = await GenerateImagesForProviderAsync(
-            provider, prompt, GetArray(parameters, "images"), action, GetObject(parameters, "mask"));
+            provider,
+            prompt,
+            GetArray(parameters, "images"),
+            action,
+            GetObject(parameters, "mask"),
+            context.CancellationToken);
+        var persistedImages = await PersistGeneratedImagesAsync(
+            responseImages,
+            context.CancellationToken);
 
         return WorkerResponse.Json(
-            new NativeOpenAIImagesResult(responseImages.ToArray()),
+            new NativeOpenAIImagesResult(persistedImages.ToArray()),
             WorkerJsonContext.Default.NativeOpenAIImagesResult);
     }
 
@@ -36,21 +51,29 @@ internal static class OpenAIImagesTools
         string prompt,
         JsonElement imagesElement,
         string? action = null,
-        JsonElement maskElement = default)
+        JsonElement maskElement = default,
+        CancellationToken cancellationToken = default)
     {
+        using var quota = await WorkerTaskQuotas.EnterMediaAsync(cancellationToken);
         ValidateProvider(provider);
 
         var images = ReadImages(imagesElement);
+        if (images.Count > MaxInputImages)
+        {
+            throw new InvalidOperationException(
+                $"OpenAI image edit accepts at most {MaxInputImages} input images.");
+        }
         var mask = ReadMask(maskElement);
         var useEdit = images.Count > 0 || string.Equals(action, "edit", StringComparison.OrdinalIgnoreCase);
         return useEdit
-            ? await EditImagesAsync(provider, prompt, images, mask)
-            : await GenerateImagesAsync(provider, prompt);
+            ? await EditImagesAsync(provider, prompt, images, mask, cancellationToken)
+            : await GenerateImagesAsync(provider, prompt, cancellationToken);
     }
 
     private static async Task<List<NativeGeneratedImage>> GenerateImagesAsync(
         JsonElement provider,
-        string prompt)
+        string prompt,
+        CancellationToken cancellationToken)
     {
         var url = $"{GetBaseUrl(provider)}/images/generations";
         var body = BuildGenerationBody(provider, prompt);
@@ -59,8 +82,11 @@ internal static class OpenAIImagesTools
         ApplyOpenAIHeaders(request, provider);
 
         WorkerLog.Debug($"openai images generation request model={JsonHelpers.GetString(provider, "model")} url={url}");
-        using var response = await Http.SendAsync(request);
-        var responseText = await response.Content.ReadAsStringAsync();
+        using var response = await Http.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        var responseText = await ReadResponseTextAsync(response.Content, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
@@ -74,7 +100,8 @@ internal static class OpenAIImagesTools
         JsonElement provider,
         string prompt,
         IReadOnlyList<NativeImageInput> images,
-        NativeImageInput? mask = null)
+        NativeImageInput? mask,
+        CancellationToken cancellationToken)
     {
         var url = $"{GetBaseUrl(provider)}/images/edits";
         using var content = new MultipartFormDataContent();
@@ -93,12 +120,20 @@ internal static class OpenAIImagesTools
         }
 
         var fieldName = images.Count > 1 ? "image[]" : "image";
+        var totalInputBytes = 0;
         if (!omitted.Contains(fieldName) && !omitted.Contains("image"))
         {
             for (var index = 0; index < images.Count; index++)
             {
                 var image = images[index];
+                EnsureBase64WithinLimit(image.Base64Data, MaxInputImageBytes, "OpenAI image input");
                 var bytes = Convert.FromBase64String(image.Base64Data);
+                totalInputBytes += bytes.Length;
+                if (totalInputBytes > MaxInputImageBytes)
+                {
+                    throw new InvalidOperationException(
+                        $"OpenAI image inputs exceed the {MaxInputImageBytes} byte limit.");
+                }
                 var imageContent = new ByteArrayContent(bytes);
                 imageContent.Headers.ContentType = new MediaTypeHeaderValue(image.MediaType);
                 content.Add(imageContent, fieldName, GetImageFileName(image.MediaType, index));
@@ -109,7 +144,13 @@ internal static class OpenAIImagesTools
         // OpenAI requires the mask as a PNG with an alpha channel.
         if (mask is not null && !omitted.Contains("mask"))
         {
+            EnsureBase64WithinLimit(mask.Base64Data, MaxInputImageBytes, "OpenAI image mask");
             var maskBytes = Convert.FromBase64String(mask.Base64Data);
+            if (totalInputBytes + maskBytes.Length > MaxInputImageBytes)
+            {
+                throw new InvalidOperationException(
+                    $"OpenAI image inputs exceed the {MaxInputImageBytes} byte limit.");
+            }
             var maskContent = new ByteArrayContent(maskBytes);
             maskContent.Headers.ContentType = new MediaTypeHeaderValue(
                 string.IsNullOrWhiteSpace(mask.MediaType) ? "image/png" : mask.MediaType);
@@ -123,8 +164,11 @@ internal static class OpenAIImagesTools
         ApplyOpenAIHeaders(request, provider);
 
         WorkerLog.Debug($"openai images edit request model={JsonHelpers.GetString(provider, "model")} url={url} images={images.Count}");
-        using var response = await Http.SendAsync(request);
-        var responseText = await response.Content.ReadAsStringAsync();
+        using var response = await Http.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        var responseText = await ReadResponseTextAsync(response.Content, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
@@ -132,6 +176,66 @@ internal static class OpenAIImagesTools
         }
 
         return ParseImagesResponse(responseText, "Image edit returned no image output");
+    }
+
+    private static async Task<string> ReadResponseTextAsync(
+        HttpContent content,
+        CancellationToken cancellationToken)
+    {
+        var bytes = await MediaFileStore.ReadHttpContentBytesAsync(
+            content,
+            MaxImageResponseBytes,
+            cancellationToken);
+        return Encoding.UTF8.GetString(bytes);
+    }
+
+    private static async Task<List<NativeGeneratedImage>> PersistGeneratedImagesAsync(
+        IReadOnlyList<NativeGeneratedImage> images,
+        CancellationToken cancellationToken)
+    {
+        var persisted = new List<NativeGeneratedImage>(Math.Min(images.Count, MaxReturnedImages));
+        foreach (var image in images.Take(MaxReturnedImages))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var mediaType = image.MediaType == "url" ? "image/png" : image.MediaType;
+            byte[] bytes;
+            if (image.SourceType == "url")
+            {
+                using var response = await Http.GetAsync(
+                    image.Data,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken);
+                response.EnsureSuccessStatusCode();
+                mediaType = response.Content.Headers.ContentType?.MediaType ?? mediaType;
+                bytes = await MediaFileStore.ReadHttpContentBytesAsync(
+                    response.Content,
+                    MaxOutputImageBytes,
+                    cancellationToken);
+            }
+            else
+            {
+                var normalized = NormalizeBase64ImageData(image.Data);
+                EnsureBase64WithinLimit(normalized, MaxOutputImageBytes, "Generated image");
+                bytes = Convert.FromBase64String(normalized);
+            }
+
+            var extension = Path.GetExtension(GetImageFileName(mediaType, persisted.Count));
+            var filePath = await MediaFileStore.WriteBytesAsync(
+                "images",
+                string.IsNullOrWhiteSpace(extension) ? ".png" : extension,
+                bytes,
+                cancellationToken);
+            persisted.Add(new NativeGeneratedImage("file", filePath, mediaType));
+        }
+        return persisted;
+    }
+
+    private static void EnsureBase64WithinLimit(string base64, int maxBytes, string label)
+    {
+        if (base64.Length > ((maxBytes + 2L) / 3L) * 4L)
+        {
+            throw new InvalidOperationException($"{label} exceeds the {maxBytes} byte limit.");
+        }
     }
 
     private static string BuildGenerationBody(JsonElement provider, string prompt)

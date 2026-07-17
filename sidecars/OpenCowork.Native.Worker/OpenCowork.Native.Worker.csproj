@@ -9,7 +9,27 @@
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
     <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
     <StripSymbols>true</StripSymbols>
+    <!-- CodeGraph's tree-sitter [LibraryImport] binding emits unsafe marshalling. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Size trims (measured, behavior-safe): framework exception texts become
+         resource keys; identical method bodies fold; no EventSource/Metrics
+         plumbing. StackTraceSupport stays ON (crash logs) — turning it off broke
+         the self-test and would gut diagnostics for ~1 MB. -->
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetricsSupport>false</MetricsSupport>
   </PropertyGroup>
+  <!-- CodeGraph engine, source-merged (user decision: single worker binary, one
+       shared e_sqlite3). The Core project stays alive for the xUnit test suite;
+       here its global-namespace sources compile directly against THIS worker's
+       runtime types (IWorkerModule/WorkerResponse/...), so CodeGraphModule plugs
+       into the catalog like any built-in module. -->
+  <ItemGroup>
+    <Compile Include="..\OpenCowork.CodeGraph.Core\**\*.cs"
+             Exclude="..\OpenCowork.CodeGraph.Core\obj\**;..\OpenCowork.CodeGraph.Core\bin\**;..\OpenCowork.CodeGraph.Core\_deferred\**"
+             Link="CodeGraph\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />

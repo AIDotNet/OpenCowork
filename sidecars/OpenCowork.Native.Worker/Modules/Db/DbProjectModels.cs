@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 internal sealed class ProjectRow
 {
@@ -25,6 +25,9 @@ internal sealed class ProjectRow
 
     [JsonPropertyName("updated_at")]
     public long UpdatedAt { get; set; }
+
+    [JsonPropertyName("session_count")]
+    public int SessionCount { get; set; }
 }
 
 internal sealed record ProjectFindResult(

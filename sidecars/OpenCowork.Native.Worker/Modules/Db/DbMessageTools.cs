@@ -32,7 +32,6 @@ internal static class DbMessageTools
         {
             var sessionId = RequireString(parameters, "sessionId");
             using var connection = DbConnectionFactory.OpenReadWrite(parameters);
-            NormalizeSessionMessageSortOrders(connection, sessionId);
 
             using var command = connection.CreateCommand();
             command.CommandText = """
@@ -75,7 +74,6 @@ internal static class DbMessageTools
                 maxMessages);
 
             using var connection = DbConnectionFactory.OpenReadWrite(parameters);
-            NormalizeSessionMessageSortOrders(connection, sessionId);
 
             var total = GetSessionMessageCount(connection, sessionId);
             if (total <= 0)
@@ -123,7 +121,6 @@ internal static class DbMessageTools
             var messageId = JsonHelpers.GetString(parameters, "messageId")?.Trim();
 
             using var connection = DbConnectionFactory.OpenReadWrite(parameters);
-            NormalizeSessionMessageSortOrders(connection, sessionId);
 
             var total = GetSessionMessageCount(connection, sessionId);
             if (total <= 0)
@@ -288,8 +285,6 @@ internal static class DbMessageTools
                 .ToList();
 
             using var connection = DbConnectionFactory.OpenReadWrite(parameters);
-            NormalizeSessionMessageSortOrders(connection, sessionId);
-
             using var transaction = connection.BeginTransaction();
             DeleteExistingCompactArtifacts(connection, transaction, sessionId, messages);
             NormalizeSessionMessageSortOrders(connection, transaction, sessionId);
@@ -727,7 +722,6 @@ internal static class DbMessageTools
         {
             var sessionId = RequireString(parameters, "sessionId");
             using var connection = DbConnectionFactory.OpenReadWrite(parameters);
-            NormalizeSessionMessageSortOrders(connection, sessionId);
 
             using var command = connection.CreateCommand();
             var roleClause = role is null ? string.Empty : " AND role = $role";
@@ -1031,13 +1025,6 @@ internal static class DbMessageTools
         }
 
         return null;
-    }
-
-    private static void NormalizeSessionMessageSortOrders(SqliteConnection connection, string sessionId)
-    {
-        using var transaction = connection.BeginTransaction();
-        NormalizeSessionMessageSortOrders(connection, transaction, sessionId);
-        transaction.Commit();
     }
 
     private static void NormalizeSessionMessageSortOrders(

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
 internal static class DbProjectTools
@@ -300,8 +300,10 @@ internal static class DbProjectTools
     }
 
     private const string ProjectSelectSql = """
-        SELECT id, name, working_folder, ssh_connection_id, plugin_id, pinned, created_at, updated_at
-          FROM projects
+        SELECT p.id, p.name, p.working_folder, p.ssh_connection_id, p.plugin_id, p.pinned,
+               p.created_at, p.updated_at,
+               (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count
+          FROM projects p
         """;
 
     private static ProjectRow? GetProject(
@@ -367,7 +369,8 @@ internal static class DbProjectTools
                 PluginId = GetNullableString(reader, 4),
                 Pinned = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
                 CreatedAt = reader.GetInt64(6),
-                UpdatedAt = reader.GetInt64(7)
+                UpdatedAt = reader.GetInt64(7),
+                SessionCount = reader.IsDBNull(8) ? 0 : reader.GetInt32(8)
             });
         }
 

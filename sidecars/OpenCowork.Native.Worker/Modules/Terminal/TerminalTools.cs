@@ -11,13 +11,47 @@ internal static class TerminalTools
     private const int MinCols = 20;
     private const int MinRows = 5;
     private const int MaxOutputBufferBytes = 64 * 1024;
+    private const int MaxActiveSessions = 32;
     private const int ExitedSessionRetentionMs = 120_000;
     private static readonly TimeSpan InitialOutputWaitTimeout = TimeSpan.FromMilliseconds(120);
     private static readonly ConcurrentDictionary<string, TerminalSession> Sessions = new(StringComparer.Ordinal);
+    private static readonly SemaphoreSlim CreateGate = new(1, 1);
 
     public static async Task<WorkerResponse> CreateAsync(JsonElement parameters, WorkerRequestContext context)
     {
+        await CreateGate.WaitAsync(context.CancellationToken);
+        try
+        {
+            return await CreateCoreAsync(parameters, context);
+        }
+        finally
+        {
+            CreateGate.Release();
+        }
+    }
+
+    private static async Task<WorkerResponse> CreateCoreAsync(
+        JsonElement parameters,
+        WorkerRequestContext context)
+    {
         PruneExpiredExitedSessions();
+        var activeSessionCount = Sessions.Values.Count(static session => !session.ExitCode.HasValue);
+        if (activeSessionCount >= MaxActiveSessions)
+        {
+            return WorkerResponse.Json(
+                new TerminalCreateResult(
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    $"Terminal session quota exceeded ({MaxActiveSessions} active sessions)."),
+                WorkerJsonContext.Default.TerminalCreateResult);
+        }
+
         var startedAt = Stopwatch.GetTimestamp();
         var requestedCwd = JsonHelpers.GetString(parameters, "cwd");
         var cwd = ResolveCwd(requestedCwd);
@@ -29,17 +63,22 @@ internal static class TerminalTools
 
         foreach (var launch in GetShellLaunchCandidates(parameters))
         {
+            context.CancellationToken.ThrowIfCancellationRequested();
+            Process? process = null;
+            TerminalSession? session = null;
+            string? id = null;
+            var added = false;
             try
             {
-                var process = CreateProcess(launch, cwd, command, cols, rows, parameters);
+                process = CreateProcess(launch, cwd, command, cols, rows, parameters);
                 process.Start();
                 process.StandardInput.AutoFlush = true;
 
-                var id = $"term-{Guid.NewGuid():N}";
-                var session = new TerminalSession(
+                id = $"term-{Guid.NewGuid():N}";
+                session = new TerminalSession(
                     id,
                     process,
-                    context,
+                    context.ForBackgroundOperation(),
                     launch.Shell,
                     cwd,
                     cols,
@@ -52,13 +91,16 @@ internal static class TerminalTools
                 {
                     throw new InvalidOperationException("Duplicate terminal session id.");
                 }
+                added = true;
 
                 WorkerLog.Debug(
                     $"terminal created id={id} pid={process.Id} shell={launch.Shell} " +
                     $"cols={cols} rows={rows} cwdSet={!string.IsNullOrWhiteSpace(requestedCwd)} " +
                     $"commandSet={!string.IsNullOrWhiteSpace(command)} elapsedMs={ElapsedMs(startedAt)}");
                 session.StartPumps();
-                var initialOutputReady = await session.WaitForInitialOutputAsync(InitialOutputWaitTimeout);
+                var initialOutputReady = await session.WaitForInitialOutputAsync(
+                    InitialOutputWaitTimeout,
+                    context.CancellationToken);
                 WorkerLog.Debug(
                     $"terminal bootstrap id={id} initialOutputReady={initialOutputReady} " +
                     $"elapsedMs={ElapsedMs(startedAt)}");
@@ -78,6 +120,30 @@ internal static class TerminalTools
             }
             catch (Exception ex)
             {
+                if (added && id is not null && session is not null)
+                {
+                    session.Kill();
+                    RemoveSession(id, session, "create-failed");
+                }
+                else if (process is not null)
+                {
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            process.Kill(entireProcessTree: true);
+                        }
+                    }
+                    catch
+                    {
+                        // Process may have exited while the create request was unwinding.
+                    }
+                    process.Dispose();
+                }
+                if (ex is OperationCanceledException)
+                {
+                    throw;
+                }
                 lastError = $"{launch.Shell}: {ex.Message}";
                 WorkerLog.Debug($"terminal launch failed shell={launch.Shell} error={ex.GetType().Name}: {ex.Message}");
             }
@@ -92,7 +158,9 @@ internal static class TerminalTools
             WorkerJsonContext.Default.TerminalCreateResult);
     }
 
-    public static async Task<WorkerResponse> InputAsync(JsonElement parameters)
+    public static async Task<WorkerResponse> InputAsync(
+        JsonElement parameters,
+        WorkerRequestContext context)
     {
         PruneExpiredExitedSessions();
         try
@@ -104,7 +172,7 @@ internal static class TerminalTools
                 return Mutation(false, "Terminal not found");
             }
 
-            var result = await session.WriteInputAsync(data);
+            var result = await session.WriteInputAsync(data, context.CancellationToken);
             WorkerLog.Debug(
                 $"terminal input id={id} bytes={Encoding.UTF8.GetByteCount(data)} success={result.Success}");
             return Mutation(result.Success, result.Error);
@@ -466,14 +534,19 @@ internal static class TerminalTools
             _ = WatchExitAsync(stdoutTask, stderrTask);
         }
 
-        public async Task<bool> WaitForInitialOutputAsync(TimeSpan timeout)
+        public async Task<bool> WaitForInitialOutputAsync(
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
         {
             if (timeout <= TimeSpan.Zero)
             {
                 return initialOutputSignal.Task.IsCompletedSuccessfully && initialOutputSignal.Task.Result;
             }
 
-            var completed = await Task.WhenAny(initialOutputSignal.Task, Task.Delay(timeout));
+            var completed = await Task.WhenAny(
+                initialOutputSignal.Task,
+                Task.Delay(timeout, cancellationToken));
+            cancellationToken.ThrowIfCancellationRequested();
             if (completed != initialOutputSignal.Task)
             {
                 return false;
@@ -482,7 +555,9 @@ internal static class TerminalTools
             return await initialOutputSignal.Task;
         }
 
-        public async Task<(bool Success, string? Error)> WriteInputAsync(string data)
+        public async Task<(bool Success, string? Error)> WriteInputAsync(
+            string data,
+            CancellationToken cancellationToken)
         {
             if (ExitCode.HasValue)
             {
@@ -493,8 +568,8 @@ internal static class TerminalTools
             {
                 var normalized = data.Replace("\r\n", "\n", StringComparison.Ordinal)
                     .Replace("\r", "\n", StringComparison.Ordinal);
-                await process.StandardInput.WriteAsync(normalized);
-                await process.StandardInput.FlushAsync();
+                await process.StandardInput.WriteAsync(normalized.AsMemory(), cancellationToken);
+                await process.StandardInput.FlushAsync(cancellationToken);
                 return (true, null);
             }
             catch (Exception ex)

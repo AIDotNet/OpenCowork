@@ -7,6 +7,10 @@ internal static class SettingsStore
     private const string DataDirectoryName = ".open-cowork";
     private const string SettingsFileName = "settings.json";
     private static readonly object Sync = new();
+    private static readonly JsonFileNodeCache<JsonObject> Cache = new();
+    private static byte[]? cachedUtf8;
+    private static long cachedUtf8Length = -1;
+    private static long cachedUtf8WriteTicks = -1;
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -17,7 +21,7 @@ internal static class SettingsStore
     {
         lock (Sync)
         {
-            return ToResponse(ReadRoot());
+            return ReadRootResponse();
         }
     }
 
@@ -42,15 +46,16 @@ internal static class SettingsStore
         var key = ReadKey(parameters);
         lock (Sync)
         {
-            var root = ReadRoot();
             if (string.IsNullOrWhiteSpace(key))
             {
-                return ToResponse(root);
+                return ReadRootResponse();
             }
 
-            return root.TryGetPropertyValue(key, out var value) && value is not null
-                ? ToResponse(value.DeepClone())
-                : WorkerResponse.RawJson("null");
+            using var document = JsonDocument.Parse(ReadRootUtf8());
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty(key, out var value)
+                    ? WorkerResponse.DirectMessagePack(writer => writer.WriteJsonElement(value))
+                    : WorkerResponse.DirectMessagePack(static writer => writer.WriteNil());
         }
     }
 
@@ -112,27 +117,11 @@ internal static class SettingsStore
     private static JsonObject ReadRoot()
     {
         var filePath = GetSettingsPath();
-        if (!File.Exists(filePath))
-        {
-            return [];
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(File.ReadAllBytes(filePath));
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                WorkerLog.Warn("settings file is not an object; ignoring invalid content");
-                return [];
-            }
-
-            return CloneElement(document.RootElement) as JsonObject ?? [];
-        }
-        catch (Exception ex)
-        {
-            WorkerLog.Warn($"settings read failed error={ex.GetType().Name}: {ex.Message}");
-            return [];
-        }
+        return Cache.Read(
+            filePath,
+            JsonValueKind.Object,
+            static element => CloneElement(element) as JsonObject,
+            "settings file") ?? [];
     }
 
     private static void WriteRoot(JsonObject root)
@@ -141,8 +130,11 @@ internal static class SettingsStore
         Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
         var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
-        File.WriteAllText(tempPath, root.ToJsonString(WriteOptions));
+        var utf8 = System.Text.Encoding.UTF8.GetBytes(root.ToJsonString(WriteOptions));
+        File.WriteAllBytes(tempPath, utf8);
         File.Move(tempPath, filePath, true);
+        Cache.Store(filePath, root);
+        StoreUtf8Cache(filePath, utf8);
     }
 
     private static string GetSettingsPath()
@@ -177,6 +169,46 @@ internal static class SettingsStore
 
     private static WorkerResponse ToResponse(JsonNode node)
     {
-        return WorkerResponse.RawJson(node.ToJsonString(WriteOptions));
+        return WorkerResponse.FromWriter(writer => node.WriteTo(writer));
+    }
+
+    private static WorkerResponse ReadRootResponse()
+    {
+        var utf8 = ReadRootUtf8();
+        return utf8.Length == 0
+            ? WorkerResponse.DirectMessagePack(static writer => writer.WriteMapHeader(0))
+            : WorkerResponse.DirectMessagePackJson(utf8);
+    }
+
+    private static byte[] ReadRootUtf8()
+    {
+        var filePath = GetSettingsPath();
+        if (!File.Exists(filePath))
+        {
+            cachedUtf8 = null;
+            cachedUtf8Length = -1;
+            cachedUtf8WriteTicks = -1;
+            return [];
+        }
+
+        var info = new FileInfo(filePath);
+        if (cachedUtf8 is not null &&
+            info.Length == cachedUtf8Length &&
+            info.LastWriteTimeUtc.Ticks == cachedUtf8WriteTicks)
+        {
+            return cachedUtf8;
+        }
+
+        var utf8 = File.ReadAllBytes(filePath);
+        StoreUtf8Cache(filePath, utf8);
+        return utf8;
+    }
+
+    private static void StoreUtf8Cache(string filePath, byte[] utf8)
+    {
+        cachedUtf8 = utf8;
+        var info = new FileInfo(filePath);
+        cachedUtf8Length = info.Exists ? info.Length : utf8.Length;
+        cachedUtf8WriteTicks = info.Exists ? info.LastWriteTimeUtc.Ticks : -1;
     }
 }

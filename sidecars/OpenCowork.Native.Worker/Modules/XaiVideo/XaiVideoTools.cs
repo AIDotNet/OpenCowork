@@ -3,11 +3,11 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 
-// Volcengine Ark (Seedance) async video generation.
-//   generate: POST {baseUrl}/contents/generations/tasks  -> { id }
-//   status:   GET  {baseUrl}/contents/generations/tasks/{id} -> { status, content.video_url }
-//   download: GET  {video_url} -> base64 mp4 (url expires ~1h, so fetch server-side)
-internal static class SeedanceVideoTools
+// xAI-compatible asynchronous video generation.
+// Routin protocol: https://docs.routin.ai/zh/docs/API/xai-video
+//   generate: POST {baseUrl}/xai/v1/videos/generations -> { request_id }
+//   status:   GET  {baseUrl}/xai/v1/videos/{request_id} -> { status, video.url }
+internal static class XaiVideoTools
 {
     private const long MaxVideoDownloadBytes = 512L * 1024 * 1024;
     private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
@@ -25,16 +25,23 @@ internal static class SeedanceVideoTools
         using var quota = await WorkerTaskQuotas.EnterMediaAsync(context.CancellationToken);
         var provider = GetObject(parameters, "provider");
         ValidateProvider(provider);
-        var prompt = JsonHelpers.GetString(parameters, "prompt") ?? string.Empty;
-        var images = GetArray(parameters, "images");
+        var prompt = JsonHelpers.GetString(parameters, "prompt")?.Trim() ?? string.Empty;
+        if (prompt.Length == 0)
+        {
+            throw new InvalidOperationException("xAI video generation requires prompt.");
+        }
 
-        var body = BuildTaskBody(provider, prompt, images);
-        var url = $"{GetBaseUrl(provider)}/contents/generations/tasks";
+        var body = BuildGenerationBody(
+            provider,
+            prompt,
+            GetArray(parameters, "images"),
+            GetObject(parameters, "video"));
+        var url = $"{GetXaiBaseUrl(provider)}/videos/generations";
         using var request = new HttpRequestMessage(HttpMethod.Post, url);
         request.Content = new StringContent(body, Encoding.UTF8, "application/json");
         ApplyHeaders(request, provider);
 
-        WorkerLog.Debug($"seedance video generate model={JsonHelpers.GetString(provider, "model")} url={url}");
+        WorkerLog.Debug($"xAI video generate model={JsonHelpers.GetString(provider, "model")} url={url}");
         using var response = await Http.SendAsync(
             request,
             HttpCompletionOption.ResponseHeadersRead,
@@ -43,19 +50,19 @@ internal static class SeedanceVideoTools
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
-                $"Seedance video generate failed HTTP {(int)response.StatusCode}: {ExtractError(text)}");
+                $"xAI video generate failed HTTP {(int)response.StatusCode}: {ExtractError(text)}");
         }
 
-        var id = ReadString(text, "id");
-        if (string.IsNullOrWhiteSpace(id))
+        var requestId = ReadString(text, "request_id");
+        if (string.IsNullOrWhiteSpace(requestId))
         {
-            throw new InvalidOperationException("Seedance video generate returned no task id.");
+            throw new InvalidOperationException("xAI video generation returned no request_id.");
         }
 
         return WorkerResponse.FromWriter(writer =>
         {
             writer.WriteStartObject();
-            writer.WriteString("id", id);
+            writer.WriteString("id", requestId);
             writer.WriteEndObject();
         });
     }
@@ -70,10 +77,10 @@ internal static class SeedanceVideoTools
         var taskId = JsonHelpers.GetString(parameters, "taskId");
         if (string.IsNullOrWhiteSpace(taskId))
         {
-            throw new InvalidOperationException("Seedance status requires taskId.");
+            throw new InvalidOperationException("xAI video status requires taskId.");
         }
 
-        var url = $"{GetBaseUrl(provider)}/contents/generations/tasks/{taskId}";
+        var url = $"{GetXaiBaseUrl(provider)}/videos/{Uri.EscapeDataString(taskId)}";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         ApplyHeaders(request, provider);
         using var response = await Http.SendAsync(
@@ -84,26 +91,36 @@ internal static class SeedanceVideoTools
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
-                $"Seedance video status failed HTTP {(int)response.StatusCode}: {ExtractError(text)}");
+                $"xAI video status failed HTTP {(int)response.StatusCode}: {ExtractError(text)}");
         }
 
-        string status = "unknown";
+        var status = "unknown";
         string? videoUrl = null;
         string? error = null;
         try
         {
             using var doc = JsonDocument.Parse(text);
             var root = doc.RootElement;
-            status = JsonHelpers.GetString(root, "status") ?? "unknown";
-            if (root.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Object)
+            var xaiStatus = JsonHelpers.GetString(root, "status") ?? "unknown";
+            status = xaiStatus switch
             {
-                videoUrl = JsonHelpers.GetString(content, "video_url");
+                "done" => "succeeded",
+                "expired" => "failed",
+                _ => xaiStatus
+            };
+            if (root.TryGetProperty("video", out var video) && video.ValueKind == JsonValueKind.Object)
+            {
+                videoUrl = JsonHelpers.GetString(video, "url");
             }
             error = ExtractError(root);
+            if (xaiStatus == "expired" && string.IsNullOrWhiteSpace(error))
+            {
+                error = "xAI video request expired.";
+            }
         }
         catch (JsonException)
         {
-            // leave defaults
+            // The caller will continue polling an unknown response until timeout.
         }
 
         return WorkerResponse.FromWriter(writer =>
@@ -130,7 +147,7 @@ internal static class SeedanceVideoTools
         var videoUrl = JsonHelpers.GetString(parameters, "videoUrl");
         if (string.IsNullOrWhiteSpace(videoUrl))
         {
-            throw new InvalidOperationException("Seedance download requires videoUrl.");
+            throw new InvalidOperationException("xAI video download requires videoUrl.");
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, videoUrl);
@@ -141,8 +158,9 @@ internal static class SeedanceVideoTools
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
-                $"Seedance video download failed HTTP {(int)response.StatusCode}");
+                $"xAI video download failed HTTP {(int)response.StatusCode}");
         }
+
         var mediaType = response.Content.Headers.ContentType?.MediaType ?? "video/mp4";
         var extension = mediaType.Contains("webm", StringComparison.OrdinalIgnoreCase)
             ? ".webm"
@@ -164,41 +182,61 @@ internal static class SeedanceVideoTools
         });
     }
 
-    private static string BuildTaskBody(JsonElement provider, string prompt, JsonElement images)
+    private static string BuildGenerationBody(
+        JsonElement provider,
+        string prompt,
+        JsonElement images,
+        JsonElement video)
     {
-        var buffer = new System.IO.MemoryStream();
+        var imageUrls = images.ValueKind == JsonValueKind.Array
+            ? images.EnumerateArray()
+                .Select(item => JsonHelpers.GetString(item, "dataUrl"))
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .Take(7)
+                .Cast<string>()
+                .ToArray()
+            : [];
+        var duration = Math.Clamp(
+            JsonHelpers.GetInt(video, "duration", 5),
+            1,
+            imageUrls.Length > 1 ? 10 : 15);
+        var aspectRatio = JsonHelpers.GetString(video, "aspectRatio");
+        var requestedResolution = JsonHelpers.GetString(video, "resolution");
+        var resolution = requestedResolution == "480p" ? "480p" : "720p";
+
+        var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
         {
             writer.WriteStartObject();
             writer.WriteString("model", JsonHelpers.GetString(provider, "model") ?? string.Empty);
-            writer.WritePropertyName("content");
-            writer.WriteStartArray();
+            writer.WriteString("prompt", prompt);
 
-            writer.WriteStartObject();
-            writer.WriteString("type", "text");
-            writer.WriteString("text", prompt);
-            writer.WriteEndObject();
-
-            if (images.ValueKind == JsonValueKind.Array)
+            if (imageUrls.Length == 1)
             {
-                foreach (var item in images.EnumerateArray())
+                writer.WritePropertyName("image");
+                writer.WriteStartObject();
+                writer.WriteString("url", imageUrls[0]);
+                writer.WriteEndObject();
+            }
+            else if (imageUrls.Length > 1)
+            {
+                writer.WritePropertyName("reference_images");
+                writer.WriteStartArray();
+                foreach (var imageUrl in imageUrls)
                 {
-                    var dataUrl = JsonHelpers.GetString(item, "dataUrl");
-                    if (string.IsNullOrWhiteSpace(dataUrl))
-                    {
-                        continue;
-                    }
                     writer.WriteStartObject();
-                    writer.WriteString("type", "image_url");
-                    writer.WritePropertyName("image_url");
-                    writer.WriteStartObject();
-                    writer.WriteString("url", dataUrl);
-                    writer.WriteEndObject();
+                    writer.WriteString("url", imageUrl);
                     writer.WriteEndObject();
                 }
+                writer.WriteEndArray();
             }
 
-            writer.WriteEndArray();
+            writer.WriteNumber("duration", duration);
+            if (!string.IsNullOrWhiteSpace(aspectRatio))
+            {
+                writer.WriteString("aspect_ratio", aspectRatio);
+            }
+            writer.WriteString("resolution", resolution);
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.ToArray());
@@ -213,22 +251,31 @@ internal static class SeedanceVideoTools
         ApiUserAgent.Ensure(request, provider);
     }
 
-    private static string GetBaseUrl(JsonElement provider)
+    private static string GetXaiBaseUrl(JsonElement provider)
     {
-        return (JsonHelpers.GetString(provider, "baseUrl") ?? "https://ark.cn-beijing.volces.com/api/v3")
+        var baseUrl = (JsonHelpers.GetString(provider, "baseUrl") ?? "https://api.routin.ai/v1")
             .Trim()
             .TrimEnd('/');
+        if (baseUrl.EndsWith("/xai/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            return baseUrl;
+        }
+        if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            baseUrl = baseUrl[..^3];
+        }
+        return $"{baseUrl}/xai/v1";
     }
 
     private static void ValidateProvider(JsonElement provider)
     {
         if (string.IsNullOrWhiteSpace(JsonHelpers.GetString(provider, "apiKey")))
         {
-            throw new InvalidOperationException("Seedance video provider requires apiKey.");
+            throw new InvalidOperationException("xAI video provider requires apiKey.");
         }
         if (string.IsNullOrWhiteSpace(JsonHelpers.GetString(provider, "model")))
         {
-            throw new InvalidOperationException("Seedance video provider requires model.");
+            throw new InvalidOperationException("xAI video provider requires model.");
         }
     }
 
@@ -272,19 +319,17 @@ internal static class SeedanceVideoTools
         {
             return null;
         }
-        if (element.TryGetProperty("error", out var error))
+        if (!element.TryGetProperty("error", out var error))
         {
-            if (error.ValueKind == JsonValueKind.String)
-            {
-                return error.GetString();
-            }
-            if (error.ValueKind == JsonValueKind.Object &&
-                JsonHelpers.GetString(error, "message") is { Length: > 0 } message)
-            {
-                return message;
-            }
+            return null;
         }
-        return null;
+        if (error.ValueKind == JsonValueKind.String)
+        {
+            return error.GetString();
+        }
+        return error.ValueKind == JsonValueKind.Object
+            ? JsonHelpers.GetString(error, "message")
+            : null;
     }
 
     private static JsonElement GetObject(JsonElement element, string propertyName)

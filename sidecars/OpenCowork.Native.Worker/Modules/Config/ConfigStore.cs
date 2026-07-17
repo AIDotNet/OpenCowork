@@ -7,6 +7,7 @@ internal static class ConfigStore
     private const string DataDirectoryName = ".open-cowork";
     private const string ConfigFileName = "config.json";
     private static readonly object Sync = new();
+    private static readonly JsonFileNodeCache<JsonObject> Cache = new();
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -50,7 +51,7 @@ internal static class ConfigStore
 
             return root.TryGetPropertyValue(key, out var value) && value is not null
                 ? ToResponse(value.DeepClone())
-                : WorkerResponse.RawJson("null");
+                : WorkerResponse.FromWriter(static writer => writer.WriteNullValue());
         }
     }
 
@@ -160,27 +161,11 @@ internal static class ConfigStore
     private static JsonObject ReadRoot()
     {
         var filePath = GetConfigPath();
-        if (!File.Exists(filePath))
-        {
-            return [];
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(File.ReadAllBytes(filePath));
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                WorkerLog.Warn("config file is not an object; ignoring invalid content");
-                return [];
-            }
-
-            return CloneElement(document.RootElement) as JsonObject ?? [];
-        }
-        catch (Exception ex)
-        {
-            WorkerLog.Warn($"config read failed error={ex.GetType().Name}: {ex.Message}");
-            return [];
-        }
+        return Cache.Read(
+            filePath,
+            JsonValueKind.Object,
+            static element => CloneElement(element) as JsonObject,
+            "config file") ?? [];
     }
 
     private static void WriteRoot(JsonObject root)
@@ -191,6 +176,7 @@ internal static class ConfigStore
         var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
         File.WriteAllText(tempPath, root.ToJsonString(WriteOptions));
         File.Move(tempPath, filePath, true);
+        Cache.Store(filePath, root);
     }
 
     private static string GetConfigPath()
@@ -225,6 +211,6 @@ internal static class ConfigStore
 
     private static WorkerResponse ToResponse(JsonNode node)
     {
-        return WorkerResponse.RawJson(node.ToJsonString());
+        return WorkerResponse.FromWriter(writer => node.WriteTo(writer));
     }
 }

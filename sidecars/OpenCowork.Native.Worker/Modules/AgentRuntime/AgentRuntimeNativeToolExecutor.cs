@@ -151,6 +151,11 @@ internal static class AgentRuntimeNativeToolExecutor
             return true;
         }
 
+        if (AgentRuntimeCodeGraphExecutor.IsCodeGraphTool(toolName))
+        {
+            return true;
+        }
+
         if (!NativeToolNames.Contains(toolName))
         {
             return false;
@@ -516,6 +521,16 @@ internal static class AgentRuntimeNativeToolExecutor
                     parameters,
                     cancellationToken);
                 return new RendererToolResult(CreateStringElement(webSearchContent), false, null);
+            }
+
+            if (AgentRuntimeCodeGraphExecutor.IsCodeGraphTool(call.Name))
+            {
+                var codegraphContent = await AgentRuntimeCodeGraphExecutor.ExecuteAsync(
+                    call,
+                    parameters,
+                    context,
+                    cancellationToken);
+                return new RendererToolResult(CreateStringElement(codegraphContent), false, null);
             }
 
             if (AgentRuntimeSshToolExecutor.ShouldRoute(parameters) &&

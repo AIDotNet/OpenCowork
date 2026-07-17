@@ -66,11 +66,29 @@ internal static class FileTools
         ".venv", "venv", "env"
     };
 
+    // AOT publish strips exception resource strings (UseSystemResourceKeys), so
+    // FileNotFoundException.Message degrades to a raw key like
+    // "IO_FileNotFound_FileName, /path". Normalize not-found errors to a stable
+    // ENOENT form that callers (renderer/main missing-file detection) can match.
+    private static string DescribeIoError(Exception ex, string? requestedPath)
+    {
+        if (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            var target = (ex as FileNotFoundException)?.FileName;
+            if (string.IsNullOrEmpty(target)) target = requestedPath;
+            return string.IsNullOrEmpty(target)
+                ? "ENOENT: no such file or directory"
+                : $"ENOENT: no such file or directory, open '{target}'";
+        }
+        return ex.Message;
+    }
+
     public static async Task<WorkerResponse> ReadFileAsync(JsonElement parameters)
     {
+        string? filePath = null;
         try
         {
-            var filePath = RequirePath(parameters);
+            filePath = RequirePath(parameters);
             var extension = Path.GetExtension(filePath);
             var maxFileReadBytes = JsonHelpers.GetLong(parameters, "maxFileReadBytes", DefaultMaxFileReadBytes);
             var maxImageReadBytes = JsonHelpers.GetLong(parameters, "maxImageReadBytes", DefaultMaxImageReadBytes);
@@ -114,15 +132,16 @@ internal static class FileTools
         }
         catch (Exception ex)
         {
-            return WorkerResponse.Error(ex.Message);
+            return WorkerResponse.Error(DescribeIoError(ex, filePath));
         }
     }
 
     public static async Task<WorkerResponse> ReadBinaryFileAsync(JsonElement parameters)
     {
+        string? filePath = null;
         try
         {
-            var filePath = RequirePath(parameters);
+            filePath = RequirePath(parameters);
             var maxFileReadBytes = JsonHelpers.GetLong(parameters, "maxFileReadBytes", DefaultMaxFileReadBytes);
             EnsureFileSize(filePath, maxFileReadBytes);
             var bytes = await File.ReadAllBytesAsync(filePath);
@@ -132,7 +151,7 @@ internal static class FileTools
         }
         catch (Exception ex)
         {
-            return WorkerResponse.Error(ex.Message);
+            return WorkerResponse.Error(DescribeIoError(ex, filePath));
         }
     }
 
@@ -294,9 +313,10 @@ internal static class FileTools
 
     public static async Task<WorkerResponse> ReadTextFileLinesAsync(JsonElement parameters)
     {
+        string? filePath = null;
         try
         {
-            var filePath = RequirePath(parameters);
+            filePath = RequirePath(parameters);
             var extension = Path.GetExtension(filePath);
             if (TextReadBlockedExtensions.Contains(extension))
             {
@@ -327,7 +347,7 @@ internal static class FileTools
         }
         catch (Exception ex)
         {
-            return WorkerResponse.Error(ex.Message);
+            return WorkerResponse.Error(DescribeIoError(ex, filePath));
         }
     }
 
@@ -449,25 +469,33 @@ internal static class FileTools
             var query = (JsonHelpers.GetString(parameters, "query") ?? string.Empty).Trim();
             var limit = Math.Max(1, Math.Min(JsonHelpers.GetInt(parameters, "limit", FileSearchMaxResults), 100));
             var matcher = IgnoreMatcher.Create(root, Array.Empty<string>(), respectGitignore: true);
-            var candidates = EnumerateEntries(root, includeDirectories: false, hidden: true, followSymlinks: false, maxDepth: null, matcher)
-                .Where(item => !item.IsDirectory)
-                .Select(item => NormalizeRelativePath(root, item.Path))
-                .ToList();
+            var candidates = new SortedSet<FileSearchCandidate>(FileSearchCandidateComparer.Instance);
+            foreach (var item in EnumerateEntries(
+                root,
+                includeDirectories: false,
+                hidden: true,
+                followSymlinks: false,
+                maxDepth: null,
+                matcher,
+                includeMtime: false))
+            {
+                var relativePath = NormalizeRelativePath(root, item.Path);
+                var score = query.Length == 0 ? 0 : ScoreFileSearchMatch(relativePath, query);
+                if (double.IsPositiveInfinity(score))
+                {
+                    continue;
+                }
 
-            var result = string.IsNullOrEmpty(query)
-                ? candidates
-                    .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
-                    .Take(limit)
-                    .Select(item => new SearchFileItem(item, Path.GetFileName(item)))
-                    .ToList()
-                : candidates
-                    .Select(item => new { Path = item, Score = ScoreFileSearchMatch(item, query) })
-                    .Where(item => !double.IsPositiveInfinity(item.Score))
-                    .OrderBy(item => item.Score)
-                    .ThenBy(item => item.Path, StringComparer.OrdinalIgnoreCase)
-                    .Take(limit)
-                    .Select(item => new SearchFileItem(item.Path, Path.GetFileName(item.Path)))
-                    .ToList();
+                candidates.Add(new FileSearchCandidate(relativePath, score));
+                if (candidates.Count > limit)
+                {
+                    candidates.Remove(candidates.Max!);
+                }
+            }
+
+            var result = candidates
+                .Select(item => new SearchFileItem(item.Path, Path.GetFileName(item.Path)))
+                .ToList();
 
             return WorkerResponse.Json(result, WorkerJsonContext.Default.ListSearchFileItem);
         }
@@ -836,7 +864,14 @@ internal static class FileTools
         }
     }
 
-    private static IEnumerable<FileEntry> EnumerateEntries(string root, bool includeDirectories, bool hidden, bool followSymlinks, int? maxDepth, IgnoreMatcher matcher)
+    private static IEnumerable<FileEntry> EnumerateEntries(
+        string root,
+        bool includeDirectories,
+        bool hidden,
+        bool followSymlinks,
+        int? maxDepth,
+        IgnoreMatcher matcher,
+        bool includeMtime = true)
     {
         root = Path.GetFullPath(root);
         var stack = new Stack<(string Path, int Depth)>();
@@ -894,13 +929,13 @@ internal static class FileTools
                 {
                     if (includeDirectories)
                     {
-                        yield return new FileEntry(entry, true, GetMtimeMs(entry));
+                        yield return new FileEntry(entry, true, includeMtime ? GetMtimeMs(entry) : 0);
                     }
                     stack.Push((entry, depth + 1));
                 }
                 else if (File.Exists(entry))
                 {
-                    yield return new FileEntry(entry, false, GetMtimeMs(entry));
+                    yield return new FileEntry(entry, false, includeMtime ? GetMtimeMs(entry) : 0);
                 }
             }
         }
@@ -1834,6 +1869,14 @@ internal sealed class GrepPathMatcher
 
 internal sealed class IgnoreMatcher
 {
+    private static readonly HashSet<string> FileToolsDefaultIgnoredDirs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "node_modules", ".git", ".svn", ".hg", ".bzr", "dist", "build", "out", ".next",
+        ".nuxt", ".output", "coverage", ".nyc_output", ".cache", ".parcel-cache", "vendor",
+        "target", "bin", "obj", ".gradle", "__pycache__", ".pytest_cache", ".mypy_cache",
+        ".venv", "venv", "env"
+    };
+
     private readonly string _root;
     private readonly PathGlobMatcher[] _patterns;
 
@@ -1878,13 +1921,40 @@ internal sealed class IgnoreMatcher
         return _patterns.Any(pattern => pattern.Matches(relative, name));
     }
 
-    private static HashSet<string> FileToolsDefaultIgnoredDirs => new(StringComparer.OrdinalIgnoreCase)
+}
+
+internal sealed record FileSearchCandidate(string Path, double Score);
+
+internal sealed class FileSearchCandidateComparer : IComparer<FileSearchCandidate>
+{
+    public static FileSearchCandidateComparer Instance { get; } = new();
+
+    public int Compare(FileSearchCandidate? left, FileSearchCandidate? right)
     {
-        "node_modules", ".git", ".svn", ".hg", ".bzr", "dist", "build", "out", ".next",
-        ".nuxt", ".output", "coverage", ".nyc_output", ".cache", ".parcel-cache", "vendor",
-        "target", "bin", "obj", ".gradle", "__pycache__", ".pytest_cache", ".mypy_cache",
-        ".venv", "venv", "env"
-    };
+        if (ReferenceEquals(left, right))
+        {
+            return 0;
+        }
+        if (left is null)
+        {
+            return -1;
+        }
+        if (right is null)
+        {
+            return 1;
+        }
+
+        var scoreComparison = left.Score.CompareTo(right.Score);
+        if (scoreComparison != 0)
+        {
+            return scoreComparison;
+        }
+
+        var pathComparison = string.Compare(left.Path, right.Path, StringComparison.OrdinalIgnoreCase);
+        return pathComparison != 0
+            ? pathComparison
+            : string.Compare(left.Path, right.Path, StringComparison.Ordinal);
+    }
 }
 
 internal sealed class PathGlobMatcher

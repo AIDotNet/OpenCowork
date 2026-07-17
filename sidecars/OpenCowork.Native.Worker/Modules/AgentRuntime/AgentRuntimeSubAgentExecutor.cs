@@ -106,6 +106,13 @@ internal static partial class AgentRuntimeSubAgentExecutor
         AgentRuntimeTools.AgentRuntimeRunState? childState = null;
         AgentRuntimeSubAgentConcurrencyLease? pendingConcurrencyLease = null;
         var parentLeaseWasYielded = YieldSubAgentConcurrencyLease(parentState);
+        using var cancelScope = AgentRuntimeSubAgentCancellationScope.Register(
+            call.Id,
+            parentState.SessionId,
+            "task");
+        using var acquireCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            cancelScope.Token);
         try
         {
             // A synchronous parent is suspended while this Task runs, so yield its slot before
@@ -117,7 +124,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 parameters,
                 parentState,
                 context,
-                cancellationToken);
+                acquireCancellation.Token);
 
             var promptMessage = BuildPromptMessage(call.Input, definition.InitialPrompt);
             var innerTools = ResolveSubAgentTools(parameters, definition);
@@ -152,6 +159,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
             using var parentCancellationRegistration = parentState.CancellationToken.Register(
                 static state => ((AgentRuntimeTools.AgentRuntimeRunState)state!).Cancel("parent"),
                 childState);
+            cancelScope.AttachRunState(childState);
 
             var startHook = await AgentRuntimeHooks.RunSubagentAsync(
                 parameters,

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -7,7 +8,8 @@ using System.Text.RegularExpressions;
 internal static partial class AgentRuntimeTeamRuntimeStore
 {
     private const string TeamFileName = "team.json";
-    private const string MessagesFileName = "messages.json";
+    private const string MessagesFileName = "messages.jsonl";
+    private const string LegacyMessagesFileName = "messages.json";
     private const string IdAlphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     private static readonly int[] LockRetryDelaysMs = [25, 50, 100, 200, 400];
     private static readonly JsonSerializerOptions IndentedJsonOptions = new()
@@ -79,7 +81,10 @@ internal static partial class AgentRuntimeTeamRuntimeStore
         }
 
         WriteJsonNode(teamFilePath, manifest);
-        WriteJsonNode(GetMessagesFilePath(safeTeamName), new JsonArray());
+        File.WriteAllText(
+            GetMessagesFilePath(safeTeamName),
+            string.Empty,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         return runtimePath;
     }
 
@@ -168,13 +173,12 @@ internal static partial class AgentRuntimeTeamRuntimeStore
         var messagesFilePath = GetMessagesFilePath(teamName);
         using (AcquireFileLock(messagesFilePath))
         {
-            var messages = ReadMessages(teamName);
-            messages.Add((JsonNode?)message);
-            WriteJsonNode(messagesFilePath, messages);
+            EnsureMessagesLog(teamName);
+            AppendJsonLine(messagesFilePath, message);
         }
 
-        TouchManifest(teamName);
-        return ReadSnapshot(teamName, 10);
+        var manifest = TouchManifest(teamName);
+        return new TeamSnapshot(teamName, manifest, ReadRecentMessages(teamName, 10));
     }
 
     public static TeamSnapshot UpdatePermissionFromMessage(string teamName, string content)
@@ -460,9 +464,8 @@ internal static partial class AgentRuntimeTeamRuntimeStore
         var messagesFilePath = GetMessagesFilePath(teamName);
         using (AcquireFileLock(messagesFilePath))
         {
-            var messages = ReadMessages(teamName);
-            messages.Add((JsonNode?)messageNode);
-            WriteJsonNode(messagesFilePath, messages);
+            EnsureMessagesLog(teamName);
+            AppendJsonLine(messagesFilePath, messageNode);
         }
 
         TouchManifest(teamName);
@@ -533,13 +536,8 @@ internal static partial class AgentRuntimeTeamRuntimeStore
         var normalizedLimit = Math.Max(1, Math.Min(limit, 50));
         var normalizedRecipient = recipient?.Trim();
         var matches = new List<JsonNode?>();
-        foreach (var item in ReadMessages(teamName))
+        foreach (var message in EnumerateMessages(teamName))
         {
-            if (item is not JsonObject message)
-            {
-                continue;
-            }
-
             if (GetLong(message, "timestamp") <= afterTimestamp)
             {
                 continue;
@@ -599,31 +597,142 @@ internal static partial class AgentRuntimeTeamRuntimeStore
 
     private static JsonArray ReadRecentMessages(string teamName, int limit)
     {
-        var messages = ReadMessages(teamName);
-        var start = Math.Max(0, messages.Count - Math.Max(1, Math.Min(limit, 50)));
+        var normalizedLimit = Math.Max(1, Math.Min(limit, 50));
+        var messages = ReadLastMessages(teamName, normalizedLimit);
         var result = new JsonArray();
-        for (var index = start; index < messages.Count; index++)
+        foreach (var message in messages)
         {
-            result.Add(messages[index]?.DeepClone());
+            result.Add((JsonNode?)message.DeepClone());
         }
         return result;
     }
 
-    private static JsonArray ReadMessages(string teamName)
+    private static IEnumerable<JsonObject> EnumerateMessages(string teamName)
+    {
+        var filePath = GetMessagesFilePath(teamName);
+        if (File.Exists(filePath))
+        {
+            foreach (var line in File.ReadLines(filePath, Encoding.UTF8))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+                JsonObject? message = null;
+                try
+                {
+                    message = JsonNode.Parse(line) as JsonObject;
+                }
+                catch
+                {
+                    // Ignore a partial/corrupt line and continue with later messages.
+                }
+                if (message is not null)
+                {
+                    yield return message;
+                }
+            }
+            yield break;
+        }
+
+        var legacyPath = GetLegacyMessagesFilePath(teamName);
+        if (!File.Exists(legacyPath))
+        {
+            yield break;
+        }
+
+        JsonArray? legacy = null;
+        try
+        {
+            legacy = JsonNode.Parse(File.ReadAllText(legacyPath, Encoding.UTF8)) as JsonArray;
+        }
+        catch
+        {
+            yield break;
+        }
+        foreach (var item in legacy ?? [])
+        {
+            if (item is JsonObject message)
+            {
+                yield return message;
+            }
+        }
+    }
+
+    private static List<JsonObject> ReadLastMessages(string teamName, int limit)
     {
         var filePath = GetMessagesFilePath(teamName);
         if (!File.Exists(filePath))
         {
-            return new JsonArray();
+            return EnumerateMessages(teamName).TakeLast(limit).ToList();
         }
-        try
+
+        var lines = ReadLastNonEmptyLines(filePath, limit);
+        var result = new List<JsonObject>(lines.Count);
+        foreach (var line in lines)
         {
-            return JsonNode.Parse(File.ReadAllText(filePath, Encoding.UTF8)) as JsonArray ?? new JsonArray();
+            try
+            {
+                if (JsonNode.Parse(line) is JsonObject message)
+                {
+                    result.Add(message);
+                }
+            }
+            catch
+            {
+                // Ignore a corrupt tail line; older valid lines remain usable.
+            }
         }
-        catch
+        return result;
+    }
+
+    private static List<string> ReadLastNonEmptyLines(string filePath, int limit)
+    {
+        var lines = new List<string>(limit);
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var reverseLine = new List<byte>();
+        var buffer = new byte[4096];
+        var position = stream.Length;
+        while (position > 0 && lines.Count < limit)
         {
-            return new JsonArray();
+            var readLength = (int)Math.Min(buffer.Length, position);
+            position -= readLength;
+            stream.Position = position;
+            stream.ReadExactly(buffer.AsSpan(0, readLength));
+            for (var index = readLength - 1; index >= 0; index--)
+            {
+                var current = buffer[index];
+                if (current == (byte)'\n')
+                {
+                    AddReversedLine(lines, reverseLine);
+                    if (lines.Count >= limit)
+                    {
+                        break;
+                    }
+                }
+                else if (current != (byte)'\r')
+                {
+                    reverseLine.Add(current);
+                }
+            }
         }
+        if (lines.Count < limit)
+        {
+            AddReversedLine(lines, reverseLine);
+        }
+        lines.Reverse();
+        return lines;
+    }
+
+    private static void AddReversedLine(List<string> lines, List<byte> reverseLine)
+    {
+        if (reverseLine.Count == 0)
+        {
+            return;
+        }
+        reverseLine.Reverse();
+        lines.Add(Encoding.UTF8.GetString(CollectionsMarshal.AsSpan(reverseLine)));
+        reverseLine.Clear();
     }
 
     private static JsonObject? ReadManifest(string teamName)
@@ -643,7 +752,7 @@ internal static partial class AgentRuntimeTeamRuntimeStore
         }
     }
 
-    private static void UpdateManifest(string teamName, Action<JsonObject> update)
+    private static JsonObject UpdateManifest(string teamName, Action<JsonObject> update)
     {
         var filePath = GetTeamFilePath(teamName);
         using var fileLock = AcquireFileLock(filePath);
@@ -652,11 +761,12 @@ internal static partial class AgentRuntimeTeamRuntimeStore
         update(manifest);
         manifest["updatedAt"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         WriteJsonNode(filePath, manifest);
+        return (JsonObject)manifest.DeepClone();
     }
 
-    private static void TouchManifest(string teamName)
+    private static JsonObject TouchManifest(string teamName)
     {
-        UpdateManifest(teamName, _ => { });
+        return UpdateManifest(teamName, _ => { });
     }
 
     private static JsonNode? CloneElementAsNode(JsonElement element)
@@ -918,6 +1028,43 @@ internal static partial class AgentRuntimeTeamRuntimeStore
     private static string GetMessagesFilePath(string teamName)
     {
         return Path.Combine(GetTeamRuntimePath(teamName), MessagesFileName);
+    }
+
+    private static string GetLegacyMessagesFilePath(string teamName)
+    {
+        return Path.Combine(GetTeamRuntimePath(teamName), LegacyMessagesFileName);
+    }
+
+    private static void EnsureMessagesLog(string teamName)
+    {
+        var filePath = GetMessagesFilePath(teamName);
+        if (File.Exists(filePath))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        var tempPath = $"{filePath}.{Guid.NewGuid():N}.tmp";
+        using (var writer = new StreamWriter(
+            tempPath,
+            append: false,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+        {
+            foreach (var message in EnumerateMessages(teamName))
+            {
+                writer.WriteLine(message.ToJsonString());
+            }
+        }
+        File.Move(tempPath, filePath, true);
+    }
+
+    private static void AppendJsonLine(string filePath, JsonObject message)
+    {
+        using var stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
+        using var writer = new StreamWriter(
+            stream,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        writer.WriteLine(message.ToJsonString());
     }
 
     private static void WriteJsonNode(string filePath, JsonNode node)

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { filePathToMediaUrl } from '@renderer/lib/local-media-url'
 import type { VideoNode } from '../graph-types'
 import { useGraphStore } from '../graph-store'
 import { useGraphActions } from '../graph-actions'
@@ -18,7 +19,8 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
   const actions = useGraphActions()
   const updateNode = useGraphStore((s) => s.updateNode)
   const addAsset = useAssetStore((s) => s.addAsset)
-  const { src, filePath, poster, mediaType, generating, status, error, jobId } = node.data
+  const { src, filePath, poster, mediaType, generating, status, error, interrupted, jobId } =
+    node.data
 
   const saveToAssets = (): void => {
     if (!filePath) return
@@ -32,38 +34,17 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
     toast.success(t('drawPage.assetSaved', { defaultValue: 'Saved to materials' }))
   }
   const [wantSrc, setWantSrc] = useState(false)
-  const [loading, setLoading] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
-  // Load the video from disk when the user asks to play, or when there is no
-  // poster yet (so we can capture a first-frame thumbnail once).
+  // Attach the video when the user asks to play, or when there is no poster
+  // yet (so we can capture a first-frame thumbnail once). The oc-media URL
+  // streams straight from disk — no size limit, no base64 over IPC.
   const shouldLoad = (wantSrc || !poster) && !!filePath && !src && !generating
   useEffect(() => {
-    if (!shouldLoad || loading) return
-    let cancelled = false
-    setLoading(true)
-    void (async () => {
-      try {
-        const res = (await ipcClient.invoke(IPC.FS_READ_FILE_BINARY, { path: filePath })) as {
-          data?: string
-          error?: string
-        }
-        if (res?.data && !cancelled) {
-          const url = `data:${mediaType || 'video/mp4'};base64,${res.data}`
-          updateNode(node.id, (n) =>
-            n.kind === 'video' ? { ...n, data: { ...n.data, src: url } } : n
-          )
-        }
-      } catch {
-        /* leave blank */
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [shouldLoad, loading, filePath, mediaType, node.id, updateNode])
+    if (!shouldLoad || !filePath) return
+    const url = filePathToMediaUrl(filePath)
+    updateNode(node.id, (n) => (n.kind === 'video' ? { ...n, data: { ...n.data, src: url } } : n))
+  }, [shouldLoad, filePath, node.id, updateNode])
 
   // Capture a first-frame poster once the video has a decodable frame.
   const capturePoster = useCallback(() => {
@@ -86,28 +67,22 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
   const stop = useCallback(async () => {
     if (jobId) await ipcClient.invoke(IPC.SEEDANCE_VIDEO_CANCEL, { jobId })
     updateNode(node.id, (n) =>
-      n.kind === 'video' ? { ...n, data: { ...n.data, generating: false, status: undefined } } : n
+      n.kind === 'video'
+        ? { ...n, data: { ...n.data, generating: false, status: undefined, interrupted: true } }
+        : n
     )
   }, [jobId, node.id, updateNode])
 
   const download = async (): Promise<void> => {
     if (!filePath) return
     try {
-      const read = (await ipcClient.invoke(IPC.FS_READ_FILE_BINARY, { path: filePath })) as {
-        data?: string
-        error?: string
-      }
-      if (read.error || !read.data) throw new Error(read.error || 'read failed')
-      const save = (await ipcClient.invoke(IPC.FS_SELECT_SAVE_FILE, {
-        defaultPath: 'video.mp4',
+      const result = (await ipcClient.invoke(IPC.FS_DOWNLOAD_FILE_COPY, {
+        sourcePath: filePath,
+        defaultName: 'video.mp4',
         filters: [{ name: 'Video', extensions: ['mp4', 'webm'] }]
-      })) as { path?: string; canceled?: boolean }
-      if (save.canceled || !save.path) return
-      const write = (await ipcClient.invoke(IPC.FS_WRITE_FILE_BINARY, {
-        path: save.path,
-        data: read.data
-      })) as { error?: string }
-      if (write.error) throw new Error(write.error)
+      })) as { success?: boolean; canceled?: boolean; error?: string }
+      if (result.canceled) return
+      if (!result.success) throw new Error(result.error || 'copy failed')
       toast.success(t('drawPage.downloadSuccess'))
     } catch (err) {
       toast.error(t('drawPage.downloadFailed'), {
@@ -124,6 +99,7 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
           src={src}
           poster={poster}
           controls
+          crossOrigin="anonymous"
           onLoadedData={capturePoster}
           className="h-full w-full rounded-xl object-contain"
         />
@@ -155,25 +131,21 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
           <img src={poster} alt="" className="h-full w-full rounded-xl object-contain" />
           <span className="absolute inset-0 grid place-items-center">
             <span className="grid size-11 place-items-center rounded-full bg-black/55 text-white">
-              {loading ? <Loader2 className="size-5 animate-spin" /> : <Play className="size-5" />}
+              <Play className="size-5" />
             </span>
           </span>
         </button>
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
-          {loading ? (
-            <Loader2 className="size-5 animate-spin text-white/70" />
-          ) : (
-            <button
-              type="button"
-              data-nodrag
-              onClick={() => actions.generateVideoNode(node.id)}
-              className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              <Sparkles className="size-3.5" />
-              {t('drawPage.generate')}
-            </button>
-          )}
+          <button
+            type="button"
+            data-nodrag
+            onClick={() => actions.generateVideoNode(node.id)}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <Sparkles className="size-3.5" />
+            {t('drawPage.generate')}
+          </button>
         </div>
       )}
 
@@ -181,6 +153,27 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
         <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-md bg-destructive/90 px-2 py-1 text-[11px] text-white">
           <AlertCircle className="size-3.5 shrink-0" />
           <span className="truncate">{error}</span>
+        </div>
+      )}
+
+      {interrupted && !error && !generating && (
+        <div
+          data-nodrag
+          className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-md bg-amber-600/90 px-2 py-1 text-[11px] text-white"
+        >
+          <AlertCircle className="size-3.5 shrink-0" />
+          <span className="truncate">
+            {t('drawPage.interrupted', {
+              defaultValue: 'The previous generation was interrupted.'
+            })}
+          </span>
+          <button
+            type="button"
+            className="ml-auto shrink-0 rounded bg-white/20 px-1.5 py-0.5 font-medium hover:bg-white/30"
+            onClick={() => actions.generateVideoNode(node.id)}
+          >
+            {t('drawPage.retry', { defaultValue: 'Retry' })}
+          </button>
         </div>
       )}
 

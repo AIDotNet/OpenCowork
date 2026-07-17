@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@renderer/components/ui/button'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { buildOutpaintCompositeAndMask, type OutpaintExtend } from '@renderer/lib/image-mask'
+import { EditModelSelect, defaultEditModel, type EditModelValue } from './EditModelSelect'
 import { nodeScreenRect } from './graph-geometry'
 import { useGraphStore } from './graph-store'
 import { useGraphActions } from './graph-actions'
@@ -28,6 +29,7 @@ export function NodeOutpaint({ node }: Props): React.JSX.Element | null {
 
   const [extend, setExtend] = useState<OutpaintExtend>(ZERO)
   const [prompt, setPrompt] = useState('')
+  const [model, setModel] = useState<EditModelValue | null>(() => defaultEditModel(node))
   const dragRef = useRef<{ edge: Edge; x: number; y: number; base: OutpaintExtend } | null>(null)
 
   const screen = nodeScreenRect(node, camera)
@@ -81,10 +83,12 @@ export function NodeOutpaint({ node }: Props): React.JSX.Element | null {
       maskDataUrl: result.maskDataUrl,
       baseImageDataUrl: result.baseDataUrl,
       prompt: prompt.trim() || node.data.prompt || '',
-      sourceSize: result.size
+      sourceSize: result.size,
+      providerId: model?.providerId,
+      modelId: model?.modelId
     })
     setEditing(null)
-  }, [actions, extend, image, node.data.prompt, node.id, prompt, setEditing])
+  }, [actions, extend, image, model, node.data.prompt, node.id, prompt, setEditing])
 
   const hasExtend = extend.left + extend.right + extend.top + extend.bottom > 1
   const handleCls =
@@ -148,23 +152,34 @@ export function NodeOutpaint({ node }: Props): React.JSX.Element | null {
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', stiffness: 280, damping: 26 }}
       >
-        <div className="flex w-full max-w-[560px] items-end gap-2 rounded-2xl border bg-background/90 p-3 shadow-lg backdrop-blur-md">
-          <Textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder={t('drawPage.outpaintPrompt', {
-              defaultValue: 'Describe what fills the new area (optional)'
-            })}
-            className="min-h-9 max-h-28 flex-1 resize-none py-2 text-sm"
-            rows={1}
+        <div className="flex w-full max-w-[560px] flex-col gap-2 rounded-2xl border bg-background/90 p-3 shadow-lg backdrop-blur-md">
+          <EditModelSelect
+            value={model}
+            onChange={setModel}
+            className="h-7 w-fit max-w-full text-[11px]"
           />
-          <Button variant="outline" size="icon" className="size-9 shrink-0" onClick={cancel}>
-            <X className="size-4" />
-          </Button>
-          <Button className="h-9 shrink-0 gap-1.5" onClick={apply} disabled={!hasExtend || !image}>
-            <Check className="size-4" />
-            {t('drawPage.generate')}
-          </Button>
+          <div className="flex items-end gap-2">
+            <Textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder={t('drawPage.outpaintPrompt', {
+                defaultValue: 'Describe what fills the new area (optional)'
+              })}
+              className="min-h-9 max-h-28 flex-1 resize-none py-2 text-sm"
+              rows={1}
+            />
+            <Button variant="outline" size="icon" className="size-9 shrink-0" onClick={cancel}>
+              <X className="size-4" />
+            </Button>
+            <Button
+              className="h-9 shrink-0 gap-1.5"
+              onClick={apply}
+              disabled={!hasExtend || !image}
+            >
+              <Check className="size-4" />
+              {t('drawPage.generate')}
+            </Button>
+          </div>
         </div>
       </motion.div>
     </div>

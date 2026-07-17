@@ -1,9 +1,7 @@
-import { useEffect, useState } from 'react'
 import { Film, ImageOff, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
-import { IPC } from '@renderer/lib/ipc/channels'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { filePathToMediaUrl } from '@renderer/lib/local-media-url'
 import { useAssetStore, type AssetItem } from './asset-store'
 
 export interface PickedAsset {
@@ -24,36 +22,6 @@ export function AssetPickerDialog({ open, onOpenChange, onPick }: Props): React.
   const { t } = useTranslation('layout')
   const items = useAssetStore((s) => s.items)
   const removeAsset = useAssetStore((s) => s.removeAsset)
-  const [srcs, setSrcs] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
-    Promise.all(
-      items.map(async (item) => {
-        // Only load image thumbnails eagerly; videos show an icon tile.
-        if (item.kind === 'video' || srcs[item.id]) return
-        try {
-          const res = (await ipcClient.invoke(IPC.FS_READ_FILE_BINARY, {
-            path: item.filePath
-          })) as {
-            data?: string
-            error?: string
-          }
-          if (res?.data && !cancelled) {
-            const src = `data:${item.mediaType || 'image/png'};base64,${res.data}`
-            setSrcs((prev) => ({ ...prev, [item.id]: src }))
-          }
-        } catch {
-          /* missing file → placeholder */
-        }
-      })
-    )
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, items])
 
   const pick = (item: AssetItem): void => {
     if (item.kind === 'video') {
@@ -66,10 +34,8 @@ export function AssetPickerDialog({ open, onOpenChange, onPick }: Props): React.
       onOpenChange(false)
       return
     }
-    const src = srcs[item.id]
-    if (!src) return
     onPick({
-      src,
+      src: filePathToMediaUrl(item.filePath),
       filePath: item.filePath,
       mediaType: item.mediaType,
       prompt: item.prompt,
@@ -108,19 +74,22 @@ export function AssetPickerDialog({ open, onOpenChange, onPick }: Props): React.
                       {t('drawPage.modeVideo', { defaultValue: 'Video' })}
                     </span>
                   </button>
-                ) : srcs[item.id] ? (
+                ) : (
                   <button
                     type="button"
                     onClick={() => pick(item)}
-                    className="size-full"
+                    className="relative size-full"
                     title={item.prompt}
                   >
-                    <img src={srcs[item.id]} alt="" className="size-full object-cover" />
+                    <span className="absolute inset-0 grid place-items-center text-muted-foreground">
+                      <ImageOff className="size-5" />
+                    </span>
+                    <img
+                      src={filePathToMediaUrl(item.filePath)}
+                      alt=""
+                      className="relative size-full object-cover"
+                    />
                   </button>
-                ) : (
-                  <div className="grid size-full place-items-center text-muted-foreground">
-                    <ImageOff className="size-5" />
-                  </div>
                 )}
                 <button
                   type="button"

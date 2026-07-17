@@ -14,13 +14,14 @@ function reconcileInFlightJobs(): void {
         const job = res as VideoJobUpdate & { error?: string }
         if (job?.error === 'unknown job') {
           // main process restarted / job gone — stop the spinner
-          useGraphStore
-            .getState()
-            .updateNode(n.id, (node) =>
-              node.kind === 'video'
-                ? { ...node, data: { ...node.data, generating: false, status: undefined } }
-                : node
-            )
+          useGraphStore.getState().updateNode(n.id, (node) =>
+            node.kind === 'video'
+              ? {
+                  ...node,
+                  data: { ...node.data, generating: false, status: undefined, interrupted: true }
+                }
+              : node
+          )
           return
         }
         applyJob(job)
@@ -51,6 +52,7 @@ function applyJob(job: VideoJobUpdate): void {
             ...n.data,
             status: job.done ? undefined : job.status,
             generating: !job.done,
+            interrupted: undefined,
             filePath: job.filePath ?? n.data.filePath,
             mediaType: job.mediaType ?? n.data.mediaType,
             error: job.error,

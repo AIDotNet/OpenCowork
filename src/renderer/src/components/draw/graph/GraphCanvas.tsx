@@ -34,8 +34,6 @@ import { NodeUpscaleDialog } from './NodeUpscaleDialog'
 import { NodeSplitDialog } from './NodeSplitDialog'
 import { CanvasAssistant } from './assistant/CanvasAssistant'
 
-const ZOOM_STEP = 1.1
-
 interface GraphCanvasProps {
   actions: GraphActions
 }
@@ -59,6 +57,7 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
   const setSelection = useGraphStore((s) => s.setSelection)
   const clearSelection = useGraphStore((s) => s.clearSelection)
   const addNode = useGraphStore((s) => s.addNode)
+  const pendingFit = useGraphStore((s) => s.pendingFit)
   const editing = useGraphStore((s) => s.editing)
   const editingNode = editing ? nodes.find((n) => n.id === editing.nodeId) : undefined
   const menuWorldRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
@@ -79,6 +78,16 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
     obs.observe(el)
     return () => obs.disconnect()
   }, [setStageSize])
+
+  // Fit the view once after a graph load (page entry / project switch), as soon
+  // as the stage has been measured — loadGraph resets the camera to the origin,
+  // which may leave all persisted nodes off-screen.
+  useEffect(() => {
+    if (!pendingFit || stageSize.width === 0 || stageSize.height === 0) return
+    const { nodes: current, clearPendingFit } = useGraphStore.getState()
+    setCamera(fitCamera(current, stageSize))
+    clearPendingFit()
+  }, [pendingFit, setCamera, stageSize])
 
   const localPoint = useCallback((clientX: number, clientY: number) => {
     const rect = containerRef.current?.getBoundingClientRect()
@@ -155,16 +164,44 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
     []
   )
 
+  // React's root-level wheel listener is passive, so preventDefault() here can't
+  // stop a scrollable child (e.g. a text node's textarea) from also scrolling
+  // natively — the canvas must yield instead of panning in tandem with it.
+  const scrollsWithin = useCallback((target: EventTarget | null): boolean => {
+    let el = target instanceof HTMLElement ? target : null
+    while (el && el !== containerRef.current) {
+      const { overflowX, overflowY } = getComputedStyle(el)
+      if (
+        (/(auto|scroll)/.test(overflowY) && el.scrollHeight > el.clientHeight) ||
+        (/(auto|scroll)/.test(overflowX) && el.scrollWidth > el.clientWidth)
+      ) {
+        return true
+      }
+      el = el.parentElement
+    }
+    return false
+  }, [])
+
   const handleWheel = useCallback(
     (event: ReactWheelEvent<HTMLDivElement>) => {
       if (!fromContainer(event.target)) return
-      event.preventDefault()
-      const p = localPoint(event.clientX, event.clientY)
-      setCamera((cam) =>
-        zoomAtPoint(cam, p, event.deltaY > 0 ? cam.scale / ZOOM_STEP : cam.scale * ZOOM_STEP)
-      )
+      // Ctrl/⌘ + wheel zooms at the cursor (trackpad pinch reports ctrlKey too);
+      // a plain wheel pans, Shift+wheel pans horizontally — Figma-style controls.
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+        const p = localPoint(event.clientX, event.clientY)
+        const factor = Math.exp(-event.deltaY * 0.003)
+        setCamera((cam) => zoomAtPoint(cam, p, cam.scale * factor))
+      } else {
+        if (scrollsWithin(event.target)) return
+        event.preventDefault()
+        const swapAxes = event.shiftKey && event.deltaX === 0
+        const dx = swapAxes ? event.deltaY : event.deltaX
+        const dy = swapAxes ? 0 : event.deltaY
+        setCamera((cam) => ({ ...cam, x: cam.x - dx, y: cam.y - dy }))
+      }
     },
-    [fromContainer, localPoint, setCamera]
+    [fromContainer, localPoint, scrollsWithin, setCamera]
   )
 
   const handleBackgroundDown = useCallback(
@@ -230,29 +267,32 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
     }
   }, [camera, localPoint, nodes, pending, setCamera, setSelection])
 
-  const bgStyle = useMemo(() => {
+  // The pattern lives on an oversized child layer moved with a composited
+  // `transform` — panning never re-rasterizes the whole container the way an
+  // animated `background-position` on the container itself would.
+  const bgPattern = useMemo(() => {
+    if (background === 'blank') return null
     const size = 24 * camera.scale
-    const offsetX = camera.x % size
-    const offsetY = camera.y % size
-    if (background === 'blank') return {}
-    if (background === 'grid') {
-      return {
-        backgroundImage:
-          'linear-gradient(var(--graph-line) 1px, transparent 1px), linear-gradient(90deg, var(--graph-line) 1px, transparent 1px)',
-        backgroundSize: `${size}px ${size}px`,
-        backgroundPosition: `${offsetX}px ${offsetY}px`
-      }
-    }
+    const offsetX = ((camera.x % size) + size) % size
+    const offsetY = ((camera.y % size) + size) % size
     return {
-      backgroundImage: 'radial-gradient(var(--graph-dot) 1.2px, transparent 1.2px)',
+      backgroundImage:
+        background === 'grid'
+          ? 'linear-gradient(var(--graph-line) 1px, transparent 1px), linear-gradient(90deg, var(--graph-line) 1px, transparent 1px)'
+          : 'radial-gradient(var(--graph-dot) 1.2px, transparent 1.2px)',
       backgroundSize: `${size}px ${size}px`,
-      backgroundPosition: `${offsetX}px ${offsetY}px`
+      inset: `${-size}px`,
+      transform: `translate(${offsetX}px, ${offsetY}px)`
     }
   }, [background, camera.scale, camera.x, camera.y])
 
+  // Context value is memoized so NodeView consumers don't re-render on every
+  // GraphCanvas render — only when a connection drag actually starts/moves.
+  const connectionValue = useMemo(() => ({ pending, setPending }), [pending])
+
   return (
     <GraphActionsProvider value={actions}>
-      <ConnectionState.Provider value={{ pending, setPending }}>
+      <ConnectionState.Provider value={connectionValue}>
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div
@@ -263,8 +303,14 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
               onContextMenu={handleContextMenu}
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
-              style={bgStyle}
             >
+              {bgPattern && (
+                <div
+                  className="pointer-events-none absolute will-change-transform"
+                  style={bgPattern}
+                />
+              )}
+
               {/* world */}
               {/* edges: screen-space, beneath the nodes */}
               <EdgeLayer />

@@ -19,8 +19,10 @@ import {
 } from '@renderer/lib/api/seedance-video-provider'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { filePathToMediaUrl } from '@renderer/lib/local-media-url'
 import { useProviderStore } from '@renderer/stores/provider-store'
-import { upstreamNodeIds, useGraphStore } from './graph-store'
+import type { ImageAttachment } from '@renderer/lib/image-attachments'
+import { downstreamNodeIds, upstreamNodeIds, useGraphStore } from './graph-store'
 import type { CanvasNode, ImageNode } from './graph-types'
 import { NODE_DEFAULT_SIZE } from './graph-types'
 import type { GraphActions, GraphEditParams } from './graph-actions'
@@ -45,9 +47,15 @@ function srcFromImageBlock(block: ImageBlock): {
   mediaType?: string
 } {
   if (block.source.type === 'base64') {
+    const filePath = block.source.filePath
     return {
-      src: `data:${block.source.mediaType || 'image/png'};base64,${block.source.data}`,
-      filePath: block.source.filePath,
+      // Prefer the oc-media:// stream URL once the file is on disk — keeping
+      // the multi-MB data URL would pin the base64 payload in the graph store
+      // (and in every history snapshot). Byte readers go through filePath.
+      src: filePath
+        ? filePathToMediaUrl(filePath)
+        : `data:${block.source.mediaType || 'image/png'};base64,${block.source.data}`,
+      filePath,
       mediaType: block.source.mediaType
     }
   }
@@ -74,22 +82,87 @@ export function useGraphGeneration(): GraphActions {
       return { provider, model, config }
     }
 
+    // Collect prompt text from upstream text nodes. Config nodes are prompt
+    // pass-throughs: a text → config → image/video chain still resolves the
+    // text when generating from the downstream node directly.
     const collectUpstreamText = (nodeId: string): string => {
       const { nodes, edges } = useGraphStore.getState()
-      const ids = new Set(upstreamNodeIds(edges, nodeId))
-      return nodes
-        .filter((n) => ids.has(n.id) && n.kind === 'text')
-        .map((n) => (n.kind === 'text' ? n.data.text.trim() : ''))
-        .filter(Boolean)
-        .join('\n\n')
+      const byId = new Map(nodes.map((n) => [n.id, n]))
+      const texts: string[] = []
+      const seen = new Set<string>([nodeId])
+      const visit = (id: string): void => {
+        for (const upId of upstreamNodeIds(edges, id)) {
+          if (seen.has(upId)) continue
+          seen.add(upId)
+          const up = byId.get(upId)
+          if (!up) continue
+          if (up.kind === 'text') {
+            const text = up.data.text.trim()
+            if (text) texts.push(text)
+          } else if (up.kind === 'config') {
+            visit(upId)
+          }
+        }
+      }
+      visit(nodeId)
+      return texts.join('\n\n')
     }
 
-    const collectUpstreamImages = (nodeId: string): Array<{ src: string; mediaType?: string }> => {
+    // Fallback prompt for image→image chains: the prompt the upstream image
+    // was generated with, so pure image-to-image nodes work without a text node.
+    const upstreamImagePrompt = (nodeId: string): string => {
       const { nodes, edges } = useGraphStore.getState()
       const ids = new Set(upstreamNodeIds(edges, nodeId))
-      return nodes
-        .filter((n): n is ImageNode => n.kind === 'image' && ids.has(n.id) && !!n.data.src)
-        .map((n) => ({ src: n.data.src as string, mediaType: n.data.mediaType }))
+      return (
+        nodes.find(
+          (n): n is ImageNode => n.kind === 'image' && ids.has(n.id) && !!n.data.prompt?.trim()
+        )?.data.prompt ?? ''
+      )
+    }
+
+    const VARIATION_PROMPT =
+      'Generate a new variation of the reference image, keeping its subject, composition and style.'
+
+    // Resolve a node image to a data URL for API upload. Rehydrated nodes carry
+    // an oc-media:// display URL instead of inline base64, so read the original
+    // bytes back from disk in that case.
+    const resolveImageDataUrl = async (data: {
+      src?: string
+      filePath?: string
+      mediaType?: string
+    }): Promise<{ src: string; mediaType?: string } | null> => {
+      const src = data.src ?? ''
+      if (src.startsWith('data:')) return { src, mediaType: data.mediaType }
+      if (data.filePath) {
+        try {
+          const read = (await ipcClient.invoke(IPC.FS_READ_FILE_BINARY, {
+            path: data.filePath
+          })) as { data?: string; error?: string }
+          if (read?.data) {
+            return {
+              src: `data:${data.mediaType || 'image/png'};base64,${read.data}`,
+              mediaType: data.mediaType
+            }
+          }
+        } catch {
+          /* fall through */
+        }
+        return null
+      }
+      return src ? { src, mediaType: data.mediaType } : null
+    }
+
+    const collectUpstreamImages = async (
+      nodeId: string
+    ): Promise<Array<{ src: string; mediaType?: string }>> => {
+      const { nodes, edges } = useGraphStore.getState()
+      const ids = new Set(upstreamNodeIds(edges, nodeId))
+      const candidates = nodes.filter(
+        (n): n is ImageNode =>
+          n.kind === 'image' && ids.has(n.id) && !!(n.data.src || n.data.filePath)
+      )
+      const resolved = await Promise.all(candidates.map((n) => resolveImageDataUrl(n.data)))
+      return resolved.filter((r): r is { src: string; mediaType?: string } => !!r)
     }
 
     const buildMessages = (
@@ -175,6 +248,7 @@ export function useGraphGeneration(): GraphActions {
                 modelId: target.model.id,
                 generating: false,
                 error: undefined,
+                interrupted: undefined,
                 groupSrcs: rest.length ? [first, ...rest] : undefined
               }
             }
@@ -244,13 +318,20 @@ export function useGraphGeneration(): GraphActions {
       params: SeedanceVideoParams,
       target: Target
     ): Promise<void> => {
-      const text = `${prompt.trim()}${buildSeedanceCommands(params)}`
+      const isXaiVideo = target.config.type === 'xai-video'
+      const text = isXaiVideo ? prompt.trim() : `${prompt.trim()}${buildSeedanceCommands(params)}`
       const images = references.map((r) => ({ dataUrl: r.src, mediaType: r.mediaType }))
       try {
         const res = (await ipcClient.invoke(IPC.SEEDANCE_VIDEO_START, {
           provider: target.config,
           prompt: text,
-          images
+          images,
+          video: {
+            duration: params.duration,
+            aspectRatio: params.ratio,
+            // The xAI Videos endpoint currently accepts 480p and 720p only.
+            resolution: isXaiVideo && params.resolution === '1080p' ? '720p' : params.resolution
+          }
         })) as { jobId?: string; error?: string }
         if (res.error || !res.jobId) throw new Error(res.error || 'Failed to start video job')
         useGraphStore.getState().updateNode(targetNodeId, (n) =>
@@ -262,6 +343,7 @@ export function useGraphGeneration(): GraphActions {
                   generating: true,
                   status: 'queued',
                   error: undefined,
+                  interrupted: undefined,
                   jobId: res.jobId,
                   prompt,
                   providerId: target.provider.id,
@@ -279,6 +361,7 @@ export function useGraphGeneration(): GraphActions {
                   ...n.data,
                   generating: false,
                   status: undefined,
+                  interrupted: undefined,
                   error: error instanceof Error ? error.message : String(error)
                 }
               }
@@ -300,19 +383,30 @@ export function useGraphGeneration(): GraphActions {
         toast.error(t('drawPage.authRequired'))
         return
       }
-      const prompt =
+      const references = await collectUpstreamImages(nodeId)
+      let prompt =
         [collectUpstreamText(nodeId), node.data.prompt].filter(Boolean).join('\n') ||
         node.data.prompt ||
         ''
+      // Image-to-video without any text: reuse the upstream image's prompt.
+      if (!prompt.trim() && references.length > 0) prompt = upstreamImagePrompt(nodeId)
       if (!prompt.trim()) {
         toast.error(t('drawPage.promptRequired', { defaultValue: 'Connect a text node' }))
         return
       }
-      const references = collectUpstreamImages(nodeId)
       graph.pushHistory()
       graph.updateNode(nodeId, (n) =>
         n.kind === 'video'
-          ? { ...n, data: { ...n.data, generating: true, status: 'queued', error: undefined } }
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                generating: true,
+                status: 'queued',
+                error: undefined,
+                interrupted: undefined
+              }
+            }
           : n
       )
       await runVideoInto(nodeId, prompt, references, DEFAULT_VIDEO_PARAMS, target)
@@ -331,22 +425,35 @@ export function useGraphGeneration(): GraphActions {
         toast.error(t('drawPage.authRequired'))
         return
       }
-      const prompt =
+      const references = await collectUpstreamImages(nodeId)
+      if (node.data.src || node.data.filePath) {
+        const own = await resolveImageDataUrl(node.data)
+        if (own) references.push(own)
+      }
+      let prompt =
         [collectUpstreamText(nodeId), node.data.prompt].filter(Boolean).join('\n') ||
         node.data.prompt ||
         ''
+      // Image-to-image without any text: reuse the upstream image's prompt,
+      // or fall back to a generic variation instruction.
+      if (!prompt.trim() && references.length > 0) {
+        prompt = upstreamImagePrompt(nodeId) || VARIATION_PROMPT
+      }
       if (!prompt.trim()) {
         toast.error(
           t('drawPage.promptRequired', { defaultValue: 'Add a prompt or connect a text node' })
         )
         return
       }
-      const references = collectUpstreamImages(nodeId)
-      if (node.data.src) references.push({ src: node.data.src, mediaType: node.data.mediaType })
 
       graph.pushHistory()
       graph.updateNode(nodeId, (n) =>
-        n.kind === 'image' ? { ...n, data: { ...n.data, generating: true, error: undefined } } : n
+        n.kind === 'image'
+          ? {
+              ...n,
+              data: { ...n.data, generating: true, error: undefined, interrupted: undefined }
+            }
+          : n
       )
       try {
         const results = await runImages({ prompt, references, config: target.config, count: 1 })
@@ -359,6 +466,7 @@ export function useGraphGeneration(): GraphActions {
                 data: {
                   ...n.data,
                   generating: false,
+                  interrupted: undefined,
                   error: error instanceof Error ? error.message : String(error)
                 }
               }
@@ -383,7 +491,7 @@ export function useGraphGeneration(): GraphActions {
         toast.error(t('drawPage.promptRequired', { defaultValue: 'Connect a text node' }))
         return
       }
-      const references = collectUpstreamImages(config.id)
+      const references = await collectUpstreamImages(config.id)
       const size = NODE_DEFAULT_SIZE.video
       const targetNode: CanvasNode = {
         id: nanoid(),
@@ -433,7 +541,7 @@ export function useGraphGeneration(): GraphActions {
         toast.error(t('drawPage.promptRequired', { defaultValue: 'Connect a text node' }))
         return
       }
-      const references = collectUpstreamImages(configId)
+      const references = await collectUpstreamImages(configId)
       const count = config.data.count ?? 1
 
       // Create a target image node to the right and fan results into it.
@@ -465,6 +573,7 @@ export function useGraphGeneration(): GraphActions {
                 data: {
                   ...n.data,
                   generating: false,
+                  interrupted: undefined,
                   error: error instanceof Error ? error.message : String(error)
                 }
               }
@@ -492,17 +601,80 @@ export function useGraphGeneration(): GraphActions {
       void runConfigNode(configNode.id)
     }
 
+    // Context the optimized prompt will actually be used with: reference images
+    // feeding the same downstream generation target(s), and the target aspect
+    // ratio from a downstream config node.
+    const REWRITE_MAX_REFERENCE_IMAGES = 4
+    const rewriteContext = async (
+      textId: string
+    ): Promise<{ images: ImageAttachment[]; aspect?: string }> => {
+      const { nodes, edges } = useGraphStore.getState()
+      const byId = new Map(nodes.map((n) => [n.id, n]))
+      const candidates: ImageNode[] = []
+      let aspect: string | undefined
+      const seen = new Set<string>([textId])
+      const pushImage = (node: CanvasNode): void => {
+        if (node.kind !== 'image' || seen.has(node.id)) return
+        if (!node.data.src && !node.data.filePath) return
+        seen.add(node.id)
+        candidates.push(node)
+      }
+      for (const targetId of downstreamNodeIds(edges, textId)) {
+        const target = byId.get(targetId)
+        if (!target) continue
+        if (target.kind === 'config' && !aspect) aspect = target.data.aspect
+        // the generation target itself (image-to-image), plus sibling references
+        pushImage(target)
+        for (const upId of upstreamNodeIds(edges, targetId)) {
+          const up = byId.get(upId)
+          if (up) pushImage(up)
+        }
+      }
+      const resolved = await Promise.all(
+        candidates.slice(0, REWRITE_MAX_REFERENCE_IMAGES).map(async (node) => {
+          const ref = await resolveImageDataUrl(node.data)
+          return ref
+            ? { id: node.id, dataUrl: ref.src, mediaType: ref.mediaType || 'image/png' }
+            : null
+        })
+      )
+      return { images: resolved.filter((r): r is ImageAttachment => !!r), aspect }
+    }
+
     const rewriteText: GraphActions['rewriteText'] = async (textId) => {
       const graph = useGraphStore.getState()
       const text = graph.nodes.find((n) => n.id === textId)
       if (!text || text.kind !== 'text' || !text.data.text.trim()) return
-      const target = resolveTarget()
-      if (!target) {
+      // Optimize with the fast chat model — image-model endpoints generally
+      // can't serve text requests. Fall back to the image target's config.
+      const config = useProviderStore.getState().getFastProviderConfig() ?? resolveTarget()?.config
+      if (!config) {
         toast.error(t('drawPage.optimizeUnavailable'))
         return
       }
+      if (config.providerId && !(await ensureProviderAuthReady(config.providerId))) {
+        toast.error(t('drawPage.authRequired'))
+        return
+      }
+      const context = await rewriteContext(textId)
+      const optimizerModel = useProviderStore
+        .getState()
+        .providers.find((p) => p.id === config.providerId)
+        ?.models.find((m) => m.id === config.model)
+      const images = optimizerModel?.supportsVision === false ? [] : context.images
       try {
-        const result = await optimizeDrawPrompt(text.data.text.trim(), target.config, [], {})
+        let result: Awaited<ReturnType<typeof optimizeDrawPrompt>>
+        try {
+          result = await optimizeDrawPrompt(text.data.text.trim(), config, images, {
+            aspect: context.aspect
+          })
+        } catch (error) {
+          // The optimizer model may not accept image input — retry text-only.
+          if (images.length === 0) throw error
+          result = await optimizeDrawPrompt(text.data.text.trim(), config, [], {
+            aspect: context.aspect
+          })
+        }
         const child: CanvasNode = {
           id: nanoid(),
           kind: 'text',
@@ -525,9 +697,12 @@ export function useGraphGeneration(): GraphActions {
       const graph = useGraphStore.getState()
       const node = graph.nodes.find((n) => n.id === imageNodeId)
       if (!node || node.kind !== 'image') return
-      const base = params.baseImageDataUrl ?? node.data.src
+      const base = params.baseImageDataUrl ?? (await resolveImageDataUrl(node.data))?.src
       if (!base) return
-      const target = resolveTarget(node.data.providerId, node.data.modelId)
+      const target = resolveTarget(
+        params.providerId ?? node.data.providerId,
+        params.modelId ?? node.data.modelId
+      )
       if (!target) {
         toast.error(t('drawPage.noModel'))
         return
@@ -561,6 +736,7 @@ export function useGraphGeneration(): GraphActions {
                 data: {
                   ...n.data,
                   generating: false,
+                  interrupted: undefined,
                   error: error instanceof Error ? error.message : String(error)
                 }
               }
@@ -584,9 +760,9 @@ export function useGraphGeneration(): GraphActions {
           data,
           mediaType
         })) as { filePath?: string; mediaType?: string; data?: string; error?: string }
-        if (result?.data && !result.error) {
-          src = `data:${result.mediaType || mediaType};base64,${result.data}`
+        if (result?.filePath && !result.error) {
           filePath = result.filePath
+          src = filePathToMediaUrl(result.filePath)
         }
       } catch (error) {
         console.warn('[Draw graph] Failed to persist derived image:', error)
@@ -616,20 +792,13 @@ export function useGraphGeneration(): GraphActions {
       const node = useGraphStore.getState().nodes.find((n) => n.id === nodeId)
       if (!node || node.kind !== 'image' || !node.data.filePath) return
       try {
-        const read = (await ipcClient.invoke(IPC.FS_READ_FILE_BINARY, {
-          path: node.data.filePath
-        })) as { data?: string; error?: string }
-        if (read.error || !read.data) throw new Error(read.error || 'read failed')
-        const save = (await ipcClient.invoke(IPC.FS_SELECT_SAVE_FILE, {
-          defaultPath: 'image.png',
+        const result = (await ipcClient.invoke(IPC.FS_DOWNLOAD_FILE_COPY, {
+          sourcePath: node.data.filePath,
+          defaultName: 'image.png',
           filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
-        })) as { path?: string; canceled?: boolean }
-        if (save.canceled || !save.path) return
-        const write = (await ipcClient.invoke(IPC.FS_WRITE_FILE_BINARY, {
-          path: save.path,
-          data: read.data
-        })) as { error?: string }
-        if (write.error) throw new Error(write.error)
+        })) as { success?: boolean; canceled?: boolean; error?: string }
+        if (result.canceled) return
+        if (!result.success) throw new Error(result.error || 'copy failed')
         toast.success(t('drawPage.downloadSuccess'))
       } catch (error) {
         toast.error(t('drawPage.downloadFailed'), {
@@ -641,7 +810,7 @@ export function useGraphGeneration(): GraphActions {
     return {
       runConfigNode: (id) => void runConfigNode(id),
       generateFromText,
-      rewriteText: (id) => void rewriteText(id),
+      rewriteText,
       generateImageNode: (id) => void generateImageNode(id),
       generateVideoNode: (id) => void generateVideoNode(id),
       applyEdit: (id, params) => void applyEdit(id, params),

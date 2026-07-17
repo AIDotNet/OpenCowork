@@ -31,7 +31,7 @@ export function ImageNodeView({ node }: Props): React.JSX.Element {
   const actions = useGraphActions()
   const setEditing = useGraphStore((s) => s.setEditing)
   const addAsset = useAssetStore((s) => s.addAsset)
-  const { src, generating, error, groupSrcs, filePath } = node.data
+  const { src, generating, error, interrupted, groupSrcs, filePath } = node.data
   const hasGroup = !!groupSrcs && groupSrcs.length > 1
 
   const saveToAssets = (): void => {
@@ -117,6 +117,27 @@ export function ImageNodeView({ node }: Props): React.JSX.Element {
         <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-md bg-destructive/90 px-2 py-1 text-[11px] text-white">
           <AlertCircle className="size-3.5 shrink-0" />
           <span className="truncate">{error}</span>
+        </div>
+      )}
+
+      {interrupted && !error && !generating && (
+        <div
+          data-nodrag
+          className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-md bg-amber-600/90 px-2 py-1 text-[11px] text-white"
+        >
+          <AlertCircle className="size-3.5 shrink-0" />
+          <span className="truncate">
+            {t('drawPage.interrupted', {
+              defaultValue: 'The previous generation was interrupted.'
+            })}
+          </span>
+          <button
+            type="button"
+            className="ml-auto shrink-0 rounded bg-white/20 px-1.5 py-0.5 font-medium hover:bg-white/30"
+            onClick={() => actions.generateImageNode(node.id)}
+          >
+            {t('drawPage.retry', { defaultValue: 'Retry' })}
+          </button>
         </div>
       )}
 

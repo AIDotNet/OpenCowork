@@ -1,5 +1,4 @@
-import { IPC } from '@renderer/lib/ipc/channels'
-import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { filePathToMediaUrl } from '@renderer/lib/local-media-url'
 import { useGraphStore } from './graph-store'
 import type { BackgroundMode, CanvasEdge, CanvasGraph, CanvasNode, ImageNode } from './graph-types'
 
@@ -27,31 +26,23 @@ function stripNodes(nodes: CanvasNode[]): CanvasNode[] {
 }
 
 /**
- * Rehydrate image-node `src` from disk. Persistence strips base64 image data,
- * keeping only `filePath`; on load we read each file back into a data URL so
- * localStorage never holds heavy base64 blobs.
+ * Rehydrate image-node `src` from disk. Persistence strips inline image data,
+ * keeping only `filePath`; on load each node gets an oc-media URL that streams
+ * the file directly, so localStorage never holds heavy base64 blobs and files
+ * of any size display.
  */
 export async function rehydrateGraphImages(): Promise<void> {
   const { nodes, updateNode } = useGraphStore.getState()
   const pending = nodes.filter(
     (n): n is ImageNode => n.kind === 'image' && !!n.data.filePath && !n.data.src
   )
-  if (pending.length === 0) return
 
-  await Promise.all(
-    pending.map(async (node) => {
-      try {
-        const res = (await ipcClient.invoke(IPC.FS_READ_FILE_BINARY, {
-          path: node.data.filePath
-        })) as { data?: string; error?: string }
-        if (!res?.data) return
-        const src = `data:${node.data.mediaType || 'image/png'};base64,${res.data}`
-        updateNode(node.id, (n) => (n.kind === 'image' ? { ...n, data: { ...n.data, src } } : n))
-      } catch {
-        // best-effort: a missing file just leaves the node blank
-      }
-    })
-  )
+  for (const node of pending) {
+    const { filePath } = node.data
+    if (!filePath) continue
+    const src = filePathToMediaUrl(filePath)
+    updateNode(node.id, (n) => (n.kind === 'image' ? { ...n, data: { ...n.data, src } } : n))
+  }
 }
 
 /** Persist the current graph into a project's localStorage slot (base64 stripped). */

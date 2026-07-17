@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { memo, useCallback, useRef } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { Braces, Copy, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -26,10 +26,12 @@ interface NodeViewProps {
 
 type Corner = 'nw' | 'ne' | 'sw' | 'se'
 
-export function NodeView({ node }: NodeViewProps): React.JSX.Element {
+export const NodeView = memo(function NodeView({ node }: NodeViewProps): React.JSX.Element {
   const { t } = useTranslation('layout')
-  const camera = useGraphStore((s) => s.camera)
-  const selection = useGraphStore((s) => s.selection)
+  // Subscribe to primitives only — the whole-array/object slices (nodes,
+  // selection, camera) get new identities on every graph mutation and would
+  // re-render every node each pointermove frame.
+  const selected = useGraphStore((s) => s.selection.includes(node.id))
   const setSelection = useGraphStore((s) => s.setSelection)
   const toggleSelection = useGraphStore((s) => s.toggleSelection)
   const moveNodes = useGraphStore((s) => s.moveNodes)
@@ -40,15 +42,16 @@ export function NodeView({ node }: NodeViewProps): React.JSX.Element {
   const pushHistory = useGraphStore((s) => s.pushHistory)
   const { pending, setPending } = useConnection()
 
-  const selected = selection.includes(node.id)
-  const dragRef = useRef<{ startX: number; startY: number; ids: string[] } | null>(null)
+  const dragRef = useRef<{ startX: number; startY: number; ids: string[]; moved: boolean } | null>(
+    null
+  )
   const resizeRef = useRef<{
     corner: Corner
     startX: number
     startY: number
     box: typeof node
+    moved: boolean
   } | null>(null)
-  const scale = camera.scale
 
   const beginDrag = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -57,21 +60,28 @@ export function NodeView({ node }: NodeViewProps): React.JSX.Element {
       event.stopPropagation()
 
       const additive = event.shiftKey || event.metaKey || event.ctrlKey
-      let ids = selection
+      const sel = useGraphStore.getState().selection
+      let ids = sel
       if (additive) {
         toggleSelection(node.id)
-        ids = selection.includes(node.id) ? selection : [...selection, node.id]
-      } else if (!selection.includes(node.id)) {
+        ids = sel.includes(node.id) ? sel : [...sel, node.id]
+      } else if (!sel.includes(node.id)) {
         setSelection([node.id])
         ids = [node.id]
       }
 
-      pushHistory()
-      dragRef.current = { startX: event.clientX, startY: event.clientY, ids }
+      dragRef.current = { startX: event.clientX, startY: event.clientY, ids, moved: false }
 
       const onMove = (e: MouseEvent): void => {
         const drag = dragRef.current
         if (!drag) return
+        // History is pushed on the first actual movement (not on mousedown) so
+        // plain clicks don't pollute the undo stack.
+        if (!drag.moved) {
+          drag.moved = true
+          pushHistory()
+        }
+        const scale = useGraphStore.getState().camera.scale
         const dx = (e.clientX - drag.startX) / scale
         const dy = (e.clientY - drag.startY) / scale
         drag.startX = e.clientX
@@ -88,19 +98,29 @@ export function NodeView({ node }: NodeViewProps): React.JSX.Element {
       window.addEventListener('mousemove', onMove)
       window.addEventListener('mouseup', onUp)
     },
-    [moveNodes, node.id, pushHistory, scale, selection, setSelection, toggleSelection]
+    [moveNodes, node.id, pushHistory, setSelection, toggleSelection]
   )
 
   const beginResize = useCallback(
     (corner: Corner) => (event: ReactMouseEvent<HTMLDivElement>) => {
       event.stopPropagation()
       event.preventDefault()
-      pushHistory()
-      resizeRef.current = { corner, startX: event.clientX, startY: event.clientY, box: node }
+      resizeRef.current = {
+        corner,
+        startX: event.clientX,
+        startY: event.clientY,
+        box: node,
+        moved: false
+      }
       const start = resizeRef.current
 
       const aspect = start.box.h > 0 ? start.box.w / start.box.h : 1
       const onMove = (e: MouseEvent): void => {
+        if (!start.moved) {
+          start.moved = true
+          pushHistory()
+        }
+        const scale = useGraphStore.getState().camera.scale
         const dx = (e.clientX - start.startX) / scale
         const dy = (e.clientY - start.startY) / scale
         let { x, y, w, h } = start.box
@@ -135,7 +155,7 @@ export function NodeView({ node }: NodeViewProps): React.JSX.Element {
       window.addEventListener('mousemove', onMove)
       window.addEventListener('mouseup', onUp)
     },
-    [node, pushHistory, resizeNode, scale]
+    [node, pushHistory, resizeNode]
   )
 
   const startConnect = useCallback(
@@ -277,4 +297,4 @@ export function NodeView({ node }: NodeViewProps): React.JSX.Element {
       </ContextMenuContent>
     </ContextMenu>
   )
-}
+})

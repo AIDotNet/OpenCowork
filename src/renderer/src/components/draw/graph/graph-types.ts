@@ -29,6 +29,8 @@ export interface ImageNodeData {
   modelId?: string
   generating?: boolean
   error?: string
+  /** generation was cut off (stop / app restart) before producing a result. */
+  interrupted?: boolean
   /** children of an image-group (batch) result. */
   groupSrcs?: Array<{ src: string; filePath?: string; mediaType?: string }>
 }
@@ -58,6 +60,8 @@ export interface VideoNodeData {
   generating?: boolean
   status?: string
   error?: string
+  /** generation was cut off (stop / app restart) before producing a result. */
+  interrupted?: boolean
   /** Background generation job id (main-process). */
   jobId?: string
 }

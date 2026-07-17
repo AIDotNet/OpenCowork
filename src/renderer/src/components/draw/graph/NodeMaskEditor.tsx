@@ -13,6 +13,7 @@ import {
   type ImageSize,
   type MaskStroke
 } from '@renderer/lib/image-mask'
+import { EditModelSelect, defaultEditModel, type EditModelValue } from './EditModelSelect'
 import { nodeScreenRect } from './graph-geometry'
 import { useGraphStore } from './graph-store'
 import { useGraphActions } from './graph-actions'
@@ -45,6 +46,7 @@ export function NodeMaskEditor({ node }: Props): React.JSX.Element | null {
   const [brush, setBrush] = useState(DEFAULT_BRUSH)
   const [strokes, setStrokes] = useState<MaskStroke[]>([])
   const [prompt, setPrompt] = useState('')
+  const [model, setModel] = useState<EditModelValue | null>(() => defaultEditModel(node))
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const currentRef = useRef<MaskStroke | null>(null)
   const pointerRef = useRef<number | null>(null)
@@ -106,10 +108,12 @@ export function NodeMaskEditor({ node }: Props): React.JSX.Element | null {
     actions.applyEdit(node.id, {
       maskDataUrl: buildMaskDataUrl(imageSize, strokes),
       prompt: prompt.trim(),
-      sourceSize: imageSize
+      sourceSize: imageSize,
+      providerId: model?.providerId,
+      modelId: model?.modelId
     })
     setEditing(null)
-  }, [actions, imageSize, node.id, prompt, setEditing, strokes])
+  }, [actions, imageSize, model, node.id, prompt, setEditing, strokes])
 
   if (!node.data.src) return null
 
@@ -155,6 +159,11 @@ export function NodeMaskEditor({ node }: Props): React.JSX.Element | null {
             >
               {t('action.clear', { ns: 'common', defaultValue: 'Clear' })}
             </Button>
+            <EditModelSelect
+              value={model}
+              onChange={setModel}
+              className="ml-auto h-7 w-fit max-w-48 text-[11px]"
+            />
           </div>
           <div className="flex items-end gap-2">
             <Textarea

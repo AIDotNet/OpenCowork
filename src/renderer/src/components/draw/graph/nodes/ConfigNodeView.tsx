@@ -62,6 +62,20 @@ export function ConfigNodeView({ node }: Props): React.JSX.Element {
         ? optionValue(activeProviderId, activeModelId)
         : undefined
 
+  const selectedModel = useMemo(() => {
+    if (!selectedValue) return undefined
+    const [providerId, modelId] = selectedValue.split('::')
+    return providers
+      .find((provider) => provider.id === providerId)
+      ?.models.find((model) => model.id === modelId)
+  }, [providers, selectedValue])
+  const isXaiVideo = data.mode === 'video' && selectedModel?.type === 'xai-video'
+  const videoResolutions = isXaiVideo ? ['480p', '720p'] : ['480p', '720p', '1080p']
+  const selectedResolution =
+    isXaiVideo && data.resolution === '1080p'
+      ? '720p'
+      : (data.resolution ?? (isXaiVideo ? '720p' : '1080p'))
+
   const patch = (partial: Partial<ConfigNode['data']>): void =>
     updateNode(node.id, (n) =>
       n.kind === 'config' ? { ...n, data: { ...n.data, ...partial } } : n
@@ -85,7 +99,18 @@ export function ConfigNodeView({ node }: Props): React.JSX.Element {
           value={selectedValue}
           onValueChange={(value) => {
             const [providerId, modelId] = value.split('::')
-            if (providerId && modelId) patch({ providerId, modelId })
+            if (providerId && modelId) {
+              const model = providers
+                .find((provider) => provider.id === providerId)
+                ?.models.find((candidate) => candidate.id === modelId)
+              patch({
+                providerId,
+                modelId,
+                ...(model?.type === 'xai-video' && data.resolution === '1080p'
+                  ? { resolution: '720p' }
+                  : {})
+              })
+            }
           }}
         >
           <SelectTrigger className="h-7 w-full text-[11px]">
@@ -162,14 +187,14 @@ export function ConfigNodeView({ node }: Props): React.JSX.Element {
               <span className="w-12 text-[10px] text-muted-foreground">
                 {t('drawPage.resolution', { defaultValue: 'Res' })}
               </span>
-              {['480p', '720p', '1080p'].map((r) => (
+              {videoResolutions.map((r) => (
                 <button
                   key={r}
                   type="button"
                   onClick={() => patch({ resolution: r })}
                   className={cn(
                     'rounded-md border px-1.5 py-0.5 text-[10px]',
-                    (data.resolution ?? '1080p') === r
+                    selectedResolution === r
                       ? 'border-primary text-primary'
                       : 'border-border text-muted-foreground'
                   )}

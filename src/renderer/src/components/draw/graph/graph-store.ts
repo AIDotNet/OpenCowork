@@ -26,6 +26,8 @@ interface GraphState {
   editing: { nodeId: string; mode: EditingMode } | null
   past: CanvasGraph[]
   future: CanvasGraph[]
+  /** Set by loadGraph; the canvas fits the view once the stage is measured, then clears it. */
+  pendingFit: boolean
 
   // view
   setCamera: (updater: Camera | ((c: Camera) => Camera)) => void
@@ -33,6 +35,7 @@ interface GraphState {
   setBackground: (mode: BackgroundMode) => void
   setEditing: (value: { nodeId: string; mode: EditingMode } | null) => void
   resetView: () => void
+  clearPendingFit: () => void
 
   // history
   pushHistory: () => void
@@ -67,13 +70,31 @@ interface GraphState {
 }
 
 function snapshot(state: GraphState): CanvasGraph {
-  return {
-    nodes: structuredClone(state.nodes),
-    edges: structuredClone(state.edges)
-  }
+  // Every mutation in this store replaces node/edge objects immutably
+  // (updateNode/moveNodes/... never mutate in place), so history entries can
+  // share references with live state. A deep clone here would copy multi-MB
+  // base64 image payloads on every gesture start.
+  return { nodes: state.nodes, edges: state.edges }
 }
 
 const INITIAL_CAMERA: Camera = { scale: 1, x: 0, y: 0 }
+
+/**
+ * A node persisted mid-generation can never complete after a reload — the
+ * request died with the app. Convert stale `generating` flags into an
+ * explicit interrupted state so the card doesn't spin forever.
+ */
+function sanitizeLoadedNodes(nodes: CanvasNode[]): CanvasNode[] {
+  return nodes.map((n) => {
+    if (n.kind === 'image' && n.data.generating) {
+      return { ...n, data: { ...n.data, generating: false, interrupted: true } }
+    }
+    if (n.kind === 'video' && n.data.generating) {
+      return { ...n, data: { ...n.data, generating: false, status: undefined, interrupted: true } }
+    }
+    return n
+  })
+}
 
 export const useGraphStore = create<GraphState>()((set, get) => ({
   nodes: [],
@@ -86,6 +107,7 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
   editing: null,
   past: [],
   future: [],
+  pendingFit: false,
 
   setCamera: (updater) =>
     set((s) => ({ camera: typeof updater === 'function' ? updater(s.camera) : updater })),
@@ -93,6 +115,7 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
   setBackground: (mode) => set({ background: mode }),
   setEditing: (value) => set({ editing: value }),
   resetView: () => set({ camera: INITIAL_CAMERA }),
+  clearPendingFit: () => set({ pendingFit: false }),
 
   pushHistory: () =>
     set((s) => ({
@@ -244,11 +267,16 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
 
   replaceGraph: (graph) => {
     get().pushHistory()
-    set({ nodes: graph.nodes, edges: graph.edges, selection: [], selectedEdges: [] })
+    set({
+      nodes: sanitizeLoadedNodes(graph.nodes),
+      edges: graph.edges,
+      selection: [],
+      selectedEdges: []
+    })
   },
   loadGraph: (graph) =>
     set({
-      nodes: graph.nodes,
+      nodes: sanitizeLoadedNodes(graph.nodes),
       edges: graph.edges,
       background: graph.background ?? 'dots',
       selection: [],
@@ -256,7 +284,8 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
       editing: null,
       past: [],
       future: [],
-      camera: INITIAL_CAMERA
+      camera: INITIAL_CAMERA,
+      pendingFit: graph.nodes.length > 0
     })
 }))
 

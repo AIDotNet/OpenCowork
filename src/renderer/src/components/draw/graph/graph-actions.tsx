@@ -6,6 +6,9 @@ export interface GraphEditParams {
   prompt: string
   sourceSize: ImageSize
   baseImageDataUrl?: string
+  /** Model chosen in the edit toolbar; falls back to the source node's model. */
+  providerId?: string
+  modelId?: string
 }
 
 /** Generation/edit actions wired by the DrawPage shell to graph nodes. */
@@ -15,7 +18,7 @@ export interface GraphActions {
   /** From a text node: create a connected config node and run it. */
   generateFromText: (textNodeId: string) => void
   /** Optimize/rewrite a text node's content via the chat text model. */
-  rewriteText: (textNodeId: string) => void
+  rewriteText: (textNodeId: string) => Promise<void>
   /** Generate directly into an image node (uses its own content as reference if present). */
   generateImageNode: (imageNodeId: string) => void
   /** Generate (or regenerate) a video node from its upstream text/image context. */

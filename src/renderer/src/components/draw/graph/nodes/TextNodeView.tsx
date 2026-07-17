@@ -1,4 +1,5 @@
-import { AArrowDown, AArrowUp, FileText, Image as ImageIcon, Wand2 } from 'lucide-react'
+import { useState } from 'react'
+import { AArrowDown, AArrowUp, FileText, Image as ImageIcon, Loader2, Wand2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { TextNode } from '../graph-types'
 import { useGraphStore } from '../graph-store'
@@ -15,6 +16,13 @@ export function TextNodeView({ node }: Props): React.JSX.Element {
   const { t } = useTranslation('layout')
   const updateNode = useGraphStore((s) => s.updateNode)
   const actions = useGraphActions()
+  const [rewriting, setRewriting] = useState(false)
+
+  const rewrite = (): void => {
+    if (rewriting) return
+    setRewriting(true)
+    void actions.rewriteText(node.id).finally(() => setRewriting(false))
+  }
 
   const fontScale = node.data.fontScale ?? 1
   const bumpFont = (delta: number): void =>
@@ -62,10 +70,15 @@ export function TextNodeView({ node }: Props): React.JSX.Element {
           <button
             type="button"
             title={t('drawPage.rewriteText', { defaultValue: 'Rewrite' })}
-            className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={() => actions.rewriteText(node.id)}
+            className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+            disabled={rewriting}
+            onClick={rewrite}
           >
-            <Wand2 className="size-3.5" />
+            {rewriting ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Wand2 className="size-3.5" />
+            )}
           </button>
           <button
             type="button"

@@ -11,6 +11,9 @@ export function useNodeImage(src: string | undefined | null): HTMLImageElement |
     }
     let cancelled = false
     const el = new window.Image()
+    // oc-media:// sources are cross-origin; request them with CORS so canvases
+    // drawn from this image (crop/mask/outpaint) are not tainted.
+    el.crossOrigin = 'anonymous'
     el.onload = (): void => {
       if (!cancelled) setImage(el)
     }

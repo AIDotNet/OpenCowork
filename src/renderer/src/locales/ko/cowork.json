@@ -82,7 +82,8 @@
     "teamLabel": "팀 팀",
     "taskSubAgents": "작업 (Sub-Agents)",
     "teamTools": "팀 툴",
-    "maxIter": "최대 {{count}} iter"
+    "maxIter": "최대 {{count}} iter",
+    "inheritsMainTools": "메인 에이전트와 동일한 도구"
   },
   "artifacts": {
     "noArtifacts": "아직 아티팩트 없음",

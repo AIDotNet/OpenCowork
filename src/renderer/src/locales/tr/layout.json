@@ -104,7 +104,14 @@
     "chats": "Chats Chats",
     "noChats": "Henüz sohbet yok",
     "smartRename": "Smart Renamename",
-    "smartRenaming": "Smart renaming"
+    "smartRenaming": "Smart renaming",
+    "dropFolderHint": "Proje olarak içe aktarmak için bir klasörü buraya bırakın",
+    "projectSortBy": "Projeleri sırala",
+    "projectSortCreatedAt": "Oluşturulma zamanı",
+    "projectSortName": "Alfabetik",
+    "projectSortRecentlyUpdated": "Son güncellenen",
+    "projectSortTitle": "Projeleri sırala: {{sort}}",
+    "revealInFolder": "Klasör konumunu aç"
   },
   "sidebar_toast": {
     "sessionDeleted": "Oturum silindi",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "Hiçbir proje seansı temizlendi",
     "smartRenameNoContent": "Renaming için mevcut hiçbir konuşma içeriği mevcut",
     "smartRenameFailed": "Akıllı İsim başarısız oldu",
-    "smartRenameSuccess": "Oturum akıllı bir şekilde değiştirildi"
+    "smartRenameSuccess": "Oturum akıllı bir şekilde değiştirildi",
+    "dropNotFolder": "Lütfen dosya değil, klasör bırakın",
+    "projectsCreatedCount": "{{count}} proje oluşturuldu",
+    "revealFailed": "Konum açılamadı"
   },
   "topbar": {
     "togglePanel": "Toggle Panel",
@@ -225,7 +235,14 @@
     "openInspector": "Açık müfettiş",
     "closeRuntimeStatus": "Gizle bağlamı ve ilerleme",
     "openRuntimeStatus": "Show context and Progress",
-    "help": "Open guide"
+    "help": "Open guide",
+    "builtinSearch": "Yerleşik web araması",
+    "builtinSearchOff": "Kapalı",
+    "builtinSearchOn": "Sağlayıcıya özgü arama açık",
+    "faster": "Daha hızlı",
+    "followGlobalModel": "Genel modeli takip et",
+    "followGlobalModelDesc": "Bu oturum için genel ana model ayarını kullan.",
+    "smarter": "Daha akıllı"
   },
   "runtimeStatus": {
     "contextTitle": "Çevre",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}, {{second}} ve {{count}} Daha fazla daha fazlası",
     "noTasks": "Henüz görev yok",
     "runningTerminals": "Koşu terminalleri",
-    "closeTerminal": "Yakın terminal"
+    "closeTerminal": "Yakın terminal",
+    "subAgents": "SubAgent'lar",
+    "subAgentsCompleted": "{{count}} tamamlandı",
+    "subAgentsRunning": "{{count}} çalışıyor"
   },
   "browser": {
     "back": "Geri dön",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "Sonbahar",
     "reportStatusMissing": "Eksikliği Eksik",
     "reportRetrying": "Nihai raporu yeniden tanımlamak...",
-    "reportEmpty": "Mevcut nihai rapor mevcut değil"
+    "reportEmpty": "Mevcut nihai rapor mevcut değil",
+    "aborted": "İptal edildi",
+    "backToList": "SubAgent'lara dön",
+    "completedGroup": "Tamamlandı",
+    "durationHours": "{{count}}sa",
+    "durationMinutes": "{{count}}dk",
+    "durationSeconds": "{{count}}sn",
+    "maxIterations": "Yineleme sınırına ulaşıldı",
+    "noStarted": "Henüz başlatılmış SubAgent yok",
+    "started": "Başlatıldı",
+    "stop": "Bu SubAgent'ı durdur"
   },
   "detailPanel": {
     "team": "Takım Ekibi",
@@ -682,7 +712,9 @@
           "Sub-tasksların paralel olarak çalışabilmesi ve devam eden koordinasyon için yapılandırılmış Markdown Summaries geri dönmeleri gereken durumlar"
         ]
       }
-    }
+    },
+    "useFullWidth": "Tam genişliği kullan",
+    "useStandardWidth": "Standart genişliği kullan"
   },
   "navRail": {
     "conversations": "Konuşmalar",
@@ -694,7 +726,8 @@
     "draw": "Çizim",
     "translate": "çeviri çevirisi",
     "ssh": "SSH",
-    "settings": "Ayarlar"
+    "settings": "Ayarlar",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "Kaynaklar Kaynakları Kaynaklar",
@@ -945,7 +978,23 @@
     "inpaintPrompt": "Boyanan alan için değişikliği açıklayın",
     "outpaintPrompt": "Yeni alanı neyin dolduracağını açıklayın (isteğe bağlı)",
     "copyImage": "Panoya kopyala",
-    "copiedImage": "Görsel kopyalandı"
+    "copiedImage": "Görsel kopyalandı",
+    "assistantActConnect": "Düğümler bağlandı",
+    "assistantActCreateText": "Metin düğümü oluşturuldu",
+    "assistantActFailed": "başarısız oldu",
+    "assistantActGenerate": "Görsel oluşturma başlatıldı",
+    "assistantActRead": "Tuval okundu",
+    "assistantAddSelection": "Seçilenleri ekle ({{count}})",
+    "assistantClear": "Konuşmayı temizle",
+    "assistantCollapse": "Daralt",
+    "assistantQuickDescribe": "Görseli tanımla",
+    "assistantQuickDescribePrompt": "Bağlam görselinin konusunu, kompozisyonunu ve stilini tanımlayın, ardından yeniden kullanılabilir tek bir İngilizce istem verin.",
+    "assistantQuickRefine": "İstemi iyileştir",
+    "assistantQuickRefinePrompt": "Bağlamdaki istem metnini yüksek kaliteli tek bir İngilizce görsel oluşturma istemine dönüştürün. Yalnızca nihai istemi çıktı olarak verin.",
+    "assistantQuickTranslate": "İngilizceye çevir",
+    "assistantQuickTranslatePrompt": "Bağlam metnini doğal bir İngilizce görsel oluşturma istemine çevirin. Yalnızca sonucu çıktı olarak verin.",
+    "assistantStop": "Durdur",
+    "retry": "Yeniden dene"
   },
   "translatePage": {
     "title": "AI Translate",
@@ -1134,6 +1183,143 @@
     "connecting": "Bağlantı terminali...",
     "terminalExited": "Terminal seansı sona erdi",
     "terminalExitedWithError": "Terminal seansı çıktı",
-    "exitCode": "Çıkış kodu: {{code}}"
-  }
+    "exitCode": "Çıkış kodu: {{code}}",
+    "invalidAiCodingConfig": "Yapılandırma eksik veya geçersiz.",
+    "localAiCodingOnly": "AI Coding başlatma yapılandırmaları yalnızca yerel proje terminalleri için kullanılabilir.",
+    "moveToBottomDock": "Alt terminale taşı",
+    "moveToRightPanel": "Sağ panele taşı",
+    "newClaudeCode": "Yeni ClaudeCode"
+  },
+  "codegraphPage": {
+    "addFolder": "Bir klasörü dizinle",
+    "analytics": {
+      "cycles": "Döngüsel bağımlılıklar: {{count}}",
+      "deadCode": "Ölü kod adayları: {{count}}",
+      "description": "Dizinden istek üzerine hesaplanan döngüsel dosya bağımlılıkları ve hiç referans verilmemiş özel semboller.",
+      "noCycles": "Döngüsel dosya bağımlılığı yok.",
+      "noDeadCode": "Referans verilmemiş özel sembol yok.",
+      "rerun": "Yeniden çalıştır",
+      "run": "Analizi çalıştır",
+      "running": "Analiz ediliyor…",
+      "showingTop": "ilk {{count}} gösteriliyor",
+      "title": "Grafik sağlığı"
+    },
+    "back": "Geri",
+    "charts": {
+      "edgesByKind": "Türe göre kenarlar",
+      "filesByLanguage": "Dile göre dosyalar",
+      "noData": "Veri yok",
+      "nodesByKind": "Türe göre düğümler"
+    },
+    "delete": "Dizini sil",
+    "deleting": "Siliniyor…",
+    "files": {
+      "empty": "Dizinlenmiş dosya yok.",
+      "loadingSymbols": "Semboller yükleniyor…",
+      "noSymbols": "Bu dosyada sembol yok.",
+      "search": "Dosyaları filtrele…",
+      "symbols_one": "{{count}} sembol",
+      "symbols_other": "{{count}} sembol",
+      "title": "Dizinlenmiş dosyalar",
+      "viewInGraph": "Grafikte görüntüle"
+    },
+    "freshness": {
+      "backend": "Arka uç",
+      "extractionVersion": "Çıkarma sürümü",
+      "indexing": "Dizinleme sürüyor…",
+      "journal": "Günlük modu",
+      "lastIndexed": "Son dizinleme",
+      "never": "Hiç",
+      "stale": "Güncelliğini yitirmiş — yeniden dizinleme önerilir",
+      "title": "Dizin güncelliği",
+      "upToDate": "Güncel"
+    },
+    "graph": {
+      "depth": "Derinlik",
+      "empty": "Bu sembol için komşu bulunamadı.",
+      "expand": "Komşuları genişlet",
+      "interactionHint": "Tıkla: odağı sabitle ve genişlet · Çift tıkla: buraya ortala",
+      "loading": "Grafik yükleniyor…",
+      "nodesEdges": "{{nodes}} düğüm · {{edges}} kenar",
+      "reset": "Sıfırla",
+      "searchPlaceholder": "Başlamak için bir sembol arayın (örneğin bir fonksiyon veya sınıf adı)",
+      "seedHint": "Grafiği başlatmak için bir sembol arayın veya Dosyalar sekmesinde bir sembole tıklayın.",
+      "title": "Sembol grafiği"
+    },
+    "indexing": "Dizinleniyor…",
+    "kpi": {
+      "dbSize": "Veritabanı boyutu",
+      "edges": "Kenarlar",
+      "files": "Dosyalar",
+      "nodes": "Düğümler",
+      "pendingRefs": "Bekleyen referanslar",
+      "state": "Durum"
+    },
+    "needsDownload": "CodeGraph dizinlemeye başlamadan önce tek seferlik bir dilbilgisi indirmesi gerektirir. Bunu Ayarlar → Eklentiler bölümünden yapın.",
+    "noProjects": "Henüz dizinlenmiş proje yok. İlk dizininizi oluşturmak için \"Bir klasörü dizinle\" seçeneğine tıklayın.",
+    "notIndexedDesc": "Bu projenin henüz bir grafik dizini yok.",
+    "notIndexedTitle": "Dizinlenmemiş",
+    "openSettings": "Ayarları aç",
+    "pluginDisabled": "CodeGraph devre dışı. Önce Ayarlar → Eklentiler bölümünden eklentiyi etkinleştirin.",
+    "progress": {
+      "complete": "Sonlandırılıyor",
+      "extract": "Semboller çıkarılıyor",
+      "files": "{{done}} / {{total}} dosya",
+      "indexing": "Dizinleniyor",
+      "maintenance": "Optimize ediliyor",
+      "recreate": "Yeniden oluşturuluyor",
+      "resolve": "Referanslar çözümleniyor",
+      "scan": "Dosyalar taranıyor",
+      "sync": "Senkronize ediliyor",
+      "synthesize": "Sentezleniyor"
+    },
+    "refresh": "Yenile",
+    "reindex": "Yeniden dizinle",
+    "reindexing": "Yeniden dizinleniyor…",
+    "selectProject": "Proje",
+    "subtitle": "Proje başına dizin görselleştirmesi: istatistikler, dağılımlar, dosya ağacı ve sembol grafiği",
+    "sync": "Senkronize et",
+    "syncing": "Senkronize ediliyor…",
+    "tabs": {
+      "dashboard": "Pano",
+      "files": "Dosyalar",
+      "graph": "Grafik"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "O klasör dizinlenemedi",
+      "indexDone": "Dizinleme tamamlandı",
+      "indexFailed": "Dizinleme başarısız oldu",
+      "indexStarted": "Dizinleme başlatıldı",
+      "removeFailed": "Dizin kaldırılamadı",
+      "removed": "Dizin kaldırıldı",
+      "syncDone": "Senkronizasyon tamamlandı",
+      "syncFailed": "Senkronizasyon başarısız oldu"
+    },
+    "toolSurface": {
+      "description": "Varsayılan olarak ajanlara yalnızca codegraph_explore sunulur. search, node, callers, callees, impact, files ve status araçlarını da kaydetmek için etkinleştirin (kapsam yine de proje boyutuna göre şekillenir).",
+      "title": "Tam ajan araç kapsamı"
+    },
+    "unknownRoot": "Bilinmeyen proje ({{hash}})"
+  },
+  "committed": "Commit edildi",
+  "files": "Gezgin",
+  "scmAgentChanges": "Ajan Değişiklikleri",
+  "scmChanges": "Değişiklikler",
+  "scmClean": "Değişiklik yok",
+  "scmCommit": "Commit",
+  "scmCommitPlaceholder": "Mesaj (commit için Ctrl+Enter)",
+  "scmDiscard": "Vazgeç",
+  "scmGenerate": "Commit mesajı oluştur",
+  "scmGenerateFailed": "Oluşturma başarısız oldu",
+  "scmMerge": "Değişiklikleri birleştir",
+  "scmNoFolder": "Kaynak kontrolünü kullanmak için bir çalışma klasörü açın.",
+  "scmNothingStaged": "Hazırlanmış değişiklik yok — önce değişiklikleri hazırlayın",
+  "scmStage": "Hazırla",
+  "scmStageAll": "Tümünü hazırla",
+  "scmStaged": "Hazırlanmış Değişiklikler",
+  "scmTitle": "Kaynak Kontrolü",
+  "scmUndo": "Geri al",
+  "scmUnstage": "Hazırlıktan çıkar",
+  "scmUnstageAll": "Tümünü hazırlıktan çıkar"
 }

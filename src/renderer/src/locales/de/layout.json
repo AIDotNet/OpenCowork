@@ -104,7 +104,14 @@
     "chats": "Chats",
     "noChats": "Noch keine Chats",
     "smartRename": "Smart Rename",
-    "smartRenaming": "Smart Umbenennung"
+    "smartRenaming": "Smart Umbenennung",
+    "dropFolderHint": "Legen Sie hier einen Ordner ab, um ihn als Projekt zu importieren",
+    "projectSortBy": "Projekte sortieren nach",
+    "projectSortCreatedAt": "Erstellungszeit",
+    "projectSortName": "Alphabetisch",
+    "projectSortRecentlyUpdated": "Zuletzt aktualisiert",
+    "projectSortTitle": "Projekte sortieren: {{sort}}",
+    "revealInFolder": "Ordnerspeicherort öffnen"
   },
   "sidebar_toast": {
     "sessionDeleted": "Sitzung gelöscht",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "Keine Projektsitzungen wurden gelöscht",
     "smartRenameNoContent": "Keine Konversationsinhalte für die Umbenennung verfügbar",
     "smartRenameFailed": "Smart Rename fehlgeschlagen",
-    "smartRenameSuccess": "Session intelligent umbenannt"
+    "smartRenameSuccess": "Session intelligent umbenannt",
+    "dropNotFolder": "Bitte legen Sie einen Ordner ab, keine Datei",
+    "projectsCreatedCount": "{{count}} Projekte erstellt",
+    "revealFailed": "Speicherort konnte nicht geöffnet werden"
   },
   "topbar": {
     "togglePanel": "Kippfeld",
@@ -225,7 +235,14 @@
     "openInspector": "Offener Inspektor",
     "closeRuntimeStatus": "Kontext und Fortschritt verbergen",
     "openRuntimeStatus": "Kontext und Fortschritt zeigen",
-    "help": "Offene Führung"
+    "help": "Offene Führung",
+    "builtinSearch": "Integrierte Websuche",
+    "builtinSearchOff": "Aus",
+    "builtinSearchOn": "Anbietereigene Suche aktiviert",
+    "faster": "Schneller",
+    "followGlobalModel": "Globalem Modell folgen",
+    "followGlobalModelDesc": "Verwenden Sie die globale Haupt-Modell-Einstellung für diese Sitzung.",
+    "smarter": "Intelligenter"
   },
   "runtimeStatus": {
     "contextTitle": "Umwelt",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}, {{second}} und {{count}} mehr",
     "noTasks": "Noch keine Aufgaben",
     "runningTerminals": "Fahrterminals",
-    "closeTerminal": "Schließterminal"
+    "closeTerminal": "Schließterminal",
+    "subAgents": "SubAgenten",
+    "subAgentsCompleted": "{{count}} abgeschlossen",
+    "subAgentsRunning": "{{count}} laufend"
   },
   "browser": {
     "back": "Rücken",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "Fallback",
     "reportStatusMissing": "Fehlend",
     "reportRetrying": "Regeneration des Abschlussberichts...",
-    "reportEmpty": "Kein Abschlussbericht verfügbar"
+    "reportEmpty": "Kein Abschlussbericht verfügbar",
+    "aborted": "Abgebrochen",
+    "backToList": "Zurück zu SubAgenten",
+    "completedGroup": "Abgeschlossen",
+    "durationHours": "{{count}} Std.",
+    "durationMinutes": "{{count}} Min.",
+    "durationSeconds": "{{count}} Sek.",
+    "maxIterations": "Iterationslimit erreicht",
+    "noStarted": "Es wurden noch keine SubAgenten gestartet",
+    "started": "Gestartet",
+    "stop": "Diesen SubAgenten stoppen"
   },
   "detailPanel": {
     "team": "Team",
@@ -682,7 +712,9 @@
           "Fälle, in denen Teilaufgaben parallel ausgeführt werden sollten und strukturierte Markdown-Zusammenfassungen für die fortgesetzte Koordination zurückgegeben werden sollten"
         ]
       }
-    }
+    },
+    "useFullWidth": "Volle Breite verwenden",
+    "useStandardWidth": "Standardbreite verwenden"
   },
   "navRail": {
     "conversations": "Gespräche",
@@ -694,7 +726,8 @@
     "draw": "Zeichnung",
     "translate": "Übersetzen",
     "ssh": "SSH",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "Ressourcen",
@@ -945,7 +978,23 @@
     "inpaintPrompt": "Beschreibe die Änderung für den markierten Bereich",
     "outpaintPrompt": "Beschreibe, was den neuen Bereich füllt (optional)",
     "copyImage": "In Zwischenablage kopieren",
-    "copiedImage": "Bild kopiert"
+    "copiedImage": "Bild kopiert",
+    "assistantActConnect": "Knoten verbunden",
+    "assistantActCreateText": "Textknoten erstellt",
+    "assistantActFailed": "fehlgeschlagen",
+    "assistantActGenerate": "Bilderzeugung gestartet",
+    "assistantActRead": "Leinwand gelesen",
+    "assistantAddSelection": "Auswahl hinzufügen ({{count}})",
+    "assistantClear": "Gespräch löschen",
+    "assistantCollapse": "Einklappen",
+    "assistantQuickDescribe": "Bild beschreiben",
+    "assistantQuickDescribePrompt": "Beschreiben Sie das Motiv, die Komposition und den Stil des Kontextbilds, und geben Sie dann einen wiederverwendbaren englischen Prompt an.",
+    "assistantQuickRefine": "Prompt verfeinern",
+    "assistantQuickRefinePrompt": "Verfeinern Sie den Prompt-Text im Kontext zu einem hochwertigen englischen Bildgenerierungs-Prompt. Geben Sie nur den finalen Prompt aus.",
+    "assistantQuickTranslate": "Ins Englische übersetzen",
+    "assistantQuickTranslatePrompt": "Übersetzen Sie den Kontexttext in einen natürlichen englischen Bildgenerierungs-Prompt. Geben Sie nur das Ergebnis aus.",
+    "assistantStop": "Stopp",
+    "retry": "Wiederholen"
   },
   "translatePage": {
     "title": "AI Übersetzer",
@@ -1134,6 +1183,143 @@
     "connecting": "Anschlussklemme...",
     "terminalExited": "Terminalsitzung beendet",
     "terminalExitedWithError": "Terminalsitzung verlassen",
-    "exitCode": "Ausfahrtscode: {{code}}"
-  }
+    "exitCode": "Ausfahrtscode: {{code}}",
+    "invalidAiCodingConfig": "Die Konfiguration ist unvollständig oder ungültig.",
+    "localAiCodingOnly": "AI-Coding-Startkonfigurationen sind nur für lokale Projektterminals verfügbar.",
+    "moveToBottomDock": "Zum unteren Terminal verschieben",
+    "moveToRightPanel": "Zum rechten Panel verschieben",
+    "newClaudeCode": "Neuer ClaudeCode"
+  },
+  "codegraphPage": {
+    "addFolder": "Ordner indizieren",
+    "analytics": {
+      "cycles": "Zirkuläre Abhängigkeiten: {{count}}",
+      "deadCode": "Dead-Code-Kandidaten: {{count}}",
+      "description": "Zirkuläre Dateiabhängigkeiten und nie referenzierte private Symbole, bei Bedarf aus dem Index berechnet.",
+      "noCycles": "Keine zirkulären Dateiabhängigkeiten.",
+      "noDeadCode": "Keine unreferenzierten privaten Symbole.",
+      "rerun": "Erneut ausführen",
+      "run": "Analyse ausführen",
+      "running": "Analysiere…",
+      "showingTop": "zeigt Top {{count}}",
+      "title": "Graph-Zustand"
+    },
+    "back": "Zurück",
+    "charts": {
+      "edgesByKind": "Kanten nach Art",
+      "filesByLanguage": "Dateien nach Sprache",
+      "noData": "Keine Daten",
+      "nodesByKind": "Knoten nach Art"
+    },
+    "delete": "Index löschen",
+    "deleting": "Wird gelöscht…",
+    "files": {
+      "empty": "Keine indizierten Dateien.",
+      "loadingSymbols": "Symbole werden geladen…",
+      "noSymbols": "Keine Symbole in dieser Datei.",
+      "search": "Dateien filtern…",
+      "symbols_one": "{{count}} Symbol",
+      "symbols_other": "{{count}} Symbole",
+      "title": "Indizierte Dateien",
+      "viewInGraph": "Im Graph anzeigen"
+    },
+    "freshness": {
+      "backend": "Backend",
+      "extractionVersion": "Extraktionsversion",
+      "indexing": "Indizierung läuft…",
+      "journal": "Journal-Modus",
+      "lastIndexed": "Zuletzt indiziert",
+      "never": "Nie",
+      "stale": "Veraltet — Neuindizierung empfohlen",
+      "title": "Index-Aktualität",
+      "upToDate": "Aktuell"
+    },
+    "graph": {
+      "depth": "Tiefe",
+      "empty": "Keine Nachbarn für dieses Symbol gefunden.",
+      "expand": "Nachbarn erweitern",
+      "interactionHint": "Klick: Fokus fixieren & erweitern · Doppelklick: hier neu zentrieren",
+      "loading": "Graph wird geladen…",
+      "nodesEdges": "{{nodes}} Knoten · {{edges}} Kanten",
+      "reset": "Zurücksetzen",
+      "searchPlaceholder": "Suchen Sie ein Symbol, um zu beginnen (z. B. einen Funktions- oder Klassennamen)",
+      "seedHint": "Suchen Sie ein Symbol oder klicken Sie auf ein Symbol im Tab „Dateien“, um den Graph zu starten.",
+      "title": "Symbolgraph"
+    },
+    "indexing": "Indizierung…",
+    "kpi": {
+      "dbSize": "DB-Größe",
+      "edges": "Kanten",
+      "files": "Dateien",
+      "nodes": "Knoten",
+      "pendingRefs": "Ausstehende Referenzen",
+      "state": "Status"
+    },
+    "needsDownload": "CodeGraph benötigt vor der Indizierung einen einmaligen Grammatik-Download. Erledigen Sie dies unter Einstellungen → Plugins.",
+    "noProjects": "Noch keine indizierten Projekte. Klicken Sie auf „Ordner indizieren“, um Ihren ersten Index zu erstellen.",
+    "notIndexedDesc": "Dieses Projekt hat noch keinen Graph-Index.",
+    "notIndexedTitle": "Nicht indiziert",
+    "openSettings": "Einstellungen öffnen",
+    "pluginDisabled": "CodeGraph ist deaktiviert. Aktivieren Sie das Plugin zuerst unter Einstellungen → Plugins.",
+    "progress": {
+      "complete": "Wird abgeschlossen",
+      "extract": "Symbole werden extrahiert",
+      "files": "{{done}} / {{total}} Dateien",
+      "indexing": "Indizierung",
+      "maintenance": "Wird optimiert",
+      "recreate": "Wird neu aufgebaut",
+      "resolve": "Referenzen werden aufgelöst",
+      "scan": "Dateien werden gescannt",
+      "sync": "Synchronisierung",
+      "synthesize": "Wird synthetisiert"
+    },
+    "refresh": "Aktualisieren",
+    "reindex": "Neu indizieren",
+    "reindexing": "Neuindizierung…",
+    "selectProject": "Projekt",
+    "subtitle": "Index-Visualisierung pro Projekt: Statistiken, Verteilungen, Dateibaum und ein Symbolgraph",
+    "sync": "Synchronisieren",
+    "syncing": "Synchronisiert…",
+    "tabs": {
+      "dashboard": "Dashboard",
+      "files": "Dateien",
+      "graph": "Graph"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "Dieser Ordner konnte nicht indiziert werden",
+      "indexDone": "Index abgeschlossen",
+      "indexFailed": "Indizierung fehlgeschlagen",
+      "indexStarted": "Indizierung gestartet",
+      "removeFailed": "Index konnte nicht entfernt werden",
+      "removed": "Index entfernt",
+      "syncDone": "Synchronisierung abgeschlossen",
+      "syncFailed": "Synchronisierung fehlgeschlagen"
+    },
+    "toolSurface": {
+      "description": "Standardmäßig wird Agenten nur codegraph_explore zur Verfügung gestellt. Aktivieren Sie diese Option, um zusätzlich search, node, callers, callees, impact, files und status zu registrieren (die Oberfläche wird weiterhin an die Projektgröße angepasst).",
+      "title": "Vollständige Tool-Oberfläche für Agenten"
+    },
+    "unknownRoot": "Unbekanntes Projekt ({{hash}})"
+  },
+  "committed": "Committed",
+  "files": "Explorer",
+  "scmAgentChanges": "Agentenänderungen",
+  "scmChanges": "Änderungen",
+  "scmClean": "Keine Änderungen",
+  "scmCommit": "Commit",
+  "scmCommitPlaceholder": "Nachricht (Strg+Enter zum Committen)",
+  "scmDiscard": "Verwerfen",
+  "scmGenerate": "Commit-Nachricht erzeugen",
+  "scmGenerateFailed": "Erzeugung fehlgeschlagen",
+  "scmMerge": "Änderungen zusammenführen",
+  "scmNoFolder": "Öffnen Sie einen Arbeitsordner, um die Versionskontrolle zu nutzen.",
+  "scmNothingStaged": "Nichts vorgemerkt — zuerst Änderungen vormerken",
+  "scmStage": "Vormerken",
+  "scmStageAll": "Alle vormerken",
+  "scmStaged": "Vorgemerkte Änderungen",
+  "scmTitle": "Versionskontrolle",
+  "scmUndo": "Rückgängig",
+  "scmUnstage": "Vormerkung aufheben",
+  "scmUnstageAll": "Alle Vormerkungen aufheben"
 }

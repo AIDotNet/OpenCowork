@@ -82,7 +82,8 @@
     "teamLabel": "スタッフ",
     "taskSubAgents": "タスク(サブエージェント)",
     "teamTools": "チームツール",
-    "maxIter": "最高の{{count}}のIter"
+    "maxIter": "最高の{{count}}のIter",
+    "inheritsMainTools": "メインエージェントと同じツール"
   },
   "artifacts": {
     "noArtifacts": "まだアーティファクトはありません",

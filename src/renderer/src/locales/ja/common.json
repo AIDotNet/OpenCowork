@@ -84,7 +84,14 @@
     "clarify": "確認",
     "cowork": "協働",
     "code": "コード",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "acp": "設計してサブエージェントに委任する",
+      "chat": "プロジェクトツールを使わない、手軽な会話",
+      "clarify": "曖昧さをレビュー可能なプランに変換する",
+      "code": "集中した実装作業",
+      "cowork": "あなたと一緒に計画・実行・検証する"
+    }
   },
   "onboarding": {
     "start": "開始",
@@ -257,7 +264,8 @@
         "updateNow": "今すぐ更新",
         "remindLater": "後で通知",
         "installNow": "今すぐ更新",
-        "updateLater": "後で更新"
+        "updateLater": "後で更新",
+        "openDownloadPage": "ダウンロードページを開く"
       },
       "downloadFailed": "ダウンロードに失敗しました",
       "delayed": "更新を延期しました",
@@ -265,7 +273,8 @@
       "downloadedDescription": "バージョン {{version}} をインストールできます。",
       "installing": "更新を準備中...",
       "installFailed": "更新を開始できませんでした",
-      "failed": "更新に失敗しました"
+      "failed": "更新に失敗しました",
+      "manualDescription": "インストール不要版はまだ自動更新に対応していません。最新バージョンを手動でダウンロードし、アプリを終了してから現在のフォルダを置き換えてください。"
     },
     "errors": {
       "unhandledTitle": "未処理のエラー"

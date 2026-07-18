@@ -122,7 +122,36 @@
     "startAcp": "ACPセッションを開始",
     "startAcpDesc": "まず目標、背景、制約、受入条件を明確にします。その後、実装前にアーキテクチャを設計し、タスクを委任します。",
     "homeTitleAcp": "ACPモード",
-    "homeDescAcp": "ACP モードでは、まず目標、背景、制約、受入条件を明確にします。その後、実装前にアーキテクチャとタスク分解を提案します。"
+    "homeDescAcp": "ACP モードでは、まず目標、背景、制約、受入条件を明確にします。その後、実装前にアーキテクチャとタスク分解を提案します。",
+    "queueQuoted": "会話に挿入されました",
+    "runtimeMetrics": {
+      "cache": "キャッシュ",
+      "cacheCreate": "キャッシュ書き込み",
+      "cacheCreate1h": "キャッシュ書き込み（1時間）",
+      "cacheCreate5m": "キャッシュ書き込み（5分）",
+      "cacheHit": "キャッシュヒット",
+      "cost": "{{label}}: {{cost}}",
+      "input": "キャッシュされていない入力",
+      "output": "出力",
+      "totalCost": "コスト",
+      "tps": "TPS",
+      "tpsHint": "1秒あたりに生成される出力トークン数",
+      "ttft": "TTFT",
+      "ttftHint": "最初のトークンまでの時間"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "承認待ち: {{tool}}",
+      "generatingImage": "画像を生成中",
+      "loadingMedia": "メディアを読み込み中",
+      "optimizing": "最適化中",
+      "ready": "準備完了",
+      "receiving": "受信中",
+      "retrying": "再試行中 {{attempt}}",
+      "runningSubAgents": "{{count}} 個のサブエージェントが実行中",
+      "runningTool": "{{tool}} を実行中",
+      "thinking": "思考中",
+      "waiting": "待機中"
+    }
   },
   "planReview": {
     "awaitingReview": "レビュー待ち",
@@ -139,7 +168,10 @@
     "runningHint": "このセッションは、現在計画を実装しています。",
     "runningInSession": "セッション「{{title}}」で実施しているプランです。",
     "openExecutionSession": "実行セッションを開く",
-    "approvedHint": "このプランは既に承認されています。"
+    "approvedHint": "このプランは既に承認されています。",
+    "copy": "プランをコピー",
+    "download": "プランをダウンロード",
+    "expand": "サイドパネルで展開"
   },
   "guide": {
     "title": "会話オンボーディング",
@@ -400,7 +432,26 @@
       "TaskList": "リストタスク",
       "Delete": "削除",
       "Skill": "スキル"
-    }
+    },
+    "allowWhitelist": "許可してホワイトリストに追加",
+    "default": "デフォルト",
+    "defaultDesc": "危険なツールの実行前に確認を求める",
+    "fullAccess": "フルアクセス",
+    "fullAccessConfirmDesc": "危険な操作を含むすべてのツール呼び出しが、確認なしで自動的に実行されます。",
+    "fullAccessConfirmTitle": "フルアクセスに切り替えますか？",
+    "fullAccessDesc": "確認なしですべてのツールを自動的に実行する",
+    "label": "権限",
+    "manageWhitelist": "ホワイトリストルールを管理…",
+    "tooltip": "ツール呼び出しの権限",
+    "whitelist": "ホワイトリスト",
+    "whitelistAddedRule": "ルールを追加しました: {{pattern}}",
+    "whitelistAddedTool": "{{tool}} をホワイトリストに追加しました",
+    "whitelistDesc": "ホワイトリストに登録されたツールとコマンドは確認をスキップします。ブラックリストに登録されたコマンドは常に拒否されます",
+    "whitelistEditorTitle": "このコマンドの許可ルールを追加",
+    "whitelistInvalidPattern": "無効なパターン: {{error}}",
+    "whitelistModeRegex": "正規表現",
+    "whitelistModeWildcard": "ワイルドカード",
+    "whitelistSave": "保存して許可"
   },
   "toolCall": {
     "output": "出力",
@@ -444,7 +495,9 @@
       "imageCopied": "クリップボードにコピーした画像",
       "copyImageFailed": "画像をコピーできない",
       "copied": "コピッド",
-      "copyImage": "画像をクリップボードにコピーする"
+      "copyImage": "画像をクリップボードにコピーする",
+      "renderComplete": "完了",
+      "rendered": "レンダリング済み"
     },
     "taskList": "タスクリスト",
     "tasksDone": "{{completed}}/{{total}}は完了しました",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "再試行の確認",
       "result": "結果({{count}})",
       "notes": "インフォメーション",
-      "countValue": "カウント{{count}}"
+      "countValue": "カウント{{count}}",
+      "builtinTitle": "GPT 画像生成"
     },
     "desktop": {
       "running": "進行中のデスクトップアクション",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} · 提出",
         "scrollY": "Y {{value}}の"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "コードグラフを照会中...",
+      "files": "参照されたファイル",
+      "filesCount": "{{count}} 件のファイル",
+      "input": "入力",
+      "notIndexed": "インデックス未準備",
+      "notIndexedBadge": "インデックス作成中",
+      "result": "グラフの結果",
+      "symbolsCount": "{{count}} 個のシンボル",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "呼び出し先",
+        "callers": "呼び出し元",
+        "explore": "探索",
+        "files": "ファイル",
+        "impact": "影響範囲",
+        "index": "インデックス",
+        "node": "ノード",
+        "search": "検索",
+        "status": "ステータス",
+        "sync": "同期"
+      }
+    },
+    "parameters": "パラメーター",
+    "result": "結果",
+    "skillName": "スキル"
   },
   "subAgent": {
     "queued": "待機中",
@@ -620,7 +700,17 @@
     "toolCalls": "ツールコール",
     "summaryEmpty": "要約なし",
     "openInRunsRunning": "右側の実行リストでライブ進行状況を見る",
-    "openInRunsDone": "右側の実行リストにあるフルレコードを見る"
+    "openInRunsDone": "右側の実行リストにあるフルレコードを見る",
+    "aborted": "中断済み",
+    "background": "バックグラウンド",
+    "failureUnknown": "サブエージェントの実行に失敗しました",
+    "label": "サブエージェント",
+    "maxIterations": "反復回数の上限に達しました",
+    "openNamedInPanel": "{{name}} をサイドパネルで開く",
+    "prompt": "プロンプト",
+    "promptEmpty": "利用可能なプロンプトがありません",
+    "stopped": "停止済み",
+    "waiting": "実行待ち"
   },
   "teamEvent": {
     "teamCreated": "チーム作成",
@@ -629,7 +719,8 @@
     "messageSent": "メッセージ送信",
     "teamDeleted": "チーム削除",
     "teammateSpawned": "チームメイト Spawned",
-    "failed": "失敗"
+    "failed": "失敗",
+    "backgroundAgentSpawned": "バックグラウンドエージェントを開始しました"
   },
   "todo": {
     "tasksDone": "{{completed}}/{{total}} タスクが完了しました",
@@ -642,7 +733,9 @@
     "thinkingFor": "{{seconds}}の考え方",
     "pending": "考えること",
     "thinkingEllipsis": "お問い合わせ",
-    "thoughts": "ログイン"
+    "thoughts": "ログイン",
+    "deepThinking": "深く思考中",
+    "deepThought": "深く思考しました"
   },
   "messageList": {
     "startConversation": "会話を始める",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "ワークスペース",
     "homeTitleChatQuestion": "私たちが話すべきことは何ですか?",
     "homeTitleBuildQuestion": "{{name}}で構築すべきこと",
-    "thisWorkspace": "このワークスペース"
+    "thisWorkspace": "このワークスペース",
+    "assistantRail": {
+      "currentLabel": "現在のメッセージ {{index}}: {{preview}}",
+      "emptyPreview": "アシスタントの返信",
+      "jumpLabel": "メッセージ {{index}} に移動: {{preview}}",
+      "streamingLabel": "ストリーミング中のアシスタント返信 {{index}} に移動: {{preview}}",
+      "summaryLabel": "圧縮された履歴の要約 {{index}} に移動: {{preview}}",
+      "summaryPreview": "圧縮された履歴の要約",
+      "toolOnlyPreview": "{{count}} 件のツール呼び出し",
+      "userLabel": "ユーザーメッセージ {{index}} に移動: {{preview}}"
+    },
+    "pendingRetryTitle": "モデルに再接続中",
+    "pendingTeamTitle": "チームメンバーを調整中"
   },
   "projectHome": {
     "noProjectSelected": "プロジェクト選択なし",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}}ツール",
     "mcpToolCount_one": "{{count}} ツール",
     "mcpToolCount_other": "{{count}}ツール",
-    "mcpCount": "{{count}} MCPの特長"
+    "mcpCount": "{{count}} MCPの特長",
+    "activeCustomExtensions": "有効なカスタム拡張機能:",
+    "availableCustomExtensions": "利用可能なカスタム拡張機能",
+    "configureCustomExtensionSettings": "設定...",
+    "configureCustomExtensions": "設定 → 拡張機能 で拡張機能を有効にする",
+    "customExtensionsLabel": "カスタム拡張機能",
+    "extensionCount": "{{count}} 個の拡張機能",
+    "extensionCount_one": "{{count}} 個の拡張機能",
+    "extensionCount_other": "{{count}} 個の拡張機能",
+    "extensionToolCount": "{{count}} 個のツール",
+    "extensionToolCount_one": "{{count}} 個のツール",
+    "extensionToolCount_other": "{{count}} 個のツール",
+    "noCustomExtensions": "有効なカスタム拡張機能はありません"
   },
   "userMessage": {
     "you": "お問い合わせ",
@@ -830,7 +947,15 @@
     "copyImage": "コピーイメージ",
     "removeImage": "画像削除",
     "imagePreview": "画像プレビュー",
-    "saveAndResend": "保存と修正"
+    "saveAndResend": "保存と修正",
+    "quotedLabel": "引用",
+    "selectedFileReadFailed": "読み込み失敗",
+    "selectedFileReadLines": "{{count}} 行を読み込み",
+    "selectedFileReadSkipped": "パス参照",
+    "selectedFileReadSkippedNonText": "パス参照。バイナリまたはドキュメントファイルは直接読み込まれませんでした",
+    "selectedFileReadSkippedPdf": "PDF パス参照。ファイルは直接読み込まれませんでした",
+    "selectedFileReadTruncated": "先頭 {{count}} 行を読み込み",
+    "selectedFileReadsTitle": "読み込んだファイル"
   },
   "assistantMessage": {
     "changedFiles_one": "{{count}}ファイルを編集",
@@ -841,7 +966,6 @@
     "editedFiles_other": "{{count}}ファイルを編集",
     "deletedFiles_one": "削除された{{count}}ファイル",
     "deletedFiles_other": "削除された{{count}}ファイル",
-    "ranCommandsInline": "コマンド実行 {{count}} 回",
     "summarySeparator": ",",
     "moreKinds": "+{{count}}の",
     "showWorkspace": "ワークスペースを拡大({{count}}ツールの実行)",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "最後のエラー",
       "stackTrace": "スタックトレース",
       "copy": "コピー",
-      "copied": "コピッド"
+      "copied": "コピッド",
+      "descRuntimeUnavailable": "OpenCowork はローカルのネイティブワーカーに接続できませんでした。すでに再起動を試みています。メッセージを再送信するか、繰り返し発生する場合はネイティブワーカーを再ビルドしてください。",
+      "sidecarUnavailableMessage": "ローカルのエージェントランタイムが一時的に利用できません。OpenCowork は再起動を試みました。このメッセージを再送信してください。開発環境で繰り返し発生する場合は、`npm run native:publish` を実行してから OpenCowork を再起動してください。",
+      "titleRuntimeUnavailable": "ローカルランタイムが利用できません"
     },
-    "processTools": "ツール呼び出し"
+    "processTools": "ツール呼び出し",
+    "activeTools": "{{count}} 個のツールが実行中",
+    "cacheWrite": "キャッシュ書き込み",
+    "cachedInput": "入力キャッシュ",
+    "completionFinished": "完了",
+    "metricCost": "コスト",
+    "metricTokens": "トークン",
+    "metricTotalDuration": "合計",
+    "processResponse": "レスポンス",
+    "ranCommandsInline_one": "{{count}} 件のコマンドを実行",
+    "ranCommandsInline_other": "{{count}} 件のコマンドを実行",
+    "streamingText": "テキストをストリーミング中",
+    "thinkingStatus": "思考中...",
+    "tokenTotal": "トークン合計",
+    "tokenUsage": "トークン使用量",
+    "toolExecutions": "{{count}} 回のツール実行",
+    "totalUsage": "合計使用量",
+    "tpsHint": "1秒あたりに生成される出力トークン数",
+    "ttftHint": "最初のトークンまでの時間",
+    "uncachedInput": "キャッシュされていない入力"
   },
   "messageActions": {
     "fork": "フォーク",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "ステージが最初に変更され、メッセージを生成する",
     "aiCommitEmptyStaged": "ステージ無し — メッセージを生成することができません",
     "aiCommitFailed": "生成が失敗しました。 API/モデルの設定を確認し、もう一度お試しください"
+  },
+  "artifacts": {
+    "more": "他 {{count}} 件",
+    "open": "開く",
+    "reveal": "Finderで表示",
+    "title": "作成されたファイル"
+  },
+  "extensionResult": {
+    "chartItem": "項目 {{index}}",
+    "emptyTable": "表示する行がありません",
+    "loadingRenderer": "レンダラーを読み込み中...",
+    "rendererMissing": "レンダラーが見つかりません",
+    "rendererTitle": "拡張機能レンダラー",
+    "tableTitle": "テーブル",
+    "title": "拡張機能の結果"
+  },
+  "webSearch": {
+    "label": "Web検索",
+    "searching": "Webを検索中…",
+    "sources": "情報源"
   }
 }

@@ -104,7 +104,14 @@
     "chats": "Чаты",
     "noChats": "Пока нет чатов",
     "smartRename": "Умное имя",
-    "smartRenaming": "Умное переименование"
+    "smartRenaming": "Умное переименование",
+    "dropFolderHint": "Перетащите папку сюда, чтобы импортировать её как проект",
+    "projectSortBy": "Сортировать проекты по",
+    "projectSortCreatedAt": "Времени создания",
+    "projectSortName": "По алфавиту",
+    "projectSortRecentlyUpdated": "По недавнему обновлению",
+    "projectSortTitle": "Сортировка проектов: {{sort}}",
+    "revealInFolder": "Открыть расположение папки"
   },
   "sidebar_toast": {
     "sessionDeleted": "Сессия удалена",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "Заседания по проектам не проводились",
     "smartRenameNoContent": "Нет контента для переименования",
     "smartRenameFailed": "Умное переименование провалилось",
-    "smartRenameSuccess": "Сеанс переименовали разумно"
+    "smartRenameSuccess": "Сеанс переименовали разумно",
+    "dropNotFolder": "Перетащите папку, а не файл",
+    "projectsCreatedCount": "Создано проектов: {{count}}",
+    "revealFailed": "Не удалось открыть расположение"
   },
   "topbar": {
     "togglePanel": "Панель переключателей",
@@ -225,7 +235,14 @@
     "openInspector": "Открытый инспектор",
     "closeRuntimeStatus": "Скрыть контекст и прогресс",
     "openRuntimeStatus": "Показать контекст и прогресс",
-    "help": "Открытое руководство"
+    "help": "Открытое руководство",
+    "builtinSearch": "Встроенный веб-поиск",
+    "builtinSearchOff": "Выкл",
+    "builtinSearchOn": "Включён нативный поиск провайдера",
+    "faster": "Быстрее",
+    "followGlobalModel": "Следовать глобальной модели",
+    "followGlobalModelDesc": "Использовать глобальную настройку основной модели для этой сессии.",
+    "smarter": "Умнее"
   },
   "runtimeStatus": {
     "contextTitle": "окружающая среда",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}, {{second}} и {{count}} больше",
     "noTasks": "Никаких задач пока нет",
     "runningTerminals": "Запуск терминалов",
-    "closeTerminal": "Близкий терминал"
+    "closeTerminal": "Близкий терминал",
+    "subAgents": "Субагенты",
+    "subAgentsCompleted": "{{count}} завершено",
+    "subAgentsRunning": "{{count}} выполняется"
   },
   "browser": {
     "back": "Назад",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "Обсуждение Fallback",
     "reportStatusMissing": "Пропавший",
     "reportRetrying": "Восстановление итогового отчета...",
-    "reportEmpty": "Окончательный доклад отсутствует"
+    "reportEmpty": "Окончательный доклад отсутствует",
+    "aborted": "Прервано",
+    "backToList": "Назад к субагентам",
+    "completedGroup": "Завершено",
+    "durationHours": "{{count}} ч",
+    "durationMinutes": "{{count}} мин",
+    "durationSeconds": "{{count}} с",
+    "maxIterations": "Достигнут лимит итераций",
+    "noStarted": "Ни один субагент не был запущен",
+    "started": "Запущено",
+    "stop": "Остановить этот субагент"
   },
   "detailPanel": {
     "team": "Команда",
@@ -682,7 +712,9 @@
           "Случаи, когда подзадачи должны выполняться параллельно и возвращать структурированные резюме Markdown для дальнейшей координации"
         ]
       }
-    }
+    },
+    "useFullWidth": "Использовать полную ширину",
+    "useStandardWidth": "Использовать стандартную ширину"
   },
   "navRail": {
     "conversations": "Беседы",
@@ -694,7 +726,8 @@
     "draw": "рисовать",
     "translate": "Переводить",
     "ssh": "Шшш",
-    "settings": "Настройки"
+    "settings": "Настройки",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "ресурсы",
@@ -945,7 +978,23 @@
     "downloadGif": "Скачать GIF",
     "downloadGrid": "Скачать Grid",
     "downloadSuccess": "Скачать",
-    "downloadFailed": "Скачать Не удалось"
+    "downloadFailed": "Скачать Не удалось",
+    "assistantActConnect": "Узлы соединены",
+    "assistantActCreateText": "Создан текстовый узел",
+    "assistantActFailed": "не удалось",
+    "assistantActGenerate": "Начата генерация изображения",
+    "assistantActRead": "Считано содержимое холста",
+    "assistantAddSelection": "Добавить выбранное ({{count}})",
+    "assistantClear": "Очистить разговор",
+    "assistantCollapse": "Свернуть",
+    "assistantQuickDescribe": "Описать изображение",
+    "assistantQuickDescribePrompt": "Опишите сюжет, композицию и стиль изображения из контекста, затем дайте один переиспользуемый промпт на английском языке.",
+    "assistantQuickRefine": "Уточнить промпт",
+    "assistantQuickRefinePrompt": "Доработайте текст промпта из контекста в один качественный промпт для генерации изображений на английском языке. Выведите только итоговый промпт.",
+    "assistantQuickTranslate": "Перевести на английский",
+    "assistantQuickTranslatePrompt": "Переведите текст из контекста в естественный промпт для генерации изображений на английском языке. Выведите только результат.",
+    "assistantStop": "Стоп!",
+    "retry": "Повторить"
   },
   "translatePage": {
     "title": "Переводчик AI",
@@ -1134,6 +1183,143 @@
     "connecting": "Подключение терминала...",
     "terminalExited": "Завершилась терминальная сессия",
     "terminalExitedWithError": "Терминальная сессия завершена",
-    "exitCode": "Код выхода: {{code}}"
-  }
+    "exitCode": "Код выхода: {{code}}",
+    "invalidAiCodingConfig": "Конфигурация неполная или недействительна.",
+    "localAiCodingOnly": "Конфигурации запуска AI Coding доступны только для локальных терминалов проекта.",
+    "moveToBottomDock": "Переместить в нижний терминал",
+    "moveToRightPanel": "Переместить в правую панель",
+    "newClaudeCode": "Новый ClaudeCode"
+  },
+  "codegraphPage": {
+    "addFolder": "Индексировать папку",
+    "analytics": {
+      "cycles": "Циклические зависимости: {{count}}",
+      "deadCode": "Кандидаты в мёртвый код: {{count}}",
+      "description": "Циклические зависимости файлов и никогда не используемые приватные символы, вычисляемые по индексу по запросу.",
+      "noCycles": "Циклических зависимостей файлов нет.",
+      "noDeadCode": "Неиспользуемых приватных символов нет.",
+      "rerun": "Повторить",
+      "run": "Запустить анализ",
+      "running": "Анализ…",
+      "showingTop": "показаны первые {{count}}",
+      "title": "Здоровье графа"
+    },
+    "back": "Назад",
+    "charts": {
+      "edgesByKind": "Рёбра по типу",
+      "filesByLanguage": "Файлы по языку",
+      "noData": "Нет данных",
+      "nodesByKind": "Узлы по типу"
+    },
+    "delete": "Удалить индекс",
+    "deleting": "Удаление…",
+    "files": {
+      "empty": "Нет проиндексированных файлов.",
+      "loadingSymbols": "Загрузка символов…",
+      "noSymbols": "В этом файле нет символов.",
+      "search": "Фильтр файлов…",
+      "symbols_one": "{{count}} символ",
+      "symbols_other": "{{count}} символов",
+      "title": "Проиндексированные файлы",
+      "viewInGraph": "Показать в графе"
+    },
+    "freshness": {
+      "backend": "Бэкенд",
+      "extractionVersion": "Версия извлечения",
+      "indexing": "Идёт индексация…",
+      "journal": "Режим журнала",
+      "lastIndexed": "Последняя индексация",
+      "never": "Никогда",
+      "stale": "Устарел — рекомендуется переиндексация",
+      "title": "Актуальность индекса",
+      "upToDate": "Актуально"
+    },
+    "graph": {
+      "depth": "Глубина",
+      "empty": "Соседи для этого символа не найдены.",
+      "expand": "Развернуть соседей",
+      "interactionHint": "Клик: закрепить фокус и развернуть · Двойной клик: центрировать здесь",
+      "loading": "Загрузка графа…",
+      "nodesEdges": "{{nodes}} узлов · {{edges}} рёбер",
+      "reset": "Сбросить",
+      "searchPlaceholder": "Найдите символ, чтобы начать (например, имя функции или класса)",
+      "seedHint": "Найдите символ или нажмите на символ во вкладке «Файлы», чтобы построить граф.",
+      "title": "Граф символов"
+    },
+    "indexing": "Индексация…",
+    "kpi": {
+      "dbSize": "Размер БД",
+      "edges": "Рёбра",
+      "files": "Файлы",
+      "nodes": "Узлы",
+      "pendingRefs": "Ожидающие ссылки",
+      "state": "Состояние"
+    },
+    "needsDownload": "Перед индексацией CodeGraph нужно один раз загрузить грамматики. Сделайте это в Настройки → Плагины.",
+    "noProjects": "Пока нет проиндексированных проектов. Нажмите «Индексировать папку», чтобы построить первый индекс.",
+    "notIndexedDesc": "У этого проекта пока нет индекса графа.",
+    "notIndexedTitle": "Не проиндексировано",
+    "openSettings": "Открыть настройки",
+    "pluginDisabled": "CodeGraph отключён. Сначала включите плагин в Настройки → Плагины.",
+    "progress": {
+      "complete": "Завершение",
+      "extract": "Извлечение символов",
+      "files": "{{done}} / {{total}} файлов",
+      "indexing": "Индексация",
+      "maintenance": "Оптимизация",
+      "recreate": "Перестроение",
+      "resolve": "Разрешение ссылок",
+      "scan": "Сканирование файлов",
+      "sync": "Синхронизация",
+      "synthesize": "Синтез"
+    },
+    "refresh": "освежить",
+    "reindex": "Переиндексировать",
+    "reindexing": "Переиндексация…",
+    "selectProject": "Проект",
+    "subtitle": "Визуализация индекса по проектам: статистика, распределения, дерево файлов и граф символов",
+    "sync": "Синхронизация",
+    "syncing": "Синхронизация…",
+    "tabs": {
+      "dashboard": "Дашборд",
+      "files": "Файлы",
+      "graph": "Граф"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "Не удалось проиндексировать эту папку",
+      "indexDone": "Индексация завершена",
+      "indexFailed": "Индексация не удалась",
+      "indexStarted": "Индексация запущена",
+      "removeFailed": "Не удалось удалить индекс",
+      "removed": "Индекс удалён",
+      "syncDone": "Синхронизация завершена",
+      "syncFailed": "Синхронизация не удалась"
+    },
+    "toolSurface": {
+      "description": "По умолчанию агентам доступен только codegraph_explore. Включите, чтобы также зарегистрировать search, node, callers, callees, impact, files и status (набор всё равно определяется размером проекта).",
+      "title": "Полный набор инструментов для агента"
+    },
+    "unknownRoot": "Неизвестный проект ({{hash}})"
+  },
+  "committed": "Закоммичено",
+  "files": "Проводник",
+  "scmAgentChanges": "Изменения агента",
+  "scmChanges": "Изменения",
+  "scmClean": "Нет изменений",
+  "scmCommit": "Commit",
+  "scmCommitPlaceholder": "Сообщение (Ctrl+Enter — commit)",
+  "scmDiscard": "Отклонить",
+  "scmGenerate": "Сгенерировать сообщение коммита",
+  "scmGenerateFailed": "Генерация не удалась",
+  "scmMerge": "Объединить изменения",
+  "scmNoFolder": "Откройте рабочую папку, чтобы использовать систему контроля версий.",
+  "scmNothingStaged": "Нет проиндексированных изменений — сначала добавьте изменения в индекс",
+  "scmStage": "Индексировать",
+  "scmStageAll": "Индексировать всё",
+  "scmStaged": "Проиндексированные изменения",
+  "scmTitle": "Контроль источника",
+  "scmUndo": "Отменить",
+  "scmUnstage": "Убрать из индекса",
+  "scmUnstageAll": "Убрать всё из индекса"
 }

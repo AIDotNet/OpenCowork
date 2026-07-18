@@ -70,7 +70,17 @@
     "keepAlive": "Alive Interval (saniyeler)",
     "advanced": "Gelişmiş Seçenekler",
     "save": "Kaydet Kaydet Kaydet",
-    "cancel": "Cancel Cancel Cancel Cancel"
+    "cancel": "Cancel Cancel Cancel Cancel",
+    "saveAndConnect": "Kaydet ve Bağlan",
+    "secretChange": "Değiştir",
+    "secretClear": "Temizle",
+    "secretSet": "Kaydedildi",
+    "sectionAdvanced": "Gelişmiş",
+    "sectionAuth": "Kimlik Doğrulama",
+    "sectionBasic": "Temel Bilgiler",
+    "testConnection": "Bağlantıyı test et",
+    "testFailed": "Bağlantı testi başarısız oldu",
+    "testSuccess": "Bağlantı ve kimlik doğrulama başarılı"
   },
   "groupDialog": {
     "title": "Grup Adı",
@@ -91,7 +101,8 @@
     "copyFailed": "kopyalamaya başarısız oldu",
     "pasteFailed": "Söylemeye başarısız oldu",
     "disconnectedMessage": "SSH seansı kesildi",
-    "errorMessage": "Bağlantı hatası"
+    "errorMessage": "Bağlantı hatası",
+    "reconnecting": "Bağlantı koptu, yeniden bağlanılıyor…"
   },
   "fileExplorer": {
     "title": "File Explorer",
@@ -200,7 +211,8 @@
     "backToList": "Geri dön",
     "viewTable": "Masa görüşü",
     "viewCard": "Card view",
-    "search": "Arama bağlantıları..."
+    "search": "Arama bağlantıları...",
+    "open": "Aç"
   },
   "dashboard": {
     "totalServers": "Servers",
@@ -295,7 +307,8 @@
         "done": "Tamamlandı",
         "error": "Başarısızlık",
         "canceled": "Canceled"
-      }
+      },
+      "retry": "Yeniden dene"
     },
     "terminalTheme": {
       "title": "Terminal paleti",
@@ -325,7 +338,12 @@
       "network": "Network Throughput",
       "disks": "Disk Kullanımı",
       "path": "Yol Yolu",
-      "capacity": "Mevcut / Total"
+      "capacity": "Mevcut / Total",
+      "copied": "Panoya kopyalandı",
+      "copy": "IP'yi kopyala",
+      "expand": "Süreç izlemeyi genişlet",
+      "latency": "Gecikme",
+      "systemInfo": "Sistem"
     },
     "nav": {
       "hosts": "Hosts",
@@ -416,6 +434,33 @@
       "noConnections": "Bağlantı tarihi yok.",
       "uploads": "yükleme aktivitesi",
       "noUploads": "Henüz aktivite yükleme."
+    },
+    "emptyGroupsDesc": "Yalnızca oluşturduğunuz gruplar burada görünür. Sunucularınızı düzenlemek için bir grup oluşturun.",
+    "libraryTab": "Sunucular",
+    "monitor": "İzleme",
+    "processMonitor": {
+      "empty": "Eşleşen süreç yok",
+      "kill": "Süreci sonlandır",
+      "killDesc": "PID {{pid}} · {{command}}",
+      "killForce": "Zorla sonlandır (-9)",
+      "killTerm": "Sonlandır",
+      "killTitle": "Süreç sonlandırılsın mı?",
+      "killed": "{{pid}} sürecine sinyal gönderildi",
+      "running": "çalışıyor",
+      "search": "Komut, kullanıcı veya PID'ye göre filtrele…",
+      "tasks": "Görevler",
+      "title": "Süreç izleme"
+    },
+    "sessionTabs": "Oturum sekmeleri",
+    "stage": {
+      "auth": "Kimlik doğrula",
+      "connecting": "Bağlanıyor…",
+      "dial": "Ara",
+      "failed": "Başarısız oldu",
+      "handshake": "El sıkışma",
+      "lines": "satır",
+      "shell": "Kabuk",
+      "waitingLog": "Bağlantı bekleniyor…"
     }
   }
 }

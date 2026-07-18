@@ -8,7 +8,8 @@
       "system": "Hệ thống",
       "ai": "Các khả năng Al",
       "extensions": "Hợp nhất phần mở rộng",
-      "about": "Giới thiệu"
+      "about": "Giới thiệu",
+      "aiCoding": "AI Coding"
     }
   },
   "pet": {
@@ -189,7 +190,10 @@
       "downloading": "Đang tải về...",
       "downloadingWithProgress": "Đang tải về... {{progress}} %s",
       "downloadedReady": "Bản cập nhật v{{version}} đã tải về. Nhấn Cập nhật ngay để khởi động lại và cài đặt.",
-      "installing": "Đang chuẩn bị cập nhật…"
+      "installing": "Đang chuẩn bị cập nhật…",
+      "greenBuild": "Bản không cài đặt",
+      "manualDownloadHint": "Có phiên bản mới hơn (v{{version}}). Với bản không cài đặt, hãy tải xuống thủ công, thoát ứng dụng và thay thế thư mục hiện tại.",
+      "openDownloadPage": "Mở trang tải xuống"
     },
     "projectDefaultDirectory": {
       "title": "Thư mục dự án mặc định",
@@ -238,7 +242,8 @@
       "clearConfirm": "Xoá tất cả {{count}} Không thể làm lại được.",
       "cleared": "Xóa {{count}} phiên chạy",
       "noSessions": "Không có phiên chạy"
-    }
+    },
+    "autoUpdateGreenDesc": "Bản không cài đặt (no-install) kiểm tra phiên bản mới nhưng không tự động tải hoặc cài đặt. Hãy tải phiên bản mới nhất theo cách thủ công và thay thế thư mục hiện tại."
   },
   "sync": {
     "title": "Đồng bộ",
@@ -530,7 +535,9 @@
     "clearConfirmDescription": "Xoá vĩnh viễn {{count}} mục nhập ghi được tạo trước {{date}} Chuyện này không thể thay đổi được.",
     "clearSuccess": "Đã xoá {{count}} mục ghi lưu",
     "clearFailed": "Lỗi xóa bản ghi",
-    "clearEmpty": "Không có nhật ký trước 7 ngày để dọn dẹp"
+    "clearEmpty": "Không có nhật ký trước 7 ngày để dọn dẹp",
+    "cacheReadRatio": "Tỷ lệ đọc cache",
+    "cacheTokenShare": "Tỷ trọng token trong cache"
   },
   "model": {
     "title": "Cấu hình",
@@ -635,7 +642,8 @@
       "DesktopClick": "Name",
       "DesktopType": "Name",
       "DesktopScroll": "Các arg có: x, y, di chuyển, cuộn Y",
-      "DesktopWait": "Đơn vị sẵn sàng: chậmMs"
+      "DesktopWait": "Đơn vị sẵn sàng: chậmMs",
+      "codegraph_explore": "Tham số khả dụng: query, projectPath"
     },
     "status": {
       "disabled": "Phần bổ sung bị tắt, vì vậy các công cụ của nó không được tiếp xúc với đặc vụ.",
@@ -669,7 +677,11 @@
       "allowedDomains": "Miền cho phép",
       "allowedDomainsDesc": "Để trống để cho phép mọi miền. Khi đặt, chỉ có thể mở các miền khớp.",
       "domainPlaceholder": "ví dụ.com\nsub. example.org",
-      "domainRuleHint": "Nhập một miền trên mỗi dòng hay riêng với dấu phẩy. Miền bị chặn chiếm ưu tiên hơn miền cho phép; miền phụ tương ứng tự động."
+      "domainRuleHint": "Nhập một miền trên mỗi dòng hay riêng với dấu phẩy. Miền bị chặn chiếm ưu tiên hơn miền cho phép; miền phụ tương ứng tự động.",
+      "cookiesImportFailed": "Nhập cookie thất bại",
+      "cookiesImported": "Đã nhập {{imported}} cookie từ {{browserName}} (bỏ qua {{skipped}})",
+      "importCookies": "Nhập cookie",
+      "importingCookies": "Đang nhập..."
     },
     "items": {
       "image": {
@@ -689,8 +701,48 @@
         "description": "Hiển thị ảnh chụp màn hình, nhắp, cuộn và các công cụ bàn phím cho Đặc vụ.",
         "promptTitle": "Hạn chế sử dụng công cụ",
         "promptDesc": "Những công cụ này có thể thanh tra và điều khiển màn hình nền đầy đủ. Hãy giữ sự chấp thuận được bật, chụp màn hình trước khi hành động, và chỉ sử dụng khi cần thiết tự động hóa màn hình trực tiếp. Nếu mô hình hoạt động bật, hãy dùng máy tính OpenAI sẽ phối hợp những khả năng này trước tiên."
+      },
+      "codegraph": {
+        "description": "Một công cụ phân tích mã nguồn cục bộ: lập chỉ mục một repo thành đồ thị ký hiệu/tham chiếu để Đặc vụ khám phá.",
+        "promptDesc": "Bật để cấp cho Đặc vụ công cụ `codegraph_explore` — nó trả lời các câu hỏi như \"X đến Y bằng cách nào / ai gọi cái này / nếu tôi thay đổi thì cái gì sẽ hỏng\" từ đồ thị đã lập chỉ mục, thay thế nhiều lệnh gọi Read/Grep. Mặc định tắt; khi bật sẽ tải ngữ pháp ngôn ngữ một lần.",
+        "promptTitle": "Giới hạn sử dụng công cụ",
+        "title": "Plugin CodeGraph"
       }
-    }
+    },
+    "codegraph": {
+      "actionDone": "Xong.",
+      "actionFailed": "Thao tác CodeGraph thất bại",
+      "assetsDesc": "CodeGraph phân tích mã nguồn của bạn bằng ngữ pháp (grammar) tree-sitter. Chúng được tải xuống lần đầu bạn bật tính năng này (bản dev dùng ngữ pháp được build cục bộ — không cần tải).",
+      "assetsTitle": "Ngữ pháp ngôn ngữ",
+      "deleteIndex": "Xoá chỉ mục",
+      "devMode": "Bản dev — đang dùng ngữ pháp cục bộ ({{count}}), không cần tải.",
+      "download": "Tải ngữ pháp",
+      "downloadFailed": "Tải ngữ pháp thất bại",
+      "downloaded": "Đã tải ngữ pháp.",
+      "downloading": "Đang tải...",
+      "enableFirst": "Bật plugin để quản lý các dự án đã lập chỉ mục.",
+      "indexCurrent": "Lập chỉ mục dự án hiện tại",
+      "needsDownload": "Chưa cài đặt ngữ pháp. Hãy tải xuống để bắt đầu lập chỉ mục.",
+      "projectStats": "{{files}} tập tin · {{nodes}} nút · {{edges}} cạnh",
+      "projectsDesc": "Mọi dự án mà CodeGraph đã lập chỉ mục trên máy này, cùng kích thước đồ thị và trạng thái. Lập lại chỉ mục sẽ xây dựng lại từ đầu; đồng bộ áp dụng các thay đổi gia tăng.",
+      "projectsEmpty": "Chưa có dự án nào được lập chỉ mục. Việc lập chỉ mục sẽ tự động bắt đầu lần đầu tiên Đặc vụ khám phá một dự án, hoặc bạn có thể lập chỉ mục dự án hiện tại ngay.",
+      "projectsLoading": "Đang tải các dự án đã lập chỉ mục...",
+      "projectsTitle": "Dự án đã lập chỉ mục",
+      "ready": "Ngữ pháp đã sẵn sàng (đã cài {{count}}).",
+      "refresh": "Làm mới",
+      "reindex": "Lập lại chỉ mục",
+      "reindexing": "Đang lập chỉ mục...",
+      "remove": "Gỡ bỏ",
+      "removed": "Đã gỡ bỏ ngữ pháp đã tải.",
+      "removing": "Đang xoá...",
+      "sync": "Đồng bộ",
+      "syncing": "Đang đồng bộ...",
+      "unknownRoot": "(dự án không xác định) {{hash}}",
+      "workerMissing": "Không tìm thấy tệp nhị phân worker của CodeGraph. Hãy build bằng `npm run codegraph:publish` (hoặc `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerRunning": "Worker đang chạy",
+      "workerStopped": "Worker chưa khởi động (sẽ khởi tạo khi dùng lần đầu)"
+    },
+    "toolStatusDescCodeGraph": "Công cụ codegraph_explore chỉ được cung cấp khi plugin đã bật và ngữ pháp ngôn ngữ của nó đã sẵn sàng (đã tải xuống, hoặc có sẵn cục bộ trong bản dev)."
   },
   "migration": {
     "title": "Trung tâm chuyển",
@@ -1151,7 +1203,29 @@
     "channelDisconnected": "Kênh đã ngắt kết nối",
     "channelRequired": "Xin hãy kiểm tra lại kênh trước",
     "modelCategoryVideo": "Video",
-    "seedanceVideo": "Seedance Video (Volcengine)"
+    "seedanceVideo": "Seedance Video (Volcengine)",
+    "builtinSearchEnabled": "Đã bật tìm kiếm tích hợp",
+    "cacheTtl": "TTL cache (anthropic)",
+    "cacheTtlHint": "5 phút (mặc định) hoặc 1 giờ (chi phí ghi gấp đôi). Thiết lập cấp mô hình sẽ ghi đè cấp nhà cung cấp.",
+    "enableBuiltinSearch": "Bật tìm kiếm web tích hợp",
+    "enableBuiltinSearchDesc": "Dùng tìm kiếm web gốc của nhà cung cấp (Claude / OpenAI Responses) thay vì công cụ phía client.",
+    "kimiQuota5h": "Giới hạn 5 giờ",
+    "kimiQuotaParallel": "Đồng thời tối đa {{count}}",
+    "kimiQuotaWeekly": "Giới hạn hàng tuần",
+    "kimiQuotaWindowLimit": "Giới hạn {{time}}",
+    "requestParams": "Tham số yêu cầu",
+    "sendMaxOutputTokens": "Gửi số token đầu ra tối đa",
+    "sendMaxOutputTokensHint": "Khi tắt, yêu cầu sẽ bỏ qua max_tokens / max_completion_tokens / max_output_tokens và để máy chủ tự quyết định giới hạn đầu ra",
+    "sendTemperature": "Gửi temperature",
+    "sendTemperatureHint": "Khi tắt, yêu cầu sẽ bỏ qua tham số temperature — dùng cho các dịch vụ có thiết lập lấy mẫu cố định (vd. Kimi K3)",
+    "supportsBuiltinSearch": "Hỗ trợ tìm kiếm web tích hợp",
+    "supportsBuiltinSearchDesc": "Endpoint này triển khai công cụ tìm kiếm web gốc phía máy chủ của nhà cung cấp (Claude / OpenAI Responses). Hầu hết endpoint trung chuyển (relay) không hỗ trợ.",
+    "supportsFastMode": "Hỗ trợ chế độ Nhanh",
+    "supportsFastModeDesc": "Endpoint này chấp nhận gói dịch vụ ưu tiên (priority service tier) của OpenAI để phản hồi nhanh hơn.",
+    "supportsImageGeneration": "Hỗ trợ tạo ảnh",
+    "supportsImageGenerationDesc": "Endpoint này triển khai công cụ image_generation phía máy chủ của OpenAI Responses.",
+    "supportsWebsocket": "Hỗ trợ giao thức WebSocket",
+    "supportsWebsocketDesc": "Endpoint này cung cấp phương thức truyền tải WebSocket của OpenAI Responses."
   },
   "channel": {
     "title": "Kênh",
@@ -1456,5 +1530,227 @@
     "copyConversation": "Chép cuộc trò chuyện",
     "allowTool": "Cho phép thực hiện công cụ",
     "denyTool": "Từ chối thực hiện công cụ"
+  },
+  "aiCoding": {
+    "addConfig": "Thêm cấu hình",
+    "apiKey": "API key",
+    "baseUrl": "URL cơ bản",
+    "claudeProviderDesc": "Chỉ hiển thị các nhà cung cấp đã bật, dùng API key, có mô hình theo giao thức Anthropic. Các mô hình RoutinAI GPT-5.4/5.5/5.6 cũng được coi là tương thích ClaudeCode.",
+    "claudeSubtitle": "Cấu hình nhà cung cấp Claude Code và liên kết mô hình theo giao thức Anthropic",
+    "claudeTitle": "ClaudeCode",
+    "codexModelDesc": "Codex được khởi chạy với một ghi đè nhà cung cấp tạm thời và API truyền tải Responses.",
+    "codexProviderDesc": "Chỉ hiển thị các nhà cung cấp đã bật, dùng API key, có mô hình OpenAI Responses.",
+    "codexSubtitle": "Cấu hình nhà cung cấp Codex CLI và liên kết mô hình",
+    "codexTitle": "Codex",
+    "command": "Lệnh",
+    "configName": "Tên cấu hình",
+    "configs": "Cấu hình",
+    "configsDesc": "Tạo các hồ sơ khởi chạy có tên cho menu thiết bị cuối",
+    "copyConfig": "Sao chép cấu hình",
+    "copyName": "{{name}} Bản sao",
+    "defaultConfigName": "Mặc định {{index}}",
+    "defaultModel": "Mô hình mặc định",
+    "deleteConfig": "Xoá cấu hình",
+    "fullAccessPermission": "Quyền truy cập đầy đủ",
+    "fullAccessPermissionDesc": "Khởi chạy Claude Code với --dangerously-skip-permissions.",
+    "invalid": "Không hợp lệ",
+    "model": "Mô hình",
+    "noClaudeProviders": "Không có nhà cung cấp giao thức Anthropic nào đã bật kèm API key.",
+    "noCodexProviders": "Không có nhà cung cấp OpenAI Responses nào đã bật kèm API key.",
+    "permissionOptions": "Tuỳ chọn quyền",
+    "permissionOptionsDesc": "Cờ khởi chạy Claude Code tuỳ chọn cho cấu hình này.",
+    "provider": "Nhà cung cấp",
+    "ready": "Sẵn sàng",
+    "resolvedCodexConfig": "Cấu hình khởi chạy Codex đã xác định",
+    "resolvedEnvironment": "Môi trường đã xác định",
+    "selectModel": "Chọn mô hình",
+    "selectProvider": "Chọn nhà cung cấp",
+    "status": {
+      "apiKeyMissing": "Thiếu API key",
+      "baseUrlMissing": "Thiếu URL cơ bản",
+      "configMissing": "Thiếu cấu hình",
+      "modelMissing": "Thiếu mô hình",
+      "protocolUnsupported": "Giao thức không khớp",
+      "providerDisabled": "Nhà cung cấp đã tắt",
+      "providerMissing": "Thiếu nhà cung cấp",
+      "ready": "Sẵn sàng",
+      "unsupportedAuth": "Xác thực không được hỗ trợ"
+    }
+  },
+  "codegraph": {
+    "subtitle": "Trực quan hoá chỉ mục theo từng dự án: thống kê, tập tin và đồ thị ký hiệu",
+    "title": "CodeGraph"
+  },
+  "extension": {
+    "bundled": "Tài nguyên tích hợp sẵn",
+    "bundledAgents": "{{count}} đặc vụ",
+    "bundledCommands": "{{count}} lệnh",
+    "bundledMcp": "{{count}} máy chủ MCP",
+    "bundledNotSynced": "Chưa đồng bộ",
+    "bundledSkills": "{{count}} kỹ năng",
+    "bundledSynced": "Đã đồng bộ",
+    "bundledWorkflows": "{{count}} quy trình",
+    "components": "Thành phần",
+    "disabled": "Đã tắt",
+    "emptyDesc": "Chọn một thư mục chứa extension.json để thêm công cụ tuỳ chỉnh vào OpenCowork.",
+    "emptyTitle": "Chưa cài đặt tiện ích mở rộng nào",
+    "enabled": "Đã bật",
+    "hideSecret": "Ẩn thông tin bí mật",
+    "hostRendered": "hiển thị bởi host",
+    "installFailed": "Cài đặt tiện ích mở rộng thất bại",
+    "installFolder": "Thư mục cài đặt",
+    "installed": "Đã cài đặt tiện ích mở rộng",
+    "loading": "Đang tải tiện ích mở rộng...",
+    "network": "Mạng",
+    "noNetwork": "Không truy cập mạng",
+    "noRenderers": "Không có bộ hiển thị tuỳ chỉnh",
+    "openFolder": "Mở thư mục",
+    "openFolderFailed": "Mở thư mục thất bại",
+    "readOnlyCount": "{{count}} chỉ đọc",
+    "remove": "Gỡ bỏ",
+    "removeConfirm": "Gỡ bỏ tiện ích mở rộng này?",
+    "removeFailed": "Gỡ bỏ tiện ích mở rộng thất bại",
+    "renderers": "Bộ hiển thị",
+    "required": "Bắt buộc",
+    "saveConfig": "Lưu cấu hình",
+    "saveFailed": "Lưu cấu hình thất bại",
+    "saved": "Đã lưu cấu hình tiện ích mở rộng",
+    "showSecret": "Hiện thông tin bí mật",
+    "subtitle": "Cài đặt công cụ tuỳ chỉnh cục bộ và các thành phần giao diện phản hồi",
+    "syncWarnings": "Một số tài nguyên tích hợp sẵn chưa được đồng bộ",
+    "title": "Tiện ích mở rộng",
+    "tools": "Công cụ",
+    "updateFailed": "Cập nhật tiện ích mở rộng thất bại",
+    "workflows": "Quy trình",
+    "workflowsHint": "Plugin này là một kỹ năng định tuyến (router skill) duy nhất, tải các quy trình này theo yêu cầu."
+  },
+  "hooks": {
+    "actions": {
+      "deny": "Bỏ qua",
+      "disable": "Tắt",
+      "enable": "Bật",
+      "openArtifact": "Script",
+      "openConfig": "Mở cấu hình người dùng",
+      "openConfigShort": "Cấu hình",
+      "refresh": "Làm mới",
+      "trust": "Dùng"
+    },
+    "empty": "Chưa có hook nào được cấu hình.",
+    "emptyForEvent": "Chưa có hook nào được cấu hình cho sự kiện vòng đời này.",
+    "events": {
+      "PermissionRequest": {
+        "description": "Chạy trước khi hộp thoại xin quyền công cụ hiện ra. Có thể cho phép hoặc từ chối yêu cầu."
+      },
+      "PostCompact": {
+        "description": "Chạy sau khi nén ngữ cảnh hoàn tất. Hữu ích để thêm hướng dẫn tiếp theo."
+      },
+      "PostToolUse": {
+        "description": "Chạy sau khi một công cụ hoàn tất và trước khi kết quả được trả về mô hình. Có thể thêm ngữ cảnh hoặc thay thế phản hồi của công cụ."
+      },
+      "PreCompact": {
+        "description": "Chạy trước khi nén ngữ cảnh thủ công hoặc tự động. Có thể thêm hướng dẫn nén hoặc chặn việc nén này."
+      },
+      "PreToolUse": {
+        "description": "Chạy sau khi một lệnh gọi công cụ được tạo ra và trước khi nó thực thi. Có thể cập nhật đầu vào hoặc chặn các lệnh gọi rủi ro."
+      },
+      "SessionStart": {
+        "description": "Chạy trước khi một phiên chạy bắt đầu, tiếp tục, xoá, khôi phục từ trạng thái nén, hoặc bắt đầu như một tác vụ nền. Hữu ích để thêm ngữ cảnh phiên chạy."
+      },
+      "Stop": {
+        "description": "Chạy khi lượt hiện tại của đặc vụ sắp kết thúc. Hữu ích cho kiểm tra cuối cùng, ghi chú thêm, hoặc chặn việc hoàn tất."
+      },
+      "SubagentStart": {
+        "description": "Chạy trước khi một đặc vụ phụ bắt đầu. Có thể thêm ngữ cảnh hoặc chặn tác vụ con."
+      },
+      "SubagentStop": {
+        "description": "Chạy sau khi một đặc vụ phụ hoàn tất và trước khi kết quả trả về phiên chính. Có thể xác thực hoặc chặn kết quả."
+      },
+      "UserPromptSubmit": {
+        "description": "Chạy trước khi một prompt của người dùng được gửi đi. Có thể thêm ngữ cảnh, cập nhật prompt, hoặc chặn việc gửi."
+      }
+    },
+    "feature": {
+      "description": "Có hiệu lực sau khi khởi động lại OpenCowork.",
+      "preview": "Xem trước",
+      "restartToDisable": "Hook vẫn hoạt động trong phiên ứng dụng này. Khởi động lại OpenCowork để ngừng chạy chúng.",
+      "restartToEnable": "Khởi động lại OpenCowork để bắt đầu chạy hook.",
+      "runtimeOff": "Không hoạt động trong phiên này",
+      "runtimeOn": "Đang hoạt động trong phiên này",
+      "title": "Bật hook"
+    },
+    "list": {
+      "title": "Tất cả hook"
+    },
+    "loading": "Đang tải hook...",
+    "metrics": {
+      "invalid": "Không hợp lệ",
+      "pending": "Đang chờ",
+      "total": "Tổng"
+    },
+    "review": {
+      "title": "Tất cả hook",
+      "warning": "Tin cậy một hook nghĩa là cho phép lệnh của nó chạy cục bộ với quyền người dùng của bạn."
+    },
+    "source": {
+      "exists": "Tìm thấy",
+      "missing": "Thiếu"
+    },
+    "status": {
+      "changed": "Đã thay đổi",
+      "denied": "Đã từ chối",
+      "disabled": "Đã tắt",
+      "invalid": "Không hợp lệ",
+      "pending": "Đang chờ",
+      "trusted": "Đã tin cậy"
+    },
+    "subtitle": "Quản lý hook vòng đời của OpenCowork.",
+    "title": "Hook",
+    "toasts": {
+      "denied": "Đã bỏ qua hook",
+      "disabled": "Đã tắt hook",
+      "enabled": "Đã bật hook",
+      "opened": "Đã mở mã nguồn",
+      "trusted": "Đã bật hook để sử dụng"
+    }
+  },
+  "permission": {
+    "bashAllow": {
+      "description": "Lệnh shell khớp với một quy tắc đã bật sẽ chạy mà không cần xác nhận.",
+      "title": "Danh sách trắng lệnh (Bash)"
+    },
+    "bashDeny": {
+      "description": "Lệnh shell khớp với một quy tắc đã bật sẽ luôn bị từ chối — ưu tiên cao nhất, ghi đè cả tự động phê duyệt và danh sách trắng.",
+      "title": "Danh sách đen lệnh (Bash)"
+    },
+    "master": {
+      "description": "Công cụ và lệnh shell khớp trong danh sách trắng sẽ bỏ qua xác nhận; lệnh trong danh sách đen luôn bị từ chối. Các thao tác nguy hiểm không thuộc quy tắc nào vẫn sẽ hỏi xác nhận.",
+      "title": "Bật danh sách trắng quyền"
+    },
+    "precedence": {
+      "description": "Thứ tự đánh giá: danh sách đen lệnh (luôn từ chối — kể cả khi bật tự động phê duyệt) → danh sách trắng công cụ / danh sách trắng lệnh (bỏ qua xác nhận) → mọi trường hợp còn lại đều hỏi xác nhận."
+    },
+    "rules": {
+      "add": "Thêm quy tắc",
+      "delete": "Xoá quy tắc",
+      "empty": "Chưa có quy tắc nào",
+      "invalidPattern": "Mẫu không hợp lệ: {{error}}",
+      "modeRegex": "Regex",
+      "modeWildcard": "Ký tự đại diện",
+      "patternPlaceholder": "vd. npm run * hoặc ^git (status|log)\\b"
+    },
+    "subtitle": "Danh sách trắng công cụ & quy tắc lệnh shell",
+    "title": "Quyền",
+    "tools": {
+      "add": "Thêm",
+      "commandToolWarning": "Một công cụ shell (Bash/Shell/Monitor/PowerShell) đang ở trong danh sách trắng — mọi lệnh nó chạy sẽ bỏ qua xác nhận, trừ khi khớp danh sách đen.",
+      "description": "Các công cụ này chạy mà không hỏi xác nhận. Mục nhập có thể dùng ký tự đại diện * (vd. mcp__github__*).",
+      "duplicate": "Công cụ này đã có trong danh sách trắng",
+      "empty": "Chưa có công cụ nào trong danh sách trắng",
+      "placeholder": "Tên công cụ, vd. Write",
+      "remove": "Gỡ bỏ {{tool}}",
+      "suggestions": "Gợi ý:",
+      "title": "Danh sách trắng công cụ"
+    },
+    "wildcardHelp": "Mẫu ký tự đại diện khớp toàn bộ lệnh và * khớp với bất kỳ văn bản nào — vd. npm run *. Quy tắc regex trong danh sách trắng phải khớp toàn bộ lệnh; quy tắc regex trong danh sách đen khớp ở bất kỳ vị trí nào. Mỗi phần của một lệnh ghép (&&, ;, |) đều phải nằm trong danh sách trắng. Việc so khớp không phân biệt hoa thường."
   }
 }

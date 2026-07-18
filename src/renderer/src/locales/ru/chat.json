@@ -122,7 +122,36 @@
     "startAcp": "Начните сеанс ACP",
     "startAcpDesc": "Сначала проясните цель, предысторию, ограничения и критерии принятия. Затем спроектируйте архитектуру и делегируйте задачи перед написанием кода.",
     "homeTitleAcp": "Режим ACP",
-    "homeDescAcp": "В режиме ACP начните с уточнения целей, фона, ограничений и критериев принятия. Затем предложите архитектуру и разбивку задач перед реализацией."
+    "homeDescAcp": "В режиме ACP начните с уточнения целей, фона, ограничений и критериев принятия. Затем предложите архитектуру и разбивку задач перед реализацией.",
+    "queueQuoted": "Вставлено в разговор",
+    "runtimeMetrics": {
+      "cache": "Кэш",
+      "cacheCreate": "Запись в кэш",
+      "cacheCreate1h": "Запись в кэш (1ч)",
+      "cacheCreate5m": "Запись в кэш (5м)",
+      "cacheHit": "Попадание в кэш",
+      "cost": "{{label}}: {{cost}}",
+      "input": "Некэшированный ввод",
+      "output": "Вывод",
+      "totalCost": "Стоимость",
+      "tps": "TPS",
+      "tpsHint": "Количество токенов вывода, генерируемых в секунду",
+      "ttft": "TTFT",
+      "ttftHint": "Время до первого токена"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "Ожидание подтверждения: {{tool}}",
+      "generatingImage": "Генерация изображения",
+      "loadingMedia": "Загрузка медиа",
+      "optimizing": "Оптимизация",
+      "ready": "Готово",
+      "receiving": "Получение",
+      "retrying": "Повтор {{attempt}}",
+      "runningSubAgents": "{{count}} субагенты, работающие",
+      "runningTool": "Выполняется {{tool}}",
+      "thinking": "Думаю",
+      "waiting": "Ожидание"
+    }
   },
   "planReview": {
     "awaitingReview": "Ожидающий обзор",
@@ -139,7 +168,10 @@
     "runningHint": "Сейчас эта сессия осуществляет план.",
     "runningInSession": "Этот план работает в рамках сессии\". {{title}} \".",
     "openExecutionSession": "Открытая исполнительная сессия",
-    "approvedHint": "Этот план уже утвержден."
+    "approvedHint": "Этот план уже утвержден.",
+    "copy": "Копировать план",
+    "download": "Скачать план",
+    "expand": "Развернуть в боковой панели"
   },
   "guide": {
     "title": "Введение в чат",
@@ -400,7 +432,26 @@
       "TaskList": "Список задач",
       "Delete": "Исключить",
       "Skill": "мастерство"
-    }
+    },
+    "allowWhitelist": "Разрешить и добавить в белый список",
+    "default": "По умолчанию",
+    "defaultDesc": "Запрашивать подтверждение перед выполнением опасных инструментов",
+    "fullAccess": "Полный доступ",
+    "fullAccessConfirmDesc": "Все вызовы инструментов, включая опасные операции, будут выполняться автоматически без запроса подтверждения.",
+    "fullAccessConfirmTitle": "Переключиться на полный доступ?",
+    "fullAccessDesc": "Выполнять все инструменты автоматически без подтверждения",
+    "label": "Разрешение",
+    "manageWhitelist": "Управление правилами белого списка…",
+    "tooltip": "Разрешение на вызов инструмента",
+    "whitelist": "Белый список",
+    "whitelistAddedRule": "Правило добавлено: {{pattern}}",
+    "whitelistAddedTool": "{{tool}} добавлен в белый список",
+    "whitelistDesc": "Инструменты и команды из белого списка пропускают подтверждение; команды из чёрного списка всегда отклоняются",
+    "whitelistEditorTitle": "Добавить разрешающее правило для этой команды",
+    "whitelistInvalidPattern": "Недопустимый шаблон: {{error}}",
+    "whitelistModeRegex": "Regex",
+    "whitelistModeWildcard": "Wildcard",
+    "whitelistSave": "Сохранить и разрешить"
   },
   "toolCall": {
     "output": "выход",
@@ -444,7 +495,9 @@
       "imageCopied": "Изображение скопировано в буфер обмена",
       "copyImageFailed": "Не удалось скопировать изображение",
       "copied": "Копирован",
-      "copyImage": "Скопировать изображение в буфер обмена"
+      "copyImage": "Скопировать изображение в буфер обмена",
+      "renderComplete": "завершено",
+      "rendered": "Отрисовано"
     },
     "taskList": "Список задач",
     "tasksDone": "{{completed}} / {{total}} сделанный",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "Подтвердить повтор",
       "result": "Результаты {{count}})",
       "notes": "Заметки",
-      "countValue": "граф {{count}}"
+      "countValue": "граф {{count}}",
+      "builtinTitle": "Генерация изображений GPT"
     },
     "desktop": {
       "running": "Desktop Action в разработке",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} · Представить",
         "scrollY": "Y {{value}}"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "Запрос к графу кода...",
+      "files": "Затронутые файлы",
+      "filesCount": "{{count}} файлов",
+      "input": "Ввод",
+      "notIndexed": "Индекс не готов",
+      "notIndexedBadge": "индексация",
+      "result": "Результат графа",
+      "symbolsCount": "{{count}} символов",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "Вызываемые",
+        "callers": "Вызывающие",
+        "explore": "Исследовать",
+        "files": "Файлы",
+        "impact": "Влияние",
+        "index": "Индекс",
+        "node": "Узел",
+        "search": "Поиск",
+        "status": "Статус",
+        "sync": "Синхронизация"
+      }
+    },
+    "parameters": "Параметры",
+    "result": "Результат",
+    "skillName": "Навык"
   },
   "subAgent": {
     "queued": "В очереди",
@@ -620,7 +700,17 @@
     "toolCalls": "Инструментальные звонки",
     "summaryEmpty": "Резюме пока нет",
     "openInRunsRunning": "Прогресс в реальном времени в списке исполнения правой стороны",
-    "openInRunsDone": "Просмотр полной записи в списке исполнения справа"
+    "openInRunsDone": "Просмотр полной записи в списке исполнения справа",
+    "aborted": "прервано",
+    "background": "Фоновый",
+    "failureUnknown": "Выполнение субагента завершилось ошибкой",
+    "label": "субагент",
+    "maxIterations": "достигнут лимит итераций",
+    "openNamedInPanel": "Открыть {{name}} в боковой панели",
+    "prompt": "Запрос",
+    "promptEmpty": "Запрос недоступен",
+    "stopped": "остановлен",
+    "waiting": "Ожидание выполнения"
   },
   "teamEvent": {
     "teamCreated": "Созданная команда",
@@ -629,7 +719,8 @@
     "messageSent": "Послание отправлено",
     "teamDeleted": "Команда удалена",
     "teammateSpawned": "Товарищ по команде невеста",
-    "failed": "неудачный"
+    "failed": "неудачный",
+    "backgroundAgentSpawned": "Фоновый агент запущен"
   },
   "todo": {
     "tasksDone": "{{completed}} / {{total}} выполненные задачи",
@@ -642,7 +733,9 @@
     "thinkingFor": "Думать для {{seconds}} s",
     "pending": "мышление",
     "thinkingEllipsis": "Думая...",
-    "thoughts": "Мысли"
+    "thoughts": "Мысли",
+    "deepThinking": "Глубоко думаю",
+    "deepThought": "Глубоко подумал"
   },
   "messageList": {
     "startConversation": "Начните разговор",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "Рабочее пространство",
     "homeTitleChatQuestion": "Что мы должны обсудить?",
     "homeTitleBuildQuestion": "Что мы должны построить в {{name}}?",
-    "thisWorkspace": "Это рабочее пространство"
+    "thisWorkspace": "Это рабочее пространство",
+    "assistantRail": {
+      "currentLabel": "Текущее сообщение {{index}}: {{preview}}",
+      "emptyPreview": "Ответ ассистента",
+      "jumpLabel": "Перейти к сообщению {{index}}: {{preview}}",
+      "streamingLabel": "Перейти к потоковому ответу ассистента {{index}}: {{preview}}",
+      "summaryLabel": "Перейти к сжатому резюме истории {{index}}: {{preview}}",
+      "summaryPreview": "Сжатое резюме истории",
+      "toolOnlyPreview": "{{count}} вызовов инструментов",
+      "userLabel": "Перейти к сообщению пользователя {{index}}: {{preview}}"
+    },
+    "pendingRetryTitle": "Переподключение к модели",
+    "pendingTeamTitle": "Координация участников команды"
   },
   "projectHome": {
     "noProjectSelected": "Проект не выбран",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}} инструменты",
     "mcpToolCount_one": "{{count}} инструмент",
     "mcpToolCount_other": "{{count}} инструменты",
-    "mcpCount": "{{count}} MCP"
+    "mcpCount": "{{count}} MCP",
+    "activeCustomExtensions": "Активные пользовательские расширения:",
+    "availableCustomExtensions": "Доступные пользовательские расширения",
+    "configureCustomExtensionSettings": "Настроить...",
+    "configureCustomExtensions": "Включите расширения в Настройки → Расширения",
+    "customExtensionsLabel": "Пользовательские расширения",
+    "extensionCount": "{{count}} расширение",
+    "extensionCount_one": "{{count}} расширение",
+    "extensionCount_other": "{{count}} расширений",
+    "extensionToolCount": "{{count}} инструментов",
+    "extensionToolCount_one": "{{count}} инструмент",
+    "extensionToolCount_other": "{{count}} инструментов",
+    "noCustomExtensions": "Нет включённых пользовательских расширений"
   },
   "userMessage": {
     "you": "Ты",
@@ -830,7 +947,15 @@
     "copyImage": "Копировать изображение",
     "removeImage": "Удалить изображение",
     "imagePreview": "Изображение Preview",
-    "saveAndResend": "Save & Resend скачать"
+    "saveAndResend": "Save & Resend скачать",
+    "quotedLabel": "Цитата",
+    "selectedFileReadFailed": "Не удалось прочитать",
+    "selectedFileReadLines": "Прочитано {{count}} строк",
+    "selectedFileReadSkipped": "Ссылка на путь",
+    "selectedFileReadSkippedNonText": "Ссылка на путь; бинарный или документный файл не был прочитан напрямую",
+    "selectedFileReadSkippedPdf": "Ссылка на путь к PDF; файл не был прочитан напрямую",
+    "selectedFileReadTruncated": "Прочитаны первые {{count}} строк",
+    "selectedFileReadsTitle": "Прочитанные файлы"
   },
   "assistantMessage": {
     "changedFiles_one": "отредактированный {{count}} файл",
@@ -841,7 +966,6 @@
     "editedFiles_other": "отредактированный {{count}} файлы",
     "deletedFiles_one": "Удаленный {{count}} файл",
     "deletedFiles_other": "Удаленный {{count}} файлы",
-    "ranCommandsInline": "Выполнено команд: {{count}}",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Расширение рабочего пространства ({{count}} инструментальные казни",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "Последняя ошибка",
       "stackTrace": "След стека",
       "copy": "Копия",
-      "copied": "Копирован"
+      "copied": "Копирован",
+      "descRuntimeUnavailable": "OpenCowork не удалось подключиться к локальному Native Worker. Приложение уже попыталось перезапустить его — повторите отправку сообщения или пересоберите native worker, если это повторится.",
+      "sidecarUnavailableMessage": "Локальная среда выполнения агента временно недоступна. OpenCowork попытался перезапустить её — повторите отправку этого сообщения. Если это повторяется в режиме разработки, выполните `npm run native:publish` и перезапустите OpenCowork.",
+      "titleRuntimeUnavailable": "Локальная среда выполнения недоступна"
     },
-    "processTools": "Вызовы инструментов"
+    "processTools": "Вызовы инструментов",
+    "activeTools": "{{count}} активные инструменты",
+    "cacheWrite": "Запись в кэш",
+    "cachedInput": "Кэш входных данных",
+    "completionFinished": "Завершено",
+    "metricCost": "Стоимость",
+    "metricTokens": "Токены",
+    "metricTotalDuration": "Всего",
+    "processResponse": "ответ",
+    "ranCommandsInline_one": "Выполнена {{count}} команда",
+    "ranCommandsInline_other": "Выполнено {{count}} команд",
+    "streamingText": "потоковый текст",
+    "thinkingStatus": "Думая...",
+    "tokenTotal": "Токены всего",
+    "tokenUsage": "Использование токенов",
+    "toolExecutions": "{{count}} выполнения инструментов",
+    "totalUsage": "Общее использование",
+    "tpsHint": "Количество токенов вывода, генерируемых в секунду",
+    "ttftHint": "Время до первого токена",
+    "uncachedInput": "Некэшированный ввод"
   },
   "messageActions": {
     "fork": "Вилка",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "Сначала изменяйте этап, затем генерируйте сообщение.",
     "aiCommitEmptyStaged": "Ничего не инсценировано — не может генерировать сообщение",
     "aiCommitFailed": "Проверить настройки API/модели и попробовать еще раз"
+  },
+  "artifacts": {
+    "more": "+{{count}} ещё",
+    "open": "Открыть",
+    "reveal": "Показать в Finder",
+    "title": "Созданные файлы"
+  },
+  "extensionResult": {
+    "chartItem": "Элемент {{index}}",
+    "emptyTable": "Нет строк для отображения",
+    "loadingRenderer": "Загрузка рендерера...",
+    "rendererMissing": "Рендерер не найден",
+    "rendererTitle": "Рендерер расширения",
+    "tableTitle": "Таблица",
+    "title": "Результат расширения"
+  },
+  "webSearch": {
+    "label": "Веб-поиск",
+    "searching": "Поиск в интернете…",
+    "sources": "Источники"
   }
 }

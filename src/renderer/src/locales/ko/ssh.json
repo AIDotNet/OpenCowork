@@ -70,7 +70,17 @@
     "keepAlive": "Alive Interval을 유지 (둘째로)",
     "advanced": "고급 옵션",
     "save": "제품 정보",
-    "cancel": "이름 *"
+    "cancel": "이름 *",
+    "saveAndConnect": "저장 후 연결",
+    "secretChange": "변경",
+    "secretClear": "지우기",
+    "secretSet": "저장됨",
+    "sectionAdvanced": "고급",
+    "sectionAuth": "인증",
+    "sectionBasic": "기본",
+    "testConnection": "연결 테스트",
+    "testFailed": "연결 테스트 실패",
+    "testSuccess": "연결 및 인증 확인됨"
   },
   "groupDialog": {
     "title": "그룹 이름",
@@ -91,7 +101,8 @@
     "copyFailed": "복사하기",
     "pasteFailed": "페이스 북",
     "disconnectedMessage": "SSH 세션 분리",
-    "errorMessage": "연결 오류"
+    "errorMessage": "연결 오류",
+    "reconnecting": "연결이 끊어짐, 재연결 중…"
   },
   "fileExplorer": {
     "title": "파일 탐색기",
@@ -200,7 +211,8 @@
     "backToList": "이름 *",
     "viewTable": "테이블보기",
     "viewCard": "카드보기",
-    "search": "연락처"
+    "search": "연락처",
+    "open": "열기"
   },
   "dashboard": {
     "totalServers": "서버",
@@ -295,7 +307,8 @@
         "done": "한국어",
         "error": "실패한",
         "canceled": "이름 *"
-      }
+      },
+      "retry": "다시 시도"
     },
     "terminalTheme": {
       "title": "터미널 팔레트",
@@ -325,7 +338,12 @@
       "network": "네트워크 처리량",
       "disks": "Disk 사용법",
       "path": "오시는 길",
-      "capacity": "있음/총"
+      "capacity": "있음/총",
+      "copied": "클립보드에 복사됨",
+      "copy": "IP 복사",
+      "expand": "프로세스 모니터 펼치기",
+      "latency": "지연 시간",
+      "systemInfo": "시스템"
     },
     "nav": {
       "hosts": "이름 *",
@@ -416,6 +434,33 @@
       "noConnections": "연결 기록 없음.",
       "uploads": "관련 기사",
       "noUploads": "아직 업로드 활동 없음."
+    },
+    "emptyGroupsDesc": "직접 만든 그룹만 여기에 표시됩니다. 호스트를 정리하려면 그룹을 만드세요.",
+    "libraryTab": "호스트",
+    "monitor": "모니터",
+    "processMonitor": {
+      "empty": "일치하는 프로세스가 없습니다",
+      "kill": "프로세스 종료",
+      "killDesc": "PID {{pid}} · {{command}}",
+      "killForce": "강제 종료 (-9)",
+      "killTerm": "종료",
+      "killTitle": "프로세스를 종료할까요?",
+      "killed": "{{pid}}에 신호를 보냈습니다",
+      "running": "실행 중",
+      "search": "명령, 사용자 또는 PID로 필터링…",
+      "tasks": "작업",
+      "title": "프로세스 모니터"
+    },
+    "sessionTabs": "세션 탭",
+    "stage": {
+      "auth": "인증",
+      "connecting": "연결 중…",
+      "dial": "접속",
+      "failed": "실패",
+      "handshake": "핸드셰이크",
+      "lines": "줄",
+      "shell": "셸",
+      "waitingLog": "연결 대기 중…"
     }
   }
 }

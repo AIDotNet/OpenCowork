@@ -122,7 +122,36 @@
     "startAcp": "Khởi động một phiên chạy ACP",
     "startAcpDesc": "Trước hết, hãy làm rõ mục tiêu, gốc gác, hạn chế và tiêu chuẩn chấp nhận.",
     "homeTitleAcp": "Chế độ ACP",
-    "homeDescAcp": "Trong chế độ ACP, bắt đầu bằng cách làm rõ mục tiêu, nền tảng, hạn chế và tiêu chuẩn chấp nhận."
+    "homeDescAcp": "Trong chế độ ACP, bắt đầu bằng cách làm rõ mục tiêu, nền tảng, hạn chế và tiêu chuẩn chấp nhận.",
+    "queueQuoted": "Đã chèn vào cuộc trò chuyện",
+    "runtimeMetrics": {
+      "cache": "Cache",
+      "cacheCreate": "Ghi cache",
+      "cacheCreate1h": "Ghi cache (1h)",
+      "cacheCreate5m": "Ghi cache (5m)",
+      "cacheHit": "Trúng cache",
+      "cost": "{{label}}: {{cost}}",
+      "input": "Đầu vào không cache",
+      "output": "Đầu ra",
+      "totalCost": "Chi phí",
+      "tps": "TPS",
+      "tpsHint": "Số token đầu ra được tạo mỗi giây",
+      "ttft": "TTFT",
+      "ttftHint": "Thời gian tới token đầu tiên"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "Đang chờ phê duyệt: {{tool}}",
+      "generatingImage": "Đang tạo ảnh",
+      "loadingMedia": "Đang tải media",
+      "optimizing": "Đang tối ưu hoá",
+      "ready": "Sẵn sàng",
+      "receiving": "Đang nhận",
+      "retrying": "Đang thử lại {{attempt}}",
+      "runningSubAgents": "{{count}} đặc vụ phụ đang chạy",
+      "runningTool": "Đang chạy {{tool}}",
+      "thinking": "Đang suy nghĩ",
+      "waiting": "Đang chờ"
+    }
   },
   "planReview": {
     "awaitingReview": "Chờ đợi ôn lại",
@@ -139,7 +168,10 @@
     "runningHint": "Phiên này đang thực hiện kế hoạch.",
     "runningInSession": "Kế hoạch này đang chạy trong phiên họp.\" {{title}} \".",
     "openExecutionSession": "Mở phiên chạy thực hiện",
-    "approvedHint": "Kế hoạch này đã được phê chuẩn."
+    "approvedHint": "Kế hoạch này đã được phê chuẩn.",
+    "copy": "Sao chép kế hoạch",
+    "download": "Tải kế hoạch xuống",
+    "expand": "Mở rộng trong bảng bên"
   },
   "guide": {
     "title": "Hướng dẫn trò chuyện",
@@ -400,7 +432,26 @@
       "TaskList": "Danh sách tác vụ",
       "Delete": "Xoá",
       "Skill": "Kĩ năng"
-    }
+    },
+    "allowWhitelist": "Cho phép & thêm vào danh sách trắng",
+    "default": "Mặc định",
+    "defaultDesc": "Hỏi xác nhận trước khi chạy các công cụ nguy hiểm",
+    "fullAccess": "Toàn quyền truy cập",
+    "fullAccessConfirmDesc": "Mọi lệnh gọi công cụ, kể cả các thao tác nguy hiểm, sẽ tự động thực thi mà không hỏi xác nhận.",
+    "fullAccessConfirmTitle": "Chuyển sang toàn quyền truy cập?",
+    "fullAccessDesc": "Chạy mọi công cụ tự động mà không cần xác nhận",
+    "label": "Quyền",
+    "manageWhitelist": "Quản lý quy tắc danh sách trắng…",
+    "tooltip": "Quyền gọi công cụ",
+    "whitelist": "Danh sách trắng",
+    "whitelistAddedRule": "Đã thêm quy tắc: {{pattern}}",
+    "whitelistAddedTool": "Đã thêm {{tool}} vào danh sách trắng",
+    "whitelistDesc": "Công cụ và lệnh trong danh sách trắng sẽ bỏ qua xác nhận; lệnh trong danh sách đen luôn bị từ chối",
+    "whitelistEditorTitle": "Thêm quy tắc cho phép cho lệnh này",
+    "whitelistInvalidPattern": "Mẫu không hợp lệ: {{error}}",
+    "whitelistModeRegex": "Regex",
+    "whitelistModeWildcard": "Ký tự đại diện",
+    "whitelistSave": "Lưu & cho phép"
   },
   "toolCall": {
     "output": "Xuất",
@@ -444,7 +495,9 @@
       "imageCopied": "Ảnh được sao chép vào bảng nháp",
       "copyImageFailed": "Lỗi sao chép ảnh",
       "copied": "Sao chép",
-      "copyImage": "Chép ảnh vào bảng nháp"
+      "copyImage": "Chép ảnh vào bảng nháp",
+      "renderComplete": "hoàn tất",
+      "rendered": "Đã hiển thị"
     },
     "taskList": "Danh sách tác vụ",
     "tasksDone": "{{completed}} / {{total}} xong",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "Hỏi lại",
       "result": "Kết quả ({{count}})",
       "notes": "Ghi chú",
-      "countValue": "Số lượng {{count}}"
+      "countValue": "Số lượng {{count}}",
+      "builtinTitle": "Tạo ảnh GPT"
     },
     "desktop": {
       "running": "Name",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} · Phục tùng",
         "scrollY": "Y {{value}}"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "Đang truy vấn đồ thị mã...",
+      "files": "Tập tin được tham chiếu",
+      "filesCount": "{{count}} tập tin",
+      "input": "Đầu vào",
+      "notIndexed": "Chỉ mục chưa sẵn sàng",
+      "notIndexedBadge": "đang lập chỉ mục",
+      "result": "Kết quả đồ thị",
+      "symbolsCount": "{{count}} ký hiệu",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "Hàm được gọi",
+        "callers": "Nơi gọi",
+        "explore": "Khám phá",
+        "files": "Tập tin",
+        "impact": "Tác động",
+        "index": "Lập chỉ mục",
+        "node": "Nút",
+        "search": "Tìm kiếm",
+        "status": "Trạng thái",
+        "sync": "Đồng bộ"
+      }
+    },
+    "parameters": "Tham số",
+    "result": "Kết quả",
+    "skillName": "Kỹ năng"
   },
   "subAgent": {
     "queued": "Đang chờ",
@@ -620,7 +700,17 @@
     "toolCalls": "Gọi công cụ",
     "summaryEmpty": "Vẫn chưa tóm tắt",
     "openInRunsRunning": "Xem tiến trình trực tiếp trong danh sách thực hiện bên phải",
-    "openInRunsDone": "Xem hồ sơ đầy đủ trong danh sách thực hiện bên phải"
+    "openInRunsDone": "Xem hồ sơ đầy đủ trong danh sách thực hiện bên phải",
+    "aborted": "đã huỷ",
+    "background": "Nền",
+    "failureUnknown": "Đặc vụ phụ thực thi thất bại",
+    "label": "đặc vụ phụ",
+    "maxIterations": "đã đạt giới hạn số lần lặp",
+    "openNamedInPanel": "Mở {{name}} trong bảng bên",
+    "prompt": "Prompt",
+    "promptEmpty": "Không có prompt",
+    "stopped": "đã dừng",
+    "waiting": "Đang chờ thực thi"
   },
   "teamEvent": {
     "teamCreated": "Tạo nhóm",
@@ -629,7 +719,8 @@
     "messageSent": "Thông điệp được gửi",
     "teamDeleted": "Nhóm",
     "teammateSpawned": "Được đồng đội tạo ra",
-    "failed": "bị lỗi"
+    "failed": "bị lỗi",
+    "backgroundAgentSpawned": "Đặc vụ nền đã khởi động"
   },
   "todo": {
     "tasksDone": "{{completed}} / {{total}} tác vụ đã hoàn tất",
@@ -642,7 +733,9 @@
     "thinkingFor": "Suy nghĩ {{seconds}} s",
     "pending": "Suy nghĩ",
     "thinkingEllipsis": "Suy nghĩ...",
-    "thoughts": "Suy nghĩ"
+    "thoughts": "Suy nghĩ",
+    "deepThinking": "Đang suy nghĩ sâu",
+    "deepThought": "Đã suy nghĩ sâu"
   },
   "messageList": {
     "startConversation": "Name",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "Miền làm việc",
     "homeTitleChatQuestion": "Chúng ta nên nói chuyện gì đây?",
     "homeTitleBuildQuestion": "Chúng ta nên xây cái gì đây? {{name}} Hả?",
-    "thisWorkspace": "vùng làm việc này"
+    "thisWorkspace": "vùng làm việc này",
+    "assistantRail": {
+      "currentLabel": "Tin nhắn hiện tại {{index}}: {{preview}}",
+      "emptyPreview": "Phản hồi của trợ lý",
+      "jumpLabel": "Nhảy đến tin nhắn {{index}}: {{preview}}",
+      "streamingLabel": "Nhảy đến phản hồi trợ lý đang truyền trực tiếp {{index}}: {{preview}}",
+      "summaryLabel": "Nhảy đến bản tóm tắt lịch sử đã nén {{index}}: {{preview}}",
+      "summaryPreview": "Bản tóm tắt lịch sử đã nén",
+      "toolOnlyPreview": "{{count}} lệnh gọi công cụ",
+      "userLabel": "Nhảy đến tin nhắn người dùng {{index}}: {{preview}}"
+    },
+    "pendingRetryTitle": "Đang kết nối lại với mô hình",
+    "pendingTeamTitle": "Đang điều phối đồng đội"
   },
   "projectHome": {
     "noProjectSelected": "Chưa chọn dự án",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}} công cụ",
     "mcpToolCount_one": "{{count}} công cụ",
     "mcpToolCount_other": "{{count}} công cụ",
-    "mcpCount": "{{count}} Comment"
+    "mcpCount": "{{count}} Comment",
+    "activeCustomExtensions": "Tiện ích mở rộng tuỳ chỉnh đang hoạt động:",
+    "availableCustomExtensions": "Tiện ích mở rộng tuỳ chỉnh khả dụng",
+    "configureCustomExtensionSettings": "Cấu hình...",
+    "configureCustomExtensions": "Bật tiện ích mở rộng trong Thiết lập → Tiện ích mở rộng",
+    "customExtensionsLabel": "Tiện ích mở rộng tuỳ chỉnh",
+    "extensionCount": "{{count}} tiện ích mở rộng",
+    "extensionCount_one": "{{count}} tiện ích mở rộng",
+    "extensionCount_other": "{{count}} tiện ích mở rộng",
+    "extensionToolCount": "{{count}} công cụ",
+    "extensionToolCount_one": "{{count}} công cụ",
+    "extensionToolCount_other": "{{count}} công cụ",
+    "noCustomExtensions": "Chưa bật tiện ích mở rộng tuỳ chỉnh nào"
   },
   "userMessage": {
     "you": "Ngươi",
@@ -830,7 +947,15 @@
     "copyImage": "Chép ảnh",
     "removeImage": "Gỡ bỏ ảnh",
     "imagePreview": "Xem thử ảnh",
-    "saveAndResend": "Lưu & phục hồi"
+    "saveAndResend": "Lưu & phục hồi",
+    "quotedLabel": "Trích dẫn",
+    "selectedFileReadFailed": "Đọc thất bại",
+    "selectedFileReadLines": "Đã đọc {{count}} dòng",
+    "selectedFileReadSkipped": "Tham chiếu đường dẫn",
+    "selectedFileReadSkippedNonText": "Tham chiếu đường dẫn; tập tin nhị phân hoặc tài liệu chưa được đọc trực tiếp",
+    "selectedFileReadSkippedPdf": "Tham chiếu đường dẫn PDF; tập tin chưa được đọc trực tiếp",
+    "selectedFileReadTruncated": "Đã đọc {{count}} dòng đầu",
+    "selectedFileReadsTitle": "Tập tin đã đọc"
   },
   "assistantMessage": {
     "changedFiles_one": "Đã sửa {{count}} Tập tin",
@@ -841,7 +966,6 @@
     "editedFiles_other": "Đã sửa {{count}} Tập tin",
     "deletedFiles_one": "Xóa {{count}} Tập tin",
     "deletedFiles_other": "Xóa {{count}} Tập tin",
-    "ranCommandsInline": "Chạy lệnh {{count}} lần",
     "summarySeparator": ".",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Vùng làm việc mở rộng ({{count}} công cụ thực hiện)",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "Lỗi cuối",
       "stackTrace": "Vết chồng",
       "copy": "Chép",
-      "copied": "Sao chép"
+      "copied": "Sao chép",
+      "descRuntimeUnavailable": "OpenCowork không thể kết nối tới Native Worker cục bộ. Hệ thống đã thử khởi động lại; hãy gửi lại tin nhắn, hoặc build lại native worker nếu tình trạng này lặp lại.",
+      "sidecarUnavailableMessage": "Runtime đặc vụ cục bộ tạm thời không khả dụng. OpenCowork đã thử khởi động lại; hãy gửi lại tin nhắn này. Nếu tình trạng này lặp lại trong quá trình phát triển, hãy chạy `npm run native:publish` rồi khởi động lại OpenCowork.",
+      "titleRuntimeUnavailable": "Runtime cục bộ không khả dụng"
     },
-    "processTools": "Lệnh gọi công cụ"
+    "processTools": "Lệnh gọi công cụ",
+    "activeTools": "{{count}} công cụ đang hoạt động",
+    "cacheWrite": "Ghi cache",
+    "cachedInput": "Cache đầu vào",
+    "completionFinished": "Đã hoàn tất",
+    "metricCost": "Chi phí",
+    "metricTokens": "Token",
+    "metricTotalDuration": "Tổng",
+    "processResponse": "phản hồi",
+    "ranCommandsInline_one": "Đã chạy {{count}} lệnh",
+    "ranCommandsInline_other": "Đã chạy {{count}} lệnh",
+    "streamingText": "văn bản đang truyền trực tiếp",
+    "thinkingStatus": "Đang suy nghĩ...",
+    "tokenTotal": "Tổng token",
+    "tokenUsage": "Mức dùng token",
+    "toolExecutions": "{{count}} lần thực thi công cụ",
+    "totalUsage": "Tổng mức dùng",
+    "tpsHint": "Số token đầu ra được tạo mỗi giây",
+    "ttftHint": "Thời gian tới token đầu tiên",
+    "uncachedInput": "Đầu vào không cache"
   },
   "messageActions": {
     "fork": "Fork",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "Thay đổi giai đoạn trước, sau đó tạo ra một thông điệp",
     "aiCommitEmptyStaged": "Không có gì được sắp xếp — không thể tạo ra thông điệp",
     "aiCommitFailed": "Thế hệ bị lỗi. Hãy kiểm tra thiết lập kiểu ADI / Thử lại"
+  },
+  "artifacts": {
+    "more": "+{{count}} nữa",
+    "open": "Mở",
+    "reveal": "Hiện trong Finder",
+    "title": "Tập tin đã tạo"
+  },
+  "extensionResult": {
+    "chartItem": "Mục {{index}}",
+    "emptyTable": "Không có hàng nào để hiển thị",
+    "loadingRenderer": "Đang tải bộ hiển thị...",
+    "rendererMissing": "Không tìm thấy bộ hiển thị",
+    "rendererTitle": "Bộ hiển thị tiện ích mở rộng",
+    "tableTitle": "Bảng",
+    "title": "Kết quả tiện ích mở rộng"
+  },
+  "webSearch": {
+    "label": "Tìm kiếm web",
+    "searching": "Đang tìm kiếm trên web…",
+    "sources": "Nguồn"
   }
 }

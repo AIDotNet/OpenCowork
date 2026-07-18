@@ -82,7 +82,8 @@
     "teamLabel": "nhóm",
     "taskSubAgents": "Tác vụ",
     "teamTools": "Công cụ nhóm",
-    "maxIter": "cực đại {{count}} lặp lại"
+    "maxIter": "cực đại {{count}} lặp lại",
+    "inheritsMainTools": "Dùng chung công cụ với đặc vụ chính"
   },
   "artifacts": {
     "noArtifacts": "Chưa có đồ tạo tác",

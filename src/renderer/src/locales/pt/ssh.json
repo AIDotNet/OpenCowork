@@ -70,7 +70,17 @@
     "keepAlive": "Manter Intervalo Vivo (segundos)",
     "advanced": "Opções Avançadas",
     "save": "Gravar",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "saveAndConnect": "Gravar e Ligar",
+    "secretChange": "Alterar",
+    "secretClear": "Limpar",
+    "secretSet": "Gravado",
+    "sectionAdvanced": "Avançado",
+    "sectionAuth": "Autenticação",
+    "sectionBasic": "Básico",
+    "testConnection": "Testar ligação",
+    "testFailed": "O teste de ligação falhou",
+    "testSuccess": "Ligação e autenticação OK"
   },
   "groupDialog": {
     "title": "Nome do grupo",
@@ -91,7 +101,8 @@
     "copyFailed": "Não foi possível copiar",
     "pasteFailed": "Falha ao colar",
     "disconnectedMessage": "Sessão de SSH desconectada",
-    "errorMessage": "Erro de conexão"
+    "errorMessage": "Erro de conexão",
+    "reconnecting": "Ligação perdida, a reconectar…"
   },
   "fileExplorer": {
     "title": "Explorador de Arquivos",
@@ -200,7 +211,8 @@
     "backToList": "Voltar",
     "viewTable": "Vista da tabela",
     "viewCard": "Vista do cartão",
-    "search": "Procurar as ligações..."
+    "search": "Procurar as ligações...",
+    "open": "Abrir"
   },
   "dashboard": {
     "totalServers": "Servidores",
@@ -295,7 +307,8 @@
         "done": "Concluído",
         "error": "Falha",
         "canceled": "Cancelado"
-      }
+      },
+      "retry": "Repetir"
     },
     "terminalTheme": {
       "title": "Paleta de terminal",
@@ -325,7 +338,12 @@
       "network": "Produção da Rede",
       "disks": "Utilização do Disco",
       "path": "Localização",
-      "capacity": "Disponível/Total"
+      "capacity": "Disponível/Total",
+      "copied": "Copiado para a área de transferência",
+      "copy": "Copiar IP",
+      "expand": "Expandir o monitor de processos",
+      "latency": "Latência",
+      "systemInfo": "Sistema"
     },
     "nav": {
       "hosts": "Máquinas",
@@ -416,6 +434,33 @@
       "noConnections": "Sem histórico de ligação.",
       "uploads": "Actividade de envio",
       "noUploads": "Nenhuma atividade de upload ainda."
+    },
+    "emptyGroupsDesc": "Só os grupos que criar aparecem aqui. Crie um para organizar as suas máquinas.",
+    "libraryTab": "Máquinas",
+    "monitor": "Monitor",
+    "processMonitor": {
+      "empty": "Nenhum processo correspondente",
+      "kill": "Terminar processo",
+      "killDesc": "PID {{pid}} · {{command}}",
+      "killForce": "Forçar terminação (-9)",
+      "killTerm": "Terminar",
+      "killTitle": "Terminar processo?",
+      "killed": "Sinal enviado para {{pid}}",
+      "running": "em execução",
+      "search": "Filtrar por comando, utilizador ou PID…",
+      "tasks": "Tarefas",
+      "title": "Monitor de processos"
+    },
+    "sessionTabs": "Separadores de sessão",
+    "stage": {
+      "auth": "Autenticar",
+      "connecting": "Conectando…",
+      "dial": "Marcar",
+      "failed": "Falhou",
+      "handshake": "Handshake",
+      "lines": "linhas",
+      "shell": "Shell",
+      "waitingLog": "A aguardar ligação…"
     }
   }
 }

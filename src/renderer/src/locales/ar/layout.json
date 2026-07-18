@@ -104,7 +104,14 @@
     "chats": "Chats",
     "noChats": "لا دردشة بعد",
     "smartRename": "الاسم الذكي",
-    "smartRenaming": "إعادة تسمية ذكية"
+    "smartRenaming": "إعادة تسمية ذكية",
+    "dropFolderHint": "أفلت مجلدًا هنا لاستيراده كمشروع",
+    "projectSortBy": "ترتيب المشاريع حسب",
+    "projectSortCreatedAt": "وقت الإنشاء",
+    "projectSortName": "أبجديًا",
+    "projectSortRecentlyUpdated": "الأحدث تحديثًا",
+    "projectSortTitle": "ترتيب المشاريع: {{sort}}",
+    "revealInFolder": "فتح موقع المجلد"
   },
   "sidebar_toast": {
     "sessionDeleted": "الجلسة حذفت",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "No project sessions were clearance",
     "smartRenameNoContent": "No conversation content available for renaming",
     "smartRenameFailed": "تغيير الاسم الذكى فشل",
-    "smartRenameSuccess": "أعيدت تسمية الجلسة بذكاء"
+    "smartRenameSuccess": "أعيدت تسمية الجلسة بذكاء",
+    "dropNotFolder": "يرجى إفلات مجلد، وليس ملفًا",
+    "projectsCreatedCount": "أُنشئ {{count}} مشروع",
+    "revealFailed": "تعذّر فتح الموقع"
   },
   "topbar": {
     "togglePanel": "فريق المناقشة",
@@ -225,7 +235,14 @@
     "openInspector": "مفتش مفتوح",
     "closeRuntimeStatus": "سياق الاختباء والتقدم",
     "openRuntimeStatus": "سياق العرض والتقدم المحرز",
-    "help": "دليل مفتوح"
+    "help": "دليل مفتوح",
+    "builtinSearch": "البحث المدمج على الويب",
+    "builtinSearchOff": "معطّل",
+    "builtinSearchOn": "بحث المزوّد الأصلي مفعّل",
+    "faster": "أسرع",
+    "followGlobalModel": "اتباع النموذج العام",
+    "followGlobalModelDesc": "استخدام إعداد النموذج الرئيسي العام لهذه الجلسة.",
+    "smarter": "أذكى"
   },
   "runtimeStatus": {
     "contextTitle": "البيئة",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}.. {{second}} و {{count}} أكثر",
     "noTasks": "No tasks yet",
     "runningTerminals": "محطات تشغيل",
-    "closeTerminal": "محطة طرفية قريبة"
+    "closeTerminal": "محطة طرفية قريبة",
+    "subAgents": "العملاء الفرعيون",
+    "subAgentsCompleted": "{{count}} مكتمل",
+    "subAgentsRunning": "{{count}} قيد التشغيل"
   },
   "browser": {
     "back": "العودة",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "تراجع",
     "reportStatusMissing": "مفقودة",
     "reportRetrying": "إعادة توليد التقرير النهائي...",
-    "reportEmpty": "لا يوجد تقرير نهائي"
+    "reportEmpty": "لا يوجد تقرير نهائي",
+    "aborted": "أُجهض",
+    "backToList": "العودة إلى العملاء الفرعيين",
+    "completedGroup": "مكتمل",
+    "durationHours": "{{count}} س",
+    "durationMinutes": "{{count}} د",
+    "durationSeconds": "{{count}} ث",
+    "maxIterations": "بلغ الحد الأقصى للتكرارات",
+    "noStarted": "لم يبدأ أي عميل فرعي",
+    "started": "بدأ",
+    "stop": "إيقاف هذا العميل الفرعي"
   },
   "detailPanel": {
     "team": "الفريق",
@@ -682,7 +712,9 @@
           "الحالات التي ينبغي أن تكون فيها المكاتب الفرعية متوازية وأن تُعاد إليها موجزات مُحكمة هيكلية لمواصلة التنسيق"
         ]
       }
-    }
+    },
+    "useFullWidth": "استخدام العرض الكامل",
+    "useStandardWidth": "استخدام العرض القياسي"
   },
   "navRail": {
     "conversations": "الخلافات",
@@ -694,7 +726,8 @@
     "draw": "Draw",
     "translate": "التحويل",
     "ssh": "SSH",
-    "settings": "التركيبات"
+    "settings": "التركيبات",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "الموارد",
@@ -945,7 +978,23 @@
     "inpaintPrompt": "صف التغيير للمنطقة المحددة",
     "outpaintPrompt": "صف ما يملأ المنطقة الجديدة (اختياري)",
     "copyImage": "نسخ إلى الحافظة",
-    "copiedImage": "تم نسخ الصورة"
+    "copiedImage": "تم نسخ الصورة",
+    "assistantActConnect": "عُقد متصلة",
+    "assistantActCreateText": "أُنشئت عقدة نصية",
+    "assistantActFailed": "فشل",
+    "assistantActGenerate": "بدأ توليد الصورة",
+    "assistantActRead": "قراءة اللوحة",
+    "assistantAddSelection": "إضافة المحدد ({{count}})",
+    "assistantClear": "مسح المحادثة",
+    "assistantCollapse": "طيّ",
+    "assistantQuickDescribe": "وصف الصورة",
+    "assistantQuickDescribePrompt": "صف موضوع صورة السياق وتركيبتها وأسلوبها، ثم قدّم موجّهًا واحدًا قابلًا لإعادة الاستخدام باللغة الإنجليزية.",
+    "assistantQuickRefine": "تحسين الموجّه",
+    "assistantQuickRefinePrompt": "حسّن نص الموجّه في السياق ليصبح موجّه توليد صورة عالي الجودة باللغة الإنجليزية. أخرِج الموجّه النهائي فقط.",
+    "assistantQuickTranslate": "ترجمة إلى الإنجليزية",
+    "assistantQuickTranslatePrompt": "ترجم نص السياق إلى موجّه توليد صورة طبيعي باللغة الإنجليزية. أخرِج النتيجة فقط.",
+    "assistantStop": "إيقاف",
+    "retry": "إعادة المحاولة"
   },
   "translatePage": {
     "title": "AI Translate",
@@ -1134,6 +1183,143 @@
     "connecting": "محطة إتصال...",
     "terminalExited": "الدورة النهائية",
     "terminalExitedWithError": "الدورة النهائية",
-    "exitCode": "رمز الخروج: {{code}}"
-  }
+    "exitCode": "رمز الخروج: {{code}}",
+    "invalidAiCodingConfig": "الإعداد غير مكتمل أو غير صالح.",
+    "localAiCodingOnly": "إعدادات تشغيل AI Coding متاحة فقط للمحطات الطرفية للمشاريع المحلية.",
+    "moveToBottomDock": "نقل إلى المحطة الطرفية السفلية",
+    "moveToRightPanel": "نقل إلى اللوحة اليمنى",
+    "newClaudeCode": "ClaudeCode جديد"
+  },
+  "codegraphPage": {
+    "addFolder": "فهرسة مجلد",
+    "analytics": {
+      "cycles": "التبعيات الدائرية: {{count}}",
+      "deadCode": "مرشّحو الشيفرة الميتة: {{count}}",
+      "description": "التبعيات الدائرية بين الملفات، والرموز الخاصة غير المُشار إليها إطلاقًا، تُحسب من الفهرس عند الطلب.",
+      "noCycles": "لا توجد تبعيات دائرية بين الملفات.",
+      "noDeadCode": "لا توجد رموز خاصة غير مُشار إليها.",
+      "rerun": "إعادة التشغيل",
+      "run": "تشغيل التحليل",
+      "running": "جارٍ التحليل…",
+      "showingTop": "عرض أفضل {{count}}",
+      "title": "سلامة الرسم البياني"
+    },
+    "back": "رجوع",
+    "charts": {
+      "edgesByKind": "الحواف حسب النوع",
+      "filesByLanguage": "الملفات حسب اللغة",
+      "noData": "لا توجد بيانات",
+      "nodesByKind": "العُقد حسب النوع"
+    },
+    "delete": "حذف الفهرس",
+    "deleting": "جارٍ الحذف…",
+    "files": {
+      "empty": "لا توجد ملفات مفهرسة.",
+      "loadingSymbols": "جارٍ تحميل الرموز…",
+      "noSymbols": "لا توجد رموز في هذا الملف.",
+      "search": "تصفية الملفات…",
+      "symbols_one": "{{count}} رمز",
+      "symbols_other": "{{count}} رموز",
+      "title": "الملفات المفهرسة",
+      "viewInGraph": "عرض في الرسم البياني"
+    },
+    "freshness": {
+      "backend": "الخلفية",
+      "extractionVersion": "إصدار الاستخلاص",
+      "indexing": "جارٍ الفهرسة…",
+      "journal": "وضع السجل",
+      "lastIndexed": "آخر فهرسة",
+      "never": "أبدًا",
+      "stale": "قديم — يُنصح بإعادة الفهرسة",
+      "title": "حداثة الفهرس",
+      "upToDate": "محدَّث"
+    },
+    "graph": {
+      "depth": "العمق",
+      "empty": "لم يُعثر على جيران لهذا الرمز.",
+      "expand": "توسيع الجيران",
+      "interactionHint": "نقرة: تثبيت التركيز والتوسيع · نقرة مزدوجة: إعادة التمركز هنا",
+      "loading": "جارٍ تحميل الرسم البياني…",
+      "nodesEdges": "{{nodes}} عُقدة · {{edges}} حافة",
+      "reset": "إعادة الضبط",
+      "searchPlaceholder": "ابحث عن رمز لتبدأ (مثل اسم دالة أو صنف)",
+      "seedHint": "ابحث عن رمز، أو انقر رمزًا في تبويب الملفات، لبذر الرسم البياني.",
+      "title": "الرسم البياني للرموز"
+    },
+    "indexing": "جارٍ الفهرسة…",
+    "kpi": {
+      "dbSize": "حجم قاعدة البيانات",
+      "edges": "الحواف",
+      "files": "الملفات",
+      "nodes": "العُقد",
+      "pendingRefs": "الإحالات المعلّقة",
+      "state": "الحالة"
+    },
+    "needsDownload": "يحتاج CodeGraph إلى تنزيل حزمة قواعد لغوية لمرة واحدة قبل أن يتمكن من الفهرسة. نفّذ ذلك من الإعدادات ← الإضافات.",
+    "noProjects": "لا توجد مشاريع مفهرسة بعد. انقر \"فهرسة مجلد\" لبناء أول فهرس لك.",
+    "notIndexedDesc": "لا يوجد لهذا المشروع فهرس رسم بياني بعد.",
+    "notIndexedTitle": "غير مفهرس",
+    "openSettings": "فتح الإعدادات",
+    "pluginDisabled": "CodeGraph معطّل. فعّل الإضافة من الإعدادات ← الإضافات أولًا.",
+    "progress": {
+      "complete": "جارٍ الإنهاء",
+      "extract": "استخلاص الرموز",
+      "files": "{{done}} / {{total}} ملف",
+      "indexing": "جارٍ الفهرسة",
+      "maintenance": "جارٍ التحسين",
+      "recreate": "إعادة البناء",
+      "resolve": "حلّ الإحالات",
+      "scan": "فحص الملفات",
+      "sync": "مزامنة",
+      "synthesize": "تجميع"
+    },
+    "refresh": "تحديث",
+    "reindex": "إعادة الفهرسة",
+    "reindexing": "جارٍ إعادة الفهرسة…",
+    "selectProject": "المشروع",
+    "subtitle": "تصوّر فهرس كل مشروع على حدة: إحصاءات، توزيعات، شجرة ملفات، ورسم بياني للرموز",
+    "sync": "مزامنة",
+    "syncing": "جارٍ المزامنة…",
+    "tabs": {
+      "dashboard": "لوحة المعلومات",
+      "files": "الملفات",
+      "graph": "الرسم البياني"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "تعذّرت فهرسة هذا المجلد",
+      "indexDone": "اكتملت الفهرسة",
+      "indexFailed": "فشلت الفهرسة",
+      "indexStarted": "بدأت الفهرسة",
+      "removeFailed": "فشلت إزالة الفهرس",
+      "removed": "أُزيل الفهرس",
+      "syncDone": "اكتملت المزامنة",
+      "syncFailed": "فشلت المزامنة"
+    },
+    "toolSurface": {
+      "description": "يعرض الوضع الافتراضي للعملاء أداة codegraph_explore فقط. فعّل هذا لتسجيل أدوات البحث والعُقد والمستدعين والمُستدعَين والأثر والملفات والحالة أيضًا (يبقى السطح المعروض مصمَّمًا حسب حجم المشروع).",
+      "title": "سطح الأدوات الكامل للعميل"
+    },
+    "unknownRoot": "مشروع غير معروف ({{hash}})"
+  },
+  "committed": "تم الالتزام",
+  "files": "المستكشف",
+  "scmAgentChanges": "تغييرات العميل",
+  "scmChanges": "التغييرات",
+  "scmClean": "لا توجد تغييرات",
+  "scmCommit": "التزام",
+  "scmCommitPlaceholder": "الرسالة (Ctrl+Enter للالتزام)",
+  "scmDiscard": "تجاهل",
+  "scmGenerate": "توليد رسالة الالتزام",
+  "scmGenerateFailed": "فشل التوليد",
+  "scmMerge": "دمج التغييرات",
+  "scmNoFolder": "افتح مجلد عمل لاستخدام التحكم بالمصدر.",
+  "scmNothingStaged": "لا شيء في منطقة التجهيز — جهّز التغييرات أولًا",
+  "scmStage": "تجهيز",
+  "scmStageAll": "تجهيز الكل",
+  "scmStaged": "التغييرات المجهّزة",
+  "scmTitle": "التحكم بالمصدر",
+  "scmUndo": "تراجع",
+  "scmUnstage": "إلغاء التجهيز",
+  "scmUnstageAll": "إلغاء تجهيز الكل"
 }

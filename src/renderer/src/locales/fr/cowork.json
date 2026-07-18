@@ -82,7 +82,8 @@
     "teamLabel": "équipe",
     "taskSubAgents": "Tâche (sous-agents)",
     "teamTools": "Outils d'équipe",
-    "maxIter": "max {{count}} our"
+    "maxIter": "max {{count}} our",
+    "inheritsMainTools": "Mêmes outils que l'agent principal"
   },
   "artifacts": {
     "noArtifacts": "Pas encore d'artefacts",

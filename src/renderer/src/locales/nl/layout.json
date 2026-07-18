@@ -104,7 +104,14 @@
     "chats": "Gesprekken",
     "noChats": "Nog geen gesprekken",
     "smartRename": "Slimme hernoemen",
-    "smartRenaming": "Slimme hernoeming"
+    "smartRenaming": "Slimme hernoeming",
+    "dropFolderHint": "Sleep hier een map naartoe om deze als project te importeren",
+    "projectSortBy": "Projecten sorteren op",
+    "projectSortCreatedAt": "Aanmaakdatum",
+    "projectSortName": "Alfabetisch",
+    "projectSortRecentlyUpdated": "Recent bijgewerkt",
+    "projectSortTitle": "Projecten sorteren: {{sort}}",
+    "revealInFolder": "Maplocatie openen"
   },
   "sidebar_toast": {
     "sessionDeleted": "Sessie verwijderd",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "Er zijn geen projectsessies goedgekeurd",
     "smartRenameNoContent": "Geen conversatie-inhoud beschikbaar voor hernoemen",
     "smartRenameFailed": "Slimme hernoeming mislukt",
-    "smartRenameSuccess": "Sessie intelligent hernoemd"
+    "smartRenameSuccess": "Sessie intelligent hernoemd",
+    "dropNotFolder": "Sleep een map, geen bestand",
+    "projectsCreatedCount": "{{count}} projecten aangemaakt",
+    "revealFailed": "Openen van locatie mislukt"
   },
   "topbar": {
     "togglePanel": "Paneel aan/uit",
@@ -225,7 +235,14 @@
     "openInspector": "Open inspecteur",
     "closeRuntimeStatus": "Context en voortgang verbergen",
     "openRuntimeStatus": "Context en voortgang tonen",
-    "help": "Hulplijn openen"
+    "help": "Hulplijn openen",
+    "builtinSearch": "Ingebouwde websearch",
+    "builtinSearchOff": "Uit",
+    "builtinSearchOn": "Providernatieve zoekfunctie aan",
+    "faster": "Sneller",
+    "followGlobalModel": "Globaal model volgen",
+    "followGlobalModelDesc": "Gebruik de algemene hoofdmodel-instelling voor deze sessie.",
+    "smarter": "Slimmer"
   },
   "runtimeStatus": {
     "contextTitle": "Milieu",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}, {{second}} en {{count}} meer",
     "noTasks": "Nog geen taken",
     "runningTerminals": "Startterminals",
-    "closeTerminal": "terminal sluiten"
+    "closeTerminal": "terminal sluiten",
+    "subAgents": "SubAgents",
+    "subAgentsCompleted": "{{count}} voltooid",
+    "subAgentsRunning": "{{count}} draait"
   },
   "browser": {
     "back": "Terug",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "Terugval",
     "reportStatusMissing": "Ontbrekend",
     "reportRetrying": "Het eindverslag regenereren...",
-    "reportEmpty": "Geen eindverslag beschikbaar"
+    "reportEmpty": "Geen eindverslag beschikbaar",
+    "aborted": "Afgebroken",
+    "backToList": "Terug naar SubAgents",
+    "completedGroup": "Voltooid",
+    "durationHours": "{{count}}u",
+    "durationMinutes": "{{count}}m",
+    "durationSeconds": "{{count}}s",
+    "maxIterations": "Iteratielimiet bereikt",
+    "noStarted": "Er zijn nog geen SubAgents gestart",
+    "started": "Gestart",
+    "stop": "Deze SubAgent stoppen"
   },
   "detailPanel": {
     "team": "Team",
@@ -682,7 +712,9 @@
           "Gevallen waarin subtaken parallel moeten verlopen en gestructureerde samenvattingen moeten weergeven voor verdere coördinatie"
         ]
       }
-    }
+    },
+    "useFullWidth": "Volledige breedte gebruiken",
+    "useStandardWidth": "Standaardbreedte gebruiken"
   },
   "navRail": {
     "conversations": "Gesprekken",
@@ -694,7 +726,8 @@
     "draw": "Tekenen",
     "translate": "Vertalen",
     "ssh": "SSH",
-    "settings": "Instellingen"
+    "settings": "Instellingen",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "Middelen",
@@ -945,7 +978,23 @@
     "downloadGif": "GIF downloaden",
     "downloadGrid": "Raster downloaden",
     "downloadSuccess": "Gedownload",
-    "downloadFailed": "Downloaden is mislukt"
+    "downloadFailed": "Downloaden is mislukt",
+    "assistantActConnect": "Nodes verbonden",
+    "assistantActCreateText": "Tekstnode aangemaakt",
+    "assistantActFailed": "mislukt",
+    "assistantActGenerate": "Afbeeldingsgeneratie gestart",
+    "assistantActRead": "Canvas gelezen",
+    "assistantAddSelection": "Selectie toevoegen ({{count}})",
+    "assistantClear": "Gesprek wissen",
+    "assistantCollapse": "Invouwen",
+    "assistantQuickDescribe": "Afbeelding beschrijven",
+    "assistantQuickDescribePrompt": "Beschrijf het onderwerp, de compositie en de stijl van de contextafbeelding, en geef vervolgens één herbruikbare Engelse prompt.",
+    "assistantQuickRefine": "Prompt verfijnen",
+    "assistantQuickRefinePrompt": "Verfijn de prompttekst in de context tot één hoogwaardige Engelse prompt voor afbeeldingsgeneratie. Geef alleen de uiteindelijke prompt als uitvoer.",
+    "assistantQuickTranslate": "Vertalen naar Engels",
+    "assistantQuickTranslatePrompt": "Vertaal de contexttekst naar een natuurlijke Engelse prompt voor afbeeldingsgeneratie. Geef alleen het resultaat als uitvoer.",
+    "assistantStop": "Stoppen",
+    "retry": "Opnieuw proberen"
   },
   "translatePage": {
     "title": "AI vertalen",
@@ -1134,6 +1183,143 @@
     "connecting": "Terminal verbinden...",
     "terminalExited": "Terminalsessie beëindigd",
     "terminalExitedWithError": "Terminalsessie afgesloten",
-    "exitCode": "Afsluitcode: {{code}}"
-  }
+    "exitCode": "Afsluitcode: {{code}}",
+    "invalidAiCodingConfig": "Configuratie is onvolledig of ongeldig.",
+    "localAiCodingOnly": "AI Coding-startconfiguraties zijn alleen beschikbaar voor lokale projectterminals.",
+    "moveToBottomDock": "Naar onderste terminal verplaatsen",
+    "moveToRightPanel": "Naar rechterpaneel verplaatsen",
+    "newClaudeCode": "Nieuwe ClaudeCode"
+  },
+  "codegraphPage": {
+    "addFolder": "Map indexeren",
+    "analytics": {
+      "cycles": "Circulaire afhankelijkheden: {{count}}",
+      "deadCode": "Kandidaten voor dode code: {{count}}",
+      "description": "Circulaire bestandsafhankelijkheden en nooit-gerefereerde privésymbolen, op aanvraag berekend vanuit de index.",
+      "noCycles": "Geen circulaire bestandsafhankelijkheden.",
+      "noDeadCode": "Geen ongerefereerde privésymbolen.",
+      "rerun": "Opnieuw uitvoeren",
+      "run": "Analyse uitvoeren",
+      "running": "Analyseren…",
+      "showingTop": "top {{count}} weergegeven",
+      "title": "Graafgezondheid"
+    },
+    "back": "Terug",
+    "charts": {
+      "edgesByKind": "Verbindingen per type",
+      "filesByLanguage": "Bestanden per taal",
+      "noData": "Geen gegevens",
+      "nodesByKind": "Knooppunten per type"
+    },
+    "delete": "Index verwijderen",
+    "deleting": "Verwijderen…",
+    "files": {
+      "empty": "Geen geïndexeerde bestanden.",
+      "loadingSymbols": "Symbolen laden…",
+      "noSymbols": "Geen symbolen in dit bestand.",
+      "search": "Bestanden filteren…",
+      "symbols_one": "{{count}} symbool",
+      "symbols_other": "{{count}} symbolen",
+      "title": "Geïndexeerde bestanden",
+      "viewInGraph": "Weergeven in graaf"
+    },
+    "freshness": {
+      "backend": "Backend",
+      "extractionVersion": "Extractieversie",
+      "indexing": "Bezig met indexeren…",
+      "journal": "Journalmodus",
+      "lastIndexed": "Laatst geïndexeerd",
+      "never": "Nooit",
+      "stale": "Verouderd — opnieuw indexeren aanbevolen",
+      "title": "Indexversheid",
+      "upToDate": "Up-to-date"
+    },
+    "graph": {
+      "depth": "Diepte",
+      "empty": "Geen buren gevonden voor dit symbool.",
+      "expand": "Buren uitvouwen",
+      "interactionHint": "Klik: focus vastzetten & uitvouwen · Dubbelklik: hier opnieuw centreren",
+      "loading": "Graaf laden…",
+      "nodesEdges": "{{nodes}} knooppunten · {{edges}} verbindingen",
+      "reset": "Reset",
+      "searchPlaceholder": "Zoek een symbool om te beginnen (bijv. een functie- of klassenaam)",
+      "seedHint": "Zoek een symbool, of klik op een symbool in het tabblad Bestanden, om de graaf te starten.",
+      "title": "Symbolengraaf"
+    },
+    "indexing": "Indexeren…",
+    "kpi": {
+      "dbSize": "DB-grootte",
+      "edges": "Verbindingen",
+      "files": "Bestanden",
+      "nodes": "Knooppunten",
+      "pendingRefs": "Openstaande referenties",
+      "state": "Status"
+    },
+    "needsDownload": "CodeGraph heeft een eenmalige grammaticadownload nodig voordat het kan indexeren. Doe dit bij Instellingen → Plugins.",
+    "noProjects": "Nog geen geïndexeerde projecten. Klik op \"Map indexeren\" om uw eerste index te maken.",
+    "notIndexedDesc": "Dit project heeft nog geen graafindex.",
+    "notIndexedTitle": "Niet geïndexeerd",
+    "openSettings": "Instellingen openen",
+    "pluginDisabled": "CodeGraph is uitgeschakeld. Schakel de plugin eerst in bij Instellingen → Plugins.",
+    "progress": {
+      "complete": "Afronden",
+      "extract": "Symbolen extraheren",
+      "files": "{{done}} / {{total}} bestanden",
+      "indexing": "Indexeren",
+      "maintenance": "Optimaliseren",
+      "recreate": "Opnieuw opbouwen",
+      "resolve": "Referenties oplossen",
+      "scan": "Bestanden scannen",
+      "sync": "Synchroniseren",
+      "synthesize": "Samenstellen"
+    },
+    "refresh": "Verversen",
+    "reindex": "Opnieuw indexeren",
+    "reindexing": "Opnieuw indexeren…",
+    "selectProject": "Project",
+    "subtitle": "Visualisatie van de index per project: statistieken, distributies, bestandsboom en een symbolengraaf",
+    "sync": "Sync",
+    "syncing": "Synchroniseren…",
+    "tabs": {
+      "dashboard": "Dashboard",
+      "files": "Bestanden",
+      "graph": "Graaf"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "Kon die map niet indexeren",
+      "indexDone": "Index voltooid",
+      "indexFailed": "Indexeren mislukt",
+      "indexStarted": "Indexeren gestart",
+      "removeFailed": "Verwijderen van index mislukt",
+      "removed": "Index verwijderd",
+      "syncDone": "Synchronisatie voltooid",
+      "syncFailed": "Synchronisatie mislukt"
+    },
+    "toolSurface": {
+      "description": "Standaard wordt alleen codegraph_explore aan agents blootgesteld. Schakel in om ook search, node, callers, callees, impact, files en status te registreren (het oppervlak wordt nog steeds afgestemd op de projectgrootte).",
+      "title": "Volledig agent-toolbereik"
+    },
+    "unknownRoot": "Onbekend project ({{hash}})"
+  },
+  "committed": "Gecommit",
+  "files": "Verkenner",
+  "scmAgentChanges": "Agent-wijzigingen",
+  "scmChanges": "Wijzigingen",
+  "scmClean": "Geen wijzigingen",
+  "scmCommit": "Commit",
+  "scmCommitPlaceholder": "Bericht (Ctrl+Enter om te committen)",
+  "scmDiscard": "Verwerpen",
+  "scmGenerate": "Commitbericht genereren",
+  "scmGenerateFailed": "Genereren mislukt",
+  "scmMerge": "Wijzigingen samenvoegen",
+  "scmNoFolder": "Open een werkmap om broncodebeheer te gebruiken.",
+  "scmNothingStaged": "Niets gestaged — stage eerst wijzigingen",
+  "scmStage": "Stagen",
+  "scmStageAll": "Alles stagen",
+  "scmStaged": "Gestagede wijzigingen",
+  "scmTitle": "Broncodebeheer",
+  "scmUndo": "Ongedaan maken",
+  "scmUnstage": "Unstagen",
+  "scmUnstageAll": "Alles unstagen"
 }

@@ -122,7 +122,36 @@
     "startAcp": "Iniciar uma sessão ACP",
     "startAcpDesc": "Primeiro esclareça o objetivo, fundo, restrições e critérios de aceitação. Em seguida, desenhe a arquitetura e delegue tarefas antes de escrever código.",
     "homeTitleAcp": "Modo ACP",
-    "homeDescAcp": "No modo ACP, comece por clarificar objectivos, antecedentes, restrições e critérios de aceitação."
+    "homeDescAcp": "No modo ACP, comece por clarificar objectivos, antecedentes, restrições e critérios de aceitação.",
+    "queueQuoted": "Inserido na conversa",
+    "runtimeMetrics": {
+      "cache": "Cache",
+      "cacheCreate": "Escrita de cache",
+      "cacheCreate1h": "Escrita de cache (1h)",
+      "cacheCreate5m": "Escrita de cache (5m)",
+      "cacheHit": "Acerto de cache",
+      "cost": "{{label}}: {{cost}}",
+      "input": "Entrada sem cache",
+      "output": "Saída",
+      "totalCost": "Custo",
+      "tps": "TPS",
+      "tpsHint": "Tokens de saída gerados por segundo",
+      "ttft": "TTFT",
+      "ttftHint": "Tempo até ao primeiro token"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "A aguardar aprovação: {{tool}}",
+      "generatingImage": "A gerar imagem",
+      "loadingMedia": "A carregar multimédia",
+      "optimizing": "A otimizar",
+      "ready": "Pronto",
+      "receiving": "A receber",
+      "retrying": "A repetir {{attempt}}",
+      "runningSubAgents": "{{count}} subagentes em execução",
+      "runningTool": "A executar {{tool}}",
+      "thinking": "A pensar",
+      "waiting": "Em espera"
+    }
   },
   "planReview": {
     "awaitingReview": "Aguardando revisão",
@@ -139,7 +168,10 @@
     "runningHint": "Esta sessão está agora a implementar o plano.",
     "runningInSession": "Este plano está em execução em sessão \" {{title}} \".",
     "openExecutionSession": "Abrir sessão de execução",
-    "approvedHint": "Este plano já foi aprovado."
+    "approvedHint": "Este plano já foi aprovado.",
+    "copy": "Copiar plano",
+    "download": "Transferir plano",
+    "expand": "Expandir no painel lateral"
   },
   "guide": {
     "title": "Guia de conversa",
@@ -400,7 +432,26 @@
       "TaskList": "Tarefas da Lista",
       "Delete": "Apagar",
       "Skill": "Habilidade"
-    }
+    },
+    "allowWhitelist": "Permitir e adicionar à whitelist",
+    "default": "Padrão",
+    "defaultDesc": "Pedir confirmação antes de executar ferramentas perigosas",
+    "fullAccess": "Acesso total",
+    "fullAccessConfirmDesc": "Todas as chamadas de ferramentas, incluindo operações perigosas, serão executadas automaticamente sem pedir confirmação.",
+    "fullAccessConfirmTitle": "Mudar para acesso total?",
+    "fullAccessDesc": "Executar todas as ferramentas automaticamente sem confirmação",
+    "label": "Permissão",
+    "manageWhitelist": "Gerir regras da whitelist…",
+    "tooltip": "Permissão de chamada de ferramenta",
+    "whitelist": "Whitelist",
+    "whitelistAddedRule": "Regra adicionada: {{pattern}}",
+    "whitelistAddedTool": "{{tool}} adicionado à whitelist",
+    "whitelistDesc": "As ferramentas e comandos na whitelist ignoram a confirmação; os comandos na blacklist são sempre rejeitados",
+    "whitelistEditorTitle": "Adicionar uma regra de permissão para este comando",
+    "whitelistInvalidPattern": "Padrão inválido: {{error}}",
+    "whitelistModeRegex": "Regex",
+    "whitelistModeWildcard": "Wildcard",
+    "whitelistSave": "Gravar e permitir"
   },
   "toolCall": {
     "output": "Saída",
@@ -444,7 +495,9 @@
       "imageCopied": "Imagem copiada para a área de transferência",
       "copyImageFailed": "Falha ao copiar a imagem",
       "copied": "Copiado",
-      "copyImage": "Copiar imagem para a área de transferência"
+      "copyImage": "Copiar imagem para a área de transferência",
+      "renderComplete": "concluído",
+      "rendered": "Renderizado"
     },
     "taskList": "Lista de tarefas",
     "tasksDone": "{{completed}} / {{total}} feito",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "Confirmar Repetição",
       "result": "Resultados ({{count}})",
       "notes": "Notas",
-      "countValue": "Contagem {{count}}"
+      "countValue": "Contagem {{count}}",
+      "builtinTitle": "Geração de imagens GPT"
     },
     "desktop": {
       "running": "Acção da área de trabalho em curso",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} · Enviar",
         "scrollY": "Y {{value}}"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "A consultar o grafo de código...",
+      "files": "Ficheiros referenciados",
+      "filesCount": "{{count}} ficheiros",
+      "input": "Entrada",
+      "notIndexed": "Índice não está pronto",
+      "notIndexedBadge": "a indexar",
+      "result": "Resultado do grafo",
+      "symbolsCount": "{{count}} símbolos",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "Chamadas",
+        "callers": "Chamadores",
+        "explore": "Explorar",
+        "files": "Ficheiros",
+        "impact": "Impacto",
+        "index": "Índice",
+        "node": "Nó",
+        "search": "Pesquisar",
+        "status": "Estado",
+        "sync": "Sincronizar"
+      }
+    },
+    "parameters": "Parâmetros",
+    "result": "Resultado",
+    "skillName": "Habilidade"
   },
   "subAgent": {
     "queued": "Na fila",
@@ -620,7 +700,17 @@
     "toolCalls": "Chamadas de Ferramentas",
     "summaryEmpty": "Nenhum resumo ainda",
     "openInRunsRunning": "Ver o progresso ao vivo na lista de execução do lado direito",
-    "openInRunsDone": "Ver o registro completo na lista de execução do lado direito"
+    "openInRunsDone": "Ver o registro completo na lista de execução do lado direito",
+    "aborted": "abortado",
+    "background": "Fundo",
+    "failureUnknown": "A execução do SubAgent falhou",
+    "label": "subAgente",
+    "maxIterations": "limite de iterações atingido",
+    "openNamedInPanel": "Abrir {{name}} no painel lateral",
+    "prompt": "Pedido",
+    "promptEmpty": "Nenhum pedido disponível",
+    "stopped": "parado",
+    "waiting": "A aguardar execução"
   },
   "teamEvent": {
     "teamCreated": "Equipe Criada",
@@ -629,7 +719,8 @@
     "messageSent": "Mensagem Enviada",
     "teamDeleted": "Equipe Apagada",
     "teammateSpawned": "Companheiro de equipe espaçado",
-    "failed": "falhou"
+    "failed": "falhou",
+    "backgroundAgentSpawned": "Agente de Fundo Iniciado"
   },
   "todo": {
     "tasksDone": "{{completed}} / {{total}} tarefas realizadas",
@@ -642,7 +733,9 @@
     "thinkingFor": "Pensar {{seconds}} s",
     "pending": "Pensar",
     "thinkingEllipsis": "A pensar...",
-    "thoughts": "Pensamentos"
+    "thoughts": "Pensamentos",
+    "deepThinking": "A pensar profundamente",
+    "deepThought": "Pensou profundamente"
   },
   "messageList": {
     "startConversation": "Iniciar uma conversa",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "Espaço de trabalho",
     "homeTitleChatQuestion": "O que devemos falar?",
     "homeTitleBuildQuestion": "Em que devemos construir {{name}}?",
-    "thisWorkspace": "este espaço de trabalho"
+    "thisWorkspace": "este espaço de trabalho",
+    "assistantRail": {
+      "currentLabel": "Mensagem atual {{index}}: {{preview}}",
+      "emptyPreview": "Resposta do assistente",
+      "jumpLabel": "Ir para a mensagem {{index}}: {{preview}}",
+      "streamingLabel": "Ir para a resposta do assistente em transmissão {{index}}: {{preview}}",
+      "summaryLabel": "Ir para o resumo do histórico comprimido {{index}}: {{preview}}",
+      "summaryPreview": "Resumo do histórico comprimido",
+      "toolOnlyPreview": "{{count}} chamadas de ferramentas",
+      "userLabel": "Ir para a mensagem do utilizador {{index}}: {{preview}}"
+    },
+    "pendingRetryTitle": "A reconectar ao modelo",
+    "pendingTeamTitle": "A coordenar os colegas de equipa"
   },
   "projectHome": {
     "noProjectSelected": "Nenhum projeto selecionado",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}} ferramentas",
     "mcpToolCount_one": "{{count}} ferramenta",
     "mcpToolCount_other": "{{count}} ferramentas",
-    "mcpCount": "{{count}} MCP"
+    "mcpCount": "{{count}} MCP",
+    "activeCustomExtensions": "Extensões personalizadas ativas:",
+    "availableCustomExtensions": "Extensões Personalizadas Disponíveis",
+    "configureCustomExtensionSettings": "Configurar...",
+    "configureCustomExtensions": "Ative as extensões em Configurações → Extensões",
+    "customExtensionsLabel": "Extensões Personalizadas",
+    "extensionCount": "{{count}} extensão",
+    "extensionCount_one": "{{count}} extensão",
+    "extensionCount_other": "{{count}} extensões",
+    "extensionToolCount": "{{count}} ferramentas",
+    "extensionToolCount_one": "{{count}} ferramenta",
+    "extensionToolCount_other": "{{count}} ferramentas",
+    "noCustomExtensions": "Nenhuma extensão personalizada ativada"
   },
   "userMessage": {
     "you": "Você",
@@ -830,7 +947,15 @@
     "copyImage": "Copiar imagem",
     "removeImage": "Remover imagem",
     "imagePreview": "Visualização da imagem",
-    "saveAndResend": "Salvar & reenviar"
+    "saveAndResend": "Salvar & reenviar",
+    "quotedLabel": "Citado",
+    "selectedFileReadFailed": "Falha na leitura",
+    "selectedFileReadLines": "Lidas {{count}} linhas",
+    "selectedFileReadSkipped": "Referência de caminho",
+    "selectedFileReadSkippedNonText": "Referência de caminho; o ficheiro binário ou de documento não foi lido diretamente",
+    "selectedFileReadSkippedPdf": "Referência de caminho PDF; o ficheiro não foi lido diretamente",
+    "selectedFileReadTruncated": "Lidas as primeiras {{count}} linhas",
+    "selectedFileReadsTitle": "Ficheiros lidos"
   },
   "assistantMessage": {
     "changedFiles_one": "Editado {{count}} arquivo",
@@ -841,7 +966,6 @@
     "editedFiles_other": "Editado {{count}} ficheiros",
     "deletedFiles_one": "Removido {{count}} arquivo",
     "deletedFiles_other": "Removido {{count}} ficheiros",
-    "ranCommandsInline": "{{count}} comando executado",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Expandir a área de trabalho ({{count}} execuções de ferramentas)",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "Último erro",
       "stackTrace": "Rastreamento da pilha",
       "copy": "Copiar",
-      "copied": "Copiado"
+      "copied": "Copiado",
+      "descRuntimeUnavailable": "O OpenCowork não conseguiu contactar o Native Worker local. Já tentou reiniciá-lo; tente novamente a mensagem ou reconstrua o native worker se isto se repetir.",
+      "sidecarUnavailableMessage": "O runtime local do agente está temporariamente indisponível. O OpenCowork tentou reiniciá-lo; tente novamente esta mensagem. Se isto continuar a acontecer em desenvolvimento, execute `npm run native:publish` e reinicie o OpenCowork.",
+      "titleRuntimeUnavailable": "Runtime local indisponível"
     },
-    "processTools": "Chamadas de ferramentas"
+    "processTools": "Chamadas de ferramentas",
+    "activeTools": "{{count}} ferramentas ativas",
+    "cacheWrite": "Escrita de cache",
+    "cachedInput": "Entrada em cache",
+    "completionFinished": "Concluído",
+    "metricCost": "Custo",
+    "metricTokens": "Tokens",
+    "metricTotalDuration": "Total",
+    "processResponse": "resposta",
+    "ranCommandsInline_one": "Executou {{count}} comando",
+    "ranCommandsInline_other": "Executou {{count}} comandos",
+    "streamingText": "texto em transmissão",
+    "thinkingStatus": "A pensar...",
+    "tokenTotal": "Total de tokens",
+    "tokenUsage": "Utilização de tokens",
+    "toolExecutions": "{{count}} execuções de ferramentas",
+    "totalUsage": "Utilização total",
+    "tpsHint": "Tokens de saída gerados por segundo",
+    "ttftHint": "Tempo até ao primeiro token",
+    "uncachedInput": "Entrada sem cache"
   },
   "messageActions": {
     "fork": "Garfo",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "Primeiro altera o estágio, depois gera uma mensagem",
     "aiCommitEmptyStaged": "Nada encenado — não pode gerar uma mensagem",
     "aiCommitFailed": "Falha na geração. Verifique as configurações da API / modelo e tente novamente"
+  },
+  "artifacts": {
+    "more": "+{{count}} mais",
+    "open": "Abrir",
+    "reveal": "Revelar no Localizador",
+    "title": "Ficheiros criados"
+  },
+  "extensionResult": {
+    "chartItem": "Item {{index}}",
+    "emptyTable": "Sem linhas para mostrar",
+    "loadingRenderer": "A carregar o renderizador...",
+    "rendererMissing": "Renderizador não encontrado",
+    "rendererTitle": "Renderizador de extensão",
+    "tableTitle": "Tabela",
+    "title": "Resultado da extensão"
+  },
+  "webSearch": {
+    "label": "Pesquisa na Web",
+    "searching": "A pesquisar na Web…",
+    "sources": "Fontes"
   }
 }

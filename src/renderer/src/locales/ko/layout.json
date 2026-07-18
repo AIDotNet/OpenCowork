@@ -104,7 +104,14 @@
     "chats": "채팅",
     "noChats": "채팅 없음",
     "smartRename": "스마트 이름 변경",
-    "smartRenaming": "스마트 이름 변경 중"
+    "smartRenaming": "스마트 이름 변경 중",
+    "dropFolderHint": "폴더를 여기에 놓으면 프로젝트로 가져옵니다",
+    "projectSortBy": "프로젝트 정렬 기준",
+    "projectSortCreatedAt": "생성 시간",
+    "projectSortName": "이름순",
+    "projectSortRecentlyUpdated": "최근 업데이트순",
+    "projectSortTitle": "프로젝트 정렬: {{sort}}",
+    "revealInFolder": "폴더 위치 열기"
   },
   "sidebar_toast": {
     "sessionDeleted": "세션 삭제",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "프로젝트 세션 없음",
     "smartRenameNoContent": "renaming을 위한 대화 내용 없음",
     "smartRenameFailed": "스마트 이름 실패",
-    "smartRenameSuccess": "세션은 지능적으로"
+    "smartRenameSuccess": "세션은 지능적으로",
+    "dropNotFolder": "파일이 아닌 폴더를 놓아주세요",
+    "projectsCreatedCount": "프로젝트 {{count}}개 생성됨",
+    "revealFailed": "위치 열기 실패"
   },
   "topbar": {
     "togglePanel": "회사소개",
@@ -225,7 +235,14 @@
     "openInspector": "열린 inspector",
     "closeRuntimeStatus": "자주 묻는 질문",
     "openRuntimeStatus": "컨텍스트 및 진행",
-    "help": "공지사항"
+    "help": "공지사항",
+    "builtinSearch": "내장 웹 검색",
+    "builtinSearchOff": "끔",
+    "builtinSearchOn": "공급자 네이티브 검색 켜짐",
+    "faster": "더 빠름",
+    "followGlobalModel": "전역 모델 따르기",
+    "followGlobalModelDesc": "이 세션에 전역 메인 모델 설정을 사용합니다.",
+    "smarter": "더 똑똑함"
   },
   "runtimeStatus": {
     "contextTitle": "환경 정책",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}, {{second}} 및 {{count}} 더보기",
     "noTasks": "아직 작업 없음",
     "runningTerminals": "맨끝을 달리기",
-    "closeTerminal": "맨 위로"
+    "closeTerminal": "맨 위로",
+    "subAgents": "SubAgent",
+    "subAgentsCompleted": "{{count}}개 완료",
+    "subAgentsRunning": "{{count}}개 실행 중"
   },
   "browser": {
     "back": "이름 *",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "관련 상품",
     "reportStatusMissing": "뚱 베어",
     "reportRetrying": "최종 보고서를 재생 ...",
-    "reportEmpty": "자주 묻는 질문"
+    "reportEmpty": "자주 묻는 질문",
+    "aborted": "중단됨",
+    "backToList": "SubAgent 목록으로 돌아가기",
+    "completedGroup": "완료됨",
+    "durationHours": "{{count}}시간",
+    "durationMinutes": "{{count}}분",
+    "durationSeconds": "{{count}}초",
+    "maxIterations": "반복 횟수 제한에 도달함",
+    "noStarted": "시작된 SubAgent가 없습니다",
+    "started": "시작됨",
+    "stop": "이 SubAgent 중지"
   },
   "detailPanel": {
     "team": "회사연혁",
@@ -682,7 +712,9 @@
           "잠수함이 병렬로 실행되어야 하는 경우, 지속적인 조정을 위한 Markdown summaries를 구조화"
         ]
       }
-    }
+    },
+    "useFullWidth": "전체 너비 사용",
+    "useStandardWidth": "표준 너비 사용"
   },
   "navRail": {
     "conversations": "회사연혁",
@@ -694,7 +726,8 @@
     "draw": "드로잉",
     "translate": "이름 *",
     "ssh": "사이트맵",
-    "settings": "계정 설정"
+    "settings": "계정 설정",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "지원하다",
@@ -945,7 +978,23 @@
     "downloadGif": "GIF를 다운로드",
     "downloadGrid": "다운로드 Grid",
     "downloadSuccess": "다운로드",
-    "downloadFailed": "다운로드 실패"
+    "downloadFailed": "다운로드 실패",
+    "assistantActConnect": "노드 연결됨",
+    "assistantActCreateText": "텍스트 노드 생성됨",
+    "assistantActFailed": "실패",
+    "assistantActGenerate": "이미지 생성 시작됨",
+    "assistantActRead": "캔버스 읽음",
+    "assistantAddSelection": "선택 항목 추가 ({{count}})",
+    "assistantClear": "대화 지우기",
+    "assistantCollapse": "접기",
+    "assistantQuickDescribe": "이미지 설명",
+    "assistantQuickDescribePrompt": "컨텍스트 이미지의 주제, 구도, 스타일을 설명한 뒤 재사용 가능한 영어 프롬프트 하나를 제시하세요.",
+    "assistantQuickRefine": "프롬프트 다듬기",
+    "assistantQuickRefinePrompt": "컨텍스트의 프롬프트 텍스트를 고품질 영어 이미지 생성 프롬프트 하나로 다듬으세요. 최종 프롬프트만 출력하세요.",
+    "assistantQuickTranslate": "영어로 번역",
+    "assistantQuickTranslatePrompt": "컨텍스트 텍스트를 자연스러운 영어 이미지 생성 프롬프트로 번역하세요. 결과만 출력하세요.",
+    "assistantStop": "중지",
+    "retry": "다시 시도"
   },
   "translatePage": {
     "title": "AI 번역",
@@ -1134,6 +1183,143 @@
     "connecting": "연결 터미널 ...",
     "terminalExited": "터미널 세션 종료",
     "terminalExitedWithError": "터미널 세션 종료",
-    "exitCode": "출구 부호: {{code}}"
-  }
+    "exitCode": "출구 부호: {{code}}",
+    "invalidAiCodingConfig": "구성이 불완전하거나 유효하지 않습니다.",
+    "localAiCodingOnly": "AI Coding 실행 구성은 로컬 프로젝트 터미널에서만 사용할 수 있습니다.",
+    "moveToBottomDock": "하단 터미널로 이동",
+    "moveToRightPanel": "오른쪽 패널로 이동",
+    "newClaudeCode": "새 ClaudeCode"
+  },
+  "codegraphPage": {
+    "addFolder": "폴더 인덱싱",
+    "analytics": {
+      "cycles": "순환 의존성: {{count}}개",
+      "deadCode": "미사용 코드 후보: {{count}}개",
+      "description": "요청 시 인덱스로부터 계산되는 순환 파일 의존성 및 참조되지 않는 private 심볼입니다.",
+      "noCycles": "순환 파일 의존성이 없습니다.",
+      "noDeadCode": "참조되지 않는 private 심볼이 없습니다.",
+      "rerun": "다시 실행",
+      "run": "분석 실행",
+      "running": "분석 중…",
+      "showingTop": "상위 {{count}}개 표시",
+      "title": "그래프 상태"
+    },
+    "back": "뒤로",
+    "charts": {
+      "edgesByKind": "종류별 엣지",
+      "filesByLanguage": "언어별 파일",
+      "noData": "데이터 없음",
+      "nodesByKind": "종류별 노드"
+    },
+    "delete": "인덱스 삭제",
+    "deleting": "삭제 중…",
+    "files": {
+      "empty": "인덱싱된 파일이 없습니다.",
+      "loadingSymbols": "심볼을 불러오는 중…",
+      "noSymbols": "이 파일에는 심볼이 없습니다.",
+      "search": "파일 필터링…",
+      "symbols_one": "심볼 {{count}}개",
+      "symbols_other": "심볼 {{count}}개",
+      "title": "인덱싱된 파일",
+      "viewInGraph": "그래프에서 보기"
+    },
+    "freshness": {
+      "backend": "백엔드",
+      "extractionVersion": "추출 버전",
+      "indexing": "인덱싱 진행 중…",
+      "journal": "저널 모드",
+      "lastIndexed": "마지막 인덱싱",
+      "never": "없음",
+      "stale": "오래됨 — 재인덱싱 권장",
+      "title": "인덱스 최신 상태",
+      "upToDate": "최신 상태"
+    },
+    "graph": {
+      "depth": "깊이",
+      "empty": "이 심볼에 대한 인접 항목을 찾을 수 없습니다.",
+      "expand": "인접 항목 펼치기",
+      "interactionHint": "클릭: 초점 고정 및 펼치기 · 더블 클릭: 여기로 중심 이동",
+      "loading": "그래프를 불러오는 중…",
+      "nodesEdges": "노드 {{nodes}}개 · 엣지 {{edges}}개",
+      "reset": "초기화",
+      "searchPlaceholder": "시작할 심볼 검색 (예: 함수 또는 클래스 이름)",
+      "seedHint": "심볼을 검색하거나 Files 탭에서 심볼을 클릭하면 그래프가 시작됩니다.",
+      "title": "심볼 그래프"
+    },
+    "indexing": "인덱싱 중…",
+    "kpi": {
+      "dbSize": "DB 크기",
+      "edges": "엣지",
+      "files": "파일",
+      "nodes": "노드",
+      "pendingRefs": "대기 중인 참조",
+      "state": "상태"
+    },
+    "needsDownload": "CodeGraph가 인덱싱하려면 문법 파일을 한 번 다운로드해야 합니다. 설정 → 플러그인에서 다운로드하세요.",
+    "noProjects": "아직 인덱싱된 프로젝트가 없습니다. \"폴더 인덱싱\"을 클릭해 첫 인덱스를 만드세요.",
+    "notIndexedDesc": "이 프로젝트에는 아직 그래프 인덱스가 없습니다.",
+    "notIndexedTitle": "인덱싱되지 않음",
+    "openSettings": "설정 열기",
+    "pluginDisabled": "CodeGraph가 비활성화되어 있습니다. 먼저 설정 → 플러그인에서 플러그인을 활성화하세요.",
+    "progress": {
+      "complete": "마무리 중",
+      "extract": "심볼 추출 중",
+      "files": "파일 {{done}} / {{total}}",
+      "indexing": "인덱싱 중",
+      "maintenance": "최적화 중",
+      "recreate": "재구축 중",
+      "resolve": "참조 해석 중",
+      "scan": "파일 스캔 중",
+      "sync": "동기화 중",
+      "synthesize": "합성 중"
+    },
+    "refresh": "새로고침",
+    "reindex": "재인덱싱",
+    "reindexing": "재인덱싱 중…",
+    "selectProject": "프로젝트",
+    "subtitle": "프로젝트별 인덱스 시각화: 통계, 분포, 파일 트리, 심볼 그래프",
+    "sync": "동기화",
+    "syncing": "동기화 중…",
+    "tabs": {
+      "dashboard": "대시보드",
+      "files": "파일",
+      "graph": "그래프"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "해당 폴더를 인덱싱할 수 없습니다",
+      "indexDone": "인덱싱 완료",
+      "indexFailed": "인덱싱 실패",
+      "indexStarted": "인덱싱 시작됨",
+      "removeFailed": "인덱스 제거 실패",
+      "removed": "인덱스 제거됨",
+      "syncDone": "동기화 완료",
+      "syncFailed": "동기화 실패"
+    },
+    "toolSurface": {
+      "description": "기본값은 에이전트에 codegraph_explore만 노출합니다. 활성화하면 search, node, callers, callees, impact, files, status도 함께 등록됩니다 (노출 범위는 프로젝트 크기에 따라 여전히 조정됩니다).",
+      "title": "전체 에이전트 도구 노출"
+    },
+    "unknownRoot": "알 수 없는 프로젝트 ({{hash}})"
+  },
+  "committed": "커밋됨",
+  "files": "탐색기",
+  "scmAgentChanges": "에이전트 변경 사항",
+  "scmChanges": "변경 사항",
+  "scmClean": "변경 사항 없음",
+  "scmCommit": "커밋",
+  "scmCommitPlaceholder": "메시지 (Ctrl+Enter로 커밋)",
+  "scmDiscard": "취소",
+  "scmGenerate": "커밋 메시지 생성",
+  "scmGenerateFailed": "생성 실패",
+  "scmMerge": "변경 사항 병합",
+  "scmNoFolder": "소스 제어를 사용하려면 작업 폴더를 여세요.",
+  "scmNothingStaged": "스테이징된 항목이 없습니다 — 먼저 변경 사항을 스테이징하세요",
+  "scmStage": "스테이징",
+  "scmStageAll": "모두 스테이징",
+  "scmStaged": "스테이징된 변경 사항",
+  "scmTitle": "소스 제어",
+  "scmUndo": "실행 취소",
+  "scmUnstage": "스테이징 해제",
+  "scmUnstageAll": "모두 스테이징 해제"
 }

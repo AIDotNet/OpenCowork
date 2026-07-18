@@ -104,7 +104,14 @@
     "chats": "チャット",
     "noChats": "チャットはまだありません",
     "smartRename": "スマートリネーム",
-    "smartRenaming": "スマートリネーム"
+    "smartRenaming": "スマートリネーム",
+    "dropFolderHint": "フォルダをここにドロップしてプロジェクトとしてインポート",
+    "projectSortBy": "プロジェクトの並び替え",
+    "projectSortCreatedAt": "作成日時",
+    "projectSortName": "アルファベット順",
+    "projectSortRecentlyUpdated": "更新日時（新しい順）",
+    "projectSortTitle": "プロジェクトの並び替え: {{sort}}",
+    "revealInFolder": "フォルダの場所を開く"
   },
   "sidebar_toast": {
     "sessionDeleted": "セッション削除",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "プロジェクトセッションがクリアされていない",
     "smartRenameNoContent": "再開のための会話コンテンツはありません",
     "smartRenameFailed": "スマートの名前が失敗しました",
-    "smartRenameSuccess": "セッションはインテリジェントに名前を変更しました"
+    "smartRenameSuccess": "セッションはインテリジェントに名前を変更しました",
+    "dropNotFolder": "ファイルではなくフォルダをドロップしてください",
+    "projectsCreatedCount": "{{count}} 件のプロジェクトを作成しました",
+    "revealFailed": "場所を開けませんでした"
   },
   "topbar": {
     "togglePanel": "トグルパネル",
@@ -225,7 +235,14 @@
     "openInspector": "検査官のオープン",
     "closeRuntimeStatus": "コンテキストと進捗を隠す",
     "openRuntimeStatus": "コンテキストと進捗を表示",
-    "help": "オープンガイド"
+    "help": "オープンガイド",
+    "builtinSearch": "組み込みWeb検索",
+    "builtinSearchOff": "オフ",
+    "builtinSearchOn": "プロバイダー標準検索が有効",
+    "faster": "高速",
+    "followGlobalModel": "グローバルモデルに従う",
+    "followGlobalModelDesc": "このセッションでグローバルのメインモデル設定を使用します。",
+    "smarter": "高精度"
   },
   "runtimeStatus": {
     "contextTitle": "環境方針",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}、{{second}}および{{count}}もっと",
     "noTasks": "タスクはまだありません",
     "runningTerminals": "ランニングターミナル",
-    "closeTerminal": "クローズターミナル"
+    "closeTerminal": "クローズターミナル",
+    "subAgents": "サブエージェント",
+    "subAgentsCompleted": "{{count}} 件完了",
+    "subAgentsRunning": "{{count}} 件実行中"
   },
   "browser": {
     "back": "バックナンバー",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "フォールバック",
     "reportStatusMissing": "ミス",
     "reportRetrying": "最終報告書の作成",
-    "reportEmpty": "最終報告書は利用できません。"
+    "reportEmpty": "最終報告書は利用できません。",
+    "aborted": "中断済み",
+    "backToList": "サブエージェント一覧に戻る",
+    "completedGroup": "完了",
+    "durationHours": "{{count}}時間",
+    "durationMinutes": "{{count}}分",
+    "durationSeconds": "{{count}}秒",
+    "maxIterations": "反復回数の上限に達しました",
+    "noStarted": "開始されたサブエージェントはありません",
+    "started": "開始済み",
+    "stop": "このサブエージェントを停止"
   },
   "detailPanel": {
     "team": "スタッフ",
@@ -682,7 +712,9 @@
           "サブタスクが並行して実行し、継続的調整のためのMarkdownの要約を返すケース"
         ]
       }
-    }
+    },
+    "useFullWidth": "全幅を使用",
+    "useStandardWidth": "標準幅を使用"
   },
   "navRail": {
     "conversations": "コンバージョン",
@@ -694,7 +726,8 @@
     "draw": "ドロー",
     "translate": "ログイン",
     "ssh": "SSHの特長",
-    "settings": "コンテンツ"
+    "settings": "コンテンツ",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "リソース",
@@ -945,7 +978,23 @@
     "downloadGif": "GIFをダウンロード",
     "downloadGrid": "ダウンロードグリッド",
     "downloadSuccess": "ダウンロード",
-    "downloadFailed": "ダウンロード失敗"
+    "downloadFailed": "ダウンロード失敗",
+    "assistantActConnect": "ノードを接続しました",
+    "assistantActCreateText": "テキストノードを作成しました",
+    "assistantActFailed": "失敗",
+    "assistantActGenerate": "画像生成を開始しました",
+    "assistantActRead": "キャンバスを読み込みました",
+    "assistantAddSelection": "選択項目を追加（{{count}}）",
+    "assistantClear": "会話をクリア",
+    "assistantCollapse": "折りたたむ",
+    "assistantQuickDescribe": "画像を説明",
+    "assistantQuickDescribePrompt": "コンテキスト画像の被写体、構図、スタイルを説明し、再利用可能な英語のプロンプトを1つ提示してください。",
+    "assistantQuickRefine": "プロンプトを推敲",
+    "assistantQuickRefinePrompt": "コンテキスト内のプロンプトテキストを、高品質な英語の画像生成プロンプトに1つにまとめて推敲してください。最終的なプロンプトのみを出力してください。",
+    "assistantQuickTranslate": "英語に翻訳",
+    "assistantQuickTranslatePrompt": "コンテキストのテキストを自然な英語の画像生成プロンプトに翻訳してください。結果のみを出力してください。",
+    "assistantStop": "停止",
+    "retry": "再試行"
   },
   "translatePage": {
     "title": "AI翻訳",
@@ -1134,6 +1183,143 @@
     "connecting": "接続端末...",
     "terminalExited": "ターミナルセッション終了",
     "terminalExitedWithError": "ターミナルセッション終了",
-    "exitCode": "出口コード: {{code}}"
-  }
+    "exitCode": "出口コード: {{code}}",
+    "invalidAiCodingConfig": "設定が不完全か無効です。",
+    "localAiCodingOnly": "AI Coding の起動設定はローカルプロジェクトのターミナルでのみ利用できます。",
+    "moveToBottomDock": "下部ターミナルに移動",
+    "moveToRightPanel": "右パネルに移動",
+    "newClaudeCode": "新規 ClaudeCode"
+  },
+  "codegraphPage": {
+    "addFolder": "フォルダをインデックス",
+    "analytics": {
+      "cycles": "循環依存: {{count}}",
+      "deadCode": "デッドコード候補: {{count}}",
+      "description": "循環するファイル依存と、一度も参照されていないプライベートシンボルを、インデックスからオンデマンドで計算します。",
+      "noCycles": "循環するファイル依存はありません。",
+      "noDeadCode": "未参照のプライベートシンボルはありません。",
+      "rerun": "再実行",
+      "run": "分析を実行",
+      "running": "分析中…",
+      "showingTop": "上位 {{count}} 件を表示",
+      "title": "グラフの健全性"
+    },
+    "back": "戻る",
+    "charts": {
+      "edgesByKind": "種類別のエッジ",
+      "filesByLanguage": "言語別のファイル",
+      "noData": "データなし",
+      "nodesByKind": "種類別のノード"
+    },
+    "delete": "インデックスを削除",
+    "deleting": "削除中…",
+    "files": {
+      "empty": "インデックスされたファイルはありません。",
+      "loadingSymbols": "シンボルを読み込み中…",
+      "noSymbols": "このファイルにシンボルはありません。",
+      "search": "ファイルを絞り込み…",
+      "symbols_one": "{{count}} 個のシンボル",
+      "symbols_other": "{{count}} 個のシンボル",
+      "title": "インデックス済みファイル",
+      "viewInGraph": "グラフで表示"
+    },
+    "freshness": {
+      "backend": "バックエンド",
+      "extractionVersion": "抽出バージョン",
+      "indexing": "インデックス作成中…",
+      "journal": "ジャーナルモード",
+      "lastIndexed": "最終インデックス日時",
+      "never": "なし",
+      "stale": "古くなっています — 再インデックスを推奨",
+      "title": "インデックスの鮮度",
+      "upToDate": "最新"
+    },
+    "graph": {
+      "depth": "深さ",
+      "empty": "このシンボルに隣接する要素は見つかりませんでした。",
+      "expand": "隣接要素を展開",
+      "interactionHint": "クリック: フォーカスを固定して展開 ・ ダブルクリック: ここを中心にする",
+      "loading": "グラフを読み込み中…",
+      "nodesEdges": "{{nodes}} ノード ・ {{edges}} エッジ",
+      "reset": "リセット",
+      "searchPlaceholder": "シンボルを検索して開始（関数名やクラス名など）",
+      "seedHint": "シンボルを検索するか、ファイルタブでシンボルをクリックすると、グラフが表示されます。",
+      "title": "シンボルグラフ"
+    },
+    "indexing": "インデックス作成中…",
+    "kpi": {
+      "dbSize": "DBサイズ",
+      "edges": "エッジ",
+      "files": "ファイル",
+      "nodes": "ノード",
+      "pendingRefs": "保留中の参照",
+      "state": "状態"
+    },
+    "needsDownload": "CodeGraph はインデックス作成前に一度だけ文法ファイルをダウンロードする必要があります。設定 → プラグイン で行ってください。",
+    "noProjects": "インデックス済みのプロジェクトはまだありません。「フォルダをインデックス」をクリックして最初のインデックスを作成してください。",
+    "notIndexedDesc": "このプロジェクトにはまだグラフインデックスがありません。",
+    "notIndexedTitle": "未インデックス",
+    "openSettings": "設定を開く",
+    "pluginDisabled": "CodeGraph は無効になっています。まず設定 → プラグイン でプラグインを有効にしてください。",
+    "progress": {
+      "complete": "仕上げ中",
+      "extract": "シンボルを抽出中",
+      "files": "{{done}} / {{total}} ファイル",
+      "indexing": "インデックス作成中",
+      "maintenance": "最適化中",
+      "recreate": "再構築中",
+      "resolve": "参照を解決中",
+      "scan": "ファイルをスキャン中",
+      "sync": "同期中",
+      "synthesize": "統合中"
+    },
+    "refresh": "更新",
+    "reindex": "再インデックス",
+    "reindexing": "再インデックス中…",
+    "selectProject": "プロジェクト",
+    "subtitle": "プロジェクトごとのインデックス可視化: 統計、分布、ファイルツリー、シンボルグラフ",
+    "sync": "同期",
+    "syncing": "同期中…",
+    "tabs": {
+      "dashboard": "ダッシュボード",
+      "files": "ファイル",
+      "graph": "グラフ"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "そのフォルダをインデックスできませんでした",
+      "indexDone": "インデックス完了",
+      "indexFailed": "インデックスに失敗しました",
+      "indexStarted": "インデックス作成を開始しました",
+      "removeFailed": "インデックスの削除に失敗しました",
+      "removed": "インデックスを削除しました",
+      "syncDone": "同期完了",
+      "syncFailed": "同期に失敗しました"
+    },
+    "toolSurface": {
+      "description": "デフォルトではエージェントに codegraph_explore のみを公開します。有効にすると search、node、callers、callees、impact、files、status も登録されます（プロジェクトの規模に応じて公開範囲は調整されます）。",
+      "title": "エージェントツールをフル公開"
+    },
+    "unknownRoot": "不明なプロジェクト（{{hash}}）"
+  },
+  "committed": "コミット済み",
+  "files": "エクスプローラー",
+  "scmAgentChanges": "エージェントの変更",
+  "scmChanges": "変更",
+  "scmClean": "変更なし",
+  "scmCommit": "コミット",
+  "scmCommitPlaceholder": "メッセージ（Ctrl+Enter でコミット）",
+  "scmDiscard": "破棄",
+  "scmGenerate": "コミットメッセージを生成",
+  "scmGenerateFailed": "生成に失敗しました",
+  "scmMerge": "変更をマージ",
+  "scmNoFolder": "ソース管理を使用するには作業フォルダを開いてください。",
+  "scmNothingStaged": "ステージされた変更はありません — 先に変更をステージしてください",
+  "scmStage": "ステージ",
+  "scmStageAll": "すべてステージ",
+  "scmStaged": "ステージ済みの変更",
+  "scmTitle": "ソース管理",
+  "scmUndo": "元に戻す",
+  "scmUnstage": "ステージ解除",
+  "scmUnstageAll": "すべてステージ解除"
 }

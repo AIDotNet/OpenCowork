@@ -82,7 +82,8 @@
     "teamLabel": "команда",
     "taskSubAgents": "Задание (субагенты)",
     "teamTools": "Инструменты команды",
-    "maxIter": "макс {{count}} итер"
+    "maxIter": "макс {{count}} итер",
+    "inheritsMainTools": "Такие же инструменты, как у основного агента"
   },
   "artifacts": {
     "noArtifacts": "Артефактов пока нет",

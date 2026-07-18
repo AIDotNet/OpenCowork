@@ -8,7 +8,8 @@
       "system": "Systeem",
       "ai": "AI Mogelijkheden",
       "extensions": "Uitbreidingen en integraties",
-      "about": "Info"
+      "about": "Info",
+      "aiCoding": "AI Coding"
     }
   },
   "pet": {
@@ -189,7 +190,10 @@
       "downloading": "Downloaden van update...",
       "downloadingWithProgress": "Downloaden van update... {{progress}} %",
       "downloadedReady": "Update v{{version}} gedownload. Klik op Nu bijwerken om opnieuw te starten en te installeren.",
-      "installing": "Update voorbereiden…"
+      "installing": "Update voorbereiden…",
+      "greenBuild": "Installatievrije build",
+      "manualDownloadHint": "Er is een nieuwere versie (v{{version}}) beschikbaar. Download deze voor de installatievrije build handmatig, sluit de app af en vervang de huidige map.",
+      "openDownloadPage": "Downloadpagina openen"
     },
     "projectDefaultDirectory": {
       "title": "Standaard projectmap",
@@ -238,7 +242,8 @@
       "clearConfirm": "Alles verwijderen {{count}} Dit kan niet ongedaan worden gemaakt.",
       "cleared": "Verwijderd {{count}} zittingen",
       "noSessions": "Geen sessies beschikbaar"
-    }
+    },
+    "autoUpdateGreenDesc": "De installatievrije build controleert op nieuwe versies, maar downloadt of installeert ze niet automatisch. Download de nieuwste versie handmatig en vervang de huidige map."
   },
   "sync": {
     "title": "Synchroniseren",
@@ -530,7 +535,9 @@
     "clearConfirmDescription": "Permanent schrappen {{count}} log items aangemaakt voor {{date}} Dit kan niet ongedaan worden gemaakt.",
     "clearSuccess": "Klaar {{count}} log-items",
     "clearFailed": "Kon logs niet wissen",
-    "clearEmpty": "Geen logs ouder dan 7 dagen om te wissen"
+    "clearEmpty": "Geen logs ouder dan 7 dagen om te wissen",
+    "cacheReadRatio": "Cache-leesratio",
+    "cacheTokenShare": "Aandeel gecachte tokens"
   },
   "model": {
     "title": "Modelconfiguratie",
@@ -635,7 +642,8 @@
       "DesktopClick": "Beschikbare args: x, y, knop, actie",
       "DesktopType": "Beschikbare args: tekst, sleutel, sneltoets",
       "DesktopScroll": "Beschikbare args: x, y, scrollX, scrollY",
-      "DesktopWait": "Beschikbare args: vertragingMs"
+      "DesktopWait": "Beschikbare args: vertragingMs",
+      "codegraph_explore": "Beschikbare args: query, projectPath"
     },
     "status": {
       "disabled": "De plugin is uitgeschakeld, zodat de gereedschappen niet worden blootgesteld aan het Agent.",
@@ -669,7 +677,11 @@
       "allowedDomains": "Toegestane domeinen",
       "allowedDomainsDesc": "Laat leeg om alle domeinen toe te staan. Wanneer ingesteld, kunnen alleen overeenkomende domeinen worden geopend.",
       "domainPlaceholder": "example.com\nsub.example.org",
-      "domainRuleHint": "Voer een domein in per regel of apart met komma's. Geblokkeerde domeinen hebben voorrang boven toegestane domeinen; subdomeinen komen automatisch overeen."
+      "domainRuleHint": "Voer een domein in per regel of apart met komma's. Geblokkeerde domeinen hebben voorrang boven toegestane domeinen; subdomeinen komen automatisch overeen.",
+      "cookiesImportFailed": "Importeren van cookies mislukt",
+      "cookiesImported": "{{imported}} cookies geïmporteerd van {{browserName}} ({{skipped}} overgeslagen)",
+      "importCookies": "Cookies importeren",
+      "importingCookies": "Importeren..."
     },
     "items": {
       "image": {
@@ -689,8 +701,48 @@
         "description": "Exploseer desktop screenshot, klik, scroll en toetsenbord tools naar het Agent.",
         "promptTitle": "Gebruiksbeperkingen voor gereedschap",
         "promptDesc": "Deze tools kunnen het volledige bureaublad inspecteren en bedienen. Houd de goedkeuring ingeschakeld, neem het scherm op voordat u gaat handelen en gebruik ze alleen wanneer directe desktopautomatisering nodig is. Als het actieve model Computergebruik mogelijk maakt, zal OpenAI Computer Use deze desktopmogelijkheden eerst coördineren."
+      },
+      "codegraph": {
+        "description": "Een lokale code-intelligentie-engine: indexeer een repo tot een symbool-/referentiegraaf en laat de Agent deze verkennen.",
+        "promptDesc": "Schakel in om de Agent het `codegraph_explore`-hulpmiddel te geven — het beantwoordt vragen als \"hoe komt X bij Y / wie roept dit aan / wat breekt er als ik dit wijzig\" vanuit de geïndexeerde graaf, ter vervanging van veel Read/Grep-aanroepen. Standaard uitgeschakeld; inschakelen downloadt eenmalig de taalgrammatica's.",
+        "promptTitle": "Beperkingen voor hulpmiddelgebruik",
+        "title": "CodeGraph-plugin"
       }
-    }
+    },
+    "codegraph": {
+      "actionDone": "Klaar.",
+      "actionFailed": "CodeGraph-actie mislukt",
+      "assetsDesc": "CodeGraph ontleedt uw code met tree-sitter-grammatica's. Deze worden bij de eerste inschakeling gedownload (een dev-build gebruikt de lokaal gebouwde grammatica's — geen download nodig).",
+      "assetsTitle": "Taalgrammatica's",
+      "deleteIndex": "Index verwijderen",
+      "devMode": "Dev-build — gebruikt lokale grammatica's ({{count}}), geen download nodig.",
+      "download": "Grammatica's downloaden",
+      "downloadFailed": "Downloaden van grammatica's mislukt",
+      "downloaded": "Grammatica's gedownload.",
+      "downloading": "Downloaden...",
+      "enableFirst": "Schakel de plugin in om geïndexeerde projecten te beheren.",
+      "indexCurrent": "Huidig project indexeren",
+      "needsDownload": "Grammatica's zijn nog niet geïnstalleerd. Download ze om te beginnen met indexeren.",
+      "projectStats": "{{files}} bestanden · {{nodes}} knooppunten · {{edges}} verbindingen",
+      "projectsDesc": "Elk project dat CodeGraph op deze machine heeft geïndexeerd, met de grootte en status van de graaf. Opnieuw indexeren bouwt alles vanaf nul opnieuw op; synchroniseren past incrementele wijzigingen toe.",
+      "projectsEmpty": "Nog geen projecten geïndexeerd. Indexeren start automatisch zodra de Agent voor het eerst een project verkent, of indexeer het huidige project nu.",
+      "projectsLoading": "Geïndexeerde projecten laden...",
+      "projectsTitle": "Geïndexeerde projecten",
+      "ready": "Grammatica's gereed ({{count}} geïnstalleerd).",
+      "refresh": "Verversen",
+      "reindex": "Opnieuw indexeren",
+      "reindexing": "Indexeren...",
+      "remove": "Verwijderen",
+      "removed": "Gedownloade grammatica's verwijderd.",
+      "removing": "Verwijderen...",
+      "sync": "Sync",
+      "syncing": "Synchroniseren...",
+      "unknownRoot": "(onbekend project) {{hash}}",
+      "workerMissing": "De CodeGraph worker-binary is niet gevonden. Bouw deze met `npm run codegraph:publish` (of `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerRunning": "Worker actief",
+      "workerStopped": "Worker niet gestart (start bij eerste gebruik)"
+    },
+    "toolStatusDescCodeGraph": "Het codegraph_explore-hulpmiddel wordt alleen blootgesteld wanneer de plugin is ingeschakeld en de taalgrammatica's gereed zijn (gedownload, of lokaal beschikbaar in een dev-build)."
   },
   "migration": {
     "title": "Migratiecentrum",
@@ -1151,7 +1203,29 @@
     "channelUserRefreshFailed": "Kon gebruikersinfo niet vernieuwen",
     "channelDisconnect": "Verbinding verbreken",
     "channelDisconnected": "Kanaal verbroken",
-    "channelRequired": "Vul eerst kanaalverificatie in"
+    "channelRequired": "Vul eerst kanaalverificatie in",
+    "builtinSearchEnabled": "Ingebouwde zoekfunctie ingeschakeld",
+    "cacheTtl": "Cache-TTL (anthropic)",
+    "cacheTtlHint": "5m (standaard) of 1u (2x schrijfkosten). Instellingen op modelniveau overschrijven die op providerniveau.",
+    "enableBuiltinSearch": "Ingebouwde websearch inschakelen",
+    "enableBuiltinSearchDesc": "Gebruik de native websearch van de provider (Claude / OpenAI Responses) in plaats van een clienthulpmiddel.",
+    "kimiQuota5h": "5-uurslimiet",
+    "kimiQuotaParallel": "Max. gelijktijdigheid {{count}}",
+    "kimiQuotaWeekly": "Wekelijkse limiet",
+    "kimiQuotaWindowLimit": "{{time}}-limiet",
+    "requestParams": "Verzoekparameters",
+    "sendMaxOutputTokens": "Max. uitvoertokens verzenden",
+    "sendMaxOutputTokensHint": "Indien uit, laten verzoeken max_tokens / max_completion_tokens / max_output_tokens weg en bepaalt de server zelf de uitvoerlimiet",
+    "sendTemperature": "Temperature verzenden",
+    "sendTemperatureHint": "Indien uit, laten verzoeken de parameter temperature weg — voor diensten met vaste samplinginstellingen (bijv. Kimi K3)",
+    "supportsBuiltinSearch": "Ondersteunt ingebouwde websearch",
+    "supportsBuiltinSearchDesc": "Het endpoint implementeert de native websearch-servertool van de provider (Claude / OpenAI Responses). De meeste relay-endpoints doen dit niet.",
+    "supportsFastMode": "Ondersteunt Fast-modus",
+    "supportsFastModeDesc": "Het endpoint ondersteunt de OpenAI priority service tier voor snellere reacties.",
+    "supportsImageGeneration": "Ondersteunt afbeeldingsgeneratie",
+    "supportsImageGenerationDesc": "Het endpoint implementeert de OpenAI Responses image_generation-servertool.",
+    "supportsWebsocket": "Ondersteunt WebSocket-protocol",
+    "supportsWebsocketDesc": "Het endpoint biedt het OpenAI Responses WebSocket-transport."
   },
   "channel": {
     "title": "Kanaals",
@@ -1456,5 +1530,227 @@
     "copyConversation": "Conversatie kopiëren",
     "allowTool": "Gereedschapsuitvoering toestaan",
     "denyTool": "De gereedschapsuitvoering weigeren"
+  },
+  "aiCoding": {
+    "addConfig": "Configuratie toevoegen",
+    "apiKey": "API-sleutel",
+    "baseUrl": "Basis-URL",
+    "claudeProviderDesc": "Alleen ingeschakelde providers met API-sleutel en Anthropic-protocolmodellen worden getoond. RoutinAI GPT-5.4/5.5/5.6-modellen worden ook behandeld als ClaudeCode-compatibel.",
+    "claudeSubtitle": "Claude Code-providers en Anthropic-protocol modelkoppelingen instellen",
+    "claudeTitle": "ClaudeCode",
+    "codexModelDesc": "Codex wordt gestart met een tijdelijke provideroverride en Responses wire API.",
+    "codexProviderDesc": "Alleen ingeschakelde providers met API-sleutel en OpenAI Responses-modellen worden getoond.",
+    "codexSubtitle": "Codex CLI-providers en modelkoppelingen instellen",
+    "codexTitle": "Codex",
+    "command": "Opdracht",
+    "configName": "Configuratienaam",
+    "configs": "Configuraties",
+    "configsDesc": "Maak benoemde startprofielen voor het terminalmenu",
+    "copyConfig": "Configuratie kopiëren",
+    "copyName": "{{name}} kopie",
+    "defaultConfigName": "Standaard {{index}}",
+    "defaultModel": "Standaardmodel",
+    "deleteConfig": "Configuratie verwijderen",
+    "fullAccessPermission": "Volledige toegangsrechten",
+    "fullAccessPermissionDesc": "Start Claude Code met --dangerously-skip-permissions.",
+    "invalid": "Ongeldig",
+    "model": "Model",
+    "noClaudeProviders": "Er is geen ingeschakelde Anthropic-protocolprovider met API-sleutel beschikbaar.",
+    "noCodexProviders": "Er is geen ingeschakelde OpenAI Responses-provider met API-sleutel beschikbaar.",
+    "permissionOptions": "Toestemmingsopties",
+    "permissionOptionsDesc": "Optionele Claude Code-startvlaggen voor deze configuratie.",
+    "provider": "Aanbieder",
+    "ready": "Gereed",
+    "resolvedCodexConfig": "Herleide Codex-start",
+    "resolvedEnvironment": "Herleide omgeving",
+    "selectModel": "Selecteer model",
+    "selectProvider": "Selecteer provider",
+    "status": {
+      "apiKeyMissing": "API-sleutel ontbreekt",
+      "baseUrlMissing": "Basis-URL ontbreekt",
+      "configMissing": "Configuratie ontbreekt",
+      "modelMissing": "Model ontbreekt",
+      "protocolUnsupported": "Protocol komt niet overeen",
+      "providerDisabled": "Provider uitgeschakeld",
+      "providerMissing": "Provider ontbreekt",
+      "ready": "Gereed",
+      "unsupportedAuth": "Niet-ondersteunde authenticatie"
+    }
+  },
+  "codegraph": {
+    "subtitle": "Visualisatie van de index per project: statistieken, bestanden en een symbolengraaf",
+    "title": "CodeGraph"
+  },
+  "extension": {
+    "bundled": "Gebundelde bronnen",
+    "bundledAgents": "{{count}} agents",
+    "bundledCommands": "{{count}} opdrachten",
+    "bundledMcp": "{{count}} MCP-servers",
+    "bundledNotSynced": "Niet gesynchroniseerd",
+    "bundledSkills": "{{count}} vaardigheden",
+    "bundledSynced": "Gesynchroniseerd",
+    "bundledWorkflows": "{{count}} workflows",
+    "components": "Componenten",
+    "disabled": "Uitgeschakeld",
+    "emptyDesc": "Kies een map met extension.json om aangepaste hulpmiddelen aan OpenCowork toe te voegen.",
+    "emptyTitle": "Geen extensies geïnstalleerd",
+    "enabled": "Ingeschakeld",
+    "hideSecret": "Geheim verbergen",
+    "hostRendered": "host-gerenderd",
+    "installFailed": "Installeren van extensie mislukt",
+    "installFolder": "Map installeren",
+    "installed": "Extensie geïnstalleerd",
+    "loading": "Extensies laden...",
+    "network": "Netwerk",
+    "noNetwork": "Geen netwerktoegang",
+    "noRenderers": "Geen aangepaste renderers",
+    "openFolder": "Map openen",
+    "openFolderFailed": "Openen van map mislukt",
+    "readOnlyCount": "{{count}} alleen-lezen",
+    "remove": "Verwijderen",
+    "removeConfirm": "Deze extensie verwijderen?",
+    "removeFailed": "Verwijderen van extensie mislukt",
+    "renderers": "Renderers",
+    "required": "Vereist",
+    "saveConfig": "Configuratie opslaan",
+    "saveFailed": "Opslaan van configuratie mislukt",
+    "saved": "Extensieconfiguratie opgeslagen",
+    "showSecret": "Geheim tonen",
+    "subtitle": "Installeer lokale aangepaste hulpmiddelen en UI-componenten voor antwoorden",
+    "syncWarnings": "Sommige gebundelde bronnen zijn niet gesynchroniseerd",
+    "title": "Extensies",
+    "tools": "Hulpmiddelen",
+    "updateFailed": "Bijwerken van extensie mislukt",
+    "workflows": "Workflows",
+    "workflowsHint": "Deze plugin is één router-vaardigheid die deze workflows op aanvraag laadt."
+  },
+  "hooks": {
+    "actions": {
+      "deny": "Negeren",
+      "disable": "Uitschakelen",
+      "enable": "Inschakelen",
+      "openArtifact": "Script",
+      "openConfig": "Gebruikersconfiguratie openen",
+      "openConfigShort": "Configuratie",
+      "refresh": "Verversen",
+      "trust": "Gebruiken"
+    },
+    "empty": "Er zijn geen hooks geconfigureerd.",
+    "emptyForEvent": "Er zijn geen hooks geconfigureerd voor deze levenscyclusgebeurtenis.",
+    "events": {
+      "PermissionRequest": {
+        "description": "Wordt uitgevoerd voordat een toestemmingsprompt voor een hulpmiddel wordt getoond. Kan het verzoek toestaan of weigeren."
+      },
+      "PostCompact": {
+        "description": "Wordt uitgevoerd nadat contextcompressie is voltooid. Handig voor het toevoegen van vervolgrichtlijnen."
+      },
+      "PostToolUse": {
+        "description": "Wordt uitgevoerd nadat een hulpmiddel is voltooid en voordat het resultaat teruggaat naar het model. Kan context toevoegen of hulpmiddelfeedback vervangen."
+      },
+      "PreCompact": {
+        "description": "Wordt uitgevoerd vóór handmatige of automatische contextcompressie. Kan richtlijnen voor compressie toevoegen of deze compressie blokkeren."
+      },
+      "PreToolUse": {
+        "description": "Wordt uitgevoerd nadat een hulpmiddelaanroep is gegenereerd en voordat deze wordt uitgevoerd. Kan invoer bijwerken of risicovolle aanroepen blokkeren."
+      },
+      "SessionStart": {
+        "description": "Wordt uitgevoerd voordat een sessie start, hervat, wordt gewist, wordt hersteld vanuit een compressie, of als achtergrondtaak start. Handig voor het toevoegen van sessiecontext."
+      },
+      "Stop": {
+        "description": "Wordt uitgevoerd wanneer de huidige agentbeurt op het punt staat te eindigen. Handig voor laatste controles, extra notities of het blokkeren van voltooiing."
+      },
+      "SubagentStart": {
+        "description": "Wordt uitgevoerd voordat een sub-agent start. Kan context toevoegen of de subtaak blokkeren."
+      },
+      "SubagentStop": {
+        "description": "Wordt uitgevoerd nadat een sub-agent is voltooid en voordat het resultaat teruggaat naar de hoofdsessie. Kan het resultaat valideren of blokkeren."
+      },
+      "UserPromptSubmit": {
+        "description": "Wordt uitgevoerd voordat een gebruikersprompt wordt ingediend. Kan context toevoegen, de prompt bijwerken of de indiening blokkeren."
+      }
+    },
+    "feature": {
+      "description": "Wordt van kracht na het herstarten van OpenCowork.",
+      "preview": "Voorbeeld",
+      "restartToDisable": "Hooks blijven actief in deze appsessie. Herstart OpenCowork om ze te stoppen.",
+      "restartToEnable": "Herstart OpenCowork om hooks te laten uitvoeren.",
+      "runtimeOff": "Inactief in deze sessie",
+      "runtimeOn": "Actief in deze sessie",
+      "title": "Hooks inschakelen"
+    },
+    "list": {
+      "title": "Alle hooks"
+    },
+    "loading": "Hooks laden...",
+    "metrics": {
+      "invalid": "Ongeldig",
+      "pending": "In behandeling",
+      "total": "Totaal"
+    },
+    "review": {
+      "title": "Alle hooks",
+      "warning": "Als u een hook vertrouwt, mag het bijbehorende commando lokaal worden uitgevoerd als uw gebruiker."
+    },
+    "source": {
+      "exists": "Gevonden",
+      "missing": "Ontbreekt"
+    },
+    "status": {
+      "changed": "Gewijzigd",
+      "denied": "Geweigerd",
+      "disabled": "Uitgeschakeld",
+      "invalid": "Ongeldig",
+      "pending": "In behandeling",
+      "trusted": "Vertrouwd"
+    },
+    "subtitle": "Beheer OpenCowork-levenscyclushooks.",
+    "title": "Hooks",
+    "toasts": {
+      "denied": "Hook genegeerd",
+      "disabled": "Hook uitgeschakeld",
+      "enabled": "Hook ingeschakeld",
+      "opened": "Bron geopend",
+      "trusted": "Hook ingeschakeld voor gebruik"
+    }
+  },
+  "permission": {
+    "bashAllow": {
+      "description": "Shellopdrachten die overeenkomen met een ingeschakelde regel worden zonder bevestiging uitgevoerd.",
+      "title": "Opdrachtwhitelist (Bash)"
+    },
+    "bashDeny": {
+      "description": "Shellopdrachten die overeenkomen met een ingeschakelde regel worden altijd geweigerd — hoogste prioriteit, overschrijft automatisch goedkeuren en de whitelist.",
+      "title": "Opdrachtblacklist (Bash)"
+    },
+    "master": {
+      "description": "Hulpmiddelen op de whitelist en overeenkomende shellopdrachten slaan bevestiging over; opdrachten op de blacklist worden altijd geweigerd. Gevaarlijke bewerkingen die niet door een regel worden gedekt, vragen nog steeds om bevestiging.",
+      "title": "Toestemmingswhitelist inschakelen"
+    },
+    "precedence": {
+      "description": "Volgorde van evaluatie: opdrachtblacklist (weigert altijd — zelfs met automatisch goedkeuren aan) → hulpmiddelenwhitelist / opdrachtwhitelist (bevestiging overslaan) → al het overige vraagt om bevestiging."
+    },
+    "rules": {
+      "add": "Regel toevoegen",
+      "delete": "Regel verwijderen",
+      "empty": "Nog geen regels",
+      "invalidPattern": "Ongeldig patroon: {{error}}",
+      "modeRegex": "Regex",
+      "modeWildcard": "Jokerteken",
+      "patternPlaceholder": "bijv. npm run * of ^git (status|log)\\b"
+    },
+    "subtitle": "Hulpmiddelenwhitelist & shellopdrachtregels",
+    "title": "Toestemmingen",
+    "tools": {
+      "add": "Toevoegen",
+      "commandToolWarning": "Een shellhulpmiddel (Bash/Shell/Monitor/PowerShell) staat op de whitelist — elke opdracht die het uitvoert, slaat bevestiging over, behalve bij een treffer op de blacklist.",
+      "description": "Deze hulpmiddelen worden uitgevoerd zonder om bevestiging te vragen. Items kunnen *-jokertekens gebruiken (bijv. mcp__github__*).",
+      "duplicate": "Dit hulpmiddel staat al op de whitelist",
+      "empty": "Nog geen hulpmiddelen op de whitelist",
+      "placeholder": "Hulpmiddelnaam, bijv. Write",
+      "remove": "{{tool}} verwijderen",
+      "suggestions": "Suggesties:",
+      "title": "Hulpmiddelenwhitelist"
+    },
+    "wildcardHelp": "Jokertekenpatronen komen overeen met de volledige opdracht en * komt overeen met elke tekst — bijv. npm run *. Regex-whitelistregels moeten overeenkomen met de volledige opdracht; regex-blacklistregels komen overal overeen. Elk onderdeel van een samengestelde opdracht (&&, ;, |) moet op de whitelist staan. Overeenkomsten zijn niet hoofdlettergevoelig."
   }
 }

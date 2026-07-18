@@ -122,7 +122,36 @@
     "startAcp": "เริ่มวาระงานของ ACP",
     "startAcpDesc": "ที แรก ให้ ความ กระจ่าง ใน เรื่อง เป้า หมาย, ภูมิ หลัง, ข้อ จํากัด, และ เงื่อนไข การ ยอม รับ.",
     "homeTitleAcp": "โหมด ACP",
-    "homeDescAcp": "ในโหมด ACP เริ่ม ด้วย การ ทํา ให้ เป้า หมาย, ภูมิ หลัง, เงื่อนไข, และ เงื่อนไข การ ยอม รับ ชัดเจน."
+    "homeDescAcp": "ในโหมด ACP เริ่ม ด้วย การ ทํา ให้ เป้า หมาย, ภูมิ หลัง, เงื่อนไข, และ เงื่อนไข การ ยอม รับ ชัดเจน.",
+    "queueQuoted": "แทรกเข้าไปในบทสนทนาแล้ว",
+    "runtimeMetrics": {
+      "cache": "แคช",
+      "cacheCreate": "การเขียนแคช",
+      "cacheCreate1h": "การเขียนแคช (1 ชม.)",
+      "cacheCreate5m": "การเขียนแคช (5 นาที)",
+      "cacheHit": "แคชที่ถูกใช้",
+      "cost": "{{label}}: {{cost}}",
+      "input": "อินพุตที่ไม่มีแคช",
+      "output": "เอาต์พุต",
+      "totalCost": "ค่าใช้จ่าย",
+      "tps": "TPS",
+      "tpsHint": "จํานวนโทเคนเอาต์พุตที่สร้างต่อวินาที",
+      "ttft": "TTFT",
+      "ttftHint": "เวลาก่อนได้รับโทเคนแรก"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "รอการอนุมัติ: {{tool}}",
+      "generatingImage": "กําลังสร้างภาพ",
+      "loadingMedia": "กําลังโหลดสื่อ",
+      "optimizing": "กําลังปรับให้เหมาะสม",
+      "ready": "พร้อม",
+      "receiving": "กําลังรับข้อมูล",
+      "retrying": "กําลังลองใหม่ {{attempt}}",
+      "runningSubAgents": "ตัวแทนย่อยกําลังทํางาน {{count}} ตัว",
+      "runningTool": "กําลังรัน {{tool}}",
+      "thinking": "กําลังคิด",
+      "waiting": "กําลังรอ"
+    }
   },
   "planReview": {
     "awaitingReview": "การ ทบทวน",
@@ -139,7 +168,10 @@
     "runningHint": "การประชุมครั้งนี้กําลังดําเนินการตามแผน",
     "runningInSession": "แผนนี้กําลังทํางานอยู่ {{title}} \".",
     "openExecutionSession": "เปิดวาระงานประมวลผล",
-    "approvedHint": "แผนนี้ได้รับการอนุมัติแล้ว"
+    "approvedHint": "แผนนี้ได้รับการอนุมัติแล้ว",
+    "copy": "คัดลอกแผน",
+    "download": "ดาวน์โหลดแผน",
+    "expand": "ขยายในแผงด้านข้าง"
   },
   "guide": {
     "title": "คู่มือการสนทนา",
@@ -400,7 +432,26 @@
       "TaskList": "รายการงาน",
       "Delete": "ลบ",
       "Skill": "ทักษะ"
-    }
+    },
+    "allowWhitelist": "อนุญาตและเพิ่มในรายการที่อนุญาต",
+    "default": "ค่าเริ่มต้น",
+    "defaultDesc": "ขอการยืนยันก่อนรันเครื่องมือที่อาจเป็นอันตราย",
+    "fullAccess": "สิทธิ์เต็มรูปแบบ",
+    "fullAccessConfirmDesc": "การเรียกใช้เครื่องมือทั้งหมด รวมถึงการทํางานที่อาจเป็นอันตราย จะรันโดยอัตโนมัติโดยไม่ขอการยืนยัน",
+    "fullAccessConfirmTitle": "สลับไปใช้สิทธิ์เต็มรูปแบบหรือไม่?",
+    "fullAccessDesc": "รันเครื่องมือทั้งหมดโดยอัตโนมัติโดยไม่ต้องยืนยัน",
+    "label": "สิทธิ์การใช้งาน",
+    "manageWhitelist": "จัดการกฎรายการที่อนุญาต…",
+    "tooltip": "สิทธิ์การเรียกใช้เครื่องมือ",
+    "whitelist": "รายการที่อนุญาต",
+    "whitelistAddedRule": "เพิ่มกฎแล้ว: {{pattern}}",
+    "whitelistAddedTool": "เพิ่ม {{tool}} เข้ารายการที่อนุญาตแล้ว",
+    "whitelistDesc": "เครื่องมือและคําสั่งที่อยู่ในรายการที่อนุญาตจะข้ามการยืนยัน ส่วนคําสั่งในรายการที่ปฏิเสธจะถูกปฏิเสธเสมอ",
+    "whitelistEditorTitle": "เพิ่มกฎอนุญาตสําหรับคําสั่งนี้",
+    "whitelistInvalidPattern": "รูปแบบไม่ถูกต้อง: {{error}}",
+    "whitelistModeRegex": "Regex",
+    "whitelistModeWildcard": "Wildcard",
+    "whitelistSave": "บันทึกและอนุญาต"
   },
   "toolCall": {
     "output": "ส่งออก",
@@ -444,7 +495,9 @@
       "imageCopied": "คัดลอกรูปภาพไปยังคลิปบอร์ด",
       "copyImageFailed": "ล้มเหลวในการคัดลอกอิมเมจ",
       "copied": "คัดลอก",
-      "copyImage": "คัดลอกภาพไปยังคลิปบอร์ด"
+      "copyImage": "คัดลอกภาพไปยังคลิปบอร์ด",
+      "renderComplete": "เสร็จสมบูรณ์",
+      "rendered": "แสดงผลแล้ว"
     },
     "taskList": "รายการงาน",
     "tasksDone": "{{completed}} / {{total}} เรียบร้อยแล้ว",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "ยืนยันการลองใหม่",
       "result": "ผลลัพธ์ ({{count}})",
       "notes": "บันทึกย่อ",
-      "countValue": "นับ {{count}}"
+      "countValue": "นับ {{count}}",
+      "builtinTitle": "การสร้างภาพด้วย GPT"
     },
     "desktop": {
       "running": "การกระทําของพื้นที่ทํางานในความคืบหน้า",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} ส่ง",
         "scrollY": "Y {{value}}"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "กําลังสืบค้นกราฟโค้ด...",
+      "files": "แฟ้มที่อ้างอิง",
+      "filesCount": "{{count}} แฟ้ม",
+      "input": "อินพุต",
+      "notIndexed": "ยังไม่ได้จัดทําดัชนี",
+      "notIndexedBadge": "กําลังจัดทําดัชนี",
+      "result": "ผลลัพธ์ของกราฟ",
+      "symbolsCount": "{{count}} สัญลักษณ์",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "ฟังก์ชันที่ถูกเรียก",
+        "callers": "ผู้เรียกใช้",
+        "explore": "สํารวจ",
+        "files": "แฟ้ม",
+        "impact": "ผลกระทบ",
+        "index": "ดัชนี",
+        "node": "โหนด",
+        "search": "ค้นหา",
+        "status": "สถานะ",
+        "sync": "ซิงค์"
+      }
+    },
+    "parameters": "พารามิเตอร์",
+    "result": "ผลลัพธ์",
+    "skillName": "ทักษะ"
   },
   "subAgent": {
     "queued": "อยู่ในคิว",
@@ -620,7 +700,17 @@
     "toolCalls": "การเรียกเครื่องมือ",
     "summaryEmpty": "ยังไม่ได้สรุป",
     "openInRunsRunning": "แสดงความคืบหน้าการประมวลผลทางด้านขวา",
-    "openInRunsDone": "ดูบันทึกที่สมบูรณ์ในรายการประมวลผลด้านขวา"
+    "openInRunsDone": "ดูบันทึกที่สมบูรณ์ในรายการประมวลผลด้านขวา",
+    "aborted": "ยกเลิกแล้ว",
+    "background": "พื้นหลัง",
+    "failureUnknown": "การทํางานของ SubAgent ล้มเหลว",
+    "label": "ตัวแทนย่อย",
+    "maxIterations": "ถึงขีดจํากัดจํานวนรอบการทําซ้ําแล้ว",
+    "openNamedInPanel": "เปิด {{name}} ในแผงด้านข้าง",
+    "prompt": "พรอมต์",
+    "promptEmpty": "ไม่มีพรอมต์",
+    "stopped": "หยุดแล้ว",
+    "waiting": "กําลังรอดําเนินการ"
   },
   "teamEvent": {
     "teamCreated": "สร้างกลุ่มขึ้นมา",
@@ -629,7 +719,8 @@
     "messageSent": "จดหมายที่ส่งแล้ว",
     "teamDeleted": "ทีมลบแล้ว",
     "teammateSpawned": "เพื่อน ร่วม ทีม โบก มือ",
-    "failed": "ล้มเหลว"
+    "failed": "ล้มเหลว",
+    "backgroundAgentSpawned": "เริ่มเอเจนต์พื้นหลังแล้ว"
   },
   "todo": {
     "tasksDone": "{{completed}} / {{total}} งานที่เสร็จแล้ว",
@@ -642,7 +733,9 @@
     "thinkingFor": "คิดถึง {{seconds}} วินาที",
     "pending": "คิด",
     "thinkingEllipsis": "คิด...",
-    "thoughts": "ความคิด"
+    "thoughts": "ความคิด",
+    "deepThinking": "กําลังคิดเชิงลึก",
+    "deepThought": "คิดเชิงลึกแล้ว"
   },
   "messageList": {
     "startConversation": "เริ่มการสนทนา",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "ขอบเขตสี",
     "homeTitleChatQuestion": "เราควรจะคุยกันยังไง?",
     "homeTitleBuildQuestion": "เราควรจะสร้างอะไร {{name}}?",
-    "thisWorkspace": "พื้นที่ทํางานนี้"
+    "thisWorkspace": "พื้นที่ทํางานนี้",
+    "assistantRail": {
+      "currentLabel": "ข้อความปัจจุบัน {{index}}: {{preview}}",
+      "emptyPreview": "คําตอบของผู้ช่วย",
+      "jumpLabel": "ไปยังข้อความ {{index}}: {{preview}}",
+      "streamingLabel": "ไปยังคําตอบที่กําลังสตรีม {{index}}: {{preview}}",
+      "summaryLabel": "ไปยังสรุปประวัติที่บีบอัด {{index}}: {{preview}}",
+      "summaryPreview": "สรุปประวัติที่บีบอัด",
+      "toolOnlyPreview": "{{count}} การเรียกใช้เครื่องมือ",
+      "userLabel": "ไปยังข้อความของผู้ใช้ {{index}}: {{preview}}"
+    },
+    "pendingRetryTitle": "กําลังเชื่อมต่อกับโมเดลใหม่",
+    "pendingTeamTitle": "กําลังประสานงานกับเพื่อนร่วมทีม"
   },
   "projectHome": {
     "noProjectSelected": "ยังไม่มีการเลือกโครงการ",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}} เครื่องมือ",
     "mcpToolCount_one": "{{count}} เครื่องมือ",
     "mcpToolCount_other": "{{count}} เครื่องมือ",
-    "mcpCount": "{{count}} แบบ MCP"
+    "mcpCount": "{{count}} แบบ MCP",
+    "activeCustomExtensions": "ส่วนขยายที่กําหนดเองซึ่งทํางานอยู่:",
+    "availableCustomExtensions": "ส่วนขยายที่กําหนดเองที่มีอยู่",
+    "configureCustomExtensionSettings": "ปรับแต่ง...",
+    "configureCustomExtensions": "เปิดใช้งานส่วนขยายได้ที่ตั้งค่า → ส่วนขยาย",
+    "customExtensionsLabel": "ส่วนขยายที่กําหนดเอง",
+    "extensionCount": "{{count}} ส่วนขยาย",
+    "extensionCount_one": "{{count}} ส่วนขยาย",
+    "extensionCount_other": "{{count}} ส่วนขยาย",
+    "extensionToolCount": "{{count}} เครื่องมือ",
+    "extensionToolCount_one": "{{count}} เครื่องมือ",
+    "extensionToolCount_other": "{{count}} เครื่องมือ",
+    "noCustomExtensions": "ยังไม่ได้เปิดใช้งานส่วนขยายที่กําหนดเอง"
   },
   "userMessage": {
     "you": "คุณ",
@@ -830,7 +947,15 @@
     "copyImage": "คัดลอกภาพ",
     "removeImage": "ลบรูปภาพ",
     "imagePreview": "แสดงตัวอย่างภาพ",
-    "saveAndResend": "บันทึกการเกิดขึ้นอีก"
+    "saveAndResend": "บันทึกการเกิดขึ้นอีก",
+    "quotedLabel": "อ้างอิง",
+    "selectedFileReadFailed": "อ่านล้มเหลว",
+    "selectedFileReadLines": "อ่านแล้ว {{count}} บรรทัด",
+    "selectedFileReadSkipped": "การอ้างอิงพาธ",
+    "selectedFileReadSkippedNonText": "การอ้างอิงพาธ ไม่ได้อ่านแฟ้มไบนารีหรือเอกสารนี้โดยตรง",
+    "selectedFileReadSkippedPdf": "การอ้างอิงพาธของ PDF ไม่ได้อ่านแฟ้มนี้โดยตรง",
+    "selectedFileReadTruncated": "อ่าน {{count}} บรรทัดแรก",
+    "selectedFileReadsTitle": "แฟ้มที่อ่าน"
   },
   "assistantMessage": {
     "changedFiles_one": "แก้ไขแล้ว {{count}} แฟ้ม",
@@ -841,7 +966,6 @@
     "editedFiles_other": "แก้ไขแล้ว {{count}} แฟ้ม",
     "deletedFiles_one": "ลบแล้ว {{count}} แฟ้ม",
     "deletedFiles_other": "ลบแล้ว {{count}} แฟ้ม",
-    "ranCommandsInline": "เรียกใช้คำสั่ง {{count}} ครั้ง",
     "summarySeparator": ".",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "ขอบเขตงาน {{count}} เครื่องมือประมวลผล)",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "ข้อผิดพลาดสุดท้าย",
       "stackTrace": "พาธของสแต็ก",
       "copy": "คัดลอก",
-      "copied": "คัดลอก"
+      "copied": "คัดลอก",
+      "descRuntimeUnavailable": "OpenCowork ไม่สามารถเชื่อมต่อกับ Native Worker ในเครื่องได้ ระบบได้พยายามรีสตาร์ทให้แล้ว ลองส่งข้อความอีกครั้ง หรือคอมไพล์ native worker ใหม่หากยังเกิดปัญหาซ้ํา",
+      "sidecarUnavailableMessage": "รันไทม์ของเอเจนต์ในเครื่องไม่พร้อมใช้งานชั่วคราว OpenCowork ได้พยายามรีสตาร์ทให้แล้ว ลองส่งข้อความนี้อีกครั้ง หากยังเกิดปัญหาซ้ําระหว่างการพัฒนา ให้รันคําสั่ง `npm run native:publish` แล้วรีสตาร์ท OpenCowork",
+      "titleRuntimeUnavailable": "รันไทม์ในเครื่องไม่พร้อมใช้งาน"
     },
-    "processTools": "การเรียกใช้เครื่องมือ"
+    "processTools": "การเรียกใช้เครื่องมือ",
+    "activeTools": "{{count}} เครื่องมือที่กําลังทํางาน",
+    "cacheWrite": "การเขียนแคช",
+    "cachedInput": "แคชอินพุต",
+    "completionFinished": "เสร็จสมบูรณ์",
+    "metricCost": "ค่าใช้จ่าย",
+    "metricTokens": "โทเคน",
+    "metricTotalDuration": "รวม",
+    "processResponse": "การตอบกลับ",
+    "ranCommandsInline_one": "รันคําสั่งไปแล้ว {{count}} คําสั่ง",
+    "ranCommandsInline_other": "รันคําสั่งไปแล้ว {{count}} คําสั่ง",
+    "streamingText": "ข้อความที่กําลังสตรีม",
+    "thinkingStatus": "กําลังคิด...",
+    "tokenTotal": "โทเคนรวม",
+    "tokenUsage": "การใช้โทเคน",
+    "toolExecutions": "{{count}} การเรียกใช้เครื่องมือ",
+    "totalUsage": "การใช้งานทั้งหมด",
+    "tpsHint": "จํานวนโทเคนเอาต์พุตที่สร้างต่อวินาที",
+    "ttftHint": "เวลาก่อนได้รับโทเคนแรก",
+    "uncachedInput": "อินพุตที่ไม่มีแคช"
   },
   "messageActions": {
     "fork": "ฟอร์ม",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "เปลี่ยนแปลงขั้นตอนก่อน แล้วสร้างจดหมาย",
     "aiCommitEmptyStaged": "ไม่ มี อะไร ที่ ทํา ขึ้น — ไม่ สามารถ สร้าง ข่าวสาร",
     "aiCommitFailed": "รุ่นล้มเหลว โปรดตรวจสอบการตั้งค่า API / รุ่น แล้วลองใหม่อีกครั้ง"
+  },
+  "artifacts": {
+    "more": "+{{count}} เพิ่มเติม",
+    "open": "เปิด",
+    "reveal": "แสดงใน Finder",
+    "title": "แฟ้มที่สร้าง"
+  },
+  "extensionResult": {
+    "chartItem": "รายการ {{index}}",
+    "emptyTable": "ไม่มีแถวที่จะแสดง",
+    "loadingRenderer": "กําลังโหลดตัวแสดงผล...",
+    "rendererMissing": "ไม่พบตัวแสดงผล",
+    "rendererTitle": "ตัวแสดงผลของส่วนขยาย",
+    "tableTitle": "ตาราง",
+    "title": "ผลลัพธ์ของส่วนขยาย"
+  },
+  "webSearch": {
+    "label": "ค้นหาเว็บ",
+    "searching": "กําลังค้นหาบนเว็บ…",
+    "sources": "แหล่งที่มา"
   }
 }

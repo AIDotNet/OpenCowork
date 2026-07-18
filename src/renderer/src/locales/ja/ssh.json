@@ -70,7 +70,17 @@
     "keepAlive": "生きている間隔を保って下さい(秒)",
     "advanced": "高度なオプション",
     "save": "保存する",
-    "cancel": "キャンセル"
+    "cancel": "キャンセル",
+    "saveAndConnect": "保存して接続",
+    "secretChange": "変更",
+    "secretClear": "クリア",
+    "secretSet": "保存済み",
+    "sectionAdvanced": "詳細設定",
+    "sectionAuth": "認証",
+    "sectionBasic": "基本設定",
+    "testConnection": "接続テスト",
+    "testFailed": "接続テストに失敗しました",
+    "testSuccess": "接続と認証に成功しました"
   },
   "groupDialog": {
     "title": "グループ名",
@@ -91,7 +101,8 @@
     "copyFailed": "コピー不可",
     "pasteFailed": "貼り付け失敗",
     "disconnectedMessage": "SSH セッションの切断",
-    "errorMessage": "接続エラー"
+    "errorMessage": "接続エラー",
+    "reconnecting": "接続が切断されました。再接続中…"
   },
   "fileExplorer": {
     "title": "ファイルエクスプローラ",
@@ -200,7 +211,8 @@
     "backToList": "バックナンバー",
     "viewTable": "テーブルビュー",
     "viewCard": "カードビュー",
-    "search": "接続を検索..."
+    "search": "接続を検索...",
+    "open": "開く"
   },
   "dashboard": {
     "totalServers": "サーバー",
@@ -295,7 +307,8 @@
         "done": "完了しました",
         "error": "失敗した",
         "canceled": "キャンセル"
-      }
+      },
+      "retry": "再試行"
     },
     "terminalTheme": {
       "title": "ターミナルパレット",
@@ -325,7 +338,12 @@
       "network": "ネットワークスループット",
       "disks": "ディスク使用量",
       "path": "パス",
-      "capacity": "利用できる/合計"
+      "capacity": "利用できる/合計",
+      "copied": "クリップボードにコピーしました",
+      "copy": "IPをコピー",
+      "expand": "プロセスモニターを展開",
+      "latency": "レイテンシ",
+      "systemInfo": "システム"
     },
     "nav": {
       "hosts": "ホスト",
@@ -416,6 +434,33 @@
       "noConnections": "接続履歴はありません。",
       "uploads": "アップロード活動",
       "noUploads": "アップロード活動はまだありません。"
+    },
+    "emptyGroupsDesc": "作成したグループのみここに表示されます。ホストを整理するためにグループを作成してください。",
+    "libraryTab": "ホスト",
+    "monitor": "モニター",
+    "processMonitor": {
+      "empty": "一致するプロセスがありません",
+      "kill": "プロセスを終了",
+      "killDesc": "PID {{pid}} ・ {{command}}",
+      "killForce": "強制終了（-9）",
+      "killTerm": "終了",
+      "killTitle": "プロセスを終了しますか？",
+      "killed": "{{pid}} にシグナルを送信しました",
+      "running": "実行中",
+      "search": "コマンド、ユーザー、またはPIDで絞り込み…",
+      "tasks": "タスク",
+      "title": "プロセスモニター"
+    },
+    "sessionTabs": "セッションタブ",
+    "stage": {
+      "auth": "認証",
+      "connecting": "接続中…",
+      "dial": "ダイヤル",
+      "failed": "失敗",
+      "handshake": "ハンドシェイク",
+      "lines": "行",
+      "shell": "シェル",
+      "waitingLog": "接続を待機中…"
     }
   }
 }

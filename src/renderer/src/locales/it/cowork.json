@@ -82,7 +82,8 @@
     "teamLabel": "squadra",
     "taskSubAgents": "Attività (Sub-Agents)",
     "teamTools": "Strumenti di squadra",
-    "maxIter": "massimo {{count}} iter"
+    "maxIter": "massimo {{count}} iter",
+    "inheritsMainTools": "Stessi strumenti dell'agente principale"
   },
   "artifacts": {
     "noArtifacts": "Nessun artefatto ancora",

@@ -122,7 +122,36 @@
     "startAcp": "Start een ACS-zitting",
     "startAcpDesc": "Verduidelijk eerst het doel, achtergrond, beperkingen en acceptatiecriteria. Ontwerp vervolgens de architectuur en delegeer taken alvorens code te schrijven.",
     "homeTitleAcp": "ACS-modus",
-    "homeDescAcp": "In de ACS-modus, begin met het verduidelijken van doelstellingen, achtergrond, beperkingen, en acceptatie criteria. Vervolgens voorstellen een architectuur en taak uitsplitsing voor de uitvoering."
+    "homeDescAcp": "In de ACS-modus, begin met het verduidelijken van doelstellingen, achtergrond, beperkingen, en acceptatie criteria. Vervolgens voorstellen een architectuur en taak uitsplitsing voor de uitvoering.",
+    "queueQuoted": "Ingevoegd in gesprek",
+    "runtimeMetrics": {
+      "cache": "Cache",
+      "cacheCreate": "Cache schrijven",
+      "cacheCreate1h": "Cache schrijven (1u)",
+      "cacheCreate5m": "Cache schrijven (5m)",
+      "cacheHit": "Cache hit",
+      "cost": "{{label}}: {{cost}}",
+      "input": "Niet-gecachte invoer",
+      "output": "Uitvoer",
+      "totalCost": "Kosten",
+      "tps": "TPS",
+      "tpsHint": "Uitvoertokens gegenereerd per seconde",
+      "ttft": "TTFT",
+      "ttftHint": "Tijd tot eerste token"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "In afwachting van goedkeuring: {{tool}}",
+      "generatingImage": "Afbeelding genereren",
+      "loadingMedia": "Media laden",
+      "optimizing": "Optimaliseren",
+      "ready": "Gereed",
+      "receiving": "Ontvangen",
+      "retrying": "Opnieuw proberen {{attempt}}",
+      "runningSubAgents": "{{count}} sub-agents actief",
+      "runningTool": "{{tool}} uitvoeren",
+      "thinking": "Denken",
+      "waiting": "Wachten"
+    }
   },
   "planReview": {
     "awaitingReview": "In afwachting van de evaluatie",
@@ -139,7 +168,10 @@
     "runningHint": "Deze sessie voert het plan nu uit.",
     "runningInSession": "Dit plan draait in sessie \" {{title}} \"",
     "openExecutionSession": "Open uitvoeringssessie",
-    "approvedHint": "Dit plan is al goedgekeurd."
+    "approvedHint": "Dit plan is al goedgekeurd.",
+    "copy": "Plan kopiëren",
+    "download": "Plan downloaden",
+    "expand": "Uitvouwen in zijpaneel"
   },
   "guide": {
     "title": "Gespreksgids",
@@ -400,7 +432,26 @@
       "TaskList": "Lijsttaken",
       "Delete": "Verwijderen",
       "Skill": "Vaardigheid"
-    }
+    },
+    "allowWhitelist": "Toestaan & op whitelist zetten",
+    "default": "Standaard",
+    "defaultDesc": "Vraag om bevestiging voordat gevaarlijke hulpmiddelen worden uitgevoerd",
+    "fullAccess": "Volledige toegang",
+    "fullAccessConfirmDesc": "Alle gereedschapsaanroepen, inclusief gevaarlijke bewerkingen, worden automatisch uitgevoerd zonder om bevestiging te vragen.",
+    "fullAccessConfirmTitle": "Overschakelen naar volledige toegang?",
+    "fullAccessDesc": "Voer alle hulpmiddelen automatisch uit zonder bevestiging",
+    "label": "Toestemming",
+    "manageWhitelist": "Whitelistregels beheren…",
+    "tooltip": "Toestemming voor gereedschapsaanroep",
+    "whitelist": "Whitelist",
+    "whitelistAddedRule": "Regel toegevoegd: {{pattern}}",
+    "whitelistAddedTool": "{{tool}} toegevoegd aan whitelist",
+    "whitelistDesc": "Hulpmiddelen en opdrachten op de whitelist slaan bevestiging over; opdrachten op de blacklist worden altijd geweigerd",
+    "whitelistEditorTitle": "Een toestaanregel toevoegen voor deze opdracht",
+    "whitelistInvalidPattern": "Ongeldig patroon: {{error}}",
+    "whitelistModeRegex": "Regex",
+    "whitelistModeWildcard": "Jokerteken",
+    "whitelistSave": "Opslaan & toestaan"
   },
   "toolCall": {
     "output": "Uitvoer",
@@ -444,7 +495,9 @@
       "imageCopied": "Afbeelding gekopieerd naar klembord",
       "copyImageFailed": "Kopiëren van afbeelding is mislukt",
       "copied": "gekopieerd",
-      "copyImage": "Afbeelding naar klembord kopiëren"
+      "copyImage": "Afbeelding naar klembord kopiëren",
+      "renderComplete": "voltooid",
+      "rendered": "Weergegeven"
     },
     "taskList": "Takenlijst",
     "tasksDone": "{{completed}} ' {{total}} klaar",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "Opnieuw proberen bevestigen",
       "result": "Resultaten ({{count}})",
       "notes": "Opmerkingen",
-      "countValue": "Aantal {{count}}"
+      "countValue": "Aantal {{count}}",
+      "builtinTitle": "GPT-afbeeldingsgeneratie"
     },
     "desktop": {
       "running": "Desktop-actie aan de gang",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} · indienen",
         "scrollY": "Y {{value}}"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "Codegraaf bevragen...",
+      "files": "Verwezen bestanden",
+      "filesCount": "{{count}} bestanden",
+      "input": "Invoer",
+      "notIndexed": "Index niet gereed",
+      "notIndexedBadge": "indexeren",
+      "result": "Graafresultaat",
+      "symbolsCount": "{{count}} symbolen",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "Aangeroepenen",
+        "callers": "Aanroepers",
+        "explore": "Verkennen",
+        "files": "Bestanden",
+        "impact": "Impact",
+        "index": "Index",
+        "node": "Node",
+        "search": "Zoeken",
+        "status": "Status",
+        "sync": "Sync"
+      }
+    },
+    "parameters": "Parameters",
+    "result": "Resultaat",
+    "skillName": "Vaardigheid"
   },
   "subAgent": {
     "queued": "In wachtrij",
@@ -620,7 +700,17 @@
     "toolCalls": "Hulpmiddelenoproepen",
     "summaryEmpty": "Nog geen samenvatting",
     "openInRunsRunning": "Bekijk live vooruitgang in de rechter executielijst",
-    "openInRunsDone": "Bekijk het volledige record in de rechter executielijst"
+    "openInRunsDone": "Bekijk het volledige record in de rechter executielijst",
+    "aborted": "afgebroken",
+    "background": "Achtergrond",
+    "failureUnknown": "SubAgent-uitvoering mislukt",
+    "label": "subAgent",
+    "maxIterations": "iteratielimiet bereikt",
+    "openNamedInPanel": "{{name}} openen in zijpaneel",
+    "prompt": "Prompt",
+    "promptEmpty": "Geen prompt beschikbaar",
+    "stopped": "gestopt",
+    "waiting": "Wachten op uitvoering"
   },
   "teamEvent": {
     "teamCreated": "Team aangemaakt",
@@ -629,7 +719,8 @@
     "messageSent": "Bericht verzonden",
     "teamDeleted": "Team verwijderd",
     "teammateSpawned": "Teamgenoot Spawned",
-    "failed": "mislukt"
+    "failed": "mislukt",
+    "backgroundAgentSpawned": "Achtergrondagent gestart"
   },
   "todo": {
     "tasksDone": "{{completed}} ' {{total}} uitgevoerde taken",
@@ -642,7 +733,9 @@
     "thinkingFor": "Denken voor {{seconds}} s",
     "pending": "Denken",
     "thinkingEllipsis": "Denken...",
-    "thoughts": "Gedachten"
+    "thoughts": "Gedachten",
+    "deepThinking": "Diep aan het nadenken",
+    "deepThought": "Diep nagedacht"
   },
   "messageList": {
     "startConversation": "Een gesprek starten",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "Werkblad",
     "homeTitleChatQuestion": "Wat moeten we bespreken?",
     "homeTitleBuildQuestion": "Wat moeten we inbouwen? {{name}}?",
-    "thisWorkspace": "deze werkruimte"
+    "thisWorkspace": "deze werkruimte",
+    "assistantRail": {
+      "currentLabel": "Huidig bericht {{index}}: {{preview}}",
+      "emptyPreview": "Antwoord van assistent",
+      "jumpLabel": "Ga naar bericht {{index}}: {{preview}}",
+      "streamingLabel": "Ga naar streamend assistentantwoord {{index}}: {{preview}}",
+      "summaryLabel": "Ga naar samengevatte geschiedenis {{index}}: {{preview}}",
+      "summaryPreview": "Samengevatte geschiedenis",
+      "toolOnlyPreview": "{{count}} gereedschapsaanroepen",
+      "userLabel": "Ga naar gebruikersbericht {{index}}: {{preview}}"
+    },
+    "pendingRetryTitle": "Opnieuw verbinden met het model",
+    "pendingTeamTitle": "Teamleden coördineren"
   },
   "projectHome": {
     "noProjectSelected": "Geen project geselecteerd",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}} gereedschap",
     "mcpToolCount_one": "{{count}} gereedschap",
     "mcpToolCount_other": "{{count}} gereedschap",
-    "mcpCount": "{{count}} MCP"
+    "mcpCount": "{{count}} MCP",
+    "activeCustomExtensions": "Actieve aangepaste extensies:",
+    "availableCustomExtensions": "Beschikbare aangepaste extensies",
+    "configureCustomExtensionSettings": "Configureren...",
+    "configureCustomExtensions": "Extensies inschakelen in Instellingen → Extensies",
+    "customExtensionsLabel": "Aangepaste extensies",
+    "extensionCount": "{{count}} extensie",
+    "extensionCount_one": "{{count}} extensie",
+    "extensionCount_other": "{{count}} extensies",
+    "extensionToolCount": "{{count}} hulpmiddelen",
+    "extensionToolCount_one": "{{count}} hulpmiddel",
+    "extensionToolCount_other": "{{count}} hulpmiddelen",
+    "noCustomExtensions": "Geen aangepaste extensies ingeschakeld"
   },
   "userMessage": {
     "you": "Jij",
@@ -830,7 +947,15 @@
     "copyImage": "Afbeelding kopiëren",
     "removeImage": "Afbeelding verwijderen",
     "imagePreview": "Afbeeldingsvoorbeeld",
-    "saveAndResend": "Opslaan & opnieuw verzenden"
+    "saveAndResend": "Opslaan & opnieuw verzenden",
+    "quotedLabel": "Geciteerd",
+    "selectedFileReadFailed": "Lezen mislukt",
+    "selectedFileReadLines": "{{count}} regels gelezen",
+    "selectedFileReadSkipped": "Padverwijzing",
+    "selectedFileReadSkippedNonText": "Padverwijzing; binair bestand of documentbestand werd niet rechtstreeks gelezen",
+    "selectedFileReadSkippedPdf": "PDF-padverwijzing; bestand werd niet rechtstreeks gelezen",
+    "selectedFileReadTruncated": "Eerste {{count}} regels gelezen",
+    "selectedFileReadsTitle": "Gelezen bestanden"
   },
   "assistantMessage": {
     "changedFiles_one": "Uitgegeven {{count}} bestand",
@@ -841,7 +966,6 @@
     "editedFiles_other": "Uitgegeven {{count}} bestanden",
     "deletedFiles_one": "Verwijderd {{count}} bestand",
     "deletedFiles_other": "Verwijderd {{count}} bestanden",
-    "ranCommandsInline": "{{count}} opdracht uitgevoerd",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Werkblad uitbreiden ({{count}} gereedschapsuitvoeringen)",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "Laatste fout",
       "stackTrace": "Stack trace",
       "copy": "Kopiëren",
-      "copied": "gekopieerd"
+      "copied": "gekopieerd",
+      "descRuntimeUnavailable": "OpenCowork kon de lokale Native Worker niet bereiken. Er is al geprobeerd deze opnieuw te starten; probeer het bericht opnieuw of herbouw de native worker als dit blijft gebeuren.",
+      "sidecarUnavailableMessage": "De lokale agent-runtime is tijdelijk niet beschikbaar. OpenCowork heeft geprobeerd deze opnieuw te starten; probeer dit bericht opnieuw. Als dit tijdens ontwikkeling blijft gebeuren, voer `npm run native:publish` uit en herstart OpenCowork.",
+      "titleRuntimeUnavailable": "Lokale runtime niet beschikbaar"
     },
-    "processTools": "Toolaanroepen"
+    "processTools": "Toolaanroepen",
+    "activeTools": "{{count}} actieve hulpmiddelen",
+    "cacheWrite": "Cache schrijven",
+    "cachedInput": "Invoercache",
+    "completionFinished": "Voltooid",
+    "metricCost": "Kosten",
+    "metricTokens": "Tokens",
+    "metricTotalDuration": "Totaal",
+    "processResponse": "antwoord",
+    "ranCommandsInline_one": "{{count}} opdracht uitgevoerd",
+    "ranCommandsInline_other": "{{count}} opdrachten uitgevoerd",
+    "streamingText": "streamende tekst",
+    "thinkingStatus": "Denken...",
+    "tokenTotal": "Totaal aantal tokens",
+    "tokenUsage": "Tokengebruik",
+    "toolExecutions": "{{count}} hulpmiddeluitvoeringen",
+    "totalUsage": "Totaal gebruik",
+    "tpsHint": "Uitvoertokens gegenereerd per seconde",
+    "ttftHint": "Tijd tot eerste token",
+    "uncachedInput": "Niet-gecachte invoer"
   },
   "messageActions": {
     "fork": "Vork",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "Stap verandert eerst, dan een bericht genereren",
     "aiCommitEmptyStaged": "Niets geënsceneerd kan een bericht genereren",
     "aiCommitFailed": "Generatie mislukt. Controleer API / modelinstellingen en probeer het opnieuw"
+  },
+  "artifacts": {
+    "more": "+{{count}} meer",
+    "open": "Openen",
+    "reveal": "Weergeven in Finder",
+    "title": "Aangemaakte bestanden"
+  },
+  "extensionResult": {
+    "chartItem": "Item {{index}}",
+    "emptyTable": "Geen rijen om weer te geven",
+    "loadingRenderer": "Renderer laden...",
+    "rendererMissing": "Renderer niet gevonden",
+    "rendererTitle": "Extensierenderer",
+    "tableTitle": "Tabel",
+    "title": "Extensieresultaat"
+  },
+  "webSearch": {
+    "label": "Webzoekopdracht",
+    "searching": "Zoeken op het web…",
+    "sources": "Bronnen"
   }
 }

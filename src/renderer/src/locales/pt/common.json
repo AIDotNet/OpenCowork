@@ -84,7 +84,14 @@
     "clarify": "Clarear",
     "cowork": "Colaboração",
     "code": "Código",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "acp": "Conceber a arquitetura e delegar em subagentes",
+      "chat": "Conversa rápida, sem ferramentas de projeto",
+      "clarify": "Transforma a ambiguidade num plano revisável",
+      "code": "Implementação prática e focada",
+      "cowork": "Planeia, age e verifica ao seu lado"
+    }
   },
   "onboarding": {
     "start": "Iniciar",
@@ -257,7 +264,8 @@
         "updateNow": "Atualizar agora",
         "remindLater": "Lembra-me mais tarde.",
         "installNow": "Atualizar agora",
-        "updateLater": "Atualizar mais tarde"
+        "updateLater": "Atualizar mais tarde",
+        "openDownloadPage": "Abrir página de transferência"
       },
       "downloadFailed": "A transferência falhou",
       "delayed": "Actualização adiada",
@@ -265,7 +273,8 @@
       "downloadedDescription": "A versão {{version}} está pronta para instalar.",
       "installing": "Preparando atualização...",
       "installFailed": "Falha ao iniciar a atualização",
-      "failed": "A actualização falhou"
+      "failed": "A actualização falhou",
+      "manualDescription": "A compilação sem instalação ainda não suporta atualizações automáticas. Transfira manualmente a versão mais recente e substitua a pasta atual depois de fechar a aplicação."
     },
     "errors": {
       "unhandledTitle": "Erro não manuseado"

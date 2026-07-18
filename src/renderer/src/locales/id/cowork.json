@@ -82,7 +82,8 @@
     "teamLabel": "tim",
     "taskSubAgents": "Tugas (Sub- Agen)",
     "teamTools": "Perkakas Tim",
-    "maxIter": "max {{count}} iter"
+    "maxIter": "max {{count}} iter",
+    "inheritsMainTools": "Alat yang sama dengan agen utama"
   },
   "artifacts": {
     "noArtifacts": "Belum ada artefak",

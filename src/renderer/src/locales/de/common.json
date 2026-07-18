@@ -84,7 +84,14 @@
     "clarify": "Klarstellung",
     "cowork": "Cowork",
     "code": "Code",
-    "acp": "AKP"
+    "acp": "AKP",
+    "descriptions": {
+      "acp": "Architektur entwerfen und an Sub-Agenten delegieren",
+      "chat": "Schnelles Gespräch, keine Projekt-Tools",
+      "clarify": "Verwandeln Sie Unklarheiten in einen überprüfbaren Plan",
+      "code": "Fokussierte, praktische Umsetzung",
+      "cowork": "Planen, handeln und gemeinsam mit Ihnen überprüfen"
+    }
   },
   "onboarding": {
     "start": "Beginn",
@@ -257,7 +264,8 @@
         "updateNow": "Update jetzt",
         "remindLater": "Erinnere mich später",
         "installNow": "Update jetzt",
-        "updateLater": "Später aktualisieren"
+        "updateLater": "Später aktualisieren",
+        "openDownloadPage": "Download-Seite öffnen"
       },
       "downloadFailed": "Download fehlgeschlagen",
       "delayed": "Update verschoben",
@@ -265,7 +273,8 @@
       "downloadedDescription": "Version {{version}} ist bereit zur Installation.",
       "installing": "Update wird vorbereitet...",
       "installFailed": "Update konnte nicht gestartet werden",
-      "failed": "Update fehlgeschlagen"
+      "failed": "Update fehlgeschlagen",
+      "manualDescription": "Der Build ohne Installation unterstützt noch keine automatischen Updates. Laden Sie die neueste Version manuell herunter und ersetzen Sie den aktuellen Ordner, nachdem Sie die App beendet haben."
     },
     "errors": {
       "unhandledTitle": "Unbehandelter Fehler"

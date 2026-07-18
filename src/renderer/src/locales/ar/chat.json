@@ -122,7 +122,36 @@
     "startAcp": "بدء دورة ACP",
     "startAcpDesc": "أولا توضيح الهدف والخلفية والمعوقات ومعايير القبول، ثم تصميم الهيكل ومهام المندوبين قبل كتابة المدونة.",
     "homeTitleAcp": "أسلوب الفينول الخماسي الكلور",
-    "homeDescAcp": "In ACP mode, begin by clarifying goals, background, constraints, and acceptance criteria. then proposes an structure and task breakdown before implementation."
+    "homeDescAcp": "In ACP mode, begin by clarifying goals, background, constraints, and acceptance criteria. then proposes an structure and task breakdown before implementation.",
+    "queueQuoted": "أُدرجت في المحادثة",
+    "runtimeMetrics": {
+      "cache": "التخزين المؤقت",
+      "cacheCreate": "كتابة التخزين المؤقت",
+      "cacheCreate1h": "كتابة التخزين المؤقت (ساعة)",
+      "cacheCreate5m": "كتابة التخزين المؤقت (5 دقائق)",
+      "cacheHit": "إصابة التخزين المؤقت",
+      "cost": "{{label}}: {{cost}}",
+      "input": "مدخلات غير مخزَّنة مؤقتًا",
+      "output": "الناتج",
+      "totalCost": "التكلفة",
+      "tps": "TPS",
+      "tpsHint": "رموز الناتج المولَّدة في الثانية",
+      "ttft": "TTFT",
+      "ttftHint": "الوقت حتى أول رمز"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "بانتظار الموافقة: {{tool}}",
+      "generatingImage": "جارٍ توليد الصورة",
+      "loadingMedia": "جارٍ تحميل الوسائط",
+      "optimizing": "جارٍ التحسين",
+      "ready": "جاهز",
+      "receiving": "جارٍ الاستلام",
+      "retrying": "إعادة المحاولة {{attempt}}",
+      "runningSubAgents": "{{count}} عميل فرعي قيد التشغيل",
+      "runningTool": "جارٍ تشغيل {{tool}}",
+      "thinking": "جارٍ التفكير",
+      "waiting": "بانتظار"
+    }
   },
   "planReview": {
     "awaitingReview": "في انتظار الاستعراض",
@@ -139,7 +168,10 @@
     "runningHint": "وتقوم هذه الدورة بتنفيذ الخطة الآن.",
     "runningInSession": "هذه الخطة تجري في جلسة {{title}} \".",
     "openExecutionSession": "جلسة التنفيذ المفتوحة",
-    "approvedHint": "وقد تمت الموافقة على هذه الخطة بالفعل."
+    "approvedHint": "وقد تمت الموافقة على هذه الخطة بالفعل.",
+    "copy": "نسخ الخطة",
+    "download": "تنزيل الخطة",
+    "expand": "توسيع في اللوحة الجانبية"
   },
   "guide": {
     "title": "دليل المحادثة",
@@ -400,7 +432,26 @@
       "TaskList": "المهام المدرجة في القائمة",
       "Delete": "تحذف",
       "Skill": "Skill"
-    }
+    },
+    "allowWhitelist": "سماح وإضافة إلى القائمة البيضاء",
+    "default": "افتراضي",
+    "defaultDesc": "طلب التأكيد قبل تشغيل الأدوات الخطرة",
+    "fullAccess": "وصول كامل",
+    "fullAccessConfirmDesc": "ستُنفَّذ جميع استدعاءات الأدوات، بما فيها العمليات الخطرة، تلقائيًا دون طلب تأكيد.",
+    "fullAccessConfirmTitle": "التبديل إلى الوصول الكامل؟",
+    "fullAccessDesc": "تشغيل جميع الأدوات تلقائيًا دون تأكيد",
+    "label": "الصلاحية",
+    "manageWhitelist": "إدارة قواعد القائمة البيضاء…",
+    "tooltip": "صلاحية استدعاء الأداة",
+    "whitelist": "القائمة البيضاء",
+    "whitelistAddedRule": "أُضيفت القاعدة: {{pattern}}",
+    "whitelistAddedTool": "أُضيفت {{tool}} إلى القائمة البيضاء",
+    "whitelistDesc": "تتخطى الأدوات والأوامر المدرجة في القائمة البيضاء التأكيد؛ وتُرفض الأوامر المدرجة في القائمة السوداء دائمًا",
+    "whitelistEditorTitle": "إضافة قاعدة سماح لهذا الأمر",
+    "whitelistInvalidPattern": "نمط غير صالح: {{error}}",
+    "whitelistModeRegex": "تعبير نمطي",
+    "whitelistModeWildcard": "حرف بديل",
+    "whitelistSave": "حفظ والسماح"
   },
   "toolCall": {
     "output": "الناتج",
@@ -444,7 +495,9 @@
       "imageCopied": "صورة مستنسخة على لوح المشبك",
       "copyImageFailed": "فشل في الحصول على صورة",
       "copied": "Copied",
-      "copyImage": "صورة مطبوعة للوحة"
+      "copyImage": "صورة مطبوعة للوحة",
+      "renderComplete": "اكتمل",
+      "rendered": "معروض"
     },
     "taskList": "قائمة المهام",
     "tasksDone": "{{completed}} / {{total}} القيام به",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "إعادة تأكيد",
       "result": "النتائج {{count}})",
       "notes": "الحواشي",
-      "countValue": "الكونت {{count}}"
+      "countValue": "الكونت {{count}}",
+      "builtinTitle": "توليد صور GPT"
     },
     "desktop": {
       "running": "العمل الجاري",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} تقديم",
         "scrollY": "نعم {{value}}"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "جارٍ استعلام الرسم البياني للشيفرة...",
+      "files": "الملفات المُشار إليها",
+      "filesCount": "{{count}} ملف",
+      "input": "المدخلات",
+      "notIndexed": "الفهرس غير جاهز",
+      "notIndexedBadge": "جارٍ الفهرسة",
+      "result": "نتيجة الرسم البياني",
+      "symbolsCount": "{{count}} رمز",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "المُستدعَون",
+        "callers": "المستدعون",
+        "explore": "استكشاف",
+        "files": "الملفات",
+        "impact": "الأثر",
+        "index": "فهرسة",
+        "node": "عقدة",
+        "search": "بحث",
+        "status": "الحالة",
+        "sync": "مزامنة"
+      }
+    },
+    "parameters": "المعطيات",
+    "result": "النتيجة",
+    "skillName": "المهارة"
   },
   "subAgent": {
     "queued": "في الطابور",
@@ -620,7 +700,17 @@
     "toolCalls": "نداءات",
     "summaryEmpty": "No summary yet",
     "openInRunsRunning": "مشاهدة التقدم الحي في قائمة التنفيذ اليمنى",
-    "openInRunsDone": "النظر إلى السجل الكامل في قائمة الإعدام اليميني"
+    "openInRunsDone": "النظر إلى السجل الكامل في قائمة الإعدام اليميني",
+    "aborted": "أُجهض",
+    "background": "الخلفية",
+    "failureUnknown": "فشل تنفيذ العميل الفرعي",
+    "label": "عميل فرعي",
+    "maxIterations": "بلغ الحد الأقصى للتكرارات",
+    "openNamedInPanel": "فتح {{name}} في اللوحة الجانبية",
+    "prompt": "الموجّه",
+    "promptEmpty": "لا يوجد موجّه متاح",
+    "stopped": "توقّف",
+    "waiting": "بانتظار التنفيذ"
   },
   "teamEvent": {
     "teamCreated": "الفريق المنشأ",
@@ -629,7 +719,8 @@
     "messageSent": "الرسالة Sent",
     "teamDeleted": "الفريق Deleted",
     "teammateSpawned": "زميل الفريق",
-    "failed": "فشل"
+    "failed": "فشل",
+    "backgroundAgentSpawned": "بدأ عميل الخلفية"
   },
   "todo": {
     "tasksDone": "{{completed}} / {{total}} المهام المنجزة",
@@ -642,7 +733,9 @@
     "thinkingFor": "التفكير في {{seconds}} s",
     "pending": "التفكير",
     "thinkingEllipsis": "التفكير...",
-    "thoughts": "الأفكار"
+    "thoughts": "الأفكار",
+    "deepThinking": "تفكير عميق",
+    "deepThought": "فكّر بعمق"
   },
   "messageList": {
     "startConversation": "ابدأ المحادثة",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "مكان العمل",
     "homeTitleChatQuestion": "ما الذي يجب أن نتحدث عنه؟",
     "homeTitleBuildQuestion": "ماذا يجب أن نبني {{name}} ؟",
-    "thisWorkspace": "هذا العمل"
+    "thisWorkspace": "هذا العمل",
+    "assistantRail": {
+      "currentLabel": "الرسالة الحالية {{index}}: {{preview}}",
+      "emptyPreview": "رد المساعد",
+      "jumpLabel": "الانتقال إلى الرسالة {{index}}: {{preview}}",
+      "streamingLabel": "الانتقال إلى رد المساعد المباشر {{index}}: {{preview}}",
+      "summaryLabel": "الانتقال إلى موجز السجل المضغوط {{index}}: {{preview}}",
+      "summaryPreview": "موجز السجل المضغوط",
+      "toolOnlyPreview": "{{count}} استدعاء أداة",
+      "userLabel": "الانتقال إلى رسالة المستخدم {{index}}: {{preview}}"
+    },
+    "pendingRetryTitle": "جارٍ إعادة الاتصال بالنموذج",
+    "pendingTeamTitle": "جارٍ تنسيق أعضاء الفريق"
   },
   "projectHome": {
     "noProjectSelected": "No project selected",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}} الأدوات",
     "mcpToolCount_one": "{{count}} أداة",
     "mcpToolCount_other": "{{count}} الأدوات",
-    "mcpCount": "{{count}} MCP"
+    "mcpCount": "{{count}} MCP",
+    "activeCustomExtensions": "الإضافات المخصّصة النشطة:",
+    "availableCustomExtensions": "الإضافات المخصّصة المتاحة",
+    "configureCustomExtensionSettings": "إعداد...",
+    "configureCustomExtensions": "فعّل الإضافات من الإعدادات ← الإضافات",
+    "customExtensionsLabel": "الإضافات المخصّصة",
+    "extensionCount": "{{count}} إضافة",
+    "extensionCount_one": "{{count}} إضافة",
+    "extensionCount_other": "{{count}} إضافات",
+    "extensionToolCount": "{{count}} أدوات",
+    "extensionToolCount_one": "{{count}} أداة",
+    "extensionToolCount_other": "{{count}} أدوات",
+    "noCustomExtensions": "لا توجد إضافات مخصّصة مفعّلة"
   },
   "userMessage": {
     "you": "أنت",
@@ -830,7 +947,15 @@
     "copyImage": "نسخة",
     "removeImage": "إزالة الصورة",
     "imagePreview": "استعراض أولي للصور",
-    "saveAndResend": "Save &apos; Resend"
+    "saveAndResend": "Save &apos; Resend",
+    "quotedLabel": "مُقتبَس",
+    "selectedFileReadFailed": "فشلت القراءة",
+    "selectedFileReadLines": "قُرئ {{count}} سطر",
+    "selectedFileReadSkipped": "إشارة مسار",
+    "selectedFileReadSkippedNonText": "إشارة مسار؛ لم يُقرأ الملف الثنائي أو المستند مباشرة",
+    "selectedFileReadSkippedPdf": "إشارة مسار PDF؛ لم يُقرأ الملف مباشرة",
+    "selectedFileReadTruncated": "قُرئت أول {{count}} سطر",
+    "selectedFileReadsTitle": "الملفات المقروءة"
   },
   "assistantMessage": {
     "changedFiles_one": "Edited {{count}} ملف",
@@ -841,7 +966,6 @@
     "editedFiles_other": "Edited {{count}} الملفات",
     "deletedFiles_one": "Deleted {{count}} ملف",
     "deletedFiles_other": "Deleted {{count}} الملفات",
-    "ranCommandsInline": "تم تنفيذ {{count}} أمر",
     "summarySeparator": "..",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "التوسع في مجال العمل {{count}} عمليات الإعدام بالأدوات",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "الخطأ الأخير",
       "stackTrace": "تعقب",
       "copy": "نسخ",
-      "copied": "Copied"
+      "copied": "Copied",
+      "descRuntimeUnavailable": "تعذّر على OpenCowork الوصول إلى عامل التشغيل الأصلي (Native Worker) المحلي. حاول التطبيق بالفعل إعادة تشغيله؛ أعد إرسال الرسالة، أو أعد بناء عامل التشغيل الأصلي إذا تكرر ذلك.",
+      "sidecarUnavailableMessage": "بيئة تشغيل العميل المحلية غير متاحة مؤقتًا. حاول OpenCowork إعادة تشغيلها؛ أعد إرسال هذه الرسالة. إذا استمر حدوث ذلك في بيئة التطوير، شغّل `npm run native:publish` وأعد تشغيل OpenCowork.",
+      "titleRuntimeUnavailable": "بيئة التشغيل المحلية غير متاحة"
     },
-    "processTools": "استدعاءات الأدوات"
+    "processTools": "استدعاءات الأدوات",
+    "activeTools": "{{count}} أداة نشطة",
+    "cacheWrite": "كتابة التخزين المؤقت",
+    "cachedInput": "تخزين المدخلات مؤقتًا",
+    "completionFinished": "اكتمل",
+    "metricCost": "التكلفة",
+    "metricTokens": "الرموز",
+    "metricTotalDuration": "الإجمالي",
+    "processResponse": "استجابة",
+    "ranCommandsInline_one": "نفّذ {{count}} أمر",
+    "ranCommandsInline_other": "نفّذ {{count}} أوامر",
+    "streamingText": "نص مباشر",
+    "thinkingStatus": "جارٍ التفكير...",
+    "tokenTotal": "إجمالي الرموز",
+    "tokenUsage": "استخدام الرموز",
+    "toolExecutions": "{{count}} تنفيذ أداة",
+    "totalUsage": "إجمالي الاستخدام",
+    "tpsHint": "رموز الناتج المولَّدة في الثانية",
+    "ttftHint": "الوقت حتى أول رمز",
+    "uncachedInput": "مدخلات غير مخزَّنة مؤقتًا"
   },
   "messageActions": {
     "fork": "Fork",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "تغير المرحلة أولا، ثم توليد رسالة",
     "aiCommitEmptyStaged": "لا شيء مهيأ - لا يمكن أن يولد رسالة",
     "aiCommitFailed": "فشل الجيل، تحقق من النظام الآلي للبيانات الجمركية/الإطارات النموذجية وحاول مرة أخرى"
+  },
+  "artifacts": {
+    "more": "+{{count}} أخرى",
+    "open": "فتح",
+    "reveal": "إظهار في Finder",
+    "title": "الملفات المُنشأة"
+  },
+  "extensionResult": {
+    "chartItem": "العنصر {{index}}",
+    "emptyTable": "لا صفوف لعرضها",
+    "loadingRenderer": "جارٍ تحميل العارض...",
+    "rendererMissing": "لم يُعثر على العارض",
+    "rendererTitle": "عارض الإضافة",
+    "tableTitle": "جدول",
+    "title": "نتيجة الإضافة"
+  },
+  "webSearch": {
+    "label": "بحث الويب",
+    "searching": "جارٍ البحث في الويب…",
+    "sources": "المصادر"
   }
 }

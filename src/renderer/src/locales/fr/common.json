@@ -84,7 +84,14 @@
     "clarify": "Clarifier",
     "cowork": "Cowork",
     "code": "Code",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "acp": "Concevoir l'architecture et déléguer aux sous-agents",
+      "chat": "Conversation rapide, sans outils de projet",
+      "clarify": "Transformer l'ambiguïté en un plan révisable",
+      "code": "Mise en œuvre concrète et ciblée",
+      "cowork": "Planifier, agir et vérifier à vos côtés"
+    }
   },
   "onboarding": {
     "start": "Démarrer",
@@ -257,7 +264,8 @@
         "updateNow": "Mettre à jour",
         "remindLater": "Rappelle-moi plus tard.",
         "installNow": "Mettre à jour",
-        "updateLater": "Mettre à jour plus tard"
+        "updateLater": "Mettre à jour plus tard",
+        "openDownloadPage": "Ouvrir la page de téléchargement"
       },
       "downloadFailed": "Le téléchargement a échoué",
       "delayed": "Mise à jour reportée",
@@ -265,7 +273,8 @@
       "downloadedDescription": "La version {{version}} est prête à être installée.",
       "installing": "Préparation de la mise à jour...",
       "installFailed": "Impossible de lancer la mise à jour",
-      "failed": "La mise à jour a échoué"
+      "failed": "La mise à jour a échoué",
+      "manualDescription": "La version sans installation ne prend pas encore en charge les mises à jour automatiques. Téléchargez la dernière version manuellement et remplacez le dossier actuel après avoir quitté l'application."
     },
     "errors": {
       "unhandledTitle": "Erreur non traitée"

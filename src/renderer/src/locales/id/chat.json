@@ -122,7 +122,36 @@
     "startAcp": "Mulai sesi ACP",
     "startAcpDesc": "Pertama klarifikasi tujuan, latar belakang, batasan, dan kriteria penerimaan.",
     "homeTitleAcp": "Mode ACP",
-    "homeDescAcp": "Dalam mode ACP, dimulai dengan mengklarifikasi tujuan, latar belakang, batasan, dan kriteria penerimaan. Kemudian mengusulkan arsitektur dan kegagalan tugas sebelum implementasi."
+    "homeDescAcp": "Dalam mode ACP, dimulai dengan mengklarifikasi tujuan, latar belakang, batasan, dan kriteria penerimaan. Kemudian mengusulkan arsitektur dan kegagalan tugas sebelum implementasi.",
+    "queueQuoted": "Disisipkan ke dalam percakapan",
+    "runtimeMetrics": {
+      "cache": "Cache",
+      "cacheCreate": "Penulisan cache",
+      "cacheCreate1h": "Penulisan cache (1j)",
+      "cacheCreate5m": "Penulisan cache (5m)",
+      "cacheHit": "Cache kena",
+      "cost": "{{label}}: {{cost}}",
+      "input": "Masukan tanpa cache",
+      "output": "Keluaran",
+      "totalCost": "Biaya",
+      "tps": "TPS",
+      "tpsHint": "Token keluaran yang dihasilkan per detik",
+      "ttft": "TTFT",
+      "ttftHint": "Waktu hingga token pertama"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "Menunggu persetujuan: {{tool}}",
+      "generatingImage": "Menghasilkan gambar",
+      "loadingMedia": "Memuat media",
+      "optimizing": "Mengoptimalkan",
+      "ready": "Siap",
+      "receiving": "Menerima",
+      "retrying": "Mencoba lagi {{attempt}}",
+      "runningSubAgents": "{{count}} sub-agen berjalan",
+      "runningTool": "Menjalankan {{tool}}",
+      "thinking": "Berpikir",
+      "waiting": "Menunggu"
+    }
   },
   "planReview": {
     "awaitingReview": "Menunggu Ulasan",
@@ -139,7 +168,10 @@
     "runningHint": "Sesi ini menerapkan rencana sekarang.",
     "runningInSession": "Rencana ini berjalan dalam sesi \" {{title}} \".",
     "openExecutionSession": "Sesi Eksekusi Buka",
-    "approvedHint": "Rencana ini sudah disetujui."
+    "approvedHint": "Rencana ini sudah disetujui.",
+    "copy": "Salin rencana",
+    "download": "Unduh rencana",
+    "expand": "Perluas di panel samping"
   },
   "guide": {
     "title": "Panduan percakapan",
@@ -400,7 +432,26 @@
       "TaskList": "Tugas Daftar",
       "Delete": "Hapus",
       "Skill": "Skill"
-    }
+    },
+    "allowWhitelist": "Ijinkan & whitelist",
+    "default": "Baku",
+    "defaultDesc": "Minta konfirmasi sebelum menjalankan alat berbahaya",
+    "fullAccess": "Akses penuh",
+    "fullAccessConfirmDesc": "Semua panggilan alat, termasuk operasi berbahaya, akan dijalankan secara otomatis tanpa meminta konfirmasi.",
+    "fullAccessConfirmTitle": "Beralih ke akses penuh?",
+    "fullAccessDesc": "Jalankan semua alat secara otomatis tanpa konfirmasi",
+    "label": "Izin",
+    "manageWhitelist": "Kelola aturan whitelist…",
+    "tooltip": "Izin panggilan alat",
+    "whitelist": "Whitelist",
+    "whitelistAddedRule": "Aturan ditambahkan: {{pattern}}",
+    "whitelistAddedTool": "{{tool}} ditambahkan ke whitelist",
+    "whitelistDesc": "Alat dan perintah yang di-whitelist melewati konfirmasi; perintah yang di-blacklist selalu ditolak",
+    "whitelistEditorTitle": "Tambahkan aturan izin untuk perintah ini",
+    "whitelistInvalidPattern": "Pola tidak valid: {{error}}",
+    "whitelistModeRegex": "Regex",
+    "whitelistModeWildcard": "Wildcard",
+    "whitelistSave": "Simpan & ijinkan"
   },
   "toolCall": {
     "output": "Keluaran",
@@ -444,7 +495,9 @@
       "imageCopied": "Gambar disalin ke papan klip",
       "copyImageFailed": "Gagal menyalin gambar",
       "copied": "Disalin",
-      "copyImage": "Salin gambar ke papan klip"
+      "copyImage": "Salin gambar ke papan klip",
+      "renderComplete": "selesai",
+      "rendered": "Dirender"
     },
     "taskList": "Daftar Tugas",
     "tasksDone": "{{completed}} / {{total}} selesai",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "Konfirmasi Ulang",
       "result": "Hasil ({{count}})",
       "notes": "Catatan",
-      "countValue": "Cacah {{count}}"
+      "countValue": "Cacah {{count}}",
+      "builtinTitle": "Pembuatan gambar GPT"
     },
     "desktop": {
       "running": "Aksi desktop sedang berlangsung",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} menyerahkan",
         "scrollY": "Y {{value}}"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "Menanyakan graf kode...",
+      "files": "Berkas yang dirujuk",
+      "filesCount": "{{count}} berkas",
+      "input": "Masukan",
+      "notIndexed": "Indeks belum siap",
+      "notIndexedBadge": "mengindeks",
+      "result": "Hasil graf",
+      "symbolsCount": "{{count}} simbol",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "Yang dipanggil",
+        "callers": "Pemanggil",
+        "explore": "Jelajahi",
+        "files": "Berkas",
+        "impact": "Dampak",
+        "index": "Indeks",
+        "node": "Node",
+        "search": "Cari",
+        "status": "Status",
+        "sync": "Sinkronkan"
+      }
+    },
+    "parameters": "Parameter",
+    "result": "Hasil",
+    "skillName": "Skill"
   },
   "subAgent": {
     "queued": "Dalam antrean",
@@ -620,7 +700,17 @@
     "toolCalls": "Panggilan Alat",
     "summaryEmpty": "Belum ada ringkasan",
     "openInRunsRunning": "Tilik kemajuan langsung dalam daftar eksekusi sisi kanan",
-    "openInRunsDone": "Lihat catatan lengkap dalam daftar eksekusi sisi kanan"
+    "openInRunsDone": "Lihat catatan lengkap dalam daftar eksekusi sisi kanan",
+    "aborted": "digugurkan",
+    "background": "Latar belakang",
+    "failureUnknown": "Eksekusi SubAgent gagal",
+    "label": "subAgent",
+    "maxIterations": "batas iterasi tercapai",
+    "openNamedInPanel": "Buka {{name}} di panel samping",
+    "prompt": "Prompt",
+    "promptEmpty": "Tidak ada prompt yang tersedia",
+    "stopped": "dihentikan",
+    "waiting": "Menunggu untuk dieksekusi"
   },
   "teamEvent": {
     "teamCreated": "Tim dibuat",
@@ -629,7 +719,8 @@
     "messageSent": "Pesan Dikirim",
     "teamDeleted": "Tim Dihapus",
     "teammateSpawned": "Teman setim Spawn",
-    "failed": "gagal"
+    "failed": "gagal",
+    "backgroundAgentSpawned": "Agen Latar Belakang Dimulai"
   },
   "todo": {
     "tasksDone": "{{completed}} / {{total}} tugas selesai",
@@ -642,7 +733,9 @@
     "thinkingFor": "Berpikir untuk {{seconds}} s",
     "pending": "Berpikir",
     "thinkingEllipsis": "Berpikir...",
-    "thoughts": "Pikiran"
+    "thoughts": "Pikiran",
+    "deepThinking": "Berpikir mendalam",
+    "deepThought": "Telah berpikir mendalam"
   },
   "messageList": {
     "startConversation": "Mulai percakapan",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "Area Kerja",
     "homeTitleChatQuestion": "Apa yang harus kita bicarakan?",
     "homeTitleBuildQuestion": "Apa yang harus kita bangun {{name}}?",
-    "thisWorkspace": "area kerja ini"
+    "thisWorkspace": "area kerja ini",
+    "assistantRail": {
+      "currentLabel": "Pesan saat ini {{index}}: {{preview}}",
+      "emptyPreview": "Balasan asisten",
+      "jumpLabel": "Lompat ke pesan {{index}}: {{preview}}",
+      "streamingLabel": "Lompat ke balasan asisten yang sedang streaming {{index}}: {{preview}}",
+      "summaryLabel": "Lompat ke ringkasan riwayat terkompresi {{index}}: {{preview}}",
+      "summaryPreview": "Ringkasan riwayat terkompresi",
+      "toolOnlyPreview": "{{count}} panggilan alat",
+      "userLabel": "Lompat ke pesan pengguna {{index}}: {{preview}}"
+    },
+    "pendingRetryTitle": "Menyambung ulang ke model",
+    "pendingTeamTitle": "Mengoordinasikan rekan tim"
   },
   "projectHome": {
     "noProjectSelected": "Tak ada proyek yang dipilih",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}} alat",
     "mcpToolCount_one": "{{count}} alat",
     "mcpToolCount_other": "{{count}} alat",
-    "mcpCount": "{{count}} MCP"
+    "mcpCount": "{{count}} MCP",
+    "activeCustomExtensions": "Ekstensi kustom aktif:",
+    "availableCustomExtensions": "Ekstensi Kustom Tersedia",
+    "configureCustomExtensionSettings": "Konfigurasi...",
+    "configureCustomExtensions": "Aktifkan ekstensi di Pengaturan → Ekstensi",
+    "customExtensionsLabel": "Ekstensi Kustom",
+    "extensionCount": "{{count}} ekstensi",
+    "extensionCount_one": "{{count}} ekstensi",
+    "extensionCount_other": "{{count}} ekstensi",
+    "extensionToolCount": "{{count}} alat",
+    "extensionToolCount_one": "{{count}} alat",
+    "extensionToolCount_other": "{{count}} alat",
+    "noCustomExtensions": "Tidak ada ekstensi kustom yang diaktifkan"
   },
   "userMessage": {
     "you": "Kau",
@@ -830,7 +947,15 @@
     "copyImage": "Salin gambar",
     "removeImage": "Hapus gambar",
     "imagePreview": "Pratinjau gambar",
-    "saveAndResend": "Simpan & Ulang"
+    "saveAndResend": "Simpan & Ulang",
+    "quotedLabel": "Dikutip",
+    "selectedFileReadFailed": "Pembacaan gagal",
+    "selectedFileReadLines": "Membaca {{count}} baris",
+    "selectedFileReadSkipped": "Referensi path",
+    "selectedFileReadSkippedNonText": "Referensi path; berkas biner atau dokumen tidak dibaca langsung",
+    "selectedFileReadSkippedPdf": "Referensi path PDF; berkas tidak dibaca langsung",
+    "selectedFileReadTruncated": "Membaca {{count}} baris pertama",
+    "selectedFileReadsTitle": "Berkas yang dibaca"
   },
   "assistantMessage": {
     "changedFiles_one": "Disunting {{count}} berkas",
@@ -841,7 +966,6 @@
     "editedFiles_other": "Disunting {{count}} berkas",
     "deletedFiles_one": "Dihapus {{count}} berkas",
     "deletedFiles_other": "Dihapus {{count}} berkas",
-    "ranCommandsInline": "Menjalankan {{count}} perintah",
     "summarySeparator": ",",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Perluas area kerja ({{count}} alat eksekusi)",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "Galat terakhir",
       "stackTrace": "Pelacakan stack",
       "copy": "Salin",
-      "copied": "Disalin"
+      "copied": "Disalin",
+      "descRuntimeUnavailable": "OpenCowork tidak dapat menjangkau Native Worker lokal. Sudah dicoba memulai ulang secara otomatis; coba kirim ulang pesan atau bangun ulang native worker jika ini terus terjadi.",
+      "sidecarUnavailableMessage": "Runtime agen lokal untuk sementara tidak tersedia. OpenCowork sudah mencoba memulai ulangnya; coba kirim ulang pesan ini. Jika terus terjadi saat pengembangan, jalankan `npm run native:publish` lalu mulai ulang OpenCowork.",
+      "titleRuntimeUnavailable": "Runtime lokal tidak tersedia"
     },
-    "processTools": "Panggilan alat"
+    "processTools": "Panggilan alat",
+    "activeTools": "{{count}} alat aktif",
+    "cacheWrite": "Penulisan cache",
+    "cachedInput": "Masukan cache",
+    "completionFinished": "Selesai",
+    "metricCost": "Biaya",
+    "metricTokens": "Token",
+    "metricTotalDuration": "Total",
+    "processResponse": "respons",
+    "ranCommandsInline_one": "Menjalankan {{count}} perintah",
+    "ranCommandsInline_other": "Menjalankan {{count}} perintah",
+    "streamingText": "teks streaming",
+    "thinkingStatus": "Berpikir...",
+    "tokenTotal": "Total token",
+    "tokenUsage": "Penggunaan token",
+    "toolExecutions": "{{count}} eksekusi alat",
+    "totalUsage": "Penggunaan total",
+    "tpsHint": "Token keluaran yang dihasilkan per detik",
+    "ttftHint": "Waktu hingga token pertama",
+    "uncachedInput": "Masukan tanpa cache"
   },
   "messageActions": {
     "fork": "Garpu",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "Perubahan tahap pertama, kemudian menghasilkan pesan",
     "aiCommitEmptyStaged": "Tidak ada yang dipentaskan - tidak dapat menghasilkan pesan",
     "aiCommitFailed": "Generation gagal. Periksa pengaturan API / model dan coba lagi"
+  },
+  "artifacts": {
+    "more": "+{{count}} lagi",
+    "open": "Buka",
+    "reveal": "Perlihatkan di Finder",
+    "title": "Berkas dibuat"
+  },
+  "extensionResult": {
+    "chartItem": "Butir {{index}}",
+    "emptyTable": "Tidak ada baris untuk ditampilkan",
+    "loadingRenderer": "Memuat renderer...",
+    "rendererMissing": "Renderer tidak ditemukan",
+    "rendererTitle": "Renderer ekstensi",
+    "tableTitle": "Tabel",
+    "title": "Hasil ekstensi"
+  },
+  "webSearch": {
+    "label": "Pencarian web",
+    "searching": "Mencari di web…",
+    "sources": "Sumber"
   }
 }

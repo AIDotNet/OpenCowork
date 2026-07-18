@@ -104,7 +104,14 @@
     "chats": "Percakapan",
     "noChats": "Belum ada obrolan.",
     "smartRename": "Nama Nama Pintar",
-    "smartRenaming": "Smart mengubah nama"
+    "smartRenaming": "Smart mengubah nama",
+    "dropFolderHint": "Jatuhkan folder di sini untuk mengimpornya sebagai proyek",
+    "projectSortBy": "Urutkan proyek berdasarkan",
+    "projectSortCreatedAt": "Waktu dibuat",
+    "projectSortName": "Abjad",
+    "projectSortRecentlyUpdated": "Baru-baru ini diperbarui",
+    "projectSortTitle": "Urutkan proyek: {{sort}}",
+    "revealInFolder": "Buka lokasi folder"
   },
   "sidebar_toast": {
     "sessionDeleted": "Sesi dihapus",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "Tidak ada sesi projek yang dibersihkan",
     "smartRenameNoContent": "Tidak ada isi percakapan yang tersedia untuk mengganti nama",
     "smartRenameFailed": "Nama berubah cerdas gagal",
-    "smartRenameSuccess": "Sesi berubah nama cerdas"
+    "smartRenameSuccess": "Sesi berubah nama cerdas",
+    "dropNotFolder": "Silakan jatuhkan folder, bukan berkas",
+    "projectsCreatedCount": "{{count}} proyek dibuat",
+    "revealFailed": "Gagal membuka lokasi"
   },
   "topbar": {
     "togglePanel": "Jungkitkan Panel",
@@ -225,7 +235,14 @@
     "openInspector": "Buka inspektur",
     "closeRuntimeStatus": "Sembunyikan konteks dan kemajuan",
     "openRuntimeStatus": "Tampilkan konteks dan kemajuan",
-    "help": "Buka panduan"
+    "help": "Buka panduan",
+    "builtinSearch": "Pencarian web bawaan",
+    "builtinSearchOff": "Mati",
+    "builtinSearchOn": "Pencarian native penyedia aktif",
+    "faster": "Lebih cepat",
+    "followGlobalModel": "Ikuti model global",
+    "followGlobalModelDesc": "Gunakan pengaturan model utama global untuk sesi ini.",
+    "smarter": "Lebih cerdas"
   },
   "runtimeStatus": {
     "contextTitle": "Lingkungan",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}, {{second}} dan {{count}} lagi",
     "noTasks": "Belum ada tugas",
     "runningTerminals": "Menjalankan terminal",
-    "closeTerminal": "Tutup terminal"
+    "closeTerminal": "Tutup terminal",
+    "subAgents": "SubAgent",
+    "subAgentsCompleted": "{{count}} selesai",
+    "subAgentsRunning": "{{count}} berjalan"
   },
   "browser": {
     "back": "Mundur",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "Fallback",
     "reportStatusMissing": "Hilang",
     "reportRetrying": "Regenerasi laporan akhir...",
-    "reportEmpty": "Tidak ada laporan akhir yang tersedia"
+    "reportEmpty": "Tidak ada laporan akhir yang tersedia",
+    "aborted": "Digugurkan",
+    "backToList": "Kembali ke SubAgent",
+    "completedGroup": "Selesai",
+    "durationHours": "{{count}}j",
+    "durationMinutes": "{{count}}m",
+    "durationSeconds": "{{count}}d",
+    "maxIterations": "Batas iterasi tercapai",
+    "noStarted": "Belum ada SubAgent yang dimulai",
+    "started": "Dimulai",
+    "stop": "Hentikan SubAgent ini"
   },
   "detailPanel": {
     "team": "Tim",
@@ -682,7 +712,9 @@
           "Kasus di mana sub- tugas harus berjalan dalam paralel dan kembali terstruktur Markdown rangkuman untuk melanjutkan koordinasi"
         ]
       }
-    }
+    },
+    "useFullWidth": "Gunakan lebar penuh",
+    "useStandardWidth": "Gunakan lebar standar"
   },
   "navRail": {
     "conversations": "Percakapan",
@@ -694,7 +726,8 @@
     "draw": "Gambar",
     "translate": "Terjemahkan",
     "ssh": "SSH",
-    "settings": "Pengaturan"
+    "settings": "Pengaturan",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "Sumber Daya",
@@ -945,7 +978,23 @@
       "illustration": "Ilustrasi",
       "threeD": "3D",
       "photography": "Fotografi"
-    }
+    },
+    "assistantActConnect": "Node tersambung",
+    "assistantActCreateText": "Node teks dibuat",
+    "assistantActFailed": "gagal",
+    "assistantActGenerate": "Pembuatan gambar dimulai",
+    "assistantActRead": "Membaca kanvas",
+    "assistantAddSelection": "Tambah yang dipilih ({{count}})",
+    "assistantClear": "Bersihkan percakapan",
+    "assistantCollapse": "Ciutkan",
+    "assistantQuickDescribe": "Deskripsikan gambar",
+    "assistantQuickDescribePrompt": "Deskripsikan subjek, komposisi, dan gaya gambar konteks, lalu berikan satu prompt bahasa Inggris yang dapat dipakai ulang.",
+    "assistantQuickRefine": "Perhalus prompt",
+    "assistantQuickRefinePrompt": "Perhalus teks prompt di konteks menjadi satu prompt pembuatan gambar bahasa Inggris berkualitas tinggi. Keluarkan hanya prompt akhirnya.",
+    "assistantQuickTranslate": "Terjemahkan ke bahasa Inggris",
+    "assistantQuickTranslatePrompt": "Terjemahkan teks konteks menjadi prompt pembuatan gambar bahasa Inggris yang natural. Keluarkan hanya hasilnya.",
+    "assistantStop": "Berhenti",
+    "retry": "Coba lagi"
   },
   "translatePage": {
     "title": "Al Terjemahkan",
@@ -1134,6 +1183,143 @@
     "connecting": "Menghubungkan terminal...",
     "terminalExited": "Sesi terminal berakhir",
     "terminalExitedWithError": "Sesi terminal keluar",
-    "exitCode": "Kode keluar: {{code}}"
-  }
+    "exitCode": "Kode keluar: {{code}}",
+    "invalidAiCodingConfig": "Konfigurasi tidak lengkap atau tidak valid.",
+    "localAiCodingOnly": "Konfigurasi peluncuran AI Coding hanya tersedia untuk terminal proyek lokal.",
+    "moveToBottomDock": "Pindahkan ke terminal bawah",
+    "moveToRightPanel": "Pindahkan ke panel kanan",
+    "newClaudeCode": "ClaudeCode baru"
+  },
+  "codegraphPage": {
+    "addFolder": "Indeks sebuah folder",
+    "analytics": {
+      "cycles": "Dependensi sirkular: {{count}}",
+      "deadCode": "Kandidat kode mati: {{count}}",
+      "description": "Dependensi berkas sirkular dan simbol privat yang tidak pernah dirujuk, dihitung dari indeks sesuai permintaan.",
+      "noCycles": "Tidak ada dependensi berkas sirkular.",
+      "noDeadCode": "Tidak ada simbol privat yang tidak dirujuk.",
+      "rerun": "Jalankan ulang",
+      "run": "Jalankan analisis",
+      "running": "Menganalisis…",
+      "showingTop": "menampilkan {{count}} teratas",
+      "title": "Kesehatan graf"
+    },
+    "back": "Mundur",
+    "charts": {
+      "edgesByKind": "Edge berdasarkan jenis",
+      "filesByLanguage": "Berkas berdasarkan bahasa",
+      "noData": "Tidak ada data",
+      "nodesByKind": "Node berdasarkan jenis"
+    },
+    "delete": "Hapus indeks",
+    "deleting": "Menghapus…",
+    "files": {
+      "empty": "Tidak ada berkas yang diindeks.",
+      "loadingSymbols": "Memuat simbol…",
+      "noSymbols": "Tidak ada simbol dalam berkas ini.",
+      "search": "Saring berkas…",
+      "symbols_one": "{{count}} simbol",
+      "symbols_other": "{{count}} simbol",
+      "title": "Berkas yang diindeks",
+      "viewInGraph": "Lihat di graf"
+    },
+    "freshness": {
+      "backend": "Backend",
+      "extractionVersion": "Versi ekstraksi",
+      "indexing": "Pengindeksan sedang berlangsung…",
+      "journal": "Mode journal",
+      "lastIndexed": "Terakhir diindeks",
+      "never": "Tidak pernah",
+      "stale": "Kedaluwarsa — disarankan indeks ulang",
+      "title": "Kesegaran indeks",
+      "upToDate": "Terkini"
+    },
+    "graph": {
+      "depth": "Kedalaman",
+      "empty": "Tidak ditemukan tetangga untuk simbol ini.",
+      "expand": "Perluas tetangga",
+      "interactionHint": "Klik: sematkan fokus & perluas · Klik dua kali: pusatkan ulang di sini",
+      "loading": "Memuat graf…",
+      "nodesEdges": "{{nodes}} node · {{edges}} edge",
+      "reset": "Atur ulang",
+      "searchPlaceholder": "Cari simbol untuk memulai (mis. nama fungsi atau class)",
+      "seedHint": "Cari simbol, atau klik simbol di tab Berkas, untuk memulai graf.",
+      "title": "Graf simbol"
+    },
+    "indexing": "Mengindeks…",
+    "kpi": {
+      "dbSize": "Ukuran DB",
+      "edges": "Edge",
+      "files": "Berkas",
+      "nodes": "Node",
+      "pendingRefs": "Referensi tertunda",
+      "state": "Status"
+    },
+    "needsDownload": "CodeGraph memerlukan unduhan grammar satu kali sebelum dapat mengindeks. Lakukan di Pengaturan → Pengaya.",
+    "noProjects": "Belum ada proyek yang diindeks. Klik \"Indeks sebuah folder\" untuk membuat indeks pertama Anda.",
+    "notIndexedDesc": "Proyek ini belum memiliki indeks graf.",
+    "notIndexedTitle": "Belum diindeks",
+    "openSettings": "Buka Pengaturan",
+    "pluginDisabled": "CodeGraph dinonaktifkan. Aktifkan pengaya di Pengaturan → Pengaya terlebih dahulu.",
+    "progress": {
+      "complete": "Menyelesaikan",
+      "extract": "Mengekstrak simbol",
+      "files": "{{done}} / {{total}} berkas",
+      "indexing": "Mengindeks",
+      "maintenance": "Mengoptimalkan",
+      "recreate": "Membangun ulang",
+      "resolve": "Menyelesaikan referensi",
+      "scan": "Memindai berkas",
+      "sync": "Menyinkronkan",
+      "synthesize": "Menyintesis"
+    },
+    "refresh": "Segarkan",
+    "reindex": "Indeks ulang",
+    "reindexing": "Mengindeks ulang…",
+    "selectProject": "Proyek",
+    "subtitle": "Visualisasi indeks per proyek: statistik, distribusi, pohon berkas, dan graf simbol",
+    "sync": "Sinkronkan",
+    "syncing": "Menyinkronkan…",
+    "tabs": {
+      "dashboard": "Dasbor",
+      "files": "Berkas",
+      "graph": "Graf"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "Tidak dapat mengindeks folder tersebut",
+      "indexDone": "Indeks selesai",
+      "indexFailed": "Indeks gagal",
+      "indexStarted": "Pengindeksan dimulai",
+      "removeFailed": "Gagal menghapus indeks",
+      "removed": "Indeks dihapus",
+      "syncDone": "Sinkronisasi selesai",
+      "syncFailed": "Sinkronisasi gagal"
+    },
+    "toolSurface": {
+      "description": "Secara baku hanya codegraph_explore yang dipaparkan ke agen. Aktifkan untuk juga mendaftarkan search, node, callers, callees, impact, files, dan status (permukaan tetap disesuaikan dengan ukuran proyek).",
+      "title": "Permukaan alat agen penuh"
+    },
+    "unknownRoot": "Proyek tak dikenal ({{hash}})"
+  },
+  "committed": "Ter-commit",
+  "files": "Explorer",
+  "scmAgentChanges": "Perubahan Agen",
+  "scmChanges": "Perubahan",
+  "scmClean": "Tidak ada perubahan",
+  "scmCommit": "Commit",
+  "scmCommitPlaceholder": "Pesan (Ctrl+Enter untuk commit)",
+  "scmDiscard": "Buang",
+  "scmGenerate": "Buat pesan commit",
+  "scmGenerateFailed": "Pembuatan gagal",
+  "scmMerge": "Gabungkan Perubahan",
+  "scmNoFolder": "Buka folder kerja untuk menggunakan kontrol sumber.",
+  "scmNothingStaged": "Belum ada yang di-stage — stage perubahan terlebih dahulu",
+  "scmStage": "Stage",
+  "scmStageAll": "Stage semua",
+  "scmStaged": "Perubahan Ter-stage",
+  "scmTitle": "Kontrol Sumber",
+  "scmUndo": "Tak Jadi",
+  "scmUnstage": "Batalkan stage",
+  "scmUnstageAll": "Batalkan stage semua"
 }

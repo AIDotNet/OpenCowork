@@ -8,7 +8,8 @@
       "system": "النظام",
       "ai": "القدرات",
       "extensions": "التمديدات",
-      "about": "حول"
+      "about": "حول",
+      "aiCoding": "AI Coding"
     }
   },
   "pet": {
@@ -189,7 +190,10 @@
       "downloading": "تحميل تحديث...",
       "downloadingWithProgress": "تحميل تحديث... {{progress}} النسبة المئوية",
       "downloadedReady": "تم تنزيل التحديث v{{version}}. انقر على التحديث الآن لإعادة التشغيل والتثبيت.",
-      "installing": "جار تحضير التحديث…"
+      "installing": "جار تحضير التحديث…",
+      "greenBuild": "نسخة بدون تثبيت",
+      "manualDownloadHint": "يتوفر إصدار أحدث (v{{version}}). بالنسبة للنسخة غير القابلة للتثبيت، نزّله يدويًا، وأغلق التطبيق، واستبدل المجلد الحالي.",
+      "openDownloadPage": "فتح صفحة التنزيل"
     },
     "projectDefaultDirectory": {
       "title": "دليل المشروع الافتراضي",
@@ -238,7 +242,8 @@
       "clearConfirm": "تحذف جميع {{count}} جلسات؟",
       "cleared": "Deleted {{count}} الدورات",
       "noSessions": "لا توجد جلسات متاحة"
-    }
+    },
+    "autoUpdateGreenDesc": "تتحقق النسخة غير القابلة للتثبيت من وجود إصدارات جديدة، لكنها لا تنزّلها أو تثبّتها تلقائيًا. نزّل أحدث إصدار يدويًا واستبدل المجلد الحالي."
   },
   "sync": {
     "title": "الرمز",
@@ -530,7 +535,9 @@
     "clearConfirmDescription": "الحذف الدائم {{count}} القيود التي أُنشئت من قبل {{date}} -هذا لا يمكن أن يزول",
     "clearSuccess": "تطهير {{count}} القيود على السجلات",
     "clearFailed": "عدم الوصول إلى سجلات واضحة",
-    "clearEmpty": "لا توجد سجلات أكبر من 7 أيام لإزالة"
+    "clearEmpty": "لا توجد سجلات أكبر من 7 أيام لإزالة",
+    "cacheReadRatio": "نسبة قراءة التخزين المؤقت",
+    "cacheTokenShare": "حصة الرموز المخزّنة مؤقتًا"
   },
   "model": {
     "title": "المؤتمر النموذجي",
@@ -635,7 +642,8 @@
       "DesktopClick": "الخنازير المتاحة: X, y, blue, action",
       "DesktopType": "الأجهزة المتاحة: النص، المفتاح، الهوكي",
       "DesktopScroll": "Args: x, y, scrollX, scrollY",
-      "DesktopWait": "المختصرات المتاحة: التأخير"
+      "DesktopWait": "المختصرات المتاحة: التأخير",
+      "codegraph_explore": "المعطيات المتاحة: query، projectPath"
     },
     "status": {
       "disabled": "البلوجين معاق، لذلك أدواته ليست معرضة للعميل.",
@@ -669,7 +677,11 @@
       "allowedDomains": "المجالات المسموح بها",
       "allowedDomainsDesc": "إتركوا المكان فارغاً لإتاحة جميع المجالات، وعند تحديدها، لا يمكن فتح سوى مجالات المطابقة.",
       "domainPlaceholder": "مثال على ذلك.\nSub.example.org",
-      "domainRuleHint": "أدخل مجالاً واحداً لكل خط أو منفصلاً عن المواصلات، وتحظى المجالات غير الساحلية بالأولوية على المجالات المسموح بها؛ وتتطابق الأجزاء الفرعية تلقائياً."
+      "domainRuleHint": "أدخل مجالاً واحداً لكل خط أو منفصلاً عن المواصلات، وتحظى المجالات غير الساحلية بالأولوية على المجالات المسموح بها؛ وتتطابق الأجزاء الفرعية تلقائياً.",
+      "cookiesImportFailed": "فشل استيراد ملفات تعريف الارتباط",
+      "cookiesImported": "تم استيراد {{imported}} من ملفات تعريف الارتباط من {{browserName}} (تم تخطي {{skipped}})",
+      "importCookies": "استيراد ملفات تعريف الارتباط",
+      "importingCookies": "جارٍ الاستيراد..."
     },
     "items": {
       "image": {
@@ -689,8 +701,48 @@
         "description": "اشرحي طلقات الشاشة المكتبية، النقر، التنظيف، وأدوات لوحة المفاتيح للوكيل.",
         "promptTitle": "القيود المفروضة على استخدام المواد",
         "promptDesc": "ويمكن لهذه الأدوات أن تفتش وتتحكم في الحاسوب المكتبي الكامل، وتحافظ على الموافقة، وتلتقط الشاشة قبل التصرف، ولا تستخدمها إلا عند الحاجة إلى التشغيل الآلي المكتبي المباشر، وإذا كان النموذج النشط يتيح استخدام الحاسوب، فإن استخدام الحاسوب المفتوح سينسق هذه القدرات المكتبية أولا."
+      },
+      "codegraph": {
+        "description": "محرّك ذكاء شيفرة محلي: يفهرس مستودعًا في رسم بياني للرموز والإحالات ويتيح للعميل استكشافه.",
+        "promptDesc": "فعّله لمنح العميل أداة `codegraph_explore` — تجيب عن أسئلة مثل \"كيف يصل X إلى Y / من يستدعي هذا / ما الذي يتعطل إذا غيّرت هذا\" اعتمادًا على الرسم البياني المفهرس، لتحل محل الكثير من استدعاءات Read/Grep. معطّلة افتراضيًا؛ يؤدي تفعيلها إلى تنزيل القواعد اللغوية لمرة واحدة.",
+        "promptTitle": "قيود استخدام الأداة",
+        "title": "إضافة CodeGraph"
       }
-    }
+    },
+    "codegraph": {
+      "actionDone": "تم.",
+      "actionFailed": "فشل إجراء CodeGraph",
+      "assetsDesc": "يحلّل CodeGraph شيفرتك باستخدام قواعد tree-sitter اللغوية. تُنزَّل عند أول تفعيل (تستخدم نسخة التطوير القواعد المبنية محليًا — بلا تنزيل).",
+      "assetsTitle": "القواعد اللغوية",
+      "deleteIndex": "حذف الفهرس",
+      "devMode": "نسخة تطوير — تستخدم قواعد محلية ({{count}})، لا حاجة للتنزيل.",
+      "download": "تنزيل القواعد",
+      "downloadFailed": "فشل تنزيل القواعد",
+      "downloaded": "تم تنزيل القواعد.",
+      "downloading": "جارٍ التنزيل...",
+      "enableFirst": "فعّل الإضافة لإدارة المشاريع المفهرسة.",
+      "indexCurrent": "فهرسة المشروع الحالي",
+      "needsDownload": "لم تُثبَّت القواعد بعد. نزّلها لبدء الفهرسة.",
+      "projectStats": "{{files}} ملف · {{nodes}} عُقدة · {{edges}} حافة",
+      "projectsDesc": "كل مشروع فهرسه CodeGraph على هذا الجهاز، مع حجم رسمه البياني وحالته. تعيد إعادة الفهرسة البناء من الصفر؛ بينما تطبّق المزامنة التغييرات التزايدية.",
+      "projectsEmpty": "لا توجد مشاريع مفهرسة بعد. تبدأ الفهرسة تلقائيًا في أول مرة يستكشف فيها العميل مشروعًا، أو يمكنك فهرسة المشروع الحالي الآن.",
+      "projectsLoading": "جارٍ تحميل المشاريع المفهرسة...",
+      "projectsTitle": "المشاريع المفهرسة",
+      "ready": "القواعد جاهزة ({{count}} مثبَّتة).",
+      "refresh": "تحديث",
+      "reindex": "إعادة الفهرسة",
+      "reindexing": "جارٍ الفهرسة...",
+      "remove": "إزالة",
+      "removed": "تمت إزالة القواعد المنزّلة.",
+      "removing": "جارٍ الحذف...",
+      "sync": "مزامنة",
+      "syncing": "جارٍ المزامنة...",
+      "unknownRoot": "(مشروع غير معروف) {{hash}}",
+      "workerMissing": "لم يُعثر على الملف التنفيذي لعامل CodeGraph. ابنِه باستخدام `npm run codegraph:publish` (أو `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerRunning": "العامل قيد التشغيل",
+      "workerStopped": "لم يبدأ العامل بعد (يبدأ عند أول استخدام)"
+    },
+    "toolStatusDescCodeGraph": "لا تُعرض أداة codegraph_explore إلا عند تفعيل الإضافة وجاهزية قواعدها اللغوية (منزَّلة، أو متوفرة محليًا في نسخة تطوير)."
   },
   "migration": {
     "title": "مركز الهجرة",
@@ -1151,7 +1203,29 @@
     "channelDisconnected": "تم فصل القناة",
     "channelRequired": "يرجى التحقق من القناة أولا",
     "modelCategoryVideo": "فيديو",
-    "seedanceVideo": "فيديو Seedance (Volcengine)"
+    "seedanceVideo": "فيديو Seedance (Volcengine)",
+    "builtinSearchEnabled": "البحث المدمج مفعّل",
+    "cacheTtl": "مدة صلاحية التخزين المؤقت (anthropic)",
+    "cacheTtlHint": "5 دقائق (افتراضي) أو ساعة واحدة (بتكلفة كتابة مضاعفة). التجاوزات على مستوى النموذج تعلو على مستوى المزوّد.",
+    "enableBuiltinSearch": "تفعيل البحث المدمج على الويب",
+    "enableBuiltinSearchDesc": "استخدام البحث الأصلي للمزوّد على الويب (Claude / OpenAI Responses) بدلًا من أداة العميل.",
+    "kimiQuota5h": "الحد خلال 5 ساعات",
+    "kimiQuotaParallel": "أقصى تزامن {{count}}",
+    "kimiQuotaWeekly": "الحد الأسبوعي",
+    "kimiQuotaWindowLimit": "الحد خلال {{time}}",
+    "requestParams": "معطيات الطلب",
+    "sendMaxOutputTokens": "إرسال الحد الأقصى لرموز الناتج",
+    "sendMaxOutputTokensHint": "عند التعطيل، تُحذف من الطلبات max_tokens / max_completion_tokens / max_output_tokens ويُترك للخادم تحديد حد الناتج",
+    "sendTemperature": "إرسال درجة الحرارة",
+    "sendTemperatureHint": "عند التعطيل، تُحذف معطية درجة الحرارة من الطلبات — للخدمات ذات إعدادات أخذ العينات الثابتة (مثل Kimi K3)",
+    "supportsBuiltinSearch": "يدعم البحث المدمج على الويب",
+    "supportsBuiltinSearchDesc": "تنفّذ نقطة النهاية أداة خادم البحث الأصلي على الويب الخاصة بالمزوّد (Claude / OpenAI Responses). معظم نقاط الترحيل لا تفعل ذلك.",
+    "supportsFastMode": "يدعم الوضع السريع",
+    "supportsFastModeDesc": "تقبل نقطة النهاية مستوى خدمة الأولوية من OpenAI لاستجابات أسرع.",
+    "supportsImageGeneration": "يدعم توليد الصور",
+    "supportsImageGenerationDesc": "تنفّذ نقطة النهاية أداة خادم image_generation من OpenAI Responses.",
+    "supportsWebsocket": "يدعم بروتوكول WebSocket",
+    "supportsWebsocketDesc": "توفّر نقطة النهاية نقل WebSocket الخاص بـ OpenAI Responses."
   },
   "channel": {
     "title": "القنوات",
@@ -1456,5 +1530,227 @@
     "copyConversation": "المحادثة",
     "allowTool": "السماح بتنفيذ الأدوات",
     "denyTool": "عدم تنفيذ الأدوات"
+  },
+  "aiCoding": {
+    "addConfig": "إضافة إعداد",
+    "apiKey": "مفتاح API",
+    "baseUrl": "رابط القاعدة (Base URL)",
+    "claudeProviderDesc": "تُعرض فقط مزوّدات مفتاح API المفعّلة التي تضم نماذج بروتوكول Anthropic. تُعامَل نماذج RoutinAI GPT-5.4/5.5/5.6 أيضًا بصفتها متوافقة مع ClaudeCode.",
+    "claudeSubtitle": "إعداد مزوّدي Claude Code وربط نماذج بروتوكول Anthropic",
+    "claudeTitle": "ClaudeCode",
+    "codexModelDesc": "يُشغَّل Codex بتجاوز مؤقت للمزوّد وواجهة Responses wire API.",
+    "codexProviderDesc": "تُعرض فقط مزوّدات مفتاح API المفعّلة التي تضم نماذج OpenAI Responses.",
+    "codexSubtitle": "إعداد مزوّدي Codex CLI وربط النماذج",
+    "codexTitle": "Codex",
+    "command": "الأمر",
+    "configName": "اسم الإعداد",
+    "configs": "الإعدادات",
+    "configsDesc": "أنشئ ملفات تشغيل مُسمّاة لقائمة المحطة الطرفية",
+    "copyConfig": "نسخ الإعداد",
+    "copyName": "نسخة {{name}}",
+    "defaultConfigName": "افتراضي {{index}}",
+    "defaultModel": "النموذج الافتراضي",
+    "deleteConfig": "حذف الإعداد",
+    "fullAccessPermission": "صلاحيات الوصول الكامل",
+    "fullAccessPermissionDesc": "تشغيل Claude Code باستخدام --dangerously-skip-permissions.",
+    "invalid": "غير صالح",
+    "model": "النموذج",
+    "noClaudeProviders": "لا يتوفر أي مزوّد بروتوكول Anthropic مفعّل يملك مفتاح API.",
+    "noCodexProviders": "لا يتوفر أي مزوّد OpenAI Responses مفعّل يملك مفتاح API.",
+    "permissionOptions": "خيارات الصلاحيات",
+    "permissionOptionsDesc": "أعلام تشغيل اختيارية لـ Claude Code في هذا الإعداد.",
+    "provider": "المزوّد",
+    "ready": "جاهز",
+    "resolvedCodexConfig": "تشغيل Codex النهائي",
+    "resolvedEnvironment": "بيئة التشغيل النهائية",
+    "selectModel": "اختيار نموذج",
+    "selectProvider": "اختيار مزوّد",
+    "status": {
+      "apiKeyMissing": "مفتاح API مفقود",
+      "baseUrlMissing": "رابط القاعدة مفقود",
+      "configMissing": "الإعداد مفقود",
+      "modelMissing": "النموذج مفقود",
+      "protocolUnsupported": "عدم تطابق البروتوكول",
+      "providerDisabled": "المزوّد معطّل",
+      "providerMissing": "المزوّد مفقود",
+      "ready": "جاهز",
+      "unsupportedAuth": "مصادقة غير مدعومة"
+    }
+  },
+  "codegraph": {
+    "subtitle": "تصوّر فهرس كل مشروع على حدة: إحصاءات، ملفات، ورسم بياني للرموز",
+    "title": "CodeGraph"
+  },
+  "extension": {
+    "bundled": "الموارد المرفقة",
+    "bundledAgents": "{{count}} عميل",
+    "bundledCommands": "{{count}} أمر",
+    "bundledMcp": "{{count}} خادم MCP",
+    "bundledNotSynced": "غير متزامن",
+    "bundledSkills": "{{count}} مهارة",
+    "bundledSynced": "متزامن",
+    "bundledWorkflows": "{{count}} سير عمل",
+    "components": "المكوّنات",
+    "disabled": "معطّل",
+    "emptyDesc": "اختر مجلدًا يحتوي extension.json لإضافة أدوات مخصّصة إلى OpenCowork.",
+    "emptyTitle": "لا توجد إضافات مثبَّتة",
+    "enabled": "مفعّل",
+    "hideSecret": "إخفاء السر",
+    "hostRendered": "معروض من المضيف",
+    "installFailed": "فشل تثبيت الإضافة",
+    "installFolder": "مجلد التثبيت",
+    "installed": "تم تثبيت الإضافة",
+    "loading": "جارٍ تحميل الإضافات...",
+    "network": "الشبكة",
+    "noNetwork": "لا يوجد وصول إلى الشبكة",
+    "noRenderers": "لا توجد عارضات مخصّصة",
+    "openFolder": "فتح المجلد",
+    "openFolderFailed": "فشل فتح المجلد",
+    "readOnlyCount": "{{count}} للقراءة فقط",
+    "remove": "إزالة",
+    "removeConfirm": "إزالة هذه الإضافة؟",
+    "removeFailed": "فشلت إزالة الإضافة",
+    "renderers": "العارضات",
+    "required": "مطلوب",
+    "saveConfig": "حفظ الإعداد",
+    "saveFailed": "فشل حفظ الإعداد",
+    "saved": "تم حفظ إعداد الإضافة",
+    "showSecret": "إظهار السر",
+    "subtitle": "تثبيت أدوات مخصّصة محلية ومكوّنات واجهة استجابة",
+    "syncWarnings": "لم تتم مزامنة بعض الموارد المرفقة",
+    "title": "الإضافات",
+    "tools": "الأدوات",
+    "updateFailed": "فشل تحديث الإضافة",
+    "workflows": "سير العمل",
+    "workflowsHint": "هذه الإضافة هي مهارة موجِّهة واحدة تحمّل سير العمل هذه عند الحاجة."
+  },
+  "hooks": {
+    "actions": {
+      "deny": "تجاهل",
+      "disable": "تعطيل",
+      "enable": "تفعيل",
+      "openArtifact": "البرنامج النصي",
+      "openConfig": "فتح إعدادات المستخدم",
+      "openConfigShort": "الإعداد",
+      "refresh": "تحديث",
+      "trust": "استخدام"
+    },
+    "empty": "لا توجد خطافات مُعدَّة.",
+    "emptyForEvent": "لا توجد خطافات مُعدَّة لهذا الحدث في دورة الحياة.",
+    "events": {
+      "PermissionRequest": {
+        "description": "يعمل قبل عرض طلب إذن الأداة. يمكنه السماح بالطلب أو رفضه."
+      },
+      "PostCompact": {
+        "description": "يعمل بعد انتهاء ضغط السياق. مفيد لإضافة إرشادات متابعة."
+      },
+      "PostToolUse": {
+        "description": "يعمل بعد اكتمال الأداة وقبل أن تعود النتيجة إلى النموذج. يمكنه إضافة سياق أو استبدال ملاحظات الأداة."
+      },
+      "PreCompact": {
+        "description": "يعمل قبل ضغط السياق اليدوي أو التلقائي. يمكنه إضافة إرشادات للضغط أو منع هذا الضغط."
+      },
+      "PreToolUse": {
+        "description": "يعمل بعد توليد استدعاء الأداة وقبل تنفيذه. يمكنه تحديث المدخلات أو منع الاستدعاءات الخطرة."
+      },
+      "SessionStart": {
+        "description": "يعمل قبل بدء الجلسة أو استئنافها أو مسحها أو استعادتها من الضغط أو بدئها كمهمة خلفية. مفيد لإضافة سياق الجلسة."
+      },
+      "Stop": {
+        "description": "يعمل عند اقتراب انتهاء دور العميل الحالي. مفيد للتحققات النهائية أو الملاحظات الإضافية أو منع الإنهاء."
+      },
+      "SubagentStart": {
+        "description": "يعمل قبل بدء عميل فرعي. يمكنه إضافة سياق أو منع المهمة الفرعية."
+      },
+      "SubagentStop": {
+        "description": "يعمل بعد انتهاء عميل فرعي وقبل عودة النتيجة إلى الجلسة الرئيسية. يمكنه التحقق من النتيجة أو منعها."
+      },
+      "UserPromptSubmit": {
+        "description": "يعمل قبل إرسال موجّه المستخدم. يمكنه إضافة سياق أو تحديث الموجّه أو منع الإرسال."
+      }
+    },
+    "feature": {
+      "description": "يسري المفعول بعد إعادة تشغيل OpenCowork.",
+      "preview": "معاينة",
+      "restartToDisable": "تظل الخطافات نشطة في جلسة التطبيق هذه. أعد تشغيل OpenCowork لإيقاف تشغيلها.",
+      "restartToEnable": "أعد تشغيل OpenCowork لبدء تشغيل الخطافات.",
+      "runtimeOff": "غير نشط في هذه الجلسة",
+      "runtimeOn": "نشط في هذه الجلسة",
+      "title": "تفعيل الخطافات"
+    },
+    "list": {
+      "title": "جميع الخطافات"
+    },
+    "loading": "جارٍ تحميل الخطافات...",
+    "metrics": {
+      "invalid": "غير صالح",
+      "pending": "معلَّق",
+      "total": "الإجمالي"
+    },
+    "review": {
+      "title": "جميع الخطافات",
+      "warning": "الوثوق بخطاف يسمح لأمره بالتشغيل محليًا بصلاحيات مستخدمك."
+    },
+    "source": {
+      "exists": "موجود",
+      "missing": "مفقود"
+    },
+    "status": {
+      "changed": "تغيّر",
+      "denied": "مرفوض",
+      "disabled": "معطّل",
+      "invalid": "غير صالح",
+      "pending": "معلَّق",
+      "trusted": "موثوق"
+    },
+    "subtitle": "إدارة خطافات دورة حياة OpenCowork.",
+    "title": "الخطافات",
+    "toasts": {
+      "denied": "تم تجاهل الخطاف",
+      "disabled": "تم تعطيل الخطاف",
+      "enabled": "تم تفعيل الخطاف",
+      "opened": "تم فتح المصدر",
+      "trusted": "تم تفعيل الخطاف للاستخدام"
+    }
+  },
+  "permission": {
+    "bashAllow": {
+      "description": "تُنفَّذ أوامر الصدفة المطابقة لقاعدة مفعّلة دون طلب تأكيد.",
+      "title": "القائمة البيضاء للأوامر (Bash)"
+    },
+    "bashDeny": {
+      "description": "تُرفض دائمًا أوامر الصدفة المطابقة لقاعدة مفعّلة — أعلى أولوية، وتتجاوز الموافقة التلقائية والقائمة البيضاء.",
+      "title": "القائمة السوداء للأوامر (Bash)"
+    },
+    "master": {
+      "description": "تتخطى الأدوات المدرجة في القائمة البيضاء وأوامر الصدفة المطابقة لها طلب التأكيد؛ وتُرفض الأوامر المدرجة في القائمة السوداء دائمًا. العمليات الخطرة غير المشمولة بأي قاعدة لا تزال تطلب التأكيد.",
+      "title": "تفعيل القائمة البيضاء للصلاحيات"
+    },
+    "precedence": {
+      "description": "ترتيب التقييم: القائمة السوداء للأوامر (ترفض دائمًا — حتى مع تفعيل الموافقة التلقائية) ← القائمة البيضاء للأدوات / الأوامر (تتخطى التأكيد) ← كل ما عدا ذلك يطلب التأكيد."
+    },
+    "rules": {
+      "add": "إضافة قاعدة",
+      "delete": "حذف القاعدة",
+      "empty": "لا توجد قواعد بعد",
+      "invalidPattern": "نمط غير صالح: {{error}}",
+      "modeRegex": "تعبير نمطي",
+      "modeWildcard": "حرف بديل",
+      "patternPlaceholder": "مثال: npm run * أو ^git (status|log)\\b"
+    },
+    "subtitle": "القائمة البيضاء للأدوات وقواعد أوامر الصدفة",
+    "title": "الصلاحيات",
+    "tools": {
+      "add": "إضافة",
+      "commandToolWarning": "أداة صدفة (Bash/Shell/Monitor/PowerShell) مدرجة في القائمة البيضاء — كل أمر تنفّذه سيتخطى التأكيد باستثناء ما يطابق القائمة السوداء.",
+      "description": "تعمل هذه الأدوات دون طلب تأكيد. يمكن أن تستخدم الإدخالات أحرف البدل * (مثل mcp__github__*).",
+      "duplicate": "هذه الأداة مدرجة بالفعل في القائمة البيضاء",
+      "empty": "لا توجد أدوات في القائمة البيضاء بعد",
+      "placeholder": "اسم الأداة، مثل Write",
+      "remove": "إزالة {{tool}}",
+      "suggestions": "اقتراحات:",
+      "title": "القائمة البيضاء للأدوات"
+    },
+    "wildcardHelp": "تطابق أنماط الحرف البديل الأمر بأكمله ويطابق * أي نص — مثل npm run *. يجب أن تطابق قواعد التعبير النمطي في القائمة البيضاء الأمر بأكمله؛ بينما تطابق قواعد التعبير النمطي في القائمة السوداء أي موضع فيه. يجب إدراج كل جزء من أمر مركّب (&&, ;, |) في القائمة البيضاء. المطابقة غير حسّاسة لحالة الأحرف."
   }
 }

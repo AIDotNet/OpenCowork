@@ -104,7 +104,14 @@
     "chats": "Chats",
     "noChats": "Todavía no hay charlas",
     "smartRename": "Smart Rename",
-    "smartRenaming": "Renombramiento inteligente"
+    "smartRenaming": "Renombramiento inteligente",
+    "dropFolderHint": "Suelte una carpeta aquí para importarla como proyecto",
+    "projectSortBy": "Ordenar proyectos por",
+    "projectSortCreatedAt": "Fecha de creación",
+    "projectSortName": "Alfabético",
+    "projectSortRecentlyUpdated": "Actualizado recientemente",
+    "projectSortTitle": "Ordenar proyectos: {{sort}}",
+    "revealInFolder": "Abrir ubicación de la carpeta"
   },
   "sidebar_toast": {
     "sessionDeleted": "Período de sesiones suprimido",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "No se han aclarado las sesiones de proyectos",
     "smartRenameNoContent": "No hay contenido de conversación disponible para renombrar",
     "smartRenameFailed": "El nombre inteligente falló",
-    "smartRenameSuccess": "Sesión renombrada inteligentemente"
+    "smartRenameSuccess": "Sesión renombrada inteligentemente",
+    "dropNotFolder": "Suelte una carpeta, no un archivo",
+    "projectsCreatedCount": "Se crearon {{count}} proyectos",
+    "revealFailed": "No se pudo abrir la ubicación"
   },
   "topbar": {
     "togglePanel": "Toggle Panel",
@@ -225,7 +235,14 @@
     "openInspector": "Inspector abierto",
     "closeRuntimeStatus": "Ocultar contexto y progreso",
     "openRuntimeStatus": "Mostrar contexto y progreso",
-    "help": "Guía abierta"
+    "help": "Guía abierta",
+    "builtinSearch": "Búsqueda web integrada",
+    "builtinSearchOff": "Desactivado",
+    "builtinSearchOn": "Búsqueda nativa del proveedor activada",
+    "faster": "Más rápido",
+    "followGlobalModel": "Seguir el modelo global",
+    "followGlobalModelDesc": "Usar el ajuste del modelo principal global para esta sesión.",
+    "smarter": "Más inteligente"
   },
   "runtimeStatus": {
     "contextTitle": "Medio ambiente",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}, {{second}} y {{count}} más",
     "noTasks": "No hay tareas todavía",
     "runningTerminals": "Terminales de ejecución",
-    "closeTerminal": "Terminales cercanos"
+    "closeTerminal": "Terminales cercanos",
+    "subAgents": "SubAgents",
+    "subAgentsCompleted": "{{count}} completados",
+    "subAgentsRunning": "{{count}} en ejecución"
   },
   "browser": {
     "back": "Atrás",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "Fallback",
     "reportStatusMissing": "Falta",
     "reportRetrying": "Regenerando el informe final...",
-    "reportEmpty": "No hay informe final disponible"
+    "reportEmpty": "No hay informe final disponible",
+    "aborted": "Cancelado",
+    "backToList": "Volver a SubAgents",
+    "completedGroup": "Completados",
+    "durationHours": "{{count}}h",
+    "durationMinutes": "{{count}}m",
+    "durationSeconds": "{{count}}s",
+    "maxIterations": "Límite de iteraciones alcanzado",
+    "noStarted": "No se ha iniciado ningún SubAgent",
+    "started": "Iniciado",
+    "stop": "Detener este SubAgent"
   },
   "detailPanel": {
     "team": "Equipo",
@@ -682,7 +712,9 @@
           "Casos en que las sub-tareas deben presentarse en paralelo y devolver resúmenes estructurados de marcado para una coordinación continua"
         ]
       }
-    }
+    },
+    "useFullWidth": "Usar ancho completo",
+    "useStandardWidth": "Usar ancho estándar"
   },
   "navRail": {
     "conversations": "Conversaciones",
@@ -694,7 +726,8 @@
     "draw": "Dibujo",
     "translate": "Traducir",
     "ssh": "SSH",
-    "settings": "Ajustes"
+    "settings": "Ajustes",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "Recursos",
@@ -945,7 +978,23 @@
     "inpaintPrompt": "Describe el cambio para el área pintada",
     "outpaintPrompt": "Describe qué rellena la nueva área (opcional)",
     "copyImage": "Copiar al portapapeles",
-    "copiedImage": "Imagen copiada"
+    "copiedImage": "Imagen copiada",
+    "assistantActConnect": "Nodos conectados",
+    "assistantActCreateText": "Nodo de texto creado",
+    "assistantActFailed": "fallido",
+    "assistantActGenerate": "Generación de imagen iniciada",
+    "assistantActRead": "Lienzo leído",
+    "assistantAddSelection": "Añadir selección ({{count}})",
+    "assistantClear": "Borrar conversación",
+    "assistantCollapse": "Colapsar",
+    "assistantQuickDescribe": "Describir imagen",
+    "assistantQuickDescribePrompt": "Describe el sujeto, la composición y el estilo de la imagen de contexto, y luego da un prompt en inglés reutilizable.",
+    "assistantQuickRefine": "Refinar prompt",
+    "assistantQuickRefinePrompt": "Refina el texto del prompt en el contexto para obtener un prompt de generación de imágenes en inglés de alta calidad. Muestra solo el prompt final.",
+    "assistantQuickTranslate": "Traducir al inglés",
+    "assistantQuickTranslatePrompt": "Traduce el texto de contexto a un prompt de generación de imágenes en inglés natural. Muestra solo el resultado.",
+    "assistantStop": "Detener",
+    "retry": "Reintentar"
   },
   "translatePage": {
     "title": "AI Translate",
@@ -1134,6 +1183,143 @@
     "connecting": "Terminal de conexión...",
     "terminalExited": "Sesión final",
     "terminalExitedWithError": "Terminal session exited",
-    "exitCode": "Código de salida: {{code}}"
-  }
+    "exitCode": "Código de salida: {{code}}",
+    "invalidAiCodingConfig": "La configuración está incompleta o no es válida.",
+    "localAiCodingOnly": "Las configuraciones de lanzamiento de AI Coding solo están disponibles para terminales de proyectos locales.",
+    "moveToBottomDock": "Mover a la terminal inferior",
+    "moveToRightPanel": "Mover al panel derecho",
+    "newClaudeCode": "Nuevo ClaudeCode"
+  },
+  "codegraphPage": {
+    "addFolder": "Indexar una carpeta",
+    "analytics": {
+      "cycles": "Dependencias circulares: {{count}}",
+      "deadCode": "Candidatos a código muerto: {{count}}",
+      "description": "Dependencias circulares entre archivos y símbolos privados nunca referenciados, calculados a partir del índice bajo demanda.",
+      "noCycles": "No hay dependencias circulares entre archivos.",
+      "noDeadCode": "No hay símbolos privados sin referenciar.",
+      "rerun": "Volver a ejecutar",
+      "run": "Ejecutar análisis",
+      "running": "Analizando…",
+      "showingTop": "mostrando los {{count}} principales",
+      "title": "Salud del grafo"
+    },
+    "back": "Atrás",
+    "charts": {
+      "edgesByKind": "Aristas por tipo",
+      "filesByLanguage": "Archivos por lenguaje",
+      "noData": "Sin datos",
+      "nodesByKind": "Nodos por tipo"
+    },
+    "delete": "Eliminar índice",
+    "deleting": "Eliminando…",
+    "files": {
+      "empty": "No hay archivos indexados.",
+      "loadingSymbols": "Cargando símbolos…",
+      "noSymbols": "No hay símbolos en este archivo.",
+      "search": "Filtrar archivos…",
+      "symbols_one": "{{count}} símbolo",
+      "symbols_other": "{{count}} símbolos",
+      "title": "Archivos indexados",
+      "viewInGraph": "Ver en el grafo"
+    },
+    "freshness": {
+      "backend": "Backend",
+      "extractionVersion": "Versión de extracción",
+      "indexing": "Indexación en curso…",
+      "journal": "Modo de diario",
+      "lastIndexed": "Última indexación",
+      "never": "Nunca",
+      "stale": "Desactualizado — se recomienda reindexar",
+      "title": "Vigencia del índice",
+      "upToDate": "Actualizado"
+    },
+    "graph": {
+      "depth": "Profundidad",
+      "empty": "No se encontraron vecinos para este símbolo.",
+      "expand": "Expandir vecinos",
+      "interactionHint": "Clic: fijar foco y expandir · Doble clic: recentrar aquí",
+      "loading": "Cargando grafo…",
+      "nodesEdges": "{{nodes}} nodos · {{edges}} aristas",
+      "reset": "Restablecer",
+      "searchPlaceholder": "Busque un símbolo para empezar (p. ej., el nombre de una función o clase)",
+      "seedHint": "Busque un símbolo, o haga clic en uno desde la pestaña Archivos, para iniciar el grafo.",
+      "title": "Grafo de símbolos"
+    },
+    "indexing": "Indexando…",
+    "kpi": {
+      "dbSize": "Tamaño de la BD",
+      "edges": "Aristas",
+      "files": "Archivos",
+      "nodes": "Nodos",
+      "pendingRefs": "Referencias pendientes",
+      "state": "Estado"
+    },
+    "needsDownload": "CodeGraph necesita descargar las gramáticas una sola vez antes de poder indexar. Hágalo en Ajustes → Plugins.",
+    "noProjects": "Aún no hay proyectos indexados. Haga clic en \"Indexar una carpeta\" para crear su primer índice.",
+    "notIndexedDesc": "Este proyecto aún no tiene un índice de grafo.",
+    "notIndexedTitle": "No indexado",
+    "openSettings": "Abrir Ajustes",
+    "pluginDisabled": "CodeGraph está deshabilitado. Habilite primero el plugin en Ajustes → Plugins.",
+    "progress": {
+      "complete": "Finalizando",
+      "extract": "Extrayendo símbolos",
+      "files": "{{done}} / {{total}} archivos",
+      "indexing": "Indexando",
+      "maintenance": "Optimizando",
+      "recreate": "Reconstruyendo",
+      "resolve": "Resolviendo referencias",
+      "scan": "Explorando archivos",
+      "sync": "Sincronizando",
+      "synthesize": "Sintetizando"
+    },
+    "refresh": "Actualizar",
+    "reindex": "Reindexar",
+    "reindexing": "Reindexando…",
+    "selectProject": "Proyecto",
+    "subtitle": "Visualización del índice por proyecto: estadísticas, distribuciones, árbol de archivos y un grafo de símbolos",
+    "sync": "Sincronizar",
+    "syncing": "Sincronizando…",
+    "tabs": {
+      "dashboard": "Panel",
+      "files": "Archivos",
+      "graph": "Grafo"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "No se pudo indexar esa carpeta",
+      "indexDone": "Índice completo",
+      "indexFailed": "Error al indexar",
+      "indexStarted": "Indexación iniciada",
+      "removeFailed": "No se pudo eliminar el índice",
+      "removed": "Índice eliminado",
+      "syncDone": "Sincronización completa",
+      "syncFailed": "Error de sincronización"
+    },
+    "toolSurface": {
+      "description": "Por defecto solo se expone codegraph_explore a los agentes. Habilite esto para registrar también search, node, callers, callees, impact, files y status (la superficie se sigue ajustando según el tamaño del proyecto).",
+      "title": "Superficie completa de herramientas del agente"
+    },
+    "unknownRoot": "Proyecto desconocido ({{hash}})"
+  },
+  "committed": "Confirmado",
+  "files": "Explorador",
+  "scmAgentChanges": "Cambios del agente",
+  "scmChanges": "Cambios",
+  "scmClean": "Sin cambios",
+  "scmCommit": "Commit",
+  "scmCommitPlaceholder": "Mensaje (Ctrl+Enter para confirmar)",
+  "scmDiscard": "Descartar",
+  "scmGenerate": "Generar mensaje de commit",
+  "scmGenerateFailed": "Error al generar",
+  "scmMerge": "Fusionar cambios",
+  "scmNoFolder": "Abra una carpeta de trabajo para usar el control de versiones.",
+  "scmNothingStaged": "Nada preparado — prepare los cambios primero",
+  "scmStage": "Preparar",
+  "scmStageAll": "Preparar todo",
+  "scmStaged": "Cambios preparados",
+  "scmTitle": "Control de versiones",
+  "scmUndo": "Deshacer",
+  "scmUnstage": "Quitar de preparación",
+  "scmUnstageAll": "Quitar todo de preparación"
 }

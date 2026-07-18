@@ -82,7 +82,8 @@
     "teamLabel": "فريق",
     "taskSubAgents": "المهمة (الهيئات الفرعية)",
     "teamTools": "فريق الأدوات",
-    "maxIter": "الحد الأقصى {{count}} iter"
+    "maxIter": "الحد الأقصى {{count}} iter",
+    "inheritsMainTools": "نفس أدوات العميل الرئيسي"
   },
   "artifacts": {
     "noArtifacts": "لا أثر بعد",

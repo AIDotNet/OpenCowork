@@ -84,7 +84,14 @@
     "clarify": "Làm sáng",
     "cowork": "Hợp tác",
     "code": "Bộ mã",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "acp": "Lên kiến trúc và giao việc cho các đặc vụ phụ",
+      "chat": "Trò chuyện nhanh, không dùng công cụ dự án",
+      "clarify": "Biến điều mơ hồ thành một kế hoạch có thể xem xét",
+      "code": "Triển khai thực tế, tập trung",
+      "cowork": "Lên kế hoạch, hành động và xác minh cùng bạn"
+    }
   },
   "onboarding": {
     "start": "Chạy",
@@ -257,7 +264,8 @@
         "updateNow": "Cập nhật bây giờ",
         "remindLater": "Nhớ nhắc tôi sau nhé.",
         "installNow": "Cập nhật ngay",
-        "updateLater": "Cập nhật sau"
+        "updateLater": "Cập nhật sau",
+        "openDownloadPage": "Mở trang tải xuống"
       },
       "downloadFailed": "Tải về thất bại",
       "delayed": "Đã cập nhật",
@@ -265,7 +273,8 @@
       "downloadedDescription": "Phiên bản {{version}} đã sẵn sàng để cài đặt.",
       "installing": "Đang chuẩn bị cập nhật...",
       "installFailed": "Không thể bắt đầu cập nhật",
-      "failed": "Cập nhật thất bại"
+      "failed": "Cập nhật thất bại",
+      "manualDescription": "Bản không cài đặt (no-install) chưa hỗ trợ cập nhật tự động. Hãy tải phiên bản mới nhất theo cách thủ công và thay thế thư mục hiện tại sau khi thoát ứng dụng."
     },
     "errors": {
       "unhandledTitle": "Lỗi không điều khiển"

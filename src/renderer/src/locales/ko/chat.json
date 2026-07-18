@@ -122,7 +122,36 @@
     "startAcp": "ACP 세션 시작",
     "startAcpDesc": "먼저 목표, 배경, 제약 및 수용 기준을 명확히 합니다. 그런 다음 코드를 작성하기 전에 아키텍처와 작업 분해를 설계합니다.",
     "homeTitleAcp": "ACP 모드",
-    "homeDescAcp": "ACP 모드에서는 먼저 목표, 배경, 제약 및 수용 기준을 명확히 합니다. 그런 다음 구현 전에 아키텍처와 작업 분해를 제안합니다."
+    "homeDescAcp": "ACP 모드에서는 먼저 목표, 배경, 제약 및 수용 기준을 명확히 합니다. 그런 다음 구현 전에 아키텍처와 작업 분해를 제안합니다.",
+    "queueQuoted": "대화에 삽입됨",
+    "runtimeMetrics": {
+      "cache": "캐시",
+      "cacheCreate": "캐시 쓰기",
+      "cacheCreate1h": "캐시 쓰기 (1시간)",
+      "cacheCreate5m": "캐시 쓰기 (5분)",
+      "cacheHit": "캐시 히트",
+      "cost": "{{label}}: {{cost}}",
+      "input": "캐시되지 않은 입력",
+      "output": "출력",
+      "totalCost": "비용",
+      "tps": "TPS",
+      "tpsHint": "초당 생성된 출력 토큰 수",
+      "ttft": "TTFT",
+      "ttftHint": "첫 토큰까지 걸린 시간"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "승인 대기 중: {{tool}}",
+      "generatingImage": "이미지 생성 중",
+      "loadingMedia": "미디어를 불러오는 중",
+      "optimizing": "최적화 중",
+      "ready": "준비됨",
+      "receiving": "수신 중",
+      "retrying": "재시도 중 {{attempt}}",
+      "runningSubAgents": "서브 에이전트 {{count}}개 실행 중",
+      "runningTool": "{{tool}} 실행 중",
+      "thinking": "생각하는 중",
+      "waiting": "대기 중"
+    }
   },
   "planReview": {
     "awaitingReview": "검토 대기 중",
@@ -139,7 +168,10 @@
     "runningHint": "이 세션은 이제 플랜을 구현합니다.",
     "runningInSession": "이 계획은 세션 \"{{title}}\"에서 실행됩니다.",
     "openExecutionSession": "Open Execution 세션",
-    "approvedHint": "이 계획은 이미 승인되었습니다."
+    "approvedHint": "이 계획은 이미 승인되었습니다.",
+    "copy": "계획 복사",
+    "download": "계획 다운로드",
+    "expand": "사이드 패널에서 확장"
   },
   "guide": {
     "title": "대화 온보딩",
@@ -400,7 +432,26 @@
       "TaskList": "작업 목록",
       "Delete": "이름 *",
       "Skill": "한국어"
-    }
+    },
+    "allowWhitelist": "허용 및 화이트리스트에 추가",
+    "default": "기본값",
+    "defaultDesc": "위험한 도구를 실행하기 전에 확인을 요청합니다",
+    "fullAccess": "전체 액세스",
+    "fullAccessConfirmDesc": "위험한 작업을 포함한 모든 도구 호출이 확인 없이 자동으로 실행됩니다.",
+    "fullAccessConfirmTitle": "전체 액세스로 전환할까요?",
+    "fullAccessDesc": "확인 없이 모든 도구를 자동으로 실행합니다",
+    "label": "권한",
+    "manageWhitelist": "화이트리스트 규칙 관리…",
+    "tooltip": "도구 호출 권한",
+    "whitelist": "화이트리스트",
+    "whitelistAddedRule": "규칙 추가됨: {{pattern}}",
+    "whitelistAddedTool": "{{tool}}이(가) 화이트리스트에 추가됨",
+    "whitelistDesc": "화이트리스트에 등록된 도구와 명령은 확인을 건너뛰며, 블랙리스트에 등록된 명령은 항상 거부됩니다",
+    "whitelistEditorTitle": "이 명령에 대한 허용 규칙 추가",
+    "whitelistInvalidPattern": "잘못된 패턴: {{error}}",
+    "whitelistModeRegex": "정규식",
+    "whitelistModeWildcard": "와일드카드",
+    "whitelistSave": "저장하고 허용"
   },
   "toolCall": {
     "output": "출력 전압",
@@ -444,7 +495,9 @@
       "imageCopied": "클립보드에 복사 된 이미지",
       "copyImageFailed": "이미지 복사",
       "copied": "뚱 베어",
-      "copyImage": "클립보드에 복사 이미지"
+      "copyImage": "클립보드에 복사 이미지",
+      "renderComplete": "완료",
+      "rendered": "렌더링됨"
     },
     "taskList": "작업 목록",
     "tasksDone": "{{completed}}/{{total}} 완료",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "자주 묻는 질문",
       "result": "결과 ({{count}})",
       "notes": "지원하다",
-      "countValue": "조사 {{count}}"
+      "countValue": "조사 {{count}}",
+      "builtinTitle": "GPT 이미지 생성"
     },
     "desktop": {
       "running": "진행중인 데스크톱 작업",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} · 제출",
         "scrollY": "사이트맵"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "코드 그래프를 조회하는 중...",
+      "files": "참조된 파일",
+      "filesCount": "파일 {{count}}개",
+      "input": "입력",
+      "notIndexed": "인덱스가 준비되지 않음",
+      "notIndexedBadge": "인덱싱 중",
+      "result": "그래프 결과",
+      "symbolsCount": "심볼 {{count}}개",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "호출 대상",
+        "callers": "호출자",
+        "explore": "탐색",
+        "files": "파일",
+        "impact": "영향도",
+        "index": "인덱스",
+        "node": "노드",
+        "search": "검색",
+        "status": "상태",
+        "sync": "동기화"
+      }
+    },
+    "parameters": "매개변수",
+    "result": "결과",
+    "skillName": "스킬"
   },
   "subAgent": {
     "queued": "대기 중",
@@ -620,7 +700,17 @@
     "toolCalls": "도구 통화",
     "summaryEmpty": "자주 묻는 질문",
     "openInRunsRunning": "오른쪽 실행 목록에서 라이브 진행 보기",
-    "openInRunsDone": "오른쪽 실행 목록에서 전체 레코드 보기"
+    "openInRunsDone": "오른쪽 실행 목록에서 전체 레코드 보기",
+    "aborted": "중단됨",
+    "background": "백그라운드",
+    "failureUnknown": "SubAgent 실행 실패",
+    "label": "subAgent",
+    "maxIterations": "반복 횟수 제한에 도달함",
+    "openNamedInPanel": "사이드 패널에서 {{name}} 열기",
+    "prompt": "프롬프트",
+    "promptEmpty": "사용 가능한 프롬프트 없음",
+    "stopped": "중지됨",
+    "waiting": "실행 대기 중"
   },
   "teamEvent": {
     "teamCreated": "팀 생성",
@@ -629,7 +719,8 @@
     "messageSent": "메시지 보내기",
     "teamDeleted": "팀 삭제",
     "teammateSpawned": "팀메이트 Spawned",
-    "failed": "실패한"
+    "failed": "실패한",
+    "backgroundAgentSpawned": "백그라운드 에이전트 시작됨"
   },
   "todo": {
     "tasksDone": "{{completed}} / {{total}} 작업 완료",
@@ -642,7 +733,9 @@
     "thinkingFor": "{{seconds}}s에 대한 생각",
     "pending": "관련 기사",
     "thinkingEllipsis": "사고 ...",
-    "thoughts": "한국어"
+    "thoughts": "한국어",
+    "deepThinking": "깊이 생각하는 중",
+    "deepThought": "깊이 생각함"
   },
   "messageList": {
     "startConversation": "대화 시작",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "작업 공간",
     "homeTitleChatQuestion": "우리가 말하는 것은 무엇입니까?",
     "homeTitleBuildQuestion": "{{name}}에서 어떤 빌드해야합니까?",
-    "thisWorkspace": "이 작업 공간"
+    "thisWorkspace": "이 작업 공간",
+    "assistantRail": {
+      "currentLabel": "현재 메시지 {{index}}: {{preview}}",
+      "emptyPreview": "어시스턴트 응답",
+      "jumpLabel": "메시지 {{index}}로 이동: {{preview}}",
+      "streamingLabel": "스트리밍 중인 어시스턴트 응답 {{index}}로 이동: {{preview}}",
+      "summaryLabel": "압축된 기록 요약 {{index}}로 이동: {{preview}}",
+      "summaryPreview": "압축된 기록 요약",
+      "toolOnlyPreview": "도구 호출 {{count}}회",
+      "userLabel": "사용자 메시지 {{index}}로 이동: {{preview}}"
+    },
+    "pendingRetryTitle": "모델에 다시 연결하는 중",
+    "pendingTeamTitle": "팀원 조율 중"
   },
   "projectHome": {
     "noProjectSelected": "선택 없음",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}} 도구",
     "mcpToolCount_one": "{{count}} 도구",
     "mcpToolCount_other": "{{count}} 도구",
-    "mcpCount": "사이트맵"
+    "mcpCount": "사이트맵",
+    "activeCustomExtensions": "활성 사용자 지정 확장:",
+    "availableCustomExtensions": "사용 가능한 사용자 지정 확장",
+    "configureCustomExtensionSettings": "구성...",
+    "configureCustomExtensions": "설정 → 확장에서 확장 기능을 활성화하세요",
+    "customExtensionsLabel": "사용자 지정 확장",
+    "extensionCount": "확장 {{count}}개",
+    "extensionCount_one": "확장 {{count}}개",
+    "extensionCount_other": "확장 {{count}}개",
+    "extensionToolCount": "도구 {{count}}개",
+    "extensionToolCount_one": "도구 {{count}}개",
+    "extensionToolCount_other": "도구 {{count}}개",
+    "noCustomExtensions": "활성화된 사용자 지정 확장이 없습니다"
   },
   "userMessage": {
     "you": "이름 *",
@@ -830,7 +947,15 @@
     "copyImage": "본문 바로가기",
     "removeImage": "이미지 제거",
     "imagePreview": "이미지 미리보기",
-    "saveAndResend": "저장 및 삭제"
+    "saveAndResend": "저장 및 삭제",
+    "quotedLabel": "인용됨",
+    "selectedFileReadFailed": "읽기 실패",
+    "selectedFileReadLines": "{{count}}줄 읽음",
+    "selectedFileReadSkipped": "경로 참조",
+    "selectedFileReadSkippedNonText": "경로 참조: 바이너리 또는 문서 파일은 직접 읽지 않았습니다",
+    "selectedFileReadSkippedPdf": "PDF 경로 참조: 파일을 직접 읽지 않았습니다",
+    "selectedFileReadTruncated": "처음 {{count}}줄을 읽음",
+    "selectedFileReadsTitle": "읽은 파일"
   },
   "assistantMessage": {
     "changedFiles_one": "{{count}} 파일 편집",
@@ -841,7 +966,6 @@
     "editedFiles_other": "{{count}} 파일 편집",
     "deletedFiles_one": "삭제 된 {{count}} 파일",
     "deletedFiles_other": "삭제 된 {{count}} 파일",
-    "ranCommandsInline": "명령 실행 {{count}}회",
     "summarySeparator": "·",
     "moreKinds": "+{{count}}를",
     "showWorkspace": "workspace 확장 ({{count}} 도구 실행)",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "최근 오류",
       "stackTrace": "스택 추적",
       "copy": "관련 기사",
-      "copied": "뚱 베어"
+      "copied": "뚱 베어",
+      "descRuntimeUnavailable": "OpenCowork가 로컬 Native Worker에 연결할 수 없습니다. 이미 재시작을 시도했습니다. 메시지를 다시 시도하거나, 계속 반복되면 native worker를 다시 빌드하세요.",
+      "sidecarUnavailableMessage": "로컬 에이전트 런타임을 일시적으로 사용할 수 없습니다. OpenCowork가 재시작을 시도했습니다. 이 메시지를 다시 시도하세요. 개발 환경에서 계속 발생한다면 `npm run native:publish`를 실행한 뒤 OpenCowork를 재시작하세요.",
+      "titleRuntimeUnavailable": "로컬 런타임을 사용할 수 없음"
     },
-    "processTools": "도구 호출"
+    "processTools": "도구 호출",
+    "activeTools": "{{count}}개 활성 도구",
+    "cacheWrite": "캐시 쓰기",
+    "cachedInput": "입력 캐시",
+    "completionFinished": "완료됨",
+    "metricCost": "비용",
+    "metricTokens": "토큰",
+    "metricTotalDuration": "합계",
+    "processResponse": "응답",
+    "ranCommandsInline_one": "명령 {{count}}개 실행",
+    "ranCommandsInline_other": "명령 {{count}}개 실행",
+    "streamingText": "텍스트 스트리밍 중",
+    "thinkingStatus": "생각하는 중...",
+    "tokenTotal": "토큰 합계",
+    "tokenUsage": "토큰 사용량",
+    "toolExecutions": "도구 실행 {{count}}회",
+    "totalUsage": "총 사용량",
+    "tpsHint": "초당 생성된 출력 토큰 수",
+    "ttftHint": "첫 토큰까지 걸린 시간",
+    "uncachedInput": "캐시되지 않은 입력"
   },
   "messageActions": {
     "fork": "사이트맵",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "단계 변경 첫째, 다음 메시지를 생성",
     "aiCommitEmptyStaged": "아무것도 staged - 메시지를 생성 할 수 없습니다",
     "aiCommitFailed": "생성 실패. API / 모델 설정 확인 및 다시 시도"
+  },
+  "artifacts": {
+    "more": "+{{count}}개 더",
+    "open": "열기",
+    "reveal": "Finder에서 보기",
+    "title": "생성된 파일"
+  },
+  "extensionResult": {
+    "chartItem": "항목 {{index}}",
+    "emptyTable": "표시할 행이 없습니다",
+    "loadingRenderer": "렌더러를 불러오는 중...",
+    "rendererMissing": "렌더러를 찾을 수 없습니다",
+    "rendererTitle": "확장 렌더러",
+    "tableTitle": "표",
+    "title": "확장 결과"
+  },
+  "webSearch": {
+    "label": "웹 검색",
+    "searching": "웹 검색 중…",
+    "sources": "출처"
   }
 }

@@ -8,7 +8,8 @@
       "system": "システム",
       "ai": "AI 機能",
       "extensions": "拡張と連携",
-      "about": "情報"
+      "about": "情報",
+      "aiCoding": "AI Coding"
     }
   },
   "pet": {
@@ -189,7 +190,10 @@
       "downloading": "ダウンロード更新...",
       "downloadingWithProgress": "ダウンロード更新... {{progress}}%",
       "downloadedReady": "更新 v{{version}} をダウンロードしました。今すぐ更新をクリックすると再起動してインストールします。",
-      "installing": "更新を準備中…"
+      "installing": "更新を準備中…",
+      "greenBuild": "インストール不要版",
+      "manualDownloadHint": "新しいバージョン（v{{version}}）が利用可能です。インストール不要版の場合は、手動でダウンロードし、アプリを終了してから現在のフォルダを置き換えてください。",
+      "openDownloadPage": "ダウンロードページを開く"
     },
     "projectDefaultDirectory": {
       "title": "デフォルトプロジェクトディレクトリ",
@@ -238,7 +242,8 @@
       "clearConfirm": "すべての{{count}}セッションを削除しますか? これは元に戻すことができません。",
       "cleared": "削除された{{count}}セッション",
       "noSessions": "セッションなし"
-    }
+    },
+    "autoUpdateGreenDesc": "インストール不要版は新しいバージョンを確認しますが、自動的にはダウンロード・インストールしません。最新バージョンを手動でダウンロードし、現在のフォルダを置き換えてください。"
   },
   "sync": {
     "title": "同期",
@@ -530,7 +535,9 @@
     "clearConfirmDescription": "恒久的に{{date}}前に作成された{{count}}ログエントリを削除します。 これは元に戻すことができません。",
     "clearSuccess": "クリア{{count}}ログエントリ",
     "clearFailed": "ログをクリアできなかった",
-    "clearEmpty": "クリアする7日以上ログなし"
+    "clearEmpty": "クリアする7日以上ログなし",
+    "cacheReadRatio": "キャッシュ読み取り率",
+    "cacheTokenShare": "キャッシュトークン割合"
   },
   "model": {
     "title": "モデル構成",
@@ -635,7 +642,8 @@
       "DesktopClick": "利用可能なargs:x、y、ボタン、アクション",
       "DesktopType": "利用可能なargs:テキスト、キー、ホットキー",
       "DesktopScroll": "利用可能なargs:x, y, scrollX, scrollY",
-      "DesktopWait": "利用可能なラグ:遅延Ms"
+      "DesktopWait": "利用可能なラグ:遅延Ms",
+      "codegraph_explore": "利用可能な引数: query, projectPath"
     },
     "status": {
       "disabled": "プラグインは無効になっていますので、そのツールはエージェントに公開されていません。",
@@ -669,7 +677,11 @@
       "allowedDomains": "許可されたドメイン",
       "allowedDomainsDesc": "すべてのドメインを許可するために空のままにしてください。 設定すると、マッチングドメインのみが開くことができます。",
       "domainPlaceholder": "例.com\nsub.example.org ディレクティブ",
-      "domainRuleHint": "1行に1つのドメインを入力するか、コンマと別々にしてください。 ブロックされたドメインは、許可されたドメインを優先します。サブドメインは自動的にマッチします。"
+      "domainRuleHint": "1行に1つのドメインを入力するか、コンマと別々にしてください。 ブロックされたドメインは、許可されたドメインを優先します。サブドメインは自動的にマッチします。",
+      "cookiesImportFailed": "Cookieのインポートに失敗しました",
+      "cookiesImported": "{{browserName}} から {{imported}} 件の Cookie をインポートしました（{{skipped}} 件スキップ）",
+      "importCookies": "Cookieをインポート",
+      "importingCookies": "インポート中..."
     },
     "items": {
       "image": {
@@ -689,8 +701,48 @@
         "description": "デスクトップのスクリーンショットを露出, クリック, スクロール, エージェントにキーボードツール.",
         "promptTitle": "ツールの使用制約",
         "promptDesc": "これらのツールは、完全なデスクトップを検査および制御することができます。 承認を有効にし、行動する前に画面をキャプチャし、デスクトップの自動化が必要なときにのみ使用してください。 アクティブなモデルがコンピュータ使用を可能にする場合、OpenAIコンピュータ使用は、これらのデスクトップ機能を最初に調整します。"
+      },
+      "codegraph": {
+        "description": "ローカルのコードインテリジェンスエンジンです。リポジトリをシンボル・参照グラフとしてインデックスし、エージェントに探索させます。",
+        "promptDesc": "有効にすると、エージェントに `codegraph_explore` ツールが与えられます。インデックス済みのグラフから「XはどうやってYに到達するか／誰がこれを呼んでいるか／これを変更すると何が壊れるか」といった質問に答えられ、多くの Read/Grep 呼び出しを置き換えます。デフォルトでは無効で、有効化すると言語文法が一度ダウンロードされます。",
+        "promptTitle": "ツール使用に関する制約",
+        "title": "CodeGraph プラグイン"
       }
-    }
+    },
+    "codegraph": {
+      "actionDone": "完了しました。",
+      "actionFailed": "CodeGraph の操作に失敗しました",
+      "assetsDesc": "CodeGraph は tree-sitter 文法でコードを解析します。文法は初めて有効化したときにダウンロードされます（開発ビルドではローカルでビルドされた文法を使用するため、ダウンロードは不要です）。",
+      "assetsTitle": "言語文法",
+      "deleteIndex": "インデックスを削除",
+      "devMode": "開発ビルド — ローカルの文法（{{count}} 件）を使用しており、ダウンロードは不要です。",
+      "download": "文法をダウンロード",
+      "downloadFailed": "文法のダウンロードに失敗しました",
+      "downloaded": "文法をダウンロードしました。",
+      "downloading": "ダウンロード中...",
+      "enableFirst": "インデックス済みプロジェクトを管理するには、まずプラグインを有効化してください。",
+      "indexCurrent": "現在のプロジェクトをインデックス",
+      "needsDownload": "文法がまだインストールされていません。インデックス作成を開始するにはダウンロードしてください。",
+      "projectStats": "{{files}} ファイル ・ {{nodes}} ノード ・ {{edges}} エッジ",
+      "projectsDesc": "このマシンで CodeGraph がインデックスしたすべてのプロジェクトを、グラフサイズと状態とともに表示します。再インデックスはゼロから再構築し、同期は差分の変更を反映します。",
+      "projectsEmpty": "まだインデックスされたプロジェクトはありません。エージェントが初めてプロジェクトを探索したときに自動的にインデックス作成が始まるか、今すぐ現在のプロジェクトをインデックスできます。",
+      "projectsLoading": "インデックス済みプロジェクトを読み込み中...",
+      "projectsTitle": "インデックス済みプロジェクト",
+      "ready": "文法の準備が完了しました（{{count}} 件インストール済み）。",
+      "refresh": "更新",
+      "reindex": "再インデックス",
+      "reindexing": "インデックス作成中...",
+      "remove": "削除",
+      "removed": "ダウンロード済みの文法を削除しました。",
+      "removing": "削除中...",
+      "sync": "同期",
+      "syncing": "同期中...",
+      "unknownRoot": "（不明なプロジェクト）{{hash}}",
+      "workerMissing": "CodeGraph ワーカーのバイナリが見つかりませんでした。`npm run codegraph:publish`（または `dotnet build sidecars/OpenCowork.CodeGraph.Worker`）でビルドしてください。",
+      "workerRunning": "ワーカー実行中",
+      "workerStopped": "ワーカー未起動（初回使用時に起動）"
+    },
+    "toolStatusDescCodeGraph": "codegraph_explore ツールは、プラグインが有効で、言語文法の準備ができている場合（ダウンロード済み、または開発ビルドでローカル提供されている場合）にのみ公開されます。"
   },
   "migration": {
     "title": "移住センター",
@@ -1151,7 +1203,29 @@
     "channelUserRefreshFailed": "ユーザー情報を更新できなかった",
     "channelDisconnect": "接続解除",
     "channelDisconnected": "チャネルの切断",
-    "channelRequired": "チャンネル認証を最初に完了して下さい"
+    "channelRequired": "チャンネル認証を最初に完了して下さい",
+    "builtinSearchEnabled": "組み込み検索が有効",
+    "cacheTtl": "キャッシュTTL（Anthropic）",
+    "cacheTtlHint": "5分（デフォルト）または1時間（書き込みコスト2倍）。モデルレベルの設定はプロバイダーレベルより優先されます。",
+    "enableBuiltinSearch": "組み込みWeb検索を有効化",
+    "enableBuiltinSearchDesc": "クライアント側のツールではなく、プロバイダーのネイティブWeb検索（Claude / OpenAI Responses）を使用します。",
+    "kimiQuota5h": "5時間の上限",
+    "kimiQuotaParallel": "最大同時実行数 {{count}}",
+    "kimiQuotaWeekly": "週間の上限",
+    "kimiQuotaWindowLimit": "{{time}}の上限",
+    "requestParams": "リクエストパラメーター",
+    "sendMaxOutputTokens": "最大出力トークンを送信",
+    "sendMaxOutputTokensHint": "オフの場合、リクエストは max_tokens / max_completion_tokens / max_output_tokens を省略し、出力上限の決定をサーバーに委ねます",
+    "sendTemperature": "temperature を送信",
+    "sendTemperatureHint": "オフの場合、リクエストは temperature パラメーターを省略します — サンプリング設定が固定されているサービス（Kimi K3 など）向けです",
+    "supportsBuiltinSearch": "組み込みWeb検索に対応",
+    "supportsBuiltinSearchDesc": "エンドポイントがプロバイダーのネイティブWeb検索サーバーツール（Claude / OpenAI Responses）を実装していることを示します。ほとんどのリレーエンドポイントは対応していません。",
+    "supportsFastMode": "高速モードに対応",
+    "supportsFastModeDesc": "エンドポイントが、より高速な応答のための OpenAI priority service tier を受け付けます。",
+    "supportsImageGeneration": "画像生成に対応",
+    "supportsImageGenerationDesc": "エンドポイントが OpenAI Responses の image_generation サーバーツールを実装しています。",
+    "supportsWebsocket": "WebSocketプロトコルに対応",
+    "supportsWebsocketDesc": "エンドポイントが OpenAI Responses の WebSocket トランスポートを提供します。"
   },
   "channel": {
     "title": "チャンネル",
@@ -1456,5 +1530,227 @@
     "copyConversation": "会話をコピーする",
     "allowTool": "ツールの実行を許可する",
     "denyTool": "Denyツールの実行"
+  },
+  "aiCoding": {
+    "addConfig": "設定を追加",
+    "apiKey": "APIキー",
+    "baseUrl": "ベースURL",
+    "claudeProviderDesc": "Anthropic プロトコルのモデルを持つ、有効化済みでAPIキーが設定されたプロバイダーのみが表示されます。RoutinAI の GPT-5.4/5.5/5.6 モデルも ClaudeCode 互換として扱われます。",
+    "claudeSubtitle": "Claude Code のプロバイダーと Anthropic プロトコルモデルの紐付けを設定",
+    "claudeTitle": "ClaudeCode",
+    "codexModelDesc": "Codex は一時的なプロバイダーの上書きと Responses ワイヤーAPIで起動されます。",
+    "codexProviderDesc": "OpenAI Responses モデルを持つ、有効化済みでAPIキーが設定されたプロバイダーのみが表示されます。",
+    "codexSubtitle": "Codex CLI のプロバイダーとモデルの紐付けを設定",
+    "codexTitle": "Codex",
+    "command": "コマンド",
+    "configName": "設定名",
+    "configs": "設定",
+    "configsDesc": "ターミナルメニュー用に名前付きの起動プロファイルを作成",
+    "copyConfig": "設定をコピー",
+    "copyName": "{{name}} のコピー",
+    "defaultConfigName": "デフォルト {{index}}",
+    "defaultModel": "デフォルトモデル",
+    "deleteConfig": "設定を削除",
+    "fullAccessPermission": "フルアクセス権限",
+    "fullAccessPermissionDesc": "--dangerously-skip-permissions を付けて Claude Code を起動します。",
+    "invalid": "無効",
+    "model": "モデル",
+    "noClaudeProviders": "APIキーが設定された、有効な Anthropic プロトコルプロバイダーがありません。",
+    "noCodexProviders": "APIキーが設定された、有効な OpenAI Responses プロバイダーがありません。",
+    "permissionOptions": "権限オプション",
+    "permissionOptionsDesc": "この設定に対するオプションの Claude Code 起動フラグです。",
+    "provider": "プロバイダー",
+    "ready": "準備完了",
+    "resolvedCodexConfig": "解決済みの Codex 起動設定",
+    "resolvedEnvironment": "解決済みの環境",
+    "selectModel": "モデルを選択",
+    "selectProvider": "プロバイダーを選択",
+    "status": {
+      "apiKeyMissing": "APIキーがありません",
+      "baseUrlMissing": "ベースURLがありません",
+      "configMissing": "設定がありません",
+      "modelMissing": "モデルがありません",
+      "protocolUnsupported": "プロトコル不一致",
+      "providerDisabled": "プロバイダーが無効です",
+      "providerMissing": "プロバイダーがありません",
+      "ready": "準備完了",
+      "unsupportedAuth": "サポートされていない認証"
+    }
+  },
+  "codegraph": {
+    "subtitle": "プロジェクトごとのインデックス可視化: 統計、ファイル、シンボルグラフ",
+    "title": "CodeGraph"
+  },
+  "extension": {
+    "bundled": "同梱リソース",
+    "bundledAgents": "{{count}} 個のエージェント",
+    "bundledCommands": "{{count}} 個のコマンド",
+    "bundledMcp": "{{count}} 個のMCPサーバー",
+    "bundledNotSynced": "未同期",
+    "bundledSkills": "{{count}} 個のスキル",
+    "bundledSynced": "同期済み",
+    "bundledWorkflows": "{{count}} 個のワークフロー",
+    "components": "コンポーネント",
+    "disabled": "無効",
+    "emptyDesc": "extension.json を含むフォルダを選択すると、OpenCowork にカスタムツールを追加できます。",
+    "emptyTitle": "インストールされている拡張機能はありません",
+    "enabled": "有効",
+    "hideSecret": "シークレットを隠す",
+    "hostRendered": "ホスト側レンダリング",
+    "installFailed": "拡張機能のインストールに失敗しました",
+    "installFolder": "インストールフォルダ",
+    "installed": "拡張機能をインストールしました",
+    "loading": "拡張機能を読み込み中...",
+    "network": "ネットワーク",
+    "noNetwork": "ネットワークアクセスなし",
+    "noRenderers": "カスタムレンダラーなし",
+    "openFolder": "フォルダを開く",
+    "openFolderFailed": "フォルダを開けませんでした",
+    "readOnlyCount": "{{count}} 件が読み取り専用",
+    "remove": "削除",
+    "removeConfirm": "この拡張機能を削除しますか？",
+    "removeFailed": "拡張機能の削除に失敗しました",
+    "renderers": "レンダラー",
+    "required": "必須",
+    "saveConfig": "設定を保存",
+    "saveFailed": "設定の保存に失敗しました",
+    "saved": "拡張機能の設定を保存しました",
+    "showSecret": "シークレットを表示",
+    "subtitle": "ローカルのカスタムツールとレスポンスUIコンポーネントをインストール",
+    "syncWarnings": "一部の同梱リソースが同期されませんでした",
+    "title": "拡張機能",
+    "tools": "ツール",
+    "updateFailed": "拡張機能の更新に失敗しました",
+    "workflows": "ワークフロー",
+    "workflowsHint": "このプラグインは、必要に応じてこれらのワークフローを読み込む1つのルータースキルです。"
+  },
+  "hooks": {
+    "actions": {
+      "deny": "無視",
+      "disable": "無効化",
+      "enable": "有効化",
+      "openArtifact": "スクリプト",
+      "openConfig": "ユーザー設定を開く",
+      "openConfigShort": "設定",
+      "refresh": "更新",
+      "trust": "使用"
+    },
+    "empty": "設定されているフックはありません。",
+    "emptyForEvent": "このライフサイクルイベントに設定されているフックはありません。",
+    "events": {
+      "PermissionRequest": {
+        "description": "ツールの権限確認ダイアログが表示される前に実行されます。リクエストを許可または拒否できます。"
+      },
+      "PostCompact": {
+        "description": "コンテキスト圧縮が完了した後に実行されます。フォローアップの指示を追加する際に便利です。"
+      },
+      "PostToolUse": {
+        "description": "ツールの実行が完了し、結果がモデルに返される前に実行されます。コンテキストを追加したり、ツールのフィードバックを置き換えたりできます。"
+      },
+      "PreCompact": {
+        "description": "手動または自動のコンテキスト圧縮の前に実行されます。圧縮の指示を追加したり、この圧縮をブロックしたりできます。"
+      },
+      "PreToolUse": {
+        "description": "ツール呼び出しが生成された後、実行される前に実行されます。入力を更新したり、リスクのある呼び出しをブロックしたりできます。"
+      },
+      "SessionStart": {
+        "description": "セッションの開始、再開、クリア、圧縮からの復元、またはバックグラウンドタスクとしての開始の前に実行されます。セッションのコンテキストを追加する際に便利です。"
+      },
+      "Stop": {
+        "description": "現在のエージェントのターンが終了しようとするときに実行されます。最終チェック、追加メモ、完了のブロックなどに便利です。"
+      },
+      "SubagentStart": {
+        "description": "サブエージェントが開始する前に実行されます。コンテキストを追加したり、サブタスクをブロックしたりできます。"
+      },
+      "SubagentStop": {
+        "description": "サブエージェントが終了し、結果がメインセッションに返される前に実行されます。結果を検証したりブロックしたりできます。"
+      },
+      "UserPromptSubmit": {
+        "description": "ユーザーのプロンプトが送信される前に実行されます。コンテキストを追加したり、プロンプトを更新したり、送信をブロックしたりできます。"
+      }
+    },
+    "feature": {
+      "description": "OpenCowork を再起動すると有効になります。",
+      "preview": "プレビュー",
+      "restartToDisable": "このアプリセッションではフックが有効なままです。実行を停止するには OpenCowork を再起動してください。",
+      "restartToEnable": "フックの実行を開始するには OpenCowork を再起動してください。",
+      "runtimeOff": "このセッションでは無効",
+      "runtimeOn": "このセッションで有効",
+      "title": "フックを有効化"
+    },
+    "list": {
+      "title": "すべてのフック"
+    },
+    "loading": "フックを読み込み中...",
+    "metrics": {
+      "invalid": "無効",
+      "pending": "保留中",
+      "total": "合計"
+    },
+    "review": {
+      "title": "すべてのフック",
+      "warning": "フックを信頼すると、そのコマンドがユーザー権限でローカルに実行されるようになります。"
+    },
+    "source": {
+      "exists": "検出済み",
+      "missing": "見つかりません"
+    },
+    "status": {
+      "changed": "変更あり",
+      "denied": "拒否",
+      "disabled": "無効",
+      "invalid": "無効",
+      "pending": "保留中",
+      "trusted": "信頼済み"
+    },
+    "subtitle": "OpenCowork のライフサイクルフックを管理します。",
+    "title": "フック",
+    "toasts": {
+      "denied": "フックを無視しました",
+      "disabled": "フックを無効化しました",
+      "enabled": "フックを有効化しました",
+      "opened": "ソースを開きました",
+      "trusted": "フックを使用可能にしました"
+    }
+  },
+  "permission": {
+    "bashAllow": {
+      "description": "有効なルールに一致するシェルコマンドは確認なしで実行されます。",
+      "title": "コマンドホワイトリスト（Bash）"
+    },
+    "bashDeny": {
+      "description": "有効なルールに一致するシェルコマンドは常に拒否されます — 最優先で、自動承認やホワイトリストより優先されます。",
+      "title": "コマンドブラックリスト（Bash）"
+    },
+    "master": {
+      "description": "ホワイトリストのツールおよび一致するシェルコマンドは確認をスキップします。ブラックリストのコマンドは常に拒否されます。ルールに該当しない危険な操作は、引き続き確認を求められます。",
+      "title": "権限ホワイトリストを有効化"
+    },
+    "precedence": {
+      "description": "評価順序: コマンドブラックリスト（自動承認が有効でも常に拒否）→ ツールホワイトリスト／コマンドホワイトリスト（確認をスキップ）→ それ以外はすべて確認を求める。"
+    },
+    "rules": {
+      "add": "ルールを追加",
+      "delete": "ルールを削除",
+      "empty": "まだルールがありません",
+      "invalidPattern": "無効なパターン: {{error}}",
+      "modeRegex": "正規表現",
+      "modeWildcard": "ワイルドカード",
+      "patternPlaceholder": "例: npm run * または ^git (status|log)\\b"
+    },
+    "subtitle": "ツールホワイトリストとシェルコマンドルール",
+    "title": "権限",
+    "tools": {
+      "add": "追加",
+      "commandToolWarning": "シェルツール（Bash/Shell/Monitor/PowerShell）がホワイトリストに登録されています — ブラックリストに一致する場合を除き、実行されるすべてのコマンドが確認をスキップします。",
+      "description": "これらのツールは確認なしで実行されます。エントリには * ワイルドカードを使用できます（例: mcp__github__*）。",
+      "duplicate": "このツールは既にホワイトリストに登録されています",
+      "empty": "まだホワイトリストに登録されたツールはありません",
+      "placeholder": "ツール名（例: Write）",
+      "remove": "{{tool}} を削除",
+      "suggestions": "候補:",
+      "title": "ツールホワイトリスト"
+    },
+    "wildcardHelp": "ワイルドカードパターンはコマンド全体に一致し、* は任意のテキストに一致します（例: npm run *）。正規表現のホワイトリストルールはコマンド全体に一致する必要があり、正規表現のブラックリストルールは任意の位置に一致します。複合コマンド（&&、;、|）の各部分はすべてホワイトリストに登録する必要があります。マッチングは大文字小文字を区別しません。"
   }
 }

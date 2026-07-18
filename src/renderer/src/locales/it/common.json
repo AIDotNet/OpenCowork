@@ -84,7 +84,14 @@
     "clarify": "Chiarifica",
     "cowork": "Coefficiente",
     "code": "Codice",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "acp": "Progetta e delega ai sub-agenti",
+      "chat": "Conversazione rapida, senza strumenti di progetto",
+      "clarify": "Trasforma l'ambiguità in un piano rivedibile",
+      "code": "Implementazione pratica e mirata",
+      "cowork": "Pianifica, agisci e verifica insieme a te"
+    }
   },
   "onboarding": {
     "start": "Inizio",
@@ -257,7 +264,8 @@
         "updateNow": "Aggiorna ora",
         "remindLater": "Ricordami più tardi",
         "installNow": "Aggiorna ora",
-        "updateLater": "Aggiorna più tardi"
+        "updateLater": "Aggiorna più tardi",
+        "openDownloadPage": "Apri pagina di download"
       },
       "downloadFailed": "Download non riuscito",
       "delayed": "Aggiornamento posticipato",
@@ -265,7 +273,8 @@
       "downloadedDescription": "La versione {{version}} è pronta per l'installazione.",
       "installing": "Preparazione aggiornamento...",
       "installFailed": "Impossibile avviare l'aggiornamento",
-      "failed": "Aggiornamento fallito"
+      "failed": "Aggiornamento fallito",
+      "manualDescription": "La build senza installazione non supporta ancora gli aggiornamenti automatici. Scarica manualmente l'ultima versione e sostituisci la cartella corrente dopo aver chiuso l'app."
     },
     "errors": {
       "unhandledTitle": "Errore non gestito"

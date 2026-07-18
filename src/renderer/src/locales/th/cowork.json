@@ -82,7 +82,8 @@
     "teamLabel": "ทีม",
     "taskSubAgents": "แก้ไขโครงการหลัก...",
     "teamTools": "เครื่องมือของทีม",
-    "maxIter": "มากสุด {{count}} ตัวเอียง"
+    "maxIter": "มากสุด {{count}} ตัวเอียง",
+    "inheritsMainTools": "เครื่องมือเดียวกันกับเอเจนต์หลัก"
   },
   "artifacts": {
     "noArtifacts": "ยังไม่มีวัตถุ",

@@ -84,7 +84,14 @@
     "clarify": "Clarify",
     "cowork": "Cowork",
     "code": "Código",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "acp": "Diseña la arquitectura y delega en subagentes",
+      "chat": "Conversación rápida, sin herramientas de proyecto",
+      "clarify": "Convierte la ambigüedad en un plan revisable",
+      "code": "Implementación práctica y enfocada",
+      "cowork": "Planifica, actúa y verifica junto a ti"
+    }
   },
   "onboarding": {
     "start": "Comienzo",
@@ -257,7 +264,8 @@
         "updateNow": "Actualización",
         "remindLater": "Recuérdame más tarde",
         "installNow": "Actualizar ahora",
-        "updateLater": "Actualizar más tarde"
+        "updateLater": "Actualizar más tarde",
+        "openDownloadPage": "Abrir página de descarga"
       },
       "downloadFailed": "Descarga fallido",
       "delayed": "Actualización pospuesta",
@@ -265,7 +273,8 @@
       "downloadedDescription": "La versión {{version}} está lista para instalarse.",
       "installing": "Preparando actualización...",
       "installFailed": "No se pudo iniciar la actualización",
-      "failed": "Actualización fallada"
+      "failed": "Actualización fallada",
+      "manualDescription": "La compilación sin instalación aún no admite actualizaciones automáticas. Descargue la última versión manualmente y reemplace la carpeta actual después de cerrar la aplicación."
     },
     "errors": {
       "unhandledTitle": "Error sin manipular"

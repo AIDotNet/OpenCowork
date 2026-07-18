@@ -70,7 +70,17 @@
     "keepAlive": "Houd Alive Interval (seconden)",
     "advanced": "Geavanceerde opties",
     "save": "Opslaan",
-    "cancel": "Annuleren"
+    "cancel": "Annuleren",
+    "saveAndConnect": "Opslaan & verbinden",
+    "secretChange": "Wijzigen",
+    "secretClear": "Wissen",
+    "secretSet": "Opgeslagen",
+    "sectionAdvanced": "Geavanceerd",
+    "sectionAuth": "Authenticatie",
+    "sectionBasic": "Basis",
+    "testConnection": "Verbinding testen",
+    "testFailed": "Verbindingstest mislukt",
+    "testSuccess": "Verbinding en authenticatie OK"
   },
   "groupDialog": {
     "title": "Groupnaam",
@@ -91,7 +101,8 @@
     "copyFailed": "Kopiëren mislukt",
     "pasteFailed": "Plakken mislukt",
     "disconnectedMessage": "SSH-sessie verbroken",
-    "errorMessage": "Verbindingsfout"
+    "errorMessage": "Verbindingsfout",
+    "reconnecting": "Verbinding verloren, opnieuw verbinden…"
   },
   "fileExplorer": {
     "title": "Bestandsverkenner",
@@ -200,7 +211,8 @@
     "backToList": "Terug",
     "viewTable": "Tabelweergave",
     "viewCard": "Kaartweergave",
-    "search": "Verbindingen zoeken..."
+    "search": "Verbindingen zoeken...",
+    "open": "Open"
   },
   "dashboard": {
     "totalServers": "Servers",
@@ -295,7 +307,8 @@
         "done": "Voltooid",
         "error": "Mislukt",
         "canceled": "Geannuleerd"
-      }
+      },
+      "retry": "Opnieuw proberen"
     },
     "terminalTheme": {
       "title": "Terminalpalet",
@@ -325,7 +338,12 @@
       "network": "Netwerkdoorvoer",
       "disks": "Schijfgebruik",
       "path": "Pad",
-      "capacity": "Beschikbaar/Totaal"
+      "capacity": "Beschikbaar/Totaal",
+      "copied": "Naar klembord gekopieerd",
+      "copy": "IP kopiëren",
+      "expand": "Procesmonitor uitvouwen",
+      "latency": "Latentie",
+      "systemInfo": "Systeem"
     },
     "nav": {
       "hosts": "Gastheren",
@@ -416,6 +434,33 @@
       "noConnections": "Geen connectie geschiedenis.",
       "uploads": "Uploadactiviteit",
       "noUploads": "Nog geen upload activiteit."
+    },
+    "emptyGroupsDesc": "Alleen groepen die u zelf aanmaakt, verschijnen hier. Maak er een aan om uw hosts te organiseren.",
+    "libraryTab": "Hosts",
+    "monitor": "Monitor",
+    "processMonitor": {
+      "empty": "Geen overeenkomende processen",
+      "kill": "Proces beëindigen",
+      "killDesc": "PID {{pid}} · {{command}}",
+      "killForce": "Geforceerd beëindigen (-9)",
+      "killTerm": "Beëindigen",
+      "killTitle": "Proces beëindigen?",
+      "killed": "Signaal verzonden naar {{pid}}",
+      "running": "actief",
+      "search": "Filteren op opdracht, gebruiker of PID…",
+      "tasks": "Taken",
+      "title": "Procesmonitor"
+    },
+    "sessionTabs": "Sessietabbladen",
+    "stage": {
+      "auth": "Authenticeren",
+      "connecting": "Verbinden…",
+      "dial": "Kiezen",
+      "failed": "Mislukt",
+      "handshake": "Handshake",
+      "lines": "regels",
+      "shell": "Shell",
+      "waitingLog": "Wachten op verbinding…"
     }
   }
 }

@@ -70,7 +70,17 @@
     "keepAlive": "Gardez l'intervalle de vie (secondes)",
     "advanced": "Options avancées",
     "save": "Enregistrer",
-    "cancel": "Annuler"
+    "cancel": "Annuler",
+    "saveAndConnect": "Enregistrer et connecter",
+    "secretChange": "Modifier",
+    "secretClear": "Effacer",
+    "secretSet": "Enregistré",
+    "sectionAdvanced": "Avancé",
+    "sectionAuth": "Authentification",
+    "sectionBasic": "Général",
+    "testConnection": "Tester la connexion",
+    "testFailed": "Le test de connexion a échoué",
+    "testSuccess": "Connexion et authentification réussies"
   },
   "groupDialog": {
     "title": "Nom du groupe",
@@ -91,7 +101,8 @@
     "copyFailed": "Échec de la copie",
     "pasteFailed": "Impossible de coller",
     "disconnectedMessage": "Session SSH déconnectée",
-    "errorMessage": "Erreur de connexion"
+    "errorMessage": "Erreur de connexion",
+    "reconnecting": "Connexion perdue, reconnexion…"
   },
   "fileExplorer": {
     "title": "Explorateur de fichiers",
@@ -200,7 +211,8 @@
     "backToList": "Précédent",
     "viewTable": "Vue du tableau",
     "viewCard": "Vue de la carte",
-    "search": "Connexions de recherche..."
+    "search": "Connexions de recherche...",
+    "open": "Ouvrir"
   },
   "dashboard": {
     "totalServers": "Serveur",
@@ -295,7 +307,8 @@
         "done": "Achevé",
         "error": "Échec",
         "canceled": "Annulé"
-      }
+      },
+      "retry": "Réessayer"
     },
     "terminalTheme": {
       "title": "Palette des terminaux",
@@ -325,7 +338,12 @@
       "network": "Débit réseau",
       "disks": "Utilisation du disque",
       "path": "Voie",
-      "capacity": "Disponible/Total"
+      "capacity": "Disponible/Total",
+      "copied": "Copié dans le presse-papiers",
+      "copy": "Copier l'IP",
+      "expand": "Développer le moniteur de processus",
+      "latency": "Latence",
+      "systemInfo": "Système"
     },
     "nav": {
       "hosts": "Hôtes",
@@ -416,6 +434,33 @@
       "noConnections": "Pas d'historique de connexion.",
       "uploads": "Activité de chargement",
       "noUploads": "Pas encore d'activité de téléchargement."
+    },
+    "emptyGroupsDesc": "Seuls les groupes que vous créez apparaissent ici. Créez-en un pour organiser vos hôtes.",
+    "libraryTab": "Hôtes",
+    "monitor": "Moniteur",
+    "processMonitor": {
+      "empty": "Aucun processus correspondant",
+      "kill": "Terminer le processus",
+      "killDesc": "PID {{pid}} · {{command}}",
+      "killForce": "Forcer l'arrêt (-9)",
+      "killTerm": "Terminer",
+      "killTitle": "Terminer le processus ?",
+      "killed": "Signal envoyé à {{pid}}",
+      "running": "en cours",
+      "search": "Filtrer par commande, utilisateur ou PID…",
+      "tasks": "Tâches",
+      "title": "Moniteur de processus"
+    },
+    "sessionTabs": "Onglets de session",
+    "stage": {
+      "auth": "Authentifier",
+      "connecting": "Connexion…",
+      "dial": "Composer",
+      "failed": "Échec",
+      "handshake": "Négociation",
+      "lines": "lignes",
+      "shell": "Shell",
+      "waitingLog": "En attente de connexion…"
     }
   }
 }

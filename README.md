@@ -24,7 +24,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-Apache_2.0-green" alt="License">
-  <img src="https://img.shields.io/badge/Version-0.9.118-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.2.1-orange" alt="Version">
   <img src="https://img.shields.io/github/stars/AIDotNet/OpenCoWork?style=social" alt="Stars">
   <img src="https://img.shields.io/github/forks/AIDotNet/OpenCoWork?style=social" alt="Forks">
 </p>
@@ -46,16 +46,17 @@ Most AI chat interfaces are isolated from your actual work environment. You spen
 
 ### ⚙️ Runtime
 
-- **4-layer Electron architecture** — Main process, Preload bridge, Renderer UI (React 19), and provider-agnostic agent runtime.
-- **TypeScript end-to-end** — Type safety from SQLite through IPC to the UI.
+- **Electron + native worker architecture** — Renderer (React 19), Preload bridge, Main process, and a per-platform **.NET 10 Native AOT** worker sidecar that drives the agent run loop and owns the database.
+- **TypeScript + C# end-to-end** — Renderer/main are TypeScript; the performance-critical worker (LLM streaming loop, SQLite, CodeGraph indexing) is AOT-compiled C#, connected over a framed MessagePack IPC protocol.
 - **SSH remote support** — Agents operate on remote hosts transparently via SSH with xterm.js terminal integration.
 
-### 🔄 4 Agent Modes
+### 🔄 5 Agent Modes
 
 Every conversation picks the right mode:
 
 | Mode      | Purpose |
 | --------- | ------- |
+| `chat`    | Quick, tool-free conversation — no filesystem or shell access. |
 | `clarify` | Ask grounded questions, resolve ambiguity, produce a reviewable plan before any code is written. |
 | `cowork`  | Full agent: code search, file I/O, shell, browser, sub-agent delegation, and more. |
 | `code`    | Pair programming — focused code generation and surgical editing with Monaco Editor integration. |
@@ -73,6 +74,13 @@ Every conversation picks the right mode:
 - **MCP Client** — Connect to Model Context Protocol servers (stdio, SSE, streamable-HTTP) and expose active MCP tools directly to the agent.
 - **Skill System** — Install domain-specific skills from the Skills Market; loaded dynamically and surfaced to the agent at runtime.
 - **Custom Extensions** — Build plugins with declarative HTTP tools, sandboxed JS handlers, and custom HTML renderers.
+- **CodeGraph** — On-demand repository indexing (tree-sitter, in the native worker) with a visual code graph explorer and structural tools (`codegraph_explore`, search, callers/callees, impact) surfaced to the agent.
+
+### 🎨 Beyond Chat
+
+- **Draw** — A node-graph canvas (text/image/config nodes + connections) for wiring up image and video generation pipelines, including Seedance video.
+- **Desktop Pet** — An optional on-screen companion with XP, skins, and work/study away-tracking.
+- **Hooks** — Lifecycle automation hooks with per-hook trust and enable/disable controls.
 
 ### 💬 8 Messaging Plugins
 
@@ -89,36 +97,32 @@ Every conversation picks the right mode:
 
 ### ⏰ Persistence
 
-- **SQLite** — Messages, sessions, projects, tasks, and plans survive restarts.
+- **SQLite** — Messages, sessions, projects, tasks, and plans survive restarts. The database lives inside the native worker (bundled `e_sqlite3`), reached from the renderer/main over IPC — there's no direct Node SQLite binding in the data path anymore.
 - **Additive schema** — Columns are added when absent; no migration files, no data loss.
 
 ### 🌐 Internationalization
 
-13+ languages including English, Chinese, Vietnamese, Turkish, and more — all via i18next.
+16 languages — English, Chinese, Arabic, German, Spanish, French, Indonesian, Italian, Japanese, Korean, Dutch, Portuguese, Russian, Thai, Turkish, and Vietnamese — all via i18next.
 
 ## 🏗️ Architecture
 
 ```
-Renderer (React 19)  ←→  Preload (contextBridge)  ←→  Main Process
-     │                                                      │
-  Agent Loop ─ Tool Registry ─ IPC ──────────→  IPC Handlers
-     │                                              │
-     ├─ File I/O, Grep/Glob, Bash              SQLite (better-sqlite3)
-     ├─ Browser (webview)                       Shell / SSH (node-pty, ssh2)
-     ├─ Sub-Agents & Teams                      Messaging Plugins
-     ├─ Plan, Goal, Memory                      MCP Client
-     ├─ Skills & Extensions                     Cron Scheduler
-     └─ MCP Resources                           File System
+Renderer (React 19)  ←→  Preload (contextBridge)  ←→  Main Process  ←→  Native Worker (.NET 10 AOT)
+     │                                                      │                    │
+  Tool execution, UI,                              IPC Handlers,          Agent run loop
+  approvals, sub-agents                          Shell/SSH, Messaging     (provider streaming)
+  & teams                                        Plugins, MCP Client,     SQLite (native e_sqlite3)
+                                                    Cron Scheduler         CodeGraph indexing
 ```
 
-- **Renderer** — React 19 + Tailwind CSS + Zustand stores. Agent loop runs here, tools execute via IPC.
+- **Renderer** — React 19 + Tailwind CSS + Zustand stores. Owns UI and tool-call approval, and executes the tools that need Electron/Node APIs (file I/O, shell, browser).
 - **Preload** — Narrow `contextBridge` API for secure main↔renderer communication.
-- **Main Process** — System access: SQLite, filesystem, shell, SSH, messaging plugins, cron, MCP client.
-- **Agent Runtime** — Provider-agnostic (`js-agent-runtime.ts`), streams responses, handles tool calls.
+- **Main Process** — System access: filesystem, shell, SSH, messaging plugins, cron, MCP client; spawns and supervises the native worker over a length-prefixed MessagePack socket protocol.
+- **Native Worker** (`sidecars/OpenCowork.Native.Worker`) — A per-platform .NET 10 Native AOT binary that owns SQLite, drives the LLM provider streaming loop, and runs CodeGraph's tree-sitter indexing. It calls back into the renderer via reverse-RPC for tool execution it can't do itself.
 
 ## 🛠️ Quick Start
 
-**Prerequisites:** Node.js ≥ 18, npm ≥ 9
+**Prerequisites:** Node.js ≥ 18, npm ≥ 9, and the [.NET SDK 10](https://dotnet.microsoft.com/download) with the Native AOT workload — `npm run dev`/`build` publish the native worker sidecar on first run and need `dotnet` on `PATH`.
 
 ```bash
 git clone https://github.com/AIDotNet/OpenCowork.git

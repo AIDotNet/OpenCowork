@@ -104,7 +104,14 @@
     "chats": "Tán gẫu",
     "noChats": "Chưa nói chuyện",
     "smartRename": "Thay tên thông minh",
-    "smartRenaming": "Đổi tên thông minh"
+    "smartRenaming": "Đổi tên thông minh",
+    "dropFolderHint": "Thả một thư mục vào đây để nhập làm dự án",
+    "projectSortBy": "Sắp xếp dự án theo",
+    "projectSortCreatedAt": "Thời gian tạo",
+    "projectSortName": "Theo bảng chữ cái",
+    "projectSortRecentlyUpdated": "Cập nhật gần đây",
+    "projectSortTitle": "Sắp xếp dự án: {{sort}}",
+    "revealInFolder": "Mở vị trí thư mục"
   },
   "sidebar_toast": {
     "sessionDeleted": "Phiên chạy đã xoá",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "Không có phiên họp dự án nào được thông qua",
     "smartRenameNoContent": "Không có nội dung trò chuyện để thay đổi tên",
     "smartRenameFailed": "Việc đổi tên thông minh bị lỗi",
-    "smartRenameSuccess": "Phiên chạy được đổi tên một cách thông minh"
+    "smartRenameSuccess": "Phiên chạy được đổi tên một cách thông minh",
+    "dropNotFolder": "Vui lòng thả một thư mục, không phải tập tin",
+    "projectsCreatedCount": "Đã tạo {{count}} dự án",
+    "revealFailed": "Mở vị trí thất bại"
   },
   "topbar": {
     "togglePanel": "Bật/ tắt bảng điều khiển",
@@ -225,7 +235,14 @@
     "openInspector": "Mở thanh tra",
     "closeRuntimeStatus": "Ẩn văn cảnh và tiến trình",
     "openRuntimeStatus": "Hiện bối cảnh và tiến trình",
-    "help": "Hướng dẫn mở"
+    "help": "Hướng dẫn mở",
+    "builtinSearch": "Tìm kiếm web tích hợp",
+    "builtinSearchOff": "Tắt",
+    "builtinSearchOn": "Bật tìm kiếm gốc của nhà cung cấp",
+    "faster": "Nhanh hơn",
+    "followGlobalModel": "Theo mô hình toàn cục",
+    "followGlobalModelDesc": "Dùng thiết lập mô hình chính toàn cục cho phiên chạy này.",
+    "smarter": "Thông minh hơn"
   },
   "runtimeStatus": {
     "contextTitle": "Môi trường",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}. {{second}} và {{count}} thêm",
     "noTasks": "Chưa có tác vụ",
     "runningTerminals": "Đang chạy thiết bị cuối",
-    "closeTerminal": "Đóng thiết bị cuối"
+    "closeTerminal": "Đóng thiết bị cuối",
+    "subAgents": "Đặc vụ phụ",
+    "subAgentsCompleted": "{{count}} đã hoàn tất",
+    "subAgentsRunning": "{{count}} đang chạy"
   },
   "browser": {
     "back": "Lùi",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "Lùi",
     "reportStatusMissing": "Thiếu",
     "reportRetrying": "Tạo lại báo cáo cuối cùng...",
-    "reportEmpty": "Không có báo cáo cuối cùng"
+    "reportEmpty": "Không có báo cáo cuối cùng",
+    "aborted": "Đã huỷ",
+    "backToList": "Quay lại Đặc vụ phụ",
+    "completedGroup": "Đã hoàn tất",
+    "durationHours": "{{count}}h",
+    "durationMinutes": "{{count}}m",
+    "durationSeconds": "{{count}}s",
+    "maxIterations": "Đã đạt giới hạn số lần lặp",
+    "noStarted": "Chưa có đặc vụ phụ nào được khởi động",
+    "started": "Đã khởi động",
+    "stop": "Dừng đặc vụ phụ này"
   },
   "detailPanel": {
     "team": "Đội",
@@ -682,7 +712,9 @@
           "Các trường hợp mà sub-tasks nên chạy song song và trở lại cấu trúc Markdown tóm tắt cho tiếp tục phối hợp"
         ]
       }
-    }
+    },
+    "useFullWidth": "Dùng toàn bộ chiều rộng",
+    "useStandardWidth": "Dùng chiều rộng tiêu chuẩn"
   },
   "navRail": {
     "conversations": "Nói chuyện",
@@ -694,7 +726,8 @@
     "draw": "Vẽ",
     "translate": "Dịch",
     "ssh": "SSH",
-    "settings": "Thiết lập"
+    "settings": "Thiết lập",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "Tài nguyên",
@@ -945,7 +978,23 @@
     "inpaintPrompt": "Mô tả thay đổi cho vùng đã tô",
     "outpaintPrompt": "Mô tả nội dung lấp đầy vùng mới (tùy chọn)",
     "copyImage": "Sao chép vào clipboard",
-    "copiedImage": "Đã sao chép ảnh"
+    "copiedImage": "Đã sao chép ảnh",
+    "assistantActConnect": "Đã kết nối nút",
+    "assistantActCreateText": "Đã tạo nút văn bản",
+    "assistantActFailed": "thất bại",
+    "assistantActGenerate": "Đã bắt đầu tạo ảnh",
+    "assistantActRead": "Đã đọc canvas",
+    "assistantAddSelection": "Thêm mục đã chọn ({{count}})",
+    "assistantClear": "Xoá cuộc trò chuyện",
+    "assistantCollapse": "Thu gọn",
+    "assistantQuickDescribe": "Mô tả ảnh",
+    "assistantQuickDescribePrompt": "Mô tả chủ thể, bố cục và phong cách của ảnh ngữ cảnh, sau đó đưa ra một prompt tiếng Anh có thể tái sử dụng.",
+    "assistantQuickRefine": "Tinh chỉnh prompt",
+    "assistantQuickRefinePrompt": "Tinh chỉnh văn bản prompt trong ngữ cảnh thành một prompt tạo ảnh tiếng Anh chất lượng cao. Chỉ xuất ra prompt cuối cùng.",
+    "assistantQuickTranslate": "Dịch sang tiếng Anh",
+    "assistantQuickTranslatePrompt": "Dịch văn bản trong ngữ cảnh thành một prompt tạo ảnh tiếng Anh tự nhiên. Chỉ xuất ra kết quả.",
+    "assistantStop": "Dừng",
+    "retry": "Thử lại"
   },
   "translatePage": {
     "title": "Al Dịch",
@@ -1134,6 +1183,143 @@
     "connecting": "Đang kết nối tới trạm cuối...",
     "terminalExited": "Comment",
     "terminalExitedWithError": "Comment",
-    "exitCode": "Mã thoát: {{code}}"
-  }
+    "exitCode": "Mã thoát: {{code}}",
+    "invalidAiCodingConfig": "Cấu hình chưa đầy đủ hoặc không hợp lệ.",
+    "localAiCodingOnly": "Cấu hình khởi chạy AI Coding chỉ khả dụng cho thiết bị cuối của dự án cục bộ.",
+    "moveToBottomDock": "Chuyển tới thiết bị cuối phía dưới",
+    "moveToRightPanel": "Chuyển tới bảng bên phải",
+    "newClaudeCode": "ClaudeCode mới"
+  },
+  "codegraphPage": {
+    "addFolder": "Lập chỉ mục một thư mục",
+    "analytics": {
+      "cycles": "Phụ thuộc vòng: {{count}}",
+      "deadCode": "Ứng viên mã chết: {{count}}",
+      "description": "Phụ thuộc vòng giữa các tập tin và các ký hiệu riêng tư chưa từng được tham chiếu, tính toán từ chỉ mục theo yêu cầu.",
+      "noCycles": "Không có phụ thuộc vòng giữa các tập tin.",
+      "noDeadCode": "Không có ký hiệu riêng tư nào chưa được tham chiếu.",
+      "rerun": "Chạy lại",
+      "run": "Chạy phân tích",
+      "running": "Đang phân tích…",
+      "showingTop": "hiển thị {{count}} mục hàng đầu",
+      "title": "Tình trạng đồ thị"
+    },
+    "back": "Quay lại",
+    "charts": {
+      "edgesByKind": "Cạnh theo loại",
+      "filesByLanguage": "Tập tin theo ngôn ngữ",
+      "noData": "Không có dữ liệu",
+      "nodesByKind": "Nút theo loại"
+    },
+    "delete": "Xoá chỉ mục",
+    "deleting": "Đang xoá…",
+    "files": {
+      "empty": "Chưa có tập tin nào được lập chỉ mục.",
+      "loadingSymbols": "Đang tải ký hiệu…",
+      "noSymbols": "Tập tin này không có ký hiệu nào.",
+      "search": "Lọc tập tin…",
+      "symbols_one": "{{count}} ký hiệu",
+      "symbols_other": "{{count}} ký hiệu",
+      "title": "Tập tin đã lập chỉ mục",
+      "viewInGraph": "Xem trong đồ thị"
+    },
+    "freshness": {
+      "backend": "Backend",
+      "extractionVersion": "Phiên bản trích xuất",
+      "indexing": "Đang lập chỉ mục…",
+      "journal": "Chế độ nhật ký",
+      "lastIndexed": "Lần lập chỉ mục gần nhất",
+      "never": "Chưa bao giờ",
+      "stale": "Đã cũ — nên lập lại chỉ mục",
+      "title": "Độ mới của chỉ mục",
+      "upToDate": "Đã cập nhật"
+    },
+    "graph": {
+      "depth": "Độ sâu",
+      "empty": "Không tìm thấy nút lân cận nào cho ký hiệu này.",
+      "expand": "Mở rộng nút lân cận",
+      "interactionHint": "Nhấp: ghim tiêu điểm & mở rộng · Nhấp đúp: đưa về giữa tại đây",
+      "loading": "Đang tải đồ thị…",
+      "nodesEdges": "{{nodes}} nút · {{edges}} cạnh",
+      "reset": "Đặt lại",
+      "searchPlaceholder": "Tìm một ký hiệu để bắt đầu (ví dụ: tên hàm hoặc tên lớp)",
+      "seedHint": "Tìm một ký hiệu, hoặc nhấp vào một ký hiệu trong tab Tập tin, để khởi tạo đồ thị.",
+      "title": "Đồ thị ký hiệu"
+    },
+    "indexing": "Đang lập chỉ mục…",
+    "kpi": {
+      "dbSize": "Kích thước CSDL",
+      "edges": "Cạnh",
+      "files": "Tập tin",
+      "nodes": "Nút",
+      "pendingRefs": "Tham chiếu đang chờ",
+      "state": "Trạng thái"
+    },
+    "needsDownload": "CodeGraph cần tải ngữ pháp (grammar) một lần trước khi có thể lập chỉ mục. Thực hiện việc này trong Thiết lập → Plugin.",
+    "noProjects": "Chưa có dự án nào được lập chỉ mục. Nhấp \"Lập chỉ mục một thư mục\" để tạo chỉ mục đầu tiên.",
+    "notIndexedDesc": "Dự án này chưa có chỉ mục đồ thị.",
+    "notIndexedTitle": "Chưa lập chỉ mục",
+    "openSettings": "Mở Thiết lập",
+    "pluginDisabled": "CodeGraph đang tắt. Hãy bật plugin trong Thiết lập → Plugin trước.",
+    "progress": {
+      "complete": "Đang hoàn tất",
+      "extract": "Đang trích xuất ký hiệu",
+      "files": "{{done}} / {{total}} tập tin",
+      "indexing": "Đang lập chỉ mục",
+      "maintenance": "Đang tối ưu hoá",
+      "recreate": "Đang xây dựng lại",
+      "resolve": "Đang giải quyết tham chiếu",
+      "scan": "Đang quét tập tin",
+      "sync": "Đang đồng bộ",
+      "synthesize": "Đang tổng hợp"
+    },
+    "refresh": "Làm mới",
+    "reindex": "Lập lại chỉ mục",
+    "reindexing": "Đang lập lại chỉ mục…",
+    "selectProject": "Dự án",
+    "subtitle": "Trực quan hoá chỉ mục theo từng dự án: thống kê, phân bố, cây tập tin và đồ thị ký hiệu",
+    "sync": "Đồng bộ",
+    "syncing": "Đang đồng bộ…",
+    "tabs": {
+      "dashboard": "Bảng điều khiển",
+      "files": "Tập tin",
+      "graph": "Đồ thị"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "Không thể lập chỉ mục thư mục đó",
+      "indexDone": "Đã lập chỉ mục xong",
+      "indexFailed": "Lập chỉ mục thất bại",
+      "indexStarted": "Đã bắt đầu lập chỉ mục",
+      "removeFailed": "Xoá chỉ mục thất bại",
+      "removed": "Đã xoá chỉ mục",
+      "syncDone": "Đồng bộ xong",
+      "syncFailed": "Đồng bộ thất bại"
+    },
+    "toolSurface": {
+      "description": "Mặc định chỉ cung cấp codegraph_explore cho các đặc vụ. Bật để đăng ký thêm search, node, callers, callees, impact, files và status (bề mặt công cụ vẫn được điều chỉnh theo kích thước dự án).",
+      "title": "Đầy đủ công cụ cho đặc vụ"
+    },
+    "unknownRoot": "Dự án không xác định ({{hash}})"
+  },
+  "committed": "Đã commit",
+  "files": "Trình khám phá",
+  "scmAgentChanges": "Thay đổi của đặc vụ",
+  "scmChanges": "Thay đổi",
+  "scmClean": "Không có thay đổi",
+  "scmCommit": "Commit",
+  "scmCommitPlaceholder": "Thông điệp (Ctrl+Enter để commit)",
+  "scmDiscard": "Bỏ qua",
+  "scmGenerate": "Tạo thông điệp commit",
+  "scmGenerateFailed": "Tạo thất bại",
+  "scmMerge": "Gộp thay đổi",
+  "scmNoFolder": "Mở một thư mục làm việc để dùng quản lý mã nguồn.",
+  "scmNothingStaged": "Chưa có gì được stage — hãy stage thay đổi trước",
+  "scmStage": "Stage",
+  "scmStageAll": "Stage tất cả",
+  "scmStaged": "Thay đổi đã stage",
+  "scmTitle": "Quản lý mã nguồn",
+  "scmUndo": "Hoàn tác",
+  "scmUnstage": "Bỏ stage",
+  "scmUnstageAll": "Bỏ stage tất cả"
 }

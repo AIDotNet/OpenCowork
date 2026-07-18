@@ -8,7 +8,8 @@
       "system": "Sistem Sistemi",
       "ai": "AI Yetenekleri",
       "extensions": "Extensions & Integrations",
-      "about": "About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About"
+      "about": "About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About",
+      "aiCoding": "AI Coding"
     }
   },
   "pet": {
@@ -189,7 +190,10 @@
       "downloading": "Downloading update...",
       "downloadingWithProgress": "Downloading update... {{progress}} % % % % % % % % %",
       "downloadedReady": "v{{version}} güncellemesi indirildi. Yeniden başlatıp yüklemek için Şimdi güncelle'ye tıklayın.",
-      "installing": "Güncelleme hazırlanıyor…"
+      "installing": "Güncelleme hazırlanıyor…",
+      "greenBuild": "Kurulumsuz sürüm",
+      "manualDownloadHint": "Daha yeni bir sürüm (v{{version}}) mevcut. Kurulumsuz sürüm için, manuel olarak indirin, uygulamadan çıkın ve mevcut klasörü değiştirin.",
+      "openDownloadPage": "İndirme sayfasını aç"
     },
     "projectDefaultDirectory": {
       "title": "Varsayılan proje rehberi",
@@ -238,7 +242,8 @@
       "clearConfirm": "Bütün bunları {{count}} seanslar? Bu geri alınamaz.",
       "cleared": "Deleted {{count}} seans seans oturumları",
       "noSessions": "Hiçbir seans mevcut"
-    }
+    },
+    "autoUpdateGreenDesc": "Kurulumsuz sürüm yeni sürümleri kontrol eder ancak bunları otomatik olarak indirmez veya kurmaz. En son sürümü manuel olarak indirin ve mevcut klasörü değiştirin."
   },
   "sync": {
     "title": "Sen",
@@ -530,7 +535,9 @@
     "clearConfirmDescription": "Kalıcı olarak silin {{count}} Daha önce yaratılan log girişleri {{date}} Bu geri alınamaz.",
     "clearSuccess": "Cleared {{count}} Giriş giriş giriş giriş girişleri",
     "clearFailed": "Açık loglar için başarısız oldu",
-    "clearEmpty": "7 günden daha eski bir gün açıklığa kavuşturmak için"
+    "clearEmpty": "7 günden daha eski bir gün açıklığa kavuşturmak için",
+    "cacheReadRatio": "Önbellek Okuma Oranı",
+    "cacheTokenShare": "Önbellekli Token Payı"
   },
   "model": {
     "title": "Model oluşturma",
@@ -635,7 +642,8 @@
       "DesktopClick": "Mevcut args: x, y, düğme, aksiyon",
       "DesktopType": "Mevcut args: text, key, hotkey",
       "DesktopScroll": "Mevcut args: x, y, kaydırmaX, kaydırmaY",
-      "DesktopWait": "Mevcut args: gecikmeMs"
+      "DesktopWait": "Mevcut args: gecikmeMs",
+      "codegraph_explore": "Kullanılabilir argümanlar: query, projectPath"
     },
     "status": {
       "disabled": "Eklenti devre dışı bırakılır, bu yüzden araçları Agent'a maruz değildir.",
@@ -669,7 +677,11 @@
       "allowedDomains": "İzin verilen alanlar",
       "allowedDomainsDesc": "Tüm domainlere izin vermek için boş bırakın. Ne zaman set, sadece eşleştirme alanları açılabilir.",
       "domainPlaceholder": "Örneğin.com\nalt.örnek.org",
-      "domainRuleHint": "Komas ile tek bir alan girin veya ayrı olun. Bloked alanlar izin verilen alanlar üzerinde öncelik alır; subdomains maç otomatik olarak."
+      "domainRuleHint": "Komas ile tek bir alan girin veya ayrı olun. Bloked alanlar izin verilen alanlar üzerinde öncelik alır; subdomains maç otomatik olarak.",
+      "cookiesImportFailed": "Çerezler içe aktarılamadı",
+      "cookiesImported": "{{browserName}} tarayıcısından {{imported}} çerez içe aktarıldı ({{skipped}} atlandı)",
+      "importCookies": "Çerezleri içe aktar",
+      "importingCookies": "İçe aktarılıyor..."
     },
     "items": {
       "image": {
@@ -689,8 +701,48 @@
         "description": "Expose masaüstü ekran görüntüsü, tıklayın, kaydırma ve kart aletleri Ajan'a tıklayın.",
         "promptTitle": "Tool use constraints",
         "promptDesc": "Bu araçlar tam masaüstüni inceleyebilir ve kontrol edebilir. Kayıt onayı etkinleştirin, ekranda hareket etmeden önce yakalamayı ve bunları sadece doğrudan masaüstü otomasyon gerekli olduğunda kullanın. Aktif model bilgisayar kullanımı sağlarsa, OpenAI Computer Use bu masaüstü yeteneklerini ilk önce koordine edecektir."
+      },
+      "codegraph": {
+        "description": "Yerel bir kod zekası motoru: bir depoyu sembol/referans grafiğine dizinler ve ajanın onu keşfetmesini sağlar.",
+        "promptDesc": "Ajana `codegraph_explore` aracını vermek için etkinleştirin — dizinlenmiş grafikten \"X, Y'ye nasıl ulaşır / bunu kim çağırıyor / bunu değiştirirsem ne bozulur\" gibi sorulara yanıt verir ve birçok Read/Grep çağrısının yerini alır. Varsayılan olarak devre dışıdır; etkinleştirildiğinde dil dilbilgilerini bir kez indirir.",
+        "promptTitle": "Araç kullanım kısıtlamaları",
+        "title": "CodeGraph Eklentisi"
       }
-    }
+    },
+    "codegraph": {
+      "actionDone": "Tamamlandı.",
+      "actionFailed": "CodeGraph işlemi başarısız oldu",
+      "assetsDesc": "CodeGraph, kodunuzu tree-sitter dilbilgileriyle ayrıştırır. Bunlar eklentiyi ilk etkinleştirdiğinizde indirilir (geliştirme sürümü yerel olarak derlenmiş dilbilgilerini kullanır — indirme gerekmez).",
+      "assetsTitle": "Dil dilbilgileri",
+      "deleteIndex": "Dizini sil",
+      "devMode": "Geliştirme sürümü — yerel dilbilgileri kullanılıyor ({{count}}), indirme gerekmiyor.",
+      "download": "Dilbilgilerini indir",
+      "downloadFailed": "Dilbilgisi indirmesi başarısız oldu",
+      "downloaded": "Dilbilgileri indirildi.",
+      "downloading": "İndiriliyor...",
+      "enableFirst": "Dizinlenmiş projeleri yönetmek için eklentiyi etkinleştirin.",
+      "indexCurrent": "Geçerli projeyi dizinle",
+      "needsDownload": "Dilbilgileri henüz kurulmadı. Dizinlemeye başlamak için indirin.",
+      "projectStats": "{{files}} dosya · {{nodes}} düğüm · {{edges}} kenar",
+      "projectsDesc": "CodeGraph'ın bu makinede dizinlediği her proje, grafik boyutu ve durumuyla birlikte. Yeniden dizinleme sıfırdan yeniden oluşturur; senkronizasyon artımlı değişiklikleri uygular.",
+      "projectsEmpty": "Henüz dizinlenmiş proje yok. Dizinleme, ajan bir projeyi ilk kez keşfettiğinde otomatik olarak başlar veya geçerli projeyi şimdi dizinleyin.",
+      "projectsLoading": "Dizinlenmiş projeler yükleniyor...",
+      "projectsTitle": "Dizinlenmiş projeler",
+      "ready": "Dilbilgileri hazır ({{count}} kuruldu).",
+      "refresh": "Yenile",
+      "reindex": "Yeniden dizinle",
+      "reindexing": "Dizinleniyor...",
+      "remove": "Kaldır",
+      "removed": "İndirilen dilbilgileri kaldırıldı.",
+      "removing": "Siliniyor...",
+      "sync": "Senkronize et",
+      "syncing": "Senkronize ediliyor...",
+      "unknownRoot": "(bilinmeyen proje) {{hash}}",
+      "workerMissing": "CodeGraph worker ikili dosyası bulunamadı. `npm run codegraph:publish` (veya `dotnet build sidecars/OpenCowork.CodeGraph.Worker`) ile derleyin.",
+      "workerRunning": "Worker çalışıyor",
+      "workerStopped": "Worker başlatılmadı (ilk kullanımda başlatılır)"
+    },
+    "toolStatusDescCodeGraph": "codegraph_explore aracı yalnızca eklenti etkin ve dil dilbilgileri hazır olduğunda (indirilmiş veya bir geliştirme sürümünde yerel olarak sağlanmış) kullanıma sunulur."
   },
   "migration": {
     "title": "Göç Merkezi",
@@ -1151,7 +1203,29 @@
     "channelDisconnected": "Kanal kırıldı",
     "channelRequired": "Lütfen tam kanal doğrulama ilk önce",
     "modelCategoryVideo": "Video",
-    "seedanceVideo": "Seedance Video (Volcengine)"
+    "seedanceVideo": "Seedance Video (Volcengine)",
+    "builtinSearchEnabled": "Yerleşik arama etkin",
+    "cacheTtl": "Önbellek TTL (anthropic)",
+    "cacheTtlHint": "5dk (varsayılan) veya 1sa (2 kat yazma maliyeti). Model düzeyi ayar, sağlayıcı düzeyi ayarı geçersiz kılar.",
+    "enableBuiltinSearch": "Yerleşik web aramasını etkinleştir",
+    "enableBuiltinSearchDesc": "Bir istemci aracı yerine sağlayıcının yerel web aramasını (Claude / OpenAI Responses) kullan.",
+    "kimiQuota5h": "5 Saatlik Limit",
+    "kimiQuotaParallel": "Maks. eşzamanlılık {{count}}",
+    "kimiQuotaWeekly": "Haftalık Limit",
+    "kimiQuotaWindowLimit": "{{time}} Limit",
+    "requestParams": "İstek Parametreleri",
+    "sendMaxOutputTokens": "Maks. çıktı token sayısını gönder",
+    "sendMaxOutputTokensHint": "Kapalıyken, istekler max_tokens / max_completion_tokens / max_output_tokens parametrelerini içermez ve çıktı limitini sunucunun belirlemesine bırakır",
+    "sendTemperature": "Temperature gönder",
+    "sendTemperatureHint": "Kapalıyken, istekler temperature parametresini içermez — sabit örnekleme ayarlarına sahip hizmetler için (örn. Kimi K3)",
+    "supportsBuiltinSearch": "Yerleşik web aramasını destekler",
+    "supportsBuiltinSearchDesc": "Uç nokta, sağlayıcının yerel web arama sunucu aracını (Claude / OpenAI Responses) uygular. Çoğu röle uç noktası bunu desteklemez.",
+    "supportsFastMode": "Hızlı modu destekler",
+    "supportsFastModeDesc": "Uç nokta, daha hızlı yanıtlar için OpenAI öncelikli hizmet katmanını kabul eder.",
+    "supportsImageGeneration": "Görsel oluşturmayı destekler",
+    "supportsImageGenerationDesc": "Uç nokta, OpenAI Responses image_generation sunucu aracını uygular.",
+    "supportsWebsocket": "WebSocket protokolünü destekler",
+    "supportsWebsocketDesc": "Uç nokta, OpenAI Responses WebSocket taşımasını sunar."
   },
   "channel": {
     "title": "Kanallar",
@@ -1456,5 +1530,227 @@
     "copyConversation": "Kopyalama sohbet",
     "allowTool": "Araç yürütmesine izin ver",
     "denyTool": "Deny alet yürütme"
+  },
+  "aiCoding": {
+    "addConfig": "Yapılandırma ekle",
+    "apiKey": "API anahtarı",
+    "baseUrl": "Temel URL",
+    "claudeProviderDesc": "Yalnızca Anthropic protokolü modellerine sahip, API anahtarıyla etkinleştirilmiş sağlayıcılar gösterilir. RoutinAI GPT-5.4/5.5/5.6 modelleri de ClaudeCode ile uyumlu kabul edilir.",
+    "claudeSubtitle": "Claude Code sağlayıcılarını ve Anthropic protokolü model bağlamalarını yapılandırın",
+    "claudeTitle": "ClaudeCode",
+    "codexModelDesc": "Codex, geçici bir sağlayıcı geçersiz kılma ve Responses wire API ile başlatılır.",
+    "codexProviderDesc": "Yalnızca OpenAI Responses modellerine sahip, API anahtarıyla etkinleştirilmiş sağlayıcılar gösterilir.",
+    "codexSubtitle": "Codex CLI sağlayıcılarını ve model bağlamalarını yapılandırın",
+    "codexTitle": "Codex",
+    "command": "Komut",
+    "configName": "Yapılandırma adı",
+    "configs": "Yapılandırmalar",
+    "configsDesc": "Terminal menüsü için adlandırılmış başlatma profilleri oluşturun",
+    "copyConfig": "Yapılandırmayı kopyala",
+    "copyName": "{{name}} Kopyası",
+    "defaultConfigName": "Varsayılan {{index}}",
+    "defaultModel": "Varsayılan model",
+    "deleteConfig": "Yapılandırmayı sil",
+    "fullAccessPermission": "Tam erişim izinleri",
+    "fullAccessPermissionDesc": "Claude Code'u --dangerously-skip-permissions ile başlat.",
+    "invalid": "Geçersiz",
+    "model": "Model",
+    "noClaudeProviders": "API anahtarına sahip, etkin bir Anthropic protokolü sağlayıcısı yok.",
+    "noCodexProviders": "API anahtarına sahip, etkin bir OpenAI Responses sağlayıcısı yok.",
+    "permissionOptions": "İzin seçenekleri",
+    "permissionOptionsDesc": "Bu yapılandırma için isteğe bağlı Claude Code başlatma bayrakları.",
+    "provider": "Sağlayıcı",
+    "ready": "Hazır",
+    "resolvedCodexConfig": "Çözümlenmiş Codex başlatma",
+    "resolvedEnvironment": "Çözümlenmiş ortam",
+    "selectModel": "Model seçin",
+    "selectProvider": "Sağlayıcı seçin",
+    "status": {
+      "apiKeyMissing": "API anahtarı eksik",
+      "baseUrlMissing": "Temel URL eksik",
+      "configMissing": "Yapılandırma eksik",
+      "modelMissing": "Model eksik",
+      "protocolUnsupported": "Protokol uyuşmazlığı",
+      "providerDisabled": "Sağlayıcı devre dışı",
+      "providerMissing": "Sağlayıcı eksik",
+      "ready": "Hazır",
+      "unsupportedAuth": "Desteklenmeyen kimlik doğrulama"
+    }
+  },
+  "codegraph": {
+    "subtitle": "Proje başına dizin görselleştirmesi: istatistikler, dosyalar ve sembol grafiği",
+    "title": "CodeGraph"
+  },
+  "extension": {
+    "bundled": "Paketlenmiş kaynaklar",
+    "bundledAgents": "{{count}} ajan",
+    "bundledCommands": "{{count}} komut",
+    "bundledMcp": "{{count}} MCP sunucusu",
+    "bundledNotSynced": "Senkronize edilmemiş",
+    "bundledSkills": "{{count}} beceri",
+    "bundledSynced": "Senkronize edildi",
+    "bundledWorkflows": "{{count}} iş akışı",
+    "components": "Bileşenler",
+    "disabled": "Devre dışı",
+    "emptyDesc": "OpenCowork'e özel araçlar eklemek için extension.json içeren bir klasör seçin.",
+    "emptyTitle": "Kurulu uzantı yok",
+    "enabled": "Etkin",
+    "hideSecret": "Gizli bilgiyi gizle",
+    "hostRendered": "ana uygulamada görüntülenen",
+    "installFailed": "Uzantı kurulamadı",
+    "installFolder": "Kurulum klasörü",
+    "installed": "Uzantı kuruldu",
+    "loading": "Uzantılar yükleniyor...",
+    "network": "Ağ",
+    "noNetwork": "Ağ erişimi yok",
+    "noRenderers": "Özel görüntüleyici yok",
+    "openFolder": "Klasörü aç",
+    "openFolderFailed": "Klasör açılamadı",
+    "readOnlyCount": "{{count}} salt okunur",
+    "remove": "Kaldır",
+    "removeConfirm": "Bu uzantı kaldırılsın mı?",
+    "removeFailed": "Uzantı kaldırılamadı",
+    "renderers": "Görüntüleyiciler",
+    "required": "Zorunlu",
+    "saveConfig": "Yapılandırmayı kaydet",
+    "saveFailed": "Yapılandırma kaydedilemedi",
+    "saved": "Uzantı yapılandırması kaydedildi",
+    "showSecret": "Gizli bilgiyi göster",
+    "subtitle": "Yerel özel araçlar ve yanıt arayüzü bileşenleri kurun",
+    "syncWarnings": "Bazı paketlenmiş kaynaklar senkronize edilmedi",
+    "title": "Uzantılar",
+    "tools": "Araçlar",
+    "updateFailed": "Uzantı güncellenemedi",
+    "workflows": "İş akışları",
+    "workflowsHint": "Bu eklenti, bu iş akışlarını istek üzerine yükleyen tek bir yönlendirici beceridir."
+  },
+  "hooks": {
+    "actions": {
+      "deny": "Yok say",
+      "disable": "Devre dışı bırak",
+      "enable": "Etkinleştir",
+      "openArtifact": "Betik",
+      "openConfig": "Kullanıcı yapılandırmasını aç",
+      "openConfigShort": "Yapılandırma",
+      "refresh": "Yenile",
+      "trust": "Kullan"
+    },
+    "empty": "Yapılandırılmış hook yok.",
+    "emptyForEvent": "Bu yaşam döngüsü olayı için yapılandırılmış hook yok.",
+    "events": {
+      "PermissionRequest": {
+        "description": "Bir araç izin istemi gösterilmeden önce çalışır. İsteği kabul edebilir veya reddedebilir."
+      },
+      "PostCompact": {
+        "description": "Bağlam sıkıştırması tamamlandıktan sonra çalışır. Takip rehberliği eklemek için kullanışlıdır."
+      },
+      "PostToolUse": {
+        "description": "Bir araç tamamlandıktan sonra ve sonuç modele geri dönmeden önce çalışır. Bağlam ekleyebilir veya araç geri bildirimini değiştirebilir."
+      },
+      "PreCompact": {
+        "description": "Manuel veya otomatik bağlam sıkıştırmasından önce çalışır. Sıkıştırma rehberliği ekleyebilir veya bu sıkıştırmayı engelleyebilir."
+      },
+      "PreToolUse": {
+        "description": "Bir araç çağrısı oluşturulduktan sonra ve çalıştırılmadan önce çalışır. Girdiyi güncelleyebilir veya riskli çağrıları engelleyebilir."
+      },
+      "SessionStart": {
+        "description": "Bir oturum başlamadan, devam etmeden, temizlenmeden, sıkıştırmadan geri yüklenmeden veya arka plan görevi olarak başlamadan önce çalışır. Oturum bağlamı eklemek için kullanışlıdır."
+      },
+      "Stop": {
+        "description": "Geçerli ajan turu bitmek üzereyken çalışır. Son kontroller, ek notlar veya tamamlanmayı engellemek için kullanışlıdır."
+      },
+      "SubagentStart": {
+        "description": "Bir alt ajan başlamadan önce çalışır. Bağlam ekleyebilir veya alt görevi engelleyebilir."
+      },
+      "SubagentStop": {
+        "description": "Bir alt ajan bittikten sonra ve sonuç ana oturuma dönmeden önce çalışır. Sonucu doğrulayabilir veya engelleyebilir."
+      },
+      "UserPromptSubmit": {
+        "description": "Bir kullanıcı istemi gönderilmeden önce çalışır. Bağlam ekleyebilir, istemi güncelleyebilir veya gönderimi engelleyebilir."
+      }
+    },
+    "feature": {
+      "description": "OpenCowork yeniden başlatıldıktan sonra etkinleşir.",
+      "preview": "Önizleme",
+      "restartToDisable": "Hook'lar bu uygulama oturumunda etkin kalır. Çalışmalarını durdurmak için OpenCowork'u yeniden başlatın.",
+      "restartToEnable": "Hook'ların çalışmaya başlaması için OpenCowork'u yeniden başlatın.",
+      "runtimeOff": "Bu oturumda etkin değil",
+      "runtimeOn": "Bu oturumda etkin",
+      "title": "Hook'ları etkinleştir"
+    },
+    "list": {
+      "title": "Tüm hook'lar"
+    },
+    "loading": "Hook'lar yükleniyor...",
+    "metrics": {
+      "invalid": "Geçersiz",
+      "pending": "Beklemede",
+      "total": "Toplam"
+    },
+    "review": {
+      "title": "Tüm hook'lar",
+      "warning": "Bir hook'a güvenmek, komutunun yerel olarak kullanıcınız adına çalışmasına izin verir."
+    },
+    "source": {
+      "exists": "Bulundu",
+      "missing": "Eksik"
+    },
+    "status": {
+      "changed": "Değişti",
+      "denied": "Reddedildi",
+      "disabled": "Devre dışı",
+      "invalid": "Geçersiz",
+      "pending": "Beklemede",
+      "trusted": "Güvenilir"
+    },
+    "subtitle": "OpenCowork yaşam döngüsü hook'larını yönetin.",
+    "title": "Hook'lar",
+    "toasts": {
+      "denied": "Hook yok sayıldı",
+      "disabled": "Hook devre dışı bırakıldı",
+      "enabled": "Hook etkinleştirildi",
+      "opened": "Kaynak açıldı",
+      "trusted": "Hook kullanım için etkinleştirildi"
+    }
+  },
+  "permission": {
+    "bashAllow": {
+      "description": "Etkin bir kuralla eşleşen kabuk komutları onay istemeden çalışır.",
+      "title": "Komut beyaz listesi (Bash)"
+    },
+    "bashDeny": {
+      "description": "Etkin bir kuralla eşleşen kabuk komutları her zaman reddedilir — en yüksek önceliğe sahiptir, otomatik onayı ve beyaz listeyi geçersiz kılar.",
+      "title": "Komut kara listesi (Bash)"
+    },
+    "master": {
+      "description": "Beyaz listedeki araçlar ve eşleşen kabuk komutları onay istemeden çalışır; kara listedeki komutlar her zaman reddedilir. Bir kuralın kapsamadığı tehlikeli işlemler yine de onay ister.",
+      "title": "İzin beyaz listesini etkinleştir"
+    },
+    "precedence": {
+      "description": "Değerlendirme sırası: komut kara listesi (otomatik onay açık olsa bile her zaman reddeder) → araç beyaz listesi / komut beyaz listesi (onayı atlar) → geri kalan her şey onay ister."
+    },
+    "rules": {
+      "add": "Kural ekle",
+      "delete": "Kuralı sil",
+      "empty": "Henüz kural yok",
+      "invalidPattern": "Geçersiz desen: {{error}}",
+      "modeRegex": "Regex",
+      "modeWildcard": "Joker karakter",
+      "patternPlaceholder": "örn. npm run * veya ^git (status|log)\\b"
+    },
+    "subtitle": "Araç beyaz listesi ve kabuk komutu kuralları",
+    "title": "İzinler",
+    "tools": {
+      "add": "Ekle",
+      "commandToolWarning": "Bir kabuk aracı (Bash/Shell/Monitor/PowerShell) beyaz listede — çalıştırdığı her komut, kara liste eşleşmeleri dışında onayı atlar.",
+      "description": "Bu araçlar onay istemeden çalışır. Girişlerde * joker karakteri kullanılabilir (örn. mcp__github__*).",
+      "duplicate": "Bu araç zaten beyaz listede",
+      "empty": "Henüz beyaz listede araç yok",
+      "placeholder": "Araç adı, örn. Write",
+      "remove": "{{tool}} kaldır",
+      "suggestions": "Öneriler:",
+      "title": "Araç beyaz listesi"
+    },
+    "wildcardHelp": "Joker karakter desenleri komutun tamamıyla eşleşir ve * herhangi bir metinle eşleşir — örn. npm run *. Regex beyaz liste kuralları komutun tamamıyla eşleşmelidir; regex kara liste kuralları herhangi bir yerde eşleşebilir. Bileşik bir komutun (&&, ;, |) her parçası beyaz listede olmalıdır. Eşleştirme büyük/küçük harfe duyarlı değildir."
   }
 }

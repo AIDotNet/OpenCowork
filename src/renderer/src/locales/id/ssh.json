@@ -70,7 +70,17 @@
     "keepAlive": "Keep Alive Interval (detik)",
     "advanced": "Opsi Tingkat Lanjut",
     "save": "Simpan",
-    "cancel": "Batal"
+    "cancel": "Batal",
+    "saveAndConnect": "Simpan & Sambungkan",
+    "secretChange": "Ubah",
+    "secretClear": "Bersihkan",
+    "secretSet": "Tersimpan",
+    "sectionAdvanced": "Lanjutan",
+    "sectionAuth": "Otentikasi",
+    "sectionBasic": "Dasar",
+    "testConnection": "Uji koneksi",
+    "testFailed": "Uji koneksi gagal",
+    "testSuccess": "Koneksi dan otentikasi berhasil"
   },
   "groupDialog": {
     "title": "Nama Kelompok",
@@ -91,7 +101,8 @@
     "copyFailed": "Gagal menyalin",
     "pasteFailed": "Gagal menempel",
     "disconnectedMessage": "Sesi SSH terputus",
-    "errorMessage": "Galat koneksi"
+    "errorMessage": "Galat koneksi",
+    "reconnecting": "Koneksi terputus, menyambung ulang…"
   },
   "fileExplorer": {
     "title": "Penjelajah Berkas",
@@ -200,7 +211,8 @@
     "backToList": "Mundur",
     "viewTable": "Tampilan tabel",
     "viewCard": "Tampilan kartu",
-    "search": "Cari koneksi..."
+    "search": "Cari koneksi...",
+    "open": "Buka"
   },
   "dashboard": {
     "totalServers": "Server",
@@ -295,7 +307,8 @@
         "done": "Selesai",
         "error": "Gagal",
         "canceled": "Dibatalkan"
-      }
+      },
+      "retry": "Coba lagi"
     },
     "terminalTheme": {
       "title": "Palet terminal",
@@ -325,7 +338,12 @@
       "network": "Seluruh Jaringan",
       "disks": "Penggunaan Disk",
       "path": "Path",
-      "capacity": "Tersedia / Total"
+      "capacity": "Tersedia / Total",
+      "copied": "Disalin ke papan klip",
+      "copy": "Salin IP",
+      "expand": "Perluas monitor proses",
+      "latency": "Latensi",
+      "systemInfo": "Sistem"
     },
     "nav": {
       "hosts": "Host",
@@ -416,6 +434,33 @@
       "noConnections": "Tidak ada riwayat koneksi.",
       "uploads": "Unggah aktivitas",
       "noUploads": "Belum ada aktivitas upload."
+    },
+    "emptyGroupsDesc": "Hanya grup yang Anda buat yang muncul di sini. Buat satu untuk mengatur host Anda.",
+    "libraryTab": "Host",
+    "monitor": "Monitor",
+    "processMonitor": {
+      "empty": "Tidak ada proses yang cocok",
+      "kill": "Hentikan proses",
+      "killDesc": "PID {{pid}} · {{command}}",
+      "killForce": "Paksa hentikan (-9)",
+      "killTerm": "Akhiri",
+      "killTitle": "Hentikan proses?",
+      "killed": "Sinyal dikirim ke {{pid}}",
+      "running": "berjalan",
+      "search": "Saring berdasarkan perintah, pengguna, atau PID…",
+      "tasks": "Tugas",
+      "title": "Monitor proses"
+    },
+    "sessionTabs": "Tab sesi",
+    "stage": {
+      "auth": "Otentikasi",
+      "connecting": "Menyambung…",
+      "dial": "Dial",
+      "failed": "Gagal",
+      "handshake": "Handshake",
+      "lines": "baris",
+      "shell": "Shell",
+      "waitingLog": "Menunggu koneksi…"
     }
   }
 }

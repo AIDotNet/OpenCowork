@@ -122,7 +122,36 @@
     "startAcp": "Bir ACP seansı başlatın",
     "startAcpDesc": "İlk olarak hedef, arka plan, kısıtlamalar ve kabul kriterlerini açıklayın. Ardından kod yazmadan önce mimari ve delege görevleri tasarlayın.",
     "homeTitleAcp": "ACP modu",
-    "homeDescAcp": "ACP modunda, hedefler, arka plan, kısıtlamalar ve kabul kriterlerini açıklayarak başlayın. Daha sonra uygulamadan önce bir mimari ve görev bozulması önerir."
+    "homeDescAcp": "ACP modunda, hedefler, arka plan, kısıtlamalar ve kabul kriterlerini açıklayarak başlayın. Daha sonra uygulamadan önce bir mimari ve görev bozulması önerir.",
+    "queueQuoted": "Konuşmaya eklendi",
+    "runtimeMetrics": {
+      "cache": "Önbellek",
+      "cacheCreate": "Önbellek yazma",
+      "cacheCreate1h": "Önbellek yazma (1s)",
+      "cacheCreate5m": "Önbellek yazma (5dk)",
+      "cacheHit": "Önbellek isabeti",
+      "cost": "{{label}}: {{cost}}",
+      "input": "Önbelleksiz girdi",
+      "output": "Çıktı",
+      "totalCost": "Maliyet",
+      "tps": "TPS",
+      "tpsHint": "Saniyede üretilen çıktı token sayısı",
+      "ttft": "TTFT",
+      "ttftHint": "İlk token'a kadar geçen süre"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "Onay bekleniyor: {{tool}}",
+      "generatingImage": "Görsel oluşturuluyor",
+      "loadingMedia": "Medya yükleniyor",
+      "optimizing": "Optimize ediliyor",
+      "ready": "Hazır",
+      "receiving": "Alınıyor",
+      "retrying": "Yeniden deneniyor {{attempt}}",
+      "runningSubAgents": "{{count}} alt ajan çalışıyor",
+      "runningTool": "{{tool}} çalıştırılıyor",
+      "thinking": "Düşünüyor",
+      "waiting": "Bekliyor"
+    }
   },
   "planReview": {
     "awaitingReview": "Bekleyen Bir İnceleme",
@@ -139,7 +168,10 @@
     "runningHint": "Bu seans şimdi planı uyguluyor.",
     "runningInSession": "Bu plan oturumda çalışıyor \" {{title}} \".",
     "openExecutionSession": "Open Execution Session",
-    "approvedHint": "Bu plan zaten onaylandı."
+    "approvedHint": "Bu plan zaten onaylandı.",
+    "copy": "Planı kopyala",
+    "download": "Planı indir",
+    "expand": "Yan panelde genişlet"
   },
   "guide": {
     "title": "Sohbet kılavuzu",
@@ -400,7 +432,26 @@
       "TaskList": "Liste Görevleri",
       "Delete": "Delete",
       "Skill": "Beceri becerisi"
-    }
+    },
+    "allowWhitelist": "İzin ver ve beyaz listeye ekle",
+    "default": "Varsayılan",
+    "defaultDesc": "Tehlikeli araçları çalıştırmadan önce onay iste",
+    "fullAccess": "Tam erişim",
+    "fullAccessConfirmDesc": "Tehlikeli işlemler dahil tüm araç çağrıları onay istenmeden otomatik olarak çalıştırılacak.",
+    "fullAccessConfirmTitle": "Tam erişime geçilsin mi?",
+    "fullAccessDesc": "Tüm araçları onay olmadan otomatik çalıştır",
+    "label": "İzin",
+    "manageWhitelist": "Beyaz liste kurallarını yönet…",
+    "tooltip": "Araç çağrısı izni",
+    "whitelist": "Beyaz liste",
+    "whitelistAddedRule": "Kural eklendi: {{pattern}}",
+    "whitelistAddedTool": "{{tool}} beyaz listeye eklendi",
+    "whitelistDesc": "Beyaz listedeki araçlar ve komutlar onay istemeden çalışır; kara listedeki komutlar her zaman reddedilir",
+    "whitelistEditorTitle": "Bu komut için bir izin kuralı ekle",
+    "whitelistInvalidPattern": "Geçersiz desen: {{error}}",
+    "whitelistModeRegex": "Regex",
+    "whitelistModeWildcard": "Joker karakter",
+    "whitelistSave": "Kaydet ve izin ver"
   },
   "toolCall": {
     "output": "Çıktı Çıktı Çıktı",
@@ -444,7 +495,9 @@
       "imageCopied": "Image, klipler için kopyalandı",
       "copyImageFailed": "Resmi kopyalamak için başarısız oldu",
       "copied": "Copied",
-      "copyImage": "Klipboard'a kopyalayın"
+      "copyImage": "Klipboard'a kopyalayın",
+      "renderComplete": "tamamlandı",
+      "rendered": "Görüntülendi"
     },
     "taskList": "Görev Listesi",
     "tasksDone": "{{completed}} / / {{total}} done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done done",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "Onay Retry",
       "result": "Sonuçlar (Sonuçlar) {{count}})",
       "notes": "Notlar Notlar Notlar Not Notlar Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Notlar Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Not Notlar",
-      "countValue": "Kont {{count}}"
+      "countValue": "Kont {{count}}",
+      "builtinTitle": "GPT görsel oluşturma"
     },
     "desktop": {
       "running": "İlerleme Raporu",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} · gönderin",
         "scrollY": "Y {{value}}"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "Kod grafiği sorgulanıyor...",
+      "files": "Referans verilen dosyalar",
+      "filesCount": "{{count}} dosya",
+      "input": "Girdi",
+      "notIndexed": "Dizin hazır değil",
+      "notIndexedBadge": "dizinleniyor",
+      "result": "Grafik sonucu",
+      "symbolsCount": "{{count}} sembol",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "Çağrılanlar",
+        "callers": "Çağıranlar",
+        "explore": "Keşfet",
+        "files": "Dosyalar",
+        "impact": "Etki",
+        "index": "Dizin",
+        "node": "Düğüm",
+        "search": "Ara",
+        "status": "Durum",
+        "sync": "Senkronize et"
+      }
+    },
+    "parameters": "Parametreler",
+    "result": "Sonuç",
+    "skillName": "Beceri"
   },
   "subAgent": {
     "queued": "Sırada",
@@ -620,7 +700,17 @@
     "toolCalls": "Tool Calls",
     "summaryEmpty": "Henüz özet yok",
     "openInRunsRunning": "View canlı ilerleme sağ tarafta yürütme listesinde",
-    "openInRunsDone": "Doğru yerdeki yürütme listesindeki tam kaydı görüntüle"
+    "openInRunsDone": "Doğru yerdeki yürütme listesindeki tam kaydı görüntüle",
+    "aborted": "iptal edildi",
+    "background": "Arka plan",
+    "failureUnknown": "SubAgent yürütmesi başarısız oldu",
+    "label": "subAgent",
+    "maxIterations": "yineleme sınırına ulaşıldı",
+    "openNamedInPanel": "{{name}} öğesini yan panelde aç",
+    "prompt": "İstem",
+    "promptEmpty": "Kullanılabilir istem yok",
+    "stopped": "durduruldu",
+    "waiting": "Çalıştırılmayı bekliyor"
   },
   "teamEvent": {
     "teamCreated": "Takım Oluşturu",
@@ -629,7 +719,8 @@
     "messageSent": "Mesaj Sent",
     "teamDeleted": "Team Deleteded",
     "teammateSpawned": "Teammate Spawned",
-    "failed": "Başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız oldu"
+    "failed": "Başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız başarısız oldu",
+    "backgroundAgentSpawned": "Arka plan ajanı başlatıldı"
   },
   "todo": {
     "tasksDone": "{{completed}} / / {{total}} Görevler yapıldı",
@@ -642,7 +733,9 @@
     "thinkingFor": "Düşünmek için {{seconds}} s",
     "pending": "Düşünmeyi Düşünmek",
     "thinkingEllipsis": "Düşünme...",
-    "thoughts": "Düşünceler Düşünceler"
+    "thoughts": "Düşünceler Düşünceler",
+    "deepThinking": "Derin düşünüyor",
+    "deepThought": "Derin düşündü"
   },
   "messageList": {
     "startConversation": "Bir sohbete başlayın",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "Workspace",
     "homeTitleChatQuestion": "Ne konuşmalıyız?",
     "homeTitleBuildQuestion": "Ne inşa etmeliyiz {{name}}??",
-    "thisWorkspace": "Bu çalışma alanı"
+    "thisWorkspace": "Bu çalışma alanı",
+    "assistantRail": {
+      "currentLabel": "Geçerli mesaj {{index}}: {{preview}}",
+      "emptyPreview": "Asistan yanıtı",
+      "jumpLabel": "Mesaja git {{index}}: {{preview}}",
+      "streamingLabel": "Akan asistan yanıtına git {{index}}: {{preview}}",
+      "summaryLabel": "Sıkıştırılmış geçmiş özetine git {{index}}: {{preview}}",
+      "summaryPreview": "Sıkıştırılmış geçmiş özeti",
+      "toolOnlyPreview": "{{count}} araç çağrısı",
+      "userLabel": "Kullanıcı mesajına git {{index}}: {{preview}}"
+    },
+    "pendingRetryTitle": "Modele yeniden bağlanılıyor",
+    "pendingTeamTitle": "Takım arkadaşları koordine ediliyor"
   },
   "projectHome": {
     "noProjectSelected": "Hiçbir proje seçilmiş",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}} Araçlar araçları",
     "mcpToolCount_one": "{{count}} alet aracı",
     "mcpToolCount_other": "{{count}} Araçlar araçları",
-    "mcpCount": "{{count}} MCP"
+    "mcpCount": "{{count}} MCP",
+    "activeCustomExtensions": "Etkin özel uzantılar:",
+    "availableCustomExtensions": "Kullanılabilir özel uzantılar",
+    "configureCustomExtensionSettings": "Yapılandır...",
+    "configureCustomExtensions": "Uzantıları Ayarlar → Uzantılar bölümünden etkinleştirin",
+    "customExtensionsLabel": "Özel uzantılar",
+    "extensionCount": "{{count}} uzantı",
+    "extensionCount_one": "{{count}} uzantı",
+    "extensionCount_other": "{{count}} uzantı",
+    "extensionToolCount": "{{count}} araç",
+    "extensionToolCount_one": "{{count}} araç",
+    "extensionToolCount_other": "{{count}} araç",
+    "noCustomExtensions": "Etkin özel uzantı yok"
   },
   "userMessage": {
     "you": "You You You You You",
@@ -830,7 +947,15 @@
     "copyImage": "Copy image",
     "removeImage": "Kaldır görüntü",
     "imagePreview": "Görüntü Tanıtımı",
-    "saveAndResend": "Kaydet & Resend"
+    "saveAndResend": "Kaydet & Resend",
+    "quotedLabel": "Alıntılandı",
+    "selectedFileReadFailed": "Okuma başarısız oldu",
+    "selectedFileReadLines": "{{count}} satır okundu",
+    "selectedFileReadSkipped": "Yol referansı",
+    "selectedFileReadSkippedNonText": "Yol referansı; ikili veya belge dosyası doğrudan okunmadı",
+    "selectedFileReadSkippedPdf": "PDF yol referansı; dosya doğrudan okunmadı",
+    "selectedFileReadTruncated": "İlk {{count}} satır okundu",
+    "selectedFileReadsTitle": "Okunan dosyalar"
   },
   "assistantMessage": {
     "changedFiles_one": "Edited {{count}} Dosya dosyası",
@@ -841,7 +966,6 @@
     "editedFiles_other": "Edited {{count}} dosyaları dosyaları dosyaları dosyaları",
     "deletedFiles_one": "Deleted {{count}} Dosya dosyası",
     "deletedFiles_other": "Deleted {{count}} dosyaları dosyaları dosyaları dosyaları",
-    "ranCommandsInline": "{{count}} komut çalıştırıldı",
     "summarySeparator": ",",
     "moreKinds": "+ + + + {{count}}",
     "showWorkspace": "Geniş çalışma alanı (İngilizce). {{count}} araç infazları)",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "Son hata",
       "stackTrace": "Stack izler",
       "copy": "Kopya kopya",
-      "copied": "Copied"
+      "copied": "Copied",
+      "descRuntimeUnavailable": "OpenCowork yerel Native Worker'a ulaşamadı. Yeniden başlatma zaten denendi; mesajı tekrar deneyin veya bu tekrar ederse native worker'ı yeniden derleyin.",
+      "sidecarUnavailableMessage": "Yerel ajan çalışma zamanı geçici olarak kullanılamıyor. OpenCowork onu yeniden başlatmayı denedi; bu mesajı tekrar deneyin. Geliştirme ortamında bu sorun devam ederse `npm run native:publish` komutunu çalıştırıp OpenCowork'u yeniden başlatın.",
+      "titleRuntimeUnavailable": "Yerel çalışma zamanı kullanılamıyor"
     },
-    "processTools": "Araç çağrıları"
+    "processTools": "Araç çağrıları",
+    "activeTools": "{{count}} etkin araç",
+    "cacheWrite": "Önbellek yazma",
+    "cachedInput": "Girdi önbelleği",
+    "completionFinished": "Tamamlandı",
+    "metricCost": "Maliyet",
+    "metricTokens": "Token",
+    "metricTotalDuration": "Toplam",
+    "processResponse": "yanıt",
+    "ranCommandsInline_one": "{{count}} komut çalıştırıldı",
+    "ranCommandsInline_other": "{{count}} komut çalıştırıldı",
+    "streamingText": "metin akışı",
+    "thinkingStatus": "Düşünüyor...",
+    "tokenTotal": "Toplam token",
+    "tokenUsage": "Token kullanımı",
+    "toolExecutions": "{{count}} araç çalıştırması",
+    "totalUsage": "Toplam kullanım",
+    "tpsHint": "Saniyede üretilen çıktı token sayısı",
+    "ttftHint": "İlk token'a kadar geçen süre",
+    "uncachedInput": "Önbelleksiz girdi"
   },
   "messageActions": {
     "fork": "Fork",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "Aşama ilk önce değişir, sonra bir mesaj üretir",
     "aiCommitEmptyStaged": "Hiçbir şey sahnelendi - bir mesaj üretemez",
     "aiCommitFailed": "Nesil başarısız oldu. Check API / model ayarları ve tekrar deneyin"
+  },
+  "artifacts": {
+    "more": "+{{count}} daha",
+    "open": "Aç",
+    "reveal": "Finder'da göster",
+    "title": "Oluşturulan dosyalar"
+  },
+  "extensionResult": {
+    "chartItem": "Öğe {{index}}",
+    "emptyTable": "Gösterilecek satır yok",
+    "loadingRenderer": "Görüntüleyici yükleniyor...",
+    "rendererMissing": "Görüntüleyici bulunamadı",
+    "rendererTitle": "Uzantı görüntüleyicisi",
+    "tableTitle": "Tablo",
+    "title": "Uzantı sonucu"
+  },
+  "webSearch": {
+    "label": "Web araması",
+    "searching": "Web'de aranıyor…",
+    "sources": "Kaynaklar"
   }
 }

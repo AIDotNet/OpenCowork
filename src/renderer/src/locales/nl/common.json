@@ -84,7 +84,14 @@
     "clarify": "Verduidelijken",
     "cowork": "Cowork",
     "code": "Rubriek",
-    "acp": "ACS"
+    "acp": "ACS",
+    "descriptions": {
+      "acp": "Architectuur bepalen en delegeren aan sub-agents",
+      "chat": "Snel gesprek, geen projecthulpmiddelen",
+      "clarify": "Maak van onduidelijkheid een controleerbaar plan",
+      "code": "Gerichte, praktische implementatie",
+      "cowork": "Plannen, handelen en verifiëren, samen met u"
+    }
   },
   "onboarding": {
     "start": "Begin",
@@ -257,7 +264,8 @@
         "updateNow": "Nu bijwerken",
         "remindLater": "Herinner me er later aan.",
         "installNow": "Nu bijwerken",
-        "updateLater": "Later bijwerken"
+        "updateLater": "Later bijwerken",
+        "openDownloadPage": "Downloadpagina openen"
       },
       "downloadFailed": "Downloaden is mislukt",
       "delayed": "Bijwerken uitgesteld",
@@ -265,7 +273,8 @@
       "downloadedDescription": "Versie {{version}} is klaar om te installeren.",
       "installing": "Update voorbereiden...",
       "installFailed": "Update kon niet worden gestart",
-      "failed": "Bijwerken mislukt"
+      "failed": "Bijwerken mislukt",
+      "manualDescription": "De installatievrije build ondersteunt nog geen automatische updates. Download de nieuwste versie handmatig en vervang de huidige map nadat u de app hebt afgesloten."
     },
     "errors": {
       "unhandledTitle": "Ongehandelde fout"

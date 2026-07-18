@@ -84,7 +84,14 @@
     "clarify": "확인",
     "cowork": "협업",
     "code": "코드",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "acp": "설계하고 서브 에이전트에 위임",
+      "chat": "빠른 대화, 프로젝트 도구 없음",
+      "clarify": "모호함을 검토 가능한 계획으로 전환",
+      "code": "집중적인 실전 구현",
+      "cowork": "당신과 함께 계획하고, 실행하고, 검증"
+    }
   },
   "onboarding": {
     "start": "시작",
@@ -257,7 +264,8 @@
         "updateNow": "지금 업데이트",
         "remindLater": "나중에 알림",
         "installNow": "지금 업데이트",
-        "updateLater": "나중에 업데이트"
+        "updateLater": "나중에 업데이트",
+        "openDownloadPage": "다운로드 페이지 열기"
       },
       "downloadFailed": "다운로드 실패",
       "delayed": "업데이트를 나중으로 미룸",
@@ -265,7 +273,8 @@
       "downloadedDescription": "v{{version}} 업데이트를 설치할 준비가 되었습니다.",
       "installing": "업데이트 준비 중...",
       "installFailed": "업데이트를 시작하지 못했습니다",
-      "failed": "업데이트 실패"
+      "failed": "업데이트 실패",
+      "manualDescription": "무설치 빌드는 아직 자동 업데이트를 지원하지 않습니다. 최신 버전을 수동으로 다운로드한 뒤 앱을 종료하고 현재 폴더를 교체하세요."
     },
     "errors": {
       "unhandledTitle": "처리되지 않은 오류"

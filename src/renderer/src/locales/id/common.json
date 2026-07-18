@@ -84,7 +84,14 @@
     "clarify": "Clarify",
     "cowork": "Kowork",
     "code": "Kode",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "acp": "Rancang arsitektur dan delegasikan ke sub-agen",
+      "chat": "Percakapan cepat, tanpa alat proyek",
+      "clarify": "Ubah hal yang ambigu menjadi rencana yang dapat ditinjau",
+      "code": "Implementasi langsung yang fokus",
+      "cowork": "Rencanakan, bertindak, dan verifikasi bersama Anda"
+    }
   },
   "onboarding": {
     "start": "Mulai",
@@ -257,7 +264,8 @@
         "updateNow": "Mutakhirkan sekarang",
         "remindLater": "Ingatkan aku nanti.",
         "installNow": "Update sekarang",
-        "updateLater": "Update nanti"
+        "updateLater": "Update nanti",
+        "openDownloadPage": "Buka halaman unduhan"
       },
       "downloadFailed": "Gagal mengunduh",
       "delayed": "Perbarui ditunda",
@@ -265,7 +273,8 @@
       "downloadedDescription": "Versi {{version}} siap dipasang.",
       "installing": "Menyiapkan update...",
       "installFailed": "Gagal memulai update",
-      "failed": "Pemutakhiran gagal"
+      "failed": "Pemutakhiran gagal",
+      "manualDescription": "Build no-install belum mendukung pembaruan otomatis. Unduh versi terbaru secara manual dan ganti folder saat ini setelah menutup aplikasi."
     },
     "errors": {
       "unhandledTitle": "Galat Tak Tertangani"

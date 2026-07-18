@@ -84,7 +84,14 @@
     "clarify": "Clarify",
     "cowork": "Cowork",
     "code": "Kod Kodu",
-    "acp": "ACP"
+    "acp": "ACP",
+    "descriptions": {
+      "acp": "Mimarlık kur ve alt ajanlara devret",
+      "chat": "Hızlı sohbet, proje araçları yok",
+      "clarify": "Belirsizliği gözden geçirilebilir bir plana dönüştür",
+      "code": "Odaklanmış, uygulamaya dönük geliştirme",
+      "cowork": "Sizinle birlikte planla, uygula ve doğrula"
+    }
   },
   "onboarding": {
     "start": "Start Start Start Start Start",
@@ -257,7 +264,8 @@
         "updateNow": "Güncelleme şimdi",
         "remindLater": "Beni daha sonra Remind",
         "installNow": "Şimdi güncelle",
-        "updateLater": "Daha sonra güncelle"
+        "updateLater": "Daha sonra güncelle",
+        "openDownloadPage": "İndirme sayfasını aç"
       },
       "downloadFailed": "Download başarısız",
       "delayed": "Güncelleme ertelendi",
@@ -265,7 +273,8 @@
       "downloadedDescription": "v{{version}} yüklemeye hazır.",
       "installing": "Güncelleme hazırlanıyor...",
       "installFailed": "Güncelleme başlatılamadı",
-      "failed": "Güncelleme başarısız oldu"
+      "failed": "Güncelleme başarısız oldu",
+      "manualDescription": "Kurulumsuz sürüm henüz otomatik güncellemeleri desteklemiyor. En son sürümü manuel olarak indirin ve uygulamadan çıktıktan sonra mevcut klasörü değiştirin."
     },
     "errors": {
       "unhandledTitle": "Unhandled Hata"

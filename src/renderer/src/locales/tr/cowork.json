@@ -82,7 +82,8 @@
     "teamLabel": "takım takım takım takımı",
     "taskSubAgents": "Görev (Sub-Agents)",
     "teamTools": "Takım Araçları",
-    "maxIter": "max max max max {{count}} iter"
+    "maxIter": "max max max max {{count}} iter",
+    "inheritsMainTools": "Ana ajanla aynı araçlar"
   },
   "artifacts": {
     "noArtifacts": "Henüz eserler yok",

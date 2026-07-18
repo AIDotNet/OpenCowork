@@ -70,7 +70,17 @@
     "keepAlive": "Giữ mạng sống song song (giây)",
     "advanced": "Tùy chọn cấp cao",
     "save": "Lưu",
-    "cancel": "Thôi"
+    "cancel": "Thôi",
+    "saveAndConnect": "Lưu & Kết nối",
+    "secretChange": "Đổi",
+    "secretClear": "Xoá",
+    "secretSet": "Đã lưu",
+    "sectionAdvanced": "Nâng cao",
+    "sectionAuth": "Xác thực",
+    "sectionBasic": "Cơ bản",
+    "testConnection": "Kiểm tra kết nối",
+    "testFailed": "Kiểm tra kết nối thất bại",
+    "testSuccess": "Kết nối và xác thực thành công"
   },
   "groupDialog": {
     "title": "Tên nhóm",
@@ -91,7 +101,8 @@
     "copyFailed": "Lỗi sao chép",
     "pasteFailed": "Lỗi dán",
     "disconnectedMessage": "Comment",
-    "errorMessage": "Lỗi kết nối"
+    "errorMessage": "Lỗi kết nối",
+    "reconnecting": "Mất kết nối, đang kết nối lại…"
   },
   "fileExplorer": {
     "title": "Thám hiểm tập tin",
@@ -200,7 +211,8 @@
     "backToList": "Lùi",
     "viewTable": "Xem bảng",
     "viewCard": "Xem bài",
-    "search": "Tìm kết nối..."
+    "search": "Tìm kết nối...",
+    "open": "Mở"
   },
   "dashboard": {
     "totalServers": "Máy phục vụ",
@@ -295,7 +307,8 @@
         "done": "Hoàn tất",
         "error": "Thất bại",
         "canceled": "Đã hủy"
-      }
+      },
+      "retry": "Thử lại"
     },
     "terminalTheme": {
       "title": "Bảng màu thiết bị cuối",
@@ -325,7 +338,12 @@
       "network": "Danh sách truyền KGet",
       "disks": "Dùng đĩa",
       "path": "Đường dẫn",
-      "capacity": "Sẵn sàng/Total"
+      "capacity": "Sẵn sàng/Total",
+      "copied": "Đã sao chép vào bảng nháp",
+      "copy": "Sao chép IP",
+      "expand": "Mở rộng giám sát tiến trình",
+      "latency": "Độ trễ",
+      "systemInfo": "Hệ thống"
     },
     "nav": {
       "hosts": "Máy",
@@ -416,6 +434,33 @@
       "noConnections": "Không có lịch sử kết nối.",
       "uploads": "Comment",
       "noUploads": "Vẫn chưa tải lên."
+    },
+    "emptyGroupsDesc": "Chỉ những nhóm bạn tạo mới xuất hiện ở đây. Hãy tạo một nhóm để tổ chức các máy chủ của bạn.",
+    "libraryTab": "Máy chủ",
+    "monitor": "Giám sát",
+    "processMonitor": {
+      "empty": "Không có tiến trình nào khớp",
+      "kill": "Kết thúc tiến trình",
+      "killDesc": "PID {{pid}} · {{command}}",
+      "killForce": "Buộc kết thúc (-9)",
+      "killTerm": "Kết thúc",
+      "killTitle": "Kết thúc tiến trình?",
+      "killed": "Đã gửi tín hiệu tới {{pid}}",
+      "running": "đang chạy",
+      "search": "Lọc theo lệnh, người dùng hoặc PID…",
+      "tasks": "Tác vụ",
+      "title": "Giám sát tiến trình"
+    },
+    "sessionTabs": "Tab phiên chạy",
+    "stage": {
+      "auth": "Xác thực",
+      "connecting": "Đang kết nối…",
+      "dial": "Quay số",
+      "failed": "Thất bại",
+      "handshake": "Bắt tay",
+      "lines": "dòng",
+      "shell": "Shell",
+      "waitingLog": "Đang chờ kết nối…"
     }
   }
 }

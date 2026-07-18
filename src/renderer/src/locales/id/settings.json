@@ -8,7 +8,8 @@
       "system": "Sistem",
       "ai": "Kapasitas AI",
       "extensions": "Ekstensi & Integrasi",
-      "about": "Tentang"
+      "about": "Tentang",
+      "aiCoding": "AI Coding"
     }
   },
   "pet": {
@@ -189,7 +190,10 @@
       "downloading": "Mengunduh pemutakhiran...",
       "downloadingWithProgress": "Mengunduh pemutakhiran... {{progress}} %",
       "downloadedReady": "Update v{{version}} telah diunduh. Klik Update sekarang untuk memulai ulang dan memasang.",
-      "installing": "Menyiapkan update…"
+      "installing": "Menyiapkan update…",
+      "greenBuild": "Build no-install",
+      "manualDownloadHint": "Versi baru (v{{version}}) tersedia. Untuk build no-install, unduh secara manual, tutup aplikasi, dan ganti folder saat ini.",
+      "openDownloadPage": "Buka halaman unduhan"
     },
     "projectDefaultDirectory": {
       "title": "Direktori projek bawaan",
@@ -238,7 +242,8 @@
       "clearConfirm": "Hapus semua {{count}} Ini tidak bisa dibatalkan.",
       "cleared": "Dihapus {{count}} sesi",
       "noSessions": "Tak tersedia sesi"
-    }
+    },
+    "autoUpdateGreenDesc": "Build no-install memeriksa versi baru, tapi tidak mengunduh atau memasangnya secara otomatis. Unduh versi terbaru secara manual dan ganti folder saat ini."
   },
   "sync": {
     "title": "Selaraskan",
@@ -530,7 +535,9 @@
     "clearConfirmDescription": "Hapus permanen {{count}} entri log dibuat sebelum {{date}} Ini tidak bisa dibatalkan.",
     "clearSuccess": "Dibersihkan {{count}} entri log",
     "clearFailed": "Gagal menghapus log",
-    "clearEmpty": "Tidak ada log lebih tua dari 7 hari untuk dibersihkan"
+    "clearEmpty": "Tidak ada log lebih tua dari 7 hari untuk dibersihkan",
+    "cacheReadRatio": "Rasio Pembacaan Cache",
+    "cacheTokenShare": "Porsi Token Ter-cache"
   },
   "model": {
     "title": "Konfigurasi Model",
@@ -635,7 +642,8 @@
       "DesktopClick": "Args tersedia: x, y, tombol, aksi",
       "DesktopType": "Args tersedia: teks, kunci, hotkey",
       "DesktopScroll": "Args tersedia: x, y, scrollX, scrollY",
-      "DesktopWait": "Args tersedia: delayM"
+      "DesktopWait": "Args tersedia: delayM",
+      "codegraph_explore": "Args tersedia: query, projectPath"
     },
     "status": {
       "disabled": "Plugin dinonaktifkan, sehingga alat tidak terpapar Agen.",
@@ -669,7 +677,11 @@
       "allowedDomains": "Domain yang diijinkan",
       "allowedDomainsDesc": "Biarkan kosong untuk mengijinkan semua domain. Ketika diset, hanya domain yang cocok yang dapat dibuka.",
       "domainPlaceholder": "example.com\nsub.example.org",
-      "domainRuleHint": "Masukkan satu domain per baris atau pisahkan dengan koma. Domain terblokir mengambil prioritas atas domain yang diperbolehkan; subdomains cocok secara otomatis."
+      "domainRuleHint": "Masukkan satu domain per baris atau pisahkan dengan koma. Domain terblokir mengambil prioritas atas domain yang diperbolehkan; subdomains cocok secara otomatis.",
+      "cookiesImportFailed": "Gagal mengimpor cookies",
+      "cookiesImported": "Mengimpor {{imported}} cookies dari {{browserName}} ({{skipped}} dilewati)",
+      "importCookies": "Impor cookies",
+      "importingCookies": "Mengimpor..."
     },
     "items": {
       "image": {
@@ -689,8 +701,48 @@
         "description": "Tampilkan cuplikan layar desktop, klik, gulung, dan perangkat papan ketik ke Agen.",
         "promptTitle": "Batasi penggunaan alat",
         "promptDesc": "Alat-alat ini dapat memeriksa dan mengendalikan desktop secara penuh. Agar persetujuan diaktifkan, menangkap layar sebelum bertindak, dan menggunakannya hanya ketika otomatisasi desktop langsung diperlukan. Jika model aktif memungkinkan Pemakaian Komputer, OpenAI Computer Gunakan akan mengkoordinasikan kemampuan desktop ini terlebih dahulu."
+      },
+      "codegraph": {
+        "description": "Mesin code-intelligence lokal: indeks sebuah repo menjadi graf simbol/referensi dan biarkan Agen menjelajahinya.",
+        "promptDesc": "Aktifkan untuk memberi Agen Alat `codegraph_explore` — menjawab \"bagaimana X mencapai Y / siapa memanggil ini / apa yang rusak jika saya mengubahnya\" dari graf yang diindeks, menggantikan banyak panggilan Read/Grep. Dinonaktifkan secara baku; mengaktifkannya mengunduh grammar bahasa satu kali.",
+        "promptTitle": "Batasan penggunaan alat",
+        "title": "Pengaya CodeGraph"
       }
-    }
+    },
+    "codegraph": {
+      "actionDone": "Selesai.",
+      "actionFailed": "Aksi CodeGraph gagal",
+      "assetsDesc": "CodeGraph mengurai kode Anda dengan grammar tree-sitter. Ini diunduh saat pertama kali Anda mengaktifkannya (build dev memakai grammar yang dibangun secara lokal — tanpa unduhan).",
+      "assetsTitle": "Grammar bahasa",
+      "deleteIndex": "Hapus indeks",
+      "devMode": "Build dev — memakai grammar lokal ({{count}}), tidak perlu unduhan.",
+      "download": "Unduh grammar",
+      "downloadFailed": "Unduhan grammar gagal",
+      "downloaded": "Grammar terunduh.",
+      "downloading": "Mengunduh...",
+      "enableFirst": "Aktifkan pengaya untuk mengelola proyek yang diindeks.",
+      "indexCurrent": "Indeks proyek saat ini",
+      "needsDownload": "Grammar belum terpasang. Unduh untuk mulai mengindeks.",
+      "projectStats": "{{files}} berkas · {{nodes}} node · {{edges}} edge",
+      "projectsDesc": "Setiap proyek yang telah diindeks CodeGraph pada mesin ini, dengan ukuran dan status grafnya. Indeks ulang membangun ulang dari awal; sinkronisasi menerapkan perubahan inkremental.",
+      "projectsEmpty": "Belum ada proyek yang diindeks. Pengindeksan dimulai otomatis saat Agen pertama kali menjelajahi proyek, atau indeks proyek saat ini sekarang.",
+      "projectsLoading": "Memuat proyek yang diindeks...",
+      "projectsTitle": "Proyek yang diindeks",
+      "ready": "Grammar siap ({{count}} terpasang).",
+      "refresh": "Segarkan",
+      "reindex": "Indeks ulang",
+      "reindexing": "Mengindeks...",
+      "remove": "Hapus",
+      "removed": "Grammar yang diunduh telah dihapus.",
+      "removing": "Menghapus...",
+      "sync": "Sinkronkan",
+      "syncing": "Menyinkronkan...",
+      "unknownRoot": "(proyek tak dikenal) {{hash}}",
+      "workerMissing": "Binary worker CodeGraph tidak ditemukan. Bangun dengan `npm run codegraph:publish` (atau `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerRunning": "Worker berjalan",
+      "workerStopped": "Worker belum dimulai (dijalankan saat pertama kali dipakai)"
+    },
+    "toolStatusDescCodeGraph": "Alat codegraph_explore hanya dipaparkan ketika pengaya diaktifkan dan grammar bahasanya siap (terunduh, atau tersedia secara lokal di build dev)."
   },
   "migration": {
     "title": "Pusat Migrasi",
@@ -1151,7 +1203,29 @@
     "channelDisconnected": "Saluran terputus",
     "channelRequired": "Silakan selesaikan verifikasi saluran terlebih dahulu",
     "modelCategoryVideo": "Video",
-    "seedanceVideo": "Seedance Video (Volcengine)"
+    "seedanceVideo": "Seedance Video (Volcengine)",
+    "builtinSearchEnabled": "Pencarian bawaan diaktifkan",
+    "cacheTtl": "TTL cache (anthropic)",
+    "cacheTtlHint": "5m (baku) atau 1j (biaya penulisan 2x). Override tingkat model mengesampingkan tingkat penyedia.",
+    "enableBuiltinSearch": "Aktifkan pencarian web bawaan",
+    "enableBuiltinSearchDesc": "Gunakan pencarian web native penyedia (Claude / OpenAI Responses) alih-alih alat klien.",
+    "kimiQuota5h": "Batas 5 Jam",
+    "kimiQuotaParallel": "Konkurensi maks {{count}}",
+    "kimiQuotaWeekly": "Batas Mingguan",
+    "kimiQuotaWindowLimit": "Batas {{time}}",
+    "requestParams": "Parameter Permintaan",
+    "sendMaxOutputTokens": "Kirim token keluaran maks",
+    "sendMaxOutputTokensHint": "Jika mati, permintaan tidak menyertakan max_tokens / max_completion_tokens / max_output_tokens dan membiarkan server menentukan batas keluaran",
+    "sendTemperature": "Kirim temperature",
+    "sendTemperatureHint": "Jika mati, permintaan tidak menyertakan parameter temperature — untuk layanan dengan pengaturan sampling tetap (mis. Kimi K3)",
+    "supportsBuiltinSearch": "Mendukung pencarian web bawaan",
+    "supportsBuiltinSearchDesc": "Endpoint mengimplementasikan alat server pencarian web native penyedia (Claude / OpenAI Responses). Sebagian besar endpoint relay tidak.",
+    "supportsFastMode": "Mendukung mode Cepat",
+    "supportsFastModeDesc": "Endpoint menerima tingkat layanan prioritas OpenAI untuk respons yang lebih cepat.",
+    "supportsImageGeneration": "Mendukung pembuatan gambar",
+    "supportsImageGenerationDesc": "Endpoint mengimplementasikan alat server image_generation OpenAI Responses.",
+    "supportsWebsocket": "Mendukung protokol WebSocket",
+    "supportsWebsocketDesc": "Endpoint menawarkan transport WebSocket OpenAI Responses."
   },
   "channel": {
     "title": "Kanal",
@@ -1456,5 +1530,227 @@
     "copyConversation": "Salin percakapan",
     "allowTool": "Memungkinkan eksekusi alat",
     "denyTool": "Eksekusi alat penyangkalan"
+  },
+  "aiCoding": {
+    "addConfig": "Tambah konfigurasi",
+    "apiKey": "Kunci API",
+    "baseUrl": "URL Dasar",
+    "claudeProviderDesc": "Hanya penyedia kunci API yang diaktifkan dengan model protokol Anthropic yang ditampilkan. Model RoutinAI GPT-5.4/5.5/5.6 juga diperlakukan sebagai kompatibel dengan ClaudeCode.",
+    "claudeSubtitle": "Konfigurasikan penyedia Claude Code dan pengikatan model protokol Anthropic",
+    "claudeTitle": "ClaudeCode",
+    "codexModelDesc": "Codex diluncurkan dengan override penyedia sementara dan Responses wire API.",
+    "codexProviderDesc": "Hanya penyedia kunci API yang diaktifkan dengan model OpenAI Responses yang ditampilkan.",
+    "codexSubtitle": "Konfigurasikan penyedia Codex CLI dan pengikatan model",
+    "codexTitle": "Codex",
+    "command": "Perintah",
+    "configName": "Nama konfigurasi",
+    "configs": "Konfigurasi",
+    "configsDesc": "Buat profil peluncuran bernama untuk menu terminal",
+    "copyConfig": "Salin konfigurasi",
+    "copyName": "Salinan {{name}}",
+    "defaultConfigName": "Baku {{index}}",
+    "defaultModel": "Model baku",
+    "deleteConfig": "Hapus konfigurasi",
+    "fullAccessPermission": "Izin akses penuh",
+    "fullAccessPermissionDesc": "Luncurkan Claude Code dengan --dangerously-skip-permissions.",
+    "invalid": "Tidak valid",
+    "model": "Model",
+    "noClaudeProviders": "Tidak ada penyedia protokol Anthropic yang diaktifkan dengan kunci API yang tersedia.",
+    "noCodexProviders": "Tidak ada penyedia OpenAI Responses yang diaktifkan dengan kunci API yang tersedia.",
+    "permissionOptions": "Opsi izin",
+    "permissionOptionsDesc": "Flag peluncuran Claude Code opsional untuk konfigurasi ini.",
+    "provider": "Penyedia",
+    "ready": "Siap",
+    "resolvedCodexConfig": "Peluncuran Codex yang terpecahkan",
+    "resolvedEnvironment": "Lingkungan yang terpecahkan",
+    "selectModel": "Pilih model",
+    "selectProvider": "Pilih penyedia",
+    "status": {
+      "apiKeyMissing": "Kunci API hilang",
+      "baseUrlMissing": "URL Dasar hilang",
+      "configMissing": "Konfigurasi hilang",
+      "modelMissing": "Model hilang",
+      "protocolUnsupported": "Protokol tidak cocok",
+      "providerDisabled": "Penyedia dinonaktifkan",
+      "providerMissing": "Penyedia hilang",
+      "ready": "Siap",
+      "unsupportedAuth": "Auth tidak didukung"
+    }
+  },
+  "codegraph": {
+    "subtitle": "Visualisasi indeks per proyek: statistik, berkas, dan graf simbol",
+    "title": "CodeGraph"
+  },
+  "extension": {
+    "bundled": "Sumber daya bawaan",
+    "bundledAgents": "{{count}} agen",
+    "bundledCommands": "{{count}} perintah",
+    "bundledMcp": "{{count}} server MCP",
+    "bundledNotSynced": "Belum disinkronkan",
+    "bundledSkills": "{{count}} skill",
+    "bundledSynced": "Tersinkronkan",
+    "bundledWorkflows": "{{count}} workflow",
+    "components": "Komponen",
+    "disabled": "Dinonaktifkan",
+    "emptyDesc": "Pilih folder yang berisi extension.json untuk menambahkan alat kustom ke OpenCowork.",
+    "emptyTitle": "Belum ada ekstensi yang terpasang",
+    "enabled": "Diaktifkan",
+    "hideSecret": "Sembunyikan rahasia",
+    "hostRendered": "dirender-host",
+    "installFailed": "Gagal memasang ekstensi",
+    "installFolder": "Folder pemasangan",
+    "installed": "Ekstensi terpasang",
+    "loading": "Memuat ekstensi...",
+    "network": "Jaringan",
+    "noNetwork": "Tidak ada akses jaringan",
+    "noRenderers": "Tidak ada renderer kustom",
+    "openFolder": "Buka folder",
+    "openFolderFailed": "Gagal membuka folder",
+    "readOnlyCount": "{{count}} baca-saja",
+    "remove": "Hapus",
+    "removeConfirm": "Hapus ekstensi ini?",
+    "removeFailed": "Gagal menghapus ekstensi",
+    "renderers": "Renderer",
+    "required": "Wajib",
+    "saveConfig": "Simpan konfigurasi",
+    "saveFailed": "Gagal menyimpan konfigurasi",
+    "saved": "Konfigurasi ekstensi disimpan",
+    "showSecret": "Tampilkan rahasia",
+    "subtitle": "Pasang alat kustom lokal dan komponen UI respons",
+    "syncWarnings": "Beberapa sumber daya bawaan tidak tersinkronkan",
+    "title": "Ekstensi",
+    "tools": "Alat",
+    "updateFailed": "Gagal memperbarui ekstensi",
+    "workflows": "Workflow",
+    "workflowsHint": "Pengaya ini adalah satu skill router yang memuat workflow ini sesuai permintaan."
+  },
+  "hooks": {
+    "actions": {
+      "deny": "Abaikan",
+      "disable": "Nonaktifkan",
+      "enable": "Aktifkan",
+      "openArtifact": "Skrip",
+      "openConfig": "Buka konfigurasi pengguna",
+      "openConfigShort": "Konfigurasi",
+      "refresh": "Segarkan",
+      "trust": "Gunakan"
+    },
+    "empty": "Belum ada hook yang dikonfigurasi.",
+    "emptyForEvent": "Belum ada hook yang dikonfigurasi untuk event siklus hidup ini.",
+    "events": {
+      "PermissionRequest": {
+        "description": "Berjalan sebelum prompt izin alat ditampilkan. Dapat mengizinkan atau menolak permintaan."
+      },
+      "PostCompact": {
+        "description": "Berjalan setelah kompresi konteks selesai. Berguna untuk menambahkan panduan lanjutan."
+      },
+      "PostToolUse": {
+        "description": "Berjalan setelah alat selesai dan sebelum hasilnya kembali ke model. Dapat menambahkan konteks atau mengganti umpan balik alat."
+      },
+      "PreCompact": {
+        "description": "Berjalan sebelum kompresi konteks manual atau otomatis. Dapat menambahkan panduan kompresi atau memblokir kompresi ini."
+      },
+      "PreToolUse": {
+        "description": "Berjalan setelah panggilan alat dibuat dan sebelum dieksekusi. Dapat memperbarui masukan atau memblokir panggilan berisiko."
+      },
+      "SessionStart": {
+        "description": "Berjalan sebelum sesi dimulai, dilanjutkan, dibersihkan, dipulihkan dari kompresi, atau dimulai sebagai tugas latar belakang. Berguna untuk menambahkan konteks sesi."
+      },
+      "Stop": {
+        "description": "Berjalan ketika giliran agen saat ini akan berakhir. Berguna untuk pemeriksaan akhir, catatan tambahan, atau memblokir penyelesaian."
+      },
+      "SubagentStart": {
+        "description": "Berjalan sebelum sub-agen dimulai. Dapat menambahkan konteks atau memblokir subtugas."
+      },
+      "SubagentStop": {
+        "description": "Berjalan setelah sub-agen selesai dan sebelum hasilnya kembali ke sesi utama. Dapat memvalidasi atau memblokir hasil."
+      },
+      "UserPromptSubmit": {
+        "description": "Berjalan sebelum prompt pengguna dikirimkan. Dapat menambahkan konteks, memperbarui prompt, atau memblokir pengiriman."
+      }
+    },
+    "feature": {
+      "description": "Berlaku setelah OpenCowork dimulai ulang.",
+      "preview": "Pratilik",
+      "restartToDisable": "Hook tetap aktif dalam sesi aplikasi ini. Mulai ulang OpenCowork untuk menghentikan eksekusinya.",
+      "restartToEnable": "Mulai ulang OpenCowork untuk mulai menjalankan hook.",
+      "runtimeOff": "Tidak aktif sesi ini",
+      "runtimeOn": "Aktif sesi ini",
+      "title": "Aktifkan hook"
+    },
+    "list": {
+      "title": "Semua hook"
+    },
+    "loading": "Memuat hook...",
+    "metrics": {
+      "invalid": "Tidak valid",
+      "pending": "Tertunda",
+      "total": "Total"
+    },
+    "review": {
+      "title": "Semua hook",
+      "warning": "Mempercayai sebuah hook mengizinkan perintahnya berjalan secara lokal sebagai pengguna Anda."
+    },
+    "source": {
+      "exists": "Ditemukan",
+      "missing": "Hilang"
+    },
+    "status": {
+      "changed": "Berubah",
+      "denied": "Ditolak",
+      "disabled": "Dinonaktifkan",
+      "invalid": "Tidak valid",
+      "pending": "Tertunda",
+      "trusted": "Dipercaya"
+    },
+    "subtitle": "Kelola hook siklus hidup OpenCowork.",
+    "title": "Hook",
+    "toasts": {
+      "denied": "Hook diabaikan",
+      "disabled": "Hook dinonaktifkan",
+      "enabled": "Hook diaktifkan",
+      "opened": "Sumber dibuka",
+      "trusted": "Hook diaktifkan untuk digunakan"
+    }
+  },
+  "permission": {
+    "bashAllow": {
+      "description": "Perintah shell yang cocok dengan aturan yang diaktifkan berjalan tanpa konfirmasi.",
+      "title": "Whitelist perintah (Bash)"
+    },
+    "bashDeny": {
+      "description": "Perintah shell yang cocok dengan aturan yang diaktifkan selalu ditolak — prioritas tertinggi, mengesampingkan auto-approve dan whitelist.",
+      "title": "Blacklist perintah (Bash)"
+    },
+    "master": {
+      "description": "Alat yang di-whitelist dan perintah shell yang cocok melewati konfirmasi; perintah yang di-blacklist selalu ditolak. Operasi berbahaya yang tidak tercakup aturan tetap meminta konfirmasi.",
+      "title": "Aktifkan whitelist izin"
+    },
+    "precedence": {
+      "description": "Urutan evaluasi: blacklist perintah (selalu menolak — bahkan dengan auto-approve aktif) → whitelist alat / whitelist perintah (lewati konfirmasi) → selain itu semua meminta konfirmasi."
+    },
+    "rules": {
+      "add": "Tambah aturan",
+      "delete": "Hapus aturan",
+      "empty": "Belum ada aturan",
+      "invalidPattern": "Pola tidak valid: {{error}}",
+      "modeRegex": "Regex",
+      "modeWildcard": "Wildcard",
+      "patternPlaceholder": "mis. npm run * atau ^git (status|log)\\b"
+    },
+    "subtitle": "Whitelist alat & aturan perintah shell",
+    "title": "Izin",
+    "tools": {
+      "add": "Tambah",
+      "commandToolWarning": "Sebuah alat shell (Bash/Shell/Monitor/PowerShell) di-whitelist — setiap perintah yang dijalankannya akan melewati konfirmasi kecuali kena blacklist.",
+      "description": "Alat-alat ini berjalan tanpa meminta konfirmasi. Entri dapat memakai wildcard * (mis. mcp__github__*).",
+      "duplicate": "Alat ini sudah di-whitelist",
+      "empty": "Belum ada alat yang di-whitelist",
+      "placeholder": "Nama alat, mis. Write",
+      "remove": "Hapus {{tool}}",
+      "suggestions": "Saran:",
+      "title": "Whitelist alat"
+    },
+    "wildcardHelp": "Pola wildcard mencocokkan seluruh perintah dan * mencocokkan teks apa pun — mis. npm run *. Aturan whitelist regex harus mencocokkan seluruh perintah; aturan blacklist regex mencocokkan di mana saja. Setiap bagian dari perintah gabungan (&&, ;, |) harus di-whitelist. Pencocokan tidak peka huruf besar/kecil."
   }
 }

@@ -122,7 +122,36 @@
     "startAcp": "Avviare una sessione ACP",
     "startAcpDesc": "Prima di tutto, chiarisci l'obiettivo, lo sfondo, i vincoli e i criteri di accettazione.",
     "homeTitleAcp": "Modalità ACP",
-    "homeDescAcp": "In modalità ACP, inizia a chiarire obiettivi, background, vincoli e criteri di accettazione, poi proporre un'architettura e una ripartizione delle attività prima dell'implementazione."
+    "homeDescAcp": "In modalità ACP, inizia a chiarire obiettivi, background, vincoli e criteri di accettazione, poi proporre un'architettura e una ripartizione delle attività prima dell'implementazione.",
+    "queueQuoted": "Inserito nella conversazione",
+    "runtimeMetrics": {
+      "cache": "Cache",
+      "cacheCreate": "Scrittura cache",
+      "cacheCreate1h": "Scrittura cache (1h)",
+      "cacheCreate5m": "Scrittura cache (5m)",
+      "cacheHit": "Cache hit",
+      "cost": "{{label}}: {{cost}}",
+      "input": "Input non in cache",
+      "output": "Output",
+      "totalCost": "Costo",
+      "tps": "TPS",
+      "tpsHint": "Token di output generati al secondo",
+      "ttft": "TTFT",
+      "ttftHint": "Tempo al primo token"
+    },
+    "runtimeStatus": {
+      "awaitingApproval": "In attesa di approvazione: {{tool}}",
+      "generatingImage": "Generazione immagine",
+      "loadingMedia": "Caricamento media",
+      "optimizing": "Ottimizzazione",
+      "ready": "Pronto",
+      "receiving": "Ricezione",
+      "retrying": "Nuovo tentativo {{attempt}}",
+      "runningSubAgents": "{{count}} sotto-agenti in esecuzione",
+      "runningTool": "Esecuzione di {{tool}}",
+      "thinking": "Sta pensando",
+      "waiting": "In attesa"
+    }
   },
   "planReview": {
     "awaitingReview": "Recensione di risveglio",
@@ -139,7 +168,10 @@
     "runningHint": "Questa sessione sta attuando il piano ora.",
     "runningInSession": "Questo piano è in esecuzione nella sessione \" {{title}} \".",
     "openExecutionSession": "Sessione di esecuzione aperta",
-    "approvedHint": "Questo piano è già stato approvato."
+    "approvedHint": "Questo piano è già stato approvato.",
+    "copy": "Copia piano",
+    "download": "Scarica piano",
+    "expand": "Espandi nel pannello laterale"
   },
   "guide": {
     "title": "Guida alla conversazione",
@@ -400,7 +432,26 @@
       "TaskList": "Elenco delle attività",
       "Delete": "Cancella",
       "Skill": "Sci"
-    }
+    },
+    "allowWhitelist": "Consenti e metti in whitelist",
+    "default": "Predefinito",
+    "defaultDesc": "Chiedi conferma prima di eseguire strumenti pericolosi",
+    "fullAccess": "Accesso completo",
+    "fullAccessConfirmDesc": "Tutte le chiamate degli strumenti, incluse le operazioni pericolose, verranno eseguite automaticamente senza chiedere conferma.",
+    "fullAccessConfirmTitle": "Passare all'accesso completo?",
+    "fullAccessDesc": "Esegui tutti gli strumenti automaticamente senza conferma",
+    "label": "Permesso",
+    "manageWhitelist": "Gestisci regole whitelist…",
+    "tooltip": "Permesso di chiamata strumento",
+    "whitelist": "Whitelist",
+    "whitelistAddedRule": "Regola aggiunta: {{pattern}}",
+    "whitelistAddedTool": "{{tool}} aggiunto alla whitelist",
+    "whitelistDesc": "Gli strumenti e i comandi in whitelist saltano la conferma; i comandi in blacklist vengono sempre rifiutati",
+    "whitelistEditorTitle": "Aggiungi una regola di consenso per questo comando",
+    "whitelistInvalidPattern": "Pattern non valido: {{error}}",
+    "whitelistModeRegex": "Regex",
+    "whitelistModeWildcard": "Wildcard",
+    "whitelistSave": "Salva e consenti"
   },
   "toolCall": {
     "output": "Produzione",
@@ -444,7 +495,9 @@
       "imageCopied": "Immagine copiata a clipboard",
       "copyImageFailed": "Non copiare l'immagine",
       "copied": "Copie",
-      "copyImage": "Copia immagine a clipboard"
+      "copyImage": "Copia immagine a clipboard",
+      "renderComplete": "completato",
+      "rendered": "Renderizzato"
     },
     "taskList": "Elenco delle attività",
     "tasksDone": "{{completed}} / {{total}} Fatto",
@@ -500,7 +553,8 @@
       "retryConfirmAction": "Confermare la procedura",
       "result": "Risultati ({{count}})",
       "notes": "Note",
-      "countValue": "Conte {{count}}"
+      "countValue": "Conte {{count}}",
+      "builtinTitle": "Generazione immagini GPT"
     },
     "desktop": {
       "running": "Azione desktop in corso",
@@ -597,7 +651,33 @@
         "typeSubmit": "{{selector}} · presentare",
         "scrollY": "Sì. {{value}}"
       }
-    }
+    },
+    "codegraph": {
+      "executing": "Interrogazione del grafo del codice...",
+      "files": "File referenziati",
+      "filesCount": "{{count}} file",
+      "input": "Input",
+      "notIndexed": "Indice non pronto",
+      "notIndexedBadge": "indicizzazione",
+      "result": "Risultato del grafo",
+      "symbolsCount": "{{count}} simboli",
+      "title": "CodeGraph",
+      "tools": {
+        "callees": "Chiamati",
+        "callers": "Chiamanti",
+        "explore": "Esplora",
+        "files": "File",
+        "impact": "Impatto",
+        "index": "Indice",
+        "node": "Nodo",
+        "search": "Cerca",
+        "status": "Stato",
+        "sync": "Sincronizza"
+      }
+    },
+    "parameters": "Parametri",
+    "result": "Risultato",
+    "skillName": "Competenza"
   },
   "subAgent": {
     "queued": "In coda",
@@ -620,7 +700,17 @@
     "toolCalls": "Chiamate degli strumenti",
     "summaryEmpty": "Nessun riepilogo",
     "openInRunsRunning": "Visualizza i progressi dal vivo nell'elenco di esecuzione lato destro",
-    "openInRunsDone": "Visualizza il record completo nella lista di esecuzione lato destro"
+    "openInRunsDone": "Visualizza il record completo nella lista di esecuzione lato destro",
+    "aborted": "interrotto",
+    "background": "Sfondo",
+    "failureUnknown": "Esecuzione del SubAgent non riuscita",
+    "label": "subAgent",
+    "maxIterations": "limite di iterazioni raggiunto",
+    "openNamedInPanel": "Apri {{name}} nel pannello laterale",
+    "prompt": "Prompt",
+    "promptEmpty": "Nessun prompt disponibile",
+    "stopped": "fermato",
+    "waiting": "In attesa di esecuzione"
   },
   "teamEvent": {
     "teamCreated": "Team Creato",
@@ -629,7 +719,8 @@
     "messageSent": "Messaggio",
     "teamDeleted": "Squadra eliminata",
     "teammateSpawned": "Teammate Spawned",
-    "failed": "fallito"
+    "failed": "fallito",
+    "backgroundAgentSpawned": "Agente in background avviato"
   },
   "todo": {
     "tasksDone": "{{completed}} / {{total}} compiti",
@@ -642,7 +733,9 @@
     "thinkingFor": "Pensare per {{seconds}} #",
     "pending": "Pensare",
     "thinkingEllipsis": "Pensando...",
-    "thoughts": "Pensieri"
+    "thoughts": "Pensieri",
+    "deepThinking": "Riflessione approfondita",
+    "deepThought": "Riflessione approfondita completata"
   },
   "messageList": {
     "startConversation": "Inizia una conversazione",
@@ -721,7 +814,19 @@
     "homeWorkspaceCaption": "Spazio di lavoro",
     "homeTitleChatQuestion": "Che cosa dovremmo parlare?",
     "homeTitleBuildQuestion": "Cosa dovremmo costruire {{name}}?",
-    "thisWorkspace": "questo spazio di lavoro"
+    "thisWorkspace": "questo spazio di lavoro",
+    "assistantRail": {
+      "currentLabel": "Messaggio attuale {{index}}: {{preview}}",
+      "emptyPreview": "Risposta dell'assistente",
+      "jumpLabel": "Vai al messaggio {{index}}: {{preview}}",
+      "streamingLabel": "Vai alla risposta dell'assistente in streaming {{index}}: {{preview}}",
+      "summaryLabel": "Vai al riepilogo della cronologia compressa {{index}}: {{preview}}",
+      "summaryPreview": "Riepilogo della cronologia compressa",
+      "toolOnlyPreview": "{{count}} chiamate di strumenti",
+      "userLabel": "Vai al messaggio utente {{index}}: {{preview}}"
+    },
+    "pendingRetryTitle": "Riconnessione al modello",
+    "pendingTeamTitle": "Coordinamento dei compagni di squadra"
   },
   "projectHome": {
     "noProjectSelected": "Nessun progetto selezionato",
@@ -812,7 +917,19 @@
     "mcpToolCount": "{{count}} strumenti",
     "mcpToolCount_one": "{{count}} strumento",
     "mcpToolCount_other": "{{count}} strumenti",
-    "mcpCount": "{{count}} MCP"
+    "mcpCount": "{{count}} MCP",
+    "activeCustomExtensions": "Estensioni personalizzate attive:",
+    "availableCustomExtensions": "Estensioni personalizzate disponibili",
+    "configureCustomExtensionSettings": "Configura...",
+    "configureCustomExtensions": "Abilita le estensioni in Impostazioni → Estensioni",
+    "customExtensionsLabel": "Estensioni personalizzate",
+    "extensionCount": "{{count}} estensione",
+    "extensionCount_one": "{{count}} estensione",
+    "extensionCount_other": "{{count}} estensioni",
+    "extensionToolCount": "{{count}} strumenti",
+    "extensionToolCount_one": "{{count}} strumento",
+    "extensionToolCount_other": "{{count}} strumenti",
+    "noCustomExtensions": "Nessuna estensione personalizzata abilitata"
   },
   "userMessage": {
     "you": "#",
@@ -830,7 +947,15 @@
     "copyImage": "Copia immagine",
     "removeImage": "Rimuovi l'immagine",
     "imagePreview": "Anteprima immagine",
-    "saveAndResend": "Salva e invia"
+    "saveAndResend": "Salva e invia",
+    "quotedLabel": "Citato",
+    "selectedFileReadFailed": "Lettura non riuscita",
+    "selectedFileReadLines": "Lette {{count}} righe",
+    "selectedFileReadSkipped": "Riferimento al percorso",
+    "selectedFileReadSkippedNonText": "Riferimento al percorso; il file binario o documento non è stato letto direttamente",
+    "selectedFileReadSkippedPdf": "Riferimento al percorso PDF; il file non è stato letto direttamente",
+    "selectedFileReadTruncated": "Lette le prime {{count}} righe",
+    "selectedFileReadsTitle": "File letti"
   },
   "assistantMessage": {
     "changedFiles_one": "Modificato {{count}} file",
@@ -841,7 +966,6 @@
     "editedFiles_other": "Modificato {{count}} file",
     "deletedFiles_one": "Eliminato {{count}} file",
     "deletedFiles_other": "Eliminato {{count}} file",
-    "ranCommandsInline": "{{count}} comando eseguito",
     "summarySeparator": "♪",
     "moreKinds": "+ {{count}}",
     "showWorkspace": "Spazio di lavoro esteso ({{count}} esecuzioni degli strumenti)",
@@ -900,9 +1024,31 @@
       "lastErrorLabel": "Ultimo errore",
       "stackTrace": "Traccia di stack",
       "copy": "Copia",
-      "copied": "Copie"
+      "copied": "Copie",
+      "descRuntimeUnavailable": "OpenCowork non è riuscito a raggiungere il Native Worker locale. Ha già provato a riavviarlo; riprova il messaggio o ricompila il native worker se il problema si ripete.",
+      "sidecarUnavailableMessage": "Il runtime dell'agente locale è temporaneamente non disponibile. OpenCowork ha provato a riavviarlo; riprova questo messaggio. Se continua a verificarsi in fase di sviluppo, esegui `npm run native:publish` e riavvia OpenCowork.",
+      "titleRuntimeUnavailable": "Runtime locale non disponibile"
     },
-    "processTools": "Chiamate agli strumenti"
+    "processTools": "Chiamate agli strumenti",
+    "activeTools": "{{count}} strumenti attivi",
+    "cacheWrite": "Scrittura cache",
+    "cachedInput": "Input in cache",
+    "completionFinished": "Completato",
+    "metricCost": "Costo",
+    "metricTokens": "Token",
+    "metricTotalDuration": "Totale",
+    "processResponse": "risposta",
+    "ranCommandsInline_one": "Eseguito {{count}} comando",
+    "ranCommandsInline_other": "Eseguiti {{count}} comandi",
+    "streamingText": "testo in streaming",
+    "thinkingStatus": "Sta pensando...",
+    "tokenTotal": "Totale token",
+    "tokenUsage": "Utilizzo token",
+    "toolExecutions": "{{count}} esecuzioni di strumenti",
+    "totalUsage": "Utilizzo totale",
+    "tpsHint": "Token di output generati al secondo",
+    "ttftHint": "Tempo al primo token",
+    "uncachedInput": "Input non in cache"
   },
   "messageActions": {
     "fork": "Forcella",
@@ -1074,5 +1220,25 @@
     "aiCommitNeedStaged": "La fase cambia prima, poi generare un messaggio",
     "aiCommitEmptyStaged": "Nulla inscenato — non può generare un messaggio",
     "aiCommitFailed": "Generazione fallita. Controllare le impostazioni API / modello e riprovare"
+  },
+  "artifacts": {
+    "more": "+{{count}} altri",
+    "open": "Apri",
+    "reveal": "Rivela nel Finder",
+    "title": "File creati"
+  },
+  "extensionResult": {
+    "chartItem": "Elemento {{index}}",
+    "emptyTable": "Nessuna riga da visualizzare",
+    "loadingRenderer": "Caricamento renderer...",
+    "rendererMissing": "Renderer non trovato",
+    "rendererTitle": "Renderer estensione",
+    "tableTitle": "Tabella",
+    "title": "Risultato estensione"
+  },
+  "webSearch": {
+    "label": "Ricerca web",
+    "searching": "Ricerca sul web in corso…",
+    "sources": "Fonti"
   }
 }

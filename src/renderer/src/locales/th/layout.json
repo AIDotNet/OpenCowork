@@ -104,7 +104,14 @@
     "chats": "ปากกา",
     "noChats": "ยังไม่ได้คุยกัน",
     "smartRename": "เปลี่ยนชื่อแบบฉลาด",
-    "smartRenaming": "การเปลี่ยนชื่อแบบฉลาด"
+    "smartRenaming": "การเปลี่ยนชื่อแบบฉลาด",
+    "dropFolderHint": "ลากโฟลเดอร์มาวางที่นี่เพื่อนําเข้าเป็นโครงการ",
+    "projectSortBy": "เรียงโครงการตาม",
+    "projectSortCreatedAt": "เวลาที่สร้าง",
+    "projectSortName": "ตามตัวอักษร",
+    "projectSortRecentlyUpdated": "ปรับปรุงล่าสุด",
+    "projectSortTitle": "เรียงโครงการ: {{sort}}",
+    "revealInFolder": "เปิดตําแหน่งโฟลเดอร์"
   },
   "sidebar_toast": {
     "sessionDeleted": "ลบกลุ่มงาน",
@@ -129,7 +136,10 @@
     "noProjectSessionsCleared": "ยังไม่มีการล้างวาระโครงการ",
     "smartRenameNoContent": "ไม่มีเนื้อหาการสนทนาสําหรับเปลี่ยนชื่อ",
     "smartRenameFailed": "การเปลี่ยนชื่อแบบฉลาดล้มเหลว",
-    "smartRenameSuccess": "วาระงานที่ถูกเปลี่ยนชื่ออย่างชาญฉลาด"
+    "smartRenameSuccess": "วาระงานที่ถูกเปลี่ยนชื่ออย่างชาญฉลาด",
+    "dropNotFolder": "โปรดวางโฟลเดอร์ ไม่ใช่แฟ้ม",
+    "projectsCreatedCount": "สร้างโครงการแล้ว {{count}} โครงการ",
+    "revealFailed": "เปิดตําแหน่งล้มเหลว"
   },
   "topbar": {
     "togglePanel": "เปิด/ ปิดถาด",
@@ -225,7 +235,14 @@
     "openInspector": "เปิดตัวตรวจ",
     "closeRuntimeStatus": "ซ่อนบริบทและความคืบหน้า",
     "openRuntimeStatus": "แสดงบริบทและความคืบหน้า",
-    "help": "เปิดแนะนํา"
+    "help": "เปิดแนะนํา",
+    "builtinSearch": "ค้นหาเว็บในตัว",
+    "builtinSearchOff": "ปิด",
+    "builtinSearchOn": "เปิดใช้การค้นหาแบบเนทีฟของผู้ให้บริการ",
+    "faster": "เร็วขึ้น",
+    "followGlobalModel": "ใช้ตามโมเดลส่วนกลาง",
+    "followGlobalModelDesc": "ใช้การตั้งค่าโมเดลหลักส่วนกลางสําหรับวาระนี้",
+    "smarter": "ฉลาดขึ้น"
   },
   "runtimeStatus": {
     "contextTitle": "สภาพแวดล้อม",
@@ -254,7 +271,10 @@
     "sourcesSummary": "{{first}}. {{second}} ถึง {{count}} มาก",
     "noTasks": "ยังไม่ได้งาน",
     "runningTerminals": "กําลังประมวลผลเทอร์มินัล",
-    "closeTerminal": "ปิดเทอร์มินัล"
+    "closeTerminal": "ปิดเทอร์มินัล",
+    "subAgents": "ตัวแทนย่อย",
+    "subAgentsCompleted": "เสร็จแล้ว {{count}}",
+    "subAgentsRunning": "กําลังทํางาน {{count}}"
   },
   "browser": {
     "back": "กลับ",
@@ -578,7 +598,17 @@
     "reportStatusFallback": "ถอยกลับ",
     "reportStatusMissing": "หายไป",
     "reportRetrying": "ทํารายงานสุดท้ายใหม่",
-    "reportEmpty": "ไม่มีรายงานสุดท้าย"
+    "reportEmpty": "ไม่มีรายงานสุดท้าย",
+    "aborted": "ยกเลิกแล้ว",
+    "backToList": "กลับไปยังรายการตัวแทนย่อย",
+    "completedGroup": "เสร็จสมบูรณ์แล้ว",
+    "durationHours": "{{count}} ชม.",
+    "durationMinutes": "{{count}} นาที",
+    "durationSeconds": "{{count}} วิ.",
+    "maxIterations": "ถึงขีดจํากัดจํานวนรอบการทําซ้ําแล้ว",
+    "noStarted": "ยังไม่มีตัวแทนย่อยที่เริ่มทํางาน",
+    "started": "เริ่มแล้ว",
+    "stop": "หยุดตัวแทนย่อยนี้"
   },
   "detailPanel": {
     "team": "ทีม",
@@ -682,7 +712,9 @@
           "กรณีที่ทาสก์ย่อยควรจะทํางานแบบขนานและส่งกลับมาเป็นผลรวม Marcown เพื่อประสานงานต่อไป"
         ]
       }
-    }
+    },
+    "useFullWidth": "ใช้ความกว้างเต็มจอ",
+    "useStandardWidth": "ใช้ความกว้างมาตรฐาน"
   },
   "navRail": {
     "conversations": "การสนทนา",
@@ -694,7 +726,8 @@
     "draw": "วาด",
     "translate": "แปล",
     "ssh": "SSH",
-    "settings": "ตั้งค่า"
+    "settings": "ตั้งค่า",
+    "codegraph": "CodeGraph"
   },
   "resourcesPage": {
     "title": "ทรัพยากร",
@@ -945,7 +978,23 @@
     "inpaintPrompt": "อธิบายการเปลี่ยนแปลงสำหรับพื้นที่ที่ระบายไว้",
     "outpaintPrompt": "อธิบายสิ่งที่จะเติมในพื้นที่ใหม่ (ไม่บังคับ)",
     "copyImage": "คัดลอกไปยังคลิปบอร์ด",
-    "copiedImage": "คัดลอกภาพแล้ว"
+    "copiedImage": "คัดลอกภาพแล้ว",
+    "assistantActConnect": "เชื่อมโหนดแล้ว",
+    "assistantActCreateText": "สร้างโหนดข้อความแล้ว",
+    "assistantActFailed": "ล้มเหลว",
+    "assistantActGenerate": "เริ่มสร้างภาพแล้ว",
+    "assistantActRead": "อ่านแคนวาสแล้ว",
+    "assistantAddSelection": "เพิ่มรายการที่เลือก ({{count}})",
+    "assistantClear": "ล้างบทสนทนา",
+    "assistantCollapse": "ย่อ",
+    "assistantQuickDescribe": "อธิบายภาพ",
+    "assistantQuickDescribePrompt": "อธิบายเนื้อหา องค์ประกอบ และสไตล์ของภาพในบริบทนี้ แล้วให้พรอมต์ภาษาอังกฤษหนึ่งอันที่นําไปใช้ซ้ําได้",
+    "assistantQuickRefine": "ปรับปรุงพรอมต์",
+    "assistantQuickRefinePrompt": "ปรับปรุงข้อความพรอมต์ในบริบทนี้ให้เป็นพรอมต์สร้างภาพภาษาอังกฤษคุณภาพสูงหนึ่งอัน แสดงผลเฉพาะพรอมต์สุดท้ายเท่านั้น",
+    "assistantQuickTranslate": "แปลเป็นภาษาอังกฤษ",
+    "assistantQuickTranslatePrompt": "แปลข้อความในบริบทนี้เป็นพรอมต์สร้างภาพภาษาอังกฤษที่เป็นธรรมชาติ แสดงผลเฉพาะผลลัพธ์เท่านั้น",
+    "assistantStop": "หยุด",
+    "retry": "ลองใหม่"
   },
   "translatePage": {
     "title": "แปลภาษา AI",
@@ -1134,6 +1183,143 @@
     "connecting": "กําลังเชื่อมต่อเทอร์มินัล...",
     "terminalExited": "จบวาระงานของเทอร์มินัล",
     "terminalExitedWithError": "วาระการทํางานเทอร์มินัล",
-    "exitCode": "รหัสออก: {{code}}"
-  }
+    "exitCode": "รหัสออก: {{code}}",
+    "invalidAiCodingConfig": "การกําหนดค่าไม่สมบูรณ์หรือไม่ถูกต้อง",
+    "localAiCodingOnly": "การตั้งค่าเริ่มต้น AI Coding ใช้ได้เฉพาะกับเทอร์มินัลของโครงการภายในเครื่องเท่านั้น",
+    "moveToBottomDock": "ย้ายไปยังเทอร์มินัลด้านล่าง",
+    "moveToRightPanel": "ย้ายไปยังแผงด้านขวา",
+    "newClaudeCode": "ClaudeCode ใหม่"
+  },
+  "codegraphPage": {
+    "addFolder": "จัดทําดัชนีโฟลเดอร์",
+    "analytics": {
+      "cycles": "การพึ่งพาแบบวงกลม: {{count}}",
+      "deadCode": "โค้ดที่อาจไม่ได้ใช้งาน: {{count}}",
+      "description": "การพึ่งพาแบบวงกลมระหว่างแฟ้มและสัญลักษณ์ส่วนตัวที่ไม่เคยถูกอ้างอิง คํานวณจากดัชนีเมื่อมีการร้องขอ",
+      "noCycles": "ไม่มีการพึ่งพาแบบวงกลมระหว่างแฟ้ม",
+      "noDeadCode": "ไม่มีสัญลักษณ์ส่วนตัวที่ไม่ถูกอ้างอิง",
+      "rerun": "รันใหม่",
+      "run": "เริ่มวิเคราะห์",
+      "running": "กําลังวิเคราะห์…",
+      "showingTop": "แสดง {{count}} อันดับแรก",
+      "title": "สุขภาพของกราฟ"
+    },
+    "back": "กลับ",
+    "charts": {
+      "edgesByKind": "เส้นเชื่อมตามประเภท",
+      "filesByLanguage": "แฟ้มตามภาษา",
+      "noData": "ไม่มีข้อมูล",
+      "nodesByKind": "โหนดตามประเภท"
+    },
+    "delete": "ลบดัชนี",
+    "deleting": "กําลังลบ…",
+    "files": {
+      "empty": "ไม่มีแฟ้มที่จัดทําดัชนีไว้",
+      "loadingSymbols": "กําลังโหลดสัญลักษณ์…",
+      "noSymbols": "ไม่มีสัญลักษณ์ในแฟ้มนี้",
+      "search": "กรองแฟ้ม…",
+      "symbols_one": "{{count}} สัญลักษณ์",
+      "symbols_other": "{{count}} สัญลักษณ์",
+      "title": "แฟ้มที่จัดทําดัชนี",
+      "viewInGraph": "ดูในกราฟ"
+    },
+    "freshness": {
+      "backend": "แบ็กเอนด์",
+      "extractionVersion": "เวอร์ชันการสกัดข้อมูล",
+      "indexing": "กําลังจัดทําดัชนี…",
+      "journal": "โหมดบันทึกรายการ",
+      "lastIndexed": "จัดทําดัชนีล่าสุด",
+      "never": "ไม่เคย",
+      "stale": "ล้าสมัย — แนะนําให้จัดทําดัชนีใหม่",
+      "title": "ความสดใหม่ของดัชนี",
+      "upToDate": "เป็นปัจจุบัน"
+    },
+    "graph": {
+      "depth": "ความลึก",
+      "empty": "ไม่พบโหนดข้างเคียงสําหรับสัญลักษณ์นี้",
+      "expand": "ขยายโหนดข้างเคียง",
+      "interactionHint": "คลิก: ปักหมุดโฟกัสและขยาย · ดับเบิลคลิก: จัดกึ่งกลางที่นี่",
+      "loading": "กําลังโหลดกราฟ…",
+      "nodesEdges": "{{nodes}} โหนด · {{edges}} เส้นเชื่อม",
+      "reset": "รีเซ็ต",
+      "searchPlaceholder": "ค้นหาสัญลักษณ์เพื่อเริ่มต้น (เช่น ชื่อฟังก์ชันหรือคลาส)",
+      "seedHint": "ค้นหาสัญลักษณ์ หรือคลิกสัญลักษณ์ในแท็บแฟ้ม เพื่อเริ่มสร้างกราฟ",
+      "title": "กราฟสัญลักษณ์"
+    },
+    "indexing": "กําลังจัดทําดัชนี…",
+    "kpi": {
+      "dbSize": "ขนาดฐานข้อมูล",
+      "edges": "เส้นเชื่อม",
+      "files": "แฟ้ม",
+      "nodes": "โหนด",
+      "pendingRefs": "การอ้างอิงที่รอดําเนินการ",
+      "state": "สถานะ"
+    },
+    "needsDownload": "CodeGraph ต้องดาวน์โหลดไวยากรณ์ครั้งแรกก่อนจึงจะจัดทําดัชนีได้ ไปที่ตั้งค่า → ส่วนเสริม",
+    "noProjects": "ยังไม่มีโครงการที่จัดทําดัชนี คลิก \"จัดทําดัชนีโฟลเดอร์\" เพื่อสร้างดัชนีแรกของคุณ",
+    "notIndexedDesc": "โครงการนี้ยังไม่มีดัชนีกราฟ",
+    "notIndexedTitle": "ยังไม่ได้จัดทําดัชนี",
+    "openSettings": "เปิดตั้งค่า",
+    "pluginDisabled": "CodeGraph ถูกปิดใช้งาน โปรดเปิดใช้งานส่วนเสริมนี้ในตั้งค่า → ส่วนเสริมก่อน",
+    "progress": {
+      "complete": "กําลังสรุปผล",
+      "extract": "กําลังสกัดสัญลักษณ์",
+      "files": "{{done}} / {{total}} แฟ้ม",
+      "indexing": "กําลังจัดทําดัชนี",
+      "maintenance": "กําลังปรับให้เหมาะสม",
+      "recreate": "กําลังสร้างใหม่",
+      "resolve": "กําลังแก้ไขการอ้างอิง",
+      "scan": "กําลังสแกนแฟ้ม",
+      "sync": "กําลังซิงค์",
+      "synthesize": "กําลังสังเคราะห์"
+    },
+    "refresh": "รีเฟรช",
+    "reindex": "จัดทําดัชนีใหม่",
+    "reindexing": "กําลังจัดทําดัชนีใหม่…",
+    "selectProject": "โครงการ",
+    "subtitle": "การแสดงผลดัชนีรายโครงการ: สถิติ การกระจายตัว โครงสร้างแฟ้ม และกราฟสัญลักษณ์",
+    "sync": "ซิงค์",
+    "syncing": "กําลังซิงค์…",
+    "tabs": {
+      "dashboard": "แดชบอร์ด",
+      "files": "แฟ้ม",
+      "graph": "กราฟ"
+    },
+    "title": "CodeGraph",
+    "toast": {
+      "addFolderFailed": "ไม่สามารถจัดทําดัชนีโฟลเดอร์นั้นได้",
+      "indexDone": "จัดทําดัชนีเสร็จสมบูรณ์",
+      "indexFailed": "จัดทําดัชนีล้มเหลว",
+      "indexStarted": "เริ่มจัดทําดัชนีแล้ว",
+      "removeFailed": "ลบดัชนีล้มเหลว",
+      "removed": "ลบดัชนีแล้ว",
+      "syncDone": "ซิงค์เสร็จสมบูรณ์",
+      "syncFailed": "ซิงค์ล้มเหลว"
+    },
+    "toolSurface": {
+      "description": "ค่าเริ่มต้นจะเปิดให้เอเจนต์ใช้ได้เฉพาะ codegraph_explore เท่านั้น เปิดใช้งานเพื่อลงทะเบียนเครื่องมือเพิ่มเติมได้แก่ search, node, callers, callees, impact, files และ status (ขอบเขตยังคงถูกปรับตามขนาดของโครงการ)",
+      "title": "เปิดเครื่องมือทั้งหมดให้เอเจนต์"
+    },
+    "unknownRoot": "โครงการที่ไม่ทราบชื่อ ({{hash}})"
+  },
+  "committed": "คอมมิตแล้ว",
+  "files": "ตัวสํารวจแฟ้ม",
+  "scmAgentChanges": "การเปลี่ยนแปลงของเอเจนต์",
+  "scmChanges": "การเปลี่ยนแปลง",
+  "scmClean": "ไม่มีการเปลี่ยนแปลง",
+  "scmCommit": "คอมมิต",
+  "scmCommitPlaceholder": "ข้อความ (Ctrl+Enter เพื่อคอมมิต)",
+  "scmDiscard": "ละทิ้ง",
+  "scmGenerate": "สร้างข้อความคอมมิต",
+  "scmGenerateFailed": "การสร้างล้มเหลว",
+  "scmMerge": "รวมการเปลี่ยนแปลง",
+  "scmNoFolder": "เปิดโฟลเดอร์ที่ทํางานเพื่อใช้งานระบบควบคุมซอร์สโค้ด",
+  "scmNothingStaged": "ยังไม่มีรายการที่จัดเตรียมไว้ — โปรดจัดเตรียมการเปลี่ยนแปลงก่อน",
+  "scmStage": "จัดเตรียม",
+  "scmStageAll": "จัดเตรียมทั้งหมด",
+  "scmStaged": "การเปลี่ยนแปลงที่จัดเตรียมไว้",
+  "scmTitle": "ระบบควบคุมซอร์สโค้ด",
+  "scmUndo": "เลิกทํา",
+  "scmUnstage": "ยกเลิกการจัดเตรียม",
+  "scmUnstageAll": "ยกเลิกการจัดเตรียมทั้งหมด"
 }

@@ -70,7 +70,17 @@
     "keepAlive": "البقاء على قيد الحياة (الثانيات)",
     "advanced": "الخيارات المتقدمة",
     "save": "أنقذ",
-    "cancel": "إلغاء"
+    "cancel": "إلغاء",
+    "saveAndConnect": "حفظ والاتصال",
+    "secretChange": "تغيير",
+    "secretClear": "مسح",
+    "secretSet": "محفوظ",
+    "sectionAdvanced": "متقدم",
+    "sectionAuth": "المصادقة",
+    "sectionBasic": "أساسيات",
+    "testConnection": "اختبار الاتصال",
+    "testFailed": "فشل اختبار الاتصال",
+    "testSuccess": "تم الاتصال والمصادقة بنجاح"
   },
   "groupDialog": {
     "title": "الاسم",
@@ -91,7 +101,8 @@
     "copyFailed": "لم يكتب",
     "pasteFailed": "فشل في المعكرونة",
     "disconnectedMessage": "SSH session disconnected",
-    "errorMessage": "الخطأ المتصل"
+    "errorMessage": "الخطأ المتصل",
+    "reconnecting": "انقطع الاتصال، جارٍ إعادة الاتصال…"
   },
   "fileExplorer": {
     "title": "مستكشف الملف",
@@ -200,7 +211,8 @@
     "backToList": "العودة",
     "viewTable": "الجدول",
     "viewCard": "وجهة نظر البطاقات",
-    "search": "باحثاً"
+    "search": "باحثاً",
+    "open": "فتح"
   },
   "dashboard": {
     "totalServers": "خادم",
@@ -295,7 +307,8 @@
         "done": "مكتمل",
         "error": "فشل",
         "canceled": "ألغيت"
-      }
+      },
+      "retry": "إعادة المحاولة"
     },
     "terminalTheme": {
       "title": "النخيل النملي",
@@ -325,7 +338,12 @@
       "network": "الشبكة",
       "disks": "مقرمش",
       "path": "Path",
-      "capacity": "Available/Total"
+      "capacity": "Available/Total",
+      "copied": "تم النسخ إلى الحافظة",
+      "copy": "نسخ IP",
+      "expand": "توسيع مراقب العمليات",
+      "latency": "زمن الاستجابة",
+      "systemInfo": "النظام"
     },
     "nav": {
       "hosts": "المضيفون",
@@ -416,6 +434,33 @@
       "noConnections": "لا علاقة تاريخية.",
       "uploads": "نشاط تحميل",
       "noUploads": "لا نشاط تحميل بعد"
+    },
+    "emptyGroupsDesc": "لا تظهر هنا إلا المجموعات التي تنشئها. أنشئ مجموعة لتنظيم مضيفيك.",
+    "libraryTab": "المضيفون",
+    "monitor": "المراقبة",
+    "processMonitor": {
+      "empty": "لا توجد عمليات مطابقة",
+      "kill": "إنهاء العملية",
+      "killDesc": "PID {{pid}} · {{command}}",
+      "killForce": "إنهاء قسري (-9)",
+      "killTerm": "إنهاء",
+      "killTitle": "إنهاء العملية؟",
+      "killed": "تم إرسال الإشارة إلى {{pid}}",
+      "running": "قيد التشغيل",
+      "search": "تصفية حسب الأمر أو المستخدم أو PID…",
+      "tasks": "المهام",
+      "title": "مراقب العمليات"
+    },
+    "sessionTabs": "تبويبات الجلسة",
+    "stage": {
+      "auth": "المصادقة",
+      "connecting": "جارٍ الاتصال…",
+      "dial": "الاتصال",
+      "failed": "فشل",
+      "handshake": "المصافحة",
+      "lines": "سطور",
+      "shell": "الصدفة",
+      "waitingLog": "بانتظار الاتصال…"
     }
   }
 }

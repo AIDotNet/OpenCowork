@@ -8,7 +8,8 @@
       "system": "Système",
       "ai": "Capacités d'IA",
       "extensions": "Extensions et intégrations",
-      "about": "À propos"
+      "about": "À propos",
+      "aiCoding": "AI Coding"
     }
   },
   "pet": {
@@ -189,7 +190,10 @@
       "downloading": "Téléchargement de la mise à jour...",
       "downloadingWithProgress": "Téléchargement de la mise à jour... {{progress}} %",
       "downloadedReady": "Mise à jour v{{version}} téléchargée. Cliquez sur Mettre à jour pour redémarrer et installer.",
-      "installing": "Préparation de la mise à jour…"
+      "installing": "Préparation de la mise à jour…",
+      "greenBuild": "Version sans installation",
+      "manualDownloadHint": "Une version plus récente (v{{version}}) est disponible. Pour la version sans installation, téléchargez-la manuellement, quittez l'application, puis remplacez le dossier actuel.",
+      "openDownloadPage": "Ouvrir la page de téléchargement"
     },
     "projectDefaultDirectory": {
       "title": "Répertoire de projets par défaut",
@@ -238,7 +242,8 @@
       "clearConfirm": "Tout supprimer {{count}} Ça ne peut pas être annulé.",
       "cleared": "Supprimé {{count}} Séances",
       "noSessions": "Aucune session disponible"
-    }
+    },
+    "autoUpdateGreenDesc": "La version sans installation vérifie la disponibilité de nouvelles versions, mais ne les télécharge ni ne les installe automatiquement. Téléchargez la dernière version manuellement et remplacez le dossier actuel."
   },
   "sync": {
     "title": "Synchronisation",
@@ -530,7 +535,9 @@
     "clearConfirmDescription": "Supprimer définitivement {{count}} entrées de journal créées avant {{date}}. Cela ne peut pas être annulé.",
     "clearSuccess": "Effacé {{count}} entrées de journal",
     "clearFailed": "Échec du nettoyage des registres",
-    "clearEmpty": "Pas de bûches de plus de 7 jours à nettoyer"
+    "clearEmpty": "Pas de bûches de plus de 7 jours à nettoyer",
+    "cacheReadRatio": "Taux de lecture du cache",
+    "cacheTokenShare": "Part de jetons mis en cache"
   },
   "model": {
     "title": "Configuration du modèle",
@@ -635,7 +642,8 @@
       "DesktopClick": "Args disponibles: x, y, bouton, action",
       "DesktopType": "Args disponibles: texte, clé, hotkey",
       "DesktopScroll": "Args disponibles: x, y, défilementX, défilement",
-      "DesktopWait": "Args disponibles: delayMs"
+      "DesktopWait": "Args disponibles: delayMs",
+      "codegraph_explore": "Arguments disponibles : query, projectPath"
     },
     "status": {
       "disabled": "Le plugin est désactivé, donc ses outils ne sont pas exposés à l'Agent.",
@@ -669,7 +677,11 @@
       "allowedDomains": "Domaines autorisés",
       "allowedDomainsDesc": "Laisser vide pour permettre tous les domaines. Lorsque défini, seuls les domaines correspondants peuvent être ouverts.",
       "domainPlaceholder": "exemple.com\nsous.exemple.org",
-      "domainRuleHint": "Entrez un domaine par ligne ou séparément avec des virgules. Les domaines bloqués prennent la priorité sur les domaines autorisés; sous-domaines correspondent automatiquement."
+      "domainRuleHint": "Entrez un domaine par ligne ou séparément avec des virgules. Les domaines bloqués prennent la priorité sur les domaines autorisés; sous-domaines correspondent automatiquement.",
+      "cookiesImportFailed": "Échec de l'importation des cookies",
+      "cookiesImported": "{{imported}} cookies importés depuis {{browserName}} ({{skipped}} ignorés)",
+      "importCookies": "Importer les cookies",
+      "importingCookies": "Importation..."
     },
     "items": {
       "image": {
@@ -689,8 +701,48 @@
         "description": "Exposer la capture d'écran de bureau, cliquez, défilez et les outils clavier à l'Agent.",
         "promptTitle": "Contraintes d'utilisation des outils",
         "promptDesc": "Ces outils peuvent inspecter et contrôler le bureau complet. Gardez l'approbation activée, capturez l'écran avant d'agir, et ne les utiliser que lorsque l'automatisation de bureau directe est requise. Si le modèle actif permet l'utilisation d'ordinateur, OpenAI Computer Use coordonnera d'abord ces capacités de bureau."
+      },
+      "codegraph": {
+        "description": "Un moteur local d'intelligence de code : indexez un dépôt sous forme de graphe de symboles/références et laissez l'agent l'explorer.",
+        "promptDesc": "Activez pour donner à l'agent l'outil `codegraph_explore` — il répond à des questions comme « comment X atteint-il Y / qui appelle ceci / que casse ce changement » à partir du graphe indexé, remplaçant de nombreux appels Read/Grep. Désactivé par défaut ; l'activer télécharge les grammaires de langage une seule fois.",
+        "promptTitle": "Contraintes d'utilisation de l'outil",
+        "title": "Plugin CodeGraph"
       }
-    }
+    },
+    "codegraph": {
+      "actionDone": "Terminé.",
+      "actionFailed": "L'action CodeGraph a échoué",
+      "assetsDesc": "CodeGraph analyse votre code à l'aide de grammaires tree-sitter. Elles sont téléchargées la première fois que vous l'activez (une version de développement utilise les grammaires compilées localement — aucun téléchargement).",
+      "assetsTitle": "Grammaires de langage",
+      "deleteIndex": "Supprimer l'index",
+      "devMode": "Version de développement — utilisation des grammaires locales ({{count}}), aucun téléchargement nécessaire.",
+      "download": "Télécharger les grammaires",
+      "downloadFailed": "Échec du téléchargement des grammaires",
+      "downloaded": "Grammaires téléchargées.",
+      "downloading": "Téléchargement...",
+      "enableFirst": "Activez le plugin pour gérer les projets indexés.",
+      "indexCurrent": "Indexer le projet actuel",
+      "needsDownload": "Les grammaires ne sont pas encore installées. Téléchargez-les pour commencer l'indexation.",
+      "projectStats": "{{files}} fichiers · {{nodes}} nœuds · {{edges}} arêtes",
+      "projectsDesc": "Chaque projet indexé par CodeGraph sur cette machine, avec la taille et l'état de son graphe. Réindexer reconstruit entièrement ; synchroniser applique les changements incrémentiels.",
+      "projectsEmpty": "Aucun projet indexé pour le moment. L'indexation démarre automatiquement la première fois que l'agent explore un projet, ou indexez le projet actuel maintenant.",
+      "projectsLoading": "Chargement des projets indexés...",
+      "projectsTitle": "Projets indexés",
+      "ready": "Grammaires prêtes ({{count}} installées).",
+      "refresh": "Actualiser",
+      "reindex": "Réindexer",
+      "reindexing": "Indexation...",
+      "remove": "Supprimer",
+      "removed": "Grammaires téléchargées supprimées.",
+      "removing": "Suppression...",
+      "sync": "Synchroniser",
+      "syncing": "Synchronisation...",
+      "unknownRoot": "(projet inconnu) {{hash}}",
+      "workerMissing": "Le binaire worker de CodeGraph est introuvable. Compilez-le avec `npm run codegraph:publish` (ou `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerRunning": "Worker en cours d'exécution",
+      "workerStopped": "Worker non démarré (se lance à la première utilisation)"
+    },
+    "toolStatusDescCodeGraph": "L'outil codegraph_explore n'est exposé que lorsque le plugin est activé et que ses grammaires de langage sont prêtes (téléchargées, ou fournies localement dans une version de développement)."
   },
   "migration": {
     "title": "Centre des migrations",
@@ -1151,7 +1203,29 @@
     "channelDisconnected": "Canal déconnecté",
     "channelRequired": "Veuillez d'abord effectuer la vérification du canal",
     "modelCategoryVideo": "Vidéo",
-    "seedanceVideo": "Seedance Video (Volcengine)"
+    "seedanceVideo": "Seedance Video (Volcengine)",
+    "builtinSearchEnabled": "Recherche intégrée activée",
+    "cacheTtl": "TTL du cache (anthropic)",
+    "cacheTtlHint": "5 min (par défaut) ou 1 h (coût d'écriture x2). Le niveau modèle prévaut sur le niveau fournisseur.",
+    "enableBuiltinSearch": "Activer la recherche web intégrée",
+    "enableBuiltinSearchDesc": "Utiliser la recherche web native du fournisseur (Claude / OpenAI Responses) au lieu d'un outil client.",
+    "kimiQuota5h": "Limite de 5 heures",
+    "kimiQuotaParallel": "Concurrence maximale {{count}}",
+    "kimiQuotaWeekly": "Limite hebdomadaire",
+    "kimiQuotaWindowLimit": "Limite {{time}}",
+    "requestParams": "Paramètres de la requête",
+    "sendMaxOutputTokens": "Envoyer le nombre maximal de jetons de sortie",
+    "sendMaxOutputTokensHint": "Lorsque désactivé, les requêtes omettent max_tokens / max_completion_tokens / max_output_tokens et laissent le serveur décider de la limite de sortie",
+    "sendTemperature": "Envoyer la température",
+    "sendTemperatureHint": "Lorsque désactivé, les requêtes omettent le paramètre de température — pour les services avec des réglages d'échantillonnage fixes (par ex. Kimi K3)",
+    "supportsBuiltinSearch": "Prend en charge la recherche web intégrée",
+    "supportsBuiltinSearchDesc": "Le point de terminaison implémente l'outil serveur de recherche web natif du fournisseur (Claude / OpenAI Responses). La plupart des points de terminaison relais ne le font pas.",
+    "supportsFastMode": "Prend en charge le mode rapide",
+    "supportsFastModeDesc": "Le point de terminaison accepte le niveau de service prioritaire OpenAI pour des réponses plus rapides.",
+    "supportsImageGeneration": "Prend en charge la génération d'images",
+    "supportsImageGenerationDesc": "Le point de terminaison implémente l'outil serveur image_generation d'OpenAI Responses.",
+    "supportsWebsocket": "Prend en charge le protocole WebSocket",
+    "supportsWebsocketDesc": "Le point de terminaison offre le transport WebSocket d'OpenAI Responses."
   },
   "channel": {
     "title": "Canaux",
@@ -1456,5 +1530,227 @@
     "copyConversation": "Copier la conversation",
     "allowTool": "Permettre l'exécution de l'outil",
     "denyTool": "Refuser l'exécution de l'outil"
+  },
+  "aiCoding": {
+    "addConfig": "Ajouter une configuration",
+    "apiKey": "Clé API",
+    "baseUrl": "URL de base",
+    "claudeProviderDesc": "Seuls les fournisseurs à clé API activés disposant de modèles au protocole Anthropic sont affichés. Les modèles RoutinAI GPT-5.4/5.5/5.6 sont également considérés comme compatibles ClaudeCode.",
+    "claudeSubtitle": "Configurer les fournisseurs Claude Code et les liaisons de modèles au protocole Anthropic",
+    "claudeTitle": "ClaudeCode",
+    "codexModelDesc": "Codex est lancé avec une substitution temporaire de fournisseur et l'API Responses.",
+    "codexProviderDesc": "Seuls les fournisseurs à clé API activés disposant de modèles OpenAI Responses sont affichés.",
+    "codexSubtitle": "Configurer les fournisseurs Codex CLI et les liaisons de modèles",
+    "codexTitle": "Codex",
+    "command": "Commande",
+    "configName": "Nom de la configuration",
+    "configs": "Configurations",
+    "configsDesc": "Créer des profils de lancement nommés pour le menu du terminal",
+    "copyConfig": "Copier la configuration",
+    "copyName": "Copie de {{name}}",
+    "defaultConfigName": "Défaut {{index}}",
+    "defaultModel": "Modèle par défaut",
+    "deleteConfig": "Supprimer la configuration",
+    "fullAccessPermission": "Autorisations d'accès complet",
+    "fullAccessPermissionDesc": "Lancer Claude Code avec --dangerously-skip-permissions.",
+    "invalid": "Non valide",
+    "model": "Modèle",
+    "noClaudeProviders": "Aucun fournisseur au protocole Anthropic activé avec une clé API n'est disponible.",
+    "noCodexProviders": "Aucun fournisseur OpenAI Responses activé avec une clé API n'est disponible.",
+    "permissionOptions": "Options d'autorisation",
+    "permissionOptionsDesc": "Options de lancement facultatives de Claude Code pour cette configuration.",
+    "provider": "Fournisseur",
+    "ready": "Prêt",
+    "resolvedCodexConfig": "Lancement Codex résolu",
+    "resolvedEnvironment": "Environnement résolu",
+    "selectModel": "Sélectionner le modèle",
+    "selectProvider": "Sélectionner le fournisseur",
+    "status": {
+      "apiKeyMissing": "Clé API manquante",
+      "baseUrlMissing": "URL de base manquante",
+      "configMissing": "Configuration manquante",
+      "modelMissing": "Modèle manquant",
+      "protocolUnsupported": "Protocole incompatible",
+      "providerDisabled": "Fournisseur désactivé",
+      "providerMissing": "Fournisseur manquant",
+      "ready": "Prêt",
+      "unsupportedAuth": "Authentification non prise en charge"
+    }
+  },
+  "codegraph": {
+    "subtitle": "Visualisation de l'index par projet : statistiques, fichiers et graphe de symboles",
+    "title": "CodeGraph"
+  },
+  "extension": {
+    "bundled": "Ressources intégrées",
+    "bundledAgents": "{{count}} agents",
+    "bundledCommands": "{{count}} commandes",
+    "bundledMcp": "{{count}} serveurs MCP",
+    "bundledNotSynced": "Non synchronisé",
+    "bundledSkills": "{{count}} compétences",
+    "bundledSynced": "Synchronisé",
+    "bundledWorkflows": "{{count}} workflows",
+    "components": "Composants",
+    "disabled": "Désactivé",
+    "emptyDesc": "Choisissez un dossier contenant extension.json pour ajouter des outils personnalisés à OpenCowork.",
+    "emptyTitle": "Aucune extension installée",
+    "enabled": "Activé",
+    "hideSecret": "Masquer le secret",
+    "hostRendered": "rendu par l'hôte",
+    "installFailed": "Échec de l'installation de l'extension",
+    "installFolder": "Installer le dossier",
+    "installed": "Extension installée",
+    "loading": "Chargement des extensions...",
+    "network": "Réseau",
+    "noNetwork": "Aucun accès réseau",
+    "noRenderers": "Aucun moteur de rendu personnalisé",
+    "openFolder": "Ouvrir le dossier",
+    "openFolderFailed": "Impossible d'ouvrir le dossier",
+    "readOnlyCount": "{{count}} en lecture seule",
+    "remove": "Supprimer",
+    "removeConfirm": "Supprimer cette extension ?",
+    "removeFailed": "Échec de la suppression de l'extension",
+    "renderers": "Moteurs de rendu",
+    "required": "Requis",
+    "saveConfig": "Enregistrer la configuration",
+    "saveFailed": "Échec de l'enregistrement de la configuration",
+    "saved": "Configuration de l'extension enregistrée",
+    "showSecret": "Afficher le secret",
+    "subtitle": "Installer des outils personnalisés locaux et des composants d'interface de réponse",
+    "syncWarnings": "Certaines ressources intégrées n'ont pas été synchronisées",
+    "title": "Extensions",
+    "tools": "Outils",
+    "updateFailed": "Échec de la mise à jour de l'extension",
+    "workflows": "Workflows",
+    "workflowsHint": "Ce plugin est une compétence routeur unique qui charge ces workflows à la demande."
+  },
+  "hooks": {
+    "actions": {
+      "deny": "Ignorer",
+      "disable": "Désactiver",
+      "enable": "Activer",
+      "openArtifact": "Script",
+      "openConfig": "Ouvrir la configuration utilisateur",
+      "openConfigShort": "Config",
+      "refresh": "Actualiser",
+      "trust": "Utiliser"
+    },
+    "empty": "Aucun hook n'est configuré.",
+    "emptyForEvent": "Aucun hook n'est configuré pour cet événement de cycle de vie.",
+    "events": {
+      "PermissionRequest": {
+        "description": "S'exécute avant l'affichage d'une invite d'autorisation d'outil. Peut autoriser ou refuser la demande."
+      },
+      "PostCompact": {
+        "description": "S'exécute une fois la compaction du contexte terminée. Utile pour ajouter des instructions de suivi."
+      },
+      "PostToolUse": {
+        "description": "S'exécute après qu'un outil s'est terminé et avant que le résultat ne soit renvoyé au modèle. Peut ajouter du contexte ou remplacer le retour de l'outil."
+      },
+      "PreCompact": {
+        "description": "S'exécute avant une compaction manuelle ou automatique du contexte. Peut ajouter des instructions de compaction ou bloquer cette compaction."
+      },
+      "PreToolUse": {
+        "description": "S'exécute après la génération d'un appel d'outil et avant son exécution. Peut modifier l'entrée ou bloquer les appels risqués."
+      },
+      "SessionStart": {
+        "description": "S'exécute avant qu'une session démarre, reprenne, s'efface, se restaure depuis une compaction, ou démarre en tant que tâche d'arrière-plan. Utile pour ajouter du contexte de session."
+      },
+      "Stop": {
+        "description": "S'exécute lorsque le tour actuel de l'agent est sur le point de se terminer. Utile pour des vérifications finales, des notes supplémentaires ou pour bloquer l'achèvement."
+      },
+      "SubagentStart": {
+        "description": "S'exécute avant le démarrage d'un sous-agent. Peut ajouter du contexte ou bloquer la sous-tâche."
+      },
+      "SubagentStop": {
+        "description": "S'exécute après qu'un sous-agent a terminé et avant que le résultat ne revienne à la session principale. Peut valider ou bloquer le résultat."
+      },
+      "UserPromptSubmit": {
+        "description": "S'exécute avant qu'une invite utilisateur ne soit soumise. Peut ajouter du contexte, modifier l'invite ou bloquer la soumission."
+      }
+    },
+    "feature": {
+      "description": "Prend effet après le redémarrage d'OpenCowork.",
+      "preview": "Aperçu",
+      "restartToDisable": "Les hooks restent actifs pour cette session de l'application. Redémarrez OpenCowork pour cesser de les exécuter.",
+      "restartToEnable": "Redémarrez OpenCowork pour commencer à exécuter les hooks.",
+      "runtimeOff": "Inactif pour cette session",
+      "runtimeOn": "Actif pour cette session",
+      "title": "Activer les hooks"
+    },
+    "list": {
+      "title": "Tous les hooks"
+    },
+    "loading": "Chargement des hooks...",
+    "metrics": {
+      "invalid": "Non valide",
+      "pending": "En attente",
+      "total": "Total"
+    },
+    "review": {
+      "title": "Tous les hooks",
+      "warning": "Faire confiance à un hook permet à sa commande de s'exécuter localement en tant que votre utilisateur."
+    },
+    "source": {
+      "exists": "Trouvé",
+      "missing": "Manquant"
+    },
+    "status": {
+      "changed": "Modifié",
+      "denied": "Refusé",
+      "disabled": "Désactivé",
+      "invalid": "Non valide",
+      "pending": "En attente",
+      "trusted": "Approuvé"
+    },
+    "subtitle": "Gérer les hooks de cycle de vie d'OpenCowork.",
+    "title": "Hooks",
+    "toasts": {
+      "denied": "Hook ignoré",
+      "disabled": "Hook désactivé",
+      "enabled": "Hook activé",
+      "opened": "Source ouverte",
+      "trusted": "Hook activé pour utilisation"
+    }
+  },
+  "permission": {
+    "bashAllow": {
+      "description": "Les commandes shell correspondant à une règle activée s'exécutent sans confirmation.",
+      "title": "Liste blanche de commandes (Bash)"
+    },
+    "bashDeny": {
+      "description": "Les commandes shell correspondant à une règle activée sont toujours rejetées — priorité la plus élevée, prévaut sur l'approbation automatique et la liste blanche.",
+      "title": "Liste noire de commandes (Bash)"
+    },
+    "master": {
+      "description": "Les outils en liste blanche et les commandes shell correspondantes ignorent la confirmation ; les commandes en liste noire sont toujours rejetées. Les opérations dangereuses non couvertes par une règle demandent toujours confirmation.",
+      "title": "Activer la liste blanche d'autorisations"
+    },
+    "precedence": {
+      "description": "Ordre d'évaluation : liste noire de commandes (rejette toujours — même avec l'approbation automatique activée) → liste blanche d'outils / liste blanche de commandes (ignore la confirmation) → tout le reste demande confirmation."
+    },
+    "rules": {
+      "add": "Ajouter une règle",
+      "delete": "Supprimer la règle",
+      "empty": "Aucune règle pour le moment",
+      "invalidPattern": "Modèle non valide : {{error}}",
+      "modeRegex": "Regex",
+      "modeWildcard": "Caractère générique",
+      "patternPlaceholder": "par ex. npm run * ou ^git (status|log)\\b"
+    },
+    "subtitle": "Liste blanche d'outils et règles de commandes shell",
+    "title": "Autorisations",
+    "tools": {
+      "add": "Ajouter",
+      "commandToolWarning": "Un outil shell (Bash/Shell/Monitor/PowerShell) est en liste blanche — chaque commande qu'il exécute ignorera la confirmation, sauf en cas de correspondance avec la liste noire.",
+      "description": "Ces outils s'exécutent sans demander de confirmation. Les entrées peuvent utiliser des caractères génériques * (par ex. mcp__github__*).",
+      "duplicate": "Cet outil est déjà en liste blanche",
+      "empty": "Aucun outil en liste blanche pour le moment",
+      "placeholder": "Nom de l'outil, par ex. Write",
+      "remove": "Supprimer {{tool}}",
+      "suggestions": "Suggestions :",
+      "title": "Liste blanche d'outils"
+    },
+    "wildcardHelp": "Les modèles génériques correspondent à la commande entière et * correspond à n'importe quel texte — par ex. npm run *. Les règles regex de liste blanche doivent correspondre à la commande entière ; les règles regex de liste noire correspondent n'importe où. Chaque partie d'une commande composée (&&, ;, |) doit être en liste blanche. La correspondance ne tient pas compte de la casse."
   }
 }

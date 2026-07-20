@@ -30,22 +30,41 @@
     <!-- Match Core's SQLite stack exactly (FTS5 + bm25 parity). -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+    <!-- Native test assets only. GeneratePathProperty gives the copy target a
+         NuGet-root-independent package path on every CI host. -->
+    <PackageReference Include="TreeSitter.DotNet" Version="1.3.0"
+                      GeneratePathProperty="true" PrivateAssets="all" ExcludeAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\OpenCowork.CodeGraph.Core\OpenCowork.CodeGraph.Core.csproj" />
   </ItemGroup>
 
-  <!-- WS-B M2 real-parse tests: the TreeSitter.DotNet osx-arm64 native grammars must
-       sit beside the test bin so the Core [LibraryImport] binding resolves them
-       (libtree-sitter.dylib for the parser API + libtree-sitter-<lang>.dylib for each
-       grammar entry point). The glob copies all of them. Guarded on the dev-bootstrap
-       cache path so the build is a clean no-op on a host/RID without these dylibs — the
-       real-parse tests then self-skip and only the pure-function tier runs. -->
-  <ItemGroup Condition="Exists('$(HOME)/.nuget/packages/treesitter.dotnet/1.3.0/runtimes/osx-arm64/native')">
-    <None Include="$(HOME)/.nuget/packages/treesitter.dotnet/1.3.0/runtimes/osx-arm64/native/libtree-sitter*.dylib">
+  <!-- Real-parse tests load the host RID's native parser + grammar libraries from
+       TreeSitter.DotNet. RuntimeIdentifier is set for explicit RID runs; ordinary
+       `dotnet test` uses the SDK host RID. The package covers the six release hosts:
+       win/osx/linux x64+arm64. Missing assets are a build failure because TSX's
+       split-library canary is intentionally mandatory. -->
+  <PropertyGroup>
+    <CodeGraphTestRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</CodeGraphTestRid>
+    <CodeGraphTestRid Condition="'$(CodeGraphTestRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</CodeGraphTestRid>
+    <CodeGraphTestNativeDir>$(PkgTreeSitter_DotNet)/runtimes/$(CodeGraphTestRid)/native</CodeGraphTestNativeDir>
+  </PropertyGroup>
+
+  <ItemGroup Condition="Exists('$(CodeGraphTestNativeDir)')">
+    <_CodeGraphTestNativeGrammar Include="$(CodeGraphTestNativeDir)/*tree-sitter*.*" />
+    <None Include="@(_CodeGraphTestNativeGrammar)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>%(Filename)%(Extension)</Link>
     </None>
   </ItemGroup>
+
+  <Target Name="ValidateCodeGraphTestNativeGrammars" BeforeTargets="Build">
+    <Error Condition="'$(CodeGraphTestRid)' == ''"
+           Text="Cannot determine the host RID for CodeGraph native grammar tests." />
+    <Error Condition="!Exists('$(CodeGraphTestNativeDir)')"
+           Text="TreeSitter.DotNet 1.3.0 has no native grammar assets for RID '$(CodeGraphTestRid)' at '$(CodeGraphTestNativeDir)'." />
+    <Error Condition="'@(_CodeGraphTestNativeGrammar)' == ''"
+           Text="TreeSitter.DotNet 1.3.0 contains no native tree-sitter libraries for RID '$(CodeGraphTestRid)'." />
+  </Target>
 </Project>

@@ -1,10 +1,18 @@
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
+import {
+  loadGrammarManifest,
+  requiredGrammarLibraries,
+  validateGrammarEntryPoints,
+  resolveGrammarFiles
+} from './codegraph-grammar-manifest.mjs'
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
+const grammarManifest = loadGrammarManifest()
+const grammarLibraries = requiredGrammarLibraries(grammarManifest)
 const projectPath = join(
   repoRoot,
   'sidecars',
@@ -112,50 +120,25 @@ const grammarsSrc =
   process.env.OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR?.trim() ||
   join(
     (await import('node:os')).homedir(),
-    '.nuget/packages/treesitter.dotnet/1.3.0/runtimes',
+    `.nuget/packages/${grammarManifest.source.package.toLowerCase()}/${grammarManifest.source.version}/runtimes`,
     rid,
     'native'
   )
 const grammarsOut = join(codeGraphOutputDir, 'grammars')
 
-// Use names without the Unix-only `lib` prefix so the same filter works for
-// .dylib/.so and Windows .dll files.
-const BUNDLED_GRAMMARS = new Set([
-  'tree-sitter',
-  'tree-sitter-typescript',
-  'tree-sitter-tsx',
-  'tree-sitter-javascript',
-  'tree-sitter-python',
-  'tree-sitter-go',
-  'tree-sitter-java',
-  'tree-sitter-c-sharp',
-  'tree-sitter-rust',
-  'tree-sitter-c',
-  'tree-sitter-cpp',
-  'tree-sitter-php',
-  'tree-sitter-ruby',
-  'tree-sitter-scala',
-  'tree-sitter-bash',
-  'tree-sitter-haskell',
-  'tree-sitter-julia',
-  'tree-sitter-razor'
-])
-
 try {
   mkdirSync(grammarsOut, { recursive: true })
-  const copied = new Set()
-  for (const file of readdirSync(grammarsSrc)) {
-    const name = file.replace(/\.(dylib|so|dll)$/i, '').replace(/^lib/, '')
-    if (!BUNDLED_GRAMMARS.has(name)) continue
+  const nativeLibraries = resolveGrammarFiles(grammarsSrc, rid, grammarManifest)
+  const inspectedGrammars = validateGrammarEntryPoints(grammarsSrc, rid, grammarManifest)
+  for (const { file } of nativeLibraries) {
     cpSync(join(grammarsSrc, file), join(grammarsOut, file))
-    copied.add(name)
   }
 
-  const missing = [...BUNDLED_GRAMMARS].filter((name) => !copied.has(name))
-  if (missing.length > 0) {
-    throw new Error(`missing required ${rid} grammars: ${missing.join(', ')}`)
-  }
-  console.log(`[publish-native-worker] bundled ${copied.size} ${rid} grammars -> ${grammarsOut}`)
+  console.log(
+    `[publish-native-worker] bundled ${nativeLibraries.length} ${rid} native libraries ` +
+      `(${grammarLibraries.runtime} runtime + ${grammarLibraries.grammars.length} grammars) ` +
+      `with ${inspectedGrammars.length} grammar exports verified -> ${grammarsOut}`
+  )
 } catch (error) {
   rmSync(tempOutputDir, { recursive: true, force: true })
   rmSync(codeGraphTempOutputDir, { recursive: true, force: true })

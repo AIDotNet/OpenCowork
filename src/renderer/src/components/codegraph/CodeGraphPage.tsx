@@ -18,6 +18,7 @@ import { useAppPluginStore } from '@renderer/stores/app-plugin-store'
 import {
   getCodeGraphAssetStatus,
   useCodeGraphStore,
+  type CgAssetStatus,
   type CgNode
 } from '@renderer/stores/codegraph-store'
 import { CodeGraphDashboard } from './CodeGraphDashboard'
@@ -92,14 +93,14 @@ export function CodeGraphPage({
   const syncProject = useCodeGraphStore((s) => s.syncProject)
   const removeProject = useCodeGraphStore((s) => s.removeProject)
 
-  const [needsDownload, setNeedsDownload] = useState(false)
+  const [assetStatus, setAssetStatus] = useState<CgAssetStatus | null>(null)
   const [tab, setTab] = useState<Tab>('dashboard')
   const [seed, setSeed] = useState<{ node?: CgNode; symbol?: string } | null>(null)
 
   useEffect(() => {
     if (!enabled) return
     void refreshProjects()
-    void getCodeGraphAssetStatus().then((s) => setNeedsDownload(Boolean(s?.needsDownload)))
+    void getCodeGraphAssetStatus().then(setAssetStatus)
   }, [enabled, refreshProjects])
 
   const selected = useMemo(
@@ -216,10 +217,26 @@ export function CodeGraphPage({
         onOpenSettings={() => openSettingsPage('plugin')}
       />
     )
-  } else if (needsDownload) {
+  } else if (assetStatus?.needsDownload) {
+    const assetMessage =
+      assetStatus.diagnostic === 'worker-missing'
+        ? t('codegraphPage.workerMissing', {
+            defaultValue: 'The CodeGraph worker is missing. Reinstall or update OpenCowork.'
+          })
+        : assetStatus.diagnostic === 'core-library-missing'
+          ? t('codegraphPage.coreLibraryMissing', {
+              defaultValue:
+                'The tree-sitter runtime library is missing or invalid. Reinstall or update OpenCowork.'
+            })
+          : assetStatus.diagnostic === 'language-grammars-missing'
+            ? t('codegraphPage.languageGrammarsMissing', {
+                defaultValue:
+                  'No valid CodeGraph language grammars were found. Reinstall or update OpenCowork.'
+              })
+            : t('codegraphPage.needsDownload')
     body = (
       <GateCard
-        message={t('codegraphPage.needsDownload')}
+        message={assetMessage}
         buttonLabel={t('codegraphPage.openSettings')}
         onOpenSettings={() => openSettingsPage('plugin')}
       />

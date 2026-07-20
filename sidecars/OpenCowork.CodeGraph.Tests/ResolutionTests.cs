@@ -344,7 +344,7 @@ public sealed class CodeGraphResolutionEndToEndTests : IDisposable
         "}\n";
 
     [Fact]
-    public void ResolvesCrossFileCallEdge_FromRealTreeSitterParse()
+    public void ResolvesCrossFileCallAndImportEdges_FromRealTreeSitterParse()
     {
         // Guard: skip ONLY the e2e when the TS grammar can't load; the seeded tests
         // still pin the resolver.
@@ -357,13 +357,14 @@ public sealed class CodeGraphResolutionEndToEndTests : IDisposable
         var grammars = CodeGraphExtractionHarness.Grammars;
 
         // Real sources in the project root so import-path resolution can read them.
-        File.WriteAllText(Path.Combine(directory, "util.ts"), UtilTs);
-        File.WriteAllText(Path.Combine(directory, "main.ts"), MainTs);
+        Directory.CreateDirectory(Path.Combine(directory, "src"));
+        File.WriteAllText(Path.Combine(directory, "src", "util.ts"), UtilTs);
+        File.WriteAllText(Path.Combine(directory, "src", "main.ts"), MainTs);
 
         // Index BOTH files via the real extractor: nodes + `contains` edges +
         // unresolved_refs (the greet call + the ./util import) land in the store.
-        CodeGraphIndexer.IndexFile(store, "util.ts", Encoding.UTF8.GetBytes(UtilTs), extractors, grammars);
-        CodeGraphIndexer.IndexFile(store, "main.ts", Encoding.UTF8.GetBytes(MainTs), extractors, grammars);
+        CodeGraphIndexer.IndexFile(store, "src/util.ts", Encoding.UTF8.GetBytes(UtilTs), extractors, grammars);
+        CodeGraphIndexer.IndexFile(store, "src/main.ts", Encoding.UTF8.GetBytes(MainTs), extractors, grammars);
 
         // Extraction emitted at least the greet() call as a pending ref to resolve.
         Assert.True(store.GetUnresolvedReferencesCount() > 0);
@@ -373,13 +374,20 @@ public sealed class CodeGraphResolutionEndToEndTests : IDisposable
 
         // The exported greet in util.ts and the run function in main.ts.
         var greet = store.GetNodesByName("greet")
-            .Single(n => n.FilePath == "util.ts" && n.Kind == CodeGraphNodeKind.Function);
+            .Single(n => n.FilePath == "src/util.ts" && n.Kind == CodeGraphNodeKind.Function);
         var run = store.GetNodesByName("run")
-            .Single(n => n.FilePath == "main.ts" && n.Kind == CodeGraphNodeKind.Function);
+            .Single(n => n.FilePath == "src/main.ts" && n.Kind == CodeGraphNodeKind.Function);
 
         // A real cross-file `calls` edge main.ts run -> util.ts greet now exists.
         var callEdges = store.GetOutgoingEdges(run.Id, new[] { CodeGraphEdgeKind.Calls });
         Assert.Contains(callEdges, e => e.Target == greet.Id);
+
+        // The module-source ref (`./util`) resolves to the imported FILE, not back
+        // to the import node in main.ts.
+        var mainFile = store.GetNodesByFile("src/main.ts").Single(n => n.Kind == CodeGraphNodeKind.File);
+        var utilFile = store.GetNodesByFile("src/util.ts").Single(n => n.Kind == CodeGraphNodeKind.File);
+        var importEdges = store.GetOutgoingEdges(mainFile.Id, new[] { CodeGraphEdgeKind.Imports });
+        Assert.Contains(importEdges, e => e.Target == utilFile.Id);
 
         Assert.True(result.Resolved > 0);
     }

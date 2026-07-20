@@ -15,6 +15,7 @@
     "verify:message-windowing": "node ./scripts/verify-message-windowing.mjs",
     "native:publish": "node ./scripts/publish-native-worker.mjs",
     "codegraph:publish": "npm run native:publish",
+    "codegraph:grammars:validate": "node ./scripts/validate-codegraph-grammars.mjs",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",

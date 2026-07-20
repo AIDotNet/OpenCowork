@@ -155,10 +155,31 @@ export interface CgIndexProgress {
   state?: string
 }
 
-interface CgAssetStatus {
+export interface CgAssetStatus {
+  isDev: boolean
   workerReady: boolean
+  workerRunning: boolean
   grammarsReady: boolean
   ready: boolean
+  grammarsDir: string | null
+  runtimeReady: boolean
+  coreLibraryReady: boolean
+  grammarCount: number
+  availableGrammars: string[]
+  missingGrammars: string[]
+  availableLanguages: string[]
+  missingLanguages: string[]
+  unrecognizedGrammars: string[]
+  invalidGrammarFiles: string[]
+  grammarSource: 'override' | 'downloaded' | 'bundled' | 'dev' | 'none'
+  diagnostic:
+    | 'ready'
+    | 'worker-missing'
+    | 'grammar-directory-missing'
+    | 'core-library-missing'
+    | 'language-grammars-missing'
+    | 'incomplete-grammar-set'
+    | 'invalid-grammar-files'
   needsDownload: boolean
 }
 

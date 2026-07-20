@@ -274,6 +274,25 @@ internal sealed class CodeGraphImportResolver
         var lang = r.Language ?? CodeGraphLanguage.Unknown;
         var filePath = r.FilePath ?? string.Empty;
 
+        // Extraction emits one JS-family `imports` reference whose name is the
+        // MODULE SOURCE (`./util`, not a local binding such as `greet`). Resolve that
+        // path directly to the target file before binding-level import matching.
+        // This also covers side-effect imports, which intentionally have no local
+        // mapping. Without this branch the generic name matcher can self-resolve
+        // `./util` to the importing file's own import node.
+        if (IsJsFamily(lang) && r.ReferenceKind == CodeGraphEdgeKind.Imports)
+        {
+            var resolvedPath = ResolveImportPath(r.ReferenceName, filePath, lang, ctx);
+            if (resolvedPath is not null && resolvedPath != filePath)
+            {
+                var fileNode = FirstFileNode(ctx.GetNodesInFile(resolvedPath));
+                if (fileNode is not null)
+                {
+                    return new CodeGraphResolvedRef(fileNode.Id, 0.9, CodeGraphResolvedBy.Import);
+                }
+            }
+        }
+
         // Cached import mappings (avoids re-reading/re-parsing per ref). `!readFile` in
         // the TS is falsy for an empty file too, so IsNullOrEmpty is the faithful gate.
         var imports = ctx.GetImportMappings(filePath, lang);

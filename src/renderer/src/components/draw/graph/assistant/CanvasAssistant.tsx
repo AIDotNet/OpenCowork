@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { nanoid } from 'nanoid'
 import {
   CornerDownLeft,
@@ -23,18 +23,9 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
 import { Textarea } from '@renderer/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue
-} from '@renderer/components/ui/select'
 import { useShallow } from 'zustand/react/shallow'
 import type { ContentBlock, UnifiedMessage } from '@renderer/lib/api/types'
-import { getEnabledModelsByCategory, useProviderStore } from '@renderer/stores/provider-store'
+import { useProviderStore } from '@renderer/stores/provider-store'
 import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -52,6 +43,7 @@ import {
   type AssistantTurn
 } from './assistant-store'
 import { runCanvasAssistantTurn } from './canvas-agent'
+import { CanvasAssistantModelPicker } from './CanvasAssistantModelPicker'
 import type { CanvasNode, ImageNode } from '../graph-types'
 
 const EMPTY_TURNS: AssistantTurn[] = []
@@ -223,7 +215,6 @@ export function CanvasAssistant(): React.JSX.Element | null {
     )
   )
   const graphActions = useGraphActions()
-  const providers = useProviderStore((s) => s.providers)
   const activeProviderId = useProviderStore((s) => s.activeProviderId)
   const activeModelId = useProviderStore((s) => s.activeModelId)
 
@@ -246,18 +237,11 @@ export function CanvasAssistant(): React.JSX.Element | null {
     baseH: number
   } | null>(null)
 
-  const modelGroups = useMemo(
-    () =>
-      providers
-        .map((provider) => ({ provider, models: getEnabledModelsByCategory(provider, 'chat') }))
-        .filter((g) => g.models.length > 0),
-    [providers]
-  )
-  const selectedModelValue =
+  const selectedModel =
     providerId && modelId
-      ? `${providerId}::${modelId}`
+      ? { providerId, modelId }
       : activeProviderId && activeModelId
-        ? `${activeProviderId}::${activeModelId}`
+        ? { providerId: activeProviderId, modelId: activeModelId }
         : undefined
 
   // Drop context chips whose nodes were deleted from the canvas.
@@ -590,35 +574,13 @@ export function CanvasAssistant(): React.JSX.Element | null {
       </div>
 
       <div className="flex items-center gap-1.5 border-b px-2.5 py-1.5">
-        <Select
-          value={selectedModelValue}
-          onValueChange={(value) => {
-            const [pid, mid] = value.split('::')
-            if (pid && mid) setModel(pid, mid)
-          }}
-        >
-          <SelectTrigger className="h-7 w-full text-[11px]">
-            <SelectValue
-              placeholder={t('drawPage.selectModel', { defaultValue: 'Select model' })}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {modelGroups.map((group) => (
-              <SelectGroup key={group.provider.id}>
-                <SelectLabel className="text-[11px]">{group.provider.name}</SelectLabel>
-                {group.models.map((model) => (
-                  <SelectItem
-                    key={model.id}
-                    value={`${group.provider.id}::${model.id}`}
-                    className="text-xs"
-                  >
-                    {model.name || model.id}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ))}
-          </SelectContent>
-        </Select>
+        <CanvasAssistantModelPicker
+          value={selectedModel}
+          onChange={({ providerId: nextProviderId, modelId: nextModelId }) =>
+            setModel(nextProviderId, nextModelId)
+          }
+          placeholder={t('drawPage.selectModel', { defaultValue: 'Select model' })}
+        />
       </div>
 
       <div className="border-b px-2.5 py-1.5">

@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "package": "TreeSitter.DotNet",
+    "version": "1.3.0"
+  },
+  "runtime": {
+    "library": "tree-sitter"
+  },
+  "grammars": [
+    {
+      "library": "tree-sitter-typescript",
+      "languages": [
+        {
+          "id": "typescript",
+          "entryPoint": "tree_sitter_typescript"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-tsx",
+      "languages": [
+        {
+          "id": "tsx",
+          "entryPoint": "tree_sitter_tsx"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-javascript",
+      "languages": [
+        {
+          "id": "javascript",
+          "entryPoint": "tree_sitter_javascript"
+        },
+        {
+          "id": "jsx",
+          "entryPoint": "tree_sitter_javascript"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-python",
+      "languages": [
+        {
+          "id": "python",
+          "entryPoint": "tree_sitter_python"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-go",
+      "languages": [
+        {
+          "id": "go",
+          "entryPoint": "tree_sitter_go"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-java",
+      "languages": [
+        {
+          "id": "java",
+          "entryPoint": "tree_sitter_java"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-c-sharp",
+      "languages": [
+        {
+          "id": "csharp",
+          "entryPoint": "tree_sitter_c_sharp"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-rust",
+      "languages": [
+        {
+          "id": "rust",
+          "entryPoint": "tree_sitter_rust"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-c",
+      "languages": [
+        {
+          "id": "c",
+          "entryPoint": "tree_sitter_c"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-cpp",
+      "languages": [
+        {
+          "id": "cpp",
+          "entryPoint": "tree_sitter_cpp"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-php",
+      "languages": [
+        {
+          "id": "php",
+          "entryPoint": "tree_sitter_php"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-ruby",
+      "languages": [
+        {
+          "id": "ruby",
+          "entryPoint": "tree_sitter_ruby"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-scala",
+      "languages": [
+        {
+          "id": "scala",
+          "entryPoint": "tree_sitter_scala"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-bash",
+      "languages": [
+        {
+          "id": "bash",
+          "entryPoint": "tree_sitter_bash"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-haskell",
+      "languages": [
+        {
+          "id": "haskell",
+          "entryPoint": "tree_sitter_haskell"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-julia",
+      "languages": [
+        {
+          "id": "julia",
+          "entryPoint": "tree_sitter_julia"
+        }
+      ]
+    },
+    {
+      "library": "tree-sitter-razor",
+      "languages": [
+        {
+          "id": "razor",
+          "entryPoint": "tree_sitter_razor"
+        }
+      ]
+    }
+  ]
+}

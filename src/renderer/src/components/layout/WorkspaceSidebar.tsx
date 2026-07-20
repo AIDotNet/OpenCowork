@@ -317,6 +317,14 @@ function writeCollapsedProjectIds(ids: Set<string>): void {
   }
 }
 
+function hasStoredCollapsedProjectIds(): boolean {
+  try {
+    return window.localStorage.getItem(PROJECT_COLLAPSED_IDS_STORAGE_KEY) !== null
+  } catch {
+    return false
+  }
+}
+
 function readExpandedProjectIds(): Set<string> {
   try {
     const stored = window.localStorage.getItem(PROJECT_EXPANDED_IDS_STORAGE_KEY)
@@ -559,13 +567,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>(readProjectSortMode)
   const [isFolderDragOver, setIsFolderDragOver] = useState(false)
   const [chatsSectionCollapsed, setChatsSectionCollapsed] = useState(false)
-  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(
-    readCollapsedProjectIds
-  )
+  const [collapsedProjectIds, setCollapsedProjectIds] =
+    useState<Set<string>>(readCollapsedProjectIds)
   const collapseStateInitializedRef = useRef(false)
-  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
-    readExpandedProjectIds
-  )
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(readExpandedProjectIds)
   const featureMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const runningSubAgentSessionIds = useMemo(
     () => new Set(runningSubAgentSessionIdsSig ? runningSubAgentSessionIdsSig.split('\u0000') : []),
@@ -1060,7 +1065,18 @@ export function WorkspaceSidebar(): React.JSX.Element {
   useEffect(() => {
     if (collapseStateInitializedRef.current || projectGroups.length === 0) return
     collapseStateInitializedRef.current = true
-    setCollapsedProjectIds(new Set(projectGroups.map((group) => group.project.id)))
+    if (!hasStoredCollapsedProjectIds()) {
+      setCollapsedProjectIds(new Set(projectGroups.map((group) => group.project.id)))
+      return
+    }
+
+    // Remove IDs for projects that no longer exist without overwriting the
+    // user's persisted expanded/collapsed choices for the remaining projects.
+    const projectIds = new Set(projectGroups.map((group) => group.project.id))
+    setCollapsedProjectIds((current) => {
+      const next = new Set([...current].filter((projectId) => projectIds.has(projectId)))
+      return next.size === current.size ? current : next
+    })
   }, [projectGroups])
 
   const toggleProjectCollapsed = useCallback(

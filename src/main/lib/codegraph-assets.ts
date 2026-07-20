@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import grammarManifest from '../../shared/codegraph-grammars.json'
 import { isNativeWorkerRunning, resolveNativeWorkerPath } from './native-worker'
 
 // ---------------------------------------------------------------------------
@@ -20,7 +21,25 @@ import { isNativeWorkerRunning, resolveNativeWorkerPath } from './native-worker'
 // Bump when the grammar ABI / pinned libtree-sitter version changes (invalidates cache).
 const GRAMMAR_SET_VERSION = '1'
 
-const GRAMMAR_LIB_RE = /^(lib)?tree-sitter.*\.(dylib|so|dll)$/i
+const TREE_SITTER_LIB_RE = /^(?:lib)?(tree-sitter(?:-[a-z0-9-]+)?)\.(?:dylib|so|dll)$/i
+const TREE_SITTER_CORE_LIBRARY = grammarManifest.runtime.library.toLowerCase()
+const TREE_SITTER_NUGET_PACKAGE = grammarManifest.source.package.toLowerCase()
+const TREE_SITTER_NUGET_VERSION = grammarManifest.source.version
+const GRAMMAR_LANGUAGES = new Map(
+  grammarManifest.grammars.map((grammar) => [
+    grammar.library.toLowerCase(),
+    grammar.languages.map((language) => language.id)
+  ])
+)
+
+export type CodeGraphAssetDiagnostic =
+  | 'ready'
+  | 'worker-missing'
+  | 'grammar-directory-missing'
+  | 'core-library-missing'
+  | 'language-grammars-missing'
+  | 'incomplete-grammar-set'
+  | 'invalid-grammar-files'
 
 export interface CodeGraphAssetStatus {
   isDev: boolean
@@ -29,7 +48,19 @@ export interface CodeGraphAssetStatus {
   grammarsReady: boolean
   ready: boolean
   grammarsDir: string | null
+  /** Native language grammar libraries, excluding the libtree-sitter runtime. */
   grammarCount: number
+  /** Explicit replacement for the ambiguous legacy `ready` field. */
+  runtimeReady: boolean
+  coreLibraryReady: boolean
+  availableGrammars: string[]
+  missingGrammars: string[]
+  availableLanguages: string[]
+  missingLanguages: string[]
+  unrecognizedGrammars: string[]
+  invalidGrammarFiles: string[]
+  grammarSource: 'override' | 'downloaded' | 'bundled' | 'dev' | 'none'
+  diagnostic: CodeGraphAssetDiagnostic
   needsDownload: boolean
 }
 
@@ -69,8 +100,8 @@ function getDevNugetGrammarsDir(): string | null {
     os.homedir(),
     '.nuget',
     'packages',
-    'treesitter.dotnet',
-    '1.3.0',
+    TREE_SITTER_NUGET_PACKAGE,
+    TREE_SITTER_NUGET_VERSION,
     'runtimes',
     currentRid(),
     'native'
@@ -80,29 +111,107 @@ function getDevNugetGrammarsDir(): string | null {
 
 // `resources/**` is unpacked by electron-builder, so resolving relative to the
 // selected executable works in both the source tree and a packaged app.
-function getBundledGrammarsDir(): string | null {
+function getBundledGrammarCandidates(): string[] {
   const workerPath = resolveNativeWorkerPath()
-  if (!workerPath) return null
+  if (!workerPath) return []
   const workerDir = path.dirname(workerPath)
-  const candidates = [
+  return [
     path.join(workerDir, 'codegraph-worker', 'grammars'),
     // Compatibility with packages produced before CodeGraph assets moved under
     // native-worker/codegraph-worker.
     path.join(workerDir, 'grammars')
   ]
+}
+
+function getBundledGrammarsDir(): string | null {
+  const candidates = getBundledGrammarCandidates()
   return candidates.find((dir) => dirHasGrammars(dir)) ?? null
 }
 
-function dirHasGrammars(dir: string | null | undefined): boolean {
-  return countGrammars(dir) > 0
+function directoryExists(dir: string | null | undefined): dir is string {
+  if (!dir) return false
+  try {
+    return fs.statSync(dir).isDirectory()
+  } catch {
+    return false
+  }
 }
 
-function countGrammars(dir: string | null | undefined): number {
-  if (!dir) return 0
+function findGrammarDiagnosticDir(): string | null {
+  const override = process.env.OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR?.trim()
+  const cache = getCodeGraphCacheGrammarsDir()
+  const devNugetDir = path.join(
+    os.homedir(),
+    '.nuget',
+    'packages',
+    TREE_SITTER_NUGET_PACKAGE,
+    TREE_SITTER_NUGET_VERSION,
+    'runtimes',
+    currentRid(),
+    'native'
+  )
+  const candidates = [
+    override,
+    cache,
+    ...getBundledGrammarCandidates(),
+    ...(isDevBuild() ? [devNugetDir] : [])
+  ]
+  return candidates.find(directoryExists) ?? null
+}
+
+function dirHasGrammars(dir: string | null | undefined): boolean {
+  return inspectGrammarDir(dir).grammarLibraries.length > 0
+}
+
+interface GrammarDirectoryInspection {
+  coreLibraryReady: boolean
+  grammarLibraries: string[]
+  invalidFiles: string[]
+}
+
+function inspectGrammarDir(dir: string | null | undefined): GrammarDirectoryInspection {
+  const empty: GrammarDirectoryInspection = {
+    coreLibraryReady: false,
+    grammarLibraries: [],
+    invalidFiles: []
+  }
+  if (!dir) return empty
   try {
-    return fs.readdirSync(dir).filter((f) => GRAMMAR_LIB_RE.test(f)).length
+    const grammarLibraries = new Set<string>()
+    const invalidFiles: string[] = []
+    let coreLibraryReady = false
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const match = TREE_SITTER_LIB_RE.exec(entry.name)
+      if (!match) continue
+      if (!entry.isFile()) {
+        invalidFiles.push(entry.name)
+        continue
+      }
+      let size = 0
+      try {
+        size = fs.statSync(path.join(dir, entry.name)).size
+      } catch {
+        invalidFiles.push(entry.name)
+        continue
+      }
+      if (size <= 0) {
+        invalidFiles.push(entry.name)
+        continue
+      }
+      const library = match[1].toLowerCase()
+      if (library === TREE_SITTER_CORE_LIBRARY) {
+        coreLibraryReady = true
+      } else {
+        grammarLibraries.add(library)
+      }
+    }
+    return {
+      coreLibraryReady,
+      grammarLibraries: [...grammarLibraries].sort(),
+      invalidFiles: invalidFiles.sort()
+    }
   } catch {
-    return 0
+    return empty
   }
 }
 
@@ -132,20 +241,74 @@ export function getCodeGraphAssetStatus(): CodeGraphAssetStatus {
   const isDev = isDevBuild()
   // Source-merged: CodeGraph ships inside the main worker binary.
   const workerReady = resolveNativeWorkerPath() != null
-  const grammarsDir = resolveCodeGraphGrammarsDir()
-  const grammarCount = countGrammars(grammarsDir)
-  const grammarsReady = grammarCount > 0
+  // When no usable directory resolves, retain an existing candidate for precise
+  // diagnostics (for example, a directory containing only a zero-byte runtime).
+  const grammarsDir = resolveCodeGraphGrammarsDir() ?? findGrammarDiagnosticDir()
+  const inspection = inspectGrammarDir(grammarsDir)
+  const expectedGrammars = [...GRAMMAR_LANGUAGES.keys()].sort()
+  const expectedGrammarSet = new Set(expectedGrammars)
+  const availableGrammars = inspection.grammarLibraries.filter((grammar) =>
+    expectedGrammarSet.has(grammar)
+  )
+  const unrecognizedGrammars = inspection.grammarLibraries.filter(
+    (grammar) => !expectedGrammarSet.has(grammar)
+  )
+  const availableGrammarSet = new Set(availableGrammars)
+  const missingGrammars = expectedGrammars.filter((grammar) => !availableGrammarSet.has(grammar))
+  const availableLanguages = availableGrammars
+    .flatMap((grammar) => GRAMMAR_LANGUAGES.get(grammar) ?? [])
+    .sort()
+  const missingLanguages = missingGrammars
+    .flatMap((grammar) => GRAMMAR_LANGUAGES.get(grammar) ?? [])
+    .sort()
+  const grammarCount = availableGrammars.length
+  const grammarsReady = inspection.coreLibraryReady && grammarCount > 0
+  const runtimeReady = workerReady && grammarsReady
+  const override = process.env.OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR?.trim()
+  const grammarSource: CodeGraphAssetStatus['grammarSource'] = !grammarsDir
+    ? 'none'
+    : override === grammarsDir
+      ? 'override'
+      : getCodeGraphCacheGrammarsDir() === grammarsDir
+        ? 'downloaded'
+        : getBundledGrammarCandidates().includes(grammarsDir)
+          ? 'bundled'
+          : 'dev'
+  const diagnostic: CodeGraphAssetDiagnostic = !workerReady
+    ? 'worker-missing'
+    : !grammarsDir
+      ? 'grammar-directory-missing'
+      : !inspection.coreLibraryReady
+        ? 'core-library-missing'
+        : grammarCount === 0
+          ? 'language-grammars-missing'
+          : inspection.invalidFiles.length > 0 || unrecognizedGrammars.length > 0
+            ? 'invalid-grammar-files'
+            : missingGrammars.length > 0
+              ? 'incomplete-grammar-set'
+              : 'ready'
   return {
     isDev,
     workerReady,
     workerRunning: isNativeWorkerRunning(),
     grammarsReady,
-    ready: workerReady && grammarsReady,
+    // `ready` is retained for existing renderers and external IPC consumers.
+    ready: runtimeReady,
     grammarsDir,
     grammarCount,
+    runtimeReady,
+    coreLibraryReady: inspection.coreLibraryReady,
+    availableGrammars,
+    missingGrammars,
+    availableLanguages,
+    missingLanguages,
+    unrecognizedGrammars,
+    invalidGrammarFiles: inspection.invalidFiles,
+    grammarSource,
+    diagnostic,
     // A complete packaged build always resolves its bundled grammar directory.
     // Keep this signal for damaged/legacy packages that shipped without one.
-    needsDownload: !grammarsReady && !isDev
+    needsDownload: !runtimeReady && !isDev
   }
 }
 

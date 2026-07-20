@@ -28,7 +28,7 @@ internal static partial class CodeGraphGrammarEntries
     [LibraryImport("tree-sitter-typescript", EntryPoint = "tree_sitter_typescript")]
     internal static partial nint TypeScript();
 
-    [LibraryImport("tree-sitter-typescript", EntryPoint = "tree_sitter_tsx")]
+    [LibraryImport("tree-sitter-tsx", EntryPoint = "tree_sitter_tsx")]
     internal static partial nint Tsx();
 
     [LibraryImport("tree-sitter-javascript", EntryPoint = "tree_sitter_javascript")]

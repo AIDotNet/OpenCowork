@@ -20,11 +20,10 @@ using Xunit;
 //       strings, resolved to real edges later). Also pins node-id stability
 //       across two runs (Decision 17 — the id formula must never drift).
 //
-// The real-parse tests are GATED on grammar availability: the TreeSitter.DotNet
-// osx-arm64 dylibs are copied beside the test bin by the .csproj so the
-// [LibraryImport] binding loads them. RealGrammars_AreLoaded is the availability
-// canary — green means the parse tests below ran for real; each parse test also
-// self-guards (early return) so a host without the dylibs still runs tier (a).
+// The .csproj copies the host RID's TreeSitter.DotNet native libraries beside the
+// test binary so [LibraryImport] can load them. RealGrammars_AreLoaded makes missing
+// assets fail clearly. The TSX regression below is also deliberately unguarded so a
+// broken split-library binding cannot silently pass.
 // =============================================================================
 
 // -----------------------------------------------------------------------------
@@ -237,14 +236,15 @@ public sealed class CodeGraphExtractionDetectionTests
 // =============================================================================
 public sealed class CodeGraphExtractionParseTests
 {
-    // Availability canary: green ⇒ the TS/Python/Go grammars loaded and the parse
+    // Availability canary: green ⇒ the TS/TSX/Python/Go grammars loaded and the parse
     // tests below exercised a real parse. Red ⇒ the native dylibs are not on the
-    // test host's load path (see the .csproj copy item); the per-language tests
-    // then self-skip so tier (a) still runs.
+    // test host's load path (see the .csproj copy item). TSX also has a mandatory
+    // parse regression below because its grammar ships in a separate native library.
     [Fact]
     public void RealGrammars_AreLoaded()
     {
         Assert.NotNull(CodeGraphExtractionHarness.Grammars.GetLanguage(CodeGraphLanguage.TypeScript));
+        Assert.NotNull(CodeGraphExtractionHarness.Grammars.GetLanguage(CodeGraphLanguage.Tsx));
         Assert.NotNull(CodeGraphExtractionHarness.Grammars.GetLanguage(CodeGraphLanguage.Python));
         Assert.NotNull(CodeGraphExtractionHarness.Grammars.GetLanguage(CodeGraphLanguage.Go));
     }
@@ -297,6 +297,37 @@ public sealed class CodeGraphExtractionParseTests
         // Import + call arrive as unresolved references (name strings, not ids).
         Assert.True(CodeGraphExtractionHarness.HasRef(r, CodeGraphEdgeKind.Imports, "fs"));
         Assert.True(CodeGraphExtractionHarness.HasRef(r, CodeGraphEdgeKind.Calls, "sayHello"));
+    }
+
+    [Fact]
+    public void Tsx_ParsesJsxWithoutErrorsAndEmitsFunction()
+    {
+        const string source =
+            "export function App(): JSX.Element {\n" +
+            "  return <main data-kind=\"app\">Hello</main>\n" +
+            "}\n";
+
+        // This test intentionally has no availability guard. TSX is shipped as a
+        // separate native library from TypeScript, so a missing library or a binding
+        // to the TypeScript dylib must fail instead of silently skipping coverage.
+        nint? grammar = CodeGraphExtractionHarness.Grammars.GetLanguage(CodeGraphLanguage.Tsx);
+        Assert.NotNull(grammar);
+
+        CodeGraphSourceText sourceText = CodeGraphSourceText.FromUtf8(Encoding.UTF8.GetBytes(source));
+        using (CodeGraphTsParser parser = new())
+        {
+            parser.SetLanguage(grammar!.Value);
+            using CodeGraphTsTree tree = parser.Parse(sourceText);
+            Assert.Equal("program", tree.RootNode.Type);
+            Assert.False(tree.RootNode.HasError);
+        }
+
+        CodeGraphExtractionResult result =
+            CodeGraphExtractionHarness.Extract(CodeGraphLanguage.Tsx, "src/App.tsx", source);
+
+        Assert.Empty(result.Errors);
+        Assert.True(CodeGraphExtractionHarness.HasNode(result, CodeGraphNodeKind.Function, "App"));
+        Assert.All(result.Nodes, node => Assert.Equal(CodeGraphLanguage.Tsx, node.Language));
     }
 
     // ----- Python -----

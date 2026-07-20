@@ -30,7 +30,8 @@ import { resolvePluginsForProject, useAppPluginStore } from '@renderer/stores/ap
 import {
   trackCodeGraphIndex,
   untrackCodeGraphIndex,
-  useCodeGraphStore
+  useCodeGraphStore,
+  type CgAssetStatus
 } from '@renderer/stores/codegraph-store'
 import { CodeGraphIndexProgressBar } from '@renderer/components/codegraph/CodeGraphIndexProgressBar'
 import { useSettingsStore } from '@renderer/stores/settings-store'
@@ -79,17 +80,6 @@ interface BrowserEmulationStatus {
   userAgent: string
   acceptLanguages: string
   browserSessionStoragePath: string | null
-}
-
-interface CodeGraphAssetStatus {
-  isDev: boolean
-  workerReady: boolean
-  workerRunning: boolean
-  grammarsReady: boolean
-  ready: boolean
-  grammarsDir: string | null
-  grammarCount: number
-  needsDownload: boolean
 }
 
 interface CodeGraphProjectInfo {
@@ -197,7 +187,7 @@ export function AppPluginPanel(): React.JSX.Element {
   const [selectedPluginId, setSelectedPluginId] = useState<AppPluginId>(IMAGE_PLUGIN_ID)
   const [clearingCookies, setClearingCookies] = useState(false)
   const [importingCookies, setImportingCookies] = useState(false)
-  const [codegraphAsset, setCodegraphAsset] = useState<CodeGraphAssetStatus | null>(null)
+  const [codegraphAsset, setCodegraphAsset] = useState<CgAssetStatus | null>(null)
   const [codegraphDownloading, setCodegraphDownloading] = useState(false)
   const [codegraphProgress, setCodegraphProgress] = useState<number | null>(null)
   const [cgProjects, setCgProjects] = useState<CodeGraphProjectInfo[]>([])
@@ -272,7 +262,7 @@ export function AppPluginPanel(): React.JSX.Element {
       visibleDescriptors[0],
     pluginEnabled: Boolean(selectedPlugin?.enabled),
     isResolvedImageModelReady,
-    isCodeGraphReady: Boolean(codegraphAsset?.ready)
+    isCodeGraphReady: Boolean(codegraphAsset?.runtimeReady ?? codegraphAsset?.ready)
   })
   const browserAllowedDomainText = (selectedPlugin.browserAllowedDomains ?? []).join('\n')
   const browserBlockedDomainText = (selectedPlugin.browserBlockedDomains ?? []).join('\n')
@@ -350,7 +340,7 @@ export function AppPluginPanel(): React.JSX.Element {
 
   const refreshCodegraphAsset = async (): Promise<void> => {
     try {
-      const status = (await ipcClient.invoke(IPC.CODEGRAPH_ASSET_STATUS)) as CodeGraphAssetStatus
+      const status = (await ipcClient.invoke(IPC.CODEGRAPH_ASSET_STATUS)) as CgAssetStatus
       setCodegraphAsset(status)
     } catch {
       setCodegraphAsset(null)
@@ -739,7 +729,7 @@ export function AppPluginPanel(): React.JSX.Element {
               </section>
             ) : null}
 
-            {selectedDescriptor.requiresDownload ? (
+            {selectedDescriptor.id === CODEGRAPH_PLUGIN_ID ? (
               <section className="space-y-3 rounded-xl border p-4">
                 <div>
                   <p className="text-sm font-medium">{t('plugin.codegraph.assetsTitle')}</p>
@@ -766,30 +756,89 @@ export function AppPluginPanel(): React.JSX.Element {
                   ) : null}
                 </div>
                 {codegraphAsset?.isDev && codegraphAsset.grammarsReady ? (
-                  <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-600">
-                    {t('plugin.codegraph.devMode', { count: codegraphAsset.grammarCount })}
+                  <div className="space-y-1 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-600">
+                    <p>{t('plugin.codegraph.devMode', { count: codegraphAsset.grammarCount })}</p>
+                    {codegraphAsset.availableLanguages?.length > 0 ? (
+                      <p className="break-words text-muted-foreground">
+                        {t('plugin.codegraph.availableLanguages', {
+                          defaultValue: 'Available languages: {{languages}}',
+                          languages: codegraphAsset.availableLanguages.join(', ')
+                        })}
+                      </p>
+                    ) : null}
                   </div>
-                ) : codegraphAsset?.ready ? (
-                  <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3 text-xs">
-                    <span className="text-foreground">
-                      {t('plugin.codegraph.ready', { count: codegraphAsset.grammarCount })}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => void handleRemoveCodegraph()}
-                    >
-                      <Trash2 className="size-3.5" />
-                      {t('plugin.codegraph.remove')}
-                    </Button>
+                ) : (codegraphAsset?.runtimeReady ?? codegraphAsset?.ready) ? (
+                  <div className="flex items-start justify-between gap-3 rounded-lg border bg-muted/20 p-3 text-xs">
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-foreground">
+                        {t('plugin.codegraph.ready', { count: codegraphAsset.grammarCount })}
+                      </p>
+                      {codegraphAsset.availableLanguages?.length > 0 ? (
+                        <p className="break-words text-muted-foreground">
+                          {t('plugin.codegraph.availableLanguages', {
+                            defaultValue: 'Available languages: {{languages}}',
+                            languages: codegraphAsset.availableLanguages.join(', ')
+                          })}
+                        </p>
+                      ) : null}
+                      {codegraphAsset.invalidGrammarFiles?.length > 0 ? (
+                        <p className="break-words text-destructive">
+                          {t('plugin.codegraph.invalidFiles', {
+                            defaultValue: 'Invalid grammar files: {{files}}',
+                            files: codegraphAsset.invalidGrammarFiles.join(', ')
+                          })}
+                        </p>
+                      ) : null}
+                      {codegraphAsset.unrecognizedGrammars?.length > 0 ? (
+                        <p className="break-words text-destructive">
+                          {t('plugin.codegraph.unrecognizedGrammars', {
+                            defaultValue: 'Unrecognized grammar libraries: {{grammars}}',
+                            grammars: codegraphAsset.unrecognizedGrammars.join(', ')
+                          })}
+                        </p>
+                      ) : null}
+                      {codegraphAsset.missingLanguages?.length > 0 ? (
+                        <p className="break-words text-amber-600">
+                          {t('plugin.codegraph.missingLanguages', {
+                            defaultValue: 'Unavailable languages: {{languages}}',
+                            languages: codegraphAsset.missingLanguages.join(', ')
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
+                    {codegraphAsset.grammarSource === 'downloaded' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => void handleRemoveCodegraph()}
+                      >
+                        <Trash2 className="size-3.5" />
+                        {t('plugin.codegraph.remove')}
+                      </Button>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
                     <p className="text-xs text-muted-foreground">
                       {codegraphAsset && !codegraphAsset.workerReady
                         ? t('plugin.codegraph.workerMissing')
-                        : t('plugin.codegraph.needsDownload')}
+                        : codegraphAsset?.diagnostic === 'core-library-missing'
+                          ? t('plugin.codegraph.coreLibraryMissing', {
+                              defaultValue:
+                                'The tree-sitter runtime library is missing or invalid. Reinstall or update OpenCowork.'
+                            })
+                          : codegraphAsset?.diagnostic === 'language-grammars-missing'
+                            ? t('plugin.codegraph.languageGrammarsMissing', {
+                                defaultValue:
+                                  'No valid language grammar libraries were found. Reinstall or update OpenCowork.'
+                              })
+                            : codegraphAsset?.diagnostic === 'invalid-grammar-files'
+                              ? t('plugin.codegraph.invalidGrammarPackage', {
+                                  defaultValue:
+                                    'Some CodeGraph grammar files are invalid. Reinstall or update OpenCowork.'
+                                })
+                              : t('plugin.codegraph.needsDownload')}
                     </p>
                     {codegraphDownloading && codegraphProgress !== null ? (
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">

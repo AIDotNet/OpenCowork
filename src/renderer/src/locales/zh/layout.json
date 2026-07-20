@@ -755,7 +755,7 @@
     "back": "返回",
     "pluginDisabled": "代码图谱已禁用。请先在「设置 → 插件」中启用该插件。",
     "openSettings": "打开设置",
-    "needsDownload": "代码图谱首次索引前需要一次性下载语法包，请在「设置 → 插件」中完成。",
+    "needsDownload": "代码图谱的内置语法包缺失，请重新安装或更新 OpenCowork。",
     "selectProject": "项目",
     "addFolder": "索引新目录",
     "refresh": "刷新",

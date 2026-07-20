@@ -1255,7 +1255,7 @@
       "pendingRefs": "대기 중인 참조",
       "state": "상태"
     },
-    "needsDownload": "CodeGraph가 인덱싱하려면 문법 파일을 한 번 다운로드해야 합니다. 설정 → 플러그인에서 다운로드하세요.",
+    "needsDownload": "내장 CodeGraph 문법이 없습니다. OpenCowork를 다시 설치하거나 업데이트하세요.",
     "noProjects": "아직 인덱싱된 프로젝트가 없습니다. \"폴더 인덱싱\"을 클릭해 첫 인덱스를 만드세요.",
     "notIndexedDesc": "이 프로젝트에는 아직 그래프 인덱스가 없습니다.",
     "notIndexedTitle": "인덱싱되지 않음",

@@ -1255,7 +1255,7 @@
       "pendingRefs": "Ausstehende Referenzen",
       "state": "Status"
     },
-    "needsDownload": "CodeGraph benötigt vor der Indizierung einen einmaligen Grammatik-Download. Erledigen Sie dies unter Einstellungen → Plugins.",
+    "needsDownload": "Die integrierten CodeGraph-Grammatiken fehlen. Installieren oder aktualisieren Sie OpenCowork erneut.",
     "noProjects": "Noch keine indizierten Projekte. Klicken Sie auf „Ordner indizieren“, um Ihren ersten Index zu erstellen.",
     "notIndexedDesc": "Dieses Projekt hat noch keinen Graph-Index.",
     "notIndexedTitle": "Nicht indiziert",

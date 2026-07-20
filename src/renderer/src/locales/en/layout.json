@@ -755,7 +755,7 @@
     "back": "Back",
     "pluginDisabled": "CodeGraph is disabled. Enable the plugin in Settings → Plugins first.",
     "openSettings": "Open Settings",
-    "needsDownload": "CodeGraph needs a one-time grammar download before it can index. Do it in Settings → Plugins.",
+    "needsDownload": "The built-in CodeGraph grammars are missing. Reinstall or update OpenCowork.",
     "selectProject": "Project",
     "addFolder": "Index a folder",
     "refresh": "Refresh",

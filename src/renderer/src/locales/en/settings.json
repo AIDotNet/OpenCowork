@@ -767,7 +767,7 @@
     "toolStatusDesc": "The image Tool is only exposed when the plugin is enabled and the model is valid.",
     "toolStatusDescBrowser": "Browser tools are only exposed when the browser plugin is enabled. Domain rules apply to manual browsing and Agent navigation.",
     "toolStatusDescDesktop": "Desktop-control tools are only exposed when the plugin is enabled. Every call still requires approval. If the active model also enables Computer Use, OpenAI Computer Use will proxy these capabilities first.",
-    "toolStatusDescCodeGraph": "The codegraph_explore Tool is only exposed when the plugin is enabled and its language grammars are ready (downloaded, or provided locally in a dev build).",
+    "toolStatusDescCodeGraph": "The codegraph_explore Tool is exposed when the plugin is enabled; its language grammars are included with the app.",
     "toolArgs": "Available args: prompt, count",
     "toolArgsMap": {
       "codegraph_explore": "Available args: query, projectPath",
@@ -825,7 +825,7 @@
     },
     "codegraph": {
       "assetsTitle": "Language grammars",
-      "assetsDesc": "CodeGraph parses your code with tree-sitter grammars. They are downloaded the first time you enable it (a dev build uses the locally built grammars — no download).",
+      "assetsDesc": "CodeGraph parses your code with tree-sitter grammars included with the app.",
       "devMode": "Dev build — using local grammars ({{count}}), no download needed.",
       "ready": "Grammars ready ({{count}} installed).",
       "remove": "Remove",
@@ -879,7 +879,7 @@
         "title": "CodeGraph Plugin",
         "description": "A local code-intelligence engine: index a repo into a symbol/reference graph and let the Agent explore it.",
         "promptTitle": "Tool usage constraints",
-        "promptDesc": "Enable to give the Agent the `codegraph_explore` Tool — it answers \"how does X reach Y / who calls this / what breaks if I change it\" from the indexed graph, replacing many Read/Grep calls. Disabled by default; enabling it downloads the language grammars once."
+        "promptDesc": "Enable to give the Agent the `codegraph_explore` Tool — it answers \"how does X reach Y / who calls this / what breaks if I change it\" from the indexed graph, replacing many Read/Grep calls. Disabled by default; language grammars are included with the app."
       }
     }
   },

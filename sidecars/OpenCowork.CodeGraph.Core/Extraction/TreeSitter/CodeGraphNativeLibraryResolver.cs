@@ -2,9 +2,8 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 
 // Resolves the native tree-sitter libraries (libtree-sitter + the per-language
-// grammars) from a configured directory. Grammars are NOT bundled with the worker
-// binary — they are downloaded on enable (or taken from a dev directory), so the
-// default [LibraryImport] search (next to the exe + system paths) would miss them.
+// grammars) from a configured directory. Packaged builds keep them in a grammars
+// directory beside the worker; downloaded updates and dev builds can override it.
 //
 // The host points us at the grammar dir via OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR
 // (see the app's codegraph-assets). Install() must run once, before any parse.
@@ -55,6 +54,7 @@ internal static class CodeGraphNativeLibraryResolver
         string baseDir = AppContext.BaseDirectory;
         if (!string.IsNullOrEmpty(baseDir))
         {
+            yield return Path.Combine(baseDir, "grammars");
             yield return baseDir;
         }
     }

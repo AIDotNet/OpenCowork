@@ -710,7 +710,7 @@
       },
       "codegraph": {
         "description": "Un motor local de inteligencia de código: indexa un repositorio en un grafo de símbolos/referencias y deja que el Agente lo explore.",
-        "promptDesc": "Habilítelo para darle al Agente la herramienta `codegraph_explore`: responde \"¿cómo llega X a Y? / ¿quién llama a esto? / ¿qué se rompe si lo cambio?\" a partir del grafo indexado, reemplazando muchas llamadas a Read/Grep. Deshabilitado por defecto; al habilitarlo se descargan las gramáticas de lenguaje una vez.",
+        "promptDesc": "Habilítelo para darle al Agente la herramienta `codegraph_explore`: responde \"¿cómo llega X a Y? / ¿quién llama a esto? / ¿qué se rompe si lo cambio?\" a partir del grafo indexado, reemplazando muchas llamadas a Read/Grep. Deshabilitado por defecto; las gramáticas de lenguaje están incluidas con la aplicación.",
         "promptTitle": "Restricciones de uso de la herramienta",
         "title": "Plugin CodeGraph"
       }

@@ -1255,7 +1255,7 @@
       "pendingRefs": "Tham chiếu đang chờ",
       "state": "Trạng thái"
     },
-    "needsDownload": "CodeGraph cần tải ngữ pháp (grammar) một lần trước khi có thể lập chỉ mục. Thực hiện việc này trong Thiết lập → Plugin.",
+    "needsDownload": "Thiếu ngữ pháp CodeGraph tích hợp sẵn. Hãy cài đặt lại hoặc cập nhật OpenCowork.",
     "noProjects": "Chưa có dự án nào được lập chỉ mục. Nhấp \"Lập chỉ mục một thư mục\" để tạo chỉ mục đầu tiên.",
     "notIndexedDesc": "Dự án này chưa có chỉ mục đồ thị.",
     "notIndexedTitle": "Chưa lập chỉ mục",

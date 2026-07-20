@@ -12,9 +12,14 @@ export default defineConfig(
       '**/dist',
       '**/out',
       '**/build',
+      '**/bin/**',
+      '**/obj/**',
       '**/.next/**',
       'docs/**',
-      '**/.claude/**'
+      '**/.claude/**',
+      'resources/extensions/**',
+      'resources/native-worker/**',
+      'resources/codegraph-worker/**'
     ]
   },
   tseslint.configs.recommended,

@@ -4,3 +4,7 @@ pnpm-lock.yaml
 LICENSE.md
 tsconfig.json
 tsconfig.*.json
+resources/native-worker/
+resources/codegraph-worker/
+**/bin/
+**/obj/

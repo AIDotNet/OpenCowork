@@ -9,7 +9,7 @@ import { decode, encode } from '@msgpack/msgpack'
 import { readNativeMessagePackRoute, type NativeMessagePackRoute } from './messagepack-route-reader'
 import { writeCrashLog } from '../crash-logger'
 // Resolved lazily at spawn time (function-level cycle — safe): tells the CodeGraph
-// worker where to load its downloaded/dev tree-sitter grammars from.
+// worker where to load its bundled, updated, or dev tree-sitter grammars from.
 import { resolveCodeGraphGrammarsDir } from './codegraph-assets'
 
 const NATIVE_WORKER_STDERR_TAIL_LINES = 40
@@ -87,7 +87,7 @@ const CODEGRAPH_CONFIG: NativeWorkerConfig = {
   id: 'codegraph',
   resolveBinaryPath: resolveCodeGraphWorkerPath,
   missingBinaryMessage:
-    'CodeGraph worker is missing. Run `npm run codegraph:publish` before enabling CodeGraph.',
+    'CodeGraph worker is missing. Run `npm run native:publish` before enabling CodeGraph.',
   requiredMethods: [],
   heartbeatIntervalMs: 30_000,
   heartbeatTimeoutMs: 10_000,
@@ -1067,7 +1067,7 @@ function createNativeWorkerEnv(): NodeJS.ProcessEnv {
   env.OPEN_COWORK_APP_VERSION = app.getVersion().trim()
   env.OPEN_COWORK_NATIVE_SLOW_MS ??= String(getNativeWorkerSlowRequestMs())
   // CodeGraph is source-merged into this worker: point its tree-sitter loads at
-  // the grammar dir (bundled beside the binary, dev NuGet, or explicit override).
+  // the nested CodeGraph assets, dev NuGet directory, or explicit override.
   const grammarsDir = resolveCodeGraphGrammarsDir()
   if (grammarsDir) {
     env.OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR ??= grammarsDir
@@ -1286,11 +1286,29 @@ export function resolveCodeGraphWorkerPath(): string | null {
   const resourceWorkerPath = path.join(
     process.cwd(),
     'resources',
+    'native-worker',
     'codegraph-worker',
     executableName
   )
   const candidates = app.isPackaged
     ? [
+        path.join(process.resourcesPath, 'native-worker', 'codegraph-worker', executableName),
+        path.join(
+          process.resourcesPath,
+          'resources',
+          'native-worker',
+          'codegraph-worker',
+          executableName
+        ),
+        path.join(
+          process.resourcesPath,
+          'app.asar.unpacked',
+          'resources',
+          'native-worker',
+          'codegraph-worker',
+          executableName
+        ),
+        // Compatibility with legacy standalone CodeGraph worker packages.
         path.join(process.resourcesPath, 'codegraph-worker', executableName),
         path.join(process.resourcesPath, 'resources', 'codegraph-worker', executableName),
         path.join(
@@ -1308,9 +1326,8 @@ export function resolveCodeGraphWorkerPath(): string | null {
     : findNewestCodeGraphWorkerCandidate(candidates)
 }
 
-// Language grammars are downloaded on enable, but SQLite is a hard startup
-// dependency just like it is for the main worker. Never select a partially
-// published executable that is missing its RID-specific SQLite library.
+// SQLite is a hard startup dependency just like it is for the main worker. Never
+// select a partially published executable that is missing its RID-specific library.
 function isCodeGraphWorkerCandidateReady(candidate: string): boolean {
   return isNativeWorkerCandidateReady(candidate)
 }

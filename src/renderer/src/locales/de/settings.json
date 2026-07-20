@@ -710,7 +710,7 @@
       },
       "codegraph": {
         "description": "Eine lokale Code-Intelligence-Engine: Indiziert ein Repository in einen Symbol-/Referenzgraphen und lässt den Agenten ihn erkunden.",
-        "promptDesc": "Aktivieren Sie diese Option, um dem Agenten das Tool `codegraph_explore` zu geben — es beantwortet Fragen wie „wie erreicht X Y / wer ruft dies auf / was bricht, wenn ich das ändere“ anhand des indizierten Graphen und ersetzt viele Read/Grep-Aufrufe. Standardmäßig deaktiviert; beim Aktivieren werden die Sprachgrammatiken einmalig heruntergeladen.",
+        "promptDesc": "Aktivieren Sie diese Option, um dem Agenten das Tool `codegraph_explore` zu geben — es beantwortet Fragen wie „wie erreicht X Y / wer ruft dies auf / was bricht, wenn ich das ändere“ anhand des indizierten Graphen und ersetzt viele Read/Grep-Aufrufe. Standardmäßig deaktiviert; die Sprachgrammatiken sind in der App enthalten.",
         "promptTitle": "Einschränkungen bei der Nutzung von Werkzeugen",
         "title": "CodeGraph-Plugin"
       }

@@ -767,7 +767,7 @@
     "toolStatusDesc": "只有在插件启用且模型有效时，图片 Tool 才会暴露给 Agent。",
     "toolStatusDescBrowser": "浏览器工具仅在浏览器插件启用后才会暴露给 Agent。手动浏览和 Agent 导航都会遵守域名规则。",
     "toolStatusDescDesktop": "桌面控制工具仅在插件启用后才会暴露给 Agent，但每次调用仍需审批；若模型同时启用 Computer Use，则会优先通过 Computer Use 代理这些能力。",
-    "toolStatusDescCodeGraph": "codegraph_explore 工具仅在插件启用且语言语法就绪（已下载，或在调试构建中由本地提供）时才会暴露给 Agent。",
+    "toolStatusDescCodeGraph": "codegraph_explore 工具会在插件启用时暴露给 Agent；所需语言语法已随应用内置。",
     "toolArgs": "可用参数：prompt、count",
     "toolArgsMap": {
       "codegraph_explore": "可用参数：query、projectPath",
@@ -825,7 +825,7 @@
     },
     "codegraph": {
       "assetsTitle": "语言语法",
-      "assetsDesc": "CodeGraph 使用 tree-sitter 语法解析代码。首次启用时会下载语法包（调试构建则直接使用本地已构建的语法，无需下载）。",
+      "assetsDesc": "CodeGraph 使用随应用内置的 tree-sitter 语法解析代码。",
       "devMode": "调试构建 —— 使用本地语法（{{count}}），无需下载。",
       "ready": "语法已就绪（已安装 {{count}}）。",
       "remove": "移除",
@@ -879,7 +879,7 @@
         "title": "CodeGraph 插件",
         "description": "本地代码智能引擎：把仓库索引成符号/引用图，让 Agent 直接检索。",
         "promptTitle": "Tool 使用约束",
-        "promptDesc": "启用后为 Agent 提供 `codegraph_explore` 工具 —— 它基于已索引的图回答“X 如何到达 Y / 谁调用了它 / 改动会影响什么”，可替代大量 Read/Grep 调用。默认禁用；启用时会一次性下载语言语法。"
+        "promptDesc": "启用后为 Agent 提供 `codegraph_explore` 工具 —— 它基于已索引的图回答“X 如何到达 Y / 谁调用了它 / 改动会影响什么”，可替代大量 Read/Grep 调用。默认禁用；所需语言语法已随应用内置。"
       }
     }
   },

@@ -1255,7 +1255,7 @@
       "pendingRefs": "Bekleyen referanslar",
       "state": "Durum"
     },
-    "needsDownload": "CodeGraph dizinlemeye başlamadan önce tek seferlik bir dilbilgisi indirmesi gerektirir. Bunu Ayarlar → Eklentiler bölümünden yapın.",
+    "needsDownload": "Yerleşik CodeGraph dilbilgileri eksik. OpenCowork'u yeniden yükleyin veya güncelleyin.",
     "noProjects": "Henüz dizinlenmiş proje yok. İlk dizininizi oluşturmak için \"Bir klasörü dizinle\" seçeneğine tıklayın.",
     "notIndexedDesc": "Bu projenin henüz bir grafik dizini yok.",
     "notIndexedTitle": "Dizinlenmemiş",

@@ -1255,7 +1255,7 @@
       "pendingRefs": "Riferimenti in sospeso",
       "state": "Stato"
     },
-    "needsDownload": "CodeGraph richiede un download una tantum della grammatica prima di poter indicizzare. Effettualo in Impostazioni → Plugin.",
+    "needsDownload": "Mancano le grammatiche CodeGraph integrate. Reinstalla o aggiorna OpenCowork.",
     "noProjects": "Nessun progetto indicizzato ancora. Fai clic su \"Indicizza una cartella\" per creare il tuo primo indice.",
     "notIndexedDesc": "Questo progetto non ha ancora un indice del grafo.",
     "notIndexedTitle": "Non indicizzato",

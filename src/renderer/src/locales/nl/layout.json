@@ -1255,7 +1255,7 @@
       "pendingRefs": "Openstaande referenties",
       "state": "Status"
     },
-    "needsDownload": "CodeGraph heeft een eenmalige grammaticadownload nodig voordat het kan indexeren. Doe dit bij Instellingen → Plugins.",
+    "needsDownload": "De ingebouwde CodeGraph-grammatica's ontbreken. Installeer OpenCowork opnieuw of werk het bij.",
     "noProjects": "Nog geen geïndexeerde projecten. Klik op \"Map indexeren\" om uw eerste index te maken.",
     "notIndexedDesc": "Dit project heeft nog geen graafindex.",
     "notIndexedTitle": "Niet geïndexeerd",

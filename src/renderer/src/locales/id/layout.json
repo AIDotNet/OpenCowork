@@ -1255,7 +1255,7 @@
       "pendingRefs": "Referensi tertunda",
       "state": "Status"
     },
-    "needsDownload": "CodeGraph memerlukan unduhan grammar satu kali sebelum dapat mengindeks. Lakukan di Pengaturan → Pengaya.",
+    "needsDownload": "Grammar bawaan CodeGraph tidak ditemukan. Instal ulang atau perbarui OpenCowork.",
     "noProjects": "Belum ada proyek yang diindeks. Klik \"Indeks sebuah folder\" untuk membuat indeks pertama Anda.",
     "notIndexedDesc": "Proyek ini belum memiliki indeks graf.",
     "notIndexedTitle": "Belum diindeks",

@@ -151,8 +151,34 @@ function publishNativeWorker(projectDir) {
       path.join(projectDir, 'global.json')
     ]
   })
+
+  publishCodeGraphWorker(projectDir)
 }
 
+function publishCodeGraphWorker(projectDir) {
+  const projectPath = path.join(
+    projectDir,
+    'sidecars',
+    'OpenCowork.CodeGraph.Worker',
+    'OpenCowork.CodeGraph.Worker.csproj'
+  )
+  publishAotWorker({
+    projectDir,
+    label: 'CodeGraph',
+    projectPath,
+    outputDir: path.join(projectDir, 'resources', 'native-worker', 'codegraph-worker'),
+    executableName:
+      process.platform === 'win32'
+        ? 'OpenCowork.CodeGraph.Worker.exe'
+        : 'OpenCowork.CodeGraph.Worker',
+    inputPaths: [
+      path.dirname(projectPath),
+      path.join(projectDir, 'sidecars', 'OpenCowork.CodeGraph.Core'),
+      path.join(projectDir, 'sidecars', 'OpenCowork.Worker.Runtime'),
+      path.join(projectDir, 'global.json')
+    ]
+  })
+}
 
 async function ensurePortAvailable(port) {
   const hosts = ['127.0.0.1', '::1']
@@ -198,6 +224,7 @@ async function main() {
     return
   }
   if (process.argv.includes('--codegraph-only')) {
+    publishCodeGraphWorker(projectDir)
     return
   }
 

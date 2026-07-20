@@ -1255,7 +1255,7 @@
       "pendingRefs": "Referencias pendientes",
       "state": "Estado"
     },
-    "needsDownload": "CodeGraph necesita descargar las gramáticas una sola vez antes de poder indexar. Hágalo en Ajustes → Plugins.",
+    "needsDownload": "Faltan las gramáticas integradas de CodeGraph. Reinstale o actualice OpenCowork.",
     "noProjects": "Aún no hay proyectos indexados. Haga clic en \"Indexar una carpeta\" para crear su primer índice.",
     "notIndexedDesc": "Este proyecto aún no tiene un índice de grafo.",
     "notIndexedTitle": "No indexado",

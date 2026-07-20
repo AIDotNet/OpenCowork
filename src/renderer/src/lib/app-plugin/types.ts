@@ -48,8 +48,7 @@ export interface AppPluginDescriptor {
   builtin: true
   toolNames: AppPluginToolName[]
   requiresModelConfig: boolean
-  // CodeGraph ships without its tree-sitter grammars; enabling it must download them
-  // first (or, in a dev build, use the locally-built worker + grammars — no download).
+  // Optional readiness gate for plugins whose assets are not part of the app bundle.
   requiresDownload?: boolean
   hidden?: boolean
 }
@@ -103,7 +102,7 @@ export const APP_PLUGIN_DESCRIPTORS: AppPluginDescriptor[] = [
     builtin: true,
     toolNames: [CODEGRAPH_EXPLORE_TOOL_NAME],
     requiresModelConfig: false,
-    // opt-in, disabled by default; needs a one-time grammar download (dev builds bypass it)
+    // Opt-in and disabled by default; language grammars ship with the app.
     requiresDownload: false
   }
 ]

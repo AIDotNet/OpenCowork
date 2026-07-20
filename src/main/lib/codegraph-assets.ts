@@ -6,16 +6,15 @@ import crypto from 'node:crypto'
 import { isNativeWorkerRunning, resolveNativeWorkerPath } from './native-worker'
 
 // ---------------------------------------------------------------------------
-// CodeGraph grammar assets (download-on-enable, with a dev-mode bypass).
+// CodeGraph grammar assets (bundled, with a download cache for future updates).
 //
-// The CodeGraph C# worker ships WITHOUT its tree-sitter grammar libraries — they
-// are downloaded when the user enables the plugin (reference/04 §6). In a dev
-// build the grammars are taken from a local dir (the TreeSitter.DotNet NuGet cache
-// or OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR) so a developer never has to download.
+// Packaged builds ship their RID-specific tree-sitter libraries beside the nested
+// CodeGraph worker. A downloaded set may override those libraries later without
+// requiring an app release. In development, the NuGet cache remains a fallback.
 //
 // The worker loads its grammars from OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR (wired in
-// createCodeGraphWorkerEnv); this module resolves that directory + owns the
-// download into ~/.open-cowork/codegraph/grammars/<setVersion>/<rid>/.
+// createCodeGraphWorkerEnv); this module resolves that directory and owns the
+// optional update cache in ~/.open-cowork/codegraph/grammars/<setVersion>/<rid>/.
 // ---------------------------------------------------------------------------
 
 // Bump when the grammar ABI / pinned libtree-sitter version changes (invalidates cache).
@@ -79,6 +78,21 @@ function getDevNugetGrammarsDir(): string | null {
   return dirHasGrammars(dir) ? dir : null
 }
 
+// `resources/**` is unpacked by electron-builder, so resolving relative to the
+// selected executable works in both the source tree and a packaged app.
+function getBundledGrammarsDir(): string | null {
+  const workerPath = resolveNativeWorkerPath()
+  if (!workerPath) return null
+  const workerDir = path.dirname(workerPath)
+  const candidates = [
+    path.join(workerDir, 'codegraph-worker', 'grammars'),
+    // Compatibility with packages produced before CodeGraph assets moved under
+    // native-worker/codegraph-worker.
+    path.join(workerDir, 'grammars')
+  ]
+  return candidates.find((dir) => dirHasGrammars(dir)) ?? null
+}
+
 function dirHasGrammars(dir: string | null | undefined): boolean {
   return countGrammars(dir) > 0
 }
@@ -94,14 +108,18 @@ function countGrammars(dir: string | null | undefined): number {
 
 // The directory the worker should load grammars from. Priority:
 //   1. explicit OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR override
-//   2. the download cache (if populated)
-//   3. (dev only) the TreeSitter.DotNet NuGet native dir
+//   2. the optional download cache (permits grammar-only updates)
+//   3. the RID-specific set bundled beside the nested CodeGraph worker
+//   4. (dev only) the TreeSitter.DotNet NuGet native dir
 export function resolveCodeGraphGrammarsDir(): string | null {
   const override = process.env.OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR?.trim()
   if (override && dirHasGrammars(override)) return override
 
   const cache = getCodeGraphCacheGrammarsDir()
   if (dirHasGrammars(cache)) return cache
+
+  const bundled = getBundledGrammarsDir()
+  if (bundled) return bundled
 
   if (isDevBuild()) {
     const dev = getDevNugetGrammarsDir()
@@ -125,8 +143,8 @@ export function getCodeGraphAssetStatus(): CodeGraphAssetStatus {
     ready: workerReady && grammarsReady,
     grammarsDir,
     grammarCount,
-    // Dev never *needs* a download (it can use the NuGet grammars); a packaged
-    // build needs one until the cache is populated.
+    // A complete packaged build always resolves its bundled grammar directory.
+    // Keep this signal for damaged/legacy packages that shipped without one.
     needsDownload: !grammarsReady && !isDev
   }
 }

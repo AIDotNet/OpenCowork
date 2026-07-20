@@ -710,7 +710,7 @@
       },
       "codegraph": {
         "description": "Een lokale code-intelligentie-engine: indexeer een repo tot een symbool-/referentiegraaf en laat de Agent deze verkennen.",
-        "promptDesc": "Schakel in om de Agent het `codegraph_explore`-hulpmiddel te geven — het beantwoordt vragen als \"hoe komt X bij Y / wie roept dit aan / wat breekt er als ik dit wijzig\" vanuit de geïndexeerde graaf, ter vervanging van veel Read/Grep-aanroepen. Standaard uitgeschakeld; inschakelen downloadt eenmalig de taalgrammatica's.",
+        "promptDesc": "Schakel in om de Agent het `codegraph_explore`-hulpmiddel te geven — het beantwoordt vragen als \"hoe komt X bij Y / wie roept dit aan / wat breekt er als ik dit wijzig\" vanuit de geïndexeerde graaf, ter vervanging van veel Read/Grep-aanroepen. Standaard uitgeschakeld; de taalgrammatica's zijn in de app opgenomen.",
         "promptTitle": "Beperkingen voor hulpmiddelgebruik",
         "title": "CodeGraph-plugin"
       }

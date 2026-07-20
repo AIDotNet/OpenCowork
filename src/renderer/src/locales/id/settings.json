@@ -710,7 +710,7 @@
       },
       "codegraph": {
         "description": "Mesin code-intelligence lokal: indeks sebuah repo menjadi graf simbol/referensi dan biarkan Agen menjelajahinya.",
-        "promptDesc": "Aktifkan untuk memberi Agen Alat `codegraph_explore` — menjawab \"bagaimana X mencapai Y / siapa memanggil ini / apa yang rusak jika saya mengubahnya\" dari graf yang diindeks, menggantikan banyak panggilan Read/Grep. Dinonaktifkan secara baku; mengaktifkannya mengunduh grammar bahasa satu kali.",
+        "promptDesc": "Aktifkan untuk memberi Agen Alat `codegraph_explore` — menjawab \"bagaimana X mencapai Y / siapa memanggil ini / apa yang rusak jika saya mengubahnya\" dari graf yang diindeks, menggantikan banyak panggilan Read/Grep. Dinonaktifkan secara baku; grammar bahasa disertakan dengan aplikasi.",
         "promptTitle": "Batasan penggunaan alat",
         "title": "Pengaya CodeGraph"
       }

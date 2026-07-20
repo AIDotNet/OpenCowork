@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2026-07-20
+
+### Added
+
+- Added a dedicated compression model setting, allowing context summaries to use a model separate from the active chat model.
+- Added a global context compression ratio setting and migrated legacy per-model compression ratios to the global value.
+- Added Vietnamese translations for AI Coding and CodeGraph features.
+
+### Changed
+
+- Unified context compression behavior across the renderer, native worker, and automatic compression flows.
+- Enhanced SSH settings with additional options and clearer connection status messages.
+- Added provider request retry telemetry to show the retry attempt, HTTP status, and next delay in the chat UI.
+
+### Fixed
+
+- HTTP 500 and other transient provider failures now retry up to 10 times with progressively increasing delays before stopping.
+- Removed obsolete per-model compression ratio controls and safely cleaned up legacy persisted settings.
+
 ## [1.2.1] - 2026-07-17
 
 ### Added

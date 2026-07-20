@@ -710,7 +710,7 @@
       },
       "codegraph": {
         "description": "Một công cụ phân tích mã nguồn cục bộ: lập chỉ mục một repo thành đồ thị ký hiệu/tham chiếu để Đặc vụ khám phá.",
-        "promptDesc": "Bật để cấp cho Đặc vụ công cụ `codegraph_explore` — nó trả lời các câu hỏi như \"X đến Y bằng cách nào / ai gọi cái này / nếu tôi thay đổi thì cái gì sẽ hỏng\" từ đồ thị đã lập chỉ mục, thay thế nhiều lệnh gọi Read/Grep. Mặc định tắt; khi bật sẽ tải ngữ pháp ngôn ngữ một lần.",
+        "promptDesc": "Bật để cấp cho Đặc vụ công cụ `codegraph_explore` — nó trả lời các câu hỏi như \"X đến Y bằng cách nào / ai gọi cái này / nếu tôi thay đổi thì cái gì sẽ hỏng\" từ đồ thị đã lập chỉ mục, thay thế nhiều lệnh gọi Read/Grep. Mặc định tắt; ngữ pháp ngôn ngữ được tích hợp sẵn trong ứng dụng.",
         "promptTitle": "Giới hạn sử dụng công cụ",
         "title": "Plugin CodeGraph"
       }

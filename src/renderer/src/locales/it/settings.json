@@ -710,7 +710,7 @@
       },
       "codegraph": {
         "description": "Un motore locale di intelligenza del codice: indicizza un repository in un grafo di simboli/riferimenti e lascia che l'Agente lo esplori.",
-        "promptDesc": "Abilita per dare all'Agente lo strumento `codegraph_explore` — risponde a domande come \"come X arriva a Y / chi chiama questo / cosa si rompe se lo modifico\" partendo dal grafo indicizzato, sostituendo molte chiamate Read/Grep. Disabilitato per impostazione predefinita; abilitarlo scarica una volta le grammatiche linguistiche.",
+        "promptDesc": "Abilita per dare all'Agente lo strumento `codegraph_explore` — risponde a domande come \"come X arriva a Y / chi chiama questo / cosa si rompe se lo modifico\" partendo dal grafo indicizzato, sostituendo molte chiamate Read/Grep. Disabilitato per impostazione predefinita; le grammatiche linguistiche sono incluse nell'app.",
         "promptTitle": "Limiti di utilizzo dello strumento",
         "title": "Plugin CodeGraph"
       }

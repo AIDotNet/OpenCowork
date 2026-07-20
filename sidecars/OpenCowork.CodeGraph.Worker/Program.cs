@@ -13,8 +13,8 @@ internal static class Program
     {
         Console.OutputEncoding = Encoding.UTF8;
 
-        // Resolve tree-sitter grammars from OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR (the
-        // downloaded pack or a dev grammar dir) — grammars are not bundled here.
+        // Resolve tree-sitter grammars from the bundled sibling directory, or from
+        // an OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR update/dev override.
         CodeGraphNativeLibraryResolver.Install();
 
         if (Array.IndexOf(args, "--ipc") >= 0)

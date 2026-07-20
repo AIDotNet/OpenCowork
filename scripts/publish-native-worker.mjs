@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
@@ -11,8 +11,15 @@ const projectPath = join(
   'OpenCowork.Native.Worker',
   'OpenCowork.Native.Worker.csproj'
 )
+const codeGraphProjectPath = join(
+  repoRoot,
+  'sidecars',
+  'OpenCowork.CodeGraph.Worker',
+  'OpenCowork.CodeGraph.Worker.csproj'
+)
 const outputDir = join(repoRoot, 'resources', 'native-worker')
 const tempOutputDir = mkdtempSync(join(tmpdir(), 'open-cowork-native-worker-'))
+const codeGraphTempOutputDir = mkdtempSync(join(tmpdir(), 'open-cowork-codegraph-worker-'))
 const nugetSource = process.env.OPEN_COWORK_NUGET_SOURCE || 'https://nuget.azure.cn/v3/index.json'
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
@@ -26,83 +33,137 @@ function currentRid() {
 }
 
 mkdirSync(tempOutputDir, { recursive: true })
+mkdirSync(codeGraphTempOutputDir, { recursive: true })
 
-const result = spawnSync(
-  'dotnet',
-  [
-    'publish',
-    projectPath,
-    '-c',
-    'Release',
-    '-r',
-    process.env.OPEN_COWORK_NATIVE_WORKER_RID || currentRid(),
-    '--source',
-    nugetSource,
-    '-o',
-    tempOutputDir,
-    '/p:PublishAot=true',
-    '/p:StripSymbols=true'
-  ],
-  {
-    cwd: repoRoot,
-    stdio: 'inherit'
-  }
-)
+const rid = process.env.OPEN_COWORK_NATIVE_WORKER_RID || currentRid()
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+function publishWorker(project, destination) {
+  return spawnSync(
+    'dotnet',
+    [
+      'publish',
+      project,
+      '-c',
+      'Release',
+      '-r',
+      rid,
+      '--source',
+      nugetSource,
+      '-o',
+      destination,
+      '/p:PublishAot=true',
+      '/p:StripSymbols=true'
+    ],
+    {
+      cwd: repoRoot,
+      stdio: 'inherit'
+    }
+  )
+}
+
+const result = publishWorker(projectPath, tempOutputDir)
 
 if (result.status !== 0) {
   rmSync(tempOutputDir, { recursive: true, force: true })
+  rmSync(codeGraphTempOutputDir, { recursive: true, force: true })
   process.exit(result.status ?? 1)
+}
+
+const codeGraphResult = publishWorker(codeGraphProjectPath, codeGraphTempOutputDir)
+if (codeGraphResult.status !== 0) {
+  rmSync(tempOutputDir, { recursive: true, force: true })
+  rmSync(codeGraphTempOutputDir, { recursive: true, force: true })
+  process.exit(codeGraphResult.status ?? 1)
 }
 
 rmSync(outputDir, { recursive: true, force: true })
 mkdirSync(outputDir, { recursive: true })
 cpSync(tempOutputDir, outputDir, { recursive: true })
+const codeGraphOutputDir = join(outputDir, 'codegraph-worker')
+mkdirSync(codeGraphOutputDir, { recursive: true })
+cpSync(codeGraphTempOutputDir, codeGraphOutputDir, { recursive: true })
 
 // The .dSYM bundle is crash-symbolication debug info (StripSymbols moves DWARF
 // there) — never loaded at runtime, and resources/** ships into the installer, so
 // leaving it here bloats the package by the dSYM's full size. Keep it only when
 // archiving symbols for a release (OPEN_COWORK_KEEP_DSYM=1).
 if (process.env.OPEN_COWORK_KEEP_DSYM !== '1') {
-  for (const entry of ['OpenCowork.Native.Worker.dSYM', 'OpenCowork.Native.Worker.dbg', 'OpenCowork.Native.Worker.pdb']) {
+  for (const entry of [
+    'OpenCowork.Native.Worker.dSYM',
+    'OpenCowork.Native.Worker.dbg',
+    'OpenCowork.Native.Worker.pdb'
+  ]) {
     rmSync(join(outputDir, entry), { recursive: true, force: true })
+  }
+  for (const entry of [
+    'OpenCowork.CodeGraph.Worker.dSYM',
+    'OpenCowork.CodeGraph.Worker.dbg',
+    'OpenCowork.CodeGraph.Worker.pdb'
+  ]) {
+    rmSync(join(codeGraphOutputDir, entry), { recursive: true, force: true })
   }
 }
 
-// Bundle CodeGraph tree-sitter grammars beside the worker (<out>/grammars): the
-// source-merged CodeGraph engine loads them via OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR
-// or the beside-binary fallback. Source: the TreeSitter.DotNet NuGet native dir
-// (WS-A CI replaces this per-RID once the full matrix ships).
-try {
-  const os = await import('node:os')
-  const grammarsSrc = join(
-    os.homedir(),
+// Bundle the supported RID-specific CodeGraph grammars beside the worker. The
+// TreeSitter.DotNet PackageReference above makes the package available in a clean
+// CI cache; an explicit source directory can be supplied for a custom grammar set.
+const grammarsSrc =
+  process.env.OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR?.trim() ||
+  join(
+    (await import('node:os')).homedir(),
     '.nuget/packages/treesitter.dotnet/1.3.0/runtimes',
-    process.env.OPEN_COWORK_NATIVE_WORKER_RID || currentRid(),
+    rid,
     'native'
   )
-  const grammarsOut = join(outputDir, 'grammars')
-  // Copy ONLY the grammars our registry actually binds (the NuGet dir also ships
-  // agda/ql/verilog/html/css/json/... — ~25 MB of dead weight otherwise).
-  const SUPPORTED = new Set([
-    'libtree-sitter', 'libtree-sitter-typescript', 'libtree-sitter-tsx',
-    'libtree-sitter-javascript', 'libtree-sitter-python', 'libtree-sitter-go',
-    'libtree-sitter-java', 'libtree-sitter-c-sharp', 'libtree-sitter-rust',
-    'libtree-sitter-c', 'libtree-sitter-cpp', 'libtree-sitter-php',
-    'libtree-sitter-ruby', 'libtree-sitter-scala', 'libtree-sitter-bash',
-    'libtree-sitter-haskell', 'libtree-sitter-julia', 'libtree-sitter-razor',
-    'libtree-sitter-lua'
-  ])
-  const { readdirSync: rdir } = await import('node:fs')
+const grammarsOut = join(codeGraphOutputDir, 'grammars')
+
+// Use names without the Unix-only `lib` prefix so the same filter works for
+// .dylib/.so and Windows .dll files.
+const BUNDLED_GRAMMARS = new Set([
+  'tree-sitter',
+  'tree-sitter-typescript',
+  'tree-sitter-tsx',
+  'tree-sitter-javascript',
+  'tree-sitter-python',
+  'tree-sitter-go',
+  'tree-sitter-java',
+  'tree-sitter-c-sharp',
+  'tree-sitter-rust',
+  'tree-sitter-c',
+  'tree-sitter-cpp',
+  'tree-sitter-php',
+  'tree-sitter-ruby',
+  'tree-sitter-scala',
+  'tree-sitter-bash',
+  'tree-sitter-haskell',
+  'tree-sitter-julia',
+  'tree-sitter-razor'
+])
+
+try {
   mkdirSync(grammarsOut, { recursive: true })
-  let copied = 0
-  for (const f of rdir(grammarsSrc)) {
-    const base = f.replace(/\.(dylib|so|dll)$/i, '')
-    if (!SUPPORTED.has(base)) continue
-    cpSync(join(grammarsSrc, f), join(grammarsOut, f))
-    copied++
+  const copied = new Set()
+  for (const file of readdirSync(grammarsSrc)) {
+    const name = file.replace(/\.(dylib|so|dll)$/i, '').replace(/^lib/, '')
+    if (!BUNDLED_GRAMMARS.has(name)) continue
+    cpSync(join(grammarsSrc, file), join(grammarsOut, file))
+    copied.add(name)
   }
-  console.log(`[publish-native-worker] bundled ${copied} grammars -> ${grammarsOut}`)
-} catch (err) {
-  console.warn('[publish-native-worker] grammar bundling skipped:', err?.message ?? err)
+
+  const missing = [...BUNDLED_GRAMMARS].filter((name) => !copied.has(name))
+  if (missing.length > 0) {
+    throw new Error(`missing required ${rid} grammars: ${missing.join(', ')}`)
+  }
+  console.log(`[publish-native-worker] bundled ${copied.size} ${rid} grammars -> ${grammarsOut}`)
+} catch (error) {
+  rmSync(tempOutputDir, { recursive: true, force: true })
+  rmSync(codeGraphTempOutputDir, { recursive: true, force: true })
+  console.error(
+    `[publish-native-worker] failed to bundle grammars from ${grammarsSrc}:`,
+    error?.message ?? error
+  )
+  process.exit(1)
 }
 rmSync(tempOutputDir, { recursive: true, force: true })
+rmSync(codeGraphTempOutputDir, { recursive: true, force: true })

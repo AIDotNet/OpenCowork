@@ -710,7 +710,7 @@
       },
       "codegraph": {
         "description": "Yerel bir kod zekası motoru: bir depoyu sembol/referans grafiğine dizinler ve ajanın onu keşfetmesini sağlar.",
-        "promptDesc": "Ajana `codegraph_explore` aracını vermek için etkinleştirin — dizinlenmiş grafikten \"X, Y'ye nasıl ulaşır / bunu kim çağırıyor / bunu değiştirirsem ne bozulur\" gibi sorulara yanıt verir ve birçok Read/Grep çağrısının yerini alır. Varsayılan olarak devre dışıdır; etkinleştirildiğinde dil dilbilgilerini bir kez indirir.",
+        "promptDesc": "Ajana `codegraph_explore` aracını vermek için etkinleştirin — dizinlenmiş grafikten \"X, Y'ye nasıl ulaşır / bunu kim çağırıyor / bunu değiştirirsem ne bozulur\" gibi sorulara yanıt verir ve birçok Read/Grep çağrısının yerini alır. Varsayılan olarak devre dışıdır; dil dilbilgileri uygulamaya dahildir.",
         "promptTitle": "Araç kullanım kısıtlamaları",
         "title": "CodeGraph Eklentisi"
       }

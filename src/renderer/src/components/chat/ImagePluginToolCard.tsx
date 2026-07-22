@@ -211,7 +211,14 @@ export function ImagePluginToolCard({
         </span>
         <span className="shrink-0 text-muted-foreground/55">image</span>
         <span className="shrink-0 text-muted-foreground/40">&gt;</span>
-        <span className="shrink-0 font-mono font-medium text-foreground/82">ImageGenerate</span>
+        <span
+          className={cn(
+            'shrink-0 font-mono font-medium',
+            isRunning ? 'tool-name-live-pulse tool-name-live-pulse--running' : 'text-foreground/82'
+          )}
+        >
+          ImageGenerate
+        </span>
         <span className="min-w-0 flex-1 truncate text-muted-foreground/60">({promptSummary})</span>
         <span className="hidden shrink-0 rounded-full border border-border/55 bg-background/70 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground sm:inline-flex dark:bg-white/[0.035]">
           {t('toolCall.imagePlugin.countValue', { count: requestedCount })}
@@ -240,7 +247,13 @@ export function ImagePluginToolCard({
                 <div className="space-y-1.5 rounded-md bg-muted/20 px-3 py-2 text-xs">
                   <div className="flex items-center gap-2 text-muted-foreground/70">
                     <ImageIcon className="size-3.5 shrink-0" />
-                    <span>{statusLabel}</span>
+                    <span
+                      className={
+                        isRunning ? 'tool-name-live-pulse tool-name-live-pulse--running' : undefined
+                      }
+                    >
+                      {statusLabel}
+                    </span>
                   </div>
                   <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/85">
                     {prompt || '-'}
@@ -289,7 +302,9 @@ export function ImagePluginToolCard({
                   className="flex items-center gap-2 rounded-lg border border-dashed border-sky-500/20 bg-sky-500/[0.035] px-3 py-3 text-sm text-muted-foreground"
                 >
                   <Loader2 className="size-4 animate-spin text-sky-500" />
-                  <span>{t('toolCall.imagePlugin.generating')}</span>
+                  <span className="tool-name-live-pulse tool-name-live-pulse--running">
+                    {t('toolCall.imagePlugin.generating')}
+                  </span>
                 </motion.div>
               ) : null}
 

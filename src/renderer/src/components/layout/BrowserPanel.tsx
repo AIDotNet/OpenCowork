@@ -3,7 +3,10 @@ import { ArrowLeft, ArrowRight, RefreshCw, Square, Globe, AlertCircle } from 'lu
 import { Button } from '@renderer/components/ui/button'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
-import { getBrowserAccessDecision } from '@renderer/lib/app-plugin/browser-access'
+import {
+  getBrowserAccessDecision,
+  normalizeBrowserUrl
+} from '@renderer/lib/app-plugin/browser-access'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import {
@@ -131,15 +134,6 @@ export function BrowserPanel({
     setCommittedUrl(storedUrl)
   }, [storedUrl])
 
-  const normalizeUrl = (url: string): string => {
-    let normalized = url.trim()
-    if (!normalized) return ''
-    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)) {
-      normalized = `https://${normalized}`
-    }
-    return normalized
-  }
-
   const blockNavigation = useCallback(
     (url: string, reason?: string): void => {
       setBrowserErrorInfo(
@@ -168,7 +162,7 @@ export function BrowserPanel({
 
   const navigate = useCallback(
     (url: string): void => {
-      const normalized = normalizeUrl(url)
+      const normalized = normalizeBrowserUrl(url)
       if (!normalized) return
       setInputUrl(normalized)
       if (!canNavigateTo(normalized)) return

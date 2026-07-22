@@ -50,6 +50,7 @@
     "searchProjects": "Search projects and sessions...",
     "noProjects": "No projects yet",
     "newProject": "New Project",
+    "newAgentIn": "New Agent in {{projectName}}",
     "openProject": "Open Project",
     "deleteProjectConfirm": "Delete project “{{projectName}}” and its {{count}} sessions?",
     "deleteConversation": "Delete Conversation",

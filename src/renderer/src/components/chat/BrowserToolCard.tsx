@@ -377,7 +377,13 @@ export function BrowserToolCard({
               {isRunning ? (
                 <div className="flex items-center gap-2 rounded-md border border-dashed px-2.5 py-2 text-xs text-muted-foreground">
                   <Loader2 className="size-3.5 animate-spin" />
-                  <span>
+                  <span
+                    className={
+                      status === 'streaming'
+                        ? 'tool-name-live-pulse tool-name-live-pulse--streaming'
+                        : 'tool-name-live-pulse tool-name-live-pulse--running'
+                    }
+                  >
                     {t('toolCall.browser.executing', {
                       defaultValue: 'Executing browser action...'
                     })}

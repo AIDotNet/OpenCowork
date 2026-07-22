@@ -203,7 +203,7 @@ function CodeGraphScanIndicator({ label }: { label: string }): React.JSX.Element
           style={{ animationDelay: '480ms' }}
         />
       </svg>
-      <span>{label}</span>
+      <span className="tool-name-live-pulse tool-name-live-pulse--running">{label}</span>
       <Loader2 className="ml-auto size-3.5 animate-spin text-sky-500/70" />
     </div>
   )

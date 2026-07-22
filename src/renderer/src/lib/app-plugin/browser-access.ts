@@ -7,6 +7,19 @@ export interface BrowserAccessDecision {
   reason?: string
 }
 
+/**
+ * Keep explicit URL schemes intact (including local `file://` resources), and
+ * default only scheme-less input to HTTPS.
+ */
+export function normalizeBrowserUrl(value: string): string {
+  let url = value.trim()
+  if (!url) return ''
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) {
+    url = `https://${url}`
+  }
+  return url
+}
+
 export function normalizeBrowserDomainEntry(value: string): string | null {
   let candidate = value.trim().toLowerCase()
   if (!candidate) return null

@@ -1841,7 +1841,15 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     }
 
     const physicallyAtBottom = distanceToBottom <= threshold
-    if (physicallyAtBottom && isSessionOutputting && autoScrollModeRef.current === 'off') {
+    // A rail jump deliberately turns following off before it starts its
+    // programmatic scroll. Do not immediately turn it back on just because the
+    // first scroll event still falls within the bottom tolerance.
+    if (
+      physicallyAtBottom &&
+      isSessionOutputting &&
+      autoScrollModeRef.current === 'off' &&
+      !isProgrammaticScroll
+    ) {
       autoScrollModeRef.current = 'stream'
     }
 
@@ -2213,7 +2221,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   const virtualListTotalSize = rowVirtualizer.getTotalSize()
   React.useLayoutEffect(() => {
     if (pendingAskUserQuestion) return
-    if (!canAutoScroll() && !isAtBottom) return
+    if (!canAutoScroll()) return
     scrollToBottomImmediate()
   }, [
     canAutoScroll,

@@ -55,30 +55,45 @@ function compactStatusBadgeClassName(status: ToolCallStatus | 'completed'): stri
   return compactBadgeClassName('green')
 }
 
-function compactHeaderStateClassName(status: ToolCallStatus | 'completed', open: boolean): string {
+function compactHeaderStateClassName(
+  status: ToolCallStatus | 'completed',
+  open: boolean,
+  isShellTool: boolean
+): string {
+  const showOpenBackground = open && !isShellTool
   if (status === 'error') {
-    return cn('text-destructive/85 hover:bg-destructive/[0.035]', open && 'bg-destructive/[0.025]')
+    return cn(
+      'text-destructive/85 hover:bg-destructive/[0.035]',
+      showOpenBackground && 'bg-destructive/[0.025]'
+    )
   }
   if (status === 'running') {
-    return cn('text-sky-600 dark:text-sky-300', open && 'bg-sky-500/[0.025]')
+    return cn('text-sky-600 dark:text-sky-300', showOpenBackground && 'bg-sky-500/[0.025]')
   }
   if (status === 'streaming') {
-    return cn('text-violet-600 dark:text-violet-300', open && 'bg-violet-500/[0.025]')
+    return isShellTool
+      ? cn('text-sky-600 dark:text-sky-300', showOpenBackground && 'bg-sky-500/[0.025]')
+      : cn('text-violet-600 dark:text-violet-300', showOpenBackground && 'bg-violet-500/[0.025]')
   }
   if (status === 'pending_approval') {
-    return cn('text-amber-600 dark:text-amber-300', open && 'bg-amber-500/[0.035]')
+    return cn('text-amber-600 dark:text-amber-300', showOpenBackground && 'bg-amber-500/[0.035]')
   }
-  return cn('text-muted-foreground', open && 'bg-muted/25 dark:bg-white/[0.025]')
+  return cn('text-muted-foreground', showOpenBackground && 'bg-muted/25 dark:bg-white/[0.025]')
 }
 
-function compactIconShellClassName(status: ToolCallStatus | 'completed'): string {
+function compactIconShellClassName(
+  status: ToolCallStatus | 'completed',
+  isShellTool: boolean
+): string {
   if (status === 'error') return 'border-destructive/25 bg-transparent text-destructive'
   if (status === 'canceled') {
     return 'border-muted-foreground/25 bg-transparent text-muted-foreground'
   }
   if (status === 'running') return 'border-sky-500/25 bg-transparent text-sky-600 dark:text-sky-300'
   if (status === 'streaming') {
-    return 'border-violet-500/25 bg-transparent text-violet-600 dark:text-violet-300'
+    return isShellTool
+      ? 'border-sky-500/25 bg-transparent text-sky-600 dark:text-sky-300'
+      : 'border-violet-500/25 bg-transparent text-violet-600 dark:text-violet-300'
   }
   if (status === 'pending_approval') {
     return 'border-amber-500/30 bg-transparent text-amber-600 dark:text-amber-300'
@@ -116,17 +131,19 @@ export function CompactToolCallHeader({
     status === 'error' ||
     status === 'canceled' ||
     status === 'completed'
+  const isShellTool = model.namespace === 'shell'
   const lifecycleGlyph = hasLifecycleGlyph ? <CompactLifecycleGlyph status={status} /> : null
   const toolLabel = model.toolLabel ?? model.primary
   const primaryDetail = model.toolLabel && model.primary !== model.toolLabel ? model.primary : ''
   const detailText = [primaryDetail, model.secondary].filter(Boolean).join(' · ')
   const shouldPulseToolName = status === 'running' || status === 'streaming'
+  const isActiveStatus = status === 'running' || status === 'streaming'
 
   return (
     <div
       className={cn(
         'flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] transition-colors duration-200 hover:bg-muted/35 hover:text-foreground dark:hover:bg-white/[0.035]',
-        compactHeaderStateClassName(status, open),
+        compactHeaderStateClassName(status, open, isShellTool),
         'group-hover:text-foreground'
       )}
       title={model.title}
@@ -134,7 +151,7 @@ export function CompactToolCallHeader({
       <span
         className={cn(
           'relative flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors',
-          compactIconShellClassName(status)
+          compactIconShellClassName(status, isShellTool)
         )}
         aria-hidden="true"
       >
@@ -156,8 +173,8 @@ export function CompactToolCallHeader({
               ? [
                   'tool-name-live-pulse',
                   status === 'running'
-                    ? 'tool-name-live-pulse--running'
-                    : 'tool-name-live-pulse--streaming'
+                    ? `tool-name-live-pulse--${isShellTool ? 'shell' : 'running'}`
+                    : `tool-name-live-pulse--${isShellTool ? 'shell' : 'streaming'}`
                 ]
               : 'text-foreground/82'
           )}
@@ -173,8 +190,13 @@ export function CompactToolCallHeader({
       {statusLabel ? (
         <span
           className={cn(
-            'hidden shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium sm:inline-flex',
-            compactStatusBadgeClassName(status)
+            isActiveStatus
+              ? 'hidden shrink-0 text-[10px] font-semibold sm:inline-flex'
+              : 'hidden shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium sm:inline-flex',
+            !isActiveStatus && compactStatusBadgeClassName(status),
+            isActiveStatus && 'tool-name-live-pulse',
+            status === 'running' && `tool-name-live-pulse--${isShellTool ? 'shell' : 'running'}`,
+            status === 'streaming' && `tool-name-live-pulse--${isShellTool ? 'shell' : 'streaming'}`
           )}
         >
           {statusLabel}

@@ -278,8 +278,12 @@ export function ImageGeneratingLoader({
                   />
                 </div>
                 <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
-                  <span>{t('thinking.pending')}</span>
-                  <span>{t('toolCall.imagePlugin.generating')}</span>
+                  <span className="tool-name-live-pulse tool-name-live-pulse--streaming">
+                    {t('thinking.pending')}
+                  </span>
+                  <span className="tool-name-live-pulse tool-name-live-pulse--running">
+                    {t('toolCall.imagePlugin.generating')}
+                  </span>
                 </div>
               </div>
             </div>

@@ -85,13 +85,24 @@ export class AgentStreamReceiver {
       return
     }
 
+    const isTerminal = envelope.events.some((e) => e.type === 'loop_end' || e.type === 'error')
+
     const lastSeq = this.lastSeqByRun.get(envelope.runId)
+    // Idempotency: an envelope whose seq we've already applied is a duplicate —
+    // e.g. journal replay on reattach overlapping frames the window already saw.
+    // Skip it, EXCEPT a terminal envelope, which must always run its cleanup
+    // (delete lastSeqByRun, let subscribers finalize the run).
+    if (lastSeq !== undefined && envelope.seq <= lastSeq && !isTerminal) {
+      return
+    }
     if (lastSeq !== undefined && envelope.seq > lastSeq + 1) {
       console.warn(
         `[AgentStream] Gap detected for run ${envelope.runId}: expected ${lastSeq + 1}, got ${envelope.seq}`
       )
     }
-    this.lastSeqByRun.set(envelope.runId, envelope.seq)
+    if (lastSeq === undefined || envelope.seq > lastSeq) {
+      this.lastSeqByRun.set(envelope.runId, envelope.seq)
+    }
 
     if (shouldLogMessagePackTrace()) {
       console.debug('[AgentStream] MessagePack envelope decoded', {
@@ -107,9 +118,15 @@ export class AgentStreamReceiver {
       this.dispatch(envelope.runId, envelope.sessionId, event)
     }
 
-    if (envelope.events.some((e) => e.type === 'loop_end' || e.type === 'error')) {
+    if (isTerminal) {
       this.lastSeqByRun.delete(envelope.runId)
     }
+  }
+
+  /** Highest seq applied for a run, or undefined if none seen. Used to compute
+   *  the `sinceSeq` for journal replay on reattach. */
+  getLastSeq(runId: string): number | undefined {
+    return this.lastSeqByRun.get(runId)
   }
 
   private dispatch(runId: string, sessionId: string, event: AgentStreamEvent): void {

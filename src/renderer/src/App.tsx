@@ -37,6 +37,7 @@ import { useCronStore, type CronAgentLogEntry } from './stores/cron-store'
 import { ipcClient } from './lib/ipc/ipc-client'
 import { IPC } from './lib/ipc/channels'
 import { agentStream } from './lib/ipc/agent-stream-receiver'
+import { reattachActiveRuns } from './lib/agent/runtime-reattach'
 import { nanoid } from 'nanoid'
 import type { UnifiedMessage } from './lib/api/types'
 import { NotifyToastContainer } from './components/notify/NotifyWindow'
@@ -306,6 +307,14 @@ function App(): React.JSX.Element {
         useUIStore.getState().applyRouteFromLocation()
       }
 
+      // Recover any agent runs still executing in the main-process worker that
+      // this (possibly just-reloaded) window lost track of. Detached windows
+      // restrict recovery to their own session. Runs after messages are loaded
+      // and the active session is set so replayed deltas have a landing message.
+      void reattachActiveRuns({
+        sessionId: sessionWindowView ? (detachedSessionId ?? undefined) : undefined
+      })
+
       const activeSessionId = useChatStore.getState().activeSessionId
       const activePlan = activeSessionId
         ? await usePlanStore.getState().loadPlanForSession(activeSessionId)
@@ -361,6 +370,18 @@ function App(): React.JSX.Element {
   useEffect(() => installSessionRuntimeSyncListener(), [])
   useEffect(() => installRendererMemoryMonitor(), [])
   useEffect(() => installGoalSyncListener(), [])
+
+  // When the worker is recycled underneath us, re-pull runtime state so any run
+  // that survived (or the reconciled status of one that didn't) is reflected.
+  useEffect(() => {
+    return ipcClient.on('sidecar:lifecycle', (payload) => {
+      const state = (payload as { state?: string } | null)?.state
+      if (state !== 'reconnected') return
+      void reattachActiveRuns({
+        sessionId: sessionWindowView ? (detachedSessionId ?? undefined) : undefined
+      })
+    })
+  }, [sessionWindowView, detachedSessionId])
 
   useEffect(
     () =>

@@ -208,20 +208,26 @@
 }
 
 @keyframes tool-name-live-pulse {
-  from {
-    background-position: 100% 50%;
+  0%,
+  12% {
+    background-position: 120% 50%;
   }
-  to {
-    background-position: 0% 50%;
+
+  72%,
+  100% {
+    background-position: -20% 50%;
   }
 }
 
 @keyframes ai-live-shimmer-sweep {
-  from {
-    background-position: 100% 50%;
+  0%,
+  12% {
+    background-position: 120% 50%;
   }
-  to {
-    background-position: 0% 50%;
+
+  72%,
+  100% {
+    background-position: -20% 50%;
   }
 }
 
@@ -673,25 +679,25 @@
   }
 
   .ai-live-shimmer-text {
-    --shimmer-text-base: color-mix(in srgb, var(--foreground) 58%, var(--muted-foreground) 42%);
-    --shimmer-text-peak: color-mix(in srgb, var(--foreground) 40%, var(--primary) 60%);
+    --shimmer-text-base: color-mix(in srgb, var(--foreground) 28%, var(--muted-foreground) 72%);
+    --shimmer-text-peak: color-mix(in srgb, var(--foreground) 32%, var(--primary) 68%);
     color: var(--shimmer-text-base);
     background-image: linear-gradient(
       90deg,
       var(--shimmer-text-base) 0%,
       var(--shimmer-text-base) 36%,
-      var(--shimmer-text-peak) 48%,
-      color-mix(in srgb, var(--shimmer-text-peak) 72%, white 28%) 52%,
+      var(--shimmer-text-peak) 44%,
+      color-mix(in srgb, var(--shimmer-text-peak) 88%, white 12%) 50%,
       var(--shimmer-text-peak) 56%,
       var(--shimmer-text-base) 68%,
       var(--shimmer-text-base) 100%
     );
-    background-size: 240% 100%;
+    background-size: 200% 100%;
     background-position: 100% 50%;
     background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    animation: ai-live-shimmer-sweep 1.9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    animation: ai-live-shimmer-sweep 1.75s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
 
   .ai-live-shimmer-text--agile {
@@ -713,42 +719,47 @@
   }
 
   .pending-assistant-label {
-    font-size: 0.75rem;
-    font-weight: 500;
-    line-height: 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
     color: color-mix(in srgb, var(--foreground) 64%, var(--muted-foreground) 36%);
   }
 
   .tool-name-live-pulse {
-    --tool-name-live-base: color-mix(in srgb, var(--foreground) 60%, var(--muted-foreground) 40%);
-    --tool-name-live-peak: color-mix(in srgb, var(--foreground) 38%, var(--primary) 62%);
+    --tool-name-live-base: color-mix(in srgb, var(--foreground) 28%, var(--muted-foreground) 72%);
+    --tool-name-live-peak: color-mix(in srgb, var(--foreground) 30%, var(--primary) 70%);
     color: var(--tool-name-live-base);
     background-image: linear-gradient(
       90deg,
       var(--tool-name-live-base) 0%,
       var(--tool-name-live-base) 36%,
-      var(--tool-name-live-peak) 48%,
-      color-mix(in srgb, var(--tool-name-live-peak) 72%, white 28%) 52%,
+      var(--tool-name-live-peak) 44%,
+      color-mix(in srgb, var(--tool-name-live-peak) 88%, white 12%) 50%,
       var(--tool-name-live-peak) 56%,
       var(--tool-name-live-base) 68%,
       var(--tool-name-live-base) 100%
     );
-    background-size: 240% 100%;
+    background-size: 200% 100%;
     background-position: 100% 50%;
     background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    animation: tool-name-live-pulse 1.65s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    animation: tool-name-live-pulse 1.55s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
 
   .tool-name-live-pulse--running {
-    --tool-name-live-base: color-mix(in srgb, var(--foreground) 48%, #38bdf8 52%);
-    --tool-name-live-peak: #7dd3fc;
+    --tool-name-live-base: color-mix(in srgb, var(--foreground) 52%, #38bdf8 48%);
+    --tool-name-live-peak: color-mix(in srgb, var(--foreground) 34%, #7dd3fc 66%);
   }
 
   .tool-name-live-pulse--streaming {
-    --tool-name-live-base: color-mix(in srgb, var(--foreground) 46%, #a78bfa 54%);
-    --tool-name-live-peak: #c4b5fd;
+    --tool-name-live-base: color-mix(in srgb, var(--foreground) 52%, #a78bfa 48%);
+    --tool-name-live-peak: color-mix(in srgb, var(--foreground) 34%, #c4b5fd 66%);
+  }
+
+  .tool-name-live-pulse--shell {
+    --tool-name-live-base: color-mix(in srgb, var(--foreground) 36%, var(--muted-foreground) 64%);
+    --tool-name-live-peak: color-mix(in srgb, var(--foreground) 38%, var(--primary) 62%);
   }
 
   .ai-live-cursor {

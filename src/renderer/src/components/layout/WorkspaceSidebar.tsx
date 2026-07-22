@@ -14,6 +14,7 @@ import {
   Eraser,
   ExternalLink,
   FileText,
+  Folder,
   FolderInput,
   FolderOpen,
   GitBranch,
@@ -1389,7 +1390,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
     featureMenuCloseTimerRef.current = setTimeout(() => {
       setFeatureMenuOpen(false)
       featureMenuCloseTimerRef.current = null
-    }, 120)
+    }, 200)
   }, [clearFeatureMenuCloseTimer])
 
   useEffect(() => clearFeatureMenuCloseTimer, [clearFeatureMenuCloseTimer])
@@ -1463,8 +1464,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
               <DropdownMenuContent
                 side="right"
                 align="start"
-                sideOffset={6}
+                sideOffset={2}
                 className="w-40"
+                onCloseAutoFocus={(e) => e.preventDefault()}
                 onMouseEnter={openFeatureMenu}
                 onMouseLeave={scheduleFeatureMenuClose}
               >
@@ -1676,6 +1678,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                         ? t('rightPanel.expand')
                         : t('rightPanel.collapse')
                       const ProjectIcon = project.sshConnectionId ? Server : SquareKanban
+                      const ProjectFolderIcon = isCollapsed ? Folder : FolderOpen
                       const handleProjectRowKeyDown = (
                         event: React.KeyboardEvent<HTMLDivElement>
                       ): void => {
@@ -1703,7 +1706,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                 onKeyDown={handleProjectRowKeyDown}
                                 title={project.workingFolder ?? project.name}
                               >
-                                <ProjectIcon
+                                <ProjectFolderIcon
                                   className={cn(
                                     'size-3.5 shrink-0',
                                     isProjectActive ? 'text-primary/80' : 'text-muted-foreground/80'
@@ -1776,149 +1779,12 @@ export function WorkspaceSidebar(): React.JSX.Element {
                                         event.stopPropagation()
                                         handleCreateSession(project.id)
                                       }}
-                                      title={t('sidebar.newChat')}
+                                      title={t('sidebar.newAgentIn', {
+                                        projectName: project.name
+                                      })}
                                     >
                                       <Plus className="size-3.5" />
                                     </Button>
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className={SIDEBAR_TREE_ACTION_BUTTON_CLASS}
-                                          onClick={(event) => event.stopPropagation()}
-                                          title={tCommon('action.more')}
-                                        >
-                                          <MoreHorizontal className="size-3.5" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end" className="w-52">
-                                        <DropdownMenuItem
-                                          onClick={() => openProjectSession(project.id)}
-                                        >
-                                          <ProjectIcon className="size-4" />
-                                          {t('sidebar.openProject')}
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          onSelect={() =>
-                                            deferDropdownAction(() =>
-                                              startRename({
-                                                type: 'project',
-                                                id: project.id,
-                                                currentName: project.name
-                                              })
-                                            )
-                                          }
-                                        >
-                                          <Pencil className="size-4" />
-                                          {tCommon('action.rename')}
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          onSelect={() =>
-                                            deferDropdownAction(() =>
-                                              setFolderPickerTarget({
-                                                type: 'project',
-                                                projectId: project.id
-                                              })
-                                            )
-                                          }
-                                        >
-                                          <FolderInput className="size-4" />
-                                          {t('sidebar.changeWorkingFolder')}
-                                        </DropdownMenuItem>
-                                        {project.workingFolder && !project.sshConnectionId && (
-                                          <DropdownMenuItem
-                                            onClick={() =>
-                                              void handleRevealProject(project.workingFolder)
-                                            }
-                                          >
-                                            <ExternalLink className="size-4" />
-                                            {t('sidebar.revealInFolder')}
-                                          </DropdownMenuItem>
-                                        )}
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          onClick={() => navigateProjectView(project.id, 'archive')}
-                                        >
-                                          <BookOpen className="size-4" />
-                                          {t('sidebar.projectArchive')}
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          onClick={() =>
-                                            navigateProjectView(project.id, 'channels')
-                                          }
-                                        >
-                                          <MessageSquare className="size-4" />
-                                          {t('sidebar.projectChannels')}
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          onClick={() => navigateProjectView(project.id, 'git')}
-                                        >
-                                          <GitBranch className="size-4" />
-                                          {t('sidebar.projectGit')}
-                                        </DropdownMenuItem>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          onClick={() => void handleExportProject(project)}
-                                        >
-                                          <Download className="size-4" />
-                                          {t('sidebar.exportProjectAsJson')}
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          variant="destructive"
-                                          disabled={clearableProjectSessionCount === 0}
-                                          onSelect={() =>
-                                            deferDropdownAction(() =>
-                                              setClearProjectSessionsTarget({
-                                                id: project.id,
-                                                name: project.name,
-                                                clearableCount: clearableProjectSessionCount,
-                                                runningCount: runningProjectSessionCount
-                                              })
-                                            )
-                                          }
-                                        >
-                                          <Eraser className="size-4" />
-                                          {t('sidebar.clearProjectSessions')}
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          onClick={() => {
-                                            togglePinProject(project.id)
-                                            toast.success(
-                                              project.pinned
-                                                ? t('sidebar_toast.projectUnpinned')
-                                                : t('sidebar_toast.projectPinned')
-                                            )
-                                          }}
-                                        >
-                                          {project.pinned ? (
-                                            <PinOff className="size-4" />
-                                          ) : (
-                                            <Pin className="size-4" />
-                                          )}
-                                          {project.pinned
-                                            ? tCommon('action.unpin')
-                                            : t('sidebar.pinToTop')}
-                                        </DropdownMenuItem>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          variant="destructive"
-                                          onSelect={() =>
-                                            deferDropdownAction(() =>
-                                              setDeleteTarget({
-                                                type: 'project',
-                                                id: project.id,
-                                                name: project.name,
-                                                sessionCount: project.sessionCount ?? 0
-                                              })
-                                            )
-                                          }
-                                        >
-                                          <Trash2 className="size-4" />
-                                          {tCommon('action.delete')}
-                                        </DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
                                   </div>
                                 </div>
                               </div>

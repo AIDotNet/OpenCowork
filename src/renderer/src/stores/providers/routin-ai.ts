@@ -4,7 +4,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
   builtinId: 'routin-ai',
   // v3: add Grok Imagine image/video models and the dedicated xAI Videos protocol.
   // v4: add Kimi K3 (2026-07-16 发布).
-  version: 4,
+  // v6: prioritize OpenAI (GPT 5.6 Terra first), Anthropic, then MiMo in the model list.
+  version: 6,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -28,12 +29,78 @@ export const routinAiPreset: BuiltinProviderPreset = {
     'claude-3-5-haiku-20241022'
   ],
   defaultModels: [
-    // Kimi K3（2026-07-16，价格与 Moonshot 官方一致）：thinking 常开，走顶层 reasoning_effort
-    // （当前仅 max 档）；temperature/top_p 等采样参数服务端固定，请求中必须省略。输出上限也
-    // 省略（服务端默认 131072）：max_tokens 是遗留别名，推理模型下与思考内容共享预算，
-    // 小值会导致 200 空内容。
     {
-      id: 'kimi-k3',
+      id: 'gpt-5.6-terra',
+      name: 'GPT 5.6 Terra',
+      icon: 'openai',
+      enabled: true,
+      serviceTier: 'priority',
+      supportsWebsocket: true,
+      // Synced with Codex's model catalog: 400K total window − 128K reserved output.
+      contextLength: 372_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 2.5,
+      outputPrice: 15,
+      cacheCreationPrice: 3.125,
+      cacheHitPrice: 0.25,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        // 'ultra' selects the Responses API "pro" reasoning mode (max reasoning +
+        // automatic subagent task delegation); Terra and Sol expose it.
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
+    {
+      id: 'claude-fable-5',
+      name: 'Claude Fable 5',
+      icon: 'claude',
+      type: 'anthropic',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 10,
+      outputPrice: 50,
+      cacheCreationPrice: 12.5,
+      cacheHitPrice: 1,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'mimo-v2.5-pro',
+      name: 'MiMo V2.5 Pro',
+      icon: 'mimo',
+      enabled: true,
+      type: 'anthropic',
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.435,
+      outputPrice: 0.87,
+      cacheHitPrice: 0.0036,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } }
+      }
+    },
+    {
+      id: 'K3',
       name: 'Kimi K3',
       icon: 'kimi',
       enabled: true,
@@ -130,24 +197,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       }
     },
     {
-      id: 'kimi-k2-thinking',
-      name: 'Kimi K2 Thinking',
-      icon: 'kimi',
-      enabled: true,
-      contextLength: 131_072,
-      maxOutputTokens: 8_192,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 0.47,
-      outputPrice: 2,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-        forceTemperature: 1
-      }
-    },
-    {
       id: 'glm-5.2',
       name: 'GLM 5.2',
       icon: 'chatglm',
@@ -159,25 +208,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       inputPrice: 0.694,
       outputPrice: 2.778,
       cacheHitPrice: 0.069,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } }
-      }
-    },
-    {
-      id: 'mimo-v2.5-pro',
-      name: 'MiMo V2.5 Pro',
-      icon: 'mimo',
-      enabled: true,
-      type: 'anthropic',
-      contextLength: 1_000_000,
-      maxOutputTokens: 131_072,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 0.435,
-      outputPrice: 0.87,
-      cacheHitPrice: 0.0036,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
@@ -705,35 +735,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       type: 'openai-responses'
     },
     {
-      id: 'gpt-5.6-terra',
-      name: 'GPT 5.6 Terra',
-      icon: 'openai',
-      enabled: true,
-      serviceTier: 'priority',
-      supportsWebsocket: true,
-      // Synced with Codex's model catalog: 400K total window − 128K reserved output.
-      contextLength: 372_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: false,
-      inputPrice: 2.5,
-      outputPrice: 15,
-      cacheCreationPrice: 3.125,
-      cacheHitPrice: 0.25,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {},
-        // 'ultra' selects the Responses API "pro" reasoning mode (max reasoning +
-        // automatic subagent task delegation); Terra and Sol expose it.
-        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-        defaultReasoningEffort: 'medium'
-      },
-      responseSummary: 'detailed',
-      enablePromptCache: true,
-      enableSystemPromptCache: true,
-      type: 'openai-responses'
-    },
-    {
       id: 'gpt-5.6-sol',
       name: 'GPT 5.6 Sol',
       icon: 'openai',
@@ -868,17 +869,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       category: 'speech'
     },
 
-    // ── OpenAI — Image generation ──
-    {
-      id: 'gpt-image-1',
-      name: 'GPT Image 1',
-      icon: 'openai',
-      enabled: true,
-      category: 'image',
-      type: 'openai-images',
-      supportsVision: true,
-      supportsFunctionCall: false
-    },
     {
       id: 'gpt-image-1.5',
       name: 'GPT Image 1.5',
@@ -994,27 +984,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       outputPrice: 2.4,
       cacheHitPrice: 0.06,
       cacheCreationPrice: 0.375,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-        forceTemperature: 1
-      },
-      type: 'anthropic'
-    },
-    {
-      id: 'MiniMax-M2.1',
-      name: 'MiniMax M2.1',
-      icon: 'minimax',
-      enabled: true,
-      contextLength: 204_800,
-      maxOutputTokens: 64_000,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 0.3,
-      outputPrice: 1.1,
-      cacheHitPrice: 0.03,
-      cacheCreationPrice: 0.4,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
@@ -1370,28 +1339,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       type: 'openai-images',
       supportsVision: true,
       supportsFunctionCall: false
-    },
-    {
-      id: 'claude-fable-5',
-      name: 'Claude Fable 5',
-      icon: 'claude',
-      type: 'anthropic',
-      enabled: true,
-      contextLength: 1_000_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 10,
-      outputPrice: 50,
-      cacheCreationPrice: 12.5,
-      cacheHitPrice: 1,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'adaptive' } },
-        forceTemperature: 1,
-        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
-        defaultReasoningEffort: 'high'
-      }
     },
     {
       id: 'claude-sonnet-5',

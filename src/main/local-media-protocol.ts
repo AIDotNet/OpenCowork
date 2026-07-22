@@ -1,5 +1,7 @@
 import { protocol, net } from 'electron'
 import * as path from 'path'
+import { realpath } from 'fs/promises'
+import { homedir } from 'os'
 import { pathToFileURL } from 'url'
 
 /**
@@ -12,6 +14,10 @@ import { pathToFileURL } from 'url'
 export const LOCAL_MEDIA_SCHEME = 'oc-media'
 
 const URL_PREFIX = `${LOCAL_MEDIA_SCHEME}://local/`
+
+const ALLOWED_ROOTS = [
+  path.join(homedir(), '.open-cowork', 'image')
+]
 
 const ALLOWED_EXTENSIONS = new Set([
   '.png',
@@ -32,6 +38,18 @@ const ALLOWED_EXTENSIONS = new Set([
   '.wav',
   '.m4a'
 ])
+
+function isWithinRoot(filePath: string, root: string): boolean {
+  const relativePath = path.relative(root, filePath)
+  return relativePath !== '' && relativePath !== '..' && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath)
+}
+
+function isAllowedOrigin(origin: string | null): boolean {
+  if (!origin) return false
+  // file:// documents serialize their origin as "null" in CORS requests.
+  if (origin === 'null') return true
+  return origin === 'http://localhost:5173' || origin === 'http://127.0.0.1:5173'
+}
 
 /** Must run before app ready. */
 export function registerLocalMediaSchemePrivileges(): void {
@@ -59,16 +77,41 @@ export function registerLocalMediaProtocolHandler(): void {
     if (!filePath || !path.isAbsolute(filePath)) {
       return new Response('Bad request', { status: 400 })
     }
-    if (!ALLOWED_EXTENSIONS.has(path.extname(filePath).toLowerCase())) {
+
+    let realFilePath: string
+    try {
+      realFilePath = await realpath(filePath)
+      const realRoots = await Promise.all(
+        ALLOWED_ROOTS.map(async (root) => {
+          try {
+            return await realpath(root)
+          } catch {
+            return null
+          }
+        })
+      )
+      if (!realRoots.some((root) => root !== null && isWithinRoot(realFilePath, root))) {
+        return new Response('Forbidden', { status: 403 })
+      }
+    } catch {
+      return new Response('Not found', { status: 404 })
+    }
+
+    const extension = path.extname(realFilePath).toLowerCase()
+    if (!ALLOWED_EXTENSIONS.has(extension)) {
       return new Response('Forbidden', { status: 403 })
     }
 
     try {
-      const response = await net.fetch(pathToFileURL(filePath).toString())
-      // Allow <video crossorigin="anonymous"> frames to be drawn onto a canvas
-      // (poster capture) without tainting it.
+      const response = await net.fetch(pathToFileURL(realFilePath).toString())
+      // Allow only the renderer origins that can legitimately consume this
+      // resource. Do not expose local media to arbitrary web content.
+      const origin = request.headers.get('Origin')
       const headers = new Headers(response.headers)
-      headers.set('Access-Control-Allow-Origin', '*')
+      if (isAllowedOrigin(origin)) {
+        headers.set('Access-Control-Allow-Origin', origin as string)
+        headers.set('Vary', 'Origin')
+      }
       return new Response(response.body, { status: response.status, headers })
     } catch {
       return new Response('Not found', { status: 404 })

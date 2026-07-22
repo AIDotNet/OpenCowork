@@ -141,7 +141,29 @@ function sanitizeRuntimeSyncPatch(patch: Partial<UnifiedMessage>): Partial<Unifi
 }
 
 export function emitSessionRuntimeSync(event: SessionRuntimeSyncEvent): void {
+  if (isSessionRuntimeSyncSuppressed()) return
   ipcClient.send(IPC.SESSION_RUNTIME_SYNC, event)
+}
+
+// Cross-window broadcast suppression. The reattach consumer (runtime-reattach.ts)
+// applies replayed events to its OWN window's store via the same runtime-* router
+// functions, but must not re-broadcast them: main replays the journal tail to
+// EACH attaching window independently, so every open window self-heals from its
+// own replay. Without suppression, two windows open on the same run would each
+// re-emit every delta and double-apply into each other.
+let sessionRuntimeSyncSuppressionDepth = 0
+
+export function isSessionRuntimeSyncSuppressed(): boolean {
+  return sessionRuntimeSyncSuppressionDepth > 0
+}
+
+export function withSessionRuntimeSyncSuppressed<T>(fn: () => T): T {
+  sessionRuntimeSyncSuppressionDepth += 1
+  try {
+    return fn()
+  } finally {
+    sessionRuntimeSyncSuppressionDepth = Math.max(0, sessionRuntimeSyncSuppressionDepth - 1)
+  }
 }
 
 export function installSessionRuntimeSyncListener(): () => void {

@@ -1479,8 +1479,23 @@ export function FileChangeCard({
             </span>
             <span className="shrink-0 text-muted-foreground/55">files</span>
             <span className="shrink-0 text-muted-foreground/40">&gt;</span>
-            <span className="shrink-0 font-mono font-medium text-foreground/82">{name}</span>
-            <span className="min-w-0 flex-1 truncate text-muted-foreground/60">
+            <span
+              className={cn(
+                'shrink-0 font-mono font-medium',
+                status === 'streaming' || status === 'running'
+                  ? `tool-name-live-pulse ${status === 'streaming' ? 'tool-name-live-pulse--streaming' : 'tool-name-live-pulse--running'}`
+                  : 'text-foreground/82'
+              )}
+            >
+              {name}
+            </span>
+            <span
+              className={cn(
+                'min-w-0 flex-1 truncate text-muted-foreground/60',
+                (status === 'streaming' || status === 'running') &&
+                  'tool-name-live-pulse tool-name-live-pulse--running'
+              )}
+            >
               (
               {filePath ? (
                 <>
@@ -1553,7 +1568,16 @@ export function FileChangeCard({
               {filePath ? (
                 fileName(filePath)
               ) : (
-                <span className="text-zinc-500 italic animate-pulse">
+                <span
+                  className={cn(
+                    'italic',
+                    status === 'streaming'
+                      ? 'tool-name-live-pulse tool-name-live-pulse--streaming'
+                      : status === 'running'
+                        ? 'tool-name-live-pulse tool-name-live-pulse--running'
+                        : 'text-zinc-500'
+                  )}
+                >
                   {t('toolCall.receivingArgs')}
                 </span>
               )}

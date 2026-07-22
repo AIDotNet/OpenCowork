@@ -113,7 +113,13 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         >
           <BrainCircuit className="size-3" />
         </span>
-        <span className="min-w-0 truncate font-medium">{headerLabel}</span>
+        <span
+          className={`min-w-0 truncate font-medium ${
+            isThinking ? getLiveOutputShimmerClass(liveOutputAnimationStyle) : ''
+          }`}
+        >
+          {headerLabel}
+        </span>
         {expanded ? (
           <ChevronDown className="size-3 shrink-0 text-muted-foreground/55 transition-colors group-hover:text-foreground" />
         ) : (

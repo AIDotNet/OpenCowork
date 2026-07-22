@@ -29,6 +29,7 @@ import icon from '../../resources/icon.png?asset'
 import icon_mac from '../../resources/icon-mac.png?asset'
 
 import { registerFsHandlers } from './ipc/fs-handlers'
+import { getRuntimeRegistry } from './ipc/runtime-registry'
 import {
   registerLocalMediaSchemePrivileges,
   registerLocalMediaProtocolHandler
@@ -938,6 +939,34 @@ function routeRuntimeSync(event: IpcMainEvent, channel: string, payload: unknown
   }
 }
 
+// The assistant message id a run streams into is renderer-local (nanoid) and is
+// only ever announced on session-runtime:sync. Observe it here so a window that
+// (re)mounts mid-run can learn, via agent:runtime-state, which message the
+// replayed event tail belongs to.
+function observeSessionRuntimeSyncForRegistry(payload: unknown): void {
+  const record = normalizeIpcRecord(payload)
+  const kind = record.kind
+  if (kind === 'set_streaming_message') {
+    const sessionId = readNonEmptyString(record.sessionId)
+    if (!sessionId) return
+    const messageId = typeof record.messageId === 'string' ? record.messageId : null
+    getRuntimeRegistry().setStreamingMessageId(sessionId, messageId)
+    return
+  }
+  if (kind === 'add_message') {
+    const sessionId = readNonEmptyString(record.sessionId)
+    if (!sessionId) return
+    const message = normalizeIpcRecord(record.message)
+    if (message.role !== 'assistant') return
+    const messageId = readNonEmptyString(message.id)
+    // Only seed if we don't already have a streaming target — set_streaming_message
+    // is authoritative when present.
+    if (messageId && !getRuntimeRegistry().getStreamingMessageId(sessionId)) {
+      getRuntimeRegistry().setStreamingMessageId(sessionId, messageId)
+    }
+  }
+}
+
 function focusDetachedSessionWindow(sessionId: string): boolean {
   const window = getAttachedDetachedSessionWindow(sessionId)
   if (!window) return false
@@ -1130,7 +1159,9 @@ function registerWindowControlHandlers(): void {
   })
 
   ipcMain.on(toMessagePackChannel('session-runtime:sync'), (event, bytes: Uint8Array) => {
-    routeRuntimeSync(event, 'session-runtime:sync', decodeMessagePackPayload(bytes))
+    const payload = decodeMessagePackPayload(bytes)
+    observeSessionRuntimeSyncForRegistry(payload)
+    routeRuntimeSync(event, 'session-runtime:sync', payload)
   })
 
   ipcMain.on(toMessagePackChannel('session-control:sync'), (event, bytes: Uint8Array) => {

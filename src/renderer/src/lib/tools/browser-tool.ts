@@ -18,7 +18,7 @@ const browserNavigateHandler: ToolHandler = {
       '- Use action "goto" (default) with a url to open a new page. Waits for the page to fully load before returning.\n' +
       '- Use action "back", "forward", or "refresh" to control navigation history (no url needed).\n' +
       '- After navigating, use BrowserSnapshot or BrowserScreenshot to observe the page before interacting.\n' +
-      '- URLs without a protocol prefix automatically get "https://" prepended. For local dev servers, use "http://localhost:<port>".',
+      '- URLs without a protocol prefix automatically get "https://" prepended. Explicit schemes such as "http://", "https://", and "file://" are preserved.',
     inputSchema: {
       type: 'object',
       properties: {

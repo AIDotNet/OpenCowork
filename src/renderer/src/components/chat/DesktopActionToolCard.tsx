@@ -14,6 +14,7 @@ import {
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ImageBlock, TextBlock, ToolResultContent } from '@renderer/lib/api/types'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
+import { cn } from '@renderer/lib/utils'
 import { ImagePreview } from './ImagePreview'
 
 interface DesktopActionToolCardProps {
@@ -155,7 +156,10 @@ export function DesktopActionToolCard({
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
               transition={ITEM_TRANSITION}
-              className="text-[11px] text-muted-foreground"
+              className={cn(
+                'text-[11px] text-muted-foreground',
+                isRunning && 'tool-name-live-pulse tool-name-live-pulse--running'
+              )}
             >
               {isRunning
                 ? t('toolCall.desktop.running')
@@ -208,7 +212,9 @@ export function DesktopActionToolCard({
                   className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground"
                 >
                   <Loader2 className="size-4 animate-spin" />
-                  <span>{t('toolCall.desktop.executing')}</span>
+                  <span className="tool-name-live-pulse tool-name-live-pulse--running">
+                    {t('toolCall.desktop.executing')}
+                  </span>
                 </motion.div>
               ) : null}
 

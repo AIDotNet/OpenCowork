@@ -26,6 +26,26 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { toAgentEvent } from '@renderer/lib/agent/stream-event-adapter'
 import { toMessagePackChannel } from '../../../../shared/messagepack/binary-ipc'
 
+export interface AgentRuntimeRunSnapshot {
+  runId: string
+  sessionId: string
+  status: 'running' | 'completed' | 'error'
+  lastSeq: number
+  assistantMessageId: string | null
+}
+
+export interface AgentRuntimeApprovalSnapshot {
+  requestId: string
+  sessionId: string | null
+  runId: string | null
+  params: unknown
+}
+
+export interface AgentRuntimeStateSnapshot {
+  runs: AgentRuntimeRunSnapshot[]
+  approvals: AgentRuntimeApprovalSnapshot[]
+}
+
 class AgentBridgeClient {
   private initialized = false
   private initializePromise: Promise<boolean> | null = null
@@ -112,6 +132,39 @@ class AgentBridgeClient {
       toMessagePackChannel('agent:cancel'),
       { runId }
     )
+  }
+
+  /**
+   * Pull a snapshot of in-flight runs + outstanding approvals from the main
+   * process. Used on window mount / worker reconnect to recover running-session
+   * state a full renderer reload would otherwise have lost.
+   */
+  async getRuntimeState(): Promise<AgentRuntimeStateSnapshot> {
+    return await invokeMessagePackBinary<AgentRuntimeStateSnapshot>(
+      toMessagePackChannel('agent:runtime-state'),
+      {}
+    )
+  }
+
+  /**
+   * Ask main to replay a run's journalled event tail (seq > sinceSeq) to this
+   * window and re-route the run/session here. Replayed frames arrive on the
+   * normal agent-stream channel.
+   */
+  async attachRun(
+    runId: string,
+    sinceSeq: number,
+    sessionId?: string
+  ): Promise<{ attached: boolean; frames: number; repostedApprovals?: number }> {
+    return await invokeMessagePackBinary<{
+      attached: boolean
+      frames: number
+      repostedApprovals?: number
+    }>(toMessagePackChannel('agent:attach-run'), {
+      runId,
+      sinceSeq,
+      ...(sessionId ? { sessionId } : {})
+    })
   }
 
   /**

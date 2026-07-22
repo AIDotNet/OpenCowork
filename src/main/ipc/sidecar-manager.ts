@@ -37,6 +37,7 @@ import {
   desktopInputType
 } from './desktop-control'
 import { getNativeAgentRuntimeManager } from './native-agent-runtime'
+import { getRuntimeRegistry, type RuntimeApprovalSnapshot } from './runtime-registry'
 import { getNativeWorker, stopNativeWorker } from '../lib/native-worker'
 import { getNativeSshConnectionPayload } from './ssh-connection-payload'
 import {
@@ -100,6 +101,11 @@ type PendingRendererApprovalRequest = {
   resolve: (value: PendingRendererApprovalResponse) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
+  // Snapshot metadata so a reloaded / late-mounting window can have the pending
+  // approval re-posted to it (see runtime-registry / agent:attach-run).
+  sessionId: string | null
+  runId: string | null
+  params: unknown
 }
 
 type PendingRendererToolRequest = {
@@ -751,14 +757,36 @@ export function registerSidecarHandlers(): void {
   const pendingRendererToolRequests = new Map<string, PendingRendererToolRequest>()
   const runWindowIds = new Map<string, number>()
   const sessionWindowIds = new Map<string, number>()
+  // Additional windows that have called agent:attach-run for a runId. Live
+  // frames are also fanned out to these so a detached window that reattaches to
+  // an in-flight run keeps receiving deltas without stealing them from the
+  // window that started the run (whose routing via runWindowIds/sessionWindowIds
+  // is unchanged).
+  const attachedWindowsByRun = new Map<string, Set<number>>()
   const goalRuntimeObservationChains = new Map<string, Promise<void>>()
   // Runs currently streaming from the worker, tracked so a mid-flight worker
   // crash can be turned into a terminal error the renderer can recover from.
   const activeRunSessions = new Map<string, { sessionId: string; lastSeq: number }>()
 
+  // Expose outstanding approvals to the runtime registry so agent:runtime-state
+  // can report them and agent:attach-run can re-post them to a re-mounted window.
+  getRuntimeRegistry().setApprovalSnapshotSupplier(() => {
+    const snapshots: RuntimeApprovalSnapshot[] = []
+    for (const [requestId, pending] of pendingApprovalRequests) {
+      snapshots.push({
+        requestId,
+        sessionId: pending.sessionId,
+        runId: pending.runId,
+        params: pending.params
+      })
+    }
+    return snapshots
+  })
+
   const cleanupAgentRunIfTerminal = (runId: string, terminal: boolean): void => {
     if (!terminal) return
     runWindowIds.delete(runId)
+    attachedWindowsByRun.delete(runId)
   }
 
   const sendAgentStreamBytes = (
@@ -868,6 +896,26 @@ export function registerSidecarHandlers(): void {
       sessionId: batch.sessionId,
       frames: batch.frames.length
     })
+
+    // Fan out to additional attached windows (reattach subscribers). Skip the
+    // primary target — it already got the frame above. Prune dead window ids.
+    const attached = attachedWindowsByRun.get(batch.runId)
+    if (attached) {
+      for (const windowId of Array.from(attached)) {
+        if (windowId === targetWindow.id) continue
+        const extraWindow = BrowserWindow.fromId(windowId)
+        if (!isUsableRendererWindow(extraWindow)) {
+          attached.delete(windowId)
+          continue
+        }
+        sendAgentStreamBytes(extraWindow, bytes, {
+          source: 'attach-fanout',
+          runId: batch.runId,
+          sessionId: batch.sessionId
+        })
+      }
+      if (attached.size === 0) attachedWindowsByRun.delete(batch.runId)
+    }
   }
 
   const flushAllStreamBatches = (): void => {
@@ -878,6 +926,10 @@ export function registerSidecarHandlers(): void {
 
   manager.setRawEventHandler((frame) => {
     queueGoalRuntimeObservation(frame)
+
+    // Journal every per-run frame so a reloaded / late-mounting window can pull
+    // a snapshot and replay the tail (agent:runtime-state / agent:attach-run).
+    getRuntimeRegistry().recordFrame(frame)
 
     if (frame.runId && frame.sessionId) {
       if (frame.hasTerminalEvent === true) {
@@ -1017,13 +1069,25 @@ export function registerSidecarHandlers(): void {
           return { approved: false, reason: 'No renderer available for approval request' }
         }
 
+        const approvalRecord = normalizeRendererRequestRecord(params)
+        const approvalSessionId = readNonEmptyString(approvalRecord.sessionId)
+        const approvalRunId =
+          readNonEmptyString(approvalRecord.runId) ?? readNonEmptyString(approvalRecord.agentRunId)
+
         return await new Promise<{ approved: boolean; reason?: string }>((resolve, reject) => {
           const timer = setTimeout(() => {
             pendingApprovalRequests.delete(requestId)
             reject(new Error('Renderer approval request timed out'))
           }, SIDECAR_RENDERER_REQUEST_TIMEOUT_MS)
 
-          pendingApprovalRequests.set(requestId, { resolve, reject, timer })
+          pendingApprovalRequests.set(requestId, {
+            resolve,
+            reject,
+            timer,
+            sessionId: approvalSessionId ?? null,
+            runId: approvalRunId ?? null,
+            params
+          })
 
           const sent = sendReverseRequest(targetWindow, SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL, {
             requestId,
@@ -1357,6 +1421,77 @@ export function registerSidecarHandlers(): void {
       runWindowIds.delete(result.runId)
     }
     return result
+  })
+
+  // Snapshot of in-flight runtime state for a (re)mounting window. Lets a
+  // renderer that reloaded mid-run (Vite HMR) or a freshly-opened detached
+  // window rebuild its running-session state instead of appearing idle.
+  registerMessagePackInvokeHandler<unknown>('agent:runtime-state', async (_event, _params) => {
+    const registry = getRuntimeRegistry()
+    return {
+      runs: registry.getRunSnapshots(),
+      approvals: registry.getApprovalSnapshots()
+    }
+  })
+
+  // Replay the journalled event tail for a run to the requesting window and
+  // re-point this run/session at that window so subsequent live frames follow.
+  // Also re-posts any outstanding approval for the run's session so a reloaded
+  // window can still act on it.
+  registerMessagePackInvokeHandler<unknown>('agent:attach-run', async (event, params) => {
+    const record = normalizeRendererRequestRecord(params)
+    const runId = readNonEmptyString(record.runId)
+    if (!runId) {
+      return { attached: false, frames: 0 }
+    }
+    const sinceSeq = typeof record.sinceSeq === 'number' ? record.sinceSeq : -1
+
+    const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+    if (!isUsableRendererWindow(sourceWindow)) {
+      return { attached: false, frames: 0 }
+    }
+
+    // Register the attaching window as an additional subscriber for this run's
+    // live frames. This intentionally does NOT overwrite the primary routing
+    // (runWindowIds/sessionWindowIds) — the window that started the run keeps
+    // receiving frames as before, and this window gets a fanout copy. That way
+    // "open a detached window on a running session" doesn't steal the stream
+    // from the main window, and after a full renderer reload the same window
+    // id remains the primary target so live frames continue to arrive.
+    let attached = attachedWindowsByRun.get(runId)
+    if (!attached) {
+      attached = new Set()
+      attachedWindowsByRun.set(runId, attached)
+    }
+    attached.add(sourceWindow.id)
+
+    // Drain any batched live frames first so replay never interleaves ahead of
+    // frames that were already queued for this run.
+    flushAllStreamBatches()
+
+    const frames = getRuntimeRegistry().getFramesSince(runId, sinceSeq)
+    for (const bytes of frames) {
+      sendAgentStreamBytes(sourceWindow, bytes, { source: 'journal-replay', runId })
+    }
+
+    // Re-post outstanding approvals for this run's session to the attaching
+    // window (main is the durable authority; the original renderer promise is
+    // gone after a reload).
+    const sessionId = readNonEmptyString(record.sessionId)
+    let repostedApprovals = 0
+    for (const [requestId, pending] of pendingApprovalRequests) {
+      const matchesRun = pending.runId && pending.runId === runId
+      const matchesSession = sessionId && pending.sessionId === sessionId
+      if (!matchesRun && !matchesSession) continue
+      const sent = sendReverseRequest(sourceWindow, SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL, {
+        requestId,
+        method: 'approval/request',
+        params: pending.params
+      })
+      if (sent) repostedApprovals += 1
+    }
+
+    return { attached: true, frames: frames.length, repostedApprovals }
   })
 
   registerMessagePackInvokeHandler<unknown>('agent:request-stop', async (_event, params) => {

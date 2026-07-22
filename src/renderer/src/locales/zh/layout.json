@@ -50,6 +50,7 @@
     "searchProjects": "搜索项目和会话...",
     "noProjects": "还没有项目",
     "newProject": "新建项目",
+    "newAgentIn": "在「{{projectName}}」中新建会话",
     "openProject": "打开项目",
     "deleteProjectConfirm": "确定删除项目「{{projectName}}」及其 {{count}} 个会话吗？",
     "deleteConversation": "删除会话",

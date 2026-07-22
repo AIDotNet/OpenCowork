@@ -1,5 +1,5 @@
 import type { ImageBlock, ToolResultContent } from '@renderer/lib/api/types'
-import { getBrowserAccessDecision } from '../app-plugin/browser-access'
+import { getBrowserAccessDecision, normalizeBrowserUrl } from '../app-plugin/browser-access'
 import {
   describeWebviewOperationError,
   isPromiseLike,
@@ -45,14 +45,6 @@ function createToolContext(record: Record<string, unknown>): ToolContext {
 function getWebview(ctx?: ToolContext): Electron.WebviewTag | null {
   const webview = useUIStore.getState().getBrowserWebviewRef(ctx?.sessionId)?.current ?? null
   return isWebviewConnected(webview) ? webview : null
-}
-
-function requireWebview(ctx?: ToolContext): Electron.WebviewTag {
-  const webview = getWebview(ctx)
-  if (!webview) {
-    throw new Error('No attached browser view is available. Use BrowserNavigate first.')
-  }
-  return webview
 }
 
 async function runWebviewCommand<T>(
@@ -109,13 +101,16 @@ async function waitForWebview(
 }
 
 // Returns the attached browser webview, self-healing when none is present.
-// The webview stays mounted in the background once a page has been opened (see
-// RightPanel), so this normally hits the fast path. If it is missing — e.g. the
-// browser tab was never created for this session — we launch it in the background
-// (without stealing the UI) using the last known URL so the tool can still run.
+// The webview stays mounted once a page has been opened (see RightPanel), so this
+// normally hits the fast path. Browser operations also reveal the browser tab so
+// the user can see the page being operated on.
 async function ensureAttachedWebview(ctx: ToolContext): Promise<Electron.WebviewTag> {
   const existing = getWebview(ctx)
-  if (existing) return existing
+  if (existing) {
+    const storedUrl = useUIStore.getState().getBrowserState(ctx.sessionId).url
+    if (storedUrl) useUIStore.getState().openBrowserTab(storedUrl, ctx.sessionId)
+    return existing
+  }
 
   // Nothing is attached. Without a previously opened page there is genuinely
   // nothing to read or interact with, so keep the original "navigate first" hint
@@ -126,9 +121,9 @@ async function ensureAttachedWebview(ctx: ToolContext): Promise<Electron.Webview
   }
 
   // A page was opened before but its webview is no longer mounted (e.g. the tab was
-  // dropped). Relaunch it in the background — without stealing the UI — and wait for
-  // the freshly mounted webview to reload the stored URL before proceeding.
-  useUIStore.getState().openBrowserTab(storedUrl, ctx.sessionId, undefined, { background: true })
+  // dropped). Relaunch it and wait for the freshly mounted webview to reload the
+  // stored URL before proceeding.
+  useUIStore.getState().openBrowserTab(storedUrl, ctx.sessionId)
 
   const webview = await waitForWebview(ctx)
   if (!webview) {
@@ -177,14 +172,12 @@ async function executeBrowserNavigate(
     let url = input.url as string
     if (!url || typeof url !== 'string') return encodeToolError('"url" is required for goto')
     url = url.trim()
-    if (!/^https?:\/\//i.test(url) && !url.startsWith('http://localhost')) {
-      url = `https://${url}`
-    }
+    url = normalizeBrowserUrl(url)
     const accessError = getBrowserAccessError(url)
     if (accessError) return accessError
-    // Open in the background: attach the webview and start loading without forcing
-    // the right panel open, so the agent can drive the browser while it stays hidden.
-    useUIStore.getState().openBrowserTab(url, ctx.sessionId, undefined, { background: true })
+    // Reveal the browser panel while the agent is operating it so the user can
+    // follow navigation and interactions in real time.
+    useUIStore.getState().openBrowserTab(url, ctx.sessionId)
     const webview = await waitForWebview(ctx)
     if (!webview) {
       return encodeToolError('Browser view did not attach. Reopen the browser tab and try again.')
@@ -206,7 +199,7 @@ async function executeBrowserNavigate(
     return encodeToolError(`Unknown action "${action}". Use goto, back, forward, or refresh.`)
   }
 
-  const webview = requireWebview(ctx)
+  const webview = await ensureAttachedWebview(ctx)
   if (action === 'back') {
     const canGoBack = await runWebviewCommand(webview, 'read back navigation state', (target) =>
       target.canGoBack()

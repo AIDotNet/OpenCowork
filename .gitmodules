@@ -1,0 +1,3 @@
+[submodule "sidecars/codegraph"]
+	path = sidecars/codegraph
+	url = https://github.com/AIDotNet/CodeGraph.git

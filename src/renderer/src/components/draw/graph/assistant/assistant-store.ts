@@ -3,20 +3,59 @@ import { persist } from 'zustand/middleware'
 
 export type AssistantActionKind =
   | 'read_canvas'
-  | 'create_text_node'
+  | 'get_node_status'
+  | 'subscribe_node'
+  | 'wait_for_node_event'
+  | 'create_node'
+  | 'update_node'
+  | 'delete_nodes'
+  | 'duplicate_nodes'
   | 'connect_nodes'
-  | 'generate_image'
+  | 'disconnect_nodes'
+  | 'move_nodes'
+  | 'resize_node'
+  | 'select_nodes'
+  | 'run_node'
+  | 'retry_node'
+  | 'cancel_node'
+  | 'generate_media'
+  | 'generate_video'
+  | 'edit_image'
+  | 'media_action'
+  | 'create_trigger'
+  | 'delete_trigger'
+  | 'manage_canvas'
 
 export interface AssistantAction {
   kind: AssistantActionKind
   ok: boolean
+  /** Bounded structured tool result retained for conversational follow-up. */
+  result?: unknown
 }
+
+export type AssistantTimelineBlock =
+  | { type: 'text'; text: string }
+  | { type: 'thinking'; text: string }
+  | {
+      type: 'tool'
+      kind: AssistantActionKind
+      nodeId?: string
+      subscriptionId?: string
+      startedAt: number
+      finishedAt?: number
+      action?: AssistantAction
+    }
 
 export interface AssistantTurn {
   role: 'user' | 'assistant'
   text: string
   /** Canvas operations the agent performed while producing this turn (display only). */
   actions?: AssistantAction[]
+  /** Ordered display events. Older persisted turns fall back to text/actions. */
+  timeline?: AssistantTimelineBlock[]
+  contextNodeIds?: string[]
+  attachmentCount?: number
+  attachmentRefs?: Array<{ attachmentId: string; nodeId: string }>
 }
 
 interface PanelPosition {

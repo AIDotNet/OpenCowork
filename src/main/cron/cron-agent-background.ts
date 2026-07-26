@@ -93,6 +93,7 @@ type ProviderType =
   | 'openai-chat'
   | 'openai-responses'
   | 'openai-images'
+  | 'openai-video'
   | 'gemini'
   | 'vertex-ai'
 

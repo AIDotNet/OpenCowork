@@ -19,8 +19,7 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
   const actions = useGraphActions()
   const updateNode = useGraphStore((s) => s.updateNode)
   const addAsset = useAssetStore((s) => s.addAsset)
-  const { src, filePath, poster, mediaType, generating, status, error, interrupted, jobId } =
-    node.data
+  const { src, filePath, poster, mediaType, generating, status, error, interrupted } = node.data
 
   const saveToAssets = (): void => {
     if (!filePath) return
@@ -65,13 +64,8 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
   }, [node.id, poster, updateNode])
 
   const stop = useCallback(async () => {
-    if (jobId) await ipcClient.invoke(IPC.SEEDANCE_VIDEO_CANCEL, { jobId })
-    updateNode(node.id, (n) =>
-      n.kind === 'video'
-        ? { ...n, data: { ...n.data, generating: false, status: undefined, interrupted: true } }
-        : n
-    )
-  }, [jobId, node.id, updateNode])
+    await actions.cancelNode(node.id)
+  }, [actions, node.id])
 
   const download = async (): Promise<void> => {
     if (!filePath) return

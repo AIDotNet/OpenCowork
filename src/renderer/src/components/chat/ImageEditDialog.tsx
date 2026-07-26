@@ -212,9 +212,9 @@ export function ImageEditDialog({ sessionId }: ImageEditDialogProps): React.JSX.
         }
       }}
     >
-      <DialogContent className="max-w-5xl overflow-hidden p-0 sm:max-w-5xl">
-        <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="border-b bg-muted/20 p-4 lg:border-r lg:border-b-0">
+      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-6xl overflow-y-auto overflow-x-hidden border-white/10 bg-background/95 p-0 shadow-2xl backdrop-blur-xl sm:max-w-6xl">
+        <div className="grid min-h-0 gap-0 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="border-b bg-gradient-to-br from-muted/40 via-muted/10 to-background p-5 lg:border-r lg:border-b-0">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Button
@@ -224,7 +224,10 @@ export function ImageEditDialog({ sessionId }: ImageEditDialogProps): React.JSX.
                   onClick={() => setEditorMode('edit')}
                 >
                   <Pencil className="size-4" />
-                  {t('assistantMessage.editImage', { defaultValue: 'Edit image' })}
+                  <span className="flex flex-col items-start gap-0.5">
+                    <span>{t('assistantMessage.editImage', { defaultValue: 'Edit image' })}</span>
+                    <span className="text-[10px] font-normal opacity-70">Describe a change</span>
+                  </span>
                 </Button>
                 <Button
                   type="button"
@@ -233,7 +236,10 @@ export function ImageEditDialog({ sessionId }: ImageEditDialogProps): React.JSX.
                   onClick={() => setEditorMode('mask')}
                 >
                   <Eraser className="size-4" />
-                  {t('assistantMessage.maskEditImage', { defaultValue: 'Mask edit' })}
+                  <span className="flex flex-col items-start gap-0.5">
+                    <span>{t('assistantMessage.maskEditImage', { defaultValue: 'Mask edit' })}</span>
+                    <span className="text-[10px] font-normal opacity-70">Paint the area</span>
+                  </span>
                 </Button>
               </div>
               {editorMode === 'mask' ? (
@@ -269,12 +275,12 @@ export function ImageEditDialog({ sessionId }: ImageEditDialogProps): React.JSX.
                 </div>
               ) : null}
             </div>
-            <div className="flex min-h-[320px] items-center justify-center rounded-lg border bg-background/80 p-3">
+            <div className="flex min-h-[280px] items-center justify-center rounded-xl border border-white/10 bg-black/20 p-4 shadow-inner sm:min-h-[360px]">
               <div className="relative inline-block max-w-full">
                 <img
                   src={image.dataUrl}
                   alt={buildDialogTitle(t, editorMode)}
-                  className="block max-h-[62vh] max-w-full rounded-md object-contain shadow-sm"
+                  className="block max-h-[58vh] max-w-full rounded-md object-contain shadow-sm sm:max-h-[62vh]"
                   onLoad={handleImageLoad}
                 />
                 {editorMode === 'mask' && imageSize ? (
@@ -296,11 +302,12 @@ export function ImageEditDialog({ sessionId }: ImageEditDialogProps): React.JSX.
             </div>
           </div>
 
-          <div className="flex min-h-[420px] flex-col p-4">
+          <div className="flex min-h-[420px] flex-col bg-background/80 p-6">
             <DialogHeader className="space-y-2 text-left">
               <DialogTitle>{buildDialogTitle(t, editorMode)}</DialogTitle>
             </DialogHeader>
-            <div className="mt-4 flex-1">
+            <div className="mt-6 flex-1">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Instruction</div>
               <Textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}

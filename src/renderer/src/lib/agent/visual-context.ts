@@ -351,6 +351,24 @@ export async function applyRecentVisualContext(
   })
   if (artifacts.length === 0) return messages
 
+  // Keep the assistant image block unchanged; expose the persisted location only
+  // through the textual system-reminder context.
+  for (const artifact of artifacts) {
+    if (artifact.filePath || artifact.imageBlock.source.type !== 'base64') continue
+    if (artifact.sourceKind !== 'assistant_image' && artifact.sourceKind !== 'image_generate') continue
+    const data = artifact.imageBlock.source.data
+    if (!data) continue
+    try {
+      const result = (await options.ipc.invoke(IPC.IMAGE_PERSIST_GENERATED, {
+        data,
+        mediaType: artifact.imageBlock.source.mediaType || 'image/png'
+      })) as { filePath?: string; error?: string }
+      if (result?.filePath && !result.error) artifact.filePath = result.filePath
+    } catch {
+      // The image can still be sent inline when persistence is unavailable.
+    }
+  }
+
   const userText = getMessageText(lastUserMessage)
   if (!shouldInjectVisualContext({ messages, lastUserIndex, userText })) return messages
 

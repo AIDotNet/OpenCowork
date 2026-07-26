@@ -19,13 +19,17 @@ import {
 } from '@renderer/lib/api/seedance-video-provider'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { runSidecarTextRequest } from '@renderer/lib/ipc/agent-bridge'
 import { filePathToMediaUrl } from '@renderer/lib/local-media-url'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import type { ImageAttachment } from '@renderer/lib/image-attachments'
+import { useProjectsStore } from './draw-projects-store'
+import { patchPersistedProjectGraph } from './graph-persistence'
 import { downstreamNodeIds, upstreamNodeIds, useGraphStore } from './graph-store'
 import type { CanvasNode, ImageNode } from './graph-types'
 import { NODE_DEFAULT_SIZE } from './graph-types'
-import type { GraphActions, GraphEditParams } from './graph-actions'
+import type { CanvasRunResult, GraphActions } from './graph-actions'
+import { getNodeExecution, startNodeExecution, updateNodeExecution } from './canvas-events'
 
 interface Target {
   provider: AIProvider
@@ -66,14 +70,73 @@ export function useGraphGeneration(): GraphActions {
   const { t } = useTranslation('layout')
 
   return useMemo<GraphActions>(() => {
+    const failedResult = (
+      nodeId?: string,
+      error?: string,
+      runId?: string,
+      outputNodeIds: string[] = []
+    ): CanvasRunResult => ({
+      ok: false,
+      ...(runId ? { runId } : {}),
+      nodeId,
+      outputNodeIds,
+      status: 'failed',
+      error
+    })
+    const cancelledResult = (
+      nodeId: string,
+      runId: string,
+      outputNodeIds: string[] = [nodeId]
+    ): CanvasRunResult => ({
+      ok: false,
+      runId,
+      nodeId,
+      outputNodeIds,
+      status: 'cancelled',
+      error: 'Generation cancelled'
+    })
+
+    const currentProjectId = (): string => useProjectsStore.getState().activeProjectId ?? 'default'
+    const cancelledRunIds = new Set<string>()
+    const rememberCancelledRun = (runId: string): void => {
+      cancelledRunIds.add(runId)
+      if (cancelledRunIds.size > 500) {
+        const oldest = cancelledRunIds.values().next().value
+        if (oldest) cancelledRunIds.delete(oldest)
+      }
+    }
+    const isRunCancelled = (nodeId: string, runId: string, projectId: string): boolean =>
+      cancelledRunIds.has(runId) || getNodeExecution(nodeId, projectId)?.status === 'cancelled'
+    const interruptIfProjectChanged = (
+      projectId: string,
+      nodeId: string,
+      runId: string
+    ): CanvasRunResult | null => {
+      if (currentProjectId() === projectId) return null
+      const error = 'Canvas changed before generation started'
+      updateNodeExecution(nodeId, 'interrupted', { projectId, runId, error })
+      return {
+        ok: false,
+        runId,
+        nodeId,
+        outputNodeIds: [],
+        status: 'interrupted',
+        error
+      }
+    }
+
     const resolveTarget = (providerId?: string, modelId?: string): Target | null => {
       const ps = useProviderStore.getState()
       const pid = providerId ?? ps.activeImageProviderId ?? undefined
-      const provider = pid ? (ps.providers.find((p) => p.id === pid) ?? null) : null
+      const provider = pid
+        ? (ps.providers.find((p) => p.id === pid) ?? null)
+        : (ps.providers.find((candidate) =>
+            candidate.models.some((model) => (model.category ?? 'chat') === 'image')
+          ) ?? null)
       if (!provider) return null
       const mid = modelId ?? ps.activeImageModelId
       const model =
-        provider.models.find((m) => m.id === mid) ??
+        provider.models.find((m) => m.id === mid && (m.category ?? 'chat') === 'image') ??
         provider.models.find((m) => (m.category ?? 'chat') === 'image') ??
         null
       if (!model) return null
@@ -156,11 +219,23 @@ export function useGraphGeneration(): GraphActions {
       nodeId: string
     ): Promise<Array<{ src: string; mediaType?: string }>> => {
       const { nodes, edges } = useGraphStore.getState()
-      const ids = new Set(upstreamNodeIds(edges, nodeId))
-      const candidates = nodes.filter(
-        (n): n is ImageNode =>
-          n.kind === 'image' && ids.has(n.id) && !!(n.data.src || n.data.filePath)
-      )
+      const byId = new Map(nodes.map((node) => [node.id, node]))
+      const candidates: ImageNode[] = []
+      const seen = new Set<string>([nodeId])
+      const visit = (id: string): void => {
+        for (const upstreamId of upstreamNodeIds(edges, id)) {
+          if (seen.has(upstreamId)) continue
+          seen.add(upstreamId)
+          const upstream = byId.get(upstreamId)
+          if (!upstream) continue
+          if (upstream.kind === 'image' && (upstream.data.src || upstream.data.filePath)) {
+            candidates.push(upstream)
+          } else if (upstream.kind === 'config') {
+            visit(upstream.id)
+          }
+        }
+      }
+      visit(nodeId)
       const resolved = await Promise.all(candidates.map((n) => resolveImageDataUrl(n.data)))
       return resolved.filter((r): r is { src: string; mediaType?: string } => !!r)
     }
@@ -186,13 +261,20 @@ export function useGraphGeneration(): GraphActions {
       return [{ id: nanoid(), role: 'user', content, createdAt: Date.now() }]
     }
 
-    const applySize = (config: ProviderConfig, aspect?: string): ProviderConfig => {
-      const size = aspect ? ASPECT_TO_SIZE[aspect] : undefined
-      if (!size) return config
+    const applyImageOptions = (
+      config: ProviderConfig,
+      aspect?: string,
+      quality: string = 'auto',
+      imageSize: string = 'auto'
+    ): ProviderConfig => {
+      const size = imageSize === 'auto' ? (aspect ? ASPECT_TO_SIZE[aspect] : undefined) : imageSize
       const overrides = config.requestOverrides ?? {}
+      const body: Record<string, unknown> = { ...(overrides.body ?? {}), quality }
+      if (size) body.size = size
+      else delete body.size
       return {
         ...config,
-        requestOverrides: { ...overrides, body: { ...(overrides.body ?? {}), size } }
+        requestOverrides: { ...overrides, body }
       }
     }
 
@@ -220,6 +302,9 @@ export function useGraphGeneration(): GraphActions {
           }
         }
       }
+      if (out.length < Math.max(1, args.count)) {
+        throw new Error('Image provider returned no result')
+      }
       return out
     }
 
@@ -228,12 +313,79 @@ export function useGraphGeneration(): GraphActions {
       targetNodeId: string,
       results: Array<ReturnType<typeof srcFromImageBlock>>,
       prompt: string,
-      target: Target
-    ): void => {
+      target: Target,
+      runId: string,
+      projectId: string
+    ): string[] => {
       const graph = useGraphStore.getState()
-      const node = graph.nodes.find((n) => n.id === targetNodeId)
-      if (!node) return
       const [first, ...rest] = results
+      if (currentProjectId() !== projectId) {
+        const childIds = rest.map(() => nanoid())
+        const outputNodeIds = [targetNodeId, ...childIds]
+        patchPersistedProjectGraph(projectId, (stored) => {
+          const targetNode = stored.nodes.find((candidate) => candidate.id === targetNodeId)
+          if (!targetNode || targetNode.kind !== 'image') return stored
+          const updatedTarget: CanvasNode = {
+            ...targetNode,
+            data: {
+              ...targetNode.data,
+              src: first?.filePath ? undefined : first?.src,
+              filePath: first?.filePath,
+              mediaType: first?.mediaType,
+              prompt,
+              providerId: target.provider.id,
+              modelId: target.model.id,
+              generating: false,
+              error: undefined,
+              interrupted: undefined,
+              groupSrcs: undefined
+            }
+          }
+          const children: CanvasNode[] = rest.map((result, index) => ({
+            id: childIds[index],
+            kind: 'image',
+            x: targetNode.x,
+            y: targetNode.y + (targetNode.h + 40) * (index + 1),
+            w: targetNode.w,
+            h: targetNode.h,
+            execution: {
+              runId,
+              status: 'succeeded',
+              startedAt: Date.now(),
+              finishedAt: Date.now()
+            },
+            data: {
+              src: result.filePath ? undefined : result.src,
+              filePath: result.filePath,
+              mediaType: result.mediaType,
+              prompt,
+              providerId: target.provider.id,
+              modelId: target.model.id
+            }
+          }))
+          return {
+            ...stored,
+            nodes: [
+              ...stored.nodes.map((candidate) =>
+                candidate.id === targetNodeId ? updatedTarget : candidate
+              ),
+              ...children
+            ],
+            edges: [
+              ...stored.edges,
+              ...childIds.map((id) => ({ id: nanoid(), source: targetNodeId, target: id }))
+            ]
+          }
+        })
+        updateNodeExecution(targetNodeId, 'succeeded', {
+          projectId,
+          runId,
+          outputNodeIds
+        })
+        return outputNodeIds
+      }
+      const node = graph.nodes.find((n) => n.id === targetNodeId)
+      if (!node) return []
       graph.updateNode(targetNodeId, (n) =>
         n.kind === 'image'
           ? {
@@ -254,6 +406,7 @@ export function useGraphGeneration(): GraphActions {
             }
           : n
       )
+      const outputNodeIds = [targetNodeId]
       rest.forEach((res, index) => {
         const child: CanvasNode = {
           id: nanoid(),
@@ -262,6 +415,12 @@ export function useGraphGeneration(): GraphActions {
           y: node.y + (node.h + 40) * (index + 1),
           w: node.w,
           h: node.h,
+          execution: {
+            runId,
+            status: 'succeeded',
+            startedAt: Date.now(),
+            finishedAt: Date.now()
+          },
           data: {
             src: res.src,
             filePath: res.filePath,
@@ -273,7 +432,10 @@ export function useGraphGeneration(): GraphActions {
         }
         graph.addNode(child, { history: false })
         graph.addEdge(targetNodeId, child.id, { history: false })
+        outputNodeIds.push(child.id)
       })
+      updateNodeExecution(targetNodeId, 'succeeded', { runId, outputNodeIds, projectId })
+      return outputNodeIds
     }
 
     const DEFAULT_VIDEO_PARAMS: SeedanceVideoParams = {
@@ -308,6 +470,27 @@ export function useGraphGeneration(): GraphActions {
       return { provider, model, config }
     }
 
+    const resolveTextTarget = (providerId?: string, modelId?: string): Target | null => {
+      const ps = useProviderStore.getState()
+      const provider = providerId
+        ? (ps.providers.find((candidate) => candidate.id === providerId) ?? null)
+        : ps.activeProviderId
+          ? (ps.providers.find((candidate) => candidate.id === ps.activeProviderId) ?? null)
+          : (ps.providers.find((candidate) =>
+              candidate.models.some((model) => (model.category ?? 'chat') === 'chat')
+            ) ?? null)
+      const model = provider
+        ? (provider.models.find(
+            (candidate) => candidate.id === modelId && (candidate.category ?? 'chat') === 'chat'
+          ) ??
+          provider.models.find((candidate) => (candidate.category ?? 'chat') === 'chat') ??
+          null)
+        : null
+      if (!provider || !model) return null
+      const config = ps.getProviderConfigById(provider.id, model.id)
+      return config ? { provider, model, config } : null
+    }
+
     // Start a BACKGROUND video job in the main process. The renderer only kicks it
     // off and stores the jobId; status/result arrive via seedance-video:job-update
     // events (see use-video-jobs.ts), so generation survives page navigation.
@@ -316,13 +499,18 @@ export function useGraphGeneration(): GraphActions {
       prompt: string,
       references: Array<{ src: string; mediaType?: string }>,
       params: SeedanceVideoParams,
-      target: Target
-    ): Promise<void> => {
+      target: Target,
+      runId: string,
+      projectId: string
+    ): Promise<CanvasRunResult> => {
       const isXaiVideo = target.config.type === 'xai-video'
       const text = isXaiVideo ? prompt.trim() : `${prompt.trim()}${buildSeedanceCommands(params)}`
       const images = references.map((r) => ({ dataUrl: r.src, mediaType: r.mediaType }))
       try {
         const res = (await ipcClient.invoke(IPC.SEEDANCE_VIDEO_START, {
+          projectId,
+          nodeId: targetNodeId,
+          runId,
           provider: target.config,
           prompt: text,
           images,
@@ -332,9 +520,13 @@ export function useGraphGeneration(): GraphActions {
             // The xAI Videos endpoint currently accepts 480p and 720p only.
             resolution: isXaiVideo && params.resolution === '1080p' ? '720p' : params.resolution
           }
-        })) as { jobId?: string; error?: string }
+        })) as { jobId?: string; status?: string; error?: string }
         if (res.error || !res.jobId) throw new Error(res.error || 'Failed to start video job')
-        useGraphStore.getState().updateNode(targetNodeId, (n) =>
+        if (isRunCancelled(targetNodeId, runId, projectId)) {
+          await ipcClient.invoke(IPC.SEEDANCE_VIDEO_CANCEL, { jobId: res.jobId })
+          return cancelledResult(targetNodeId, runId)
+        }
+        const patchVideoNode = (n: CanvasNode): CanvasNode =>
           n.kind === 'video'
             ? {
                 ...n,
@@ -351,9 +543,30 @@ export function useGraphGeneration(): GraphActions {
                 }
               }
             : n
-        )
+        if (currentProjectId() === projectId) {
+          useGraphStore.getState().updateNode(targetNodeId, patchVideoNode)
+        } else {
+          patchPersistedProjectGraph(projectId, (stored) => ({
+            ...stored,
+            nodes: stored.nodes.map((node) =>
+              node.id === targetNodeId ? patchVideoNode(node) : node
+            )
+          }))
+        }
+        updateNodeExecution(targetNodeId, 'running', { runId, projectId })
+        return {
+          ok: true,
+          runId,
+          nodeId: targetNodeId,
+          outputNodeIds: [targetNodeId],
+          status: 'running'
+        }
       } catch (error) {
-        useGraphStore.getState().updateNode(targetNodeId, (n) =>
+        if (isRunCancelled(targetNodeId, runId, projectId)) {
+          return cancelledResult(targetNodeId, runId)
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        const patchFailedVideo = (n: CanvasNode): CanvasNode =>
           n.kind === 'video'
             ? {
                 ...n,
@@ -362,28 +575,49 @@ export function useGraphGeneration(): GraphActions {
                   generating: false,
                   status: undefined,
                   interrupted: undefined,
-                  error: error instanceof Error ? error.message : String(error)
+                  error: message
                 }
               }
             : n
-        )
+        if (currentProjectId() === projectId) {
+          useGraphStore.getState().updateNode(targetNodeId, patchFailedVideo)
+        } else {
+          patchPersistedProjectGraph(projectId, (stored) => ({
+            ...stored,
+            nodes: stored.nodes.map((node) =>
+              node.id === targetNodeId ? patchFailedVideo(node) : node
+            )
+          }))
+        }
+        updateNodeExecution(targetNodeId, 'failed', { runId, projectId, error: message })
+        return failedResult(targetNodeId, message, runId, [targetNodeId])
       }
     }
 
     const generateVideoNode: GraphActions['generateVideoNode'] = async (nodeId) => {
+      const projectId = currentProjectId()
       const graph = useGraphStore.getState()
       const node = graph.nodes.find((n) => n.id === nodeId)
-      if (!node || node.kind !== 'video') return
+      if (!node || node.kind !== 'video') return failedResult(nodeId, 'Video node not found')
+      if (node.execution && ['queued', 'running'].includes(node.execution.status)) {
+        return failedResult(nodeId, 'Node is already running')
+      }
       const target = resolveVideoTarget(node.data.providerId, node.data.modelId)
       if (!target) {
         toast.error(t('drawPage.noVideoModel', { defaultValue: 'No video model configured' }))
-        return
+        return failedResult(nodeId, 'No video model configured')
       }
       if (!(await ensureProviderAuthReady(target.provider.id))) {
         toast.error(t('drawPage.authRequired'))
-        return
+        return failedResult(nodeId, 'Provider authentication required')
+      }
+      if (currentProjectId() !== projectId) {
+        return failedResult(nodeId, 'Canvas changed before generation started')
       }
       const references = await collectUpstreamImages(nodeId)
+      if (currentProjectId() !== projectId) {
+        return failedResult(nodeId, 'Canvas changed before generation started')
+      }
       let prompt =
         [collectUpstreamText(nodeId), node.data.prompt].filter(Boolean).join('\n') ||
         node.data.prompt ||
@@ -392,43 +626,49 @@ export function useGraphGeneration(): GraphActions {
       if (!prompt.trim() && references.length > 0) prompt = upstreamImagePrompt(nodeId)
       if (!prompt.trim()) {
         toast.error(t('drawPage.promptRequired', { defaultValue: 'Connect a text node' }))
-        return
+        return failedResult(nodeId, 'Prompt required')
       }
       graph.pushHistory()
-      graph.updateNode(nodeId, (n) =>
-        n.kind === 'video'
-          ? {
-              ...n,
-              data: {
-                ...n.data,
-                generating: true,
-                status: 'queued',
-                error: undefined,
-                interrupted: undefined
-              }
-            }
-          : n
+      const execution = startNodeExecution(nodeId, { projectId })
+      if (!execution) return failedResult(nodeId, 'Unable to start node')
+      return await runVideoInto(
+        nodeId,
+        prompt,
+        references,
+        DEFAULT_VIDEO_PARAMS,
+        target,
+        execution.runId,
+        projectId
       )
-      await runVideoInto(nodeId, prompt, references, DEFAULT_VIDEO_PARAMS, target)
     }
 
     const generateImageNode: GraphActions['generateImageNode'] = async (nodeId) => {
+      const projectId = currentProjectId()
       const graph = useGraphStore.getState()
       const node = graph.nodes.find((n) => n.id === nodeId)
-      if (!node || node.kind !== 'image') return
+      if (!node || node.kind !== 'image') return failedResult(nodeId, 'Image node not found')
+      if (node.execution && ['queued', 'running'].includes(node.execution.status)) {
+        return failedResult(nodeId, 'Node is already running')
+      }
       const target = resolveTarget(node.data.providerId, node.data.modelId)
       if (!target) {
         toast.error(t('drawPage.noModel'))
-        return
+        return failedResult(nodeId, 'No image model configured')
       }
       if (!(await ensureProviderAuthReady(target.provider.id))) {
         toast.error(t('drawPage.authRequired'))
-        return
+        return failedResult(nodeId, 'Provider authentication required')
+      }
+      if (currentProjectId() !== projectId) {
+        return failedResult(nodeId, 'Canvas changed before generation started')
       }
       const references = await collectUpstreamImages(nodeId)
       if (node.data.src || node.data.filePath) {
         const own = await resolveImageDataUrl(node.data)
         if (own) references.push(own)
+      }
+      if (currentProjectId() !== projectId) {
+        return failedResult(nodeId, 'Canvas changed before generation started')
       }
       let prompt =
         [collectUpstreamText(nodeId), node.data.prompt].filter(Boolean).join('\n') ||
@@ -443,23 +683,39 @@ export function useGraphGeneration(): GraphActions {
         toast.error(
           t('drawPage.promptRequired', { defaultValue: 'Add a prompt or connect a text node' })
         )
-        return
+        return failedResult(nodeId, 'Prompt required')
       }
 
       graph.pushHistory()
-      graph.updateNode(nodeId, (n) =>
-        n.kind === 'image'
-          ? {
-              ...n,
-              data: { ...n.data, generating: true, error: undefined, interrupted: undefined }
-            }
-          : n
-      )
+      const execution = startNodeExecution(nodeId, { projectId })
+      if (!execution) return failedResult(nodeId, 'Unable to start node')
+      updateNodeExecution(nodeId, 'running', { runId: execution.runId, projectId })
       try {
         const results = await runImages({ prompt, references, config: target.config, count: 1 })
-        distributeResults(nodeId, results, prompt, target)
+        if (isRunCancelled(nodeId, execution.runId, projectId)) {
+          return cancelledResult(nodeId, execution.runId)
+        }
+        const outputNodeIds = distributeResults(
+          nodeId,
+          results,
+          prompt,
+          target,
+          execution.runId,
+          projectId
+        )
+        return {
+          ok: true,
+          runId: execution.runId,
+          nodeId,
+          outputNodeIds,
+          status: 'succeeded'
+        }
       } catch (error) {
-        useGraphStore.getState().updateNode(nodeId, (n) =>
+        if (isRunCancelled(nodeId, execution.runId, projectId)) {
+          return cancelledResult(nodeId, execution.runId)
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        const patchFailedImage = (n: CanvasNode): CanvasNode =>
           n.kind === 'image'
             ? {
                 ...n,
@@ -467,31 +723,75 @@ export function useGraphGeneration(): GraphActions {
                   ...n.data,
                   generating: false,
                   interrupted: undefined,
-                  error: error instanceof Error ? error.message : String(error)
+                  error: message
                 }
               }
             : n
-        )
+        if (currentProjectId() === projectId) {
+          useGraphStore.getState().updateNode(nodeId, patchFailedImage)
+        } else {
+          patchPersistedProjectGraph(projectId, (stored) => ({
+            ...stored,
+            nodes: stored.nodes.map((candidate) =>
+              candidate.id === nodeId ? patchFailedImage(candidate) : candidate
+            )
+          }))
+        }
+        updateNodeExecution(nodeId, 'failed', {
+          runId: execution.runId,
+          projectId,
+          error: message
+        })
+        return failedResult(nodeId, message, execution.runId, [nodeId])
       }
     }
 
-    const runVideoConfigNode = async (config: CanvasNode & { kind: 'config' }): Promise<void> => {
+    const runVideoConfigNode = async (
+      config: CanvasNode & { kind: 'config' },
+      configRunId: string,
+      projectId: string
+    ): Promise<CanvasRunResult> => {
       const graph = useGraphStore.getState()
       const target = resolveVideoTarget(config.data.providerId, config.data.modelId)
       if (!target) {
         toast.error(t('drawPage.noVideoModel', { defaultValue: 'No video model configured' }))
-        return
+        updateNodeExecution(config.id, 'failed', {
+          runId: configRunId,
+          projectId,
+          error: 'No video model configured'
+        })
+        return failedResult(config.id, 'No video model configured', configRunId)
       }
       if (!(await ensureProviderAuthReady(target.provider.id))) {
         toast.error(t('drawPage.authRequired'))
-        return
+        updateNodeExecution(config.id, 'failed', {
+          runId: configRunId,
+          projectId,
+          error: 'Provider authentication required'
+        })
+        return failedResult(config.id, 'Provider authentication required', configRunId)
+      }
+      const projectChange = interruptIfProjectChanged(projectId, config.id, configRunId)
+      if (projectChange) return projectChange
+      if (isRunCancelled(config.id, configRunId, projectId)) {
+        return cancelledResult(config.id, configRunId, [])
       }
       const prompt = collectUpstreamText(config.id)
       if (!prompt.trim()) {
         toast.error(t('drawPage.promptRequired', { defaultValue: 'Connect a text node' }))
-        return
+        updateNodeExecution(config.id, 'failed', {
+          runId: configRunId,
+          projectId,
+          error: 'Prompt required'
+        })
+        return failedResult(config.id, 'Prompt required', configRunId)
       }
       const references = await collectUpstreamImages(config.id)
+      const changedAfterReferences = interruptIfProjectChanged(projectId, config.id, configRunId)
+      if (changedAfterReferences) return changedAfterReferences
+      if (isRunCancelled(config.id, configRunId, projectId)) {
+        return cancelledResult(config.id, configRunId, [])
+      }
       const size = NODE_DEFAULT_SIZE.video
       const targetNode: CanvasNode = {
         id: nanoid(),
@@ -509,39 +809,230 @@ export function useGraphGeneration(): GraphActions {
       }
       graph.addNode(targetNode, { history: true })
       graph.addEdge(config.id, targetNode.id, { history: false })
+      const targetExecution = startNodeExecution(targetNode.id, { projectId })
+      updateNodeExecution(config.id, 'running', {
+        runId: configRunId,
+        projectId,
+        outputNodeIds: [targetNode.id]
+      })
       const params: SeedanceVideoParams = {
         ratio: config.data.aspect ?? DEFAULT_VIDEO_PARAMS.ratio,
         resolution: config.data.resolution ?? DEFAULT_VIDEO_PARAMS.resolution,
         duration: config.data.duration ?? DEFAULT_VIDEO_PARAMS.duration,
         fps: config.data.fps ?? DEFAULT_VIDEO_PARAMS.fps,
-        watermark: config.data.watermark ?? DEFAULT_VIDEO_PARAMS.watermark
+        watermark: config.data.watermark ?? DEFAULT_VIDEO_PARAMS.watermark,
+        seed: config.data.seed,
+        cameraFixed: config.data.cameraFixed
       }
-      await runVideoInto(targetNode.id, prompt, references, params, target)
+      if (!targetExecution) {
+        updateNodeExecution(config.id, 'failed', {
+          runId: configRunId,
+          projectId,
+          error: 'Unable to create video output node'
+        })
+        return failedResult(config.id, 'Unable to create video output node', configRunId, [
+          targetNode.id
+        ])
+      }
+      const result = await runVideoInto(
+        targetNode.id,
+        prompt,
+        references,
+        params,
+        target,
+        targetExecution.runId,
+        projectId
+      )
+      if (!['queued', 'running'].includes(result.status)) {
+        updateNodeExecution(config.id, result.status, {
+          runId: configRunId,
+          projectId,
+          error: result.error,
+          outputNodeIds: [targetNode.id]
+        })
+      }
+      return {
+        ...result,
+        runId: configRunId,
+        nodeId: config.id,
+        outputNodeIds: [targetNode.id]
+      }
+    }
+
+    const runTextConfigNode = async (
+      config: CanvasNode & { kind: 'config' },
+      configRunId: string,
+      projectId: string
+    ): Promise<CanvasRunResult> => {
+      const graph = useGraphStore.getState()
+      const target = resolveTextTarget(config.data.providerId, config.data.modelId)
+      const prompt = collectUpstreamText(config.id)
+      if (!target || !prompt.trim()) {
+        const error = !target ? 'No text model configured' : 'Prompt required'
+        updateNodeExecution(config.id, 'failed', { runId: configRunId, projectId, error })
+        return failedResult(config.id, error, configRunId)
+      }
+      if (!(await ensureProviderAuthReady(target.provider.id))) {
+        const error = 'Provider authentication required'
+        updateNodeExecution(config.id, 'failed', { runId: configRunId, projectId, error })
+        return failedResult(config.id, error, configRunId)
+      }
+      const projectChange = interruptIfProjectChanged(projectId, config.id, configRunId)
+      if (projectChange) return projectChange
+      if (isRunCancelled(config.id, configRunId, projectId)) {
+        return cancelledResult(config.id, configRunId, [])
+      }
+      const size = NODE_DEFAULT_SIZE.text
+      const output: CanvasNode = {
+        id: nanoid(),
+        kind: 'text',
+        x: config.x + config.w + 60,
+        y: config.y,
+        w: size.w,
+        h: size.h,
+        data: { text: '' }
+      }
+      graph.addNode(output, { history: true })
+      graph.addEdge(config.id, output.id, { history: false })
+      const outputRun = startNodeExecution(output.id, { projectId })
+      updateNodeExecution(config.id, 'running', {
+        runId: configRunId,
+        projectId,
+        outputNodeIds: [output.id]
+      })
+      if (!outputRun) {
+        updateNodeExecution(config.id, 'failed', {
+          runId: configRunId,
+          projectId,
+          error: 'Unable to create text output node',
+          outputNodeIds: [output.id]
+        })
+        return failedResult(config.id, 'Unable to create text output node', configRunId, [
+          output.id
+        ])
+      }
+      updateNodeExecution(output.id, 'running', { runId: outputRun.runId, projectId })
+      try {
+        const text = await runSidecarTextRequest({
+          provider: target.config,
+          messages: [{ id: nanoid(), role: 'user', content: prompt, createdAt: Date.now() }]
+        })
+        if (isRunCancelled(output.id, outputRun.runId, projectId)) {
+          updateNodeExecution(config.id, 'cancelled', {
+            runId: configRunId,
+            projectId,
+            outputNodeIds: [output.id]
+          })
+          return cancelledResult(config.id, configRunId, [output.id])
+        }
+        if (currentProjectId() === projectId) {
+          graph.updateNode(output.id, (node) =>
+            node.kind === 'text' ? { ...node, data: { ...node.data, text } } : node
+          )
+        } else {
+          patchPersistedProjectGraph(projectId, (stored) => ({
+            ...stored,
+            nodes: stored.nodes.map((node) =>
+              node.id === output.id && node.kind === 'text'
+                ? { ...node, data: { ...node.data, text } }
+                : node
+            )
+          }))
+        }
+        updateNodeExecution(output.id, 'succeeded', { runId: outputRun.runId, projectId })
+        updateNodeExecution(config.id, 'succeeded', {
+          runId: configRunId,
+          projectId,
+          outputNodeIds: [output.id]
+        })
+        return {
+          ok: true,
+          runId: configRunId,
+          nodeId: config.id,
+          outputNodeIds: [output.id],
+          status: 'succeeded'
+        }
+      } catch (error) {
+        if (isRunCancelled(output.id, outputRun.runId, projectId)) {
+          updateNodeExecution(config.id, 'cancelled', {
+            runId: configRunId,
+            projectId,
+            outputNodeIds: [output.id]
+          })
+          return cancelledResult(config.id, configRunId, [output.id])
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        updateNodeExecution(output.id, 'failed', {
+          runId: outputRun.runId,
+          projectId,
+          error: message
+        })
+        updateNodeExecution(config.id, 'failed', { runId: configRunId, projectId, error: message })
+        return failedResult(config.id, message, configRunId, [output.id])
+      }
     }
 
     const runConfigNode: GraphActions['runConfigNode'] = async (configId) => {
+      const projectId = currentProjectId()
       const graph = useGraphStore.getState()
       const config = graph.nodes.find((n) => n.id === configId)
-      if (!config || config.kind !== 'config') return
+      if (!config || config.kind !== 'config')
+        return failedResult(configId, 'Generate node not found')
+      if (config.execution && ['queued', 'running'].includes(config.execution.status)) {
+        return failedResult(configId, 'Node is already running')
+      }
+      const configExecution = startNodeExecution(configId, { projectId })
+      if (!configExecution) return failedResult(configId, 'Unable to start generate node')
       if (config.data.mode === 'video') {
-        await runVideoConfigNode(config)
-        return
+        return await runVideoConfigNode(config, configExecution.runId, projectId)
+      }
+      if (config.data.mode === 'text') {
+        return await runTextConfigNode(config, configExecution.runId, projectId)
       }
       const target = resolveTarget(config.data.providerId, config.data.modelId)
       if (!target) {
         toast.error(t('drawPage.noModel'))
-        return
+        updateNodeExecution(configId, 'failed', {
+          runId: configExecution.runId,
+          projectId,
+          error: 'No image model configured'
+        })
+        return failedResult(configId, 'No image model configured', configExecution.runId)
       }
       if (!(await ensureProviderAuthReady(target.provider.id))) {
         toast.error(t('drawPage.authRequired'))
-        return
+        updateNodeExecution(configId, 'failed', {
+          runId: configExecution.runId,
+          projectId,
+          error: 'Provider authentication required'
+        })
+        return failedResult(configId, 'Provider authentication required', configExecution.runId)
+      }
+      const projectChange = interruptIfProjectChanged(projectId, configId, configExecution.runId)
+      if (projectChange) return projectChange
+      if (isRunCancelled(configId, configExecution.runId, projectId)) {
+        return cancelledResult(configId, configExecution.runId, [])
       }
       const prompt = collectUpstreamText(configId)
       if (!prompt.trim()) {
         toast.error(t('drawPage.promptRequired', { defaultValue: 'Connect a text node' }))
-        return
+        updateNodeExecution(configId, 'failed', {
+          runId: configExecution.runId,
+          projectId,
+          error: 'Prompt required'
+        })
+        return failedResult(configId, 'Prompt required', configExecution.runId)
       }
       const references = await collectUpstreamImages(configId)
+      const changedAfterReferences = interruptIfProjectChanged(
+        projectId,
+        configId,
+        configExecution.runId
+      )
+      if (changedAfterReferences) return changedAfterReferences
+      if (isRunCancelled(configId, configExecution.runId, projectId)) {
+        return cancelledResult(configId, configExecution.runId, [])
+      }
       const count = config.data.count ?? 1
 
       // Create a target image node to the right and fan results into it.
@@ -557,16 +1048,77 @@ export function useGraphGeneration(): GraphActions {
       }
       graph.addNode(targetNode, { history: true })
       graph.addEdge(configId, targetNode.id, { history: false })
+      const targetExecution = startNodeExecution(targetNode.id, { projectId })
+      updateNodeExecution(configId, 'running', {
+        runId: configExecution.runId,
+        projectId,
+        outputNodeIds: [targetNode.id]
+      })
+      if (!targetExecution) {
+        updateNodeExecution(configId, 'failed', {
+          runId: configExecution.runId,
+          projectId,
+          error: 'Unable to create image output node'
+        })
+        return failedResult(configId, 'Unable to create image output node', configExecution.runId, [
+          targetNode.id
+        ])
+      }
+      updateNodeExecution(targetNode.id, 'running', {
+        runId: targetExecution.runId,
+        projectId
+      })
       try {
         const results = await runImages({
           prompt,
           references,
-          config: applySize(target.config, config.data.aspect),
+          config: applyImageOptions(
+            target.config,
+            config.data.aspect,
+            config.data.quality,
+            config.data.size
+          ),
           count
         })
-        distributeResults(targetNode.id, results, prompt, target)
+        if (isRunCancelled(targetNode.id, targetExecution.runId, projectId)) {
+          updateNodeExecution(configId, 'cancelled', {
+            runId: configExecution.runId,
+            projectId,
+            outputNodeIds: [targetNode.id]
+          })
+          return cancelledResult(configId, configExecution.runId, [targetNode.id])
+        }
+        const outputNodeIds = distributeResults(
+          targetNode.id,
+          results,
+          prompt,
+          target,
+          targetExecution.runId,
+          projectId
+        )
+        updateNodeExecution(configId, 'succeeded', {
+          runId: configExecution.runId,
+          projectId,
+          outputNodeIds
+        })
+        return {
+          ok: true,
+          runId: configExecution.runId,
+          nodeId: configId,
+          outputNodeIds,
+          status: 'succeeded'
+        }
       } catch (error) {
-        useGraphStore.getState().updateNode(targetNode.id, (n) =>
+        if (isRunCancelled(targetNode.id, targetExecution.runId, projectId)) {
+          updateNodeExecution(configId, 'cancelled', {
+            runId: configExecution.runId,
+            projectId,
+            outputNodeIds: [targetNode.id]
+          })
+          return cancelledResult(configId, configExecution.runId, [targetNode.id])
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        const patchFailedImage = (n: CanvasNode): CanvasNode =>
           n.kind === 'image'
             ? {
                 ...n,
@@ -574,18 +1126,39 @@ export function useGraphGeneration(): GraphActions {
                   ...n.data,
                   generating: false,
                   interrupted: undefined,
-                  error: error instanceof Error ? error.message : String(error)
+                  error: message
                 }
               }
             : n
-        )
+        if (currentProjectId() === projectId) {
+          useGraphStore.getState().updateNode(targetNode.id, patchFailedImage)
+        } else {
+          patchPersistedProjectGraph(projectId, (stored) => ({
+            ...stored,
+            nodes: stored.nodes.map((candidate) =>
+              candidate.id === targetNode.id ? patchFailedImage(candidate) : candidate
+            )
+          }))
+        }
+        updateNodeExecution(targetNode.id, 'failed', {
+          runId: targetExecution.runId,
+          projectId,
+          error: message
+        })
+        updateNodeExecution(configId, 'failed', {
+          runId: configExecution.runId,
+          projectId,
+          error: message,
+          outputNodeIds: [targetNode.id]
+        })
+        return failedResult(configId, message, configExecution.runId, [targetNode.id])
       }
     }
 
-    const generateFromText: GraphActions['generateFromText'] = (textId) => {
+    const generateFromText: GraphActions['generateFromText'] = async (textId) => {
       const graph = useGraphStore.getState()
       const text = graph.nodes.find((n) => n.id === textId)
-      if (!text || text.kind !== 'text') return
+      if (!text || text.kind !== 'text') return failedResult(textId, 'Text node not found')
       const size = NODE_DEFAULT_SIZE.config
       const configNode: CanvasNode = {
         id: nanoid(),
@@ -598,7 +1171,7 @@ export function useGraphGeneration(): GraphActions {
       }
       graph.addNode(configNode, { history: true })
       graph.addEdge(textId, configNode.id, { history: false })
-      void runConfigNode(configNode.id)
+      return await runConfigNode(configNode.id)
     }
 
     // Context the optimized prompt will actually be used with: reference images
@@ -693,19 +1266,30 @@ export function useGraphGeneration(): GraphActions {
       }
     }
 
-    const applyEdit = async (imageNodeId: string, params: GraphEditParams): Promise<void> => {
+    const applyEdit: GraphActions['applyEdit'] = async (imageNodeId, params) => {
+      const projectId = currentProjectId()
       const graph = useGraphStore.getState()
       const node = graph.nodes.find((n) => n.id === imageNodeId)
-      if (!node || node.kind !== 'image') return
+      if (!node || node.kind !== 'image') return failedResult(imageNodeId, 'Image node not found')
       const base = params.baseImageDataUrl ?? (await resolveImageDataUrl(node.data))?.src
-      if (!base) return
+      if (!base) return failedResult(imageNodeId, 'Image data unavailable')
+      if (currentProjectId() !== projectId) {
+        return failedResult(imageNodeId, 'Canvas changed before image edit started')
+      }
       const target = resolveTarget(
         params.providerId ?? node.data.providerId,
         params.modelId ?? node.data.modelId
       )
       if (!target) {
         toast.error(t('drawPage.noModel'))
-        return
+        return failedResult(imageNodeId, 'No image model configured')
+      }
+      if (!(await ensureProviderAuthReady(target.provider.id))) {
+        toast.error(t('drawPage.authRequired'))
+        return failedResult(imageNodeId, 'Provider authentication required')
+      }
+      if (currentProjectId() !== projectId) {
+        return failedResult(imageNodeId, 'Canvas changed before image edit started')
       }
       const size = NODE_DEFAULT_SIZE.image
       const child: CanvasNode = {
@@ -719,17 +1303,43 @@ export function useGraphGeneration(): GraphActions {
       }
       graph.addNode(child, { history: true })
       graph.addEdge(imageNodeId, child.id, { history: false })
+      const execution = startNodeExecution(child.id, { projectId })
+      if (!execution) return failedResult(child.id, 'Unable to start image edit')
+      updateNodeExecution(child.id, 'running', { runId: execution.runId, projectId })
       try {
         const results = await runImages({
           prompt: params.prompt,
           references: [{ src: base, mediaType: 'image/png' }],
           config: target.config,
           count: 1,
-          edit: { maskDataUrl: params.maskDataUrl, maskMediaType: 'image/png' }
+          edit: params.maskDataUrl
+            ? { maskDataUrl: params.maskDataUrl, maskMediaType: 'image/png' }
+            : undefined
         })
-        distributeResults(child.id, results, params.prompt, target)
+        if (isRunCancelled(child.id, execution.runId, projectId)) {
+          return cancelledResult(child.id, execution.runId)
+        }
+        const outputNodeIds = distributeResults(
+          child.id,
+          results,
+          params.prompt,
+          target,
+          execution.runId,
+          projectId
+        )
+        return {
+          ok: true,
+          runId: execution.runId,
+          nodeId: child.id,
+          outputNodeIds,
+          status: 'succeeded'
+        }
       } catch (error) {
-        useGraphStore.getState().updateNode(child.id, (n) =>
+        if (isRunCancelled(child.id, execution.runId, projectId)) {
+          return cancelledResult(child.id, execution.runId)
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        const patchFailedImage = (n: CanvasNode): CanvasNode =>
           n.kind === 'image'
             ? {
                 ...n,
@@ -737,18 +1347,33 @@ export function useGraphGeneration(): GraphActions {
                   ...n.data,
                   generating: false,
                   interrupted: undefined,
-                  error: error instanceof Error ? error.message : String(error)
+                  error: message
                 }
               }
             : n
-        )
+        if (currentProjectId() === projectId) {
+          useGraphStore.getState().updateNode(child.id, patchFailedImage)
+        } else {
+          patchPersistedProjectGraph(projectId, (stored) => ({
+            ...stored,
+            nodes: stored.nodes.map((candidate) =>
+              candidate.id === child.id ? patchFailedImage(candidate) : candidate
+            )
+          }))
+        }
+        updateNodeExecution(child.id, 'failed', {
+          runId: execution.runId,
+          projectId,
+          error: message
+        })
+        return failedResult(child.id, message, execution.runId, [child.id])
       }
     }
 
     const addDerivedImage: GraphActions['addDerivedImage'] = async (sourceId, dataUrl, opts) => {
       const graph = useGraphStore.getState()
       const node = graph.nodes.find((n) => n.id === sourceId)
-      if (!node || node.kind !== 'image') return
+      if (!node || node.kind !== 'image') return null
       const comma = dataUrl.indexOf(',')
       const data = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
       const mediaType = /data:(.*?);/.exec(dataUrl)?.[1] || 'image/png'
@@ -786,6 +1411,7 @@ export function useGraphGeneration(): GraphActions {
       }
       graph.addNode(child, { history: true, select: opts?.select })
       graph.addEdge(sourceId, child.id, { history: false })
+      return child.id
     }
 
     const downloadImage: GraphActions['downloadImage'] = async (nodeId) => {
@@ -807,15 +1433,75 @@ export function useGraphGeneration(): GraphActions {
       }
     }
 
+    const runNode: GraphActions['runNode'] = async (nodeId) => {
+      const node = useGraphStore.getState().nodes.find((candidate) => candidate.id === nodeId)
+      if (!node) return failedResult(nodeId, 'Node not found')
+      if (node.kind === 'config') return await runConfigNode(nodeId)
+      if (node.kind === 'image') return await generateImageNode(nodeId)
+      if (node.kind === 'video') return await generateVideoNode(nodeId)
+      return await generateFromText(nodeId)
+    }
+
+    const cancelNode: GraphActions['cancelNode'] = async (nodeId) => {
+      const projectId = currentProjectId()
+      const graph = useGraphStore.getState()
+      const node = graph.nodes.find((candidate) => candidate.id === nodeId)
+      if (!node?.execution || !['queued', 'running'].includes(node.execution.status)) return false
+      rememberCancelledRun(node.execution.runId)
+      if (node.kind === 'video' && node.data.jobId) {
+        await ipcClient
+          .invoke(IPC.SEEDANCE_VIDEO_CANCEL, { jobId: node.data.jobId })
+          .catch(() => undefined)
+      }
+      updateNodeExecution(nodeId, 'cancelled', { runId: node.execution.runId, projectId })
+      for (const outputId of node.execution.outputNodeIds ?? []) {
+        const output = useGraphStore.getState().nodes.find((candidate) => candidate.id === outputId)
+        if (output?.execution && ['queued', 'running'].includes(output.execution.status)) {
+          rememberCancelledRun(output.execution.runId)
+          if (output.kind === 'video' && output.data.jobId) {
+            await ipcClient
+              .invoke(IPC.SEEDANCE_VIDEO_CANCEL, { jobId: output.data.jobId })
+              .catch(() => undefined)
+          }
+          updateNodeExecution(outputId, 'cancelled', {
+            runId: output.execution.runId,
+            projectId
+          })
+        }
+      }
+      for (const sourceId of upstreamNodeIds(graph.edges, nodeId)) {
+        const source = useGraphStore.getState().nodes.find((candidate) => candidate.id === sourceId)
+        if (
+          source?.kind === 'config' &&
+          source.execution &&
+          ['queued', 'running'].includes(source.execution.status)
+        ) {
+          rememberCancelledRun(source.execution.runId)
+          updateNodeExecution(source.id, 'cancelled', {
+            runId: source.execution.runId,
+            projectId,
+            outputNodeIds: source.execution.outputNodeIds
+          })
+        }
+      }
+      return true
+    }
+
+    const retryNode: GraphActions['retryNode'] = async (nodeId) => await runNode(nodeId)
+
     return {
-      runConfigNode: (id) => void runConfigNode(id),
+      runConfigNode,
       generateFromText,
       rewriteText,
-      generateImageNode: (id) => void generateImageNode(id),
-      generateVideoNode: (id) => void generateVideoNode(id),
-      applyEdit: (id, params) => void applyEdit(id, params),
-      addDerivedImage: (id, dataUrl, opts) => void addDerivedImage(id, dataUrl, opts),
-      downloadImage: (id) => void downloadImage(id)
+      generateImageNode,
+      generateVideoNode,
+      runNode,
+      cancelNode,
+      retryNode,
+      getNodeStatus: getNodeExecution,
+      applyEdit,
+      addDerivedImage,
+      downloadImage
     }
   }, [t])
 }

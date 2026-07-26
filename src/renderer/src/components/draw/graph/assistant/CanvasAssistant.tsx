@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { nanoid } from 'nanoid'
 import {
   CornerDownLeft,
@@ -10,6 +10,8 @@ import {
   Link2,
   Loader2,
   Minus,
+  Paperclip,
+  Pin,
   Plus,
   Settings2,
   Sparkles,
@@ -25,14 +27,17 @@ import { Button } from '@renderer/components/ui/button'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { useShallow } from 'zustand/react/shallow'
 import type { ContentBlock, UnifiedMessage } from '@renderer/lib/api/types'
-import { useProviderStore } from '@renderer/stores/provider-store'
+import { modelSupportsVision, useProviderStore } from '@renderer/stores/provider-store'
+import { fileToImageAttachment, type ImageAttachment } from '@renderer/lib/image-attachments'
 import { ensureProviderAuthReady } from '@renderer/lib/auth/provider-auth'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { cn } from '@renderer/lib/utils'
+import { screenToWorld } from '../graph-geometry'
 import { useGraphStore } from '../graph-store'
 import { useGraphActions } from '../graph-actions'
 import { createCanvasNode } from '../node-factory'
+import { addImageNodeFromDataUrl } from '../add-image-node'
 import { useProjectsStore } from '../draw-projects-store'
 import {
   ASSISTANT_DEFAULT_SIZE,
@@ -40,26 +45,51 @@ import {
   useAssistantStore,
   type AssistantAction,
   type AssistantActionKind,
+  type AssistantTimelineBlock,
   type AssistantTurn
 } from './assistant-store'
-import { runCanvasAssistantTurn } from './canvas-agent'
+import { runCanvasAssistantTurn, type CanvasConfirmationRequest } from './canvas-agent'
 import { CanvasAssistantModelPicker } from './CanvasAssistantModelPicker'
 import type { CanvasNode, ImageNode } from '../graph-types'
 
 const EMPTY_TURNS: AssistantTurn[] = []
 
-const ACTION_ICONS: Record<AssistantActionKind, typeof Eye> = {
+const ACTION_ICONS: Partial<Record<AssistantActionKind, typeof Eye>> = {
   read_canvas: Eye,
-  create_text_node: FilePlus2,
+  create_node: FilePlus2,
   connect_nodes: Link2,
-  generate_image: Wand2
+  generate_media: Wand2,
+  generate_video: Film,
+  edit_image: Wand2,
+  run_node: Sparkles,
+  retry_node: Sparkles,
+  delete_nodes: Trash2
 }
 
-const ACTION_LABEL_KEYS: Record<AssistantActionKind, string> = {
+const ACTION_LABEL_KEYS: Partial<Record<AssistantActionKind, string>> = {
   read_canvas: 'drawPage.assistantActRead',
-  create_text_node: 'drawPage.assistantActCreateText',
+  get_node_status: 'drawPage.assistantActStatus',
+  subscribe_node: 'drawPage.assistantActSubscribe',
+  wait_for_node_event: 'drawPage.assistantActWait',
+  create_node: 'drawPage.assistantActCreateNode',
+  update_node: 'drawPage.assistantActUpdateNode',
+  delete_nodes: 'drawPage.assistantActDeleteNodes',
+  duplicate_nodes: 'drawPage.assistantActDuplicateNodes',
   connect_nodes: 'drawPage.assistantActConnect',
-  generate_image: 'drawPage.assistantActGenerate'
+  disconnect_nodes: 'drawPage.assistantActDisconnect',
+  move_nodes: 'drawPage.assistantActMove',
+  resize_node: 'drawPage.assistantActResize',
+  select_nodes: 'drawPage.assistantActSelect',
+  generate_media: 'drawPage.assistantActGenerate',
+  generate_video: 'drawPage.assistantActGenerateVideo',
+  edit_image: 'drawPage.assistantActEdit',
+  run_node: 'drawPage.assistantActRun',
+  retry_node: 'drawPage.assistantActRetry',
+  cancel_node: 'drawPage.assistantActCancel',
+  media_action: 'drawPage.assistantActMedia',
+  create_trigger: 'drawPage.assistantActCreateTrigger',
+  delete_trigger: 'drawPage.assistantActDeleteTrigger',
+  manage_canvas: 'drawPage.assistantActCanvas'
 }
 
 // Rehydrated image nodes carry an oc-media:// display URL instead of inline
@@ -87,6 +117,25 @@ async function imageContentBlock(node: ImageNode): Promise<ContentBlock | null> 
   return null
 }
 
+function historyTurnText(turn: AssistantTurn): string {
+  const metadata = {
+    ...(turn.contextNodeIds?.length ? { contextNodeIds: turn.contextNodeIds } : {}),
+    ...(turn.attachmentRefs?.length ? { attachmentRefs: turn.attachmentRefs } : {}),
+    ...(turn.actions?.length
+      ? {
+          canvasActions: turn.actions.map((action) => ({
+            kind: action.kind,
+            ok: action.ok,
+            ...(action.result !== undefined ? { result: action.result } : {})
+          }))
+        }
+      : {})
+  }
+  return Object.keys(metadata).length > 0
+    ? `${turn.text}\n\n[canvas turn metadata]\n${JSON.stringify(metadata)}`
+    : turn.text
+}
+
 function focusNode(id: string): void {
   const { nodes, camera, stageSize, setCamera, setSelection } = useGraphStore.getState()
   const node = nodes.find((n) => n.id === id)
@@ -111,11 +160,111 @@ interface DragState {
 interface StreamState {
   text: string
   actions: AssistantAction[]
+  timeline: AssistantTimelineBlock[]
+}
+
+function ActiveToolStatus({
+  active
+}: {
+  active: Extract<AssistantTimelineBlock, { type: 'tool' }>
+}) {
+  const { t } = useTranslation('layout')
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const update = () => setElapsed(Math.max(0, Math.floor((Date.now() - active.startedAt) / 1000)))
+    update()
+    const timer = window.setInterval(update, 1000)
+    return () => window.clearInterval(timer)
+  }, [active.startedAt])
+  const waiting = active.kind === 'wait_for_node_event'
+  const target = active.nodeId ?? active.subscriptionId
+  return (
+    <div className="rounded-md border border-primary/20 bg-primary/5 p-2">
+      <div className="flex items-center gap-2">
+        <span className="relative flex size-5 shrink-0 items-center justify-center">
+          <span className="absolute size-5 animate-ping rounded-full bg-primary/15" />
+          <Loader2 className="relative size-3.5 animate-spin text-primary" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-foreground">
+            {waiting
+              ? t('drawPage.assistantListening', { defaultValue: 'Listening for node events' })
+              : t('drawPage.assistantExecuting', { defaultValue: 'Executing canvas action' })}
+          </p>
+          <p className="truncate text-[10px] text-muted-foreground">
+            {target ? `${target.slice(0, 12)} · ` : ''}
+            {t('drawPage.assistantElapsed', {
+              seconds: elapsed,
+              defaultValue: 'Waiting {{seconds}}s'
+            })}
+          </p>
+        </div>
+      </div>
+      {waiting && (
+        <p className="mt-1.5 text-[10px] text-muted-foreground">
+          {t('drawPage.assistantListeningHint', {
+            defaultValue: 'The assistant will continue automatically when the node finishes.'
+          })}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function Timeline({ blocks, live = false }: { blocks: AssistantTimelineBlock[]; live?: boolean }) {
+  const { t } = useTranslation('layout')
+  return (
+    <div className="space-y-1.5">
+      {blocks.map((block, index) => {
+        if (block.type === 'text') {
+          return (
+            <p key={index} className="whitespace-pre-wrap break-words">
+              {block.text}
+            </p>
+          )
+        }
+        if (block.type === 'thinking') {
+          const active = live && index === blocks.length - 1
+          return (
+            <details key={index} className="rounded-md bg-background/40 px-2 py-1" open={active}>
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted-foreground">
+                {active ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <Sparkles className="size-3" />
+                )}
+                {active
+                  ? t('drawPage.assistantThinking', { defaultValue: 'Thinking…' })
+                  : t('drawPage.assistantThought', { defaultValue: 'Thought' })}
+              </summary>
+              {!!block.text.trim() && (
+                <p className="mt-1 whitespace-pre-wrap break-words text-[10px] text-muted-foreground">
+                  {block.text}
+                </p>
+              )}
+            </details>
+          )
+        }
+        if (!block.action) return <ActiveToolStatus key={index} active={block} />
+        return (
+          <div key={index} className="flex items-center gap-1.5">
+            <ActionNote action={block.action} />
+            {block.finishedAt && (
+              <span className="text-[10px] text-muted-foreground">
+                {Math.max(0, Math.round((block.finishedAt - block.startedAt) / 1000))}s
+              </span>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function ActionNote({ action }: { action: AssistantAction }): React.JSX.Element {
   const { t } = useTranslation('layout')
   const Icon = ACTION_ICONS[action.kind] ?? Wand2
+  const labelKey = ACTION_LABEL_KEYS[action.kind]
   return (
     <span
       className={cn(
@@ -124,7 +273,7 @@ function ActionNote({ action }: { action: AssistantAction }): React.JSX.Element 
       )}
     >
       <Icon className="size-3" />
-      {t(ACTION_LABEL_KEYS[action.kind])}
+      {labelKey ? t(labelKey) : action.kind.replaceAll('_', ' ')}
       {!action.ok && ` · ${t('drawPage.assistantActFailed', { defaultValue: 'failed' })}`}
     </span>
   )
@@ -140,9 +289,23 @@ function ContextChip({
   const { t } = useTranslation('layout')
   let body: React.ReactNode
   if (node.kind === 'image' && node.data.src) {
-    body = <img src={node.data.src} className="size-6 rounded object-cover" alt="" />
+    body = (
+      <span className="inline-flex min-w-0 items-center gap-1">
+        <img src={node.data.src} className="size-6 shrink-0 rounded object-cover" alt="" />
+        <span className="max-w-20 truncate">
+          {node.data.prompt || t('drawPage.nodeImage', { defaultValue: 'Image' })}
+        </span>
+      </span>
+    )
   } else if (node.kind === 'image') {
-    body = <ImageIcon className="size-3.5 text-muted-foreground" />
+    body = (
+      <span className="inline-flex min-w-0 items-center gap-1">
+        <ImageIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="max-w-20 truncate">
+          {node.data.prompt || t('drawPage.nodeImage', { defaultValue: 'Image' })}
+        </span>
+      </span>
+    )
   } else if (node.kind === 'text') {
     const text = node.data.text.trim()
     body = (
@@ -154,7 +317,14 @@ function ContextChip({
       </span>
     )
   } else if (node.kind === 'video') {
-    body = <Film className="size-3.5 text-muted-foreground" />
+    body = (
+      <span className="inline-flex min-w-0 items-center gap-1">
+        <Film className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="max-w-20 truncate">
+          {node.data.prompt || t('drawPage.modeVideo', { defaultValue: 'Video' })}
+        </span>
+      </span>
+    )
   } else {
     body = (
       <span className="inline-flex items-center gap-1">
@@ -167,6 +337,14 @@ function ContextChip({
     <span className="inline-flex items-center gap-1 rounded-md border bg-muted/40 py-0.5 pl-1 pr-0.5 text-[11px]">
       <button type="button" className="inline-flex items-center" onClick={() => focusNode(node.id)}>
         {body}
+        <span className="ml-1 text-[9px] text-muted-foreground/70">{node.id.slice(0, 5)}</span>
+        {node.execution && (
+          <span className="ml-1 rounded bg-background/70 px-1 text-[9px] text-muted-foreground">
+            {t(`drawPage.triggerStatuses.${node.execution.status}`, {
+              defaultValue: node.execution.status
+            })}
+          </span>
+        )}
       </button>
       <button
         type="button"
@@ -209,25 +387,42 @@ export function CanvasAssistant(): React.JSX.Element | null {
       contextIds.map((id) => s.nodes.find((n) => n.id === id)).filter((n): n is CanvasNode => !!n)
     )
   )
-  const addableSelection = useGraphStore(
+  const selectedNodes = useGraphStore(
     useShallow((s) =>
-      s.selection.filter((id) => !contextIds.includes(id) && s.nodes.some((n) => n.id === id))
+      s.selection
+        .map((id) => s.nodes.find((node) => node.id === id))
+        .filter((node): node is CanvasNode => !!node)
     )
+  )
+  const requestContextNodes = useMemo(() => {
+    const byId = new Map<string, CanvasNode>()
+    contextNodes.forEach((node) => byId.set(node.id, node))
+    selectedNodes.forEach((node) => byId.set(node.id, node))
+    return [...byId.values()]
+  }, [contextNodes, selectedNodes])
+  const unpinnedSelectedIds = useMemo(
+    () => selectedNodes.map((node) => node.id).filter((id) => !contextIds.includes(id)),
+    [contextIds, selectedNodes]
   )
   const graphActions = useGraphActions()
   const activeProviderId = useProviderStore((s) => s.activeProviderId)
   const activeModelId = useProviderStore((s) => s.activeModelId)
+  const providers = useProviderStore((s) => s.providers)
 
   const [input, setInput] = useState('')
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const [busy, setBusy] = useState(false)
   const [stream, setStream] = useState<StreamState | null>(null)
+  const [confirmation, setConfirmation] = useState<CanvasConfirmationRequest | null>(null)
   const [livePos, setLivePos] = useState<{ x: number; y: number } | null>(null)
   const [liveSize, setLiveSize] = useState<{ w: number; h: number } | null>(null)
 
   const shellRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const streamRef = useRef<StreamState>({ text: '', actions: [] })
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const confirmationResolveRef = useRef<((approved: boolean) => void) | null>(null)
+  const streamRef = useRef<StreamState>({ text: '', actions: [], timeline: [] })
   const dragRef = useRef<DragState | null>(null)
   const resizeRef = useRef<{
     pointerId: number
@@ -243,6 +438,13 @@ export function CanvasAssistant(): React.JSX.Element | null {
       : activeProviderId && activeModelId
         ? { providerId: activeProviderId, modelId: activeModelId }
         : undefined
+  const selectedProviderMeta = providers.find(
+    (provider) => provider.id === selectedModel?.providerId
+  )
+  const selectedModelMeta = selectedProviderMeta?.models.find(
+    (model) => model.id === selectedModel?.modelId
+  )
+  const supportsVision = modelSupportsVision(selectedModelMeta, selectedProviderMeta?.type)
 
   // Drop context chips whose nodes were deleted from the canvas.
   useEffect(() => {
@@ -251,20 +453,72 @@ export function CanvasAssistant(): React.JSX.Element | null {
     }
   }, [contextIds, contextNodes, pruneContext])
 
-  // Seed context from the current canvas selection when the panel opens empty.
-  useEffect(() => {
-    if (!open) return
-    if (useAssistantStore.getState().contextIds.length > 0) return
-    const sel = useGraphStore.getState().selection
-    if (sel.length > 0) addContext(sel)
-  }, [open, addContext])
-
   useEffect(() => {
     const el = listRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [turns, stream?.text.length, stream?.actions.length])
+  }, [turns, stream])
 
-  useEffect(() => () => abortRef.current?.abort(), [])
+  useEffect(
+    () => () => {
+      abortRef.current?.abort()
+      confirmationResolveRef.current?.(false)
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (!abortRef.current) return
+    abortRef.current.abort()
+    confirmationResolveRef.current?.(false)
+  }, [projectId])
+
+  useEffect(() => {
+    if (open || !abortRef.current) return
+    abortRef.current.abort()
+    confirmationResolveRef.current?.(false)
+  }, [open])
+
+  const addImages = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return
+      if (!supportsVision) {
+        toast.error(
+          t('drawPage.assistantVisionRequired', {
+            defaultValue: 'Select a vision-capable model to send images'
+          })
+        )
+        return
+      }
+      const converted = await Promise.all(files.map(fileToImageAttachment))
+      const valid = converted.filter((image): image is ImageAttachment => !!image)
+      if (valid.length !== files.length) {
+        toast.error(
+          t('drawPage.assistantImageInvalid', {
+            defaultValue: 'Some images were unsupported or larger than 20 MB'
+          })
+        )
+      }
+      setAttachments((current) => [...current, ...valid])
+    },
+    [supportsVision, t]
+  )
+
+  const requestConfirmation = useCallback(
+    (request: CanvasConfirmationRequest): Promise<boolean> =>
+      new Promise((resolve) => {
+        confirmationResolveRef.current?.(false)
+        confirmationResolveRef.current = resolve
+        setConfirmation(request)
+      }),
+    []
+  )
+
+  const resolveConfirmation = useCallback((approved: boolean) => {
+    const resolve = confirmationResolveRef.current
+    confirmationResolveRef.current = null
+    setConfirmation(null)
+    resolve?.(approved)
+  }, [])
 
   const clampToParent = useCallback((x: number, y: number, w: number, h: number) => {
     const parent = shellRef.current?.parentElement
@@ -376,7 +630,17 @@ export function CanvasAssistant(): React.JSX.Element | null {
   const send = useCallback(
     async (raw?: string) => {
       const request = (raw ?? input).trim()
-      if (!request || busy) return
+      const pendingAttachments = [...attachments]
+      const requestProjectId = projectId
+      if ((!request && pendingAttachments.length === 0) || busy) return
+      if (pendingAttachments.length > 0 && !supportsVision) {
+        toast.error(
+          t('drawPage.assistantVisionRequired', {
+            defaultValue: 'Select a vision-capable model to send images'
+          })
+        )
+        return
+      }
       const providerStore = useProviderStore.getState()
       const chosen = useAssistantStore.getState()
       const config =
@@ -392,34 +656,93 @@ export function CanvasAssistant(): React.JSX.Element | null {
         toast.error(t('drawPage.authRequired', { defaultValue: 'Provider login required' }))
         return
       }
+      if ((useProjectsStore.getState().activeProjectId ?? 'default') !== requestProjectId) return
 
+      const graphBeforeAttachments = useGraphStore.getState()
+      const selectedIds = [...graphBeforeAttachments.selection]
+      const attachmentNodeIds: string[] = []
+      if (pendingAttachments.length > 0) {
+        const center = screenToWorld(
+          {
+            x: graphBeforeAttachments.stageSize.width / 2,
+            y: graphBeforeAttachments.stageSize.height / 2
+          },
+          graphBeforeAttachments.camera
+        )
+        for (let index = 0; index < pendingAttachments.length; index += 1) {
+          const attachment = pendingAttachments[index]
+          const nodeId = await addImageNodeFromDataUrl(
+            attachment.dataUrl,
+            {
+              x: center.x + index * 36,
+              y: center.y + index * 36
+            },
+            requestProjectId
+          )
+          attachmentNodeIds.push(nodeId)
+        }
+        addContext(attachmentNodeIds)
+      }
+      if ((useProjectsStore.getState().activeProjectId ?? 'default') !== requestProjectId) return
       const graph = useGraphStore.getState()
-      const ctx = chosen.contextIds
+      const contextNodeIds = [
+        ...new Set([...chosen.contextIds, ...selectedIds, ...attachmentNodeIds])
+      ]
+      const ctx = contextNodeIds
         .map((id) => graph.nodes.find((n) => n.id === id))
         .filter((n): n is CanvasNode => !!n)
       const labels: string[] = []
       const imageBlocks: ContentBlock[] = []
+      pendingAttachments.forEach((attachment, index) => {
+        const nodeId = attachmentNodeIds[index]
+        if (nodeId) {
+          labels.push(`[uploaded attachment ${attachment.id}] materialized as image node ${nodeId}`)
+        }
+      })
       for (const node of ctx) {
         if (node.kind === 'text' && node.data.text.trim()) {
           labels.push(`[text node ${node.id}]\n${node.data.text.trim()}`)
         } else if (node.kind === 'image') {
-          const block = await imageContentBlock(node)
+          const block = supportsVision ? await imageContentBlock(node) : null
           if (block) {
             imageBlocks.push(block)
             labels.push(`[image node ${node.id}] (image attached)`)
+          } else {
+            labels.push(
+              `[image node ${node.id}] prompt=${node.data.prompt ?? ''} status=${node.execution?.status ?? 'idle'}`
+            )
           }
+        } else if (node.kind === 'video') {
+          labels.push(
+            `[video node ${node.id}] prompt=${node.data.prompt ?? ''} status=${node.execution?.status ?? 'idle'}`
+          )
+          if (supportsVision && node.data.poster?.startsWith('data:')) {
+            const comma = node.data.poster.indexOf(',')
+            imageBlocks.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                mediaType: 'image/jpeg',
+                data: node.data.poster.slice(comma + 1)
+              }
+            })
+          }
+        } else if (node.kind === 'config') {
+          labels.push(`[config node ${node.id}] ${JSON.stringify(node.data)}`)
         }
       }
+      const requestText = request || '[User attached images without additional text.]'
       const userText = labels.length
-        ? `Context from canvas:\n${labels.join('\n\n')}\n\n---\n${request}`
-        : request
+        ? `Context from canvas:\n${labels.join('\n\n')}\n\n---\n${requestText}`
+        : requestText
       const content: string | ContentBlock[] =
         imageBlocks.length > 0 ? [...imageBlocks, { type: 'text', text: userText }] : userText
+      if ((useProjectsStore.getState().activeProjectId ?? 'default') !== requestProjectId) return
 
-      const prior: UnifiedMessage[] = turns.map((turn) => ({
+      const prior: UnifiedMessage[] = turns.slice(-30).map((turn) => ({
         id: nanoid(),
         role: turn.role,
-        content: turn.text,
+        content: historyTurnText(turn),
         createdAt: Date.now()
       }))
       const messages: UnifiedMessage[] = [
@@ -427,11 +750,23 @@ export function CanvasAssistant(): React.JSX.Element | null {
         { id: nanoid(), role: 'user', content, createdAt: Date.now() }
       ]
 
-      appendTurn(projectId, { role: 'user', text: request })
+      appendTurn(requestProjectId, {
+        role: 'user',
+        text: requestText,
+        contextNodeIds,
+        attachmentCount: pendingAttachments.length,
+        attachmentRefs: pendingAttachments
+          .map((attachment, index) => {
+            const nodeId = attachmentNodeIds[index]
+            return nodeId ? { attachmentId: attachment.id, nodeId } : null
+          })
+          .filter((reference): reference is { attachmentId: string; nodeId: string } => !!reference)
+      })
       if (!raw) setInput('')
+      setAttachments([])
       setBusy(true)
-      streamRef.current = { text: '', actions: [] }
-      setStream({ text: '', actions: [] })
+      streamRef.current = { text: '', actions: [], timeline: [] }
+      setStream({ text: '', actions: [], timeline: [] })
       const controller = new AbortController()
       abortRef.current = controller
       try {
@@ -439,14 +774,57 @@ export function CanvasAssistant(): React.JSX.Element | null {
           provider: config,
           messages,
           actions: graphActions,
+          attachments: pendingAttachments,
+          attachmentNodeIds: Object.fromEntries(
+            pendingAttachments
+              .map((attachment, index) => [attachment.id, attachmentNodeIds[index]] as const)
+              .filter((entry): entry is readonly [string, string] => !!entry[1])
+          ),
+          projectBaseName: t('drawPage.canvasBaseName', { defaultValue: 'Canvas' }),
+          projectId: requestProjectId,
+          confirm: requestConfirmation,
           signal: controller.signal
         })) {
           if (event.type === 'text') {
             streamRef.current.text += event.text
-          } else {
+            const last = streamRef.current.timeline.at(-1)
+            if (last?.type === 'text') last.text += event.text
+            else streamRef.current.timeline.push({ type: 'text', text: event.text })
+          } else if (event.type === 'thinking') {
+            const last = streamRef.current.timeline.at(-1)
+            if (last?.type === 'thinking') last.text += event.text
+            else streamRef.current.timeline.push({ type: 'thinking', text: event.text })
+          } else if (event.type === 'action') {
             streamRef.current.actions.push(event.action)
+            const pendingTool = [...streamRef.current.timeline]
+              .reverse()
+              .find((block) => block.type === 'tool' && !block.action)
+            if (pendingTool?.type === 'tool') {
+              pendingTool.action = event.action
+              pendingTool.finishedAt = Date.now()
+            } else {
+              streamRef.current.timeline.push({
+                type: 'tool',
+                kind: event.action.kind,
+                startedAt: Date.now(),
+                finishedAt: Date.now(),
+                action: event.action
+              })
+            }
+          } else if (event.type === 'tool_start') {
+            streamRef.current.timeline.push({
+              type: 'tool',
+              kind: event.kind,
+              nodeId: event.nodeId,
+              subscriptionId: event.subscriptionId,
+              startedAt: Date.now()
+            })
           }
-          setStream({ text: streamRef.current.text, actions: [...streamRef.current.actions] })
+          setStream({
+            text: streamRef.current.text,
+            actions: [...streamRef.current.actions],
+            timeline: streamRef.current.timeline.map((block) => ({ ...block }))
+          })
         }
       } catch (error) {
         if (!controller.signal.aborted) {
@@ -455,12 +833,14 @@ export function CanvasAssistant(): React.JSX.Element | null {
           })
         }
       } finally {
+        resolveConfirmation(false)
         const result = streamRef.current
         if (result.text.trim() || result.actions.length > 0) {
-          appendTurn(projectId, {
+          appendTurn(requestProjectId, {
             role: 'assistant',
             text: result.text.trim() || '…',
-            ...(result.actions.length > 0 ? { actions: result.actions } : {})
+            ...(result.actions.length > 0 ? { actions: result.actions } : {}),
+            ...(result.timeline.length > 0 ? { timeline: result.timeline } : {})
           })
         }
         setStream(null)
@@ -468,7 +848,20 @@ export function CanvasAssistant(): React.JSX.Element | null {
         abortRef.current = null
       }
     },
-    [appendTurn, busy, graphActions, input, projectId, t, turns]
+    [
+      addContext,
+      appendTurn,
+      attachments,
+      busy,
+      graphActions,
+      input,
+      projectId,
+      requestConfirmation,
+      resolveConfirmation,
+      supportsVision,
+      t,
+      turns
+    ]
   )
 
   const insertAsNode = useCallback(
@@ -491,6 +884,19 @@ export function CanvasAssistant(): React.JSX.Element | null {
   const pos = livePos ?? storePosition
   const posStyle = pos ? { left: pos.x, top: pos.y } : { right: 16, top: 64 }
   const size = liveSize ?? storeSize ?? ASSISTANT_DEFAULT_SIZE
+  const confirmationTitle = confirmation
+    ? t(`drawPage.assistantConfirm.${confirmation.kind}.title`, {
+        defaultValue:
+          confirmation.kind === 'cancel_node' ? 'Cancel generation?' : 'Confirm canvas change'
+      })
+    : ''
+  const confirmationDescription = confirmation
+    ? t(`drawPage.assistantConfirm.${confirmation.kind}.description`, {
+        count: confirmation.count,
+        nodeId: confirmation.nodeId,
+        defaultValue: 'This operation may replace or permanently remove canvas data.'
+      })
+    : ''
 
   if (collapsed) {
     return (
@@ -587,28 +993,38 @@ export function CanvasAssistant(): React.JSX.Element | null {
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground">
             {t('drawPage.assistantContext', {
-              count: contextNodes.length,
+              count: requestContextNodes.length,
               defaultValue: '{{count}} in context'
             })}
           </span>
-          {addableSelection.length > 0 && (
+          {unpinnedSelectedIds.length > 0 && (
             <button
               type="button"
               className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] text-primary hover:bg-primary/10"
-              onClick={() => addContext(addableSelection)}
+              onClick={() => addContext(unpinnedSelectedIds)}
             >
-              <Plus className="size-3" />
-              {t('drawPage.assistantAddSelection', {
-                count: addableSelection.length,
-                defaultValue: 'Add selected ({{count}})'
+              <Pin className="size-3" />
+              {t('drawPage.assistantPinSelection', {
+                count: unpinnedSelectedIds.length,
+                defaultValue: 'Pin selected ({{count}})'
               })}
             </button>
           )}
         </div>
-        {contextNodes.length > 0 && (
+        {requestContextNodes.length > 0 && (
           <div className="mt-1.5 flex max-h-16 flex-wrap gap-1 overflow-y-auto">
-            {contextNodes.map((node) => (
-              <ContextChip key={node.id} node={node} onRemove={removeContext} />
+            {requestContextNodes.map((node) => (
+              <ContextChip
+                key={node.id}
+                node={node}
+                onRemove={(id) => {
+                  removeContext(id)
+                  const state = useGraphStore.getState()
+                  if (state.selection.includes(id)) {
+                    state.setSelection(state.selection.filter((selectedId) => selectedId !== id))
+                  }
+                }}
+              />
             ))}
           </div>
         )}
@@ -630,14 +1046,27 @@ export function CanvasAssistant(): React.JSX.Element | null {
               turn.role === 'user' ? 'bg-primary/10 text-foreground' : 'bg-muted'
             )}
           >
-            {turn.actions && turn.actions.length > 0 && (
+            {!turn.timeline && turn.actions && turn.actions.length > 0 && (
               <div className="mb-1 flex flex-wrap gap-1">
                 {turn.actions.map((action, j) => (
                   <ActionNote key={j} action={action} />
                 ))}
               </div>
             )}
-            <p className="whitespace-pre-wrap break-words">{turn.text}</p>
+            {!!turn.attachmentCount && (
+              <span className="mb-1 inline-flex items-center gap-1 rounded bg-background/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                <ImageIcon className="size-3" />
+                {t('drawPage.assistantImagesAttached', {
+                  count: turn.attachmentCount,
+                  defaultValue: '{{count}} image(s)'
+                })}
+              </span>
+            )}
+            {turn.role === 'assistant' && turn.timeline ? (
+              <Timeline blocks={turn.timeline} />
+            ) : (
+              <p className="whitespace-pre-wrap break-words">{turn.text}</p>
+            )}
             {turn.role === 'assistant' && turn.text.trim() && (
               <button
                 type="button"
@@ -652,15 +1081,8 @@ export function CanvasAssistant(): React.JSX.Element | null {
         ))}
         {stream && (
           <div className="rounded-lg bg-muted px-2.5 py-1.5 text-xs">
-            {stream.actions.length > 0 && (
-              <div className="mb-1 flex flex-wrap gap-1">
-                {stream.actions.map((action, j) => (
-                  <ActionNote key={j} action={action} />
-                ))}
-              </div>
-            )}
-            {stream.text ? (
-              <p className="whitespace-pre-wrap break-words">{stream.text}</p>
+            {stream.timeline.length > 0 ? (
+              <Timeline blocks={stream.timeline} live />
             ) : (
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" />
@@ -692,10 +1114,95 @@ export function CanvasAssistant(): React.JSX.Element | null {
       </div>
 
       <div className="border-t p-2">
-        <div className="relative">
+        {confirmation && (
+          <div className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+            <p className="font-medium">{confirmationTitle}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{confirmationDescription}</p>
+            <div className="mt-2 flex justify-end gap-1.5">
+              <Button size="sm" variant="ghost" onClick={() => resolveConfirmation(false)}>
+                {t('drawPage.assistantReject', { defaultValue: 'Reject' })}
+              </Button>
+              <Button size="sm" onClick={() => resolveConfirmation(true)}>
+                {t('drawPage.assistantApprove', { defaultValue: 'Approve' })}
+              </Button>
+            </div>
+          </div>
+        )}
+        {attachments.length > 0 && (
+          <div className="mb-2 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
+            {attachments.map((attachment) => (
+              <div key={attachment.id} className="group/attachment relative">
+                <img
+                  src={attachment.dataUrl}
+                  alt=""
+                  className="size-12 rounded-md border object-cover"
+                />
+                <button
+                  type="button"
+                  className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-background text-muted-foreground shadow opacity-0 group-hover/attachment:opacity-100"
+                  onClick={() =>
+                    setAttachments((current) =>
+                      current.filter((candidate) => candidate.id !== attachment.id)
+                    )
+                  }
+                >
+                  <X className="size-2.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {attachments.length > 0 && !supportsVision && (
+          <p className="mb-2 text-[11px] text-destructive">
+            {t('drawPage.assistantVisionRequired', {
+              defaultValue: 'Select a vision-capable model to send images'
+            })}
+          </p>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            void addImages(Array.from(event.target.files ?? []))
+            event.target.value = ''
+          }}
+        />
+        <div
+          className="relative"
+          onDragOver={(event) => {
+            if (
+              supportsVision &&
+              Array.from(event.dataTransfer.items).some((i) => i.type.startsWith('image/'))
+            ) {
+              event.preventDefault()
+              event.stopPropagation()
+            }
+          }}
+          onDrop={(event) => {
+            const files = Array.from(event.dataTransfer.files).filter((file) =>
+              file.type.startsWith('image/')
+            )
+            if (files.length === 0) return
+            event.preventDefault()
+            event.stopPropagation()
+            void addImages(files)
+          }}
+        >
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData.items)
+                .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => !!file)
+              if (files.length === 0) return
+              event.preventDefault()
+              void addImages(files)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault()
@@ -703,16 +1210,34 @@ export function CanvasAssistant(): React.JSX.Element | null {
               }
             }}
             placeholder={t('drawPage.assistantPlaceholder', { defaultValue: 'Ask the assistant…' })}
-            className="max-h-28 min-h-9 resize-none pr-10 text-sm"
+            className={cn(
+              'max-h-28 min-h-9 resize-none text-sm',
+              supportsVision ? 'pl-9 pr-10' : 'pr-10'
+            )}
             rows={1}
           />
+          {supportsVision && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="absolute bottom-1.5 left-1.5 size-7"
+              title={t('drawPage.assistantAttachImage', { defaultValue: 'Attach image' })}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={busy}
+            >
+              <Paperclip className="size-3.5" />
+            </Button>
+          )}
           {busy ? (
             <Button
               size="icon"
               variant="secondary"
               className="absolute bottom-1.5 right-1.5 size-7"
               title={t('drawPage.assistantStop', { defaultValue: 'Stop' })}
-              onClick={() => abortRef.current?.abort()}
+              onClick={() => {
+                resolveConfirmation(false)
+                abortRef.current?.abort()
+              }}
             >
               <Square className="size-3" />
             </Button>
@@ -721,7 +1246,10 @@ export function CanvasAssistant(): React.JSX.Element | null {
               size="icon"
               className="absolute bottom-1.5 right-1.5 size-7"
               onClick={() => void send()}
-              disabled={!input.trim()}
+              disabled={
+                (!input.trim() && attachments.length === 0) ||
+                (attachments.length > 0 && !supportsVision)
+              }
             >
               <CornerDownLeft className="size-3.5" />
             </Button>

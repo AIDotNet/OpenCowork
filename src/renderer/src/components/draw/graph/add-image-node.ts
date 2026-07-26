@@ -1,6 +1,8 @@
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { useGraphStore } from './graph-store'
+import { useProjectsStore } from './draw-projects-store'
+import { patchPersistedProjectGraph } from './graph-persistence'
 import { createCanvasNode } from './node-factory'
 import type { CanvasNode } from './graph-types'
 
@@ -20,8 +22,9 @@ export function fileToDataUrl(file: Blob): Promise<string> {
  */
 export async function addImageNodeFromDataUrl(
   dataUrl: string,
-  world: { x: number; y: number }
-): Promise<void> {
+  world: { x: number; y: number },
+  projectId = useProjectsStore.getState().activeProjectId ?? 'default'
+): Promise<string> {
   const comma = dataUrl.indexOf(',')
   const data = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
   const mediaType = /data:(.*?);/.exec(dataUrl)?.[1] || 'image/png'
@@ -45,7 +48,25 @@ export async function addImageNodeFromDataUrl(
 
   const base = createCanvasNode('image', world)
   const node: CanvasNode = { ...base, kind: 'image', data: { src, filePath, mediaType } }
-  useGraphStore.getState().addNode(node, { select: true })
+  if ((useProjectsStore.getState().activeProjectId ?? 'default') === projectId) {
+    useGraphStore.getState().addNode(node, { select: true })
+  } else {
+    patchPersistedProjectGraph(projectId, (stored) => ({
+      ...stored,
+      nodes: [
+        ...stored.nodes,
+        {
+          ...node,
+          selected: undefined,
+          data: {
+            ...node.data,
+            src: node.data.src?.startsWith('data:') ? undefined : node.data.src
+          }
+        }
+      ]
+    }))
+  }
+  return node.id
 }
 
 /** Extract image files from a clipboard or drag data-transfer. */

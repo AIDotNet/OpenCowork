@@ -6,6 +6,54 @@
 
 export type CanvasNodeKind = 'text' | 'image' | 'config' | 'video'
 
+export type NodeExecutionStatus =
+  | 'idle'
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted'
+
+export interface NodeExecutionSnapshot {
+  runId: string
+  status: NodeExecutionStatus
+  startedAt?: number
+  finishedAt?: number
+  progress?: number
+  error?: string
+  outputNodeIds?: string[]
+}
+
+export type CanvasNodeEventType =
+  | 'run.queued'
+  | 'run.started'
+  | 'run.progress'
+  | 'run.succeeded'
+  | 'run.failed'
+  | 'run.cancelled'
+  | 'run.interrupted'
+  | 'node.updated'
+
+export interface CanvasNodeEvent {
+  eventId: string
+  projectId: string
+  nodeId: string
+  runId?: string
+  type: CanvasNodeEventType
+  timestamp: number
+  payload?: Record<string, unknown>
+}
+
+export interface CanvasTrigger {
+  id: string
+  sourceNodeId: string
+  event: CanvasNodeEventType
+  targetNodeId: string
+  enabled: boolean
+  createdAt: number
+}
+
 export interface NodeBox {
   id: string
   x: number
@@ -42,11 +90,15 @@ export interface ConfigNodeData {
   aspect?: string
   count?: number
   quality?: string
+  /** image generation quality/size controls (default auto). */
+  size?: string
   // video (Seedance) params
   resolution?: string
   duration?: number
   fps?: number
   watermark?: boolean
+  seed?: number
+  cameraFixed?: boolean
 }
 
 export interface VideoNodeData {
@@ -66,8 +118,9 @@ export interface VideoNodeData {
   jobId?: string
 }
 
-interface BaseNode extends NodeBox {
+export interface BaseNode extends NodeBox {
   selected?: boolean
+  execution?: NodeExecutionSnapshot
 }
 
 export interface TextNode extends BaseNode {
@@ -99,8 +152,11 @@ export interface CanvasEdge {
 }
 
 export interface CanvasGraph {
+  schemaVersion?: number
   nodes: CanvasNode[]
   edges: CanvasEdge[]
+  triggers?: CanvasTrigger[]
+  background?: BackgroundMode
 }
 
 export type BackgroundMode = 'dots' | 'grid' | 'blank'
@@ -108,7 +164,7 @@ export type BackgroundMode = 'dots' | 'grid' | 'blank'
 export const NODE_DEFAULT_SIZE: Record<CanvasNodeKind, { w: number; h: number }> = {
   text: { w: 280, h: 160 },
   image: { w: 320, h: 320 },
-  config: { w: 300, h: 268 },
+  config: { w: 300, h: 340 },
   video: { w: 360, h: 240 }
 }
 

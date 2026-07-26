@@ -19,6 +19,7 @@ internal static class WorkerModuleCatalog
         new OpenAIAudioModule(),
         new SeedanceVideoModule(),
         new XaiVideoModule(),
+        new OpenAIVideoModule(),
         new WebModule(),
         new McpConfigModule(),
         new UserContentModule(),

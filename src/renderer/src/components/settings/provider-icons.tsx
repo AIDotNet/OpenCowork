@@ -187,14 +187,17 @@ export function AutoModelIcon({
 
 export function ProviderIcon({
   builtinId,
+  icon,
   size = 20,
   className
 }: {
   builtinId?: string
+  icon?: string
   size?: number
   className?: string
 }): React.JSX.Element {
   const variant = useIconVariant()
+  if (icon) return <StaticIcon src={icon} size={size} className={className} />
   const customUrl = builtinId ? iconUrlMap[builtinId] : undefined
   if (customUrl) return <StaticIcon src={customUrl} size={size} className={className} />
   const slug = builtinId ? providerIconSlugMap[builtinId] : undefined

@@ -94,12 +94,18 @@ internal static class SeedanceVideoTools
         {
             using var doc = JsonDocument.Parse(text);
             var root = doc.RootElement;
-            status = JsonHelpers.GetString(root, "status") ?? "unknown";
-            if (root.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Object)
+            var payload = root.TryGetProperty("data", out var data) &&
+                data.ValueKind == JsonValueKind.Object
+                    ? data
+                    : root;
+            status = JsonHelpers.GetString(payload, "status") ?? "unknown";
+            if (payload.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Object)
             {
-                videoUrl = JsonHelpers.GetString(content, "video_url");
+                videoUrl = JsonHelpers.GetString(content, "video_url") ??
+                    JsonHelpers.GetString(content, "url");
             }
-            error = ExtractError(root);
+            videoUrl ??= JsonHelpers.GetString(payload, "video_url");
+            error = ExtractError(payload) ?? ExtractError(root);
         }
         catch (JsonException)
         {

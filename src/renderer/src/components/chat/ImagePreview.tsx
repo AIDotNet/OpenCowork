@@ -1,4 +1,5 @@
 import { useCallback, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Download, Copy, Check } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import { toast } from 'sonner'
@@ -311,7 +312,8 @@ export function ImagePreview({
       </div>
 
       {/* Full screen preview */}
-      <AnimatePresence>
+      {createPortal(
+        <AnimatePresence>
         {isOpen && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -390,7 +392,9 @@ export function ImagePreview({
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body
+      )}
     </>
   )
 }

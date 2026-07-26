@@ -20,10 +20,13 @@ import {
   Sparkles,
   Copy,
   MonitorSmartphone,
-  Layers
+  Layers,
+  Upload,
+  X
 } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { toast } from 'sonner'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Switch } from '@renderer/components/ui/switch'
@@ -496,80 +499,239 @@ function AddProviderDialog({
   const [name, setName] = useState('')
   const [type, setType] = useState<ProviderType>('openai-chat')
   const [baseUrl, setBaseUrl] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [icon, setIcon] = useState('')
+  const [enabled, setEnabled] = useState(true)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const reduceMotion = useReducedMotion()
+  const enter = (delay = 0): Record<string, unknown> =>
+    reduceMotion
+      ? {}
+      : {
+          initial: { opacity: 0, y: 8 },
+          animate: { opacity: 1, y: 0 },
+          transition: { duration: 0.22, delay, ease: [0.22, 1, 0.36, 1] }
+        }
+
+  const resetForm = (): void => {
+    setName('')
+    setType('openai-chat')
+    setBaseUrl('')
+    setApiKey('')
+    setShowApiKey(false)
+    setIcon('')
+    setEnabled(true)
+  }
+
+  const handleOpenChange = (nextOpen: boolean): void => {
+    if (!nextOpen) resetForm()
+    onOpenChange(nextOpen)
+  }
+
+  const handleIconChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error(t('provider.iconInvalidType'))
+      return
+    }
+    if (file.size > 1024 * 1024) {
+      toast.error(t('provider.iconTooLarge'))
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => setIcon(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => toast.error(t('provider.iconUploadFailed'))
+    reader.readAsDataURL(file)
+  }
 
   const handleAdd = (): void => {
     if (!name.trim()) return
     addProvider({
       id: nanoid(),
       name: name.trim(),
+      ...(icon ? { icon } : {}),
       type,
-      apiKey: '',
+      apiKey: apiKey.trim(),
       baseUrl: baseUrl.trim(),
-      enabled: false,
+      enabled,
       models: [],
       createdAt: Date.now()
     })
     toast.success(t('provider.addedProvider', { name: name.trim() }))
-    setName('')
-    setBaseUrl('')
-    setType('openai-chat')
-    onOpenChange(false)
+    handleOpenChange(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto p-0">
         <DialogHeader>
-          <DialogTitle>{t('provider.addCustomProvider')}</DialogTitle>
-          <DialogDescription>{t('provider.addCustomProviderDesc')}</DialogDescription>
+          <div className="border-b px-6 pb-4 pt-6">
+            <DialogTitle>{t('provider.addCustomProvider')}</DialogTitle>
+            <DialogDescription className="mt-1.5">
+              {t('provider.addCustomProviderDesc')}
+            </DialogDescription>
+          </div>
         </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t('provider.providerName')}</label>
-            <Input
-              placeholder={t('provider.providerNamePlaceholder')}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t('provider.protocolType')}</label>
-            <Select value={type} onValueChange={(v) => setType(v as ProviderType)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="openai-chat">{t('provider.openaiChatCompat')}</SelectItem>
-                <SelectItem value="openai-responses">{t('provider.openaiResponses')}</SelectItem>
-                <SelectItem value="anthropic">{t('provider.anthropicMessages')}</SelectItem>
-                <SelectItem value="gemini">Gemini</SelectItem>
-                <SelectItem value="seedance-video">
-                  {t('provider.seedanceVideo', { defaultValue: 'Seedance Video (Volcengine)' })}
-                </SelectItem>
-                <SelectItem value="xai-video">
-                  {t('provider.xaiVideo', { defaultValue: 'xAI Video' })}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
+        <div className="space-y-5 px-6 pb-6">
+          <motion.div
+            {...enter(0.03)}
+            className="flex items-center gap-4 rounded-xl border bg-muted/20 p-3.5"
+          >
+            <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-background">
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={icon || 'default-provider-icon'}
+                  initial={reduceMotion ? false : { opacity: 0, scale: 0.75, rotate: -6 }}
+                  animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                  exit={reduceMotion ? undefined : { opacity: 0, scale: 0.8, rotate: 6 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  className="flex items-center justify-center"
+                >
+                  <ProviderIcon icon={icon} size={30} />
+                </motion.div>
+              </AnimatePresence>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">{t('provider.customIcon')}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t('provider.customIconHint')}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                  className="hidden"
+                  onChange={handleIconChange}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="size-3.5" />
+                  {icon ? t('provider.replaceIcon') : t('provider.uploadIcon')}
+                </Button>
+                {icon && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+                    onClick={() => setIcon('')}
+                  >
+                    <X className="size-3.5" />
+                    {t('provider.removeIcon')}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div {...enter(0.07)} className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t('provider.providerName')}</label>
+              <Input
+                placeholder={t('provider.providerNamePlaceholder')}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t('provider.protocolType')}</label>
+              <Select value={type} onValueChange={(v) => setType(v as ProviderType)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai-chat">{t('provider.openaiChatCompat')}</SelectItem>
+                  <SelectItem value="openai-responses">{t('provider.openaiResponses')}</SelectItem>
+                  <SelectItem value="anthropic">{t('provider.anthropicMessages')}</SelectItem>
+                  <SelectItem value="gemini">Gemini</SelectItem>
+                  <SelectItem value="seedance-video">
+                    {t('provider.seedanceVideo', { defaultValue: 'Seedance Video (Volcengine)' })}
+                  </SelectItem>
+                  <SelectItem value="xai-video">
+                    {t('provider.xaiVideo', { defaultValue: 'xAI Video' })}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </motion.div>
+
+          <motion.div {...enter(0.11)} className="space-y-2">
             <label className="text-sm font-medium">{t('provider.baseUrl')}</label>
             <Input
-              placeholder="https://api.example.com"
+              placeholder={t('provider.baseUrlPlaceholder')}
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">{t('provider.baseUrlHint')}</p>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          </motion.div>
+
+          <motion.div {...enter(0.15)} className="space-y-2">
+            <label className="text-sm font-medium">{t('provider.apiKey')}</label>
+            <div className="relative">
+              <Input
+                type={showApiKey ? 'text' : 'password'}
+                placeholder={t('provider.apiKeyPlaceholder')}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => setShowApiKey((value) => !value)}
+                aria-label={showApiKey ? t('provider.hideKey') : t('provider.showKey')}
+              >
+                {showApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">{t('provider.apiKeyHint')}</p>
+          </motion.div>
+
+          <motion.div
+            {...enter(0.19)}
+            animate={
+              reduceMotion
+                ? undefined
+                : { opacity: 1, y: 0, borderColor: enabled ? 'hsl(var(--primary) / 0.3)' : '' }
+            }
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="flex items-center justify-between rounded-xl border bg-muted/20 px-4 py-3"
+          >
+            <div>
+              <p className="text-sm font-medium">{t('provider.enableAfterAdding')}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t('provider.enableAfterAddingHint')}
+              </p>
+            </div>
+            <motion.div
+              animate={reduceMotion ? undefined : { scale: enabled ? [1, 1.08, 1] : 1 }}
+              transition={{ duration: 0.24 }}
+            >
+              <Switch checked={enabled} onCheckedChange={setEnabled} />
+            </motion.div>
+          </motion.div>
+
+          <motion.div {...enter(0.23)} className="flex justify-end gap-2 border-t pt-5">
+            <Button variant="ghost" onClick={() => handleOpenChange(false)}>
               {t('action.cancel', { ns: 'common' })}
             </Button>
-            <Button disabled={!name.trim()} onClick={handleAdd}>
-              {t('provider.add')}
-            </Button>
-          </div>
+            <motion.div
+              whileHover={reduceMotion || !name.trim() ? undefined : { scale: 1.02 }}
+              whileTap={reduceMotion || !name.trim() ? undefined : { scale: 0.97 }}
+            >
+              <Button disabled={!name.trim()} onClick={handleAdd}>
+                {t('provider.add')}
+              </Button>
+            </motion.div>
+          </motion.div>
         </div>
       </DialogContent>
     </Dialog>
@@ -2401,7 +2563,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
         <div className="flex items-center gap-3">
-          <ProviderIcon builtinId={provider.builtinId} size={24} />
+          <ProviderIcon builtinId={provider.builtinId} icon={provider.icon} size={24} />
           <div>
             <h3 className="text-sm font-semibold">{provider.name}</h3>
             <p className="text-[11px] text-muted-foreground">
@@ -4585,6 +4747,7 @@ export function ProviderPanel(): React.JSX.Element {
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background ring-1 ring-border/60">
           <ProviderIcon
             builtinId={provider.builtinId}
+            icon={provider.icon}
             size={18}
             className={muted ? 'opacity-50' : undefined}
           />

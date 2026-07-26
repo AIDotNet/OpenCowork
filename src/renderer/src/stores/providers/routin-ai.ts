@@ -5,7 +5,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v3: add Grok Imagine image/video models and the dedicated xAI Videos protocol.
   // v4: add Kimi K3 (2026-07-16 发布).
   // v6: prioritize OpenAI (GPT 5.6 Terra first), Anthropic, then MiMo in the model list.
-  version: 6,
+  // v7: add the OpenAI Sora 2 video model.
+  version: 7,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -926,6 +927,16 @@ export const routinAiPreset: BuiltinProviderPreset = {
       enabled: true,
       category: 'video',
       type: 'xai-video',
+      supportsVision: true,
+      supportsFunctionCall: false
+    },
+    {
+      id: 'sora-2',
+      name: 'Sora 2',
+      icon: 'openai',
+      enabled: true,
+      category: 'video',
+      type: 'openai-video',
       supportsVision: true,
       supportsFunctionCall: false
     },

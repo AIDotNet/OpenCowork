@@ -15,6 +15,9 @@ import { getNativeWorker } from '../lib/native-worker'
 
 interface VideoJob {
   jobId: string
+  projectId?: string
+  nodeId?: string
+  runId?: string
   taskId?: string
   status: string
   filePath?: string
@@ -35,7 +38,9 @@ function getWorkerMethod(provider: unknown, operation: VideoOperation): string {
     provider && typeof provider === 'object' && 'type' in provider
       ? (provider as { type?: unknown }).type
       : undefined
-  return `${type === 'xai-video' ? 'xai-video' : 'seedance-video'}/${operation}`
+  const module =
+    type === 'xai-video' ? 'xai-video' : type === 'openai-video' ? 'openai-video' : 'seedance-video'
+  return `${module}/${operation}`
 }
 
 function publicJob(job: VideoJob): Omit<VideoJob, 'taskId'> {
@@ -78,7 +83,9 @@ async function pollJob(job: VideoJob, provider: unknown): Promise<void> {
         { provider, taskId: job.taskId },
         60_000
       )) as { status?: string; videoUrl?: string; error?: string }
-      job.status = st?.status ?? 'unknown'
+      // Some compatible gateways omit status for an intermediate poll. Keep a
+      // useful running state instead of exposing the protocol detail as "unknown".
+      job.status = st?.status && st.status !== 'unknown' ? st.status : 'processing'
 
       if (job.status === 'succeeded') {
         if (!st.videoUrl) {
@@ -90,7 +97,7 @@ async function pollJob(job: VideoJob, provider: unknown): Promise<void> {
         }
         const dl = (await worker.request(
           getWorkerMethod(provider, 'download'),
-          { videoUrl: st.videoUrl },
+          { provider, videoUrl: st.videoUrl },
           120_000
         )) as { filePath?: string; data?: string; mediaType?: string }
         if (dl?.filePath) {
@@ -136,6 +143,9 @@ export function registerSeedanceVideoHandlers(): void {
     async (
       _event,
       args: {
+        projectId?: string
+        nodeId?: string
+        runId?: string
         provider: unknown
         prompt: string
         images?: unknown[]
@@ -152,11 +162,21 @@ export function registerSeedanceVideoHandlers(): void {
             video: args.video
           },
           300_000
-        )) as { id?: string }
-        if (!created?.id) return { error: 'Video provider returned no task id.' }
+        )) as { id?: string; error?: string; message?: string }
+        if (!created?.id) {
+          return {
+            error:
+              created?.error ||
+              created?.message ||
+              `Video provider returned no task id (${getWorkerMethod(args.provider, 'generate')}).`
+          }
+        }
         const jobId = randomUUID()
         const job: VideoJob = {
           jobId,
+          projectId: args.projectId,
+          nodeId: args.nodeId,
+          runId: args.runId,
           taskId: created.id,
           status: 'queued',
           prompt: args.prompt,

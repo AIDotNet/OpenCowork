@@ -101,18 +101,23 @@ internal static class XaiVideoTools
         {
             using var doc = JsonDocument.Parse(text);
             var root = doc.RootElement;
-            var xaiStatus = JsonHelpers.GetString(root, "status") ?? "unknown";
+            var payload = root.TryGetProperty("data", out var data) &&
+                data.ValueKind == JsonValueKind.Object
+                    ? data
+                    : root;
+            var xaiStatus = JsonHelpers.GetString(payload, "status") ?? "unknown";
             status = xaiStatus switch
             {
                 "done" => "succeeded",
                 "expired" => "failed",
                 _ => xaiStatus
             };
-            if (root.TryGetProperty("video", out var video) && video.ValueKind == JsonValueKind.Object)
+            if (payload.TryGetProperty("video", out var video) && video.ValueKind == JsonValueKind.Object)
             {
                 videoUrl = JsonHelpers.GetString(video, "url");
             }
-            error = ExtractError(root);
+            videoUrl ??= JsonHelpers.GetString(payload, "video_url");
+            error = ExtractError(payload) ?? ExtractError(root);
             if (xaiStatus == "expired" && string.IsNullOrWhiteSpace(error))
             {
                 error = "xAI video request expired.";

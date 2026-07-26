@@ -412,6 +412,7 @@ export type ProviderType =
   | 'openai-chat'
   | 'openai-responses'
   | 'openai-images'
+  | 'openai-video'
   | 'seedance-video'
   | 'xai-video'
   | 'gemini'
@@ -647,6 +648,8 @@ export interface ProviderUiConfig {
 export interface AIProvider {
   id: string
   name: string
+  /** User-uploaded provider icon stored as a data URL. */
+  icon?: string
   type: ProviderType
   apiKey: string
   baseUrl: string

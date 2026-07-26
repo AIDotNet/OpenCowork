@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import { nanoid } from 'nanoid'
-import type { BackgroundMode, CanvasEdge, CanvasGraph, CanvasNode, NodeBox } from './graph-types'
+import type {
+  BackgroundMode,
+  CanvasEdge,
+  CanvasGraph,
+  CanvasNode,
+  CanvasTrigger,
+  NodeBox,
+  NodeExecutionSnapshot
+} from './graph-types'
 
 export interface Camera {
   scale: number
@@ -22,6 +30,7 @@ interface GraphState {
   stageSize: { width: number; height: number }
   selection: string[]
   selectedEdges: string[]
+  triggers: CanvasTrigger[]
   background: BackgroundMode
   editing: { nodeId: string; mode: EditingMode } | null
   past: CanvasGraph[]
@@ -51,6 +60,9 @@ interface GraphState {
   removeSelected: () => void
   addEdge: (source: string, target: string, opts?: { history?: boolean }) => void
   removeEdge: (id: string) => void
+  addTrigger: (trigger: CanvasTrigger) => void
+  updateTrigger: (id: string, patch: Partial<CanvasTrigger>) => void
+  removeTrigger: (id: string) => void
 
   // selection
   setSelection: (ids: string[]) => void
@@ -65,6 +77,7 @@ interface GraphState {
   loadGraph: (graph: {
     nodes: CanvasNode[]
     edges: CanvasEdge[]
+    triggers?: CanvasTrigger[]
     background?: BackgroundMode
   }) => void
 }
@@ -74,7 +87,12 @@ function snapshot(state: GraphState): CanvasGraph {
   // (updateNode/moveNodes/... never mutate in place), so history entries can
   // share references with live state. A deep clone here would copy multi-MB
   // base64 image payloads on every gesture start.
-  return { nodes: state.nodes, edges: state.edges }
+  return {
+    nodes: state.nodes,
+    edges: state.edges,
+    triggers: state.triggers,
+    background: state.background
+  }
 }
 
 const INITIAL_CAMERA: Camera = { scale: 1, x: 0, y: 0 }
@@ -84,15 +102,107 @@ const INITIAL_CAMERA: Camera = { scale: 1, x: 0, y: 0 }
  * request died with the app. Convert stale `generating` flags into an
  * explicit interrupted state so the card doesn't spin forever.
  */
+function legacyExecution(node: CanvasNode): NodeExecutionSnapshot | undefined {
+  if (node.execution) return node.execution
+  if (node.kind !== 'image' && node.kind !== 'video') return undefined
+  if (node.kind === 'video' && node.data.generating && node.data.jobId) {
+    return {
+      runId: node.data.jobId,
+      status: node.data.status === 'queued' ? 'queued' : 'running'
+    }
+  }
+  const status = node.data.generating
+    ? 'interrupted'
+    : node.data.error
+      ? 'failed'
+      : node.data.interrupted
+        ? 'interrupted'
+        : node.data.src || node.data.filePath
+          ? 'succeeded'
+          : undefined
+  if (!status) return undefined
+  return {
+    runId: node.kind === 'video' && node.data.jobId ? node.data.jobId : `legacy-${node.id}`,
+    status,
+    ...(node.data.error ? { error: node.data.error } : {})
+  }
+}
+
 function sanitizeLoadedNodes(nodes: CanvasNode[]): CanvasNode[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
   return nodes.map((n) => {
+    if (n.kind === 'image' && n.execution && ['queued', 'running'].includes(n.execution.status)) {
+      return {
+        ...n,
+        execution: {
+          ...n.execution,
+          status: 'interrupted',
+          finishedAt: Date.now(),
+          error: 'Image generation was interrupted by reload'
+        },
+        data: { ...n.data, generating: false, interrupted: true }
+      }
+    }
+    if (n.kind === 'video' && n.execution && ['queued', 'running'].includes(n.execution.status)) {
+      if (n.data.jobId) return { ...n, data: { ...n.data, generating: true } }
+      return {
+        ...n,
+        execution: {
+          ...n.execution,
+          status: 'interrupted',
+          finishedAt: Date.now(),
+          error: 'Video generation was interrupted by reload'
+        },
+        data: { ...n.data, generating: false, status: undefined, interrupted: true }
+      }
+    }
     if (n.kind === 'image' && n.data.generating) {
-      return { ...n, data: { ...n.data, generating: false, interrupted: true } }
+      return {
+        ...n,
+        execution: legacyExecution(n),
+        data: { ...n.data, generating: false, interrupted: true }
+      }
     }
     if (n.kind === 'video' && n.data.generating) {
-      return { ...n, data: { ...n.data, generating: false, status: undefined, interrupted: true } }
+      if (n.data.jobId) {
+        return {
+          ...n,
+          execution: legacyExecution(n),
+          data: { ...n.data, generating: true, interrupted: undefined }
+        }
+      }
+      return {
+        ...n,
+        execution: legacyExecution(n),
+        data: { ...n.data, generating: false, status: undefined, interrupted: true }
+      }
     }
-    return n
+    if (n.execution && ['queued', 'running'].includes(n.execution.status)) {
+      const hasRecoverableVideoOutput =
+        n.kind === 'config' &&
+        (n.execution.outputNodeIds ?? []).some((id) => {
+          const output = byId.get(id)
+          return (
+            output?.kind === 'video' &&
+            !!output.data.jobId &&
+            (!!output.data.generating ||
+              ['queued', 'running'].includes(output.execution?.status ?? ''))
+          )
+        })
+      if (!hasRecoverableVideoOutput) {
+        return {
+          ...n,
+          execution: {
+            ...n.execution,
+            status: 'interrupted',
+            finishedAt: Date.now(),
+            error: 'Node execution was interrupted by reload'
+          }
+        }
+      }
+    }
+    const execution = legacyExecution(n)
+    return execution && !n.execution ? { ...n, execution } : n
   })
 }
 
@@ -103,6 +213,7 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
   stageSize: { width: 0, height: 0 },
   selection: [],
   selectedEdges: [],
+  triggers: [],
   background: 'dots',
   editing: null,
   past: [],
@@ -112,7 +223,11 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
   setCamera: (updater) =>
     set((s) => ({ camera: typeof updater === 'function' ? updater(s.camera) : updater })),
   setStageSize: (size) => set({ stageSize: size }),
-  setBackground: (mode) => set({ background: mode }),
+  setBackground: (mode) => {
+    if (get().background === mode) return
+    get().pushHistory()
+    set({ background: mode })
+  },
   setEditing: (value) => set({ editing: value }),
   resetView: () => set({ camera: INITIAL_CAMERA }),
   clearPendingFit: () => set({ pendingFit: false }),
@@ -132,6 +247,8 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         future: [...s.future, snapshot(s)],
         nodes: prev.nodes,
         edges: prev.edges,
+        triggers: prev.triggers ?? [],
+        background: prev.background ?? s.background,
         selection: [],
         selectedEdges: []
       }
@@ -146,6 +263,8 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
         past: [...s.past, snapshot(s)],
         nodes: next.nodes,
         edges: next.edges,
+        triggers: next.triggers ?? [],
+        background: next.background ?? s.background,
         selection: [],
         selectedEdges: []
       }
@@ -190,6 +309,9 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
     set((s) => ({
       nodes: s.nodes.filter((n) => !idSet.has(n.id)),
       edges: s.edges.filter((e) => !idSet.has(e.source) && !idSet.has(e.target)),
+      triggers: s.triggers.filter(
+        (trigger) => !idSet.has(trigger.sourceNodeId) && !idSet.has(trigger.targetNodeId)
+      ),
       selection: s.selection.filter((id) => !idSet.has(id))
     }))
   },
@@ -204,6 +326,9 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
       nodes: s.nodes.filter((n) => !nodeSet.has(n.id)),
       edges: s.edges.filter(
         (e) => !edgeSet.has(e.id) && !nodeSet.has(e.source) && !nodeSet.has(e.target)
+      ),
+      triggers: s.triggers.filter(
+        (trigger) => !nodeSet.has(trigger.sourceNodeId) && !nodeSet.has(trigger.targetNodeId)
       ),
       selection: [],
       selectedEdges: []
@@ -221,6 +346,23 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
   removeEdge: (id) => {
     get().pushHistory()
     set((s) => ({ edges: s.edges.filter((e) => e.id !== id) }))
+  },
+
+  addTrigger: (trigger) => {
+    get().pushHistory()
+    set((s) => ({ triggers: [...s.triggers, trigger] }))
+  },
+  updateTrigger: (id, patch) => {
+    get().pushHistory()
+    set((s) => ({
+      triggers: s.triggers.map((trigger) =>
+        trigger.id === id ? { ...trigger, ...patch } : trigger
+      )
+    }))
+  },
+  removeTrigger: (id) => {
+    get().pushHistory()
+    set((s) => ({ triggers: s.triggers.filter((trigger) => trigger.id !== id) }))
   },
 
   setSelection: (ids) => set({ selection: ids, selectedEdges: [] }),
@@ -249,7 +391,31 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
       .map((n) => {
         const id = nanoid()
         idMap.set(n.id, id)
-        return { ...structuredClone(n), id, x: n.x + 32, y: n.y + 32 }
+        const clone = {
+          ...structuredClone(n),
+          id,
+          x: n.x + 32,
+          y: n.y + 32,
+          execution: undefined
+        } as CanvasNode
+        if (clone.kind === 'image') {
+          clone.data = {
+            ...clone.data,
+            generating: false,
+            error: undefined,
+            interrupted: undefined
+          }
+        } else if (clone.kind === 'video') {
+          clone.data = {
+            ...clone.data,
+            generating: false,
+            status: undefined,
+            error: undefined,
+            interrupted: undefined,
+            jobId: undefined
+          }
+        }
+        return clone
       })
     const clonedEdges = edges
       .filter((e) => idMap.has(e.source) && idMap.has(e.target))
@@ -270,6 +436,8 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
     set({
       nodes: sanitizeLoadedNodes(graph.nodes),
       edges: graph.edges,
+      triggers: graph.triggers ?? [],
+      background: graph.background ?? get().background,
       selection: [],
       selectedEdges: []
     })
@@ -278,6 +446,7 @@ export const useGraphStore = create<GraphState>()((set, get) => ({
     set({
       nodes: sanitizeLoadedNodes(graph.nodes),
       edges: graph.edges,
+      triggers: graph.triggers ?? [],
       background: graph.background ?? 'dots',
       selection: [],
       selectedEdges: [],

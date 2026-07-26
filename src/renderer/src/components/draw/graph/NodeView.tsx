@@ -1,6 +1,6 @@
-import { memo, useCallback, useRef } from 'react'
+import { memo, useCallback, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import { Braces, Copy, Trash2 } from 'lucide-react'
+import { Bell, Braces, Copy, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
@@ -19,6 +19,7 @@ import { TextNodeView } from './nodes/TextNodeView'
 import { ImageNodeView } from './nodes/ImageNodeView'
 import { ConfigNodeView } from './nodes/ConfigNodeView'
 import { VideoNodeView } from './nodes/VideoNodeView'
+import { NodeTriggerDialog } from './NodeTriggerDialog'
 
 interface NodeViewProps {
   node: CanvasNode
@@ -41,6 +42,7 @@ export const NodeView = memo(function NodeView({ node }: NodeViewProps): React.J
   const duplicateSelection = useGraphStore((s) => s.duplicateSelection)
   const pushHistory = useGraphStore((s) => s.pushHistory)
   const { pending, setPending } = useConnection()
+  const [triggerDialogOpen, setTriggerDialogOpen] = useState(false)
 
   const dragRef = useRef<{ startX: number; startY: number; ids: string[]; moved: boolean } | null>(
     null
@@ -289,12 +291,22 @@ export const NodeView = memo(function NodeView({ node }: NodeViewProps): React.J
           {t('drawPage.copyJson', { defaultValue: 'Copy JSON' })}
         </ContextMenuItem>
         <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => setTriggerDialogOpen(true)}>
+          <Bell className="mr-2 size-4" />
+          {t('drawPage.nodeTriggers', { defaultValue: 'Node event triggers' })}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onSelect={() => removeNodes([node.id])}>
           <Trash2 className="size-4" />
           {t('drawPage.deleteRecord', { defaultValue: 'Delete' })}
           <ContextMenuShortcut>⌫</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
+      <NodeTriggerDialog
+        nodeId={node.id}
+        open={triggerDialogOpen}
+        onOpenChange={setTriggerDialogOpen}
+      />
     </ContextMenu>
   )
 })

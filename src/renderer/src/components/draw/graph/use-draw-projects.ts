@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useGraphStore } from './graph-store'
 import { useProjectsStore, type ProjectMeta } from './draw-projects-store'
+import { useAssistantStore } from './assistant/assistant-store'
 import {
   deleteProjectGraph,
   loadProjectGraph,
@@ -50,12 +51,20 @@ export function useDrawProjects(baseName: string): DrawProjectsApi {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     const unsub = useGraphStore.subscribe((s, prev) => {
-      if (s.nodes === prev.nodes && s.edges === prev.edges && s.background === prev.background)
+      if (
+        s.nodes === prev.nodes &&
+        s.edges === prev.edges &&
+        s.triggers === prev.triggers &&
+        s.background === prev.background
+      )
         return
       const id = useProjectsStore.getState().activeProjectId
       if (!id) return
       clearTimeout(timer)
       timer = setTimeout(() => {
+        // Project switches flush synchronously. Never let an older debounced
+        // save serialize the newly-loaded graph back into the previous slot.
+        if (useProjectsStore.getState().activeProjectId !== id) return
         saveProjectGraph(id)
         useProjectsStore.getState().touchActive(Date.now())
       }, AUTOSAVE_MS)
@@ -94,9 +103,12 @@ export function useDrawProjects(baseName: string): DrawProjectsApi {
   }
 
   const removeProject = (id: string): void => {
+    const wasActive = useProjectsStore.getState().activeProjectId === id
     deleteProjectGraph(id)
+    useAssistantStore.getState().clearSession(id)
     const store = useProjectsStore.getState()
     store.deleteProject(id)
+    if (!wasActive) return
     const next = useProjectsStore.getState().activeProjectId
     if (next) {
       loadProjectGraph(next)

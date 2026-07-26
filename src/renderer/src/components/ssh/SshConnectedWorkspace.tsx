@@ -17,6 +17,7 @@ import {
   HardDrive,
   Monitor,
   RefreshCw,
+  Square,
   TerminalSquare,
   X,
   type LucideIcon
@@ -359,6 +360,7 @@ export function SshConnectedWorkspace({
   const { t } = useTranslation('ssh')
   const [statusPanelWidth, setStatusPanelWidth] = useState(getInitialStatusPanelWidth)
   const [isResizingStatusPanel, setIsResizingStatusPanel] = useState(false)
+  const [isDisconnecting, setIsDisconnecting] = useState(false)
   const resizeStateRef = useRef({ startX: 0, startWidth: STATUS_PANEL_DEFAULT_WIDTH })
 
   const sessionFiles = useSshStore((state) => state.sessionFiles[sessionId] ?? EMPTY_SESSION_FILES)
@@ -368,6 +370,16 @@ export function SshConnectedWorkspace({
 
   const activeFile = sessionFiles.find((file) => file.path === activeSessionFilePath) ?? null
   const terminalActive = activeFile === null
+
+  const handleDisconnect = useCallback(async (): Promise<void> => {
+    if (isDisconnecting) return
+    setIsDisconnecting(true)
+    try {
+      await useSshStore.getState().disconnect(sessionId)
+    } finally {
+      setIsDisconnecting(false)
+    }
+  }, [isDisconnecting, sessionId])
 
   useEffect(() => {
     window.localStorage.setItem(STATUS_PANEL_WIDTH_KEY, String(statusPanelWidth))
@@ -487,6 +499,20 @@ export function SshConnectedWorkspace({
               <span>{t('workspace.monitor', { defaultValue: 'Monitor' })}</span>
             </div>
           ) : null}
+          <button
+            type="button"
+            onClick={() => void handleDisconnect()}
+            disabled={isDisconnecting}
+            className="ml-2 inline-flex size-7 shrink-0 items-center justify-center rounded-[8px] text-[#f87171] transition-colors hover:bg-[#2b1717] hover:text-[#fca5a5] disabled:cursor-not-allowed disabled:opacity-50"
+            title={t('disconnect')}
+            aria-label={t('disconnect')}
+          >
+            {isDisconnecting ? (
+              <RefreshCw className="size-3.5 animate-spin" />
+            ) : (
+              <Square className="size-3.5" />
+            )}
+          </button>
         </div>
 
         <div className="relative min-h-0 flex-1 overflow-hidden bg-[#0f1120]">

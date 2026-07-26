@@ -23,6 +23,13 @@ interface Props {
 
 const ASPECTS = ['1:1', '3:2', '2:3', '16:9', '9:16']
 const COUNTS = [1, 2, 3, 4]
+const IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high']
+const IMAGE_SIZES = ['auto', '1024x1024', '1024x1536', '1536x1024']
+
+function videoDurations(modelType?: string): number[] {
+  if (modelType === 'openai-video') return [4, 8, 12]
+  return modelType === 'xai-video' ? [5, 10, 15] : [5, 10, 15, 30]
+}
 
 function optionValue(providerId: string, modelId: string): string {
   return `${providerId}::${modelId}`
@@ -37,9 +44,11 @@ export function ConfigNodeView({ node }: Props): React.JSX.Element {
   const providers = useProviderStore((s) => s.providers)
   const activeProviderId = useProviderStore((s) => s.activeImageProviderId)
   const activeModelId = useProviderStore((s) => s.activeImageModelId)
+  const activeChatProviderId = useProviderStore((s) => s.activeProviderId)
+  const activeChatModelId = useProviderStore((s) => s.activeModelId)
 
   const data = node.data
-  const wantCategory = data.mode === 'video' ? 'video' : 'image'
+  const wantCategory = data.mode === 'video' ? 'video' : data.mode === 'text' ? 'chat' : 'image'
 
   const modelGroups = useMemo(
     () =>
@@ -58,9 +67,11 @@ export function ConfigNodeView({ node }: Props): React.JSX.Element {
   const selectedValue =
     data.providerId && data.modelId
       ? optionValue(data.providerId, data.modelId)
-      : data.mode !== 'video' && activeProviderId && activeModelId
-        ? optionValue(activeProviderId, activeModelId)
-        : undefined
+      : data.mode === 'text' && activeChatProviderId && activeChatModelId
+        ? optionValue(activeChatProviderId, activeChatModelId)
+        : data.mode === 'image' && activeProviderId && activeModelId
+          ? optionValue(activeProviderId, activeModelId)
+          : undefined
 
   const selectedModel = useMemo(() => {
     if (!selectedValue) return undefined
@@ -70,9 +81,17 @@ export function ConfigNodeView({ node }: Props): React.JSX.Element {
       ?.models.find((model) => model.id === modelId)
   }, [providers, selectedValue])
   const isXaiVideo = data.mode === 'video' && selectedModel?.type === 'xai-video'
-  const videoResolutions = isXaiVideo ? ['480p', '720p'] : ['480p', '720p', '1080p']
+  const isOpenAIVideo = data.mode === 'video' && selectedModel?.type === 'openai-video'
+  const durations = videoDurations(selectedModel?.type)
+  const videoResolutions = isOpenAIVideo
+    ? ['720p']
+    : isXaiVideo
+      ? ['480p', '720p']
+      : ['480p', '720p', '1080p']
   const selectedResolution =
-    isXaiVideo && data.resolution === '1080p'
+    isOpenAIVideo
+      ? '720p'
+      : isXaiVideo && data.resolution === '1080p'
       ? '720p'
       : (data.resolution ?? (isXaiVideo ? '720p' : '1080p'))
 
@@ -106,9 +125,11 @@ export function ConfigNodeView({ node }: Props): React.JSX.Element {
               patch({
                 providerId,
                 modelId,
+                ...(model?.type === 'openai-video' ? { resolution: '720p', duration: 4 } : {}),
                 ...(model?.type === 'xai-video' && data.resolution === '1080p'
                   ? { resolution: '720p' }
-                  : {})
+                  : {}),
+                ...(model?.type === 'xai-video' && data.duration === 30 ? { duration: 15 } : {})
               })
             }
           }}
@@ -207,7 +228,7 @@ export function ConfigNodeView({ node }: Props): React.JSX.Element {
               <span className="w-12 text-[10px] text-muted-foreground">
                 {t('drawPage.duration', { defaultValue: 'Dur' })}
               </span>
-              {[5, 10].map((d) => (
+              {durations.map((d) => (
                 <button
                   key={d}
                   type="button"
@@ -223,29 +244,119 @@ export function ConfigNodeView({ node }: Props): React.JSX.Element {
                 </button>
               ))}
             </div>
+            {!isOpenAIVideo && (
+              <div className="flex items-center gap-1">
+                <span className="w-12 text-[10px] text-muted-foreground">FPS</span>
+                {[24, 30, 60].map((fps) => (
+                  <button
+                    key={fps}
+                    type="button"
+                    onClick={() => patch({ fps })}
+                    className={cn(
+                      'rounded-md border px-1.5 py-0.5 text-[10px]',
+                      (data.fps ?? 24) === fps
+                        ? 'border-primary text-primary'
+                        : 'border-border text-muted-foreground'
+                    )}
+                  >
+                    {fps}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!isXaiVideo && !isOpenAIVideo && (
+              <>
+                <div className="flex items-center gap-1">
+                  <span className="w-12 text-[10px] text-muted-foreground">
+                    {t('drawPage.seed', { defaultValue: 'Seed' })}
+                  </span>
+                  <input
+                    type="number"
+                    min={-1}
+                    max={2147483647}
+                    value={data.seed ?? -1}
+                    onChange={(event) => patch({ seed: Number(event.target.value) })}
+                    className="h-6 min-w-0 flex-1 rounded-md border bg-background px-1.5 text-[10px] outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    ['watermark', 'Watermark', data.watermark ?? false],
+                    ['cameraFixed', 'Fixed camera', data.cameraFixed ?? false]
+                  ].map(([key, label, enabled]) => (
+                    <button
+                      key={key as string}
+                      type="button"
+                      onClick={() => patch({ [key as string]: !enabled })}
+                      className={cn(
+                        'rounded-md border px-1.5 py-0.5 text-[10px]',
+                        enabled
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground'
+                      )}
+                    >
+                      {t(`drawPage.${key}`, { defaultValue: label as string })}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
 
         {data.mode === 'image' && (
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-muted-foreground">
-              {t('drawPage.nodeCount', { defaultValue: 'Count' })}
-            </span>
-            {COUNTS.map((count) => (
-              <button
-                key={count}
-                type="button"
-                onClick={() => patch({ count })}
-                className={cn(
-                  'grid size-5 place-items-center rounded-md border text-[10px]',
-                  (data.count ?? 1) === count
-                    ? 'border-primary text-primary'
-                    : 'border-border text-muted-foreground'
-                )}
-              >
-                {count}
-              </button>
+          <div className="flex flex-col gap-1.5">
+            {[
+              ['drawPage.imageQuality', 'Quality', IMAGE_QUALITIES, data.quality ?? 'auto'],
+              ['drawPage.imageSize', 'Size', IMAGE_SIZES, data.size ?? 'auto']
+            ].map(([labelKey, fallback, options, value]) => (
+              <div key={labelKey as string} className="flex items-center gap-1">
+                <span className="w-12 text-[10px] text-muted-foreground">
+                  {t(labelKey as string, { defaultValue: fallback as string })}
+                </span>
+                {(options as string[]).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() =>
+                      patch(
+                        labelKey === 'drawPage.imageQuality'
+                          ? { quality: option }
+                          : { size: option }
+                      )
+                    }
+                    className={cn(
+                      'rounded-md border px-1.5 py-0.5 text-[10px]',
+                      value === option
+                        ? 'border-primary text-primary'
+                        : 'border-border text-muted-foreground'
+                    )}
+                  >
+                    {option === 'auto' ? 'Auto' : option}
+                  </button>
+                ))}
+              </div>
             ))}
+            <div className="flex items-center gap-1">
+              <span className="w-12 text-[10px] text-muted-foreground">
+                {t('drawPage.nodeCount', { defaultValue: 'Count' })}
+              </span>
+              {COUNTS.map((count) => (
+                <button
+                  key={count}
+                  type="button"
+                  onClick={() => patch({ count })}
+                  className={cn(
+                    'grid size-5 place-items-center rounded-md border text-[10px]',
+                    (data.count ?? 1) === count
+                      ? 'border-primary text-primary'
+                      : 'border-border text-muted-foreground'
+                  )}
+                >
+                  {count}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

@@ -11,6 +11,7 @@ import { ProjectSwitcher } from './graph/ProjectSwitcher'
 import { useDrawProjects } from './graph/use-draw-projects'
 import { useVideoJobs } from './graph/use-video-jobs'
 import { useGraphGeneration } from './graph/use-graph-generation'
+import { useCanvasTriggers } from './graph/canvas-triggers'
 
 export function DrawPage(): React.JSX.Element {
   const { t } = useTranslation('layout')
@@ -18,22 +19,26 @@ export function DrawPage(): React.JSX.Element {
   const openSettingsPage = useUIStore((state) => state.openSettingsPage)
   const providers = useProviderStore((state) => state.providers)
   const graphActions = useGraphGeneration()
+  useCanvasTriggers(graphActions)
   // Multi-project lifecycle: init/migrate, load active graph, autosave, switch.
   const projectsApi = useDrawProjects(t('drawPage.canvasBaseName', { defaultValue: 'Canvas' }))
   // Apply background video-generation job updates to video nodes.
   useVideoJobs()
 
-  const imageModelCount = useMemo(
+  const canvasModelCount = useMemo(
     () =>
       providers.reduce(
         (count, provider) =>
-          count + provider.models.filter((model) => (model.category ?? 'chat') === 'image').length,
+          count +
+          provider.models.filter((model) =>
+            ['chat', 'image', 'video'].includes(model.category ?? 'chat')
+          ).length,
         0
       ),
     [providers]
   )
 
-  if (imageModelCount === 0) {
+  if (canvasModelCount === 0) {
     return (
       <div className="flex h-full flex-col overflow-hidden bg-background">
         <div className="flex shrink-0 items-center gap-3 border-b px-4 py-2.5">
@@ -67,7 +72,7 @@ export function DrawPage(): React.JSX.Element {
         <div className="flex items-center gap-2">
           <h1 className="truncate text-sm font-semibold">{t('drawPage.title')}</h1>
           <Badge variant="secondary" className="shrink-0 text-[10px]">
-            {t('drawPage.modelsLoaded', { count: imageModelCount })}
+            {t('drawPage.modelsLoaded', { count: canvasModelCount })}
           </Badge>
         </div>
         <div className="mx-1 h-5 w-px bg-border" />

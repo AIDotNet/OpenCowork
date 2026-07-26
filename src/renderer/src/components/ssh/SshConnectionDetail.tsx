@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Server, Play, Terminal, CheckCircle2, Pencil, Trash2, X } from 'lucide-react'
+import { Server, Play, Terminal, Square, CheckCircle2, Pencil, Trash2, X } from 'lucide-react'
 import type { SshConnection, SshSession, SshGroup } from '@renderer/stores/ssh-store'
 import { Button } from '@renderer/components/ui/button'
 
@@ -9,6 +9,7 @@ interface SshConnectionDetailProps {
   group: SshGroup | undefined
   onConnect: (id: string) => void
   onOpenTerminal: (id: string) => void
+  onDisconnect: (sessionId: string) => void
   onTest: (id: string) => void
   onEdit: (conn: SshConnection) => void
   onDelete: (conn: SshConnection) => void
@@ -30,6 +31,7 @@ export function SshConnectionDetail({
   group,
   onConnect,
   onOpenTerminal,
+  onDisconnect,
   onTest,
   onEdit,
   onDelete,
@@ -58,15 +60,27 @@ export function SshConnectionDetail({
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {isConnected && session ? (
-            <Button
-              variant="default"
-              size="sm"
-              className="h-7 gap-1 text-xs"
-              onClick={() => onOpenTerminal(connection.id)}
-            >
-              <Terminal className="size-3" />
-              {t('openTerminal')}
-            </Button>
+            <>
+              <Button
+                variant="default"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                onClick={() => onOpenTerminal(connection.id)}
+              >
+                <Terminal className="size-3" />
+                {t('openTerminal')}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-destructive/60 hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => onDisconnect(session.id)}
+                title={t('disconnect')}
+                aria-label={t('disconnect')}
+              >
+                <Square className="size-3" />
+              </Button>
+            </>
           ) : (
             <Button
               variant="default"

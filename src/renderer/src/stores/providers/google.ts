@@ -2,7 +2,7 @@ import type { BuiltinProviderPreset } from './types'
 
 export const googlePreset: BuiltinProviderPreset = {
   builtinId: 'google',
-  version: 1,
+  version: 3,
   name: 'Google Gemini',
   type: 'openai-chat',
   defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -105,6 +105,35 @@ export const googlePreset: BuiltinProviderPreset = {
       supportsFunctionCall: true,
       inputPrice: 0.25,
       outputPrice: 1.5,
+      supportsThinking: true,
+      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' } }
+    },
+    // Gemini 3 Pro (preview)
+    {
+      id: 'gemini-3-pro-preview',
+      name: 'Gemini 3 Pro Preview',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 12
+    },
+    // Gemini 3.6 (latest)
+    {
+      id: 'gemini-3.6-flash',
+      name: 'Gemini 3.6 Flash',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 1.5,
+      outputPrice: 9,
+      cacheHitPrice: 0.15,
       supportsThinking: true,
       thinkingConfig: { bodyParams: { reasoning_effort: 'medium' } }
     },

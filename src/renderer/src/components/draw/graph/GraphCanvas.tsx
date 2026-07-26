@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   DragEvent as ReactDragEvent,
-  MouseEvent as ReactMouseEvent,
-  WheelEvent as ReactWheelEvent
+  MouseEvent as ReactMouseEvent
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FileText, Image as ImageIcon, Maximize, MousePointerClick, Settings2 } from 'lucide-react'
@@ -119,7 +118,10 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
   const dropAt = useCallback(
     (world: { x: number; y: number }) =>
       (dataUrl: string, index: number): Promise<void> =>
-        addImageNodeFromDataUrl(dataUrl, { x: world.x + index * 32, y: world.y + index * 32 }),
+        addImageNodeFromDataUrl(dataUrl, {
+          x: world.x + index * 32,
+          y: world.y + index * 32
+        }).then(() => undefined),
     []
   )
 
@@ -164,9 +166,8 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
     []
   )
 
-  // React's root-level wheel listener is passive, so preventDefault() here can't
-  // stop a scrollable child (e.g. a text node's textarea) from also scrolling
-  // natively — the canvas must yield instead of panning in tandem with it.
+  // Scrollable children (e.g. a text node's textarea) keep their native wheel
+  // behavior; otherwise the canvas owns the gesture for pan/zoom.
   const scrollsWithin = useCallback((target: EventTarget | null): boolean => {
     let el = target instanceof HTMLElement ? target : null
     while (el && el !== containerRef.current) {
@@ -183,7 +184,7 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
   }, [])
 
   const handleWheel = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>) => {
+    (event: WheelEvent) => {
       if (!fromContainer(event.target)) return
       // Ctrl/⌘ + wheel zooms at the cursor (trackpad pinch reports ctrlKey too);
       // a plain wheel pans, Shift+wheel pans horizontally — Figma-style controls.
@@ -203,6 +204,15 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
     },
     [fromContainer, localPoint, scrollsWithin, setCamera]
   )
+
+  // React delegates wheel events through a passive root listener. Register on
+  // the canvas element directly so preventing page/child scroll is permitted.
+  useEffect(() => {
+    const element = containerRef.current
+    if (!element) return
+    element.addEventListener('wheel', handleWheel, { passive: false })
+    return () => element.removeEventListener('wheel', handleWheel)
+  }, [handleWheel])
 
   const handleBackgroundDown = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -298,7 +308,6 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
             <div
               ref={containerRef}
               className="relative h-full w-full overflow-hidden bg-background [--graph-dot:theme(colors.border)] [--graph-line:theme(colors.border)]"
-              onWheel={handleWheel}
               onMouseDown={handleBackgroundDown}
               onContextMenu={handleContextMenu}
               onDragOver={(e) => e.preventDefault()}

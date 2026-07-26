@@ -159,6 +159,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
+          # OpenCowork.Native.Worker source-links the shared worker runtime out of
+          # sidecars/codegraph, so native:publish fails without the submodule.
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -379,6 +382,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
+          # OpenCowork.Native.Worker source-links the shared worker runtime out of
+          # sidecars/codegraph, so native:publish fails without the submodule.
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v6

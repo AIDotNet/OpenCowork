@@ -2,6 +2,370 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.5] - 2026-07-26
+
+### Added
+
+- Added an `openai-video` provider type with a dedicated native-worker module and Sora 2 preset model, alongside the existing Seedance and xAI video paths.
+- Added Seedance 2.0, 2.0 Fast, and 2.0 mini video models to the Volcengine and Routin AI presets, and Gemini 3 Pro Preview plus Gemini 3.6 Flash to the Google preset.
+- Added custom provider icon upload (PNG, JPG, WebP, GIF, SVG up to 1 MB) with validation, surfaced through `ProviderIcon` for user-added providers.
+- Expanded the draw-canvas assistant into a full agentic tool loop with 23 canvas tools — read/create/update/delete/duplicate/connect/move/resize/select nodes, run/retry/cancel generations, image and video generation, image editing, trigger management, and canvas import/clear — plus approval prompts for destructive actions.
+- Added assistant conversation controls: message edit-and-regenerate, regenerate, delete with side-effect warnings, pinned node context, and image attachments for vision-capable models.
+- Added a per-canvas Agent workspace with ensure/rename/trash IPC handlers; deleting a canvas now moves its workspace to the system trash.
+- Added node event triggers so one node can run another when it changes state (queued, started, progress, succeeded, failed, cancelled, interrupted, updated), with cycle and duplicate detection.
+- Added dedicated image, video, and text generation node types with quality and size controls, including Sora reference-image size validation and single-reference limits.
+- Added a node error banner that exposes the complete provider response with copy-to-clipboard for troubleshooting.
+- Added HTTP Range support to the local media protocol so video seeking works and MP4 files with trailing metadata no longer stall on playback.
+- Added a disconnect action with loading state to the SSH connected workspace and connection detail panel.
+
+### Changed
+
+- Migrated `CodeGraph.Core`, `CodeGraph.Tests`, and `Worker.Runtime` into the external AIDotNet/CodeGraph submodule, removing 200+ locally vendored C# sources. Cloning now requires `git submodule update --init --recursive`; `predev.mjs` and `publish-native-worker.mjs` fail early with an explicit message when the submodule is missing.
+- Extracted MCP tool and resource definition builders (`buildMcpToolDefinitions`, `buildMcpResourceDefinitions`) so the canvas agent can reuse the same schemas as the chat runtime.
+- Reworked canvas graph persistence, node factory, and generation hooks around the new node types and trigger graph.
+
+### Fixed
+
+- Restored the 1.0.1 through 1.2.4 changelog history that was accidentally dropped from `CHANGELOG.md`.
+
+## [1.2.4] - 2026-07-23
+
+### Added
+
+- Added a compact active-additions count to the chat composer and refreshed the skills menu with clearer sections, descriptions, and plugin/skill indicators.
+- Added chat actions and localization support for the updated composer menu, including plan mode, goal mode, and media attachment entries.
+
+### Changed
+
+- Improved chat action handling and transcript metadata for the updated composer interactions.
+- Expanded local media access to support persisted images and videos from both application storage locations.
+
+## [1.2.3] - 2026-07-22
+
+### Added
+
+- Added a background/attached browser webview mode so agent-driven navigation runs off-panel without stealing the right panel; added a runtime reattach path that rehydrates in-flight agent state after HMR or window reload.
+- Added a Vietnamese translation pass covering AI Coding, CodeGraph, SSH, pet, chat, layout, and settings copy across all bundled locales.
+- Added CodeGraph grammar manifest tooling with validation and a predev script, and expanded PE export name parsing plus grammar asset status/UI messaging.
+- Added a dedicated Canvas Assistant model picker so the draw-canvas assistant no longer piggybacks on the global chat model.
+
+### Changed
+
+- Split the monolithic SSH store into modular slices and removed the accidentally checked-in `* 2.*` file duplicates left over from an earlier merge.
+- Reworked the settings page context-compression controls (moved into Settings, cleared from the model switcher and provider panel) and unified compression across renderer, native worker, and automatic flows.
+- Refined native-worker publish, sidecar management, and CodeGraph asset resolution paths.
+
+### Fixed
+
+- Fixed CodeGraph import resolver and extraction/resolution test coverage for expanded grammar cases.
+- Fixed a class of provider retry edge cases via a shared retry-policy helper across Anthropic, Gemini, OpenAI Chat, and OpenAI Responses transports.
+
+## [1.2.2] - 2026-07-20
+
+### Added
+
+- Added a dedicated compression model setting, allowing context summaries to use a model separate from the active chat model.
+- Added a global context compression ratio setting and migrated legacy per-model compression ratios to the global value.
+- Added Vietnamese translations for AI Coding and CodeGraph features.
+
+### Changed
+
+- Unified context compression behavior across the renderer, native worker, and automatic compression flows.
+- Enhanced SSH settings with additional options and clearer connection status messages.
+- Added provider request retry telemetry to show the retry attempt, HTTP status, and next delay in the chat UI.
+
+### Fixed
+
+- HTTP 500 and other transient provider failures now retry up to 10 times with progressively increasing delays before stopping.
+- Removed obsolete per-model compression ratio controls and safely cleaned up legacy persisted settings.
+
+## [1.2.1] - 2026-07-17
+
+### Added
+
+- Added Kimi K3 model support with parameter carry toggles and quota display for Kimi provider.
+- Enhanced CodeGraph RPC daemon with code visualization, indexing UI, and worker runtime support.
+- Enhanced canvas assistant with local tool loop, draggable panel, context chips, and per-project session persistence.
+
+### Changed
+
+- Refactored SSH module with complete lifecycle rewrite (connection handling, IPC handlers, terminal components, and store management).
+- Removed legacy sidecar module and cleaned up unused email-drafter and post-to-x skills.
+- Enhanced MessagePack IPC serialization and shared type definitions for improved data fidelity.
+- Improved renderer stores, tools, settings UI, and internationalization across multiple components.
+- Updated native worker with CodeGraph executor and enhanced tool support.
+- Refined sidecar management and file handling in main IPC layer.
+
+### Fixed
+
+- Improved SSH terminal session management and JSON parsing robustness.
+
+## [1.2.0] - 2026-07-15
+
+### Added
+
+- Rewrote the Draw page as a node-graph canvas (text/image/config nodes with connections, upstream/downstream generation, crop/mask/outpaint/upscale/split dialogs, an asset library, a prompt library, and a canvas assistant panel), replacing the previous form-based layout.
+- Added Seedance video generation support via a Volcengine Ark provider, including a new native-worker module for the async Ark video protocol, main-process IPC handlers, and a "Seedance Video" provider option with a video model category in provider settings.
+- Added inpaint/outpaint mask editing for the native OpenAI Images worker (`action: 'edit'` with a mask part) and a corresponding renderer-side mask utility.
+
+### Changed
+
+- Moved sidebar navigation so the primary rail now links directly to the Draw page, with Plugins moved into the overflow menu.
+- Simplified the SSH page toolbar by removing the redundant Hosts/SFTP pill switcher and unused tone-border helpers.
+- Restyled the SubAgent hover card and icons to use theme-aware tokens instead of hardcoded dark colors, and removed unused dot-matrix and order-label helpers.
+- Trimmed duplicated logic out of ImageEditDialog and ImagePreview in favor of shared mask/graph utilities.
+
+## [1.1.1] - 2026-07-14
+
+### Added
+
+- Added a SubAgents workspace and runtime management panel for viewing active, completed, and historical sub-agent runs with their details and context.
+- Added Windows no-install ZIP distribution support for users who prefer portable builds.
+
+### Changed
+
+- Improved SubAgents navigation, history loading, concurrency state, permission context, and localization across the workspace.
+- Updated update handling so Windows no-install builds direct users to manual release downloads instead of using the installer auto-update flow.
+
+### Fixed
+
+- Added a safe one-time retry for OpenAI Responses requests interrupted before the first streaming event, avoiding duplicate streamed output or tool execution.
+- Prevented Windows no-install packages from contaminating installer update metadata.
+
+## [1.1.0] - 2026-07-10
+
+### Added
+
+- Added support for background proxy task generation and processing, enabling sub-agents to run background tasks independently.
+- Enhanced session change review mechanism with improved detection and handling of session transitions.
+- Improved background sub-agent handling with better lifecycle management and state synchronization.
+
+### Changed
+
+- Optimized team tool usage logic for better performance and reliability in multi-agent scenarios.
+- Refined session-change detection and background task execution workflows for improved stability.
+
+## [1.0.12] - 2026-07-10
+
+### Added
+
+- Added comprehensive permission management system with tool whitelist and command rules, enabling fine-grained control over which tools can be executed and under what conditions.
+- Added Permission Panel in settings for managing per-tool allowlists and command execution rules.
+- Added PermissionDialog UI component for real-time permission grant/deny approvals during tool execution.
+- Introduced `AgentRuntimePermissionPolicy` in native worker for enforcing permission rules on the C# sidecar.
+
+### Changed
+
+- Enhanced SkillsPanel to display and respect permission configurations for skill execution.
+- Improved ModelSwitcher with better provider selection feedback.
+- Refined native worker communication with updated permission policy enforcement across streaming and tool-execution flows.
+
+## [1.0.11] - 2026-07-10
+
+### Added
+
+- Added split provider persistence under `~/.open-cowork/ai-provider/`, with atomic per-provider JSON writes, automatic migration from the legacy `config.json` entry, and native-worker sync coverage.
+- Added versioned built-in provider presets and a "Restore defaults" action that refreshes built-in model definitions while preserving credentials, enabled states, and custom providers.
+
+### Changed
+
+- Reduced main-process startup work by deferring terminal, SSH, image/GIF, migration, channel-provider, updater, MCP, and database initialization until needed or after the first window begins loading.
+- Split renderer window surfaces and lazy-loaded secondary pages, update release-note rendering, Mermaid support, tokenizer data, and per-language locale bundles to improve first-paint time and reduce memory use.
+- Delayed the first Native Worker spawn until shell-environment initialization completes and moved high-volume startup diagnostics to deferred file writes.
+- Extracted SSH connection and proxy-jump payload resolution from the full SSH IPC handler so Git, cron, and sidecar consumers can load it independently.
+
+### Fixed
+
+- Prevented a rejected second app instance from accessing Electron session APIs or starting the Native Worker before app readiness, eliminating `Session can only be received when app is ready` during shutdown.
+- Temporarily stopped sending the unsupported `"mode":"pro"` parameter for GPT-5.6 Sol/Terra `ultra` requests while retaining their medium-effort fallback.
+
+## [1.0.10] - 2026-07-10
+
+### Added
+
+- Added model-aware prompt cache controls for OpenAI-compatible Responses and Chat APIs, including stable cache keys, retention settings, explicit breakpoints, and cache write/read token accounting.
+- Added native file-tool recovery for operating-system permission failures, allowing users to grant scoped folder access and retry read, write, edit, notebook, list, glob, and grep operations.
+- Added the `ultra` reasoning-effort level and refreshed saved provider model capabilities when built-in reasoning presets gain new levels.
+
+### Changed
+
+- Unified the composer send and stop actions so the primary button stops an active run and returns to sending when idle.
+- Improved reasoning-effort presentation with clearer maximum-level effects and provider-specific defaults.
+- Normalized prompt-cache usage and billing calculations across chat context totals, analytics, and exported conversations.
+- Simplified home and project composers by hiding the duplicate working-folder picker while retaining folder selection in the surrounding page.
+
+### Fixed
+
+- Persisted completed or interrupted results for dangling tool calls after stops, errors, or worker crashes so continuation does not silently replay long-running tools or sub-agents.
+- Improved native sub-agent and tool-call continuation handling to preserve streamed arguments, results, and terminal state across Responses and Chat API runs.
+- Filtered invalid Responses input parts and improved reasoning and cache-usage event parsing for OpenAI-compatible providers.
+
+## [1.0.9] - 2026-07-09
+
+### Added
+
+- AI Coding support for ClaudeCode and Codex, including dedicated settings panels, configuration storage, localized UI strings, and launch helpers.
+- Project terminal actions for starting ClaudeCode or Codex sessions from the bottom dock with configured commands, permissions, and environment overrides.
+- Right-panel terminal tabs so local and SSH terminal sessions can move between the bottom dock and the right-side workspace.
+- Fullscreen support for the bottom terminal dock, allowing the dock to take over the conversation area and restore the previous height when exiting.
+- Introduced the Creative Production extension with MCP assets, enabling material import and step-by-step creation workflows including mood board, shot/style intake, ad/scene/offer/logo exploration, and generative polish across 9 skill packs.
+- Added local prototype setup and user context management to the product-design extension, supporting prototype bootstrap scripts, user context initialization, communication protocols, and key overrides.
+- Collapsible tool-call execution runs in chat, allowing tool-call output to be collapsed for a cleaner conversation view.
+- Web search block component for displaying server-side web search results with expandable source list
+- Native worker auto-restart with exponential backoff and heartbeat monitoring
+- Lifecycle events (onReconnect, onDisconnect) for native worker management
+- Support for Anthropic and OpenAI built-in web search tools
+- Permission management UI translations and full-access mode confirmation
+- Content blocks utility for upserting web search blocks during streaming
+- Builtin search enabled flag in provider store configuration
+
+### Changed
+
+- Reworked the title-bar folder action to open the existing right-side Files tab instead of a separate working-folder panel.
+- Restored the closed right panel to a zero-width state without a persistent border or icon rail.
+- Improved bottom terminal sizing and xterm layout so maximized or resized terminals keep their bottom row visible.
+- Refactored code structure for improved readability and maintainability.
+- Renamed product design references and removed related dead code.
+- Refactored AssistantMessage to simplify debug tool call handling
+- Improved native worker resilience with crash logging and stderr capture
+- Enhanced provider store with built-in search capability detection
+
+### Technical
+
+- Extended terminal session state with surface tracking and environment overrides for AI Coding launches.
+- Added shared ClaudeCode/Codex launch resolution utilities and settings routes.
+- Creative Production extension ships with a standalone MCP server, widget assets, and Python scripts.
+- Product Design extension includes prototype templates, bootstrap scripts, and user context management tooling.
+
+### Fixed
+
+- Native worker now properly restarts on unexpected crashes with exponential backoff
+- Web search blocks update in place instead of stacking duplicates
+
+## [1.0.8] - 2026-07-05
+
+### Added
+
+- Added an install-confirmation step to the auto-updater: downloaded updates now wait for the user to choose "Update now" (restart and install) or "Update later" instead of restarting automatically.
+- Introduced `update:status` and `update:install` IPC handlers so the renderer can query whether a downloaded update is ready and trigger installation on demand.
+- Added a "ready to install" update state in the title bar and settings, with matching UI strings across all supported locales.
+
+### Changed
+
+- Deferred `quitAndInstall` until the user confirms; install failures now surface an `update:error` back to the window instead of force-quitting the app.
+- Clarified the auto-update setting description to reflect that updates download automatically but ask before restarting to install.
+- Refined the context-memory compression description to reflect model-aware compression thresholds and summary-based history preservation.
+
+## [1.0.7] - 2026-07-04
+
+### Added
+
+- Implemented comprehensive capybara pet companion system with personality-driven interaction model
+- Added pet experience progression system with level-based milestones and stat tracking
+- Implemented pet skin management system with customizable appearance options
+- Added pet agent runtime for proactive companion behavior and voice integration
+- Implemented pet memory system for contextual awareness and personality persistence
+- Added pet pose/animation system with 13 different animation states (idle, sleep, eat, play, swim, bathe, etc.)
+- Created pet studio for pose generation, expression customization, and skin preview
+- Added native worker OpenAI Audio module with configurable audio processing and streaming support
+
+### Changed
+
+- Removed documentation website from main repository (consolidate in separate docs project)
+- Enhanced provider stores (Routin AI, Xiaomi) with new capability management
+- Improved IPC messagepack channel routing with additional serialization support
+- Refined usage analytics tracking with enhanced provider metrics
+- Improved C# native worker OpenAI Audio Models with robust deserialization and error handling
+
+### Technical
+
+- Integrated multi-modal pet agent with adaptive response generation
+- Implemented pet persistence layer with Zustand-based state management
+- Added pet-specific IPC handlers for lifecycle and data synchronization
+- Extended localization system with pet UI and messaging (en/zh)
+
+## [1.0.6] - 2026-07-03
+
+### Added
+
+- Added Anthropic Claude API integration to the native worker with proper message validation and handling for trailing user turns (required by Claude Opus 4.6+, Sonnet 5, and Fable 5).
+- Implemented cache creation token tracking split by time windows (5-minute and 1-hour) for improved cache cost analysis and display.
+
+### Changed
+
+- Removed plan executor from native worker runtime; plan execution now handled through the unified agent loop.
+- Enhanced token usage metrics display with detailed cache creation breakdown and improved cost calculations.
+- Improved SSH workspace connection handling and status monitoring with better error recovery.
+- Refined permission dialog presentation and model switcher UX for better clarity.
+
+## [1.0.5] - 2026-07-02
+
+### Fixed
+
+- Ensured first-run global memory directory initialization and onboarding profile writes can create missing `USER.md` without surfacing startup errors.
+- Broadened missing-file detection for Windows and native-worker messages such as `Could not find file`, allowing onboarding, settings, and memory fallback paths to create files instead of failing.
+- Made local `MemoryRead` create missing memory files from templates before reading them.
+- Treated missing OpenAI Responses `previous_response_id` replay errors as recoverable and retried with full sanitized input.
+
+### Security
+
+- Upgraded the native worker SQLitePCLRaw bundle to `3.0.3`, pulling `SourceGear.sqlite3 3.50.4.5` and clearing the `SQLitePCLRaw.lib.e_sqlite3` vulnerability warning.
+
+## [1.0.4] - 2026-07-02
+
+### Fixed
+
+- Removed BOM character from package.json for better compatibility with various tools and parsers.
+- Added `pointer-events-none` to user message locator container to prevent it from intercepting clicks on underlying UI elements.
+
+### Changed
+
+- Optimized streaming and debug overhead by implementing on-demand caching and batch refresh instead of full recalculation on every increment, reducing O(n²) complexity in main and sidecar processes.
+- Enhanced debug request body handling by upgrading from in-memory truncation to persistent disk storage for better readability of long request bodies.
+- Added constraints for sub-agent and plan mode operations: sub-agents can no longer directly create/execute/approve plans, and plan mode tools are disabled by default in sub-agent contexts.
+- Implemented context injection for plan mode, plan revision, plan execution, plugin channels, system commands, and slash commands to ensure model input consistency with current runtime state.
+- Added prompt cache key truncation and derived sub-agent cache keys for OpenAI Responses API.
+- Added duplicate task deduplication during runtime to prevent identical sub-agent prompts from being executed multiple times.
+
+### Fixed
+
+- Fixed sidecar manager initialization and communication flow.
+- Improved session image export functionality.
+- Updated routing AI provider configuration.
+
+## [1.0.2] - 2026-07-01
+
+### Changed
+
+- Improved native worker development selection and publish flow so ready debug builds are preferred and failed native publishes do not wipe bundled resources.
+- Updated Electron Builder metadata by removing invalid and deprecated Windows build version fields.
+
+### Fixed
+
+- Ensured AI API requests always carry a non-empty versioned `User-Agent` header such as `OpenCowork/1.0.2` across renderer, main proxy, cron, sidecar, native worker, image, audio, skills, souls, and WebSocket request paths.
+- Normalized legacy default `User-Agent` placeholders like `OpenCowork` to the versioned app header while preserving provider-specific custom values.
+
+## [1.0.1] - 2026-07-01
+
+### Added
+
+- Added native MessagePack sidecar transport and native worker runtime coverage for agent tools, database, file, Git, shell, SSH, terminal, sync, extension, memory, goal, task, cron, and provider execution paths.
+- Added request stop support for agent runs, including shared run identifiers and stop-aware provider/runtime models.
+- Added message windowing, stable long-context handling, and richer export output for chat transcripts.
+- Added Luckin Coffee extension resources and bundled native worker publishing for platform-specific release artifacts.
+
+### Changed
+
+- Improved live tool-call rendering with streaming tool argument updates, foreground/background session synchronization, and session change summaries.
+- Updated release CI to publish the native worker per target runtime and include .NET setup in Windows, Linux, and macOS packaging jobs.
+- Refined the user-message locator into a compact right-edge marker with hover previews for faster navigation in long conversations.
+- Default command-tool live previews to the session working folder when no explicit `cwd` is provided.
+
+### Fixed
+
+- Forwarded native and SSH shell output chunks through `shell:output` so terminal/tool cards update while commands are still running.
+- Reduced stale shell-output listener buildup by using a single native worker forwarding listener.
+
 ## [1.0.0] - 2026-06-26
 
 ### Added

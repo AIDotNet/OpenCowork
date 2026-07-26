@@ -20,14 +20,36 @@
     <EventSourceSupport>false</EventSourceSupport>
     <MetricsSupport>false</MetricsSupport>
   </PropertyGroup>
-  <!-- CodeGraph engine, source-merged (user decision: single worker binary, one
-       shared e_sqlite3). The Core project stays alive for the xUnit test suite;
-       here its global-namespace sources compile directly against THIS worker's
-       runtime types (IWorkerModule/WorkerResponse/...), so CodeGraphModule plugs
-       into the catalog like any built-in module. -->
+  <!-- Shared worker runtime + transport + host, SOURCE-LINKED from the CodeGraph
+       submodule (sidecars/codegraph, github.com/AIDotNet/CodeGraph). The single
+       source of truth for the IPC/dispatch/host contract lives THERE, in
+       OpenCowork.Worker.Runtime, so this worker and the CodeGraph sidecar speak an
+       identical protocol. Four files stay local because they are worker-specific and
+       are deliberately absent from the shared project: Hosting/WorkerModuleCatalog.cs
+       (this worker's own module set) and Runtime/{AgentStreamMessagePackEmitter,
+       ApiUserAgent,WorkerHttpClientFactory}.cs (agent/HTTP plumbing).
+
+       The submodule must be initialized before this project can build:
+       `git submodule update` with the init flag, or a recursive clone. -->
   <ItemGroup>
-    <Compile Include="..\OpenCowork.CodeGraph.Core\**\*.cs"
-             Exclude="..\OpenCowork.CodeGraph.Core\obj\**;..\OpenCowork.CodeGraph.Core\bin\**;..\OpenCowork.CodeGraph.Core\_deferred\**"
+    <Compile Include="..\codegraph\OpenCowork.Worker.Runtime\Runtime\**\*.cs"
+             Link="Runtime\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\codegraph\OpenCowork.Worker.Runtime\Hosting\**\*.cs"
+             Link="Hosting\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\codegraph\OpenCowork.Worker.Runtime\Contracts\**\*.cs"
+             Link="Contracts\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\codegraph\OpenCowork.Worker.Runtime\Modules\SystemModule.cs"
+             Link="Modules\SystemModule.cs" />
+  </ItemGroup>
+  <!-- CodeGraph engine, source-merged (user decision: single worker binary, one
+       shared e_sqlite3). The Core project also builds standalone in the submodule for
+       its xUnit suite and the opt-in CodeGraph sidecar; here its global-namespace
+       sources compile directly against THIS worker's runtime types
+       (IWorkerModule/WorkerResponse/...), so CodeGraphModule plugs into the catalog
+       like any built-in module. -->
+  <ItemGroup>
+    <Compile Include="..\codegraph\OpenCowork.CodeGraph.Core\**\*.cs"
+             Exclude="..\codegraph\OpenCowork.CodeGraph.Core\obj\**;..\codegraph\OpenCowork.CodeGraph.Core\bin\**;..\codegraph\OpenCowork.CodeGraph.Core\_deferred\**"
              Link="CodeGraph\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>

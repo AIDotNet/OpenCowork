@@ -154,17 +154,7 @@ export function registerSeedanceVideoHandlers(): void {
         provider: unknown
         prompt: string
         images?: unknown[]
-        // Forwarded verbatim to the worker module. Each protocol reads the subset it
-        // understands: xAI/Sora take duration/aspectRatio/resolution, Seedance 2.x also
-        // takes watermark/seed/generateAudio as structured task params.
-        video?: {
-          duration?: number
-          aspectRatio?: string
-          resolution?: string
-          watermark?: boolean
-          seed?: number
-          generateAudio?: boolean
-        }
+        video?: { duration?: number; aspectRatio?: string; resolution?: string }
       }
     ): Promise<{ jobId?: string; status?: string; error?: string }> => {
       try {

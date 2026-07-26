@@ -744,7 +744,7 @@
       "sync": "Đồng bộ",
       "syncing": "Đang đồng bộ...",
       "unknownRoot": "(dự án không xác định) {{hash}}",
-      "workerMissing": "Không tìm thấy tệp nhị phân worker của CodeGraph. Hãy build bằng `npm run codegraph:publish` (hoặc `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerMissing": "Không tìm thấy tệp nhị phân worker của CodeGraph. Hãy build bằng `npm run codegraph:publish` (hoặc `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Worker đang chạy",
       "workerStopped": "Worker chưa khởi động (sẽ khởi tạo khi dùng lần đầu)"
     },

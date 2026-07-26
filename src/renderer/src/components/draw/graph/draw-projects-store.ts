@@ -7,6 +7,8 @@ export interface ProjectMeta {
   name: string
   createdAt: number
   updatedAt: number
+  /** Lazily provisioned native Agent working directory. */
+  workspacePath?: string
 }
 
 interface ProjectsState {
@@ -14,6 +16,7 @@ interface ProjectsState {
   activeProjectId: string | null
   createProject: (name: string, now: number) => string
   renameProject: (id: string, name: string) => void
+  setWorkspacePath: (id: string, workspacePath: string) => void
   deleteProject: (id: string) => void
   setActiveProject: (id: string) => void
   touchActive: (now: number) => void
@@ -36,7 +39,11 @@ export const useProjectsStore = create<ProjectsState>()(
       },
       renameProject: (id, name) =>
         set((s) => ({
-          projects: s.projects.map((p) => (p.id === id ? { ...p, name } : p))
+          projects: s.projects.map((p) => (p.id === id ? { ...p, name, updatedAt: Date.now() } : p))
+        })),
+      setWorkspacePath: (id, workspacePath) =>
+        set((s) => ({
+          projects: s.projects.map((p) => (p.id === id ? { ...p, workspacePath } : p))
         })),
       deleteProject: (id) =>
         set((s) => {

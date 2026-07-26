@@ -67,6 +67,11 @@ internal static class AgentRuntimeNativeToolExecutor
 
     public static bool CanExecute(string toolName, JsonElement parameters)
     {
+        if (AgentRuntimeCanvasExecutor.CanExecute(toolName, parameters))
+        {
+            return true;
+        }
+
         if (AgentRuntimeTranslationExecutor.CanExecute(toolName, parameters))
         {
             return true;
@@ -208,6 +213,11 @@ internal static class AgentRuntimeNativeToolExecutor
 
     public static bool RequiresApproval(string toolName, JsonElement input, JsonElement parameters)
     {
+        if (AgentRuntimeCanvasExecutor.CanExecute(toolName, parameters))
+        {
+            return AgentRuntimeCanvasExecutor.RequiresApproval(toolName, input);
+        }
+
         if (AgentRuntimeTranslationExecutor.CanExecute(toolName, parameters))
         {
             return false;
@@ -348,6 +358,16 @@ internal static class AgentRuntimeNativeToolExecutor
     {
         try
         {
+            if (AgentRuntimeCanvasExecutor.CanExecute(call.Name, parameters))
+            {
+                return await AgentRuntimeCanvasExecutor.ExecuteAsync(
+                    call,
+                    parameters,
+                    state.RunId,
+                    context,
+                    cancellationToken);
+            }
+
             if (AgentRuntimeTranslationExecutor.CanExecute(call.Name, parameters))
             {
                 return await AgentRuntimeTranslationExecutor.ExecuteAsync(

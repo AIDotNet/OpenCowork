@@ -1261,9 +1261,11 @@ export function resolveCodeGraphWorkerPath(): string | null {
 
   const executableName =
     process.platform === 'win32' ? 'OpenCowork.CodeGraph.Worker.exe' : 'OpenCowork.CodeGraph.Worker'
+  // The CodeGraph projects live in the sidecars/codegraph submodule.
   const releaseNativePath = path.join(
     process.cwd(),
     'sidecars',
+    'codegraph',
     'OpenCowork.CodeGraph.Worker',
     'bin',
     'Release',
@@ -1275,6 +1277,7 @@ export function resolveCodeGraphWorkerPath(): string | null {
   const releasePublishPath = path.join(
     process.cwd(),
     'sidecars',
+    'codegraph',
     'OpenCowork.CodeGraph.Worker',
     'bin',
     'Release',

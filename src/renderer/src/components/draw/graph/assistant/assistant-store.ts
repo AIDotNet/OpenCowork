@@ -1,30 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { nanoid } from 'nanoid'
 
-export type AssistantActionKind =
-  | 'read_canvas'
-  | 'get_node_status'
-  | 'subscribe_node'
-  | 'wait_for_node_event'
-  | 'create_node'
-  | 'update_node'
-  | 'delete_nodes'
-  | 'duplicate_nodes'
-  | 'connect_nodes'
-  | 'disconnect_nodes'
-  | 'move_nodes'
-  | 'resize_node'
-  | 'select_nodes'
-  | 'run_node'
-  | 'retry_node'
-  | 'cancel_node'
-  | 'generate_media'
-  | 'generate_video'
-  | 'edit_image'
-  | 'media_action'
-  | 'create_trigger'
-  | 'delete_trigger'
-  | 'manage_canvas'
+export type AssistantActionKind = string
 
 export interface AssistantAction {
   kind: AssistantActionKind
@@ -47,6 +25,8 @@ export type AssistantTimelineBlock =
     }
 
 export interface AssistantTurn {
+  id: string
+  createdAt: number
   role: 'user' | 'assistant'
   text: string
   /** Canvas operations the agent performed while producing this turn (display only). */
@@ -56,6 +36,11 @@ export interface AssistantTurn {
   contextNodeIds?: string[]
   attachmentCount?: number
   attachmentRefs?: Array<{ attachmentId: string; nodeId: string }>
+}
+
+export type AssistantTurnInput = Omit<AssistantTurn, 'id' | 'createdAt'> & {
+  id?: string
+  createdAt?: number
 }
 
 interface PanelPosition {
@@ -97,8 +82,33 @@ interface AssistantState {
   clearContext: () => void
   /** Drop context ids whose nodes no longer exist on the canvas. */
   pruneContext: (validIds: string[]) => void
-  appendTurn: (projectId: string, turn: AssistantTurn) => void
+  appendTurn: (projectId: string, turn: AssistantTurnInput) => void
+  truncateFromTurn: (projectId: string, turnId: string) => void
+  deleteTurn: (projectId: string, turnId: string) => void
   clearSession: (projectId: string) => void
+}
+
+function normalizeTurn(turn: AssistantTurnInput): AssistantTurn {
+  return {
+    ...turn,
+    id: turn.id || nanoid(),
+    createdAt: turn.createdAt ?? Date.now()
+  }
+}
+
+function migrateAssistantState(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value
+  const state = value as { sessions?: Record<string, AssistantTurnInput[]> }
+  if (!state.sessions || typeof state.sessions !== 'object') return value
+  return {
+    ...state,
+    sessions: Object.fromEntries(
+      Object.entries(state.sessions).map(([projectId, turns]) => [
+        projectId,
+        Array.isArray(turns) ? turns.map(normalizeTurn) : []
+      ])
+    )
+  }
 }
 
 export const useAssistantStore = create<AssistantState>()(
@@ -134,9 +144,43 @@ export const useAssistantStore = create<AssistantState>()(
         set((s) => ({
           sessions: {
             ...s.sessions,
-            [projectId]: [...(s.sessions[projectId] ?? []), turn].slice(-MAX_TURNS_PER_PROJECT)
+            [projectId]: [...(s.sessions[projectId] ?? []), normalizeTurn(turn)].slice(
+              -MAX_TURNS_PER_PROJECT
+            )
           }
         })),
+      truncateFromTurn: (projectId, turnId) =>
+        set((s) => {
+          const turns = s.sessions[projectId] ?? []
+          const index = turns.findIndex((turn) => turn.id === turnId)
+          if (index < 0) return s
+          return { sessions: { ...s.sessions, [projectId]: turns.slice(0, index) } }
+        }),
+      deleteTurn: (projectId, turnId) =>
+        set((s) => {
+          const turns = s.sessions[projectId] ?? []
+          const index = turns.findIndex((turn) => turn.id === turnId)
+          if (index < 0) return s
+          const turn = turns[index]
+          if (turn.role === 'assistant') {
+            return {
+              sessions: {
+                ...s.sessions,
+                [projectId]: turns.filter((candidate) => candidate.id !== turnId)
+              }
+            }
+          }
+          const nextUserOffset = turns
+            .slice(index + 1)
+            .findIndex((candidate) => candidate.role === 'user')
+          const end = nextUserOffset < 0 ? turns.length : index + 1 + nextUserOffset
+          return {
+            sessions: {
+              ...s.sessions,
+              [projectId]: [...turns.slice(0, index), ...turns.slice(end)]
+            }
+          }
+        }),
       clearSession: (projectId) =>
         set((s) => {
           const { [projectId]: _dropped, ...rest } = s.sessions
@@ -145,6 +189,8 @@ export const useAssistantStore = create<AssistantState>()(
     }),
     {
       name: 'open-cowork.draw.assistant',
+      version: 1,
+      migrate: migrateAssistantState,
       partialize: (s) => ({
         collapsed: s.collapsed,
         position: s.position,

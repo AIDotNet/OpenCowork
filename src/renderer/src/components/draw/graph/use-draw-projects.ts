@@ -3,6 +3,11 @@ import { useGraphStore } from './graph-store'
 import { useProjectsStore, type ProjectMeta } from './draw-projects-store'
 import { useAssistantStore } from './assistant/assistant-store'
 import {
+  ensureDrawAgentWorkspace,
+  renameDrawAgentWorkspace,
+  trashDrawAgentWorkspace
+} from './draw-agent-workspace'
+import {
   deleteProjectGraph,
   loadProjectGraph,
   migrateLegacyGraph,
@@ -14,10 +19,10 @@ const AUTOSAVE_MS = 400
 export interface DrawProjectsApi {
   projects: ProjectMeta[]
   activeProjectId: string | null
-  newProject: () => void
+  newProject: () => Promise<void>
   switchProject: (id: string) => void
-  renameProject: (id: string, name: string) => void
-  removeProject: (id: string) => void
+  renameProject: (id: string, name: string) => Promise<void>
+  removeProject: (id: string) => Promise<void>
 }
 
 /**
@@ -88,7 +93,7 @@ export function useDrawProjects(baseName: string): DrawProjectsApi {
     loadProjectGraph(id)
   }
 
-  const newProject = (): void => {
+  const newProject = async (): Promise<void> => {
     flushCurrent()
     const store = useProjectsStore.getState()
     const id = store.createProject(
@@ -96,14 +101,18 @@ export function useDrawProjects(baseName: string): DrawProjectsApi {
       Date.now()
     )
     loadProjectGraph(id)
+    await ensureDrawAgentWorkspace(id)
   }
 
-  const renameProject = (id: string, name: string): void => {
-    useProjectsStore.getState().renameProject(id, name.trim() || baseNameRef.current)
+  const renameProject = async (id: string, name: string): Promise<void> => {
+    const nextName = name.trim() || baseNameRef.current
+    await renameDrawAgentWorkspace(id, nextName)
+    useProjectsStore.getState().renameProject(id, nextName)
   }
 
-  const removeProject = (id: string): void => {
+  const removeProject = async (id: string): Promise<void> => {
     const wasActive = useProjectsStore.getState().activeProjectId === id
+    await trashDrawAgentWorkspace(id)
     deleteProjectGraph(id)
     useAssistantStore.getState().clearSession(id)
     const store = useProjectsStore.getState()
@@ -115,6 +124,7 @@ export function useDrawProjects(baseName: string): DrawProjectsApi {
     } else {
       const nid = store.createProject(`${baseNameRef.current} 1`, Date.now())
       loadProjectGraph(nid)
+      await ensureDrawAgentWorkspace(nid)
     }
   }
 

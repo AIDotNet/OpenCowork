@@ -83,6 +83,7 @@ import { registerSyncHandlers } from './ipc/sync-handlers'
 import { registerHooksHandlers } from './ipc/hooks-handlers'
 import { initializeHookRuntimeSettings } from './hooks/hooks-service'
 import { registerSidecarHandlers, getSidecarManager } from './ipc/sidecar-manager'
+import { registerDrawAgentWorkspaceHandlers } from './ipc/draw-agent-workspace-handlers'
 import {
   getNativeWorker,
   latchNativeWorkerShutdown,
@@ -1524,6 +1525,7 @@ if (gotSingleInstanceLock) {
     registerHooksHandlers()
 
     registerSidecarHandlers()
+    registerDrawAgentWorkspaceHandlers()
     registerTeamRuntimeHandlers()
     registerNotifyHandlers()
     registerPetHandlers({ loadRendererWindow, showMainWindow })

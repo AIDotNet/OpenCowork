@@ -21,6 +21,7 @@ import type { ImageNode } from '../graph-types'
 import { useGraphStore } from '../graph-store'
 import { useGraphActions } from '../graph-actions'
 import { useAssetStore } from '../assets/asset-store'
+import { NodeErrorBanner } from './NodeErrorBanner'
 
 interface Props {
   node: ImageNode
@@ -113,12 +114,7 @@ export function ImageNodeView({ node }: Props): React.JSX.Element {
         </div>
       )}
 
-      {error && !generating && (
-        <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-md bg-destructive/90 px-2 py-1 text-[11px] text-white">
-          <AlertCircle className="size-3.5 shrink-0" />
-          <span className="truncate">{error}</span>
-        </div>
-      )}
+      {error && !generating && <NodeErrorBanner error={error} />}
 
       {interrupted && !error && !generating && (
         <div

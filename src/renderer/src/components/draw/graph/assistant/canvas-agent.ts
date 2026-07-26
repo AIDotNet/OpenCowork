@@ -1,13 +1,27 @@
 import { nanoid } from 'nanoid'
-import { runSidecarTextRequest, streamSidecarProviderTurn } from '@renderer/lib/ipc/agent-bridge'
-import { isNativeSidecarProviderConfig } from '@renderer/lib/ipc/sidecar-protocol'
+import { runSidecarTextRequest } from '@renderer/lib/ipc/agent-bridge'
+import {
+  buildSidecarAgentRunRequest,
+  isNativeSidecarProviderConfig
+} from '@renderer/lib/ipc/sidecar-protocol'
 import type {
-  ContentBlock,
   ProviderConfig,
   ToolDefinition,
   ToolUseBlock,
   UnifiedMessage
 } from '@renderer/lib/api/types'
+import { runAgentViaSidecar } from '@renderer/lib/agent/run-agent-via-sidecar'
+import { buildSystemPrompt } from '@renderer/lib/agent/system-prompt'
+import { toolRegistry } from '@renderer/lib/agent/tool-registry'
+import { ensureRequestToolCatalogFresh } from '@renderer/lib/tools/dynamic-tool-catalog'
+import { useMcpStore } from '@renderer/stores/mcp-store'
+import {
+  isProviderAvailableForModelSelection,
+  useProviderStore
+} from '@renderer/stores/provider-store'
+import { buildMcpResourceDefinitions, buildMcpToolDefinitions } from '@renderer/lib/mcp/mcp-tools'
+import { registerSidecarApprovalHandler } from '@renderer/lib/ipc/sidecar-approval-registry'
+import { registerNativeCanvasToolHandler } from '@renderer/lib/ipc/canvas-native-tool-registry'
 import type { ImageAttachment } from '@renderer/lib/image-attachments'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -40,6 +54,11 @@ import {
   saveProjectGraph
 } from '../graph-persistence'
 import { useProjectsStore } from '../draw-projects-store'
+import {
+  ensureDrawAgentWorkspace,
+  renameDrawAgentWorkspace,
+  trashDrawAgentWorkspace
+} from '../draw-agent-workspace'
 import { cropImage, transformImage, upscaleImageLocal } from '../node-image-ops'
 import { useAssetStore } from '../assets/asset-store'
 import {
@@ -48,22 +67,95 @@ import {
   type AssistantActionKind
 } from './assistant-store'
 
-export const CANVAS_ASSISTANT_SYSTEM_PROMPT = `You are the canvas controller inside an AI drawing app. The user works on an infinite node graph with text, image, generate-config, and video nodes. Edges flow left-to-right.
+export const CANVAS_ASSISTANT_SYSTEM_PROMPT = `You are the senior creative-production controller inside an AI drawing app. The user works on an infinite node graph with text, image, generate-config, and video nodes. Edges flow left-to-right. Your job is to turn real business requirements into production-ready visual work, not merely to expand a short request with decorative adjectives.
 
-You can inspect and fully operate nodes, run image/text/video generation, subscribe to node execution events, wait for a run to finish, and manage the canvas. Always call read_canvas before relying on node ids not supplied in the current user context. Use get_node_status for an immediate state check. For multi-step generation, call subscribe_node, start or inspect the run, then wait_for_node_event and continue only after the returned event. Never claim a generation finished unless its status or event says succeeded.
+## Operating discipline
 
-Uploaded images are labeled with attachment ids and selected canvas nodes are labeled with node ids. When the user asks to change, restyle, replace part of, or otherwise modify an existing image, you MUST use edit_image with that image as source_node_id or source_attachment_id. Use generate_media only to create media from scratch; never substitute it for an image edit. Destructive operations request user confirmation automatically. If a tool returns denied_by_user, accept the decision and do not retry the operation. Keep answers concise and reply in the user's language.`
+You can inspect and fully operate nodes, run image/text/video generation, subscribe to node execution events, wait for a run to finish, and manage the canvas. Before starting a new generation workflow, call read_canvas once in the current turn to inspect relevant assets, execution state, and the available provider/model catalog. Always call read_canvas before relying on node ids not supplied in the current user context. Use get_node_status for an immediate state check. For a multi-step run, inspect or subscribe to the returned config node, wait_for_node_event when it is still queued or running, and continue only after success. Never use a failed, cancelled, interrupted, or incomplete result as the input to a later stage. Never claim generation finished unless its status or event says succeeded; if it is only queued or running, say so accurately.
+
+Uploaded images are labeled with attachment ids and selected canvas nodes are labeled with node ids. When the user asks to change, restyle, replace part of, or otherwise modify an existing image, you MUST use edit_image with that image as source_node_id or source_attachment_id. Use generate_media only to create media from scratch; never substitute it for an image edit.
+
+## Business brief and prompt quality
+
+Before generating commercial or business content, extract the factual brief from the user's request, attachments, canvas, workspace files, and relevant connected tools. Identify, when applicable: the product or service, business objective, campaign/use case, target audience, channel and deliverable, value proposition, verified proof points, brand tone, call to action, required elements, forbidden elements, and technical delivery constraints. Pass these details through business_context instead of burying them in vague prose.
+
+Never invent or silently alter prices, discounts, availability, product capabilities, statistics, testimonials, certifications, awards, guarantees, legal claims, logos, brand rules, or other business facts. Ask one concise clarification before generation only when missing information would materially affect commercial correctness or the chosen direction. Otherwise proceed with clearly labeled, conservative creative assumptions; assumptions may cover visual treatment but must not create new business claims.
+
+Write a professional generation prompt that is specific enough for production. Use creative_direction to define the applicable subject/product fidelity, visual style, environment, composition, framing, camera/lens behavior, lighting, palette, materials, typography and copy handling, motion, pacing, continuity, ending, and negative constraints. Preserve exact supplied copy and brand identifiers. Match aspect ratio, resolution, duration, FPS, quality, and safe areas to the actual delivery channel. Avoid mutually contradictory instructions and avoid requesting details the selected model cannot use.
+
+## Reference-first video workflow
+
+Video generation should normally be image-to-video. First look for a suitable uploaded image or successful image node that accurately represents the required subject, product, brand, composition, and aspect ratio. Reuse it through reference_node_ids or reference_attachment_ids. If no suitable reference exists and visual identity or subject consistency matters, generate a high-quality keyframe/reference image first using generate_media with media_type=image. Design that keyframe for the intended video's opening frame, composition, safe areas, and aspect ratio. Wait until the image run succeeds, obtain the successful output image node id, and then pass that id in reference_node_ids to generate_video.
+
+Do not start the video if the keyframe failed or is still running. Use pure text-to-video only when the user explicitly asks for it, when the selected model cannot accept a reference image, or when a reference image would be inappropriate for the requested concept. When using a reference, treat it as the authority for appearance and composition; make the video prompt focus on temporal behavior: subject action, camera motion, shot timing, physical continuity, stable identity, transition behavior, and end frame. Explicitly suppress flicker, warping, unintended morphing, object duplication, disappearing details, unstable text/logo rendering, and abrupt camera jumps when relevant.
+
+You also have Shell, full file tools, Skills, and enabled MCP tools. Relative file and shell paths resolve from this canvas's dedicated workspace. Use Skill when an available skill clearly matches the request. Use MCP when it is the best connected capability. For image, text, and video generation, independently choose the best available compatible provider, model, and parameters when the user has not specified them. Prefer a model that supports reference-image input for video. Explicit user choices always win; never replace them silently.
+
+Destructive operations request user confirmation automatically. If a tool returns denied_by_user, accept the decision and do not retry the operation. Keep answers concise and reply in the user's language.`
 
 const nodeIdArray = {
   type: 'array',
   items: { type: 'string' }
 } as const
 
+const stringList = {
+  type: 'array',
+  items: { type: 'string' }
+} as const
+
+const businessContextSchema = {
+  type: 'object',
+  description:
+    'Factual business and delivery requirements. Include only user-supplied or otherwise verified facts; label non-factual creative assumptions separately.',
+  properties: {
+    product_or_service: { type: 'string' },
+    objective: { type: 'string' },
+    campaign_or_use_case: { type: 'string' },
+    audience: { type: 'string' },
+    channel: { type: 'string' },
+    deliverable: { type: 'string' },
+    value_proposition: { type: 'string' },
+    verified_facts: stringList,
+    proof_points: stringList,
+    brand_tone: { type: 'string' },
+    call_to_action: { type: 'string' },
+    required_elements: stringList,
+    forbidden_elements: stringList,
+    assumptions: {
+      ...stringList,
+      description:
+        'Conservative creative assumptions only; never use this field to invent prices, claims, capabilities, certifications, or other business facts.'
+    }
+  }
+} as const
+
+const creativeDirectionSchema = {
+  type: 'object',
+  description: 'Concrete production direction appropriate to the selected media type and channel.',
+  properties: {
+    subject_and_product_fidelity: { type: 'string' },
+    visual_style: { type: 'string' },
+    environment: { type: 'string' },
+    composition: { type: 'string' },
+    camera: { type: 'string' },
+    motion: { type: 'string' },
+    lighting: { type: 'string' },
+    color_palette: { type: 'string' },
+    materials_and_texture: { type: 'string' },
+    typography_and_copy: { type: 'string' },
+    pacing: { type: 'string' },
+    continuity: { type: 'string' },
+    ending: { type: 'string' },
+    audio: { type: 'string' },
+    negative_prompt: { type: 'string' }
+  }
+} as const
+
 const CANVAS_TOOLS: ToolDefinition[] = [
   {
     name: 'read_canvas',
     description:
-      'Read nodes, edges, triggers, selection, execution states, view and active project.',
+      'Read nodes, edges, triggers, selection, execution states, view, active project, and available generation provider/model catalog.',
     inputSchema: { type: 'object', properties: {} }
   },
   {
@@ -235,12 +327,15 @@ const CANVAS_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'generate_media',
-    description: 'Create prompt/config nodes and run image, text, or video generation.',
+    description:
+      'Create prompt/config nodes and run image, text, or video generation. For business work, provide verified business_context and concrete creative_direction so the stored prompt contains the real delivery requirements.',
     inputSchema: {
       type: 'object',
       properties: {
         media_type: { type: 'string', enum: ['image', 'text', 'video'] },
         prompt: { type: 'string' },
+        business_context: businessContextSchema,
+        creative_direction: creativeDirectionSchema,
         reference_node_ids: nodeIdArray,
         reference_attachment_ids: nodeIdArray,
         provider_id: { type: 'string' },
@@ -259,11 +354,14 @@ const CANVAS_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'generate_video',
-    description: 'Create and start a text-to-video or image-to-video workflow.',
+    description:
+      'Create and start a video workflow. Prefer image-to-video: reuse a suitable successful image reference, or generate and wait for a keyframe image first, then pass its output node id in reference_node_ids. Use text-to-video only when explicitly requested or reference input is unsupported/inappropriate.',
     inputSchema: {
       type: 'object',
       properties: {
         prompt: { type: 'string' },
+        business_context: businessContextSchema,
+        creative_direction: creativeDirectionSchema,
         reference_node_ids: nodeIdArray,
         reference_attachment_ids: nodeIdArray,
         provider_id: { type: 'string' },
@@ -383,9 +481,16 @@ const CANVAS_TOOLS: ToolDefinition[] = [
 export interface CanvasConfirmationRequest {
   id: string
   toolName: string
-  kind: 'delete_nodes' | 'cancel_node' | 'clear_canvas' | 'replace_canvas' | 'delete_project'
+  kind:
+    | 'delete_nodes'
+    | 'cancel_node'
+    | 'clear_canvas'
+    | 'replace_canvas'
+    | 'delete_project'
+    | 'tool'
   count?: number
   nodeId?: string
+  inputPreview?: string
 }
 
 export type CanvasAgentEvent =
@@ -411,8 +516,18 @@ interface RunCanvasAssistantArgs {
   signal?: AbortSignal
 }
 
-const MAX_TOOL_ROUNDS = 20
 const MAX_TURN_MS = 15 * 60 * 1000
+const CANVAS_AGENT_TOOL_NAMES = new Set([
+  'Read',
+  'Write',
+  'Edit',
+  'NotebookEdit',
+  'LS',
+  'Glob',
+  'Grep',
+  'Bash',
+  'Skill'
+])
 const NODE_GAP = 60
 const NODE_EVENT_TYPES = new Set<CanvasNodeEventType>([
   'run.queued',
@@ -444,6 +559,110 @@ function stringArray(value: unknown): string[] {
     : []
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+const BUSINESS_PROMPT_FIELDS = [
+  ['product_or_service', 'Product or service'],
+  ['objective', 'Business objective'],
+  ['campaign_or_use_case', 'Campaign or use case'],
+  ['audience', 'Target audience'],
+  ['channel', 'Channel'],
+  ['deliverable', 'Deliverable'],
+  ['value_proposition', 'Value proposition'],
+  ['verified_facts', 'Verified facts'],
+  ['proof_points', 'Verified proof points'],
+  ['brand_tone', 'Brand tone'],
+  ['call_to_action', 'Call to action'],
+  ['required_elements', 'Required elements'],
+  ['forbidden_elements', 'Forbidden elements'],
+  ['assumptions', 'Creative assumptions (not business facts)']
+] as const
+
+const CREATIVE_PROMPT_FIELDS = [
+  ['subject_and_product_fidelity', 'Subject and product fidelity'],
+  ['visual_style', 'Visual style'],
+  ['environment', 'Environment'],
+  ['composition', 'Composition and framing'],
+  ['camera', 'Camera and lens'],
+  ['motion', 'Subject and camera motion'],
+  ['lighting', 'Lighting'],
+  ['color_palette', 'Color palette'],
+  ['materials_and_texture', 'Materials and texture'],
+  ['typography_and_copy', 'Typography and exact copy'],
+  ['pacing', 'Pacing and shot timing'],
+  ['continuity', 'Continuity'],
+  ['ending', 'Ending frame'],
+  ['audio', 'Audio direction'],
+  ['negative_prompt', 'Negative constraints']
+] as const
+
+function promptValue(value: unknown): string | undefined {
+  if (typeof value === 'string') return value.trim() || undefined
+  if (!Array.isArray(value)) return undefined
+  const items = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return items.length > 0 ? items.join('; ') : undefined
+}
+
+function formatPromptFields(
+  input: unknown,
+  fields: ReadonlyArray<readonly [string, string]>
+): string[] {
+  const record = asRecord(input)
+  if (!record) return []
+  return fields.flatMap(([key, label]) => {
+    const value = promptValue(record[key])
+    return value ? [`- ${label}: ${value}`] : []
+  })
+}
+
+function buildProfessionalMediaPrompt(
+  input: Record<string, unknown>,
+  prompt: string,
+  mode: 'image' | 'text' | 'video'
+): string {
+  const businessLines = formatPromptFields(input.business_context, BUSINESS_PROMPT_FIELDS)
+  const creativeLines = formatPromptFields(input.creative_direction, CREATIVE_PROMPT_FIELDS)
+  const deliveryLines = [
+    mode !== 'text'
+      ? `- Aspect ratio: ${asString(input.aspect) || (mode === 'video' ? '16:9' : '1:1')}`
+      : '',
+    asString(input.size) ? `- Size: ${asString(input.size)}` : '',
+    asString(input.resolution) ? `- Resolution: ${asString(input.resolution)}` : '',
+    asString(input.quality) ? `- Quality: ${asString(input.quality)}` : '',
+    mode === 'video' && asNumber(input.duration) !== undefined
+      ? `- Duration: ${asNumber(input.duration)} seconds`
+      : '',
+    mode === 'video' && asNumber(input.fps) !== undefined
+      ? `- Frame rate: ${asNumber(input.fps)} FPS`
+      : ''
+  ].filter(Boolean)
+  const sections = [`## Core creative request\n${prompt.trim()}`]
+  if (businessLines.length > 0) {
+    sections.push(`## Business and delivery brief\n${businessLines.join('\n')}`)
+  }
+  if (creativeLines.length > 0) {
+    sections.push(`## Production direction\n${creativeLines.join('\n')}`)
+  }
+  if (deliveryLines.length > 0) {
+    sections.push(`## Technical delivery\n${deliveryLines.join('\n')}`)
+  }
+  sections.push(
+    mode === 'video'
+      ? `## Execution guardrails\n- When a reference image is supplied, preserve its subject identity, product geometry, materials, colors, logos, composition, and visual hierarchy; animate it instead of redesigning it.\n- Maintain temporal and physical continuity. Avoid flicker, warping, unintended morphing, duplicated or disappearing objects, unstable anatomy, unstable text or logos, and abrupt camera jumps.\n- Do not introduce prices, claims, copy, logos, or other business facts that are not explicitly stated above.`
+      : mode === 'image'
+        ? `## Execution guardrails\n- Preserve recognizable subject and product geometry, material accuracy, brand colors, and exact supplied copy.\n- Produce a coherent, production-clean composition without accidental text, logos, watermarks, distorted anatomy, duplicated objects, or broken perspective unless explicitly requested.\n- Do not introduce prices, claims, copy, logos, or other business facts that are not explicitly stated above.`
+        : `## Execution guardrails\n- Keep all business statements faithful to the supplied brief and preserve exact required names, figures, and calls to action.\n- Do not invent prices, claims, capabilities, testimonials, certifications, guarantees, or other business facts.`
+  )
+  return sections.join('\n\n')
+}
+
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
@@ -455,6 +674,38 @@ function summarizeToolResult(output: string): unknown {
   } catch {
     return { message: output }
   }
+}
+
+function stringifyToolOutput(output: unknown): string {
+  if (typeof output === 'string') return output
+  if (output === undefined) return ''
+  try {
+    return JSON.stringify(output)
+  } catch {
+    return String(output)
+  }
+}
+
+async function buildCanvasAgentTools(projectId: string): Promise<ToolDefinition[]> {
+  await ensureRequestToolCatalogFresh()
+  const mcpProjectId = `graph:${projectId}`
+  await useMcpStore.getState().ensureConversationReady(mcpProjectId)
+  const mcpState = useMcpStore.getState()
+  const activeServers = mcpState.getActiveMcps(mcpProjectId)
+  const tools = [
+    ...CANVAS_TOOLS,
+    ...toolRegistry
+      .getStableDefinitions()
+      .filter((definition) => CANVAS_AGENT_TOOL_NAMES.has(definition.name)),
+    ...buildMcpToolDefinitions(activeServers, mcpState.getActiveMcpTools(mcpProjectId)),
+    ...buildMcpResourceDefinitions(activeServers, mcpState.getActiveMcpResources(mcpProjectId))
+  ]
+  return [...new Map(tools.map((tool) => [tool.name, tool])).values()]
+}
+
+function approvalPreview(input: Record<string, unknown>): string | undefined {
+  const text = stringifyToolOutput(input)
+  return text ? truncate(text, 500) : undefined
 }
 
 async function raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T | null> {
@@ -491,6 +742,7 @@ function viewportAnchor(offsetIndex: number): { x: number; y: number } {
 function readCanvas(): string {
   const graph = useGraphStore.getState()
   const projectStore = useProjectsStore.getState()
+  const providerStore = useProviderStore.getState()
   return JSON.stringify({
     project: projectStore.projects.find((project) => project.id === projectStore.activeProjectId),
     projects: projectStore.projects,
@@ -517,7 +769,34 @@ function readCanvas(): string {
     triggers: graph.triggers,
     selection: graph.selection,
     background: graph.background,
-    camera: graph.camera
+    camera: graph.camera,
+    generationModels: providerStore.providers
+      .filter(isProviderAvailableForModelSelection)
+      .flatMap((provider) =>
+        provider.models
+          .filter(
+            (model) =>
+              model.enabled && ['chat', 'image', 'video'].includes(model.category ?? 'chat')
+          )
+          .map((model) => ({
+            provider_id: provider.id,
+            provider_name: provider.name,
+            model_id: model.id,
+            model_name: model.name,
+            category: model.category ?? 'chat',
+            type: model.type ?? provider.type
+          }))
+      ),
+    generationDefaults: {
+      text: {
+        provider_id: providerStore.activeProviderId,
+        model_id: providerStore.activeModelId
+      },
+      image: {
+        provider_id: providerStore.activeImageProviderId,
+        model_id: providerStore.activeImageModelId
+      }
+    }
   })
 }
 
@@ -821,11 +1100,13 @@ async function generateMediaTool(
   actions: GraphActions,
   args: RunCanvasAssistantArgs
 ): Promise<ToolOutcome> {
-  const prompt = asString(input.prompt).trim()
+  const rawPrompt = asString(input.prompt).trim()
   const mode = asString(input.media_type) || 'image'
-  if (!prompt || !['image', 'text', 'video'].includes(mode)) {
+  if (!rawPrompt || !['image', 'text', 'video'].includes(mode)) {
     return { output: 'Error: valid media_type and prompt are required', isError: true }
   }
+  const mediaMode = mode as 'image' | 'text' | 'video'
+  const prompt = buildProfessionalMediaPrompt(input, rawPrompt, mediaMode)
   const attachmentIds = stringArray(input.reference_attachment_ids)
   const attachmentNodes = (
     await Promise.all(
@@ -835,7 +1116,22 @@ async function generateMediaTool(
   const graph = useGraphStore.getState()
   const referenceIds = [...stringArray(input.reference_node_ids), ...attachmentNodes]
     .filter((id, index, all) => all.indexOf(id) === index)
-    .filter((id) => graph.nodes.some((node) => node.id === id && node.kind === 'image'))
+    .filter((id) =>
+      graph.nodes.some(
+        (node) => node.id === id && node.kind === 'image' && !!(node.data.src || node.data.filePath)
+      )
+    )
+  if (
+    mode === 'video' &&
+    (stringArray(input.reference_node_ids).length > 0 || attachmentIds.length > 0) &&
+    referenceIds.length === 0
+  ) {
+    return {
+      output:
+        'Error: video reference inputs were requested, but no completed image reference is available. Wait for the image to succeed or choose another reference.',
+      isError: true
+    }
+  }
   const promptBase = createCanvasNode('text', viewportAnchor(offsetIndex + attachmentNodes.length))
   const promptNode: CanvasNode = { ...promptBase, kind: 'text', data: { text: prompt } }
   const configBase = createCanvasNode('config', { x: 0, y: 0 })
@@ -976,10 +1272,11 @@ async function executeCanvasTool(
   args: RunCanvasAssistantArgs,
   offsetIndex: number,
   subscriptionIds: Set<string>,
-  deadlineAt: number
+  deadlineAt: number,
+  confirmationHandled = false
 ): Promise<ToolOutcome> {
   try {
-    const confirmation = requiresConfirmation(call)
+    const confirmation = confirmationHandled ? null : requiresConfirmation(call)
     if (confirmation) {
       const approved = args.confirm
         ? await raceWithAbort(args.confirm(confirmation), args.signal)
@@ -1224,7 +1521,7 @@ async function executeCanvasTool(
       }
       case 'manage_canvas': {
         const previousProjectId = useProjectsStore.getState().activeProjectId
-        const outcome = manageCanvasTool(input, args.projectBaseName ?? 'Canvas')
+        const outcome = await manageCanvasTool(input, args.projectBaseName ?? 'Canvas')
         if (useProjectsStore.getState().activeProjectId !== previousProjectId) {
           for (const subscriptionId of subscriptionIds) {
             unsubscribeCanvasNodeEvents(subscriptionId)
@@ -1244,7 +1541,10 @@ async function executeCanvasTool(
   }
 }
 
-function manageCanvasTool(input: Record<string, unknown>, projectBaseName: string): ToolOutcome {
+async function manageCanvasTool(
+  input: Record<string, unknown>,
+  projectBaseName: string
+): Promise<ToolOutcome> {
   const action = asString(input.action)
   const graph = useGraphStore.getState()
   const projects = useProjectsStore.getState()
@@ -1349,6 +1649,7 @@ function manageCanvasTool(input: Record<string, unknown>, projectBaseName: strin
       if (current) saveProjectGraph(current)
       const id = projects.createProject(asString(input.name) || projectBaseName, Date.now())
       loadProjectGraph(id)
+      await ensureDrawAgentWorkspace(id)
       return { output: JSON.stringify({ project_id: id }) }
     }
     case 'switch_project': {
@@ -1369,8 +1670,10 @@ function manageCanvasTool(input: Record<string, unknown>, projectBaseName: strin
       if (!projects.projects.some((project) => project.id === id)) {
         return { output: 'Error: project not found', isError: true }
       }
-      projects.renameProject(id, asString(input.name) || projectBaseName)
-      return { output: JSON.stringify({ renamed: id }) }
+      const name = asString(input.name) || projectBaseName
+      const workspacePath = await renameDrawAgentWorkspace(id, name)
+      projects.renameProject(id, name)
+      return { output: JSON.stringify({ renamed: id, workspace_path: workspacePath }) }
     }
     case 'delete_project': {
       const id = asString(input.project_id) || projects.activeProjectId || ''
@@ -1378,6 +1681,7 @@ function manageCanvasTool(input: Record<string, unknown>, projectBaseName: strin
         return { output: 'Error: project not found', isError: true }
       }
       const wasActive = projects.activeProjectId === id
+      await trashDrawAgentWorkspace(id)
       deleteProjectGraph(id)
       useAssistantStore.getState().clearSession(id)
       projects.deleteProject(id)
@@ -1392,6 +1696,7 @@ function manageCanvasTool(input: Record<string, unknown>, projectBaseName: strin
       let next = useProjectsStore.getState().activeProjectId
       if (!next) {
         next = projects.createProject(`${projectBaseName} 1`, Date.now())
+        await ensureDrawAgentWorkspace(next)
       }
       loadProjectGraph(next)
       return { output: JSON.stringify({ deleted_project: id, active_project_id: next }) }
@@ -1412,11 +1717,20 @@ export async function* runCanvasAssistantTurn(
   const timeout = window.setTimeout(() => turnController.abort(), MAX_TURN_MS)
   const runArgs: RunCanvasAssistantArgs = { ...args, signal: turnController.signal }
   const subscriptionIds = new Set<string>()
-  const startedAt = Date.now()
+  const runCleanups: Array<() => void> = []
   try {
+    const projectId = runArgs.projectId ?? useProjectsStore.getState().activeProjectId
+    if (!projectId) throw new Error('Canvas project is unavailable')
+    const workingFolder = await ensureDrawAgentWorkspace(projectId)
+    const tools = await buildCanvasAgentTools(projectId)
     const provider: ProviderConfig = {
       ...runArgs.provider,
-      systemPrompt: CANVAS_ASSISTANT_SYSTEM_PROMPT,
+      systemPrompt: `${buildSystemPrompt({
+        mode: 'cowork',
+        workingFolder,
+        sessionId: `graph-agent:${projectId}`,
+        toolDefs: tools
+      })}\n\n## Canvas controller\n${CANVAS_ASSISTANT_SYSTEM_PROMPT}`,
       temperature: 0.7
     }
     if (!isNativeSidecarProviderConfig(provider)) {
@@ -1432,86 +1746,115 @@ export async function* runCanvasAssistantTurn(
       return
     }
 
-    const messages: UnifiedMessage[] = [...runArgs.messages]
+    const runId = nanoid()
+    const request = buildSidecarAgentRunRequest({
+      messages: runArgs.messages,
+      provider,
+      tools,
+      runId,
+      sessionId: `graph-agent:${projectId}`,
+      workingFolder,
+      maxIterations: 20,
+      maxParallelTools: 1,
+      forceApproval: false,
+      sessionMode: 'agent',
+      canvasContext: { projectId }
+    })
+    if (!request) throw new Error('Unable to prepare the Canvas Agent request')
+
     let createdCount = 0
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      if (Date.now() - startedAt > MAX_TURN_MS) throw new Error('Canvas assistant turn timed out')
-      const toolCalls: ToolUseBlock[] = []
-      let turnText = ''
-      for await (const event of streamSidecarProviderTurn({
-        provider,
-        messages,
-        tools: CANVAS_TOOLS,
-        signal: runArgs.signal
-      })) {
-        if (runArgs.signal?.aborted) return
-        if (event.type === 'text_delta' && event.text) {
-          turnText += event.text
-          yield { type: 'text', text: event.text }
-        } else if (event.type === 'thinking_delta' && event.thinking) {
-          yield { type: 'thinking', text: event.thinking }
-        } else if (event.type === 'tool_call_end' && event.toolCallId && event.toolName) {
-          toolCalls.push({
-            type: 'tool_use',
-            id: event.toolCallId,
-            name: event.toolName,
-            input: event.toolCallInput ?? {}
-          })
-        } else if (event.type === 'error') {
-          throw new Error(event.error?.message ?? 'Assistant stream error')
+    runCleanups.push(
+      registerNativeCanvasToolHandler(runId, async (nativeRequest) => {
+        if (nativeRequest.projectId !== projectId) {
+          return { content: 'Canvas project changed during the run', isError: true }
         }
-      }
-      if (toolCalls.length === 0 || runArgs.signal?.aborted) return
-      messages.push({
-        id: nanoid(),
-        role: 'assistant',
-        content: [
-          ...(turnText ? [{ type: 'text', text: turnText } as ContentBlock] : []),
-          ...toolCalls
-        ],
-        createdAt: Date.now()
-      })
-      const results: ContentBlock[] = []
-      for (const call of toolCalls) {
-        if (runArgs.signal?.aborted) return
-        if (Date.now() - startedAt > MAX_TURN_MS) {
-          throw new Error('Canvas assistant turn timed out')
+        const call: ToolUseBlock = {
+          type: 'tool_use',
+          id: nativeRequest.toolUseId,
+          name: nativeRequest.toolName,
+          input: nativeRequest.input
         }
-        const toolInput = (call.input ?? {}) as Record<string, unknown>
-        yield {
-          type: 'tool_start',
-          kind: call.name as AssistantActionKind,
-          nodeId: asString(toolInput.node_id) || asString(toolInput.source_node_id) || undefined,
-          subscriptionId: asString(toolInput.subscription_id) || undefined
-        }
-        const outcome = await raceWithAbort(
-          executeCanvasTool(call, runArgs, createdCount, subscriptionIds, startedAt + MAX_TURN_MS),
-          runArgs.signal
+        const outcome = await executeCanvasTool(
+          call,
+          runArgs,
+          createdCount,
+          subscriptionIds,
+          Date.now() + MAX_TURN_MS,
+          true
         )
-        if (!outcome || runArgs.signal?.aborted) return
         if (['create_node', 'generate_media', 'generate_video', 'edit_image'].includes(call.name)) {
           createdCount += 1
         }
+        return {
+          content: outcome.output,
+          ...(outcome.isError ? { isError: true, error: stringifyToolOutput(outcome.output) } : {})
+        }
+      })
+    )
+    runCleanups.push(
+      registerSidecarApprovalHandler(runId, async ({ toolCall }) => {
+        const call: ToolUseBlock = {
+          type: 'tool_use',
+          id: toolCall.id,
+          name: toolCall.name,
+          input: toolCall.input
+        }
+        const confirmation = requiresConfirmation(call) ?? {
+          id: nanoid(),
+          toolName: toolCall.name,
+          kind: 'tool' as const,
+          inputPreview: approvalPreview(toolCall.input)
+        }
+        const approved = runArgs.confirm ? await runArgs.confirm(confirmation) : false
+        return {
+          approved,
+          ...(approved ? {} : { reason: 'User denied permission' })
+        }
+      })
+    )
+    const startedToolIds = new Set<string>()
+    for await (const event of runAgentViaSidecar(request, { signal: runArgs.signal })) {
+      if (runArgs.signal?.aborted) return
+      if (event.type === 'text_delta' && event.text) {
+        yield { type: 'text', text: event.text }
+      } else if (event.type === 'thinking_delta' && event.thinking) {
+        yield { type: 'thinking', text: event.thinking }
+      } else if (event.type === 'tool_call_start') {
+        const toolCall = event.toolCall
+        if (!startedToolIds.has(toolCall.id)) {
+          startedToolIds.add(toolCall.id)
+          yield {
+            type: 'tool_start',
+            kind: toolCall.name as AssistantActionKind,
+            nodeId:
+              asString(toolCall.input.node_id) ||
+              asString(toolCall.input.source_node_id) ||
+              undefined,
+            subscriptionId: asString(toolCall.input.subscription_id) || undefined
+          }
+        }
+      } else if (event.type === 'tool_call_result') {
+        const output = stringifyToolOutput(event.toolCall.output ?? event.toolCall.error ?? '')
         yield {
           type: 'action',
           action: {
-            kind: call.name as AssistantActionKind,
-            ok: !outcome.isError,
-            result: summarizeToolResult(outcome.output)
+            kind: event.toolCall.name as AssistantActionKind,
+            ok: event.toolCall.status === 'completed' && !event.toolCall.error,
+            result: summarizeToolResult(output)
           }
         }
-        results.push({
-          type: 'tool_result',
-          toolUseId: call.id,
-          content: outcome.output,
-          ...(outcome.isError ? { isError: true } : {})
-        })
+      } else if (event.type === 'error') {
+        throw event.error
+      } else if (event.type === 'loop_end') {
+        if (event.reason === 'max_iterations') {
+          throw new Error('Canvas assistant reached the 20-round tool limit')
+        }
+        if (event.reason === 'error') throw new Error('Canvas assistant run failed')
+        return
       }
-      messages.push({ id: nanoid(), role: 'user', content: results, createdAt: Date.now() })
-      if (turnText) yield { type: 'text', text: '\n\n' }
     }
-    throw new Error('Canvas assistant reached the 20-round tool limit')
   } finally {
+    for (const cleanup of runCleanups) cleanup()
     for (const id of subscriptionIds) unsubscribeCanvasNodeEvents(id)
     window.clearTimeout(timeout)
     args.signal?.removeEventListener('abort', forwardAbort)

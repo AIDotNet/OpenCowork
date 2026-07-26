@@ -838,7 +838,7 @@
       "remove": "移除",
       "removed": "已移除下载的语法。",
       "needsDownload": "尚未安装语法。下载后即可开始索引。",
-      "workerMissing": "未找到 CodeGraph worker 二进制。请先用 `npm run codegraph:publish`（或 `dotnet build sidecars/OpenCowork.CodeGraph.Worker`）构建。",
+      "workerMissing": "未找到 CodeGraph worker 二进制。请先用 `npm run codegraph:publish`（或 `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`）构建。",
       "download": "下载语法包",
       "downloading": "下载中…",
       "downloaded": "语法包已下载。",

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
@@ -22,9 +22,20 @@ const projectPath = join(
 const codeGraphProjectPath = join(
   repoRoot,
   'sidecars',
+  'codegraph',
   'OpenCowork.CodeGraph.Worker',
   'OpenCowork.CodeGraph.Worker.csproj'
 )
+// Both workers need the CodeGraph submodule: it holds the shared worker runtime the
+// main worker source-links, plus the engine. CI must clone with submodules.
+if (!existsSync(join(repoRoot, 'sidecars', 'codegraph', 'OpenCowork.Worker.Runtime'))) {
+  console.error(
+    'sidecars/codegraph is empty — the CodeGraph submodule is not initialized.\n' +
+      'Run: git submodule update --init --recursive'
+  )
+  process.exit(1)
+}
+
 const outputDir = join(repoRoot, 'resources', 'native-worker')
 const tempOutputDir = mkdtempSync(join(tmpdir(), 'open-cowork-native-worker-'))
 const codeGraphTempOutputDir = mkdtempSync(join(tmpdir(), 'open-cowork-codegraph-worker-'))

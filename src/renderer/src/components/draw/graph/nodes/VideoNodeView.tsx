@@ -9,6 +9,7 @@ import type { VideoNode } from '../graph-types'
 import { useGraphStore } from '../graph-store'
 import { useGraphActions } from '../graph-actions'
 import { useAssetStore } from '../assets/asset-store'
+import { NodeErrorBanner } from './NodeErrorBanner'
 
 interface Props {
   node: VideoNode
@@ -20,6 +21,10 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
   const updateNode = useGraphStore((s) => s.updateNode)
   const addAsset = useAssetStore((s) => s.addAsset)
   const { src, filePath, poster, mediaType, generating, status, error, interrupted } = node.data
+  const progress =
+    typeof node.execution?.progress === 'number'
+      ? Math.round(Math.max(0, Math.min(100, node.execution.progress)))
+      : undefined
 
   const saveToAssets = (): void => {
     if (!filePath) return
@@ -90,6 +95,7 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
       {src ? (
         <video
           ref={videoRef}
+          data-nodrag
           src={src}
           poster={poster}
           controls
@@ -104,7 +110,22 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
             {status
               ? t(`drawPage.videoStatus.${status}`, { defaultValue: status })
               : t('drawPage.generating')}
+            {progress !== undefined ? ` · ${progress}%` : ''}
           </span>
+          {progress !== undefined && (
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress}
+              className="h-1.5 w-28 overflow-hidden rounded-full bg-white/15"
+            >
+              <div
+                className="h-full rounded-full bg-white/80 transition-[width] duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
           <button
             type="button"
             data-nodrag
@@ -143,12 +164,7 @@ export function VideoNodeView({ node }: Props): React.JSX.Element {
         </div>
       )}
 
-      {error && !generating && (
-        <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-md bg-destructive/90 px-2 py-1 text-[11px] text-white">
-          <AlertCircle className="size-3.5 shrink-0" />
-          <span className="truncate">{error}</span>
-        </div>
-      )}
+      {error && !generating && <NodeErrorBanner error={error} />}
 
       {interrupted && !error && !generating && (
         <div

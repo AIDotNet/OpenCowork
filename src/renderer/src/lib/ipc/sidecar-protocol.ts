@@ -207,6 +207,10 @@ export interface SidecarPluginChannelContext {
   autoReply?: boolean
 }
 
+export interface SidecarCanvasContext {
+  projectId: string
+}
+
 export interface SidecarAgentRunRequest {
   messages: SidecarUnifiedMessage[]
   contextSource?: SidecarContextSource
@@ -243,6 +247,7 @@ export interface SidecarAgentRunRequest {
   slashCommand?: SidecarSlashCommandContext
   systemCommand?: SidecarSystemCommandContext
   pluginChannelContext?: SidecarPluginChannelContext
+  canvasContext?: SidecarCanvasContext
   requestContextTexts?: string[]
   teamToolsActive?: boolean
   activeTeamName?: string
@@ -603,6 +608,7 @@ export function buildSidecarAgentRunRequest(args: {
   slashCommand?: SidecarSlashCommandContext | null
   systemCommand?: SidecarSystemCommandContext | null
   pluginChannelContext?: SidecarPluginChannelContext | null
+  canvasContext?: SidecarCanvasContext | null
   requestContextTexts?: readonly string[] | null
   teamToolsActive?: boolean
   activeTeamName?: string
@@ -705,6 +711,7 @@ export function buildSidecarAgentRunRequest(args: {
     ...(slashCommand ? { slashCommand } : {}),
     ...(systemCommand ? { systemCommand } : {}),
     ...(pluginChannelContext ? { pluginChannelContext } : {}),
+    ...(args.canvasContext ? { canvasContext: args.canvasContext } : {}),
     ...(requestContextTexts.length > 0 ? { requestContextTexts } : {}),
     ...(args.teamToolsActive ? { teamToolsActive: true } : {}),
     ...(args.activeTeamName ? { activeTeamName: args.activeTeamName } : {}),

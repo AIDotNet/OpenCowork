@@ -6,7 +6,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v4: add Kimi K3 (2026-07-16 发布).
   // v6: prioritize OpenAI (GPT 5.6 Terra first), Anthropic, then MiMo in the model list.
   // v7: add the OpenAI Sora 2 video model.
-  version: 7,
+  // v8: add the Volcengine Seedance 2.0 video models (structured task params).
+  version: 8,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -937,6 +938,38 @@ export const routinAiPreset: BuiltinProviderPreset = {
       enabled: true,
       category: 'video',
       type: 'openai-video',
+      supportsVision: true,
+      supportsFunctionCall: false
+    },
+    // ── Seedance 2.0（火山方舟 Ark 异步任务协议，顶层结构化参数）──
+    {
+      id: 'doubao-seedance-2-0-260128',
+      name: 'Seedance 2.0',
+      icon: 'doubao',
+      enabled: true,
+      category: 'video',
+      type: 'seedance-video',
+      supportsVision: true,
+      supportsFunctionCall: false
+    },
+    {
+      id: 'doubao-seedance-2-0-fast-260128',
+      name: 'Seedance 2.0 Fast',
+      icon: 'doubao',
+      enabled: true,
+      category: 'video',
+      type: 'seedance-video',
+      supportsVision: true,
+      supportsFunctionCall: false
+    },
+    {
+      // mini 于 2026-06-16 上线，快照后缀与标准版/fast 的 260128 不同；分辨率上限 720p。
+      id: 'doubao-seedance-2-0-mini-260615',
+      name: 'Seedance 2.0 mini',
+      icon: 'doubao',
+      enabled: true,
+      category: 'video',
+      type: 'seedance-video',
       supportsVision: true,
       supportsFunctionCall: false
     },

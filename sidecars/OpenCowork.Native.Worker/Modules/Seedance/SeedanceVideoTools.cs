@@ -27,8 +27,9 @@ internal static class SeedanceVideoTools
         ValidateProvider(provider);
         var prompt = JsonHelpers.GetString(parameters, "prompt") ?? string.Empty;
         var images = GetArray(parameters, "images");
+        var video = GetObject(parameters, "video");
 
-        var body = BuildTaskBody(provider, prompt, images);
+        var body = BuildTaskBody(provider, prompt, images, video);
         var url = $"{GetBaseUrl(provider)}/contents/generations/tasks";
         using var request = new HttpRequestMessage(HttpMethod.Post, url);
         request.Content = new StringContent(body, Encoding.UTF8, "application/json");
@@ -170,13 +171,20 @@ internal static class SeedanceVideoTools
         });
     }
 
-    private static string BuildTaskBody(JsonElement provider, string prompt, JsonElement images)
+    private static string BuildTaskBody(
+        JsonElement provider,
+        string prompt,
+        JsonElement images,
+        JsonElement video)
     {
+        var model = JsonHelpers.GetString(provider, "model") ?? string.Empty;
+        var structured = UsesStructuredParams(model);
+
         var buffer = new System.IO.MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
         {
             writer.WriteStartObject();
-            writer.WriteString("model", JsonHelpers.GetString(provider, "model") ?? string.Empty);
+            writer.WriteString("model", model);
             writer.WritePropertyName("content");
             writer.WriteStartArray();
 
@@ -200,14 +208,118 @@ internal static class SeedanceVideoTools
                     writer.WriteStartObject();
                     writer.WriteString("url", dataUrl);
                     writer.WriteEndObject();
+                    // Ark requires every image content to declare its semantic role.
+                    // Structured models accept reference images or explicit keyframes;
+                    // 1.x image-to-video treats an unlabelled input as the first frame.
+                    var role = JsonHelpers.GetString(item, "role");
+                    writer.WriteString(
+                        "role",
+                        !string.IsNullOrWhiteSpace(role)
+                            ? role
+                            : structured
+                                ? "reference_image"
+                                : "first_frame");
                     writer.WriteEndObject();
                 }
             }
 
             writer.WriteEndArray();
+
+            // Seedance 2.x takes top-level structured params. 1.x carries the same
+            // values as `--flag` suffixes already baked into `prompt` by the renderer
+            // (buildSeedanceCommands), so nothing extra is written for it.
+            //
+            // Deliberately absent for 2.x: `framespersecond` (output is fixed at 24fps
+            // and the field is response-only) and `camerafixed` (a 1.x parameter that
+            // 2.x removed — camera motion moves into the prompt text).
+            if (structured)
+            {
+                if (JsonHelpers.GetString(video, "aspectRatio") is { Length: > 0 } ratio)
+                {
+                    writer.WriteString("ratio", ratio);
+                }
+                if (JsonHelpers.GetString(video, "resolution") is { Length: > 0 } resolution)
+                {
+                    writer.WriteString("resolution", resolution);
+                }
+                // -1 lets the model pick the length; otherwise 4-15 seconds.
+                if (JsonHelpers.GetIntNullable(video, "duration") is { } duration &&
+                    (duration == -1 || duration is >= 4 and <= 15))
+                {
+                    writer.WriteNumber("duration", duration);
+                }
+                if (TryGetBool(video, "watermark") is { } watermark)
+                {
+                    writer.WriteBoolean("watermark", watermark);
+                }
+                // Absent must stay absent: `generate_audio` defaults to true server-side,
+                // so writing false on absence would silently mute every clip.
+                if (TryGetBool(video, "generateAudio") is { } generateAudio)
+                {
+                    writer.WriteBoolean("generate_audio", generateAudio);
+                }
+                if (JsonHelpers.GetIntNullable(video, "seed") is { } seed && seed >= -1)
+                {
+                    writer.WriteNumber("seed", seed);
+                }
+            }
+
             writer.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
+    /// <summary>
+    /// Seedance 2.x takes structured top-level params; 1.x takes `--flag` suffixes
+    /// appended to the prompt. Detected from the model id so user-added custom models
+    /// work without extra config. Mirrors isSeedanceStructuredModel() in
+    /// src/renderer/src/lib/api/seedance-video-provider.ts — the two must agree, or a
+    /// request ends up carrying both the flags and the structured fields.
+    /// Unrecognized ids (e.g. Ark `ep-...` endpoint ids) fall back to 1.x.
+    /// </summary>
+    private static bool UsesStructuredParams(string? model)
+    {
+        if (string.IsNullOrEmpty(model))
+        {
+            return false;
+        }
+        var index = model.IndexOf("seedance", StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+        {
+            return false;
+        }
+        var cursor = index + "seedance".Length;
+        while (cursor < model.Length && model[cursor] is '-' or '_' or '.' or ' ' or 'v' or 'V')
+        {
+            cursor++;
+        }
+        var start = cursor;
+        while (cursor < model.Length && char.IsAsciiDigit(model[cursor]))
+        {
+            cursor++;
+        }
+        return cursor > start &&
+            int.TryParse(model.AsSpan(start, cursor - start), out var major) &&
+            major >= 2;
+    }
+
+    /// <summary>
+    /// Like JsonHelpers.GetBool but distinguishes "absent" from "false" — required for
+    /// params whose server-side default is true.
+    /// </summary>
+    private static bool? TryGetBool(JsonElement element, string name)
+    {
+        if (element.ValueKind != JsonValueKind.Object ||
+            !element.TryGetProperty(name, out var property))
+        {
+            return null;
+        }
+        return property.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => (bool?)null
+        };
     }
 
     private static void ApplyHeaders(HttpRequestMessage request, JsonElement provider)

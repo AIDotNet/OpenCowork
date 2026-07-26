@@ -44,6 +44,7 @@ interface VideoJobUpdate {
   status?: string
   filePath?: string
   mediaType?: string
+  progress?: number
   error?: string
   done?: boolean
 }
@@ -100,6 +101,7 @@ function applyJob(job: VideoJobUpdate): void {
         runId: job.runId ?? job.jobId,
         projectId: job.projectId,
         error: job.error,
+        progress: job.progress,
         payload: { status: job.status ?? executionStatus, filePath: job.filePath }
       })
       if (job.done) {
@@ -107,6 +109,7 @@ function applyJob(job: VideoJobUpdate): void {
           updateNodeExecution(configId, executionStatus, {
             projectId: job.projectId,
             error: job.error,
+            progress: job.progress,
             outputNodeIds: [persistedNodeId]
           })
         }
@@ -142,6 +145,7 @@ function applyJob(job: VideoJobUpdate): void {
     runId: job.runId ?? node.execution?.runId ?? job.jobId,
     projectId: job.projectId,
     error: job.error,
+    progress: job.progress,
     payload: { status: job.status ?? executionStatus, filePath: job.filePath }
   })
   if (job.done) {
@@ -152,6 +156,7 @@ function applyJob(job: VideoJobUpdate): void {
         runId: source.execution.runId,
         projectId: job.projectId,
         error: job.error,
+        progress: job.progress,
         outputNodeIds: [node.id]
       })
     }

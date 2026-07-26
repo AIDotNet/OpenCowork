@@ -3,6 +3,7 @@ import { handleNativeBrowserToolRequest } from '@renderer/lib/tools/browser-nati
 import { handleNativePlanUiUpdate } from '@renderer/lib/tools/plan-native-ui'
 import { handleNativeTeamUiUpdate } from '@renderer/lib/agent/teams/team-native-ui'
 import { handleNativeSubAgentUiUpdate } from '@renderer/lib/agent/sub-agents/sub-agent-native-ui'
+import { handleNativeCanvasToolRequest } from './canvas-native-tool-registry'
 import { decodeIpcMessagePack, invokeMessagePack } from '@renderer/lib/ipc/messagepack-ipc-client'
 import {
   SIDECAR_RENDERER_TOOL_REQUEST_MSGPACK_CHANNEL,
@@ -33,7 +34,8 @@ async function handleRendererToolRequest(payload: RendererToolRequestPayload): P
     payload?.method !== 'plan/ui-update' &&
     payload?.method !== 'team/ui-update' &&
     payload?.method !== 'subagent/ui-update' &&
-    payload?.method !== 'browser/tool-request'
+    payload?.method !== 'browser/tool-request' &&
+    payload?.method !== 'canvas/tool-request'
   ) {
     return
   }
@@ -60,6 +62,14 @@ async function handleRendererToolRequest(payload: RendererToolRequestPayload): P
       await sendRendererToolResponse({
         requestId: payload.requestId,
         result: await handleNativeBrowserToolRequest(payload.params)
+      })
+      return
+    }
+
+    if (payload.method === 'canvas/tool-request') {
+      await sendRendererToolResponse({
+        requestId: payload.requestId,
+        result: await handleNativeCanvasToolRequest(payload.params)
       })
       return
     }

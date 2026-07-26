@@ -1,6 +1,7 @@
 import { toolRegistry } from '../agent/tool-registry'
 import type { ToolHandler } from '../tools/tool-types'
 import type { McpServerConfig, McpTool, McpResource } from './types'
+import type { ToolDefinition } from '../api/types'
 import { encodeToolError } from '../tools/tool-result-format'
 
 /**
@@ -27,6 +28,23 @@ function nativeOnlyMcpResult(toolName: string): string {
 /** Build a prefixed tool name */
 function mcpToolName(serverId: string, toolName: string): string {
   return `${MCP_TOOL_PREFIX}${serverId}__${toolName}`
+}
+
+export function buildMcpToolDefinitions(
+  activeServers: McpServerConfig[],
+  toolsMap: Record<string, McpTool[]>
+): ToolDefinition[] {
+  return activeServers.flatMap((server) =>
+    (toolsMap[server.id] ?? []).map((mcpTool) => ({
+      name: mcpToolName(server.id, mcpTool.name),
+      description: `[MCP: ${server.name}] ${mcpTool.description ?? mcpTool.name}`,
+      inputSchema: {
+        type: 'object',
+        properties: (mcpTool.inputSchema?.properties as Record<string, unknown>) ?? {},
+        required: (mcpTool.inputSchema?.required as string[]) ?? []
+      }
+    }))
+  )
 }
 
 /** Parse server ID and original tool name from a prefixed tool name */
@@ -93,6 +111,19 @@ export function registerMcpTools(
 /** Build a resource tool name: mcp__{serverId}__resource__{resourceName} */
 function mcpResourceToolName(serverId: string, resourceName: string): string {
   return `${MCP_TOOL_PREFIX}${serverId}__resource__${resourceName}`
+}
+
+export function buildMcpResourceDefinitions(
+  activeServers: McpServerConfig[],
+  resourcesMap: Record<string, McpResource[]>
+): ToolDefinition[] {
+  return activeServers.flatMap((server) =>
+    (resourcesMap[server.id] ?? []).map((resource) => ({
+      name: mcpResourceToolName(server.id, resource.name),
+      description: `[MCP: ${server.name}] Resource: ${resource.name}${resource.description ? ` — ${resource.description}` : ''} (${resource.mimeType ?? 'unknown'})`,
+      inputSchema: { type: 'object', properties: {} }
+    }))
+  )
 }
 
 /**

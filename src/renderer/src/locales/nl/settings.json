@@ -744,7 +744,7 @@
       "sync": "Sync",
       "syncing": "Synchroniseren...",
       "unknownRoot": "(onbekend project) {{hash}}",
-      "workerMissing": "De CodeGraph worker-binary is niet gevonden. Bouw deze met `npm run codegraph:publish` (of `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerMissing": "De CodeGraph worker-binary is niet gevonden. Bouw deze met `npm run codegraph:publish` (of `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Worker actief",
       "workerStopped": "Worker niet gestart (start bij eerste gebruik)"
     },

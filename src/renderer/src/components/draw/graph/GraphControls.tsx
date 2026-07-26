@@ -5,16 +5,18 @@ import {
   FileText,
   Grid3x3,
   Image as ImageIcon,
+  ImagePlus,
   Images,
   Maximize,
+  MessageSquareText,
   Sparkles,
   Minus,
   Plus,
   Redo2,
-  Settings2,
   Square,
   Undo2,
-  Upload
+  Upload,
+  Video
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -27,7 +29,12 @@ import { exportGraphJson, importGraphJson } from './graph-persistence'
 import { PromptLibraryDialog } from './prompt-library/PromptLibraryDialog'
 import { AssetPickerDialog, type PickedAsset } from './assets/AssetPickerDialog'
 import { useAssistantStore } from './assistant/assistant-store'
-import { type BackgroundMode, type CanvasNode, type CanvasNodeKind } from './graph-types'
+import {
+  type BackgroundMode,
+  type CanvasNode,
+  type CanvasNodeKind,
+  type ConfigNodeData
+} from './graph-types'
 
 export function GraphControls(): React.JSX.Element {
   const { t } = useTranslation('layout')
@@ -49,6 +56,11 @@ export function GraphControls(): React.JSX.Element {
   const createNode = (kind: CanvasNodeKind): void => {
     const center = screenToWorld({ x: stageSize.width / 2, y: stageSize.height / 2 }, camera)
     addNode(createCanvasNode(kind, center), { select: true })
+  }
+
+  const createGenerationNode = (mode: ConfigNodeData['mode']): void => {
+    const center = screenToWorld({ x: stageSize.width / 2, y: stageSize.height / 2 }, camera)
+    addNode(createCanvasNode('config', center, mode), { select: true })
   }
 
   const insertPrompt = (prompt: string): void => {
@@ -144,10 +156,22 @@ export function GraphControls(): React.JSX.Element {
           <ImageIcon className="size-4" />
         </ToolBtn>
         <ToolBtn
-          label={t('drawPage.addConfig', { defaultValue: 'Add generate node' })}
-          onClick={() => createNode('config')}
+          label={t('drawPage.addImageGeneration', { defaultValue: 'Add image generation' })}
+          onClick={() => createGenerationNode('image')}
         >
-          <Settings2 className="size-4" />
+          <ImagePlus className="size-4" />
+        </ToolBtn>
+        <ToolBtn
+          label={t('drawPage.addVideoGeneration', { defaultValue: 'Add video generation' })}
+          onClick={() => createGenerationNode('video')}
+        >
+          <Video className="size-4" />
+        </ToolBtn>
+        <ToolBtn
+          label={t('drawPage.addTextGeneration', { defaultValue: 'Add text generation' })}
+          onClick={() => createGenerationNode('text')}
+        >
+          <MessageSquareText className="size-4" />
         </ToolBtn>
         <div className="my-0.5 h-px w-full bg-border" />
         <ToolBtn

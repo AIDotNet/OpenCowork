@@ -1,7 +1,9 @@
 import { protocol, net } from 'electron'
+import { createReadStream } from 'fs'
 import * as path from 'path'
-import { realpath } from 'fs/promises'
+import { realpath, stat } from 'fs/promises'
 import { homedir } from 'os'
+import { Readable } from 'stream'
 import { pathToFileURL } from 'url'
 
 /**
@@ -44,6 +46,49 @@ const ALLOWED_EXTENSIONS = new Set([
   '.wav',
   '.m4a'
 ])
+
+const MEDIA_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml',
+  '.avif': 'image/avif',
+  '.ico': 'image/x-icon',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/x-m4v',
+  '.ogg': 'video/ogg',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4'
+}
+
+interface ByteRange {
+  start: number
+  end: number
+}
+
+function parseByteRange(value: string, size: number): ByteRange | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(value.trim())
+  if (!match || (!match[1] && !match[2]) || size <= 0) return null
+
+  if (!match[1]) {
+    const suffixLength = Number(match[2])
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return null
+    return { start: Math.max(0, size - suffixLength), end: size - 1 }
+  }
+
+  const start = Number(match[1])
+  if (!Number.isSafeInteger(start) || start < 0 || start >= size) return null
+
+  const requestedEnd = match[2] ? Number(match[2]) : size - 1
+  if (!Number.isSafeInteger(requestedEnd) || requestedEnd < start) return null
+  return { start, end: Math.min(requestedEnd, size - 1) }
+}
 
 function isWithinRoot(filePath: string, root: string): boolean {
   const relativePath = path.relative(root, filePath)
@@ -114,11 +159,46 @@ export function registerLocalMediaProtocolHandler(): void {
     }
 
     try {
+      // Chromium relies on byte ranges for seeking and for MP4 files whose
+      // metadata lives at the end; returning the full file can leave playback stuck.
+      const rangeHeader = request.headers.get('Range')
+      if (rangeHeader) {
+        const fileStats = await stat(realFilePath)
+        const range = parseByteRange(rangeHeader, fileStats.size)
+        if (!range) {
+          return new Response(null, {
+            status: 416,
+            headers: { 'Content-Range': `bytes */${fileStats.size}` }
+          })
+        }
+
+        const origin = request.headers.get('Origin')
+        const headers = new Headers({
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(range.end - range.start + 1),
+          'Content-Range': `bytes ${range.start}-${range.end}/${fileStats.size}`,
+          'Content-Type': MEDIA_TYPES[extension] ?? 'application/octet-stream'
+        })
+        if (isAllowedOrigin(origin)) {
+          headers.set('Access-Control-Allow-Origin', origin as string)
+          headers.set('Vary', 'Origin')
+        }
+
+        const body =
+          request.method === 'HEAD'
+            ? null
+            : (Readable.toWeb(
+                createReadStream(realFilePath, { start: range.start, end: range.end })
+              ) as ReadableStream<Uint8Array>)
+        return new Response(body, { status: 206, headers })
+      }
+
       const response = await net.fetch(pathToFileURL(realFilePath).toString())
       // Allow only the renderer origins that can legitimately consume this
       // resource. Do not expose local media to arbitrary web content.
       const origin = request.headers.get('Origin')
       const headers = new Headers(response.headers)
+      headers.set('Accept-Ranges', 'bytes')
       if (isAllowedOrigin(origin)) {
         headers.set('Access-Control-Allow-Origin', origin as string)
         headers.set('Vary', 'Origin')

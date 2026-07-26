@@ -14,6 +14,19 @@ async function clearViteCache(projectDir) {
   await rm(viteCacheDir, { recursive: true, force: true })
 }
 
+// The CodeGraph submodule supplies both the shared worker runtime and the engine
+// that the main worker source-links. Without it MSBuild fails on empty globs with an
+// error that says nothing about submodules, so check first and say what to run.
+function ensureCodeGraphSubmodule(projectDir) {
+  const runtimeDir = path.join(projectDir, 'sidecars', 'codegraph', 'OpenCowork.Worker.Runtime')
+  if (existsSync(runtimeDir)) return
+  console.error(
+    '[predev] sidecars/codegraph is empty — the CodeGraph submodule is not initialized.\n' +
+      '         Run: git submodule update --init --recursive'
+  )
+  process.exit(1)
+}
+
 function currentRid() {
   if (process.platform === 'darwin') return process.arch === 'arm64' ? 'osx-arm64' : 'osx-x64'
   if (process.platform === 'win32') return process.arch === 'arm64' ? 'win-arm64' : 'win-x64'
@@ -131,6 +144,7 @@ function publishAotWorker({
 // Development runs the same AOT shape as packaged builds. Publishing is cached
 // by source mtime so unchanged `npm run dev` starts do not pay the AOT cost.
 function publishNativeWorker(projectDir) {
+  ensureCodeGraphSubmodule(projectDir)
   const projectPath = path.join(
     projectDir,
     'sidecars',
@@ -146,8 +160,10 @@ function publishNativeWorker(projectDir) {
       process.platform === 'win32' ? 'OpenCowork.Native.Worker.exe' : 'OpenCowork.Native.Worker',
     inputPaths: [
       path.dirname(projectPath),
-      // CodeGraph is source-merged into this worker: Core changes must rebuild it.
-      path.join(projectDir, 'sidecars', 'OpenCowork.CodeGraph.Core'),
+      // Both come from the CodeGraph submodule and are source-linked into this
+      // worker, so changes there must rebuild it.
+      path.join(projectDir, 'sidecars', 'codegraph', 'OpenCowork.CodeGraph.Core'),
+      path.join(projectDir, 'sidecars', 'codegraph', 'OpenCowork.Worker.Runtime'),
       path.join(projectDir, 'global.json')
     ]
   })
@@ -156,9 +172,11 @@ function publishNativeWorker(projectDir) {
 }
 
 function publishCodeGraphWorker(projectDir) {
+  ensureCodeGraphSubmodule(projectDir)
   const projectPath = path.join(
     projectDir,
     'sidecars',
+    'codegraph',
     'OpenCowork.CodeGraph.Worker',
     'OpenCowork.CodeGraph.Worker.csproj'
   )
@@ -173,8 +191,8 @@ function publishCodeGraphWorker(projectDir) {
         : 'OpenCowork.CodeGraph.Worker',
     inputPaths: [
       path.dirname(projectPath),
-      path.join(projectDir, 'sidecars', 'OpenCowork.CodeGraph.Core'),
-      path.join(projectDir, 'sidecars', 'OpenCowork.Worker.Runtime'),
+      path.join(projectDir, 'sidecars', 'codegraph', 'OpenCowork.CodeGraph.Core'),
+      path.join(projectDir, 'sidecars', 'codegraph', 'OpenCowork.Worker.Runtime'),
       path.join(projectDir, 'global.json')
     ]
   })

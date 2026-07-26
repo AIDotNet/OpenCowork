@@ -36,7 +36,7 @@ interface PendingRootSync {
 const pendingByRoot = new Map<string, PendingRootSync>()
 
 /**
- * Mirrors CodeGraphDataDir.CodeGraphBaseDir (sidecars/OpenCowork.CodeGraph.Core/
+ * Mirrors CodeGraphDataDir.CodeGraphBaseDir (sidecars/codegraph/OpenCowork.CodeGraph.Core/
  * Support/CodeGraphDataDir.cs): `CODEGRAPH_HOME` overrides the whole base dir,
  * otherwise ~/.open-cowork/codegraph.
  */

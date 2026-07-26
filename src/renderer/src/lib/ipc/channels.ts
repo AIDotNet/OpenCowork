@@ -38,6 +38,11 @@ export const IPC = {
   FS_WRITE_FILE_BINARY: 'fs:write-file-binary',
   FS_IMPORT_PROFILE_AVATAR: 'fs:import-profile-avatar',
 
+  // Draw Canvas Agent workspace
+  DRAW_AGENT_WORKSPACE_ENSURE: 'draw-agent-workspace:ensure',
+  DRAW_AGENT_WORKSPACE_RENAME: 'draw-agent-workspace:rename',
+  DRAW_AGENT_WORKSPACE_TRASH: 'draw-agent-workspace:trash',
+
   // Shell
   SHELL_EXEC: 'shell:exec',
   SHELL_ABORT: 'shell:abort',

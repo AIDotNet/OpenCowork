@@ -744,7 +744,7 @@
       "sync": "Sinkronkan",
       "syncing": "Menyinkronkan...",
       "unknownRoot": "(proyek tak dikenal) {{hash}}",
-      "workerMissing": "Binary worker CodeGraph tidak ditemukan. Bangun dengan `npm run codegraph:publish` (atau `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerMissing": "Binary worker CodeGraph tidak ditemukan. Bangun dengan `npm run codegraph:publish` (atau `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Worker berjalan",
       "workerStopped": "Worker belum dimulai (dijalankan saat pertama kali dipakai)"
     },

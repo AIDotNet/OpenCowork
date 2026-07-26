@@ -24,7 +24,7 @@ async function cg<T>(
   return (await agentBridge.request(method, params, timeoutMs)) as T
 }
 
-// ---- Wire DTOs (mirror sidecars/OpenCowork.CodeGraph.Core, camelCase) --------
+// ---- Wire DTOs (mirror sidecars/codegraph/OpenCowork.CodeGraph.Core, camelCase) --------
 
 export interface CgProject {
   root: string

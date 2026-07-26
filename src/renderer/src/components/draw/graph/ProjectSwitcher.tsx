@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle
@@ -25,6 +26,37 @@ export function ProjectSwitcher({ api }: { api: DrawProjectsApi }): React.JSX.El
   const { projects, activeProjectId, newProject, switchProject, renameProject, removeProject } = api
   const active = projects.find((p) => p.id === activeProjectId)
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [operationError, setOperationError] = useState('')
+
+  const saveRename = async (): Promise<void> => {
+    if (!renaming || busy) return
+    setBusy(true)
+    setOperationError('')
+    try {
+      await renameProject(renaming.id, renaming.name)
+      setRenaming(null)
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const confirmDelete = async (): Promise<void> => {
+    if (!deleteTarget || busy) return
+    setBusy(true)
+    setOperationError('')
+    try {
+      await removeProject(deleteTarget.id)
+      setDeleteTarget(null)
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <>
@@ -58,29 +90,29 @@ export function ProjectSwitcher({ api }: { api: DrawProjectsApi }): React.JSX.El
                   onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
+                    setOperationError('')
                     setRenaming({ id: p.id, name: p.name })
                   }}
                 >
                   <Pencil className="size-3.5" />
                 </button>
-                {projects.length > 1 && (
-                  <button
-                    type="button"
-                    className="grid size-6 place-items-center rounded text-muted-foreground hover:text-destructive"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      removeProject(p.id)
-                    }}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="grid size-6 place-items-center rounded text-muted-foreground hover:text-destructive"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setOperationError('')
+                    setDeleteTarget({ id: p.id, name: p.name })
+                  }}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
               </span>
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => newProject()}>
+          <DropdownMenuItem onSelect={() => void newProject()}>
             <Plus className="size-4" />
             {t('drawPage.newProject', { defaultValue: 'New canvas' })}
           </DropdownMenuItem>
@@ -100,22 +132,48 @@ export function ProjectSwitcher({ api }: { api: DrawProjectsApi }): React.JSX.El
             onChange={(e) => setRenaming((r) => (r ? { ...r, name: e.target.value } : r))}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && renaming) {
-                renameProject(renaming.id, renaming.name)
-                setRenaming(null)
+                void saveRename()
               }
             }}
           />
+          {operationError && <p className="text-sm text-destructive">{operationError}</p>}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRenaming(null)}>
+            <Button variant="outline" disabled={busy} onClick={() => setRenaming(null)}>
               {t('action.cancel', { ns: 'common', defaultValue: 'Cancel' })}
             </Button>
-            <Button
-              onClick={() => {
-                if (renaming) renameProject(renaming.id, renaming.name)
-                setRenaming(null)
-              }}
-            >
+            <Button disabled={busy} onClick={() => void saveRename()}>
               {t('action.save', { ns: 'common', defaultValue: 'Save' })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open && !busy) setDeleteTarget(null)
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {t('drawPage.deleteProject', { defaultValue: 'Delete canvas' })}
+            </DialogTitle>
+            <DialogDescription>
+              {t('drawPage.deleteProjectConfirm', {
+                defaultValue:
+                  'Delete “{{name}}”? Its Agent workspace will be moved to the system trash.',
+                name: deleteTarget?.name ?? ''
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          {operationError && <p className="text-sm text-destructive">{operationError}</p>}
+          <DialogFooter>
+            <Button variant="outline" disabled={busy} onClick={() => setDeleteTarget(null)}>
+              {t('action.cancel', { ns: 'common', defaultValue: 'Cancel' })}
+            </Button>
+            <Button variant="destructive" disabled={busy} onClick={() => void confirmDelete()}>
+              {t('action.delete', { ns: 'common', defaultValue: 'Delete' })}
             </Button>
           </DialogFooter>
         </DialogContent>

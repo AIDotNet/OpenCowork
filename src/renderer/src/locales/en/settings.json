@@ -838,7 +838,7 @@
       "remove": "Remove",
       "removed": "Downloaded grammars removed.",
       "needsDownload": "Grammars are not installed yet. Download them to start indexing.",
-      "workerMissing": "The CodeGraph worker binary was not found. Build it with `npm run codegraph:publish` (or `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerMissing": "The CodeGraph worker binary was not found. Build it with `npm run codegraph:publish` (or `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "download": "Download grammars",
       "downloading": "Downloading...",
       "downloaded": "Grammars downloaded.",

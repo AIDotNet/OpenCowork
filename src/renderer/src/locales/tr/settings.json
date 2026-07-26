@@ -744,7 +744,7 @@
       "sync": "Senkronize et",
       "syncing": "Senkronize ediliyor...",
       "unknownRoot": "(bilinmeyen proje) {{hash}}",
-      "workerMissing": "CodeGraph worker ikili dosyası bulunamadı. `npm run codegraph:publish` (veya `dotnet build sidecars/OpenCowork.CodeGraph.Worker`) ile derleyin.",
+      "workerMissing": "CodeGraph worker ikili dosyası bulunamadı. `npm run codegraph:publish` (veya `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`) ile derleyin.",
       "workerRunning": "Worker çalışıyor",
       "workerStopped": "Worker başlatılmadı (ilk kullanımda başlatılır)"
     },

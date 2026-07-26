@@ -744,7 +744,7 @@
       "sync": "ซิงค์",
       "syncing": "กําลังซิงค์...",
       "unknownRoot": "(โครงการที่ไม่ทราบชื่อ) {{hash}}",
-      "workerMissing": "ไม่พบไฟล์ไบนารีของ CodeGraph worker โปรดคอมไพล์ด้วย `npm run codegraph:publish` (หรือ `dotnet build sidecars/OpenCowork.CodeGraph.Worker`)",
+      "workerMissing": "ไม่พบไฟล์ไบนารีของ CodeGraph worker โปรดคอมไพล์ด้วย `npm run codegraph:publish` (หรือ `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`)",
       "workerRunning": "Worker กําลังทํางาน",
       "workerStopped": "Worker ยังไม่เริ่มทํางาน (จะเริ่มเมื่อใช้งานครั้งแรก)"
     },

@@ -744,7 +744,7 @@
       "sync": "Синхронизация",
       "syncing": "Синхронизация...",
       "unknownRoot": "(неизвестный проект) {{hash}}",
-      "workerMissing": "Исполняемый файл воркера CodeGraph не найден. Соберите его командой `npm run codegraph:publish` (или `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerMissing": "Исполняемый файл воркера CodeGraph не найден. Соберите его командой `npm run codegraph:publish` (или `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Воркер запущен",
       "workerStopped": "Воркер не запущен (запускается при первом использовании)"
     },

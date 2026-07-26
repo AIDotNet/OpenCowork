@@ -64,14 +64,18 @@ export function NodeTriggerDialog({
     getCanvasNodeSubscriptionCount(nodeId)
   )
   const targets = nodes.filter((node) => node.id !== nodeId)
-  const nodeKindLabel = (kind: (typeof nodes)[number]['kind']): string =>
-    kind === 'text'
+  const nodeLabel = (node: (typeof nodes)[number]): string =>
+    node.kind === 'text'
       ? t('drawPage.nodeText', { defaultValue: 'Text' })
-      : kind === 'image'
+      : node.kind === 'image'
         ? t('drawPage.nodeImage', { defaultValue: 'Image' })
-        : kind === 'video'
+        : node.kind === 'video'
           ? t('drawPage.modeVideo', { defaultValue: 'Video' })
-          : t('drawPage.nodeConfig', { defaultValue: 'Generate' })
+          : node.data.mode === 'video'
+            ? t('drawPage.nodeVideoGeneration', { defaultValue: 'Video generation' })
+            : node.data.mode === 'text'
+              ? t('drawPage.nodeTextGeneration', { defaultValue: 'Text generation' })
+              : t('drawPage.nodeImageGeneration', { defaultValue: 'Image generation' })
 
   useEffect(() => {
     const update = (): void => setSubscriptionCount(getCanvasNodeSubscriptionCount(nodeId))
@@ -161,7 +165,7 @@ export function NodeTriggerDialog({
             </option>
             {targets.map((node) => (
               <option key={node.id} value={node.id}>
-                {nodeKindLabel(node.kind)} · {node.id.slice(0, 8)}
+                {nodeLabel(node)} · {node.id.slice(0, 8)}
               </option>
             ))}
           </select>
@@ -188,7 +192,7 @@ export function NodeTriggerDialog({
                   {(() => {
                     const target = nodes.find((node) => node.id === trigger.targetNodeId)
                     return target
-                      ? `${nodeKindLabel(target.kind)} · ${trigger.targetNodeId.slice(0, 8)}`
+                      ? `${nodeLabel(target)} · ${trigger.targetNodeId.slice(0, 8)}`
                       : trigger.targetNodeId.slice(0, 8)
                   })()}
                 </span>

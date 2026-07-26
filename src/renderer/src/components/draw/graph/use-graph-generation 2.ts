@@ -15,7 +15,6 @@ import type {
 import { optimizeDrawPrompt } from '@renderer/lib/draw-prompt-optimizer'
 import {
   buildSeedanceCommands,
-  isSeedanceStructuredModel,
   type SeedanceVideoParams
 } from '@renderer/lib/api/seedance-video-provider'
 import { IPC } from '@renderer/lib/ipc/channels'
@@ -505,27 +504,8 @@ export function useGraphGeneration(): GraphActions {
       projectId: string
     ): Promise<CanvasRunResult> => {
       const isXaiVideo = target.config.type === 'xai-video'
-      // Seedance 2.x takes structured top-level params instead of prompt `--flag`
-      // suffixes; xAI/Sora take a plain prompt. Only Seedance 1.x gets the flags.
-      const isStructuredSeedance =
-        target.config.type === 'seedance-video' && isSeedanceStructuredModel(target.config.model)
-      const text =
-        isXaiVideo || isStructuredSeedance
-          ? prompt.trim()
-          : `${prompt.trim()}${buildSeedanceCommands(params)}`
-      // First/last-frame control is opt-in and order-based: two connected images map to
-      // the two keyframes only when the config node asked for it.
-      const useFrameRoles =
-        isStructuredSeedance && params.frameRole === 'first-last' && references.length === 2
-      const images = references.map((r, index) => ({
-        dataUrl: r.src,
-        mediaType: r.mediaType,
-        ...(isStructuredSeedance
-          ? {
-              role: useFrameRoles ? (index === 0 ? 'first_frame' : 'last_frame') : 'reference_image'
-            }
-          : {})
-      }))
+      const text = isXaiVideo ? prompt.trim() : `${prompt.trim()}${buildSeedanceCommands(params)}`
+      const images = references.map((r) => ({ dataUrl: r.src, mediaType: r.mediaType }))
       try {
         const res = (await ipcClient.invoke(IPC.SEEDANCE_VIDEO_START, {
           projectId,
@@ -538,20 +518,7 @@ export function useGraphGeneration(): GraphActions {
             duration: params.duration,
             aspectRatio: params.ratio,
             // The xAI Videos endpoint currently accepts 480p and 720p only.
-            resolution: isXaiVideo && params.resolution === '1080p' ? '720p' : params.resolution,
-            // Seedance 2.x structured params. The xAI/Sora/1.x branches read only
-            // duration/aspectRatio/resolution and ignore the rest.
-            ...(isStructuredSeedance
-              ? {
-                  watermark: params.watermark,
-                  ...(typeof params.seed === 'number' && params.seed >= -1
-                    ? { seed: params.seed }
-                    : {}),
-                  ...(typeof params.generateAudio === 'boolean'
-                    ? { generateAudio: params.generateAudio }
-                    : {})
-                }
-              : {})
+            resolution: isXaiVideo && params.resolution === '1080p' ? '720p' : params.resolution
           }
         })) as { jobId?: string; status?: string; error?: string }
         if (res.error || !res.jobId) throw new Error(res.error || 'Failed to start video job')
@@ -848,8 +815,6 @@ export function useGraphGeneration(): GraphActions {
         projectId,
         outputNodeIds: [targetNode.id]
       })
-      const isStructuredSeedance =
-        target.config.type === 'seedance-video' && isSeedanceStructuredModel(target.config.model)
       const params: SeedanceVideoParams = {
         ratio: config.data.aspect ?? DEFAULT_VIDEO_PARAMS.ratio,
         resolution: config.data.resolution ?? DEFAULT_VIDEO_PARAMS.resolution,
@@ -859,15 +824,10 @@ export function useGraphGeneration(): GraphActions {
               ? (config.data.duration ?? 4)
               : 4
             : (config.data.duration ?? DEFAULT_VIDEO_PARAMS.duration),
+        fps: config.data.fps ?? DEFAULT_VIDEO_PARAMS.fps,
         watermark: config.data.watermark ?? DEFAULT_VIDEO_PARAMS.watermark,
         seed: config.data.seed,
-        // Seedance 2.x is fixed at 24fps and dropped camera_fixed; sending either is rejected.
-        ...(isStructuredSeedance
-          ? { generateAudio: config.data.generateAudio, frameRole: config.data.frameRole ?? 'auto' }
-          : {
-              fps: config.data.fps ?? DEFAULT_VIDEO_PARAMS.fps,
-              cameraFixed: config.data.cameraFixed
-            })
+        cameraFixed: config.data.cameraFixed
       }
       if (!targetExecution) {
         updateNodeExecution(config.id, 'failed', {

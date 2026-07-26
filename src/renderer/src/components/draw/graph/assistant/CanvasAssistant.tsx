@@ -7,15 +7,20 @@ import {
   FileText,
   Film,
   Image as ImageIcon,
+  ImagePlus,
   Link2,
   Loader2,
   Minus,
+  MessageSquareText,
   Paperclip,
+  Pencil,
   Pin,
+  Plug,
   Plus,
-  Settings2,
+  RefreshCw,
   Sparkles,
   Square,
+  Terminal,
   Trash2,
   Wand2,
   X
@@ -24,6 +29,7 @@ import { motion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
+import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { useShallow } from 'zustand/react/shallow'
 import type { ContentBlock, UnifiedMessage } from '@renderer/lib/api/types'
@@ -63,7 +69,16 @@ const ACTION_ICONS: Partial<Record<AssistantActionKind, typeof Eye>> = {
   edit_image: Wand2,
   run_node: Sparkles,
   retry_node: Sparkles,
-  delete_nodes: Trash2
+  delete_nodes: Trash2,
+  Read: Eye,
+  Write: FilePlus2,
+  Edit: Pencil,
+  NotebookEdit: Pencil,
+  LS: FileText,
+  Glob: Eye,
+  Grep: Eye,
+  Bash: Terminal,
+  Skill: Sparkles
 }
 
 const ACTION_LABEL_KEYS: Partial<Record<AssistantActionKind, string>> = {
@@ -178,6 +193,12 @@ function ActiveToolStatus({
   }, [active.startedAt])
   const waiting = active.kind === 'wait_for_node_event'
   const target = active.nodeId ?? active.subscriptionId
+  const labelKey = ACTION_LABEL_KEYS[active.kind]
+  const toolLabel = labelKey
+    ? t(labelKey)
+    : active.kind.startsWith('mcp__')
+      ? `MCP · ${active.kind.split('__').at(-1)}`
+      : active.kind
   return (
     <div className="rounded-md border border-primary/20 bg-primary/5 p-2">
       <div className="flex items-center gap-2">
@@ -189,7 +210,10 @@ function ActiveToolStatus({
           <p className="font-medium text-foreground">
             {waiting
               ? t('drawPage.assistantListening', { defaultValue: 'Listening for node events' })
-              : t('drawPage.assistantExecuting', { defaultValue: 'Executing canvas action' })}
+              : t('drawPage.assistantExecutingTool', {
+                  tool: toolLabel,
+                  defaultValue: 'Executing {{tool}}'
+                })}
           </p>
           <p className="truncate text-[10px] text-muted-foreground">
             {target ? `${target.slice(0, 12)} · ` : ''}
@@ -263,8 +287,13 @@ function Timeline({ blocks, live = false }: { blocks: AssistantTimelineBlock[]; 
 
 function ActionNote({ action }: { action: AssistantAction }): React.JSX.Element {
   const { t } = useTranslation('layout')
-  const Icon = ACTION_ICONS[action.kind] ?? Wand2
+  const Icon = ACTION_ICONS[action.kind] ?? (action.kind.startsWith('mcp__') ? Plug : Wand2)
   const labelKey = ACTION_LABEL_KEYS[action.kind]
+  const label = labelKey
+    ? t(labelKey)
+    : action.kind.startsWith('mcp__')
+      ? `MCP · ${action.kind.split('__').at(-1)}`
+      : action.kind.replaceAll('_', ' ')
   return (
     <span
       className={cn(
@@ -273,7 +302,7 @@ function ActionNote({ action }: { action: AssistantAction }): React.JSX.Element 
       )}
     >
       <Icon className="size-3" />
-      {labelKey ? t(labelKey) : action.kind.replaceAll('_', ' ')}
+      {label}
       {!action.ok && ` · ${t('drawPage.assistantActFailed', { defaultValue: 'failed' })}`}
     </span>
   )
@@ -326,10 +355,18 @@ function ContextChip({
       </span>
     )
   } else {
+    const configLabel =
+      node.data.mode === 'video'
+        ? t('drawPage.nodeVideoGeneration', { defaultValue: 'Video generation' })
+        : node.data.mode === 'text'
+          ? t('drawPage.nodeTextGeneration', { defaultValue: 'Text generation' })
+          : t('drawPage.nodeImageGeneration', { defaultValue: 'Image generation' })
+    const ConfigIcon =
+      node.data.mode === 'video' ? Film : node.data.mode === 'text' ? MessageSquareText : ImagePlus
     body = (
       <span className="inline-flex items-center gap-1">
-        <Settings2 className="size-3 text-muted-foreground" />
-        {t('drawPage.nodeConfig', { defaultValue: 'Generate' })}
+        <ConfigIcon className="size-3 text-muted-foreground" />
+        {configLabel}
       </span>
     )
   }
@@ -375,6 +412,8 @@ export function CanvasAssistant(): React.JSX.Element | null {
   const removeContext = useAssistantStore((s) => s.removeContext)
   const pruneContext = useAssistantStore((s) => s.pruneContext)
   const appendTurn = useAssistantStore((s) => s.appendTurn)
+  const truncateFromTurn = useAssistantStore((s) => s.truncateFromTurn)
+  const deleteTurn = useAssistantStore((s) => s.deleteTurn)
   const clearSession = useAssistantStore((s) => s.clearSession)
 
   const projectId = useProjectsStore((s) => s.activeProjectId) ?? 'default'
@@ -414,6 +453,8 @@ export function CanvasAssistant(): React.JSX.Element | null {
   const [busy, setBusy] = useState(false)
   const [stream, setStream] = useState<StreamState | null>(null)
   const [confirmation, setConfirmation] = useState<CanvasConfirmationRequest | null>(null)
+  const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState('')
   const [livePos, setLivePos] = useState<{ x: number; y: number } | null>(null)
   const [liveSize, setLiveSize] = useState<{ w: number; h: number } | null>(null)
 
@@ -467,6 +508,8 @@ export function CanvasAssistant(): React.JSX.Element | null {
   )
 
   useEffect(() => {
+    setEditingTurnId(null)
+    setEditingText('')
     if (!abortRef.current) return
     abortRef.current.abort()
     confirmationResolveRef.current?.(false)
@@ -628,9 +671,17 @@ export function CanvasAssistant(): React.JSX.Element | null {
   )
 
   const send = useCallback(
-    async (raw?: string) => {
+    async (
+      raw?: string,
+      replay?: {
+        turn: AssistantTurn
+        reuseUserTurn?: boolean
+        truncateFromTurnId?: string
+        onStarted?: () => void
+      }
+    ): Promise<void> => {
       const request = (raw ?? input).trim()
-      const pendingAttachments = [...attachments]
+      const pendingAttachments = replay ? [] : [...attachments]
       const requestProjectId = projectId
       if ((!request && pendingAttachments.length === 0) || busy) return
       if (pendingAttachments.length > 0 && !supportsVision) {
@@ -659,7 +710,7 @@ export function CanvasAssistant(): React.JSX.Element | null {
       if ((useProjectsStore.getState().activeProjectId ?? 'default') !== requestProjectId) return
 
       const graphBeforeAttachments = useGraphStore.getState()
-      const selectedIds = [...graphBeforeAttachments.selection]
+      const selectedIds = replay ? [] : [...graphBeforeAttachments.selection]
       const attachmentNodeIds: string[] = []
       if (pendingAttachments.length > 0) {
         const center = screenToWorld(
@@ -685,9 +736,26 @@ export function CanvasAssistant(): React.JSX.Element | null {
       }
       if ((useProjectsStore.getState().activeProjectId ?? 'default') !== requestProjectId) return
       const graph = useGraphStore.getState()
+      const requestedReplayIds = replay
+        ? [
+            ...(replay.turn.contextNodeIds ?? []),
+            ...(replay.turn.attachmentRefs ?? []).map((reference) => reference.nodeId)
+          ]
+        : []
       const contextNodeIds = [
-        ...new Set([...chosen.contextIds, ...selectedIds, ...attachmentNodeIds])
+        ...new Set(
+          replay
+            ? requestedReplayIds.filter((id) => graph.nodes.some((node) => node.id === id))
+            : [...chosen.contextIds, ...selectedIds, ...attachmentNodeIds]
+        )
       ]
+      if (replay && contextNodeIds.length < new Set(requestedReplayIds).size) {
+        toast.warning(
+          t('drawPage.assistantReplayMissingContext', {
+            defaultValue: 'Some original canvas context is no longer available and was skipped.'
+          })
+        )
+      }
       const ctx = contextNodeIds
         .map((id) => graph.nodes.find((n) => n.id === id))
         .filter((n): n is CanvasNode => !!n)
@@ -739,31 +807,46 @@ export function CanvasAssistant(): React.JSX.Element | null {
         imageBlocks.length > 0 ? [...imageBlocks, { type: 'text', text: userText }] : userText
       if ((useProjectsStore.getState().activeProjectId ?? 'default') !== requestProjectId) return
 
-      const prior: UnifiedMessage[] = turns.slice(-30).map((turn) => ({
-        id: nanoid(),
+      if (replay?.truncateFromTurnId) {
+        truncateFromTurn(requestProjectId, replay.truncateFromTurnId)
+      }
+      const storedTurns = useAssistantStore.getState().sessions[requestProjectId] ?? []
+      const replayIndex = replay?.reuseUserTurn
+        ? storedTurns.findIndex((turn) => turn.id === replay.turn.id)
+        : -1
+      const priorTurns = replayIndex >= 0 ? storedTurns.slice(0, replayIndex) : storedTurns
+      const prior: UnifiedMessage[] = priorTurns.slice(-30).map((turn) => ({
+        id: turn.id,
         role: turn.role,
         content: historyTurnText(turn),
-        createdAt: Date.now()
+        createdAt: turn.createdAt
       }))
       const messages: UnifiedMessage[] = [
         ...prior,
         { id: nanoid(), role: 'user', content, createdAt: Date.now() }
       ]
 
-      appendTurn(requestProjectId, {
-        role: 'user',
-        text: requestText,
-        contextNodeIds,
-        attachmentCount: pendingAttachments.length,
-        attachmentRefs: pendingAttachments
-          .map((attachment, index) => {
-            const nodeId = attachmentNodeIds[index]
-            return nodeId ? { attachmentId: attachment.id, nodeId } : null
-          })
-          .filter((reference): reference is { attachmentId: string; nodeId: string } => !!reference)
-      })
-      if (!raw) setInput('')
-      setAttachments([])
+      if (!replay?.reuseUserTurn) {
+        appendTurn(requestProjectId, {
+          role: 'user',
+          text: requestText,
+          contextNodeIds,
+          attachmentCount: replay?.turn.attachmentCount ?? pendingAttachments.length,
+          attachmentRefs:
+            replay?.turn.attachmentRefs ??
+            pendingAttachments
+              .map((attachment, index) => {
+                const nodeId = attachmentNodeIds[index]
+                return nodeId ? { attachmentId: attachment.id, nodeId } : null
+              })
+              .filter(
+                (reference): reference is { attachmentId: string; nodeId: string } => !!reference
+              )
+        })
+      }
+      if (!raw && !replay) setInput('')
+      if (!replay) setAttachments([])
+      replay?.onStarted?.()
       setBusy(true)
       streamRef.current = { text: '', actions: [], timeline: [] }
       setStream({ text: '', actions: [], timeline: [] })
@@ -860,8 +943,88 @@ export function CanvasAssistant(): React.JSX.Element | null {
       resolveConfirmation,
       supportsVision,
       t,
-      turns
+      truncateFromTurn
     ]
+  )
+
+  const confirmRetainedSideEffects = useCallback(
+    async (affectedTurns: AssistantTurn[]): Promise<boolean> => {
+      if (!affectedTurns.some((turn) => turn.actions && turn.actions.length > 0)) return true
+      return await confirm({
+        title: t('drawPage.assistantSideEffectsTitle', {
+          defaultValue: 'Tool side effects will remain'
+        }),
+        description: t('drawPage.assistantSideEffectsWarning', {
+          defaultValue:
+            'This conversation contains tool actions. Editing or deleting messages will not undo canvas, file, Shell, or MCP side effects. Continue?'
+        }),
+        variant: 'destructive'
+      })
+    },
+    [t]
+  )
+
+  const submitUserRewrite = useCallback(
+    async (turn: AssistantTurn): Promise<void> => {
+      const nextText = editingText.trim()
+      if (!nextText || busy) return
+      const currentTurns = useAssistantStore.getState().sessions[projectId] ?? []
+      const index = currentTurns.findIndex((candidate) => candidate.id === turn.id)
+      if (index < 0 || !(await confirmRetainedSideEffects(currentTurns.slice(index)))) return
+      await send(nextText, {
+        turn: { ...turn, text: nextText },
+        truncateFromTurnId: turn.id,
+        onStarted: () => {
+          setEditingTurnId(null)
+          setEditingText('')
+        }
+      })
+    },
+    [busy, confirmRetainedSideEffects, editingText, projectId, send]
+  )
+
+  const regenerateAssistantTurn = useCallback(
+    async (turn: AssistantTurn): Promise<void> => {
+      if (busy) return
+      const currentTurns = useAssistantStore.getState().sessions[projectId] ?? []
+      const index = currentTurns.findIndex((candidate) => candidate.id === turn.id)
+      if (index < 0 || !(await confirmRetainedSideEffects(currentTurns.slice(index)))) return
+      const precedingUser = currentTurns
+        .slice(0, index)
+        .reverse()
+        .find((candidate) => candidate.role === 'user')
+      if (!precedingUser) return
+      await send(precedingUser.text, {
+        turn: precedingUser,
+        reuseUserTurn: true,
+        truncateFromTurnId: turn.id
+      })
+    },
+    [busy, confirmRetainedSideEffects, projectId, send]
+  )
+
+  const removeMessageTurn = useCallback(
+    async (turn: AssistantTurn): Promise<void> => {
+      if (busy) return
+      const currentTurns = useAssistantStore.getState().sessions[projectId] ?? []
+      const index = currentTurns.findIndex((candidate) => candidate.id === turn.id)
+      if (index < 0) return
+      let affected = [turn]
+      if (turn.role === 'user') {
+        const nextUserOffset = currentTurns
+          .slice(index + 1)
+          .findIndex((candidate) => candidate.role === 'user')
+        const end = nextUserOffset < 0 ? currentTurns.length : index + 1 + nextUserOffset
+        affected = currentTurns.slice(index, end)
+      }
+      if (!(await confirmRetainedSideEffects(affected))) return
+      deleteTurn(projectId, turn.id)
+      if (editingTurnId === turn.id) {
+        setEditingTurnId(null)
+        setEditingText('')
+      }
+    },
+    [busy, confirmRetainedSideEffects, deleteTurn, editingTurnId, projectId]
   )
 
   const insertAsNode = useCallback(
@@ -885,17 +1048,27 @@ export function CanvasAssistant(): React.JSX.Element | null {
   const posStyle = pos ? { left: pos.x, top: pos.y } : { right: 16, top: 64 }
   const size = liveSize ?? storeSize ?? ASSISTANT_DEFAULT_SIZE
   const confirmationTitle = confirmation
-    ? t(`drawPage.assistantConfirm.${confirmation.kind}.title`, {
-        defaultValue:
-          confirmation.kind === 'cancel_node' ? 'Cancel generation?' : 'Confirm canvas change'
-      })
+    ? confirmation.kind === 'tool'
+      ? t('drawPage.assistantConfirm.tool.title', {
+          toolName: confirmation.toolName,
+          defaultValue: 'Allow {{toolName}}?'
+        })
+      : t(`drawPage.assistantConfirm.${confirmation.kind}.title`, {
+          defaultValue:
+            confirmation.kind === 'cancel_node' ? 'Cancel generation?' : 'Confirm canvas change'
+        })
     : ''
   const confirmationDescription = confirmation
-    ? t(`drawPage.assistantConfirm.${confirmation.kind}.description`, {
-        count: confirmation.count,
-        nodeId: confirmation.nodeId,
-        defaultValue: 'This operation may replace or permanently remove canvas data.'
-      })
+    ? confirmation.kind === 'tool'
+      ? t('drawPage.assistantConfirm.tool.description', {
+          input: confirmation.inputPreview ?? '',
+          defaultValue: 'Review this tool operation before allowing it.\n{{input}}'
+        })
+      : t(`drawPage.assistantConfirm.${confirmation.kind}.description`, {
+          count: confirmation.count,
+          nodeId: confirmation.nodeId,
+          defaultValue: 'This operation may replace or permanently remove canvas data.'
+        })
     : ''
 
   if (collapsed) {
@@ -1038,14 +1211,50 @@ export function CanvasAssistant(): React.JSX.Element | null {
             })}
           </p>
         )}
-        {turns.map((turn, i) => (
+        {turns.map((turn) => (
           <div
-            key={i}
+            key={turn.id}
             className={cn(
-              'rounded-lg px-2.5 py-1.5 text-xs',
+              'group/turn relative rounded-lg px-2.5 py-1.5 text-xs',
               turn.role === 'user' ? 'bg-primary/10 text-foreground' : 'bg-muted'
             )}
           >
+            {!busy && editingTurnId !== turn.id && (
+              <div className="absolute right-1 top-1 flex items-center rounded-md bg-background/90 opacity-0 shadow-sm transition-opacity group-hover/turn:opacity-100 group-focus-within/turn:opacity-100">
+                {turn.role === 'user' ? (
+                  <button
+                    type="button"
+                    title={t('drawPage.assistantRewrite', {
+                      defaultValue: 'Edit and regenerate'
+                    })}
+                    className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => {
+                      setEditingTurnId(turn.id)
+                      setEditingText(turn.text)
+                    }}
+                  >
+                    <Pencil className="size-3" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    title={t('drawPage.assistantRegenerate', { defaultValue: 'Regenerate' })}
+                    className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => void regenerateAssistantTurn(turn)}
+                  >
+                    <RefreshCw className="size-3" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  title={t('drawPage.assistantDeleteMessage', { defaultValue: 'Delete message' })}
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => void removeMessageTurn(turn)}
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              </div>
+            )}
             {!turn.timeline && turn.actions && turn.actions.length > 0 && (
               <div className="mb-1 flex flex-wrap gap-1">
                 {turn.actions.map((action, j) => (
@@ -1062,7 +1271,46 @@ export function CanvasAssistant(): React.JSX.Element | null {
                 })}
               </span>
             )}
-            {turn.role === 'assistant' && turn.timeline ? (
+            {turn.role === 'user' && editingTurnId === turn.id ? (
+              <div className="space-y-1.5 pt-1">
+                <Textarea
+                  autoFocus
+                  value={editingText}
+                  className="min-h-20 resize-y bg-background text-xs"
+                  onChange={(event) => setEditingText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                      event.preventDefault()
+                      void submitUserRewrite(turn)
+                    }
+                    if (event.key === 'Escape') {
+                      setEditingTurnId(null)
+                      setEditingText('')
+                    }
+                  }}
+                />
+                <div className="flex justify-end gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setEditingTurnId(null)
+                      setEditingText('')
+                    }}
+                  >
+                    {t('action.cancel', { ns: 'common', defaultValue: 'Cancel' })}
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={!editingText.trim()}
+                    onClick={() => void submitUserRewrite(turn)}
+                  >
+                    <RefreshCw className="mr-1 size-3" />
+                    {t('drawPage.assistantRegenerate', { defaultValue: 'Regenerate' })}
+                  </Button>
+                </div>
+              </div>
+            ) : turn.role === 'assistant' && turn.timeline ? (
               <Timeline blocks={turn.timeline} />
             ) : (
               <p className="whitespace-pre-wrap break-words">{turn.text}</p>
@@ -1117,7 +1365,9 @@ export function CanvasAssistant(): React.JSX.Element | null {
         {confirmation && (
           <div className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
             <p className="font-medium">{confirmationTitle}</p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">{confirmationDescription}</p>
+            <p className="mt-0.5 whitespace-pre-wrap break-all text-[11px] text-muted-foreground">
+              {confirmationDescription}
+            </p>
             <div className="mt-2 flex justify-end gap-1.5">
               <Button size="sm" variant="ghost" onClick={() => resolveConfirmation(false)}>
                 {t('drawPage.assistantReject', { defaultValue: 'Reject' })}

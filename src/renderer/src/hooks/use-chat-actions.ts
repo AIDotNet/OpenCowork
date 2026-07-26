@@ -274,16 +274,6 @@ async function handleSidecarApprovalRequest(payload: SidecarApprovalIpcPayload):
     return
   }
 
-  const registeredDecision = await resolveSidecarApprovalRequest(request)
-  if (registeredDecision) {
-    await sendSidecarApprovalResponse({
-      requestId: payload.requestId,
-      approved: registeredDecision.approved,
-      ...(registeredDecision.reason ? { reason: registeredDecision.reason } : {})
-    })
-    return
-  }
-
   const agentStore = useAgentStore.getState()
   const settingsState = useSettingsStore.getState()
   // Mirror of the sidecar-side permission policy — covers requests raced against a mid-run
@@ -316,6 +306,18 @@ async function handleSidecarApprovalRequest(payload: SidecarApprovalIpcPayload):
     await sendSidecarApprovalResponse({
       requestId: payload.requestId,
       approved: true
+    })
+    return
+  }
+
+  // Run-scoped surfaces (such as Canvas Assistant) own the remaining manual
+  // confirmation UI. Global deny/allow/auto-approve decisions above stay authoritative.
+  const registeredDecision = await resolveSidecarApprovalRequest(request)
+  if (registeredDecision) {
+    await sendSidecarApprovalResponse({
+      requestId: payload.requestId,
+      approved: registeredDecision.approved,
+      ...(registeredDecision.reason ? { reason: registeredDecision.reason } : {})
     })
     return
   }

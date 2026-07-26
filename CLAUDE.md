@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+Clone with `--recurse-submodules` (or run `git submodule update --init --recursive` once). The native worker will not build without it — see [Submodules](#submodules).
+
 - `npm run dev` — start Electron + Vite with hot reload (primary dev loop).
 - `npm run start` — preview the packaged app output (run after `build`).
 - `npm run lint` — ESLint with cache. Minimum validation before committing.
@@ -62,6 +64,14 @@ The main-process agent runtime (`js-agent-runtime.ts`) is provider-agnostic: it 
 `src/shared/` holds cross-process TypeScript contracts. `src/components`, `src/hooks`, `src/lib` at the repo root (not under `renderer/`) are additional shared utilities.
 
 Generated/ignored: `dist/`, `out/`, `build/`, `node_modules/`. Do not edit.
+
+### Submodules
+
+`sidecars/codegraph` → [AIDotNet/CodeGraph](https://github.com/AIDotNet/CodeGraph). It holds the CodeGraph engine (`OpenCowork.CodeGraph.{Core,Worker,Tests}`) **and** `OpenCowork.Worker.Runtime`, the single source of truth for the worker IPC/dispatch/host contract. `OpenCowork.Native.Worker` source-links both out of the submodule (`Runtime/`, `Hosting/`, `Contracts/`, `Modules/SystemModule.cs`, plus the whole `CodeGraph.Core` tree), so it cannot build with the submodule uninitialized — `predev.mjs` and `publish-native-worker.mjs` fail early with an explicit message when it is missing, and CI must check out with submodules.
+
+Four runtime files stay in `OpenCowork.Native.Worker` because they are worker-specific and deliberately absent from the shared project: `Hosting/WorkerModuleCatalog.cs` and `Runtime/{AgentStreamMessagePackEmitter,ApiUserAgent,WorkerHttpClientFactory}.cs`. Anything else moved or renamed under the shared paths is a two-repo change: land it in CodeGraph first, then bump the pinned SHA here.
+
+The engine also compiles standalone in the submodule (`dotnet build CodeGraph.slnx`, xUnit suite) for the opt-in CodeGraph sidecar binary.
 
 ### Native modules
 

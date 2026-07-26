@@ -744,7 +744,7 @@
       "sync": "مزامنة",
       "syncing": "جارٍ المزامنة...",
       "unknownRoot": "(مشروع غير معروف) {{hash}}",
-      "workerMissing": "لم يُعثر على الملف التنفيذي لعامل CodeGraph. ابنِه باستخدام `npm run codegraph:publish` (أو `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerMissing": "لم يُعثر على الملف التنفيذي لعامل CodeGraph. ابنِه باستخدام `npm run codegraph:publish` (أو `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "العامل قيد التشغيل",
       "workerStopped": "لم يبدأ العامل بعد (يبدأ عند أول استخدام)"
     },

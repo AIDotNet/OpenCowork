@@ -99,6 +99,10 @@ export interface ConfigNodeData {
   watermark?: boolean
   seed?: number
   cameraFixed?: boolean
+  /** Seedance 2.x: emit `generate_audio`. Undefined = provider default (audio on). */
+  generateAudio?: boolean
+  /** Seedance 2.x: how upstream images map to `role`. Undefined = 'auto' (no role). */
+  frameRole?: 'auto' | 'first-last'
 }
 
 export interface VideoNodeData {

@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type {
-  DragEvent as ReactDragEvent,
-  MouseEvent as ReactMouseEvent
-} from 'react'
+import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileText, Image as ImageIcon, Maximize, MousePointerClick, Settings2 } from 'lucide-react'
+import {
+  FileText,
+  Image as ImageIcon,
+  ImagePlus,
+  Maximize,
+  MessageSquareText,
+  MousePointerClick,
+  Video
+} from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -16,7 +21,7 @@ import { fitCamera, nodeScreenRect, screenToWorld, zoomAtPoint } from './graph-g
 import { useGraphStore } from './graph-store'
 import { createCanvasNode } from './node-factory'
 import { addImageNodeFromDataUrl, fileToDataUrl, imageFilesFromTransfer } from './add-image-node'
-import type { CanvasNodeKind } from './graph-types'
+import type { CanvasNodeKind, ConfigNodeData } from './graph-types'
 import type { GraphActions } from './graph-actions'
 import { GraphActionsProvider } from './graph-actions'
 import { EdgeLayer } from './EdgeLayer'
@@ -103,6 +108,13 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
   const addNodeAt = useCallback(
     (kind: CanvasNodeKind) => {
       addNode(createCanvasNode(kind, menuWorldRef.current), { select: true })
+    },
+    [addNode]
+  )
+
+  const addGenerationNodeAt = useCallback(
+    (mode: ConfigNodeData['mode']) => {
+      addNode(createCanvasNode('config', menuWorldRef.current, mode), { select: true })
     },
     [addNode]
   )
@@ -383,9 +395,18 @@ export function GraphCanvas({ actions }: GraphCanvasProps): React.JSX.Element {
               <ImageIcon className="size-4" />
               {t('drawPage.nodeImage', { defaultValue: 'Image node' })}
             </ContextMenuItem>
-            <ContextMenuItem onSelect={() => addNodeAt('config')}>
-              <Settings2 className="size-4" />
-              {t('drawPage.nodeConfig', { defaultValue: 'Generate node' })}
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => addGenerationNodeAt('image')}>
+              <ImagePlus className="size-4" />
+              {t('drawPage.nodeImageGeneration', { defaultValue: 'Image generation' })}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => addGenerationNodeAt('video')}>
+              <Video className="size-4" />
+              {t('drawPage.nodeVideoGeneration', { defaultValue: 'Video generation' })}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => addGenerationNodeAt('text')}>
+              <MessageSquareText className="size-4" />
+              {t('drawPage.nodeTextGeneration', { defaultValue: 'Text generation' })}
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={selectAll} disabled={nodes.length === 0}>

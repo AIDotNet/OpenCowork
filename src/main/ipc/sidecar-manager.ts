@@ -1248,7 +1248,8 @@ export function registerSidecarHandlers(): void {
       case 'plan/ui-update':
       case 'team/ui-update':
       case 'subagent/ui-update':
-      case 'browser/tool-request': {
+      case 'browser/tool-request':
+      case 'canvas/tool-request': {
         const requestId = `sidecar-${method.replace(/[^a-z0-9]+/gi, '-')}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
         const targetWindow = resolveRendererTargetWindow(params, runWindowIds, sessionWindowIds)
         const requestLabel =
@@ -1256,11 +1257,13 @@ export function registerSidecarHandlers(): void {
             ? 'AskUserQuestion request'
             : method === 'browser/tool-request'
               ? 'Browser tool request'
-              : method === 'team/ui-update'
-                ? 'Team UI update request'
-                : method === 'subagent/ui-update'
-                  ? 'Sub-agent UI update request'
-                  : 'Plan UI update request'
+              : method === 'canvas/tool-request'
+                ? 'Canvas tool request'
+                : method === 'team/ui-update'
+                  ? 'Team UI update request'
+                  : method === 'subagent/ui-update'
+                    ? 'Sub-agent UI update request'
+                    : 'Plan UI update request'
 
         if (!targetWindow) {
           throw new Error(`No renderer available for ${requestLabel}`)

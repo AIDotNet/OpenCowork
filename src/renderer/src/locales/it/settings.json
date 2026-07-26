@@ -744,7 +744,7 @@
       "sync": "Sincronizza",
       "syncing": "Sincronizzazione...",
       "unknownRoot": "(progetto sconosciuto) {{hash}}",
-      "workerMissing": "Il binario worker di CodeGraph non è stato trovato. Compilalo con `npm run codegraph:publish` (o `dotnet build sidecars/OpenCowork.CodeGraph.Worker`).",
+      "workerMissing": "Il binario worker di CodeGraph non è stato trovato. Compilalo con `npm run codegraph:publish` (o `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Worker in esecuzione",
       "workerStopped": "Worker non avviato (si avvia al primo utilizzo)"
     },

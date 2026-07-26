@@ -744,7 +744,7 @@
       "sync": "同期",
       "syncing": "同期中...",
       "unknownRoot": "（不明なプロジェクト）{{hash}}",
-      "workerMissing": "CodeGraph ワーカーのバイナリが見つかりませんでした。`npm run codegraph:publish`（または `dotnet build sidecars/OpenCowork.CodeGraph.Worker`）でビルドしてください。",
+      "workerMissing": "CodeGraph ワーカーのバイナリが見つかりませんでした。`npm run codegraph:publish`（または `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`）でビルドしてください。",
       "workerRunning": "ワーカー実行中",
       "workerStopped": "ワーカー未起動（初回使用時に起動）"
     },

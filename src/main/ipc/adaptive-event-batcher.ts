@@ -708,6 +708,7 @@ function mapToStreamEvent(raw: Record<string, unknown>): AgentStreamEvent | null
         originalCount: num(raw.originalCount),
         newCount: num(raw.newCount ?? raw.compressedCount),
         ...(keptMessageCount !== undefined ? { keptMessageCount } : {}),
+        ...(raw.summarizerFailed === true ? { summarizerFailed: true } : {}),
         ...(compactArtifacts && compactArtifacts.length > 0 ? { compactArtifacts } : {}),
         ...(messages && messages.length > 0 ? { messages } : {})
       }

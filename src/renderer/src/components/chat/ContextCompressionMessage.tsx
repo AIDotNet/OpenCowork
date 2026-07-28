@@ -1,7 +1,7 @@
 import * as React from 'react'
 import Markdown from 'react-markdown'
 import { useTranslation } from 'react-i18next'
-import { Archive, ChevronDown } from 'lucide-react'
+import { AlertTriangle, Archive, ChevronDown } from 'lucide-react'
 import type { UnifiedMessage } from '@renderer/lib/api/types'
 import {
   getCompactSummaryDisplayText,
@@ -68,6 +68,14 @@ export function ContextCompressionMessage({
               <span className="rounded border border-border/70 bg-background/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {t('contextCompression.summaryRecentPreserved', {
                   defaultValue: 'Recent messages preserved'
+                })}
+              </span>
+            ) : null}
+            {meta?.summarizerFailed ? (
+              <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="size-3" />
+                {t('contextCompression.summaryFallbackWarning', {
+                  defaultValue: 'Summary unavailable; older context removed'
                 })}
               </span>
             ) : null}

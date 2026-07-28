@@ -199,6 +199,9 @@ export function AppPluginPanel(): React.JSX.Element {
   )
   const [browserEmulationStatus, setBrowserEmulationStatus] =
     useState<BrowserEmulationStatus | null>(null)
+  const [pluginStoreHydrated, setPluginStoreHydrated] = useState(() =>
+    useAppPluginStore.persist.hasHydrated()
+  )
   const activeProjectId = useChatStore((state) => state.activeProjectId)
   const pluginsByProject = useAppPluginStore((state) => state.pluginsByProject)
   const updatePlugin = useAppPluginStore((state) => state.updatePlugin)
@@ -209,6 +212,11 @@ export function AppPluginPanel(): React.JSX.Element {
   const providers = useProviderStore((state) => state.providers)
   const activeImageProviderId = useProviderStore((state) => state.activeImageProviderId)
   const activeImageModelId = useProviderStore((state) => state.activeImageModelId)
+
+  useEffect(() => {
+    if (useAppPluginStore.persist.hasHydrated()) return
+    return useAppPluginStore.persist.onFinishHydration(() => setPluginStoreHydrated(true))
+  }, [])
 
   const imageProviderGroups = useMemo(
     () =>
@@ -500,8 +508,8 @@ export function AppPluginPanel(): React.JSX.Element {
   }
 
   const handlePluginEnabledChange = (checked: boolean): void => {
-    if (!selectedPlugin || checked === selectedPlugin.enabled) return
-    togglePluginEnabled(selectedPlugin.id)
+    if (!pluginStoreHydrated || !selectedPlugin || checked === selectedPlugin.enabled) return
+    togglePluginEnabled(selectedPlugin.id, activeProjectId)
   }
 
   return (
@@ -582,6 +590,7 @@ export function AppPluginPanel(): React.JSX.Element {
                 </div>
                 <Switch
                   checked={selectedPlugin.enabled}
+                  disabled={!pluginStoreHydrated}
                   onCheckedChange={handlePluginEnabledChange}
                 />
               </div>

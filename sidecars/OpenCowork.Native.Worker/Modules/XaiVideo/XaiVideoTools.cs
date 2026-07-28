@@ -11,7 +11,7 @@ internal static class XaiVideoTools
 {
     private const long MaxVideoDownloadBytes = 512L * 1024 * 1024;
     private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
-        timeout: TimeSpan.FromMinutes(10));
+        timeout: Timeout.InfiniteTimeSpan);
 
     private static readonly JsonWriterOptions WriterOptions = new()
     {

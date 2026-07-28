@@ -7,13 +7,13 @@ using System.Text.RegularExpressions;
 internal static partial class AgentRuntimeContextCompression
 {
     private const int PreserveRecentCount = 0;
-    private const int MaxRetries = 2;
+    private const int MaxRetries = 1;
     private const int MaxConsecutiveFailures = 3;
     private const int SafeBoundaryScanLimit = 10;
     private const int SerializedToolUseInputLimit = 500;
     private const int SerializedToolResultLimit = 800;
     private const int RetryDelayMs = 1_500;
-    private const int SummaryTimeoutMs = 120_000;
+    private const int SummaryTimeoutMs = 45_000;
     private const string ResponsesSessionScope = "context-compression";
     private const string SystemPrompt =
         "You compress long AI coding-agent conversations into durable working memory. " +
@@ -27,6 +27,14 @@ internal static partial class AgentRuntimeContextCompression
     };
 
     private static int consecutiveFailures;
+
+    private sealed class ContextCompressionTimeoutException : TimeoutException
+    {
+        public ContextCompressionTimeoutException()
+            : base($"Context compression summarizer timed out after {SummaryTimeoutMs}ms.")
+        {
+        }
+    }
 
     public static async Task<WorkerResponse> CompressAsync(
         JsonElement parameters,
@@ -98,7 +106,7 @@ internal static partial class AgentRuntimeContextCompression
         if (Volatile.Read(ref consecutiveFailures) >= MaxConsecutiveFailures)
         {
             WorkerLog.Warn("context compression summarizer circuit open; using native local truncation");
-            return BuildLocalTruncationResult(messagesToCompress, messagesToPreserve, originalCount, preTokens, false);
+            return BuildLocalTruncationResult(messagesToCompress, messagesToPreserve, originalCount, preTokens, true);
         }
 
         Exception? lastError = null;
@@ -170,10 +178,23 @@ internal static partial class AgentRuntimeContextCompression
         WorkerLog.Info(
             $"context compression summarizer start runId={runId} provider={JsonHelpers.GetString(provider, "type")} " +
             $"model={JsonHelpers.GetString(provider, "model")} inputChars={serializedMessages.Length}");
-        var turn = await OpenAIChatRuntime.ExecuteProviderTurnAsync(requestParameters, state, context);
-        if (linked.Token.IsCancellationRequested)
+        AgentRuntimeProviderTurnResult turn;
+        try
         {
-            throw new OperationCanceledException(linked.Token);
+            turn = await OpenAIChatRuntime.ExecuteProviderTurnAsync(requestParameters, state, context);
+        }
+        catch (OperationCanceledException) when (
+            timeout.IsCancellationRequested && !context.CancellationToken.IsCancellationRequested)
+        {
+            throw new ContextCompressionTimeoutException();
+        }
+        if (timeout.IsCancellationRequested && !context.CancellationToken.IsCancellationRequested)
+        {
+            throw new ContextCompressionTimeoutException();
+        }
+        if (context.CancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(context.CancellationToken);
         }
 
         var summary = FormatSummary(turn.AssistantMessage.Text);
@@ -204,7 +225,8 @@ internal static partial class AgentRuntimeContextCompression
             summaryId,
             summary,
             messagesToCompress.Count,
-            messagesToPreserve.Count > 0);
+            messagesToPreserve.Count > 0,
+            summarizerFailed: false);
 
         var compressedMessages = new List<JsonElement>(2 + messagesToPreserve.Count)
         {
@@ -249,7 +271,8 @@ internal static partial class AgentRuntimeContextCompression
             summaryId,
             summary,
             messagesToCompress.Count,
-            messagesToPreserve.Count > 0);
+            messagesToPreserve.Count > 0,
+            summarizerFailed);
 
         var compressedMessages = new List<JsonElement>(2 + messagesToPreserve.Count)
         {
@@ -613,7 +636,8 @@ internal static partial class AgentRuntimeContextCompression
         string id,
         string summary,
         int messagesSummarized,
-        bool recentMessagesPreserved)
+        bool recentMessagesPreserved,
+        bool summarizerFailed)
     {
         return CreateObjectElement(writer =>
         {
@@ -632,6 +656,10 @@ internal static partial class AgentRuntimeContextCompression
             writer.WriteStartObject();
             writer.WriteNumber("messagesSummarized", messagesSummarized);
             writer.WriteBoolean("recentMessagesPreserved", recentMessagesPreserved);
+            if (summarizerFailed)
+            {
+                writer.WriteBoolean("summarizerFailed", true);
+            }
             writer.WriteEndObject();
             writer.WriteEndObject();
         });

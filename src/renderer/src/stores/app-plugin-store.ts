@@ -46,6 +46,10 @@ function resolveProjectId(projectId?: string | null): string {
   return projectId ?? useChatStore.getState().activeProjectId ?? GLOBAL_PROJECT_ID
 }
 
+function resolvePluginProjectId(id: AppPluginId, projectId?: string | null): string {
+  return id === CODEGRAPH_PLUGIN_ID ? GLOBAL_PROJECT_ID : resolveProjectId(projectId)
+}
+
 function clonePlugin(plugin: AppPluginInstance): AppPluginInstance {
   return {
     ...plugin,
@@ -113,6 +117,16 @@ function provisionBuiltinPlugins(plugins: AppPluginInstance[]): AppPluginInstanc
   return next
 }
 
+function provisionPluginsForScope(
+  projectId: string,
+  plugins: AppPluginInstance[]
+): AppPluginInstance[] {
+  const provisioned = provisionBuiltinPlugins(plugins)
+  return projectId === GLOBAL_PROJECT_ID
+    ? provisioned
+    : provisioned.filter((plugin) => plugin.id !== CODEGRAPH_PLUGIN_ID)
+}
+
 export function resolvePluginsForProject(
   pluginsByProject: Record<string, AppPluginInstance[]>,
   projectId?: string | null
@@ -131,6 +145,7 @@ export function resolvePluginsForProject(
     : []
 
   return globalPlugins.map((plugin) => {
+    if (plugin.id === CODEGRAPH_PLUGIN_ID) return plugin
     const override = projectOverrides.find((item) => item.id === plugin.id)
     return override ? { ...plugin, ...override } : plugin
   })
@@ -202,11 +217,11 @@ export const useAppPluginStore = create<AppPluginStore>()(
 
       getPlugin: (id, projectId) =>
         get()
-          .getPlugins(projectId)
+          .getPlugins(resolvePluginProjectId(id, projectId))
           .find((plugin) => plugin.id === id) ?? null,
 
       updatePlugin: (id, patch, projectId) => {
-        const resolvedProjectId = resolveProjectId(projectId)
+        const resolvedProjectId = resolvePluginProjectId(id, projectId)
         set((state) => {
           const current = resolvePluginsForProject(state.pluginsByProject, resolvedProjectId)
           const next = current.map((plugin) =>
@@ -217,7 +232,7 @@ export const useAppPluginStore = create<AppPluginStore>()(
       },
 
       togglePluginEnabled: (id, projectId) => {
-        const resolvedProjectId = resolveProjectId(projectId)
+        const resolvedProjectId = resolvePluginProjectId(id, projectId)
         set((state) => {
           const current = resolvePluginsForProject(state.pluginsByProject, resolvedProjectId)
           const next = current.map((plugin) =>
@@ -266,31 +281,49 @@ export const useAppPluginStore = create<AppPluginStore>()(
     }),
     {
       name: 'opencowork-app-plugins',
-      version: 4,
+      version: 5,
       storage: createJSONStorage(() => configStorage),
       migrate: (persisted, version) => {
         const state = (persisted ?? {}) as {
           plugins?: AppPluginInstance[]
           pluginsByProject?: Record<string, AppPluginInstance[]>
         }
-
-        if (state.pluginsByProject) {
-          return {
-            pluginsByProject: Object.fromEntries(
-              Object.entries(state.pluginsByProject).map(([projectId, plugins]) => [
-                projectId,
-                migrateProjectPlugins(Array.isArray(plugins) ? plugins : [], version)
-              ])
+        const storedVersion = typeof version === 'number' ? version : 0
+        const source = state.pluginsByProject ?? {
+          [GLOBAL_PROJECT_ID]: Array.isArray(state.plugins) ? state.plugins : []
+        }
+        const migratedByProject = Object.fromEntries(
+          Object.entries(source).map(([projectId, plugins]) => [
+            projectId,
+            provisionPluginsForScope(
+              projectId,
+              Array.isArray(plugins) ? migrateProjectPlugins(plugins, version) : []
             )
+          ])
+        )
+        const globalPlugins = provisionPluginsForScope(
+          GLOBAL_PROJECT_ID,
+          migratedByProject[GLOBAL_PROJECT_ID] ?? []
+        )
+
+        if (storedVersion < 5) {
+          const legacyCodeGraphEnabled = Object.values(source).some((plugins) =>
+            Array.isArray(plugins)
+              ? plugins.some(
+                  (plugin) => plugin?.id === CODEGRAPH_PLUGIN_ID && plugin.enabled === true
+                )
+              : false
+          )
+          if (legacyCodeGraphEnabled) {
+            const codeGraph = globalPlugins.find((plugin) => plugin.id === CODEGRAPH_PLUGIN_ID)
+            if (codeGraph) codeGraph.enabled = true
           }
         }
 
         return {
           pluginsByProject: {
-            [GLOBAL_PROJECT_ID]: migrateProjectPlugins(
-              Array.isArray(state.plugins) ? state.plugins : [],
-              version
-            )
+            ...migratedByProject,
+            [GLOBAL_PROJECT_ID]: globalPlugins
           }
         }
       },
@@ -306,7 +339,7 @@ function ensureBuiltinPlugins(): void {
   const next = Object.fromEntries(
     Object.entries(current).map(([projectId, plugins]) => [
       projectId,
-      provisionBuiltinPlugins(Array.isArray(plugins) ? plugins : [])
+      provisionPluginsForScope(projectId, Array.isArray(plugins) ? plugins : [])
     ])
   )
   if (JSON.stringify(current) !== JSON.stringify(next)) {

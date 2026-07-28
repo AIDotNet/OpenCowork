@@ -16,6 +16,8 @@ const NATIVE_WORKER_STDERR_TAIL_LINES = 40
 const NATIVE_WORKER_STDERR_MAX_LINE = 2000
 
 const DEFAULT_NATIVE_WORKER_TIMEOUT_MS = 60_000
+/** Explicit request deadline opt-out. Omitted/null timeouts still use the safe default. */
+export const NATIVE_WORKER_NO_TIMEOUT = 0
 const DEFAULT_NATIVE_WORKER_SLOW_REQUEST_MS = 750
 const NATIVE_WORKER_CONNECT_TIMEOUT_MS = 10_000
 const NATIVE_WORKER_CONNECT_RETRY_MS = 35
@@ -137,7 +139,7 @@ type PendingRequest = {
   payloadBytes: number
   resolve: (value: unknown) => void
   reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
+  timer?: ReturnType<typeof setTimeout>
   removeAbortListener?: () => void
 }
 
@@ -266,9 +268,11 @@ class NativeWorkerManager {
     // timeout as nil -> null, bypassing a default parameter; setTimeout(cb, null)
     // would fire at ~1ms and fail the request before the worker can answer.
     const effectiveTimeoutMs =
-      typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
-        ? timeoutMs
-        : DEFAULT_NATIVE_WORKER_TIMEOUT_MS
+      timeoutMs === NATIVE_WORKER_NO_TIMEOUT
+        ? null
+        : typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+          ? timeoutMs
+          : DEFAULT_NATIVE_WORKER_TIMEOUT_MS
     if (signal?.aborted) {
       throw createAbortError(method)
     }
@@ -293,25 +297,28 @@ class NativeWorkerManager {
       method,
       payloadBytes,
       pending: this.pending.size + 1,
-      timeoutMs: effectiveTimeoutMs
+      timeoutMs: effectiveTimeoutMs ?? 'none'
     })
 
     return await new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const pending = this.pending.get(id)
-        if (!pending) return
-        this.pending.delete(id)
-        pending.removeAbortListener?.()
-        this.sendCancelRequest(id)
-        console.warn('[NativeWorker] request timeout', {
-          id,
-          method,
-          elapsedMs: Date.now() - startedAt,
-          payloadBytes,
-          pending: this.pending.size
-        })
-        pending.reject(new Error(`Native worker request timed out: ${method}`))
-      }, effectiveTimeoutMs)
+      const timer =
+        effectiveTimeoutMs === null
+          ? undefined
+          : setTimeout(() => {
+              const pending = this.pending.get(id)
+              if (!pending) return
+              this.pending.delete(id)
+              pending.removeAbortListener?.()
+              this.sendCancelRequest(id)
+              console.warn('[NativeWorker] request timeout', {
+                id,
+                method,
+                elapsedMs: Date.now() - startedAt,
+                payloadBytes,
+                pending: this.pending.size
+              })
+              pending.reject(new Error(`Native worker request timed out: ${method}`))
+            }, effectiveTimeoutMs)
 
       const pending: PendingRequest = {
         method,
@@ -325,7 +332,7 @@ class NativeWorkerManager {
       if (signal) {
         const onAbort = (): void => {
           if (!this.pending.delete(id)) return
-          clearTimeout(timer)
+          if (timer) clearTimeout(timer)
           pending.removeAbortListener?.()
           this.sendCancelRequest(id)
           pending.reject(createAbortError(method))
@@ -616,7 +623,7 @@ class NativeWorkerManager {
     const pending = this.pending.get(response.id)
     if (!pending) return
 
-    clearTimeout(pending.timer)
+    if (pending.timer) clearTimeout(pending.timer)
     pending.removeAbortListener?.()
     this.pending.delete(response.id)
     const elapsedMs = Date.now() - pending.startedAt
@@ -647,7 +654,7 @@ class NativeWorkerManager {
   private rejectPendingRequest(id: number, error: Error): void {
     const pending = this.pending.get(id)
     if (!pending) return
-    clearTimeout(pending.timer)
+    if (pending.timer) clearTimeout(pending.timer)
     pending.removeAbortListener?.()
     this.pending.delete(id)
     console.warn('[NativeWorker] request write failed', {
@@ -709,7 +716,7 @@ class NativeWorkerManager {
     }
 
     for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer)
+      if (pending.timer) clearTimeout(pending.timer)
       pending.removeAbortListener?.()
       pending.reject(error)
     }

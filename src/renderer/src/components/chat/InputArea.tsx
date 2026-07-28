@@ -1,4 +1,4 @@
-﻿import * as React from 'react'
+import * as React from 'react'
 import { useState as useLocalState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -3585,6 +3585,10 @@ export function InputArea({
         return t('input.compressingContext', { defaultValue: 'Compressing context...' })
       case 'compressed':
         return t('input.contextCompressed', { defaultValue: 'Context compressed' })
+      case 'fallback':
+        return t('input.contextCompressionFallback', {
+          defaultValue: 'Summary unavailable; older context removed'
+        })
       case 'skipped':
         return t('input.contextCompressionSkipped', { defaultValue: 'No compression needed' })
       case 'blocked':

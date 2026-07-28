@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { nanoid } from 'nanoid'
 import {
   CornerDownLeft,
@@ -571,6 +571,39 @@ export function CanvasAssistant(): React.JSX.Element | null {
       y: Math.min(Math.max(0, y), Math.max(0, parent.clientHeight - h))
     }
   }, [])
+
+  // The dragged position is persisted across window and sidebar sizes. Re-clamp
+  // it from the rendered dimensions whenever the panel opens or its container
+  // changes, otherwise a previously valid position can leave the assistant fully
+  // off-canvas and make the toolbar button appear unresponsive.
+  useLayoutEffect(() => {
+    if (!open || !storePosition) return
+    const shell = shellRef.current
+    const parent = shell?.parentElement
+    if (!shell || !parent) return
+
+    const keepVisible = (): void => {
+      const position = useAssistantStore.getState().position
+      if (!position) return
+      const next = {
+        x: Math.min(
+          Math.max(8, position.x),
+          Math.max(8, parent.clientWidth - shell.offsetWidth - 8)
+        ),
+        y: Math.min(
+          Math.max(8, position.y),
+          Math.max(8, parent.clientHeight - shell.offsetHeight - 8)
+        )
+      }
+      if (next.x !== position.x || next.y !== position.y) setPosition(next)
+    }
+
+    keepVisible()
+    const observer = new ResizeObserver(keepVisible)
+    observer.observe(parent)
+    observer.observe(shell)
+    return () => observer.disconnect()
+  }, [collapsed, open, setPosition, storePosition])
 
   const onDragPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
     if (e.button !== 0) return

@@ -7,7 +7,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v6: prioritize OpenAI (GPT 5.6 Terra first), Anthropic, then MiMo in the model list.
   // v7: add the OpenAI Sora 2 video model.
   // v8: add the Volcengine Seedance 2.0 video models (structured task params).
-  version: 8,
+  // v9: add Qwen3.8 Max Preview and Claude Opus 5.
+  version: 9,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -74,6 +75,24 @@ export const routinAiPreset: BuiltinProviderPreset = {
       outputPrice: 50,
       cacheCreationPrice: 12.5,
       cacheHitPrice: 1,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'claude-opus-5',
+      name: 'Claude Opus 5',
+      icon: 'claude',
+      type: 'anthropic',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'adaptive' } },
@@ -1560,6 +1579,22 @@ export const routinAiPreset: BuiltinProviderPreset = {
         defaultReasoningEffort: 'high'
       }
     },
+    // ── Qwen ──
+    {
+      id: 'Qwen3.8-Max-Preview',
+      name: 'Qwen3.8 Max Preview',
+      icon: 'qwen',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 32_768,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } }
+      }
+    },
     // ── Qwen3.5 ──
     {
       id: 'qwen3.5-27b',
@@ -1745,6 +1780,7 @@ const ROUTIN_AI_PLAN_MODEL_ORDER = [
   'gpt-5.6-luna',
   'gpt-5.6-sol',
   'claude-fable-5',
+  'claude-opus-5',
   'claude-sonnet-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
@@ -1760,7 +1796,8 @@ const routinAiModelById = new Map(routinAiPreset.defaultModels.map((m) => [m.id,
 export const routinAiPlanPreset: BuiltinProviderPreset = {
   builtinId: 'routin-ai-plan',
   // v2: gpt-5.4+ models support the Responses WebSocket transport (supportsWebsocket)
-  version: 2,
+  // v3: add Claude Opus 5 to the plan model list.
+  version: 3,
   name: 'Routin AI（套餐）',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/plan/v1',

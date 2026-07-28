@@ -6,7 +6,8 @@ using System.Text.Json;
 internal static class OpenAIVideoTools
 {
     private const long MaxVideoDownloadBytes = 512L * 1024 * 1024;
-    private static readonly HttpClient Http = WorkerHttpClientFactory.Create(timeout: TimeSpan.FromMinutes(10));
+    private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
+        timeout: Timeout.InfiniteTimeSpan);
 
     public static async Task<WorkerResponse> GenerateAsync(JsonElement parameters, WorkerRequestContext context)
     {

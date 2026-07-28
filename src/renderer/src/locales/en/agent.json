@@ -13,6 +13,7 @@
     "summaryRecentPreserved": "Transcript kept in chat",
     "summaryExpand": "Expand summary",
     "summaryCollapse": "Collapse summary",
+    "summaryFallbackWarning": "Summary unavailable; older context removed",
     "compressing": "Compressing context…",
     "compressed": "Context compressed",
     "compressedDetail": "{{count}} messages compressed",

@@ -174,6 +174,7 @@ internal static class OpenAIChatRuntime
                                     OriginalCount: originalCount,
                                     NewCount: compressed.Messages.Length,
                                     KeptMessageCount: summarized,
+                                    SummarizerFailed: compressed.Result.SummarizerFailed,
                                     CompactArtifacts: ExtractCompactArtifacts(compressed.Messages)));
                             WorkerLog.Info(
                                 $"agent context compression ok runId={state.RunId} original={originalCount} " +
@@ -904,7 +905,6 @@ internal static class OpenAIChatRuntime
         if (finishReason is "tool_calls" or "function_call")
         {
             FlushRemainingToolBuffers(toolBuffers, completedToolCalls);
-            return true;
         }
 
         if (toolBuffers.Count > 0)
@@ -912,7 +912,10 @@ internal static class OpenAIChatRuntime
             FlushRemainingToolBuffers(toolBuffers, completedToolCalls);
         }
 
-        return finishReason is "stop" or "length" or "content_filter";
+        // OpenAI-compatible APIs commonly emit usage in a separate terminal
+        // chunk after the chunk carrying finish_reason. Keep consuming until
+        // [DONE] (or EOF) so that an empty choices array cannot hide usage.
+        return false;
     }
 
     private static async Task ProcessJsonResponseAsync(

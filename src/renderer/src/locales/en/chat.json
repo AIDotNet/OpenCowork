@@ -21,6 +21,7 @@
     "thinkingOff": "Off",
     "noModelSettings": "No extra settings for this model (e.g. deep thinking, fast mode)",
     "contextCompressionThreshold": "Context compression threshold",
+    "contextCompressionFallback": "Summary unavailable; older context removed",
     "thinkingLevel": "Thinking: {{level}}",
     "effortDesc": {
       "none": "No reasoning",

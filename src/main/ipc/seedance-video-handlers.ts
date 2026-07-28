@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import { getNativeWorker } from '../lib/native-worker'
+import { getNativeWorker, NATIVE_WORKER_NO_TIMEOUT } from '../lib/native-worker'
 
 /**
  * Background video generation. All work — submitting the task, polling
@@ -29,8 +29,8 @@ interface VideoJob {
 }
 
 const POLL_INTERVAL_MS = 4000
-const MAX_WAIT_MS = 10 * 60 * 1000
 const jobs = new Map<string, VideoJob>()
+const jobControllers = new Map<string, AbortController>()
 
 type VideoOperation = 'generate' | 'status' | 'download'
 
@@ -66,23 +66,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function pollJob(job: VideoJob, provider: unknown): Promise<void> {
+async function pollJob(job: VideoJob, provider: unknown, signal: AbortSignal): Promise<void> {
   const worker = getNativeWorker()
-  const startedAt = Date.now()
   while (!job.done) {
     await sleep(POLL_INTERVAL_MS)
-    if (Date.now() - startedAt > MAX_WAIT_MS) {
-      job.status = 'failed'
-      job.error = 'Video generation timed out.'
-      job.done = true
-      broadcast(job)
-      return
-    }
+    if (job.done || signal.aborted) return
     try {
       const st = (await getNativeWorker().request(
         getWorkerMethod(provider, 'status'),
         { provider, taskId: job.taskId },
-        60_000
+        NATIVE_WORKER_NO_TIMEOUT,
+        signal
       )) as { status?: string; videoUrl?: string; progress?: number; error?: string }
       // Some compatible gateways omit status for an intermediate poll. Keep a
       // useful running state instead of exposing the protocol detail as "unknown".
@@ -103,7 +97,8 @@ async function pollJob(job: VideoJob, provider: unknown): Promise<void> {
         const dl = (await worker.request(
           getWorkerMethod(provider, 'download'),
           { provider, videoUrl: st.videoUrl },
-          120_000
+          NATIVE_WORKER_NO_TIMEOUT,
+          signal
         )) as { filePath?: string; data?: string; mediaType?: string }
         if (dl?.filePath) {
           job.filePath = dl.filePath
@@ -142,6 +137,45 @@ async function pollJob(job: VideoJob, provider: unknown): Promise<void> {
   }
 }
 
+async function runVideoJob(
+  job: VideoJob,
+  provider: unknown,
+  prompt: string,
+  images: unknown[],
+  video: unknown,
+  signal: AbortSignal
+): Promise<void> {
+  try {
+    const created = (await getNativeWorker().request(
+      getWorkerMethod(provider, 'generate'),
+      { provider, prompt, images, video },
+      NATIVE_WORKER_NO_TIMEOUT,
+      signal
+    )) as { id?: string; error?: string; message?: string }
+    if (job.done || signal.aborted) return
+    if (!created?.id) {
+      throw new Error(
+        created?.error ||
+          created?.message ||
+          `Video provider returned no task id (${getWorkerMethod(provider, 'generate')}).`
+      )
+    }
+
+    job.taskId = created.id
+    job.status = 'queued'
+    broadcast(job)
+    await pollJob(job, provider, signal)
+  } catch (error) {
+    if (job.done || signal.aborted) return
+    job.status = 'failed'
+    job.error = error instanceof Error ? error.message : String(error)
+    job.done = true
+    broadcast(job)
+  } finally {
+    jobControllers.delete(job.jobId)
+  }
+}
+
 export function registerSeedanceVideoHandlers(): void {
   ipcMain.handle(
     'seedance-video:start',
@@ -167,43 +201,33 @@ export function registerSeedanceVideoHandlers(): void {
         }
       }
     ): Promise<{ jobId?: string; status?: string; error?: string }> => {
-      try {
-        const created = (await getNativeWorker().request(
-          getWorkerMethod(args.provider, 'generate'),
-          {
-            provider: args.provider,
-            prompt: args.prompt,
-            images: args.images ?? [],
-            video: args.video
-          },
-          300_000
-        )) as { id?: string; error?: string; message?: string }
-        if (!created?.id) {
-          return {
-            error:
-              created?.error ||
-              created?.message ||
-              `Video provider returned no task id (${getWorkerMethod(args.provider, 'generate')}).`
-          }
-        }
-        const jobId = randomUUID()
-        const job: VideoJob = {
-          jobId,
-          projectId: args.projectId,
-          nodeId: args.nodeId,
-          runId: args.runId,
-          taskId: created.id,
-          status: 'queued',
-          progress: 0,
-          prompt: args.prompt,
-          done: false
-        }
-        jobs.set(jobId, job)
-        void pollJob(job, args.provider)
-        return { jobId, status: 'queued' }
-      } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error) }
+      const jobId = randomUUID()
+      const job: VideoJob = {
+        jobId,
+        projectId: args.projectId,
+        nodeId: args.nodeId,
+        runId: args.runId,
+        status: 'submitting',
+        progress: 0,
+        prompt: args.prompt,
+        done: false
       }
+      const controller = new AbortController()
+      jobs.set(jobId, job)
+      jobControllers.set(jobId, controller)
+      // Let the IPC response deliver the job id before a very fast provider error
+      // can broadcast a terminal update that the renderer has not attached yet.
+      setImmediate(() => {
+        void runVideoJob(
+          job,
+          args.provider,
+          args.prompt,
+          args.images ?? [],
+          args.video,
+          controller.signal
+        )
+      })
+      return { jobId, status: 'submitting' }
     }
   )
 
@@ -225,6 +249,8 @@ export function registerSeedanceVideoHandlers(): void {
     if (job && !job.done) {
       job.done = true
       job.status = 'cancelled'
+      jobControllers.get(job.jobId)?.abort()
+      jobControllers.delete(job.jobId)
       broadcast(job)
     }
     return { ok: true }

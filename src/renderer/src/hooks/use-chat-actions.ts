@@ -3941,7 +3941,7 @@ function createSubAgentEventBuffer(sessionId: string): {
   }
 }
 
-export type ManualCompressionResult = 'compressed' | 'skipped' | 'blocked' | 'failed'
+export type ManualCompressionResult = 'compressed' | 'fallback' | 'skipped' | 'blocked' | 'failed'
 
 export function useChatActions(): {
   sendMessage: (
@@ -6767,6 +6767,12 @@ export function useChatActions(): {
       if (!merged) {
         toast.error('Compression failed', { description: 'Could not merge compressed context' })
         return 'failed'
+      }
+      if (result.summarizerFailed) {
+        toast.warning('Context compressed with fallback', {
+          description: 'The summary request timed out or failed, so older messages were removed.'
+        })
+        return 'fallback'
       }
       return 'compressed'
     } catch (err) {

@@ -21,6 +21,7 @@
     "thinkingOff": "关闭",
     "noModelSettings": "当前模型无额外设置（如深度思考、极速模式）",
     "contextCompressionThreshold": "上下文压缩阈值",
+    "contextCompressionFallback": "摘要不可用，已移除较早上下文",
     "thinkingLevel": "思考: {{level}}",
     "effortDesc": {
       "none": "不推理",

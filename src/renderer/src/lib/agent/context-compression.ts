@@ -23,6 +23,7 @@ export interface CompressionResult {
   originalCount: number
   newCount: number
   messagesSummarized?: number
+  summarizerFailed?: boolean
 }
 
 export const DEFAULT_CONTEXT_COMPRESSION_LIMIT = 200_000

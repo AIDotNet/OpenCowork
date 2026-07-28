@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import packageJson from '../../../../../package.json'
 import { useTranslation } from 'react-i18next'
 import {
@@ -143,6 +144,80 @@ interface ProjectTreeGroup {
   project: ProjectListItem
   sessions: SessionListItem[]
   isRunning: boolean
+  hasMore: boolean
+  isLoadingMore: boolean
+}
+
+const SIDEBAR_VIRTUALIZATION_THRESHOLD = 200
+
+type SidebarTreeRow =
+  | { key: 'projects-header'; kind: 'projects-header' }
+  | { key: 'projects-empty'; kind: 'projects-empty' }
+  | { key: string; kind: 'project'; group: ProjectTreeGroup }
+  | { key: string; kind: 'project-session'; session: SessionListItem }
+  | {
+      key: string
+      kind: 'project-action'
+      group: ProjectTreeGroup
+      remainingSessions: number
+    }
+  | { key: string; kind: 'project-loading'; group: ProjectTreeGroup }
+  | { key: 'chats-header'; kind: 'chats-header' }
+  | { key: string; kind: 'chat-session'; session: SessionListItem }
+  | { key: 'chats-empty'; kind: 'chats-empty' }
+  | { key: 'chats-action'; kind: 'chats-action' }
+
+function SidebarTreeRows({
+  rows,
+  scrollRef,
+  renderRow
+}: {
+  rows: SidebarTreeRow[]
+  scrollRef: React.RefObject<HTMLDivElement | null>
+  renderRow: (row: SidebarTreeRow) => React.ReactNode
+}): React.JSX.Element {
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 32,
+    overscan: 12,
+    getItemKey: (index) => rows[index]?.key ?? `sidebar-tree-${index}`
+  })
+
+  if (rows.length < SIDEBAR_VIRTUALIZATION_THRESHOLD) {
+    return (
+      <div className="space-y-0.5">
+        {rows.map((row) => (
+          <div key={row.key} style={{ contentVisibility: 'auto' }}>
+            {renderRow(row)}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+      {virtualizer.getVirtualItems().map((virtualRow) => {
+        const row = rows[virtualRow.index]
+        if (!row) return null
+        return (
+          <div
+            key={virtualRow.key}
+            ref={virtualizer.measureElement}
+            data-index={virtualRow.index}
+            className="absolute left-0 top-0 w-full pb-0.5"
+            style={{
+              transform: `translateY(${virtualRow.start}px)`,
+              contentVisibility: 'auto'
+            }}
+          >
+            {renderRow(row)}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function mapSession(session: ReturnType<typeof useChatStore.getState>['sessions'][number]): {
@@ -389,7 +464,7 @@ function sortProjects(
 
 function sortSessions(left: SessionListItem, right: SessionListItem): number {
   if (!!left.pinned !== !!right.pinned) return left.pinned ? -1 : 1
-  return right.updatedAt - left.updatedAt
+  return right.updatedAt - left.updatedAt || right.id.localeCompare(left.id)
 }
 
 function formatRelativeTime(updatedAt: number, locale: string): string {
@@ -513,6 +588,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const importSession = useChatStore((state) => state.importSession)
   const importProjectArchive = useChatStore((state) => state.importProjectArchive)
   const loadProjectSessions = useChatStore((state) => state.loadProjectSessions)
+  const loadMoreProjectSessions = useChatStore((state) => state.loadMoreProjectSessions)
+  const loadMoreChatSessions = useChatStore((state) => state.loadMoreChatSessions)
+  const sessionListPageState = useChatStore((state) => state.sessionListPageState)
   const runningSessions = useAgentStore((state) => state.runningSessions)
   const runningSubAgentSessionIdsSig = useAgentStore((state) => state.runningSubAgentSessionIdsSig)
   const runningBackgroundSessionIdsSig = useAgentStore((state) =>
@@ -655,6 +733,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
         .sort(sortSessions),
     [sessions]
   )
+  const chatSessionPageState = sessionListPageState.__chats__
 
   const projectGroups = useMemo<ProjectTreeGroup[]>(() => {
     return visibleProjects.map((project) => {
@@ -672,7 +751,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
       return {
         project,
         sessions: projectSessions,
-        isRunning
+        isRunning,
+        hasMore: sessionListPageState[project.id]?.hasMore ?? true,
+        isLoadingMore: sessionListPageState[project.id]?.loading ?? false
       }
     })
   }, [
@@ -681,8 +762,81 @@ export function WorkspaceSidebar(): React.JSX.Element {
     runningSessions,
     runningSubAgentSessionIds,
     sessionsByProject,
+    sessionListPageState,
     streamingSessionIds,
     visibleProjects
+  ])
+
+  const sidebarTreeRows = useMemo<SidebarTreeRow[]>(() => {
+    const rows: SidebarTreeRow[] = [{ key: 'projects-header', kind: 'projects-header' }]
+
+    if (!projectsSectionCollapsed) {
+      if (projectGroups.length === 0) {
+        rows.push({ key: 'projects-empty', kind: 'projects-empty' })
+      } else {
+        for (const group of projectGroups) {
+          const projectId = group.project.id
+          rows.push({ key: `project:${projectId}`, kind: 'project', group })
+          if (collapsedProjectIds.has(projectId)) continue
+
+          const expanded = expandedProjectIds.has(projectId)
+          const displayedSessions = expanded
+            ? group.sessions
+            : group.sessions.filter(
+                (session, index) =>
+                  index < DEFAULT_VISIBLE_SESSIONS_PER_PROJECT || session.id === activeSessionId
+              )
+          for (const session of displayedSessions) {
+            rows.push({
+              key: `project:${projectId}:session:${session.id}`,
+              kind: 'project-session',
+              session
+            })
+          }
+
+          const canToggleExpansion =
+            group.sessions.length > DEFAULT_VISIBLE_SESSIONS_PER_PROJECT || group.hasMore
+          if (displayedSessions.length > 0 && canToggleExpansion) {
+            rows.push({
+              key: `project:${projectId}:action`,
+              kind: 'project-action',
+              group,
+              remainingSessions: Math.max(0, group.sessions.length - displayedSessions.length)
+            })
+          } else if (displayedSessions.length === 0 && group.isLoadingMore) {
+            rows.push({
+              key: `project:${projectId}:loading`,
+              kind: 'project-loading',
+              group
+            })
+          }
+        }
+      }
+    }
+
+    rows.push({ key: 'chats-header', kind: 'chats-header' })
+    if (!chatsSectionCollapsed) {
+      for (const session of chatSessions) {
+        rows.push({ key: `chat:${session.id}`, kind: 'chat-session', session })
+      }
+      if (chatSessions.length === 0) {
+        rows.push({ key: 'chats-empty', kind: 'chats-empty' })
+      }
+      if (chatSessionPageState?.hasMore) {
+        rows.push({ key: 'chats-action', kind: 'chats-action' })
+      }
+    }
+
+    return rows
+  }, [
+    activeSessionId,
+    chatSessionPageState?.hasMore,
+    chatSessions,
+    chatsSectionCollapsed,
+    collapsedProjectIds,
+    expandedProjectIds,
+    projectGroups,
+    projectsSectionCollapsed
   ])
 
   const currentSidebarWidth = clampLeftSidebarWidth(
@@ -884,26 +1038,53 @@ export function WorkspaceSidebar(): React.JSX.Element {
   }, [])
 
   const handleClearChatSessions = useCallback(async () => {
-    const chatSessionIds = useChatStore
+    const loadedChatSessions = useChatStore
       .getState()
       .sessions.filter((session) => !session.projectId)
-      .map((session) => session.id)
-    const total = chatSessionIds.length
+    const total = loadedChatSessions.length
     if (total === 0) {
       toast.info(t('sidebar.noConversations'))
       return
     }
     const ok = await confirm({
-      title: t('sidebar.deleteAllConfirm', { count: total }),
+      title: t('sidebar.deleteAllSessions'),
       variant: 'destructive'
     })
     if (!ok) return
-    for (const sessionId of chatSessionIds) {
+    const runningIds = loadedChatSessions
+      .filter(
+        (session) =>
+          runningSessions[session.id] === 'running' ||
+          runningSessions[session.id] === 'retrying' ||
+          runningSubAgentSessionIds.has(session.id) ||
+          runningBackgroundSessionIds.has(session.id) ||
+          streamingSessionIds.has(session.id) ||
+          activeTeamSessionId === session.id
+      )
+      .map((session) => session.id)
+    for (const sessionId of runningIds) {
+      abortSession(sessionId)
+    }
+    const result = await invokeMessagePackBinary<{
+      sessionIds: string[]
+      deletedSessions: number
+    }>(DB_SESSIONS_CLEAR_PROJECT_MSGPACK_CHANNEL, {
+      projectId: null,
+      excludeSessionIds: []
+    })
+    for (const sessionId of result.sessionIds) {
       clearPendingSessionMessages(sessionId)
-      deleteSession(sessionId)
+      useChatStore.getState().removeSessionFromSync(sessionId, null)
     }
     toast.success(t('sidebar_toast.allDeleted'))
-  }, [deleteSession, t])
+  }, [
+    activeTeamSessionId,
+    runningBackgroundSessionIds,
+    runningSessions,
+    runningSubAgentSessionIds,
+    streamingSessionIds,
+    t
+  ])
 
   const confirmClearSessionMessages = useCallback(() => {
     if (!clearSessionTarget) return
@@ -976,7 +1157,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
       setAutoRenamingSessionId(sessionId)
 
       try {
-        await useChatStore.getState().loadRecentSessionMessages(sessionId, true, 30)
+        // The title prompt only needs a bounded tail. The content-aware window
+        // keeps large tool results as previews, so renaming never hydrates an
+        // entire conversation just to read its first few words.
+        await useChatStore.getState().ensureSessionWindow(sessionId)
         const session = useChatStore.getState().sessions.find((item) => item.id === sessionId)
         if (!session) return
 
@@ -1080,6 +1264,19 @@ export function WorkspaceSidebar(): React.JSX.Element {
     })
   }, [projectGroups])
 
+  // A persisted expanded project must hydrate its first cursor page on mount;
+  // otherwise the tree would show an empty project until the user toggles it.
+  useEffect(() => {
+    if (!collapseStateInitializedRef.current) return
+    for (const group of projectGroups) {
+      if (collapsedProjectIds.has(group.project.id)) continue
+      const page = sessionListPageState[group.project.id]
+      if (!page || (!page.loaded && !page.loading)) {
+        void loadProjectSessions(group.project.id)
+      }
+    }
+  }, [collapsedProjectIds, loadProjectSessions, projectGroups, sessionListPageState])
+
   const toggleProjectCollapsed = useCallback(
     (projectId: string) => {
       const isCollapsed = collapsedProjectIds.has(projectId)
@@ -1112,6 +1309,15 @@ export function WorkspaceSidebar(): React.JSX.Element {
       return next
     })
   }, [])
+
+  const handleTreeScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      const element = event.currentTarget
+      if (element.scrollHeight - element.scrollTop - element.clientHeight > 120) return
+      void loadMoreChatSessions()
+    },
+    [loadMoreChatSessions]
+  )
 
   const navItems = [
     {
@@ -1403,6 +1609,465 @@ export function WorkspaceSidebar(): React.JSX.Element {
         ? CalendarDays
         : ListFilter
 
+  const renderProjectTreeRow = (group: ProjectTreeGroup): React.JSX.Element => {
+    const project = group.project
+    const isCollapsed = collapsedProjectIds.has(project.id)
+    const isProjectActive =
+      chatSurfaceActive && currentProjectId === project.id && chatView !== 'home'
+    const runningProjectSessionCount = group.sessions.filter((session) =>
+      isSessionRunning(session.id)
+    ).length
+    const clearableProjectSessionCount = Math.max(
+      0,
+      (project.sessionCount ?? 0) - runningProjectSessionCount
+    )
+    const projectToggleTitle = isCollapsed ? t('rightPanel.expand') : t('rightPanel.collapse')
+    const ProjectIcon = project.sshConnectionId ? Server : SquareKanban
+    const ProjectFolderIcon = isCollapsed ? Folder : FolderOpen
+    const handleProjectRowKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (event.target !== event.currentTarget) return
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      event.preventDefault()
+      toggleProjectCollapsed(project.id)
+    }
+
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label={`${project.name} ${projectToggleTitle}`}
+            className={cn(
+              'group/project flex w-full items-center gap-1.5 px-1.5 py-1 transition-colors',
+              SIDEBAR_TREE_ROW_CLASS,
+              SIDEBAR_TREE_HOVER_CLASS,
+              isProjectActive && 'text-foreground'
+            )}
+            onClick={() => toggleProjectCollapsed(project.id)}
+            onKeyDown={handleProjectRowKeyDown}
+            title={project.workingFolder ?? project.name}
+          >
+            <ProjectFolderIcon
+              className={cn(
+                'size-3.5 shrink-0',
+                isProjectActive ? 'text-primary/80' : 'text-muted-foreground/80'
+              )}
+            />
+
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span
+                className={cn('truncate font-semibold text-foreground', SIDEBAR_TREE_LABEL_CLASS)}
+              >
+                {project.name}
+              </span>
+              {project.sshConnectionId ? (
+                <span
+                  className="inline-flex shrink-0 items-center gap-0.5 rounded border border-sky-500/30 bg-sky-500/10 px-1 py-px text-[9px] font-semibold leading-none text-sky-600 dark:text-sky-300"
+                  title={t('sidebar.sshProject')}
+                >
+                  <Server className="size-2.5" />
+                  {t('sidebar.sshLabel')}
+                </span>
+              ) : null}
+            </div>
+
+            <div className="relative flex h-6 w-[88px] shrink-0 items-center justify-end overflow-hidden">
+              <div
+                className={cn(
+                  'absolute inset-0 flex items-center justify-end gap-1 text-muted-foreground transition-opacity',
+                  SIDEBAR_TREE_META_CLASS,
+                  isProjectActive
+                    ? 'pointer-events-none opacity-0'
+                    : 'opacity-100 group-hover/project:opacity-0'
+                )}
+              >
+                {group.isRunning ? (
+                  <Loader2 className="size-3.5 animate-spin text-primary" />
+                ) : null}
+                {project.pinned ? <Pin className="size-3.5 text-amber-500" /> : null}
+                <span className="text-muted-foreground/80">
+                  {project.sshConnectionId ? t('sidebar.sshLabel') : t('sidebar.localLabel')}
+                </span>
+                <span>{project.sessionCount ?? 0}</span>
+                <ChevronRight
+                  className={cn(
+                    'size-3.5 transition-transform duration-200 ease-out',
+                    !isCollapsed && 'rotate-90'
+                  )}
+                />
+              </div>
+
+              <div
+                className={cn(
+                  'absolute inset-0 flex items-center justify-end gap-0.5 transition-opacity',
+                  isProjectActive
+                    ? 'opacity-100'
+                    : 'pointer-events-none opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100'
+                )}
+              >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={SIDEBAR_TREE_ACTION_BUTTON_CLASS}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handleCreateSession(project.id)
+                  }}
+                  title={t('sidebar.newAgentIn', { projectName: project.name })}
+                >
+                  <Plus className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-52">
+          <ContextMenuItem onClick={() => openProjectSession(project.id)}>
+            <ProjectIcon className="size-4" />
+            {t('sidebar.openProject')}
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() =>
+              deferDropdownAction(() =>
+                startRename({ type: 'project', id: project.id, currentName: project.name })
+              )
+            }
+          >
+            <Pencil className="size-4" />
+            {tCommon('action.rename')}
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() =>
+              deferDropdownAction(() =>
+                setFolderPickerTarget({ type: 'project', projectId: project.id })
+              )
+            }
+          >
+            <FolderInput className="size-4" />
+            {t('sidebar.changeWorkingFolder')}
+          </ContextMenuItem>
+          {project.workingFolder && !project.sshConnectionId ? (
+            <ContextMenuItem onClick={() => void handleRevealProject(project.workingFolder)}>
+              <ExternalLink className="size-4" />
+              {t('sidebar.revealInFolder')}
+            </ContextMenuItem>
+          ) : null}
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => navigateProjectView(project.id, 'archive')}>
+            <BookOpen className="size-4" />
+            {t('sidebar.projectArchive')}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => navigateProjectView(project.id, 'channels')}>
+            <MessageSquare className="size-4" />
+            {t('sidebar.projectChannels')}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => navigateProjectView(project.id, 'git')}>
+            <GitBranch className="size-4" />
+            {t('sidebar.projectGit')}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => void handleExportProject(project)}>
+            <Download className="size-4" />
+            {t('sidebar.exportProjectAsJson')}
+          </ContextMenuItem>
+          <ContextMenuItem
+            variant="destructive"
+            disabled={clearableProjectSessionCount === 0}
+            onSelect={() =>
+              deferDropdownAction(() =>
+                setClearProjectSessionsTarget({
+                  id: project.id,
+                  name: project.name,
+                  clearableCount: clearableProjectSessionCount,
+                  runningCount: runningProjectSessionCount
+                })
+              )
+            }
+          >
+            <Eraser className="size-4" />
+            {t('sidebar.clearProjectSessions')}
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              togglePinProject(project.id)
+              toast.success(
+                project.pinned
+                  ? t('sidebar_toast.projectUnpinned')
+                  : t('sidebar_toast.projectPinned')
+              )
+            }}
+          >
+            {project.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+            {project.pinned ? tCommon('action.unpin') : t('sidebar.pinToTop')}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            variant="destructive"
+            onSelect={() =>
+              deferDropdownAction(() =>
+                setDeleteTarget({
+                  type: 'project',
+                  id: project.id,
+                  name: project.name,
+                  sessionCount: group.sessions.length
+                })
+              )
+            }
+          >
+            <Trash2 className="size-4" />
+            {tCommon('action.delete')}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    )
+  }
+
+  const renderSidebarTreeRow = (row: SidebarTreeRow): React.ReactNode => {
+    switch (row.kind) {
+      case 'projects-header':
+        return (
+          <div className="mb-1 flex items-center justify-between gap-2 px-1">
+            <button
+              type="button"
+              aria-expanded={!projectsSectionCollapsed}
+              className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 text-left transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              onClick={() => setProjectsSectionCollapsed((collapsed) => !collapsed)}
+              title={projectsSectionCollapsed ? t('rightPanel.expand') : t('rightPanel.collapse')}
+            >
+              {projectsSectionCollapsed ? (
+                <ChevronRight className="size-3 text-muted-foreground/80" />
+              ) : (
+                <ChevronDown className="size-3 text-muted-foreground/80" />
+              )}
+              <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
+                {t('sidebar.projects')}
+              </span>
+              <span className="rounded-full border border-border/60 bg-muted/45 px-1 py-0.5 text-[9px] text-muted-foreground">
+                {projectGroups.length}
+              </span>
+            </button>
+            <div className="flex items-center gap-0.5">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6"
+                    title={t('sidebar.projectSortTitle', { sort: projectSortLabel })}
+                    aria-label={t('sidebar.projectSortTitle', { sort: projectSortLabel })}
+                  >
+                    <ProjectSortIcon className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel className="px-2 py-1 text-[11px] text-muted-foreground">
+                    {t('sidebar.projectSortBy')}
+                  </DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={projectSortMode}
+                    onValueChange={handleProjectSortModeChange}
+                  >
+                    {PROJECT_SORT_MODES.map((mode) => {
+                      const SortOptionIcon =
+                        mode === 'name'
+                          ? ArrowDownAZ
+                          : mode === 'createdAt'
+                            ? CalendarDays
+                            : ListFilter
+                      return (
+                        <DropdownMenuRadioItem key={mode} value={mode}>
+                          <SortOptionIcon className="size-4" />
+                          <span>{t(PROJECT_SORT_LABEL_KEYS[mode])}</span>
+                        </DropdownMenuRadioItem>
+                      )
+                    })}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                onClick={() => importProjectInputRef.current?.click()}
+                title={t('sidebar.importProject')}
+              >
+                <Upload className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                onClick={() =>
+                  setFolderPickerTarget({
+                    type: 'create',
+                    projectName: t('sidebar.newProject'),
+                    preferredSection: 'local'
+                  })
+                }
+                title={t('sidebar.newProject')}
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+        )
+      case 'projects-empty':
+        return (
+          <div className="rounded-lg border border-dashed border-border/60 px-3.5 py-5 text-center text-[12px] text-muted-foreground">
+            {t('sidebar.noProjects')}
+          </div>
+        )
+      case 'project':
+        return renderProjectTreeRow(row.group)
+      case 'project-session':
+      case 'chat-session':
+        return renderSessionItem(
+          row.session,
+          relativeTimeLocale,
+          chatSurfaceActive && chatView === 'session' && row.session.id === activeSessionId
+        )
+      case 'project-action': {
+        const projectId = row.group.project.id
+        const expanded = expandedProjectIds.has(projectId)
+        return (
+          <button
+            type="button"
+            className={cn(
+              'flex w-full items-center gap-1.5 px-1.5 py-1 text-left text-[10px] transition-colors',
+              SIDEBAR_TREE_ROW_CLASS,
+              SIDEBAR_TREE_HOVER_CLASS
+            )}
+            onClick={() => {
+              if (expanded && row.group.hasMore) {
+                void loadMoreProjectSessions(projectId)
+                return
+              }
+              toggleProjectExpansion(projectId)
+            }}
+            disabled={row.group.isLoadingMore}
+          >
+            {row.group.isLoadingMore ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : expanded && !row.group.hasMore ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}
+            <span>
+              {row.group.isLoadingMore
+                ? t('sidebar.loadingSessions', { defaultValue: 'Loading…' })
+                : expanded && row.group.hasMore
+                  ? t('sidebar.loadMoreSessions', { defaultValue: 'Load more sessions' })
+                  : expanded
+                    ? t('sidebar.showLessSessions')
+                    : t('sidebar.showMoreSessions', { count: row.remainingSessions || 50 })}
+            </span>
+          </button>
+        )
+      }
+      case 'project-loading':
+        return (
+          <div className="flex items-center gap-1.5 px-1.5 py-1 text-[10px] text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" />
+            {t('sidebar.loadingSessions', { defaultValue: 'Loading…' })}
+          </div>
+        )
+      case 'chats-header':
+        return (
+          <div className="mt-2 flex items-center justify-between gap-2 px-1 pt-1">
+            <button
+              type="button"
+              aria-expanded={!chatsSectionCollapsed}
+              className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 text-left transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              onClick={() => setChatsSectionCollapsed((collapsed) => !collapsed)}
+              title={chatsSectionCollapsed ? t('rightPanel.expand') : t('rightPanel.collapse')}
+            >
+              {chatsSectionCollapsed ? (
+                <ChevronRight className="size-3 text-muted-foreground/80" />
+              ) : (
+                <ChevronDown className="size-3 text-muted-foreground/80" />
+              )}
+              <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
+                {t('sidebar.chats')}
+              </span>
+              <span className="rounded-full border border-border/60 bg-muted/45 px-1 py-0.5 text-[9px] text-muted-foreground">
+                {chatSessions.length}
+              </span>
+            </button>
+            <div className="flex items-center gap-0.5">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-4"
+                    title={tCommon('action.more')}
+                  >
+                    <MoreHorizontal className="size-2.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem onClick={() => importSessionInputRef.current?.click()}>
+                    <Upload className="size-4" />
+                    {t('sidebar.importSession')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => deferDropdownAction(() => void handleClearChatSessions())}
+                    disabled={chatSessions.length === 0}
+                  >
+                    <Trash2 className="size-4" />
+                    {t('sidebar.deleteAllSessions')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-4"
+                onClick={handleCreateChatSession}
+                title={t('sidebar.newChat')}
+              >
+                <Plus className="size-2.5" />
+              </Button>
+            </div>
+          </div>
+        )
+      case 'chats-empty':
+        return (
+          <div className="px-1.5 py-1 text-[10px] text-muted-foreground">
+            {t('sidebar.noChats')}
+          </div>
+        )
+      case 'chats-action':
+        return (
+          <button
+            type="button"
+            className={cn(
+              'flex w-full items-center gap-1.5 px-1.5 py-1 text-left text-[10px] transition-colors',
+              SIDEBAR_TREE_ROW_CLASS,
+              SIDEBAR_TREE_HOVER_CLASS
+            )}
+            disabled={chatSessionPageState?.loading}
+            onClick={() => void loadMoreChatSessions()}
+          >
+            {chatSessionPageState?.loading ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}
+            <span>
+              {chatSessionPageState?.loading
+                ? t('sidebar.loadingSessions', { defaultValue: 'Loading…' })
+                : t('sidebar.loadMoreSessions', { defaultValue: 'Load more sessions' })}
+            </span>
+          </button>
+        )
+    }
+  }
+
   return (
     <>
       <aside
@@ -1547,513 +2212,13 @@ export function WorkspaceSidebar(): React.JSX.Element {
               setIsFolderDragOver(false)
               void handleDropFolders(event.dataTransfer)
             }}
+            onScroll={handleTreeScroll}
           >
-            <div className="mb-2 flex items-center justify-between gap-2 px-1">
-              <button
-                type="button"
-                aria-expanded={!projectsSectionCollapsed}
-                className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 text-left transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                onClick={() => setProjectsSectionCollapsed((collapsed) => !collapsed)}
-                title={projectsSectionCollapsed ? t('rightPanel.expand') : t('rightPanel.collapse')}
-              >
-                {projectsSectionCollapsed ? (
-                  <ChevronRight className="size-3 text-muted-foreground/80" />
-                ) : (
-                  <ChevronDown className="size-3 text-muted-foreground/80" />
-                )}
-                <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
-                  {t('sidebar.projects')}
-                </span>
-                <span className="rounded-full border border-border/60 bg-muted/45 px-1 py-0.5 text-[9px] text-muted-foreground">
-                  {projectGroups.length}
-                </span>
-              </button>
-              <div className="flex items-center gap-0.5">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6"
-                      title={t('sidebar.projectSortTitle', { sort: projectSortLabel })}
-                      aria-label={t('sidebar.projectSortTitle', { sort: projectSortLabel })}
-                    >
-                      <ProjectSortIcon className="size-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuLabel className="px-2 py-1 text-[11px] text-muted-foreground">
-                      {t('sidebar.projectSortBy')}
-                    </DropdownMenuLabel>
-                    <DropdownMenuRadioGroup
-                      value={projectSortMode}
-                      onValueChange={handleProjectSortModeChange}
-                    >
-                      {PROJECT_SORT_MODES.map((mode) => {
-                        const SortOptionIcon =
-                          mode === 'name'
-                            ? ArrowDownAZ
-                            : mode === 'createdAt'
-                              ? CalendarDays
-                              : ListFilter
-                        return (
-                          <DropdownMenuRadioItem key={mode} value={mode}>
-                            <SortOptionIcon className="size-4" />
-                            <span>{t(PROJECT_SORT_LABEL_KEYS[mode])}</span>
-                          </DropdownMenuRadioItem>
-                        )
-                      })}
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6"
-                  onClick={() => importProjectInputRef.current?.click()}
-                  title={t('sidebar.importProject')}
-                >
-                  <Upload className="size-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6"
-                  onClick={() =>
-                    setFolderPickerTarget({
-                      type: 'create',
-                      projectName: t('sidebar.newProject'),
-                      preferredSection: 'local'
-                    })
-                  }
-                  title={t('sidebar.newProject')}
-                >
-                  <Plus className="size-3.5" />
-                </Button>
-              </div>
-            </div>
-
-            <div
-              className={cn(
-                'grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out',
-                projectsSectionCollapsed
-                  ? 'grid-rows-[0fr] opacity-0'
-                  : 'grid-rows-[1fr] opacity-100'
-              )}
-            >
-              <div className="min-h-0 overflow-hidden">
-                {projectGroups.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border/60 px-3.5 py-5 text-center text-[12px] text-muted-foreground">
-                    {t('sidebar.noProjects')}
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    {projectGroups.map((group) => {
-                      const project = group.project
-                      const isCollapsed = collapsedProjectIds.has(project.id)
-                      const isProjectActive =
-                        chatSurfaceActive && currentProjectId === project.id && chatView !== 'home'
-                      const defaultVisibleSessions = group.sessions.filter(
-                        (session, index) =>
-                          index < DEFAULT_VISIBLE_SESSIONS_PER_PROJECT ||
-                          session.id === activeSessionId
-                      )
-                      const displayedSessions = expandedProjectIds.has(project.id)
-                        ? group.sessions
-                        : defaultVisibleSessions
-                      const remainingSessions = Math.max(
-                        0,
-                        group.sessions.length - displayedSessions.length
-                      )
-                      const canToggleExpansion =
-                        group.sessions.length > DEFAULT_VISIBLE_SESSIONS_PER_PROJECT
-                      const runningProjectSessionCount = group.sessions.filter((session) =>
-                        isSessionRunning(session.id)
-                      ).length
-                      const clearableProjectSessionCount = Math.max(
-                        0,
-                        (project.sessionCount ?? 0) - runningProjectSessionCount
-                      )
-                      const projectToggleTitle = isCollapsed
-                        ? t('rightPanel.expand')
-                        : t('rightPanel.collapse')
-                      const ProjectIcon = project.sshConnectionId ? Server : SquareKanban
-                      const ProjectFolderIcon = isCollapsed ? Folder : FolderOpen
-                      const handleProjectRowKeyDown = (
-                        event: React.KeyboardEvent<HTMLDivElement>
-                      ): void => {
-                        if (event.target !== event.currentTarget) return
-                        if (event.key !== 'Enter' && event.key !== ' ') return
-                        event.preventDefault()
-                        toggleProjectCollapsed(project.id)
-                      }
-
-                      return (
-                        <div key={project.id} className="space-y-0.5">
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                role="button"
-                                tabIndex={0}
-                                aria-label={`${project.name} ${projectToggleTitle}`}
-                                className={cn(
-                                  'group/project flex w-full items-center gap-1.5 px-1.5 py-1 transition-colors',
-                                  SIDEBAR_TREE_ROW_CLASS,
-                                  SIDEBAR_TREE_HOVER_CLASS,
-                                  isProjectActive && 'text-foreground'
-                                )}
-                                onClick={() => toggleProjectCollapsed(project.id)}
-                                onKeyDown={handleProjectRowKeyDown}
-                                title={project.workingFolder ?? project.name}
-                              >
-                                <ProjectFolderIcon
-                                  className={cn(
-                                    'size-3.5 shrink-0',
-                                    isProjectActive ? 'text-primary/80' : 'text-muted-foreground/80'
-                                  )}
-                                />
-
-                                <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                                  <span
-                                    className={cn(
-                                      'truncate font-semibold text-foreground',
-                                      SIDEBAR_TREE_LABEL_CLASS
-                                    )}
-                                  >
-                                    {project.name}
-                                  </span>
-                                  {project.sshConnectionId ? (
-                                    <span
-                                      className="inline-flex shrink-0 items-center gap-0.5 rounded border border-sky-500/30 bg-sky-500/10 px-1 py-px text-[9px] font-semibold leading-none text-sky-600 dark:text-sky-300"
-                                      title={t('sidebar.sshProject')}
-                                    >
-                                      <Server className="size-2.5" />
-                                      {t('sidebar.sshLabel')}
-                                    </span>
-                                  ) : null}
-                                </div>
-
-                                <div className="relative flex h-6 w-[88px] shrink-0 items-center justify-end overflow-hidden">
-                                  <div
-                                    className={cn(
-                                      'absolute inset-0 flex items-center justify-end gap-1 text-muted-foreground transition-opacity',
-                                      SIDEBAR_TREE_META_CLASS,
-                                      isProjectActive
-                                        ? 'pointer-events-none opacity-0'
-                                        : 'opacity-100 group-hover/project:opacity-0'
-                                    )}
-                                  >
-                                    {group.isRunning ? (
-                                      <Loader2 className="size-3.5 animate-spin text-primary" />
-                                    ) : null}
-                                    {project.pinned ? (
-                                      <Pin className="size-3.5 text-amber-500" />
-                                    ) : null}
-                                    <span className="text-muted-foreground/80">
-                                      {project.sshConnectionId
-                                        ? t('sidebar.sshLabel')
-                                        : t('sidebar.localLabel')}
-                                    </span>
-                                    <span>{project.sessionCount ?? 0}</span>
-                                    <ChevronRight
-                                      className={cn(
-                                        'size-3.5 transition-transform duration-200 ease-out',
-                                        !isCollapsed && 'rotate-90'
-                                      )}
-                                    />
-                                  </div>
-
-                                  <div
-                                    className={cn(
-                                      'absolute inset-0 flex items-center justify-end gap-0.5 transition-opacity',
-                                      isProjectActive
-                                        ? 'opacity-100'
-                                        : 'pointer-events-none opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100'
-                                    )}
-                                  >
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className={SIDEBAR_TREE_ACTION_BUTTON_CLASS}
-                                      onClick={(event) => {
-                                        event.stopPropagation()
-                                        handleCreateSession(project.id)
-                                      }}
-                                      title={t('sidebar.newAgentIn', {
-                                        projectName: project.name
-                                      })}
-                                    >
-                                      <Plus className="size-3.5" />
-                                    </Button>
-                                  </div>
-                                </div>
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-52">
-                              <ContextMenuItem onClick={() => openProjectSession(project.id)}>
-                                <ProjectIcon className="size-4" />
-                                {t('sidebar.openProject')}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onSelect={() =>
-                                  deferDropdownAction(() =>
-                                    startRename({
-                                      type: 'project',
-                                      id: project.id,
-                                      currentName: project.name
-                                    })
-                                  )
-                                }
-                              >
-                                <Pencil className="size-4" />
-                                {tCommon('action.rename')}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onSelect={() =>
-                                  deferDropdownAction(() =>
-                                    setFolderPickerTarget({
-                                      type: 'project',
-                                      projectId: project.id
-                                    })
-                                  )
-                                }
-                              >
-                                <FolderInput className="size-4" />
-                                {t('sidebar.changeWorkingFolder')}
-                              </ContextMenuItem>
-                              {project.workingFolder && !project.sshConnectionId && (
-                                <ContextMenuItem
-                                  onClick={() => void handleRevealProject(project.workingFolder)}
-                                >
-                                  <ExternalLink className="size-4" />
-                                  {t('sidebar.revealInFolder')}
-                                </ContextMenuItem>
-                              )}
-                              <ContextMenuSeparator />
-                              <ContextMenuItem
-                                onClick={() => navigateProjectView(project.id, 'archive')}
-                              >
-                                <BookOpen className="size-4" />
-                                {t('sidebar.projectArchive')}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() => navigateProjectView(project.id, 'channels')}
-                              >
-                                <MessageSquare className="size-4" />
-                                {t('sidebar.projectChannels')}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() => navigateProjectView(project.id, 'git')}
-                              >
-                                <GitBranch className="size-4" />
-                                {t('sidebar.projectGit')}
-                              </ContextMenuItem>
-                              <ContextMenuSeparator />
-                              <ContextMenuItem onClick={() => void handleExportProject(project)}>
-                                <Download className="size-4" />
-                                {t('sidebar.exportProjectAsJson')}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                variant="destructive"
-                                disabled={clearableProjectSessionCount === 0}
-                                onSelect={() =>
-                                  deferDropdownAction(() =>
-                                    setClearProjectSessionsTarget({
-                                      id: project.id,
-                                      name: project.name,
-                                      clearableCount: clearableProjectSessionCount,
-                                      runningCount: runningProjectSessionCount
-                                    })
-                                  )
-                                }
-                              >
-                                <Eraser className="size-4" />
-                                {t('sidebar.clearProjectSessions')}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() => {
-                                  togglePinProject(project.id)
-                                  toast.success(
-                                    project.pinned
-                                      ? t('sidebar_toast.projectUnpinned')
-                                      : t('sidebar_toast.projectPinned')
-                                  )
-                                }}
-                              >
-                                {project.pinned ? (
-                                  <PinOff className="size-4" />
-                                ) : (
-                                  <Pin className="size-4" />
-                                )}
-                                {project.pinned ? tCommon('action.unpin') : t('sidebar.pinToTop')}
-                              </ContextMenuItem>
-                              <ContextMenuSeparator />
-                              <ContextMenuItem
-                                variant="destructive"
-                                onSelect={() =>
-                                  deferDropdownAction(() =>
-                                    setDeleteTarget({
-                                      type: 'project',
-                                      id: project.id,
-                                      name: project.name,
-                                      sessionCount: group.sessions.length
-                                    })
-                                  )
-                                }
-                              >
-                                <Trash2 className="size-4" />
-                                {tCommon('action.delete')}
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-
-                          <div
-                            className={cn(
-                              'grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out',
-                              isCollapsed
-                                ? 'grid-rows-[0fr] opacity-0'
-                                : 'grid-rows-[1fr] opacity-100'
-                            )}
-                          >
-                            <div
-                              className="min-h-0 space-y-0.5 overflow-hidden"
-                              title={project.workingFolder ?? project.name}
-                            >
-                              {displayedSessions.length > 0 ? (
-                                <>
-                                  {displayedSessions.map((session) =>
-                                    renderSessionItem(
-                                      session,
-                                      relativeTimeLocale,
-                                      chatSurfaceActive &&
-                                        chatView === 'session' &&
-                                        session.id === activeSessionId
-                                    )
-                                  )}
-                                  {canToggleExpansion ? (
-                                    <button
-                                      type="button"
-                                      className={cn(
-                                        'flex w-full items-center gap-1.5 px-1.5 py-1 text-left text-[10px] transition-colors',
-                                        SIDEBAR_TREE_ROW_CLASS,
-                                        SIDEBAR_TREE_HOVER_CLASS
-                                      )}
-                                      onClick={() => toggleProjectExpansion(project.id)}
-                                    >
-                                      {expandedProjectIds.has(project.id) ? (
-                                        <ChevronDown className="size-3" />
-                                      ) : (
-                                        <ChevronRight className="size-3" />
-                                      )}
-                                      <span>
-                                        {expandedProjectIds.has(project.id)
-                                          ? t('sidebar.showLessSessions')
-                                          : t('sidebar.showMoreSessions', {
-                                              count: remainingSessions
-                                            })}
-                                      </span>
-                                    </button>
-                                  ) : null}
-                                </>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-2 pt-1">
-              <div className="flex items-center justify-between gap-2 px-1">
-                <button
-                  type="button"
-                  aria-expanded={!chatsSectionCollapsed}
-                  className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 text-left transition-colors hover:bg-accent/70 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                  onClick={() => setChatsSectionCollapsed((collapsed) => !collapsed)}
-                  title={chatsSectionCollapsed ? t('rightPanel.expand') : t('rightPanel.collapse')}
-                >
-                  {chatsSectionCollapsed ? (
-                    <ChevronRight className="size-3 text-muted-foreground/80" />
-                  ) : (
-                    <ChevronDown className="size-3 text-muted-foreground/80" />
-                  )}
-                  <span className="text-[9px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/80">
-                    {t('sidebar.chats')}
-                  </span>
-                  <span className="rounded-full border border-border/60 bg-muted/45 px-1 py-0.5 text-[9px] text-muted-foreground">
-                    {chatSessions.length}
-                  </span>
-                </button>
-                <div className="flex items-center gap-0.5">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-4"
-                        title={tCommon('action.more')}
-                      >
-                        <MoreHorizontal className="size-2.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-52">
-                      <DropdownMenuItem onClick={() => importSessionInputRef.current?.click()}>
-                        <Upload className="size-4" />
-                        {t('sidebar.importSession')}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onSelect={() => deferDropdownAction(() => void handleClearChatSessions())}
-                        disabled={chatSessions.length === 0}
-                      >
-                        <Trash2 className="size-4" />
-                        {t('sidebar.deleteAllSessions')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-4"
-                    onClick={handleCreateChatSession}
-                    title={t('sidebar.newChat')}
-                  >
-                    <Plus className="size-2.5" />
-                  </Button>
-                </div>
-              </div>
-
-              <div
-                className={cn(
-                  'mt-2 grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out',
-                  chatsSectionCollapsed
-                    ? 'grid-rows-[0fr] opacity-0'
-                    : 'grid-rows-[1fr] opacity-100'
-                )}
-              >
-                <div className="min-h-0 space-y-0.5 overflow-hidden">
-                  {chatSessions.length > 0 ? (
-                    chatSessions.map((session) =>
-                      renderSessionItem(
-                        session,
-                        relativeTimeLocale,
-                        chatSurfaceActive &&
-                          chatView === 'session' &&
-                          session.id === activeSessionId
-                      )
-                    )
-                  ) : (
-                    <div className="px-1.5 py-1 text-[10px] text-muted-foreground">
-                      {t('sidebar.noChats')}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            <SidebarTreeRows
+              rows={sidebarTreeRows}
+              scrollRef={treeScrollRef}
+              renderRow={renderSidebarTreeRow}
+            />
           </div>
         </div>
         <div className="mt-auto px-2 pb-2 pt-1.5">

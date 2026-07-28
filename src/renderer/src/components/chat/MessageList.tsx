@@ -78,6 +78,7 @@ type ToolResultsLookup = Map<string, { content: ToolResultContent; isError?: boo
 type MessageListRow = { type: 'message'; key: string; data: RenderableMessage }
 
 type AutoScrollMode = 'off' | 'user' | 'stream'
+type MessageWindowPhase = 'loading' | 'positioning' | 'ready' | 'error'
 
 interface AskUserQuestionPresence {
   assistantMessageId: string
@@ -268,10 +269,13 @@ const ASSISTANT_RAIL_PREVIEW_LIMIT = 120
 const ASSISTANT_RAIL_SCROLL_OFFSET = 28
 const ASSISTANT_RAIL_DENSE_THRESHOLD = 80
 const OLDER_MESSAGE_LOAD_SCROLL_THRESHOLD = 72
+const NEWER_MESSAGE_LOAD_SCROLL_THRESHOLD = 72
 const MIN_RENDERABLE_HISTORY_ROWS = 3
 const VIRTUAL_ROW_ESTIMATED_HEIGHT = 180
 const VIRTUAL_ROW_OVERSCAN = 8
 const INITIAL_TAIL_RENDER_COUNT = 32
+const WINDOW_STABLE_FRAME_COUNT = 2
+const INITIAL_TARGET_VIEWPORT_MULTIPLIER = 1.75
 const EMPTY_ORCHESTRATION_STATE = { runs: [], byId: new Map(), byMessageId: new Map() }
 const MESSAGE_COLUMN_CLASS = 'mx-auto w-full max-w-[820px] px-5'
 const MESSAGE_COLUMN_COMPACT_CLASS = 'mx-auto w-full max-w-[720px] px-5'
@@ -297,6 +301,9 @@ interface MessageListSessionSelection {
   messageCount: number
   workingFolder?: string
   loadedRangeStart: number
+  loadedRangeEnd: number
+  hasOlder: boolean
+  hasNewer: boolean
   projectId?: string
 }
 
@@ -313,6 +320,9 @@ const EMPTY_MESSAGE_LIST_SESSION_SELECTION: MessageListSessionSelection = {
   messagesLoaded: false,
   messageCount: 0,
   loadedRangeStart: 0,
+  loadedRangeEnd: 0,
+  hasOlder: false,
+  hasNewer: false,
   projectId: undefined,
   workingFolder: undefined
 }
@@ -463,6 +473,9 @@ function selectMessageListSession(
     messageCount: session.messageCount ?? 0,
     workingFolder: session.workingFolder,
     loadedRangeStart: session.loadedRangeStart ?? 0,
+    loadedRangeEnd: session.loadedRangeEnd ?? 0,
+    hasOlder: session.hasOlder ?? session.loadedRangeStart > 0,
+    hasNewer: session.hasNewer ?? session.loadedRangeEnd < (session.messageCount ?? 0),
     projectId: session.projectId
   }
 }
@@ -1181,6 +1194,7 @@ const MessageRow = React.memo(function MessageRow({
   return (
     <div
       data-message-id={message.id}
+      data-message-content-state={message.contentState ?? 'full'}
       data-anchor={isAnchor ? 'true' : undefined}
       className={`${getMessageColumnClass(fullWidth)} pb-7 transition-colors duration-500 ${
         isHighlighted ? 'rounded-md bg-primary/5 ring-1 ring-primary/20' : ''
@@ -1384,6 +1398,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     messageCount: activeSessionMessageCount,
     workingFolder: activeWorkingFolder,
     loadedRangeStart,
+    hasOlder,
+    hasNewer,
     projectId: activeProjectId
   } = sessionSelection
   const activeProjectName = useChatStore((s) => {
@@ -1480,6 +1496,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   const listRef = React.useRef<HTMLDivElement | null>(null)
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const virtualContentRef = React.useRef<HTMLDivElement | null>(null)
+  const topSentinelRef = React.useRef<HTMLDivElement | null>(null)
   const renderedSessionIdRef = React.useRef<string | null>(activeSessionId)
   const pendingInitialScrollSessionIdRef = React.useRef<string | null>(activeSessionId)
   if (renderedSessionIdRef.current !== activeSessionId) {
@@ -1487,7 +1504,10 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     pendingInitialScrollSessionIdRef.current = activeSessionId
   }
   const autoScrollModeRef = React.useRef<AutoScrollMode>('off')
-  const initialTailReleaseFrameRef = React.useRef<number | null>(null)
+  const initialPositionStableFramesRef = React.useRef(0)
+  const initialPositionLastHeightRef = React.useRef<number | null>(null)
+  const initialPositionFrameCountRef = React.useRef(0)
+  const initialPositionStartedAtRef = React.useRef<number | null>(null)
   const scheduledScrollFrameRef = React.useRef<number | null>(null)
   const scheduledAssistantRailSyncRef = React.useRef<number | null>(null)
   const highlightedMessageTimerRef = React.useRef<number | null>(null)
@@ -1501,6 +1521,12 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   >(() => new Set())
   const [highlightedMessageId, setHighlightedMessageId] = React.useState<string | null>(null)
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = React.useState(false)
+  const [isLoadingNewerMessages, setIsLoadingNewerMessages] = React.useState(false)
+  const [loadingMessageContentId, setLoadingMessageContentId] = React.useState<string | null>(null)
+  const hydratingMessageIdsRef = React.useRef(new Set<string>())
+  const [messageWindowPhase, setMessageWindowPhase] = React.useState<MessageWindowPhase>(
+    activeSessionId ? 'loading' : 'ready'
+  )
   // Remembers a loadedRangeStart at which an older-message load made no progress
   // (e.g. during a running/compacting session the tail-trim immediately re-evicts
   // the head we just loaded). Prevents the auto-loader and scroll handler from
@@ -1707,7 +1733,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
         data: message
       }))
   }, [inlineCompactSummaryState.summaryIds, renderableMessages])
-  const hasLoadOlderRow = loadedRangeStart > 0
+  const hasLoadOlderRow = messageWindowPhase === 'ready' && hasOlder && loadedRangeStart > 0
   const virtualRowCount = rows.length + (hasLoadOlderRow ? 1 : 0)
 
   const canAutoScroll = React.useCallback(() => {
@@ -1763,10 +1789,13 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     count: virtualRowCount,
     getScrollElement: () => listRef.current,
     estimateSize: () => VIRTUAL_ROW_ESTIMATED_HEIGHT,
-    initialOffset: () => virtualRowCount * VIRTUAL_ROW_ESTIMATED_HEIGHT,
     overscan: VIRTUAL_ROW_OVERSCAN,
     rangeExtractor: (range) => {
-      if (pendingInitialScrollSessionIdRef.current !== activeSessionId || range.count === 0) {
+      if (
+        messageWindowPhase === 'ready' ||
+        pendingInitialScrollSessionIdRef.current !== activeSessionId ||
+        range.count === 0
+      ) {
         return defaultRangeExtractor(range)
       }
 
@@ -1778,6 +1807,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       const row = rows[index - (hasLoadOlderRow ? 1 : 0)]
       return row?.key ?? `row:${index}`
     }
+    // Keep an estimated size for virtualization only. Initial positioning is
+    // performed after real rows have been measured below.
   })
   // 当前 @tanstack/react-virtual@3.14.5 的 VirtualizerOptions 类型未暴露该钩子，
   // 但 virtual-core 实例属性存在且 resizeItem 会读它。必须挂到实例上，不能塞进 options
@@ -1791,7 +1822,10 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   const isAwaitingInitialMessages =
     Boolean(activeSessionId) &&
     messages.length === 0 &&
-    (!activeSessionLoaded || activeSessionMessageCount > 0 || loadedRangeStart > 0)
+    (messageWindowPhase === 'loading' ||
+      !activeSessionLoaded ||
+      activeSessionMessageCount > 0 ||
+      loadedRangeStart > 0)
 
   const lastMessageRowIndex = rows.length - 1
 
@@ -2007,64 +2041,165 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     ]
   )
 
-  const loadOlderMessages = React.useCallback(
-    async (preserveResidentHistory = false): Promise<number> => {
-      if (!activeSessionId || isLoadingOlderMessages || loadedRangeStart <= 0) return 0
+  const loadOlderMessages = React.useCallback(async (): Promise<number> => {
+    if (
+      !activeSessionId ||
+      messageWindowPhase !== 'ready' ||
+      isLoadingOlderMessages ||
+      !hasOlder ||
+      loadedRangeStart <= 0
+    ) {
+      return 0
+    }
 
-      const ref = listRef.current
-      const previousScrollHeight = ref?.scrollHeight ?? 0
-      const previousScrollTop = ref?.scrollTop ?? 0
-
-      const startBefore = loadedRangeStart
-      autoScrollModeRef.current = 'off'
-      setIsLoadingOlderMessages(true)
-      try {
-        const loaded = await useChatStore
-          .getState()
-          .loadOlderSessionMessages(activeSessionId, undefined, { preserveResidentHistory })
-        // loadOlderSessionMessages reports the rows it read from the DB, but a
-        // running session's tail-trim can splice those same rows straight back off
-        // (getMessageWindowPreserveMode forces 'tail' while running). Treat "the
-        // window didn't actually grow older" as a stall so callers stop retrying.
-        const startAfter =
-          useChatStore.getState().sessions.find((s) => s.id === activeSessionId)
-            ?.loadedRangeStart ?? startBefore
-        if (loaded <= 0 || startAfter >= startBefore) {
-          stalledOlderLoadStartRef.current = startBefore
-          return loaded > 0 ? loaded : 0
+    const ref = listRef.current
+    const previousScrollHeight = ref?.scrollHeight ?? 0
+    const previousScrollTop = ref?.scrollTop ?? 0
+    const wasFollowingBottom =
+      autoScrollModeRef.current !== 'off' &&
+      Boolean(ref && getDistanceToBottom(ref) <= AUTO_SCROLL_BOTTOM_THRESHOLD)
+    let anchorMessageId: string | null = null
+    let anchorOffset = 0
+    if (ref) {
+      const refRect = ref.getBoundingClientRect()
+      const visible = Array.from(ref.querySelectorAll<HTMLElement>('[data-message-id]')).find(
+        (element) => {
+          const rect = element.getBoundingClientRect()
+          return rect.bottom > refRect.top && rect.top < refRect.bottom
         }
-        stalledOlderLoadStartRef.current = null
+      )
+      if (visible?.dataset.messageId) {
+        anchorMessageId = visible.dataset.messageId
+        anchorOffset = visible.getBoundingClientRect().top - refRect.top
+      }
+    }
 
-        await new Promise<void>((resolve) => {
-          window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(() => resolve())
-          })
+    const startBefore = loadedRangeStart
+    const loadStartedAt = window.performance.now()
+    autoScrollModeRef.current = 'off'
+    setIsLoadingOlderMessages(true)
+    try {
+      const loaded = await useChatStore.getState().loadOlderSessionMessages(activeSessionId)
+      // loadOlderSessionMessages reports the rows it read from the DB, but a
+      // running session's tail-trim can splice those same rows straight back off
+      // (getMessageWindowPreserveMode forces 'tail' while running). Treat "the
+      // window didn't actually grow older" as a stall so callers stop retrying.
+      const startAfter =
+        useChatStore.getState().sessions.find((s) => s.id === activeSessionId)?.loadedRangeStart ??
+        startBefore
+      if (loaded <= 0 || startAfter >= startBefore) {
+        stalledOlderLoadStartRef.current = startBefore
+        return loaded > 0 ? loaded : 0
+      }
+      stalledOlderLoadStartRef.current = null
+
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => resolve())
         })
+      })
 
-        const nextRef = listRef.current
-        if (nextRef) {
-          const scrollDelta = nextRef.scrollHeight - previousScrollHeight
-          if (scrollDelta !== 0) {
-            markProgrammaticScroll()
-            nextRef.scrollTop = Math.max(0, previousScrollTop + scrollDelta)
+      const nextRef = listRef.current
+      if (nextRef) {
+        let restored = false
+        if (anchorMessageId) {
+          const anchorElement = Array.from(
+            nextRef.querySelectorAll<HTMLElement>('[data-message-id]')
+          ).find((element) => element.dataset.messageId === anchorMessageId)
+          if (anchorElement) {
+            const nextOffset =
+              anchorElement.getBoundingClientRect().top - nextRef.getBoundingClientRect().top
+            const delta = nextOffset - anchorOffset
+            if (Math.abs(delta) > BOTTOM_SCROLL_CORRECTION_EPSILON) {
+              markProgrammaticScroll()
+              nextRef.scrollTop = Math.max(0, nextRef.scrollTop + delta)
+            }
+            restored = true
           }
         }
-        syncBottomState()
-        requestAssistantRailSync()
-        return loaded
-      } finally {
-        setIsLoadingOlderMessages(false)
+        const scrollDelta = nextRef.scrollHeight - previousScrollHeight
+        if (!restored && scrollDelta !== 0) {
+          markProgrammaticScroll()
+          nextRef.scrollTop = Math.max(0, previousScrollTop + scrollDelta)
+        }
+        if (wasFollowingBottom) {
+          autoScrollModeRef.current = 'user'
+          setIsAtBottom(true)
+          markProgrammaticScroll()
+          nextRef.scrollTop = Math.max(0, nextRef.scrollHeight - nextRef.clientHeight)
+        }
       }
-    },
-    [
-      activeSessionId,
-      isLoadingOlderMessages,
-      loadedRangeStart,
-      markProgrammaticScroll,
-      requestAssistantRailSync,
-      syncBottomState
-    ]
-  )
+      syncBottomState()
+      requestAssistantRailSync()
+      if (import.meta.env.DEV) {
+        console.debug('[MessageList] older load settled', {
+          sessionId: activeSessionId,
+          elapsedMs: Math.max(0, window.performance.now() - loadStartedAt),
+          loaded,
+          loadedRangeStart: startAfter
+        })
+      }
+      return loaded
+    } finally {
+      setIsLoadingOlderMessages(false)
+    }
+  }, [
+    activeSessionId,
+    hasOlder,
+    isLoadingOlderMessages,
+    loadedRangeStart,
+    markProgrammaticScroll,
+    messageWindowPhase,
+    requestAssistantRailSync,
+    syncBottomState
+  ])
+
+  const loadNewerMessages = React.useCallback(async (): Promise<number> => {
+    if (!activeSessionId || messageWindowPhase !== 'ready' || isLoadingNewerMessages || !hasNewer) {
+      return 0
+    }
+    const viewport = listRef.current
+    const wasFollowingBottom = Boolean(
+      viewport &&
+      autoScrollModeRef.current !== 'off' &&
+      getDistanceToBottom(viewport) <= NEWER_MESSAGE_LOAD_SCROLL_THRESHOLD
+    )
+    setIsLoadingNewerMessages(true)
+    const loadStartedAt = window.performance.now()
+    try {
+      const loaded = await useChatStore.getState().loadNewerSessionMessages(activeSessionId)
+      if (loaded > 0) {
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+        })
+        if (wasFollowingBottom && listRef.current) {
+          markProgrammaticScroll()
+          listRef.current.scrollTop = Math.max(
+            0,
+            listRef.current.scrollHeight - listRef.current.clientHeight
+          )
+        }
+        requestAssistantRailSync()
+      }
+      if (import.meta.env.DEV) {
+        console.debug('[MessageList] newer load settled', {
+          sessionId: activeSessionId,
+          elapsedMs: Math.max(0, window.performance.now() - loadStartedAt),
+          loaded
+        })
+      }
+      return loaded
+    } finally {
+      setIsLoadingNewerMessages(false)
+    }
+  }, [
+    activeSessionId,
+    hasNewer,
+    isLoadingNewerMessages,
+    markProgrammaticScroll,
+    messageWindowPhase,
+    requestAssistantRailSync
+  ])
 
   const requestScrollToBottom = React.useCallback(
     ({
@@ -2128,7 +2263,18 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     const ref = listRef.current
     if (
       ref &&
+      messageWindowPhase === 'ready' &&
+      hasNewer &&
+      !isLoadingNewerMessages &&
+      getDistanceToBottom(ref) <= NEWER_MESSAGE_LOAD_SCROLL_THRESHOLD
+    ) {
+      void loadNewerMessages()
+    }
+    if (
+      ref &&
+      messageWindowPhase === 'ready' &&
       !isLoadingOlderMessages &&
+      hasOlder &&
       loadedRangeStart > 0 &&
       stalledOlderLoadStartRef.current !== loadedRangeStart &&
       ref.scrollTop <= OLDER_MESSAGE_LOAD_SCROLL_THRESHOLD
@@ -2137,15 +2283,42 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     }
   }, [
     isLoadingOlderMessages,
+    isLoadingNewerMessages,
+    loadNewerMessages,
     loadOlderMessages,
+    hasNewer,
+    hasOlder,
     loadedRangeStart,
+    messageWindowPhase,
     requestAssistantRailSync,
     syncBottomState
   ])
 
   React.useEffect(() => {
     if (!activeSessionId) return
-    void useChatStore.getState().loadRecentSessionMessages(activeSessionId)
+    let cancelled = false
+    setMessageWindowPhase('loading')
+    void useChatStore
+      .getState()
+      .ensureSessionWindow(activeSessionId)
+      .then((loaded) => {
+        if (cancelled) return
+        const current = useChatStore
+          .getState()
+          .sessions.find((session) => session.id === activeSessionId)
+        if (!loaded && current && current.messageCount > 0) {
+          setMessageWindowPhase('error')
+          return
+        }
+        setMessageWindowPhase(current?.messages.length ? 'positioning' : 'ready')
+      })
+      .catch((error) => {
+        console.error('[MessageList] Failed to initialize message window:', error)
+        if (!cancelled) setMessageWindowPhase('error')
+      })
+    return () => {
+      cancelled = true
+    }
   }, [activeSessionId])
 
   React.useEffect(() => {
@@ -2154,11 +2327,21 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     const hasStreamingMessageInView = messages.some((message) => message.id === streamingMessageId)
     if (hasStreamingMessageInView) return
 
-    void useChatStore.getState().loadRecentSessionMessages(activeSessionId, true)
+    // A user browsing older history must not be pulled back to the tail just
+    // because a stream started elsewhere in the session. The newer sentinel
+    // and the explicit bottom control will bring that tail into memory later.
+    if (autoScrollModeRef.current === 'off') return
+
+    void useChatStore.getState().ensureSessionWindow(activeSessionId, true)
   }, [activeSessionId, messages, streamingMessageId])
 
   React.useLayoutEffect(() => {
     pendingInitialScrollSessionIdRef.current = activeSessionId
+    setMessageWindowPhase(activeSessionId ? 'loading' : 'ready')
+    initialPositionStableFramesRef.current = 0
+    initialPositionLastHeightRef.current = null
+    initialPositionFrameCountRef.current = 0
+    initialPositionStartedAtRef.current = activeSessionId ? window.performance.now() : null
     lastScrollOffsetRef.current = 0
     programmaticScrollUntilRef.current = 0
     measuredMessageHeightsRef.current.clear()
@@ -2169,6 +2352,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
 
   React.useLayoutEffect(() => {
     if (!activeSessionId) return
+    if (messageWindowPhase !== 'positioning') return
     if (pendingInitialScrollSessionIdRef.current !== activeSessionId) return
     if (!(messages.length > 0 || streamingMessageId)) return
 
@@ -2176,23 +2360,13 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     // while virtualized rows are measured; released on the first upward scroll.
     autoScrollModeRef.current = isSessionOutputting ? 'stream' : 'user'
 
-    // Position the estimated virtual list before the first paint. Later layout
-    // passes and the resize observer below correct asynchronously measured content.
+    // Position the tail while the list is still hidden. The stability observer
+    // below promotes the window to ready only after real row heights settle.
     scrollToBottomImmediate()
-
-    if (initialTailReleaseFrameRef.current !== null) {
-      window.cancelAnimationFrame(initialTailReleaseFrameRef.current)
-    }
-    const initializedSessionId = activeSessionId
-    initialTailReleaseFrameRef.current = window.requestAnimationFrame(() => {
-      if (pendingInitialScrollSessionIdRef.current === initializedSessionId) {
-        pendingInitialScrollSessionIdRef.current = null
-      }
-      initialTailReleaseFrameRef.current = null
-    })
   }, [
     activeSessionId,
     isSessionOutputting,
+    messageWindowPhase,
     messages.length,
     scrollToBottomImmediate,
     streamingMessageId
@@ -2234,27 +2408,160 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   React.useEffect(() => {
     const viewport = listRef.current
     const content = virtualContentRef.current
-    if (!activeSessionId || !viewport || !content || typeof ResizeObserver === 'undefined') return
+    if (!activeSessionId || !viewport || !content) return
 
-    const observer = new ResizeObserver(() => {
-      // Composer hydration and async message rendering can change the viewport
-      // or content after the initial virtual-list measurements have settled.
-      // Keep following only until the user deliberately scrolls upward.
-      if (!canAutoScroll()) return
-      scrollToBottomImmediate()
-    })
+    let cancelled = false
+    let frame: number | null = null
+    const settleInitialPosition = (): void => {
+      if (cancelled) return
+      if (messageWindowPhase === 'positioning') {
+        initialPositionFrameCountRef.current += 1
+        const measuredHeight = content.scrollHeight
+        if (initialPositionLastHeightRef.current === measuredHeight) {
+          initialPositionStableFramesRef.current += 1
+        } else {
+          initialPositionLastHeightRef.current = measuredHeight
+          initialPositionStableFramesRef.current = 0
+        }
+        scrollToBottomImmediate()
+        const settledAtBottom = getDistanceToBottom(viewport) <= BOTTOM_SCROLL_CORRECTION_EPSILON
+        if (
+          (initialPositionStableFramesRef.current >= WINDOW_STABLE_FRAME_COUNT &&
+            settledAtBottom) ||
+          initialPositionFrameCountRef.current >= 120
+        ) {
+          pendingInitialScrollSessionIdRef.current = null
+          setMessageWindowPhase('ready')
+          const startedAt = initialPositionStartedAtRef.current
+          if (startedAt !== null) {
+            if (import.meta.env.DEV) {
+              console.debug('[MessageList] stable bottom position', {
+                sessionId: activeSessionId,
+                elapsedMs: Math.max(0, window.performance.now() - startedAt),
+                frameCount: initialPositionFrameCountRef.current,
+                residentRows: messages.length
+              })
+            }
+            initialPositionStartedAtRef.current = null
+          }
+          syncBottomState()
+        }
+      } else if (canAutoScroll()) {
+        scrollToBottomImmediate()
+      }
+      if (messageWindowPhase === 'positioning') {
+        frame = window.requestAnimationFrame(settleInitialPosition)
+      }
+    }
 
-    observer.observe(viewport)
-    observer.observe(content)
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            // Composer hydration and async message rendering can change the viewport
+            // or content after the initial virtual-list measurements have settled.
+            // Keep following only until the user deliberately scrolls upward.
+            if (messageWindowPhase === 'positioning') {
+              initialPositionStableFramesRef.current = 0
+              return
+            }
+            if (canAutoScroll()) scrollToBottomImmediate()
+          })
+
+    observer?.observe(viewport)
+    observer?.observe(content)
+    frame = window.requestAnimationFrame(settleInitialPosition)
 
     return () => {
-      observer.disconnect()
+      cancelled = true
+      observer?.disconnect()
+      if (frame !== null) window.cancelAnimationFrame(frame)
     }
-  }, [activeSessionId, canAutoScroll, scrollToBottomImmediate])
+  }, [
+    activeSessionId,
+    canAutoScroll,
+    messages.length,
+    messageWindowPhase,
+    scrollToBottomImmediate,
+    syncBottomState
+  ])
 
   React.useEffect(() => {
-    if (!activeSessionId || isAwaitingInitialMessages || isLoadingOlderMessages) return
-    if (loadedRangeStart <= 0 || renderableMessages.length >= MIN_RENDERABLE_HISTORY_ROWS) return
+    const viewport = listRef.current
+    if (!viewport || !activeSessionId || messageWindowPhase !== 'ready') return
+    if (typeof IntersectionObserver === 'undefined') return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          const messageId = (entry.target as HTMLElement).dataset.messageId
+          if (!messageId || hydratingMessageIdsRef.current.has(messageId)) continue
+          hydratingMessageIdsRef.current.add(messageId)
+          void useChatStore
+            .getState()
+            .loadMessageContent(activeSessionId, messageId)
+            .finally(() => hydratingMessageIdsRef.current.delete(messageId))
+        }
+      },
+      { root: viewport, rootMargin: '360px 0px' }
+    )
+    const previewRows = viewport.querySelectorAll<HTMLElement>(
+      '[data-message-content-state="preview"]'
+    )
+    previewRows.forEach((row) => observer.observe(row))
+    return () => observer.disconnect()
+  }, [activeSessionId, messageWindowPhase, messages])
+
+  React.useEffect(() => {
+    const viewport = listRef.current
+    const sentinel = topSentinelRef.current
+    if (
+      !viewport ||
+      !sentinel ||
+      !activeSessionId ||
+      messageWindowPhase !== 'ready' ||
+      !hasOlder ||
+      loadedRangeStart <= 0 ||
+      typeof IntersectionObserver === 'undefined'
+    ) {
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return
+        if (isLoadingOlderMessages) return
+        if (stalledOlderLoadStartRef.current === loadedRangeStart) return
+        void loadOlderMessages()
+      },
+      { root: viewport, rootMargin: '160px 0px 0px 0px', threshold: 0 }
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [
+    activeSessionId,
+    hasOlder,
+    isLoadingOlderMessages,
+    loadOlderMessages,
+    loadedRangeStart,
+    messageWindowPhase
+  ])
+
+  React.useEffect(() => {
+    if (
+      !activeSessionId ||
+      messageWindowPhase !== 'ready' ||
+      isAwaitingInitialMessages ||
+      isLoadingOlderMessages
+    )
+      return
+    const viewport = listRef.current
+    const needsMinimumRows = renderableMessages.length < MIN_RENDERABLE_HISTORY_ROWS
+    const needsViewportFill = Boolean(
+      viewport && virtualListTotalSize < viewport.clientHeight * INITIAL_TARGET_VIEWPORT_MULTIPLIER
+    )
+    if (loadedRangeStart <= 0 || (!needsMinimumRows && !needsViewportFill)) return
     // A previous auto-load at this exact position already failed to grow the
     // renderable window (all-hidden older page, or a running session's tail-trim
     // undoing the load). Stop hammering — real progress moves loadedRangeStart,
@@ -2265,9 +2572,11 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     activeSessionId,
     isAwaitingInitialMessages,
     isLoadingOlderMessages,
+    messageWindowPhase,
     loadOlderMessages,
     loadedRangeStart,
-    renderableMessages.length
+    renderableMessages.length,
+    virtualListTotalSize
   ])
 
   React.useEffect(() => {
@@ -2276,9 +2585,6 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
 
   React.useEffect(() => {
     return () => {
-      if (initialTailReleaseFrameRef.current !== null) {
-        window.cancelAnimationFrame(initialTailReleaseFrameRef.current)
-      }
       if (scheduledScrollFrameRef.current !== null) {
         window.cancelAnimationFrame(scheduledScrollFrameRef.current)
       }
@@ -2294,8 +2600,14 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   const scrollToBottom = React.useCallback(() => {
     autoScrollModeRef.current = 'user'
     setIsAtBottom(true)
+    if (hasNewer) {
+      void loadNewerMessages().finally(() => {
+        requestScrollToBottom({ behavior: 'smooth', force: true, maxFrames: 3 })
+      })
+      return
+    }
     requestScrollToBottom({ behavior: 'smooth', force: true })
-  }, [requestScrollToBottom])
+  }, [hasNewer, loadNewerMessages, requestScrollToBottom])
 
   const applySuggestedPrompt = React.useCallback((prompt: string) => {
     const textarea = document.querySelector('textarea')
@@ -2319,6 +2631,35 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   }, [])
 
   if (isAwaitingInitialMessages) {
+    if (messageWindowPhase === 'error') {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+          <span>{t('messageList.loadFailed', { defaultValue: 'Unable to load messages' })}</span>
+          <button
+            type="button"
+            className="rounded-full border border-border/70 px-3 py-1 text-xs hover:text-foreground"
+            onClick={() => {
+              if (!activeSessionId) return
+              setMessageWindowPhase('loading')
+              void useChatStore
+                .getState()
+                .ensureSessionWindow(activeSessionId, true)
+                .then((loaded) => {
+                  const current = useChatStore
+                    .getState()
+                    .sessions.find((session) => session.id === activeSessionId)
+                  setMessageWindowPhase(
+                    loaded ? (current?.messages.length ? 'positioning' : 'ready') : 'error'
+                  )
+                })
+                .catch(() => setMessageWindowPhase('error'))
+            }}
+          >
+            {t('common.retry', { defaultValue: 'Retry' })}
+          </button>
+        </div>
+      )
+    }
     return (
       <div className="flex flex-1 flex-col gap-4 overflow-hidden px-4 pt-6">
         {[0, 1, 2].map((index) => (
@@ -2445,7 +2786,10 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
         ref={listRef}
         className="absolute inset-0 overflow-y-auto pl-7 md:pl-9"
         data-message-content
-        style={{ overflowAnchor: 'none' }}
+        style={{
+          overflowAnchor: 'none',
+          visibility: messageWindowPhase === 'positioning' ? 'hidden' : 'visible'
+        }}
         onScroll={handleListScroll}
       >
         <div
@@ -2453,6 +2797,12 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
           className="relative w-full"
           style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
         >
+          <div
+            ref={topSentinelRef}
+            aria-hidden="true"
+            className="pointer-events-none absolute left-0 top-0 h-px w-px"
+            data-message-window-top-sentinel
+          />
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const isLoadOlderRow = hasLoadOlderRow && virtualRow.index === 0
             const rowIndex = virtualRow.index - (hasLoadOlderRow ? 1 : 0)
@@ -2472,7 +2822,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                     <button
                       type="button"
                       className="rounded-full border border-border/70 bg-background/92 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-70"
-                      onClick={() => void loadOlderMessages(true)}
+                      onClick={() => void loadOlderMessages()}
                       disabled={isLoadingOlderMessages}
                     >
                       {isLoadingOlderMessages
@@ -2507,41 +2857,68 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                     const isStreaming = streamingMessageId === messageId || isEmptyAssistantLoading
                     const rowRenderMode =
                       !isStreaming && rowIndex < liveCutoffIndex ? 'static' : undefined
+                    const isPreviewMessage = message.contentState === 'preview'
 
                     return (
-                      <MessageRow
-                        message={message}
-                        sessionId={targetSessionId}
-                        sessionAssistantMessageIds={sessionAssistantMessageIds}
-                        sessionToolUseIds={sessionToolUseIds}
-                        isStreaming={isStreaming}
-                        isLastUserMessage={isLastUserMessage}
-                        isLastAssistantMessage={isLastAssistantMessage}
-                        showContinue={showContinue}
-                        disableAnimation={disableAnimation}
-                        toolResults={toolResultsLookup.get(messageId)}
-                        inlineCompactSummaries={inlineCompactSummaryState.byAssistantId.get(
-                          messageId
-                        )}
-                        orchestrationRun={
-                          orchestrationState.byMessageId.get(messageId)?.primaryRun ?? null
-                        }
-                        hiddenToolUseIds={mergeHiddenToolUseIds(
-                          orchestrationState.byMessageId.get(messageId)?.hiddenToolUseIds,
-                          duplicatePlanReviewToolUseIds
-                        )}
-                        anchorMessageId={null}
-                        highlightMessageId={highlightedMessageId}
-                        renderMode={rowRenderMode}
-                        requestRetryState={
-                          isLastAssistantMessage ? (sessionRequestRetryState ?? null) : null
-                        }
-                        fullWidth={fullWidth}
-                        onRetry={onRetry}
-                        onContinue={onContinue}
-                        onEditUserMessage={onEditUserMessage}
-                        onDeleteMessage={onDeleteMessage}
-                      />
+                      <>
+                        <MessageRow
+                          message={message}
+                          sessionId={targetSessionId}
+                          sessionAssistantMessageIds={sessionAssistantMessageIds}
+                          sessionToolUseIds={sessionToolUseIds}
+                          isStreaming={isStreaming}
+                          isLastUserMessage={isLastUserMessage}
+                          isLastAssistantMessage={isLastAssistantMessage}
+                          showContinue={showContinue}
+                          disableAnimation={disableAnimation}
+                          toolResults={toolResultsLookup.get(messageId)}
+                          inlineCompactSummaries={inlineCompactSummaryState.byAssistantId.get(
+                            messageId
+                          )}
+                          orchestrationRun={
+                            orchestrationState.byMessageId.get(messageId)?.primaryRun ?? null
+                          }
+                          hiddenToolUseIds={mergeHiddenToolUseIds(
+                            orchestrationState.byMessageId.get(messageId)?.hiddenToolUseIds,
+                            duplicatePlanReviewToolUseIds
+                          )}
+                          anchorMessageId={null}
+                          highlightMessageId={highlightedMessageId}
+                          renderMode={rowRenderMode}
+                          requestRetryState={
+                            isLastAssistantMessage ? (sessionRequestRetryState ?? null) : null
+                          }
+                          fullWidth={fullWidth}
+                          onRetry={onRetry}
+                          onContinue={onContinue}
+                          onEditUserMessage={onEditUserMessage}
+                          onDeleteMessage={onDeleteMessage}
+                        />
+                        {isPreviewMessage ? (
+                          <div className={`${getMessageColumnClass(fullWidth)} pb-2`}>
+                            <button
+                              type="button"
+                              className="rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                              disabled={loadingMessageContentId === messageId}
+                              onClick={() => {
+                                setLoadingMessageContentId(messageId)
+                                void useChatStore
+                                  .getState()
+                                  .loadMessageContent(activeSessionId ?? '', messageId)
+                                  .finally(() => setLoadingMessageContentId(null))
+                              }}
+                            >
+                              {loadingMessageContentId === messageId
+                                ? t('messageList.loadingMessageContent', {
+                                    defaultValue: 'Loading full message…'
+                                  })
+                                : t('messageList.loadFullMessageContent', {
+                                    defaultValue: 'Load full message'
+                                  })}
+                            </button>
+                          </div>
+                        ) : null}
+                      </>
                     )
                   })()
                 )}
@@ -2549,6 +2926,20 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
             )
           })}
         </div>
+        {messageWindowPhase === 'ready' && hasNewer ? (
+          <div className="pointer-events-none absolute bottom-1 left-0 right-0 flex justify-center">
+            <button
+              type="button"
+              className="pointer-events-auto rounded-full border border-border/60 bg-background/90 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm hover:text-foreground disabled:opacity-60"
+              disabled={isLoadingNewerMessages}
+              onClick={() => void loadNewerMessages()}
+            >
+              {isLoadingNewerMessages
+                ? t('messageList.loadingNewer', { defaultValue: 'Loading newer messages…' })
+                : t('messageList.loadNewer', { defaultValue: 'Load newer messages' })}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <AssistantReplyRail

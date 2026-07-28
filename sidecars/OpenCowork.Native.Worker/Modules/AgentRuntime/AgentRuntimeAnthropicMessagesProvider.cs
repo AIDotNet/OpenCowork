@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -8,7 +8,10 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
 {
     private const int MaxAnthropicCacheControlBlocks = 4;
     private const int MinAnthropicThinkingBudget = 1024;
-    private static readonly HttpClient Http = WorkerHttpClientFactory.Create();
+    // Infinite client timeout: the effective deadline is user-configurable and therefore
+    // applied per request via AgentRuntimeRequestTimeout.
+    private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
+        timeout: Timeout.InfiniteTimeSpan);
     private static readonly JsonWriterOptions WriterOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
@@ -56,9 +59,11 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         var parseState = new AnthropicParseState();
         WorkerLog.Debug($"anthropic messages request start model={model} url={url}");
 
-        using var response = await Http.SendAsync(
+        using var response = await AgentRuntimeRequestTimeout.SendAsync(
+            Http,
             request,
-            HttpCompletionOption.ResponseHeadersRead,
+            provider,
+            "Anthropic Messages",
             state.CancellationToken);
         if (!response.IsSuccessStatusCode)
         {

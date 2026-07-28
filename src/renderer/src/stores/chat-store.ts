@@ -15,16 +15,18 @@ import { invokeMessagePack, invokeMessagePackBinary } from '../lib/ipc/messagepa
 import {
   DB_MESSAGES_ADD_BATCH_MSGPACK_CHANNEL,
   DB_MESSAGES_CLEAR_MSGPACK_CHANNEL,
-  DB_MESSAGES_COUNT_MSGPACK_CHANNEL,
   DB_MESSAGES_DELETE_MSGPACK_CHANNEL,
   DB_MESSAGES_INSERT_ARTIFACTS_MSGPACK_CHANNEL,
   DB_MESSAGES_LIST_MSGPACK_CHANNEL,
   DB_MESSAGES_LIST_PAGE_MSGPACK_CHANNEL,
+  DB_MESSAGES_CONTENT_MSGPACK_CHANNEL,
+  DB_MESSAGES_RANGE_MSGPACK_CHANNEL,
   DB_MESSAGES_REQUEST_CONTEXT_MSGPACK_CHANNEL,
   DB_MESSAGES_REPLACE_MSGPACK_CHANNEL,
   DB_MESSAGES_TRUNCATE_FROM_MSGPACK_CHANNEL,
   DB_MESSAGES_UPSERT_MSGPACK_CHANNEL,
   DB_MESSAGES_WINDOW_AROUND_MSGPACK_CHANNEL,
+  DB_MESSAGES_WINDOW_INDEX_MSGPACK_CHANNEL,
   DB_PROJECTS_CREATE_MSGPACK_CHANNEL,
   DB_PROJECTS_DELETE_MSGPACK_CHANNEL,
   DB_PROJECTS_ENSURE_DEFAULT_MSGPACK_CHANNEL,
@@ -35,7 +37,7 @@ import {
   DB_SESSIONS_CREATE_MSGPACK_CHANNEL,
   DB_SESSIONS_DELETE_MSGPACK_CHANNEL,
   DB_SESSIONS_GET_MSGPACK_CHANNEL,
-  DB_SESSIONS_LIST_MSGPACK_CHANNEL,
+  DB_SESSIONS_LIST_PAGE_MSGPACK_CHANNEL,
   DB_SESSIONS_UPDATE_MSGPACK_CHANNEL
 } from '../../../shared/messagepack/binary-ipc'
 import { useAgentStore } from './agent-store'
@@ -96,6 +98,28 @@ export interface Project {
   sessionCount?: number
 }
 
+export interface SessionListCursor {
+  pinned: number
+  updatedAt: number
+  id: string
+}
+
+interface SessionListPageResult {
+  rows: SessionRow[]
+  nextCursor: SessionListCursor | null
+  hasMore: boolean
+}
+
+interface SessionPageState {
+  cursor: SessionListCursor | null
+  hasMore: boolean
+  loading: boolean
+  loaded: boolean
+  /** Generation of the cursor snapshot currently represented by this page. */
+  generation: number
+  error?: string | null
+}
+
 export interface Session {
   id: string
   title: string
@@ -106,6 +130,11 @@ export interface Session {
   messagesLoaded: boolean
   loadedRangeStart: number
   loadedRangeEnd: number
+  /** Whether rows outside either side of the resident renderer window exist. */
+  hasOlder?: boolean
+  hasNewer?: boolean
+  /** Sum of original SQLite content bytes represented by the resident window. */
+  residentBytes?: number
   lastKnownMessageCount?: number
   createdAt: number
   updatedAt: number
@@ -144,6 +173,9 @@ export function createRestorableSessionSnapshot(session: Session): Session {
     messagesLoaded: session.messagesLoaded,
     loadedRangeStart: session.loadedRangeStart,
     loadedRangeEnd: session.loadedRangeEnd,
+    hasOlder: session.hasOlder,
+    hasNewer: session.hasNewer,
+    residentBytes: session.residentBytes,
     lastKnownMessageCount: session.lastKnownMessageCount,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
@@ -523,8 +555,14 @@ function resolveMessageSortOrder(
   fallback = 0
 ): number {
   if (!session) return Math.max(0, fallback)
-  const index = session.messages.findIndex((message) => message.id === msgId)
-  if (index >= 0) return Math.max(0, session.loadedRangeStart + index)
+  const message = session.messages.find((candidate) => candidate.id === msgId)
+  if (message) {
+    if (typeof message.sortOrder === 'number' && Number.isFinite(message.sortOrder)) {
+      return Math.max(0, Math.floor(message.sortOrder))
+    }
+    const index = session.messages.indexOf(message)
+    if (index >= 0) return Math.max(0, session.loadedRangeStart + index)
+  }
   return Math.max(0, session.messageCount - 1, fallback)
 }
 
@@ -718,6 +756,36 @@ function dbListMessagesPage(args: {
   offset: number
 }): Promise<MessageRow[]> {
   return invokeMessagePackBinary<MessageRow[]>(DB_MESSAGES_LIST_PAGE_MSGPACK_CHANNEL, args)
+}
+
+function dbGetMessageWindowIndex(args: {
+  sessionId: string
+  direction: MessageWindowDirection
+  anchorSortOrder?: number
+  byteBudget: number
+  maxRows: number
+}): Promise<MessageWindowIndexResult> {
+  return invokeMessagePackBinary<MessageWindowIndexResult>(
+    DB_MESSAGES_WINDOW_INDEX_MSGPACK_CHANNEL,
+    args
+  )
+}
+
+function dbGetMessageRange(args: {
+  sessionId: string
+  start: number
+  end: number
+  oversizedBytes?: number
+  includeLargeContent?: boolean
+}): Promise<MessageRangeResult> {
+  return invokeMessagePackBinary<MessageRangeResult>(DB_MESSAGES_RANGE_MSGPACK_CHANNEL, args)
+}
+
+function dbGetMessageContent(args: {
+  sessionId: string
+  messageId: string
+}): Promise<MessageContentResult> {
+  return invokeMessagePackBinary<MessageContentResult>(DB_MESSAGES_CONTENT_MSGPACK_CHANNEL, args)
 }
 
 function dbListMessagesRequestContext(args: {
@@ -1154,7 +1222,7 @@ function scheduleActiveSessionHydration(
     void useAgentStore.getState().loadSubAgentHistoryForSession(sessionId)
     void useTaskStore.getState().loadTasksForSession(sessionId)
     void getState()
-      .loadRecentSessionMessages(sessionId)
+      .ensureSessionWindow(sessionId)
       .finally(() => scheduleDeferredSessionMaintenance(getState))
 
     void usePlanStore
@@ -1223,6 +1291,9 @@ function copyResidentSessionState(target: Session, source: Session): void {
   target.messagesLoaded = source.messagesLoaded
   target.loadedRangeStart = source.loadedRangeStart
   target.loadedRangeEnd = source.loadedRangeEnd
+  target.hasOlder = source.hasOlder
+  target.hasNewer = source.hasNewer
+  target.residentBytes = source.residentBytes
   target.lastKnownMessageCount = source.lastKnownMessageCount
   target.promptSnapshot = source.promptSnapshot
   target.pluginChatType = source.pluginChatType
@@ -1286,6 +1357,15 @@ function matchesMessageLoadSnapshot(
 /** Bump the monotonic revision counter used by React.memo equality checks. */
 function bumpMessageRevision(msg: UnifiedMessage): void {
   msg._revision = (msg._revision ?? 0) + 1
+  if (msg.contentState === 'preview') {
+    msg.contentState = 'full'
+    msg.contentBytes = estimateMessageWeight(msg)
+  } else if (msg.contentBytes === undefined) {
+    // Rows created locally do not have an index byte count yet. Populate it
+    // once so resident-window accounting remains useful without re-walking
+    // large streaming messages on every delta.
+    msg.contentBytes = estimateMessageWeight(msg)
+  }
 }
 
 // --- Store ---
@@ -1303,21 +1383,24 @@ interface ChatStore {
   activeSessionId: string | null
   _loaded: boolean
   projectSessionLoadState: Record<string, 'idle' | 'loading' | 'loaded' | 'error'>
+  /** Cursor state is kept per project and for project-less chats (`__chats__`). */
+  sessionListPageState: Record<string, SessionPageState>
 
   // Initialization
   loadFromDb: () => Promise<void>
   loadProjectSessions: (projectId: string) => Promise<void>
+  loadMoreProjectSessions: (projectId: string) => Promise<void>
+  loadMoreChatSessions: () => Promise<void>
+  ensureSessionWindow: (sessionId: string, force?: boolean) => Promise<boolean>
   loadRecentSessionMessages: (sessionId: string, force?: boolean, limit?: number) => Promise<void>
-  loadOlderSessionMessages: (
-    sessionId: string,
-    limit?: number,
-    options?: { preserveResidentHistory?: boolean }
-  ) => Promise<number>
+  loadOlderSessionMessages: (sessionId: string, limit?: number) => Promise<number>
+  loadNewerSessionMessages: (sessionId: string, limit?: number) => Promise<number>
   loadMessageWindowAround: (
     sessionId: string,
     anchor: { messageId?: string | null; sortOrder?: number | null },
     limit?: number
   ) => Promise<void>
+  loadMessageContent: (sessionId: string, messageId: string) => Promise<boolean>
   loadSessionMessages: (sessionId: string, force?: boolean) => Promise<void>
   loadWindowSessionMessages: (sessionId: string, offset: number, limit: number) => Promise<void>
   insertCompactArtifacts: (
@@ -1503,6 +1586,61 @@ interface MessageRow {
   created_at: number
   usage: string | null
   sort_order: number
+  content_bytes?: number
+}
+
+interface MessageWindowIndexRow {
+  id: string
+  session_id: string
+  role: string
+  meta: string | null
+  created_at: number
+  sort_order: number
+  content_bytes: number
+}
+
+interface MessageRangeRow {
+  id: string
+  session_id: string
+  role: string
+  content: string | null
+  preview: string | null
+  meta: string | null
+  created_at: number
+  usage: string | null
+  sort_order: number
+  content_bytes: number
+  content_state: 'full' | 'preview'
+}
+
+interface MessageWindowIndexResult {
+  success: boolean
+  rows: MessageWindowIndexRow[]
+  start: number
+  end: number
+  total: number
+  hasOlder: boolean
+  hasNewer: boolean
+  loadedBytes: number
+  error?: string | null
+}
+
+interface MessageRangeResult {
+  success: boolean
+  rows: MessageRangeRow[]
+  start: number
+  end: number
+  total: number
+  hasOlder: boolean
+  hasNewer: boolean
+  loadedBytes: number
+  error?: string | null
+}
+
+interface MessageContentResult {
+  success: boolean
+  row?: MessageRow | null
+  error?: string | null
 }
 
 interface MessageWindowResult {
@@ -1526,23 +1664,131 @@ interface MessageInsertArtifactsResult {
 
 type SyncedSessionRow = SessionRow
 
-// Initial tail shown the instant the user switches into a session. Small on
-// purpose so the switch renders in ~1 frame. Older history streams in via
-// the scroll-to-top load-more row.
-const INITIAL_SESSION_DISPLAY_PAGE_SIZE = 30
-// Page size used when the user scrolls up past the top of the resident window.
-const RECENT_SESSION_MESSAGE_PAGE_SIZE = 30
+// Message windows are selected from a lightweight SQLite index first. Row count
+// is only a safety ceiling; content bytes decide how much full content crosses IPC.
+const INITIAL_SESSION_DISPLAY_PAGE_SIZE = 240
+const RECENT_SESSION_MESSAGE_PAGE_SIZE = 240
 const MIN_INITIAL_SESSION_MESSAGE_PAGE_SIZE = 5
-const MESSAGE_WINDOW_MAX_SIZE = 120
+const MESSAGE_WINDOW_INITIAL_BYTE_BUDGET = 256 * 1024
+const MESSAGE_WINDOW_INCREMENTAL_BYTE_BUDGET = 128 * 1024
+const MESSAGE_WINDOW_OVERSIZED_BYTES = 512 * 1024
+const MESSAGE_WINDOW_MAX_SIZE = 240
+const MESSAGE_WINDOW_MAX_RESIDENT_BYTES = 4 * 1024 * 1024
+const MESSAGE_WINDOW_MIN_RESIDENT_ROWS = 3
 const MESSAGE_WINDOW_TAIL_PRESERVE = 60
 const REQUEST_CONTEXT_MAX_MESSAGES = 160
 const REQUEST_CONTEXT_HEAD_MESSAGES = 12
 const REQUEST_CONTEXT_SAFE_BOUNDARY_SCAN = 12
 
-// Explicit history expansion is a renderer-resident preference, not session data. Automatic
-// history backfill keeps the normal bounded window; clicking "load earlier" opts the current
-// resident session out of tail trimming until it is released or memory pressure asks us to trim.
-const _preservedResidentHistorySessionIds = new Set<string>()
+type MessageWindowDirection = 'tail' | 'older' | 'newer'
+
+const _messageWindowGenerations = new Map<string, number>()
+const _pendingMessageWindowRequests = new Map<string, Promise<number>>()
+const _pendingMessageContentRequests = new Map<string, Promise<boolean>>()
+const _recentSessionWindowLru: string[] = []
+const _sessionListPageGenerations = new Map<string, number>()
+
+function messageWindowPerfNow(): number {
+  return typeof globalThis.performance?.now === 'function'
+    ? globalThis.performance.now()
+    : Date.now()
+}
+
+function logMessageWindowPerf(event: string, details: Record<string, unknown>): void {
+  if (!import.meta.env.DEV) return
+  console.debug(`[ChatStore] message-window ${event}`, details)
+}
+
+function getSessionListPageGeneration(scope: string): number {
+  return _sessionListPageGenerations.get(scope) ?? 0
+}
+
+function invalidateSessionListPageGeneration(scope: string): number {
+  const next = getSessionListPageGeneration(scope) + 1
+  _sessionListPageGenerations.set(scope, next)
+  return next
+}
+
+function resetSessionListCursorForScope(
+  state: Pick<ChatStore, 'sessionListPageState'>,
+  scope: string
+): void {
+  const page = state.sessionListPageState[scope]
+  if (!page) return
+
+  // A cursor is a snapshot boundary. Any local mutation that can change the
+  // ordering (title/pin/update time, insertion, deletion, or a sync update)
+  // invalidates that boundary. Keep the already-resident rows, but make the
+  // next request start from the head again instead of appending to a stale
+  // cursor. In-flight callers are rejected by the generation token maintained
+  // by the mutation site.
+  const wasLoaded = page.loaded
+  page.generation = getSessionListPageGeneration(scope)
+  page.cursor = null
+  page.hasMore = true
+  // Keep an already-rendered page resident. The next explicit "load more"
+  // starts from the head because cursor is null, while the sidebar does not
+  // refetch on every streaming timestamp update.
+  page.loaded = wasLoaded
+  page.loading = false
+  page.error = null
+}
+
+function clearStaleSessionPageLoading(
+  setState: (
+    updater: (state: {
+      sessionListPageState: Record<string, SessionPageState>
+      projectSessionLoadState: Record<string, 'idle' | 'loading' | 'loaded' | 'error'>
+    }) => void
+  ) => void,
+  scope: string,
+  generation: number
+): void {
+  setState((state) => {
+    const page = state.sessionListPageState[scope]
+    // A newer request may already own this page. Never clear its loading bit.
+    if (!page || page.generation !== generation) return
+    page.loading = false
+    if (state.projectSessionLoadState[scope] === 'loading') {
+      state.projectSessionLoadState[scope] = page.loaded ? 'loaded' : 'idle'
+    }
+  })
+}
+
+function touchSessionWindowLru(sessionId: string): void {
+  const index = _recentSessionWindowLru.indexOf(sessionId)
+  if (index >= 0) _recentSessionWindowLru.splice(index, 1)
+  _recentSessionWindowLru.unshift(sessionId)
+  if (_recentSessionWindowLru.length > 2) _recentSessionWindowLru.length = 2
+}
+
+function dedupeMessageWindowRequest(
+  sessionId: string,
+  direction: MessageWindowDirection,
+  generation: number,
+  loader: () => Promise<number>
+): Promise<number> {
+  const key = `${sessionId}:${direction}:${generation}`
+  const existing = _pendingMessageWindowRequests.get(key)
+  if (existing) return existing
+  const request = loader().finally(() => {
+    if (_pendingMessageWindowRequests.get(key) === request) {
+      _pendingMessageWindowRequests.delete(key)
+    }
+  })
+  _pendingMessageWindowRequests.set(key, request)
+  return request
+}
+
+function getMessageWindowGeneration(sessionId: string): number {
+  return _messageWindowGenerations.get(sessionId) ?? 0
+}
+
+function invalidateMessageWindowGeneration(sessionId: string): number {
+  const next = getMessageWindowGeneration(sessionId) + 1
+  _messageWindowGenerations.set(sessionId, next)
+  return next
+}
 
 function normalizeSessionModelSelectionMode(
   value?: string | null,
@@ -1582,6 +1828,9 @@ function rowToSession(row: SessionRow, messages: UnifiedMessage[] = []): Session
     messagesLoaded: messages.length > 0 || messageCount === 0,
     loadedRangeStart,
     loadedRangeEnd,
+    hasOlder: loadedRangeStart > 0,
+    hasNewer: loadedRangeEnd < messageCount,
+    residentBytes: getResidentMessageBytes(messages),
     lastKnownMessageCount: messageCount,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1640,6 +1889,9 @@ function mergeSessionSummary(
     session.messagesLoaded = true
     session.loadedRangeStart = 0
     session.loadedRangeEnd = 0
+    session.hasOlder = false
+    session.hasNewer = false
+    session.residentBytes = 0
     session.lastKnownMessageCount = 0
     return
   }
@@ -1651,6 +1903,9 @@ function mergeSessionSummary(
     session.messagesLoaded = false
     session.loadedRangeStart = next.messageCount
     session.loadedRangeEnd = next.messageCount
+    session.hasOlder = next.messageCount > 0
+    session.hasNewer = false
+    session.residentBytes = 0
     return
   }
 
@@ -1660,6 +1915,9 @@ function mergeSessionSummary(
   if (session.loadedRangeStart > session.loadedRangeEnd) {
     session.loadedRangeStart = session.loadedRangeEnd
   }
+  session.hasOlder = session.loadedRangeStart > 0
+  session.hasNewer = session.loadedRangeEnd < session.messageCount
+  session.residentBytes = getResidentMessageBytes(session.messages)
 }
 
 function rowToMessage(row: MessageRow): UnifiedMessage {
@@ -1694,8 +1952,61 @@ function rowToMessage(row: MessageRow): UnifiedMessage {
     content,
     ...(meta ? { meta } : {}),
     createdAt: row.created_at,
-    usage: row.usage ? JSON.parse(row.usage) : undefined
+    usage: row.usage ? JSON.parse(row.usage) : undefined,
+    contentState: 'full',
+    contentBytes:
+      typeof row.content_bytes === 'number' && row.content_bytes > 0
+        ? row.content_bytes
+        : estimateMessageWeight({
+            id: row.id,
+            role: row.role as UnifiedMessage['role'],
+            content,
+            createdAt: row.created_at
+          }),
+    sortOrder: row.sort_order
   }
+}
+
+function rowToWindowMessage(row: MessageRangeRow): UnifiedMessage {
+  const message = rowToMessage({
+    id: row.id,
+    session_id: row.session_id,
+    role: row.role,
+    content: row.content ?? row.preview ?? '',
+    meta: row.meta,
+    created_at: row.created_at,
+    usage: row.usage,
+    sort_order: row.sort_order
+  })
+  message.contentState = row.content_state === 'preview' ? 'preview' : 'full'
+  message.contentBytes = Math.max(0, row.content_bytes ?? 0)
+  message.sortOrder = row.sort_order
+  return message
+}
+
+function getResidentMessageBytes(messages: UnifiedMessage[]): number {
+  return messages.reduce((total, message) => {
+    if (typeof message.contentBytes === 'number' && Number.isFinite(message.contentBytes)) {
+      return Math.min(Number.MAX_SAFE_INTEGER, total + Math.max(0, message.contentBytes))
+    }
+    return Math.min(Number.MAX_SAFE_INTEGER, total + estimateMessageWeight(message))
+  }, 0)
+}
+
+function preferWindowMessage(resident: UnifiedMessage, fetched: UnifiedMessage): UnifiedMessage {
+  // A hydrated row must never be replaced by a lightweight preview. Streaming
+  // and locally queued rows also win over a stale database snapshot.
+  if (resident.contentState === 'full' && fetched.contentState === 'preview') return resident
+  if (hasPendingLocalMessageWrite(resident.id)) return resident
+  const preferred = shouldPreferResidentMessage(resident, fetched) ? resident : fetched
+  if (
+    preferred === resident &&
+    resident.contentState === 'preview' &&
+    fetched.contentState === 'full'
+  ) {
+    return fetched
+  }
+  return preferred
 }
 
 function cloneImportedMessages(messages: UnifiedMessage[] | undefined): UnifiedMessage[] {
@@ -1705,34 +2016,61 @@ function cloneImportedMessages(messages: UnifiedMessage[] | undefined): UnifiedM
 
 function cloneMessagesForNewSession(messages: UnifiedMessage[]): UnifiedMessage[] {
   const cloned = JSON.parse(JSON.stringify(messages)) as UnifiedMessage[]
-  return cloned.map((message) => {
+  return cloned.map((message, index) => {
     const next = {
       ...message,
-      id: nanoid()
+      id: nanoid(),
+      sortOrder: index,
+      contentState: 'full' as const,
+      contentBytes: estimateMessageWeight(message)
     }
     delete next._revision
     return next
   })
 }
 
-function trimSessionMessageWindow(session: Session, preserve: 'head' | 'tail' = 'tail'): void {
-  if (_preservedResidentHistorySessionIds.has(session.id)) return
-  if (session.messages.length <= MESSAGE_WINDOW_MAX_SIZE) return
-  const removableCount = session.messages.length - MESSAGE_WINDOW_MAX_SIZE
+/** Keep the renderer-only window bookkeeping derived from the resident rows. */
+function syncSessionMessageWindowFlags(session: Session): void {
+  const total = Math.max(0, session.messageCount ?? session.messages.length)
+  session.loadedRangeStart = Math.max(0, Math.min(total, session.loadedRangeStart ?? 0))
+  session.loadedRangeEnd = Math.max(
+    session.loadedRangeStart,
+    Math.min(total, session.loadedRangeEnd ?? session.loadedRangeStart)
+  )
+  session.hasOlder = session.loadedRangeStart > 0
+  session.hasNewer = session.loadedRangeEnd < total
+  session.residentBytes = getResidentMessageBytes(session.messages)
+}
 
-  if (preserve === 'head') {
-    const trimCount = Math.min(removableCount, session.messages.length)
-    if (trimCount <= 0) return
-    session.messages.splice(session.messages.length - trimCount, trimCount)
-    session.loadedRangeEnd = Math.max(session.loadedRangeStart, session.loadedRangeEnd - trimCount)
+function trimSessionMessageWindow(session: Session, preserve: 'head' | 'tail' = 'tail'): void {
+  const residentBytes = getResidentMessageBytes(session.messages)
+  if (
+    session.messages.length <= MESSAGE_WINDOW_MAX_SIZE &&
+    residentBytes <= MESSAGE_WINDOW_MAX_RESIDENT_BYTES
+  ) {
+    syncSessionMessageWindowFlags(session)
     return
   }
 
-  const maxRemovable = Math.max(0, session.messages.length - MESSAGE_WINDOW_TAIL_PRESERVE)
-  const trimCount = Math.min(removableCount, maxRemovable)
-  if (trimCount <= 0) return
-  session.messages.splice(0, trimCount)
-  session.loadedRangeStart = Math.min(session.messageCount, session.loadedRangeStart + trimCount)
+  const shouldTrim = (): boolean =>
+    session.messages.length > MESSAGE_WINDOW_MAX_SIZE ||
+    getResidentMessageBytes(session.messages) > MESSAGE_WINDOW_MAX_RESIDENT_BYTES
+
+  if (preserve === 'head') {
+    while (shouldTrim() && session.messages.length > MESSAGE_WINDOW_MIN_RESIDENT_ROWS) {
+      const removed = session.messages.pop()
+      if (!removed) break
+      session.loadedRangeEnd = Math.max(session.loadedRangeStart, session.loadedRangeEnd - 1)
+    }
+    syncSessionMessageWindowFlags(session)
+    return
+  }
+
+  while (shouldTrim() && session.messages.length > MESSAGE_WINDOW_MIN_RESIDENT_ROWS) {
+    session.messages.shift()
+    session.loadedRangeStart = Math.min(session.messageCount, session.loadedRangeStart + 1)
+  }
+  syncSessionMessageWindowFlags(session)
 }
 
 function getMessageWindowPreserveMode(
@@ -1760,7 +2098,7 @@ function backfillStreamingMessage(
 }
 
 function getResidentSessionIds(
-  state: Pick<ChatStore, 'activeSessionId' | 'streamingMessages'>
+  state: Pick<ChatStore, 'activeSessionId' | 'streamingMessages' | 'sessions'>
 ): Set<string> {
   const residentSessionIds = new Set<string>()
   if (state.activeSessionId) {
@@ -1769,6 +2107,11 @@ function getResidentSessionIds(
 
   for (const sessionId of Object.keys(state.streamingMessages)) {
     residentSessionIds.add(sessionId)
+  }
+
+  const knownSessionIds = new Set(state.sessions.map((session) => session.id))
+  for (const sessionId of _recentSessionWindowLru) {
+    if (knownSessionIds.has(sessionId)) residentSessionIds.add(sessionId)
   }
 
   // Any session that is currently executing (agent loop, sub-agents, background
@@ -1818,8 +2161,6 @@ function releaseDormantSessionMemory(
   for (const session of state.sessions) {
     if (residentSessionIds.has(session.id)) continue
 
-    _preservedResidentHistorySessionIds.delete(session.id)
-
     delete session.promptSnapshot
 
     if (state.streamingMessages[session.id]) continue
@@ -1834,6 +2175,9 @@ function releaseDormantSessionMemory(
     session.messages = []
     session.loadedRangeStart = session.messageCount
     session.loadedRangeEnd = session.messageCount
+    session.hasOlder = session.messageCount > 0
+    session.hasNewer = false
+    session.residentBytes = 0
   }
 
   if (releasedMessageIds.size === 0) return
@@ -1848,14 +2192,6 @@ function releaseDormantSessionMemory(
       delete state.imageGenerationTimings[messageId]
     }
   }
-}
-
-function isToolResultOnlyUserMessage(message: UnifiedMessage): boolean {
-  return (
-    message.role === 'user' &&
-    Array.isArray(message.content) &&
-    message.content.every((block) => block.type === 'tool_result')
-  )
 }
 
 function estimateMessageWeight(message: UnifiedMessage): number {
@@ -1884,6 +2220,23 @@ function estimateMessageWeight(message: UnifiedMessage): number {
   }
 
   return total
+}
+
+function hasToolResultOnlyUserMessage(message: UnifiedMessage): boolean {
+  return (
+    message.role === 'user' &&
+    Array.isArray(message.content) &&
+    message.content.length > 0 &&
+    message.content.every((block) => block.type === 'tool_result')
+  )
+}
+
+function hasToolUseMessage(message: UnifiedMessage): boolean {
+  return (
+    message.role === 'assistant' &&
+    Array.isArray(message.content) &&
+    message.content.some((block) => block.type === 'tool_use')
+  )
 }
 
 function hasToolReferenceSplit(messages: UnifiedMessage[], boundary: number): boolean {
@@ -2367,7 +2720,10 @@ function mergeLoadedMessagesWithResident(
   const residentEnd = session.loadedRangeEnd ?? residentStart + session.messages.length
   session.messages.forEach((resident, index) => {
     if (seen.has(resident.id)) return
-    const logicalIndex = Math.max(0, residentStart + index)
+    const logicalIndex =
+      typeof resident.sortOrder === 'number' && Number.isFinite(resident.sortOrder)
+        ? Math.max(0, Math.floor(resident.sortOrder))
+        : Math.max(0, residentStart + index)
     const isResidentPrefixOutsideFetchedWindow =
       logicalIndex < windowStart && logicalIndex >= residentStart && logicalIndex < knownCount
     const isLocalTailNotInDbYet =
@@ -2578,6 +2934,7 @@ export const useChatStore = create<ChatStore>()(
     generatingImagePreviews: {},
     _loaded: false,
     projectSessionLoadState: {},
+    sessionListPageState: {},
 
     ensureDefaultProject: async () => {
       try {
@@ -2627,6 +2984,11 @@ export const useChatStore = create<ChatStore>()(
         if (nextSessionId) state.activeSessionId = nextSessionId
       })
       if (prevSessionId !== nextSessionId) {
+        if (prevSessionId) invalidateMessageWindowGeneration(prevSessionId)
+        if (nextSessionId) {
+          invalidateMessageWindowGeneration(nextSessionId)
+          touchSessionWindowLru(nextSessionId)
+        }
         invalidateVisibleSessionCache()
         if (prevSessionId) {
           agentStream.notifySessionVisibility(prevSessionId, false)
@@ -2659,6 +3021,7 @@ export const useChatStore = create<ChatStore>()(
         state.streamingMessageId = null
       })
       if (prevSessionId) {
+        invalidateMessageWindowGeneration(prevSessionId)
         invalidateVisibleSessionCache()
         agentStream.notifySessionVisibility(prevSessionId, false)
       }
@@ -2763,6 +3126,8 @@ export const useChatStore = create<ChatStore>()(
 
       set((state) => {
         state.projects = state.projects.filter((project) => project.id !== projectId)
+        delete state.sessionListPageState[projectId]
+        delete state.projectSessionLoadState[projectId]
 
         state.sessions = state.sessions.filter((session) => {
           const shouldDelete = deletedSet.has(session.id) || session.projectId === projectId
@@ -2795,6 +3160,7 @@ export const useChatStore = create<ChatStore>()(
 
         shouldEnsureDefaultProject = state.projects.length === 0
       })
+      invalidateSessionListPageGeneration(projectId)
 
       const agentState = useAgentStore.getState()
       const teamState = useTeamStore.getState()
@@ -2802,6 +3168,9 @@ export const useChatStore = create<ChatStore>()(
       const taskState = useTaskStore.getState()
 
       for (const sessionId of deletedSessionIds) {
+        invalidateMessageWindowGeneration(sessionId)
+        const lruIndex = _recentSessionWindowLru.indexOf(sessionId)
+        if (lruIndex >= 0) _recentSessionWindowLru.splice(lruIndex, 1)
         agentState.setSessionStatus(sessionId, null)
         agentState.clearSessionData(sessionId)
         useBackgroundSessionStore.getState().clearSession(sessionId)
@@ -2866,6 +3235,7 @@ export const useChatStore = create<ChatStore>()(
       const now = Date.now()
       const current = get().projects.find((project) => project.id === projectId)
       if (!current) return
+      invalidateSessionListPageGeneration(projectId)
 
       const nextWorkingFolder =
         patch.workingFolder !== undefined
@@ -2926,193 +3296,489 @@ export const useChatStore = create<ChatStore>()(
       }
     },
 
-    loadRecentSessionMessages: async (sessionId, force = false, limit) => {
-      const session = get().sessions.find((s) => s.id === sessionId)
-      if (!session) return
-      const knownCount = session.messageCount ?? session.messages.length
-      const sessionTailMessageIds = session.messages
-        .slice(-MESSAGE_LOAD_SNAPSHOT_TAIL_SIZE)
-        .map((message) => message.id)
-      const requestedLimit = Math.max(
-        MIN_INITIAL_SESSION_MESSAGE_PAGE_SIZE,
-        Math.min(
-          limit ?? INITIAL_SESSION_DISPLAY_PAGE_SIZE,
-          knownCount || MIN_INITIAL_SESSION_MESSAGE_PAGE_SIZE
-        )
-      )
-      if (!force && session.messagesLoaded && session.messages.length > 0) {
-        const loadedAtTail = session.loadedRangeEnd === knownCount
-        if (loadedAtTail && session.messages.length >= requestedLimit) return
-      }
-      if (knownCount === 0) {
-        set((state) => {
-          const target = state.sessions.find((s) => s.id === sessionId)
-          if (!target) return
-          target.messages = []
-          target.messagesLoaded = true
-          target.messageCount = 0
-          target.loadedRangeStart = 0
-          target.loadedRangeEnd = 0
-          target.lastKnownMessageCount = 0
-        })
-        return
-      }
-      try {
-        const nextLimit = Math.max(
-          MIN_INITIAL_SESSION_MESSAGE_PAGE_SIZE,
-          Math.min(limit ?? INITIAL_SESSION_DISPLAY_PAGE_SIZE, knownCount)
-        )
-        let effectiveKnownCount = knownCount
-        let windowStart = Math.max(0, effectiveKnownCount - nextLimit)
-        let msgRows = await dbListMessagesPage({
-          sessionId,
-          limit: nextLimit,
-          offset: windowStart
-        })
-
-        if (msgRows.length === 0) {
-          const actualCount = await invokeMessagePackBinary<number>(
-            DB_MESSAGES_COUNT_MSGPACK_CHANNEL,
-            sessionId
-          )
-          if (actualCount !== effectiveKnownCount) {
-            effectiveKnownCount = actualCount
-            windowStart = Math.max(0, effectiveKnownCount - nextLimit)
-            msgRows = await dbListMessagesPage({
-              sessionId,
-              limit: nextLimit,
-              offset: windowStart
-            })
-          }
-        }
-
-        let messages = msgRows.map(rowToMessage)
-        let messageSortOrders = msgRows.map((row) => row.sort_order)
-
-        while (
-          windowStart > 0 &&
-          messages.length > 0 &&
-          messages.every((message) => isToolResultOnlyUserMessage(message))
-        ) {
-          const prependCount = Math.min(nextLimit, windowStart)
-          const prependOffset = Math.max(0, windowStart - prependCount)
-          const prependRows = await dbListMessagesPage({
-            sessionId,
-            limit: prependCount,
-            offset: prependOffset
-          })
-          const prependMessages = prependRows.map(rowToMessage)
-          const prependSortOrders = prependRows.map((row) => row.sort_order)
-          if (prependMessages.length === 0) break
-          messages = [...prependMessages, ...messages]
-          messageSortOrders = [...prependSortOrders, ...messageSortOrders]
-          windowStart = prependOffset
-        }
-
-        const latestSession = get().sessions.find((s) => s.id === sessionId)
-        if (!matchesMessageLoadSnapshot(latestSession, knownCount, sessionTailMessageIds)) {
-          return
-        }
-
-        set((state) => {
-          const target = state.sessions.find((s) => s.id === sessionId)
-          if (!target || !matchesMessageLoadSnapshot(target, knownCount, sessionTailMessageIds)) {
-            return
-          }
-          if (
-            !force &&
-            target.messagesLoaded &&
-            target.loadedRangeStart === 0 &&
-            target.loadedRangeEnd >= effectiveKnownCount &&
-            target.messages.length >= effectiveKnownCount
-          ) {
-            return
-          }
-          const merged = mergeLoadedMessagesWithResident(
-            target,
-            messages,
-            windowStart,
-            Math.max(windowStart + messages.length, ...messageSortOrders.map((order) => order + 1)),
-            effectiveKnownCount,
-            messageSortOrders
-          )
-          target.messages = merged.messages
-          target.messagesLoaded = true
-          target.messageCount = merged.messageCount
-          target.loadedRangeStart = merged.loadedRangeStart
-          target.loadedRangeEnd = merged.loadedRangeEnd
-          target.lastKnownMessageCount = merged.messageCount
-          trimSessionMessageWindow(target, 'tail')
-        })
-      } catch (err) {
-        console.error('[ChatStore] Failed to load recent session messages:', err)
-      }
+    ensureSessionWindow: async (sessionId, force = false) => {
+      await get().loadRecentSessionMessages(sessionId, force)
+      const session = get().sessions.find((item) => item.id === sessionId)
+      if (!session) return false
+      if (session.messageCount === 0) return session.messagesLoaded
+      return session.messagesLoaded && session.messages.length > 0
     },
 
-    loadOlderSessionMessages: async (
+    loadRecentSessionMessages: async (
       sessionId,
-      limit = RECENT_SESSION_MESSAGE_PAGE_SIZE,
-      options
+      force = false,
+      limit = MESSAGE_WINDOW_MAX_SIZE
     ) => {
       const session = get().sessions.find((s) => s.id === sessionId)
+      if (!session) return
+      touchSessionWindowLru(sessionId)
+      if (
+        !force &&
+        session.messagesLoaded &&
+        session.messages.length > 0 &&
+        session.hasNewer === false &&
+        session.loadedRangeEnd >= session.messageCount
+      ) {
+        return
+      }
+
+      const generation = getMessageWindowGeneration(sessionId)
+      await dedupeMessageWindowRequest(sessionId, 'tail', generation, async () => {
+        const latestBeforeRead = get().sessions.find((item) => item.id === sessionId)
+        const knownCount =
+          latestBeforeRead?.messageCount ?? session.messageCount ?? session.messages.length
+        if (knownCount === 0) {
+          set((state) => {
+            const target = state.sessions.find((s) => s.id === sessionId)
+            if (!target) return
+            target.messages = []
+            target.messagesLoaded = true
+            target.messageCount = 0
+            target.loadedRangeStart = 0
+            target.loadedRangeEnd = 0
+            target.hasOlder = false
+            target.hasNewer = false
+            target.residentBytes = 0
+            target.lastKnownMessageCount = 0
+          })
+          return 0
+        }
+
+        try {
+          const indexStartedAt = messageWindowPerfNow()
+          const index = await dbGetMessageWindowIndex({
+            sessionId,
+            direction: 'tail',
+            byteBudget: MESSAGE_WINDOW_INITIAL_BYTE_BUDGET,
+            maxRows: Math.min(MESSAGE_WINDOW_MAX_SIZE, Math.max(1, Math.floor(limit)))
+          })
+          const indexElapsedMs = Math.max(0, messageWindowPerfNow() - indexStartedAt)
+          if (!index.success) throw new Error(index.error || 'Failed to read message index')
+          const rangeStartedAt = messageWindowPerfNow()
+          const range = await dbGetMessageRange({
+            sessionId,
+            start: index.start,
+            end: index.end,
+            oversizedBytes: MESSAGE_WINDOW_OVERSIZED_BYTES
+          })
+          const rangeElapsedMs = Math.max(0, messageWindowPerfNow() - rangeStartedAt)
+          if (!range.success) throw new Error(range.error || 'Failed to read message window')
+          if (getMessageWindowGeneration(sessionId) !== generation) return 0
+
+          let windowStart = range.start
+          let windowEnd = range.end
+          let fetchedRows = [...range.rows]
+          // Keep tool_use/tool_result pairs together when a byte budget cuts
+          // exactly at a protocol boundary. The extra row is intentional and
+          // still avoids transferring the rest of the conversation.
+          const firstMessage = fetchedRows[0] ? rowToWindowMessage(fetchedRows[0]) : null
+          if (firstMessage && hasToolResultOnlyUserMessage(firstMessage) && windowStart > 0) {
+            const pairRange = await dbGetMessageRange({
+              sessionId,
+              start: windowStart - 1,
+              end: windowStart,
+              oversizedBytes: MESSAGE_WINDOW_OVERSIZED_BYTES
+            })
+            if (pairRange.success && pairRange.rows.length > 0) {
+              fetchedRows = [...pairRange.rows, ...fetchedRows]
+              windowStart = pairRange.start
+            }
+          }
+          const lastMessage = fetchedRows.length
+            ? rowToWindowMessage(fetchedRows[fetchedRows.length - 1])
+            : null
+          if (lastMessage && hasToolUseMessage(lastMessage) && windowEnd < range.total) {
+            const pairRange = await dbGetMessageRange({
+              sessionId,
+              start: windowEnd,
+              end: windowEnd + 1,
+              oversizedBytes: MESSAGE_WINDOW_OVERSIZED_BYTES
+            })
+            if (pairRange.success && pairRange.rows.length > 0) {
+              fetchedRows = [...fetchedRows, ...pairRange.rows]
+              windowEnd = pairRange.end
+            }
+          }
+          const fetchedMessages = fetchedRows.map(rowToWindowMessage)
+          set((state) => {
+            const target = state.sessions.find((s) => s.id === sessionId)
+            if (!target || getMessageWindowGeneration(sessionId) !== generation) return
+            const residentById = new Map(target.messages.map((message) => [message.id, message]))
+            const nextMessages = fetchedMessages.map((message) => {
+              const resident = residentById.get(message.id)
+              return resident ? preferWindowMessage(resident, message) : message
+            })
+            const fetchedIds = new Set(nextMessages.map((message) => message.id))
+            // Keep optimistic rows that have not reached SQLite yet, but do not
+            // carry an arbitrary historical window into a new tail request.
+            for (const resident of target.messages) {
+              if (!fetchedIds.has(resident.id) && hasPendingLocalMessageWrite(resident.id)) {
+                nextMessages.push(resident)
+              }
+            }
+            nextMessages.sort((left, right) => {
+              const leftOrder =
+                typeof left.sortOrder === 'number' && Number.isFinite(left.sortOrder)
+                  ? left.sortOrder
+                  : Number.MAX_SAFE_INTEGER
+              const rightOrder =
+                typeof right.sortOrder === 'number' && Number.isFinite(right.sortOrder)
+                  ? right.sortOrder
+                  : Number.MAX_SAFE_INTEGER
+              return leftOrder - rightOrder || left.createdAt - right.createdAt
+            })
+            target.messages = nextMessages
+            target.messagesLoaded = true
+            const pendingLocalOrders = nextMessages
+              .filter((message) => hasPendingLocalMessageWrite(message.id))
+              .map((message) => message.sortOrder)
+              .filter(
+                (order): order is number => typeof order === 'number' && Number.isFinite(order)
+              )
+            const effectiveTotal = Math.max(
+              target.messageCount ?? 0,
+              range.total,
+              ...pendingLocalOrders.map((order) => order + 1)
+            )
+            target.messageCount = effectiveTotal
+            const residentOrders = nextMessages
+              .map((message) => message.sortOrder)
+              .filter(
+                (order): order is number => typeof order === 'number' && Number.isFinite(order)
+              )
+            target.loadedRangeStart = Math.min(
+              windowStart,
+              ...(residentOrders.length > 0 ? residentOrders : [windowStart])
+            )
+            target.loadedRangeEnd = Math.max(
+              windowEnd,
+              ...(residentOrders.length > 0
+                ? residentOrders.map((order) => order + 1)
+                : [windowEnd])
+            )
+            target.hasOlder = target.loadedRangeStart > 0
+            target.hasNewer = target.loadedRangeEnd < effectiveTotal || range.hasNewer
+            target.lastKnownMessageCount = effectiveTotal
+            target.residentBytes = getResidentMessageBytes(target.messages)
+            trimSessionMessageWindow(target, 'tail')
+          })
+          logMessageWindowPerf('tail', {
+            sessionId,
+            indexElapsedMs,
+            rangeElapsedMs,
+            loadedBytes: fetchedRows.reduce((sum, row) => sum + Math.max(0, row.content_bytes), 0),
+            start: windowStart,
+            end: windowEnd,
+            total: range.total,
+            residentBytes: getResidentMessageBytes(
+              get().sessions.find((item) => item.id === sessionId)?.messages ?? []
+            )
+          })
+          return fetchedMessages.length
+        } catch (error) {
+          console.error('[ChatStore] Failed to load content-aware message tail:', error)
+          // Keep a compatibility fallback for databases/workers upgraded while
+          // the renderer is still running an older native binary.
+          try {
+            const fallbackLimit = Math.min(MESSAGE_WINDOW_MAX_SIZE, Math.max(30, knownCount))
+            const rows = await dbListMessagesPage({
+              sessionId,
+              limit: fallbackLimit,
+              offset: Math.max(0, knownCount - fallbackLimit)
+            })
+            if (getMessageWindowGeneration(sessionId) !== generation) return 0
+            const messages = rows.map(rowToMessage)
+            set((state) => {
+              const target = state.sessions.find((item) => item.id === sessionId)
+              if (!target) return
+              target.messages = messages
+              target.messagesLoaded = true
+              target.messageCount = knownCount
+              target.loadedRangeStart = Math.max(0, knownCount - messages.length)
+              target.loadedRangeEnd = knownCount
+              target.hasOlder = target.loadedRangeStart > 0
+              target.hasNewer = false
+              target.lastKnownMessageCount = knownCount
+              target.residentBytes = getResidentMessageBytes(messages)
+              trimSessionMessageWindow(target, 'tail')
+            })
+            return messages.length
+          } catch (fallbackError) {
+            console.error('[ChatStore] Fallback message window load failed:', fallbackError)
+            return 0
+          }
+        }
+      })
+    },
+
+    loadOlderSessionMessages: async (sessionId, limit = RECENT_SESSION_MESSAGE_PAGE_SIZE) => {
+      const session = get().sessions.find((s) => s.id === sessionId)
       if (!session) return 0
+      touchSessionWindowLru(sessionId)
       if (!session.messagesLoaded) {
-        await get().loadRecentSessionMessages(sessionId)
+        await get().ensureSessionWindow(sessionId)
       }
       const latest = get().sessions.find((s) => s.id === sessionId)
       if (!latest) return 0
-      const olderCount = Math.max(0, latest.loadedRangeStart)
-      if (olderCount === 0) return 0
-      const nextCount = Math.min(limit, olderCount)
-      let offset = olderCount - nextCount
-      try {
-        const msgRows = await dbListMessagesPage({
-          sessionId,
-          limit: nextCount,
-          offset
-        })
-        let olderMessages = msgRows.map(rowToMessage)
+      if (latest.hasOlder === false || latest.loadedRangeStart <= 0) return 0
 
-        while (
-          offset > 0 &&
-          olderMessages.length > 0 &&
-          olderMessages.every((message) => isToolResultOnlyUserMessage(message))
-        ) {
-          const prependCount = Math.min(limit, offset)
-          const prependOffset = Math.max(0, offset - prependCount)
-          const prependRows = await dbListMessagesPage({
+      const generation = getMessageWindowGeneration(sessionId)
+      return dedupeMessageWindowRequest(sessionId, 'older', generation, async () => {
+        try {
+          const current = get().sessions.find((item) => item.id === sessionId)
+          if (!current || current.loadedRangeStart <= 0) return 0
+          const indexStartedAt = messageWindowPerfNow()
+          const index = await dbGetMessageWindowIndex({
             sessionId,
-            limit: prependCount,
-            offset: prependOffset
+            direction: 'older',
+            anchorSortOrder: current.messages[0]?.sortOrder ?? current.loadedRangeStart,
+            byteBudget: MESSAGE_WINDOW_INCREMENTAL_BYTE_BUDGET,
+            maxRows: Math.min(MESSAGE_WINDOW_MAX_SIZE, Math.max(1, limit))
           })
-          const prependMessages = prependRows.map(rowToMessage)
-          if (prependMessages.length === 0) break
-          olderMessages = [...prependMessages, ...olderMessages]
-          offset = prependOffset
-        }
-
-        if (olderMessages.length === 0) return 0
-        set((state) => {
-          const target = state.sessions.find((s) => s.id === sessionId)
-          if (!target) return
-          const existingIds = new Set(target.messages.map((message) => message.id))
-          const merged = olderMessages.filter((message) => !existingIds.has(message.id))
-          if (merged.length === 0) return
-          target.messages = [...merged, ...target.messages]
-          target.messagesLoaded = true
-          target.loadedRangeStart = offset
-          target.loadedRangeEnd = Math.max(target.loadedRangeEnd, offset + target.messages.length)
-          target.lastKnownMessageCount = target.messageCount
-          if (options?.preserveResidentHistory) {
-            _preservedResidentHistorySessionIds.add(sessionId)
+          const indexElapsedMs = Math.max(0, messageWindowPerfNow() - indexStartedAt)
+          if (!index.success || index.rows.length === 0) return 0
+          const rangeStartedAt = messageWindowPerfNow()
+          const range = await dbGetMessageRange({
+            sessionId,
+            start: index.start,
+            end: index.end,
+            oversizedBytes: MESSAGE_WINDOW_OVERSIZED_BYTES
+          })
+          const rangeElapsedMs = Math.max(0, messageWindowPerfNow() - rangeStartedAt)
+          if (!range.success || getMessageWindowGeneration(sessionId) !== generation) return 0
+          let rangeStart = range.start
+          let rangeEnd = range.end
+          let rangeRows = [...range.rows]
+          const firstOlder = rangeRows[0] ? rowToWindowMessage(rangeRows[0]) : null
+          if (firstOlder && hasToolResultOnlyUserMessage(firstOlder) && rangeStart > 0) {
+            const pair = await dbGetMessageRange({
+              sessionId,
+              start: rangeStart - 1,
+              end: rangeStart,
+              oversizedBytes: MESSAGE_WINDOW_OVERSIZED_BYTES
+            })
+            if (pair.success && pair.rows.length > 0) {
+              rangeRows = [...pair.rows, ...rangeRows]
+              rangeStart = pair.start
+            }
           }
-          trimSessionMessageWindow(target, getMessageWindowPreserveMode(target, 'head'))
-        })
-        return olderMessages.length
-      } catch (err) {
-        console.error('[ChatStore] Failed to load older session messages:', err)
+          const lastOlder = rangeRows.length
+            ? rowToWindowMessage(rangeRows[rangeRows.length - 1])
+            : null
+          if (lastOlder && hasToolUseMessage(lastOlder) && rangeEnd < range.total) {
+            const pair = await dbGetMessageRange({
+              sessionId,
+              start: rangeEnd,
+              end: rangeEnd + 1,
+              oversizedBytes: MESSAGE_WINDOW_OVERSIZED_BYTES
+            })
+            if (pair.success && pair.rows.length > 0) {
+              rangeRows = [...rangeRows, ...pair.rows]
+              rangeEnd = pair.end
+            }
+          }
+          if (getMessageWindowGeneration(sessionId) !== generation) return 0
+          const olderMessages = rangeRows.map(rowToWindowMessage)
+          set((state) => {
+            const target = state.sessions.find((item) => item.id === sessionId)
+            if (!target) return
+            const byId = new Map(target.messages.map((message) => [message.id, message]))
+            for (const message of olderMessages) {
+              const resident = byId.get(message.id)
+              byId.set(message.id, resident ? preferWindowMessage(resident, message) : message)
+            }
+            const existingStart = target.loadedRangeStart
+            const existingEnd = target.loadedRangeEnd
+            const orderById = new Map<string, number>()
+            target.messages.forEach((message, index) => {
+              orderById.set(
+                message.id,
+                typeof message.sortOrder === 'number' && Number.isFinite(message.sortOrder)
+                  ? message.sortOrder
+                  : existingStart + index
+              )
+            })
+            rangeRows.forEach((row, index) =>
+              orderById.set(
+                row.id,
+                typeof row.sort_order === 'number' ? row.sort_order : rangeStart + index
+              )
+            )
+            target.messages = [...byId.values()].sort((left, right) => {
+              return (
+                (orderById.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+                (orderById.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+              )
+            })
+            target.messagesLoaded = true
+            const residentOrders = target.messages
+              .map((message) => message.sortOrder)
+              .filter(
+                (order): order is number => typeof order === 'number' && Number.isFinite(order)
+              )
+            const effectiveTotal = Math.max(
+              target.messageCount ?? 0,
+              range.total,
+              ...residentOrders.map((order) => order + 1)
+            )
+            target.messageCount = effectiveTotal
+            target.loadedRangeStart = Math.min(existingStart, rangeStart)
+            target.loadedRangeEnd = Math.max(existingEnd, rangeEnd)
+            target.hasOlder = target.loadedRangeStart > 0 || range.hasOlder
+            target.hasNewer = target.loadedRangeEnd < effectiveTotal || range.hasNewer
+            target.lastKnownMessageCount = effectiveTotal
+            target.residentBytes = getResidentMessageBytes(target.messages)
+            trimSessionMessageWindow(target, getMessageWindowPreserveMode(target, 'head'))
+          })
+          logMessageWindowPerf('older', {
+            sessionId,
+            indexElapsedMs,
+            rangeElapsedMs,
+            loadedBytes: range.loadedBytes,
+            start: range.start,
+            end: range.end,
+            total: range.total
+          })
+          return olderMessages.length
+        } catch (error) {
+          console.error('[ChatStore] Failed to load older content-aware messages:', error)
+          return 0
+        }
+      })
+    },
+
+    loadNewerSessionMessages: async (sessionId, limit = RECENT_SESSION_MESSAGE_PAGE_SIZE) => {
+      const session = get().sessions.find((item) => item.id === sessionId)
+      if (
+        !session ||
+        session.hasNewer === false ||
+        session.loadedRangeEnd >= session.messageCount
+      ) {
         return 0
       }
+      touchSessionWindowLru(sessionId)
+      const generation = getMessageWindowGeneration(sessionId)
+      return dedupeMessageWindowRequest(sessionId, 'newer', generation, async () => {
+        try {
+          const current = get().sessions.find((item) => item.id === sessionId)
+          if (!current || current.loadedRangeEnd >= current.messageCount) return 0
+          const indexStartedAt = messageWindowPerfNow()
+          const index = await dbGetMessageWindowIndex({
+            sessionId,
+            direction: 'newer',
+            anchorSortOrder:
+              (current.messages[current.messages.length - 1]?.sortOrder ??
+                current.loadedRangeEnd - 1) + 1,
+            byteBudget: MESSAGE_WINDOW_INCREMENTAL_BYTE_BUDGET,
+            maxRows: Math.min(MESSAGE_WINDOW_MAX_SIZE, Math.max(1, limit))
+          })
+          const indexElapsedMs = Math.max(0, messageWindowPerfNow() - indexStartedAt)
+          if (!index.success || index.rows.length === 0) return 0
+          const rangeStartedAt = messageWindowPerfNow()
+          const range = await dbGetMessageRange({
+            sessionId,
+            start: index.start,
+            end: index.end,
+            oversizedBytes: MESSAGE_WINDOW_OVERSIZED_BYTES
+          })
+          const rangeElapsedMs = Math.max(0, messageWindowPerfNow() - rangeStartedAt)
+          if (!range.success || getMessageWindowGeneration(sessionId) !== generation) return 0
+          let rangeStart = range.start
+          let rangeEnd = range.end
+          let rangeRows = [...range.rows]
+          const firstNewer = rangeRows[0] ? rowToWindowMessage(rangeRows[0]) : null
+          if (firstNewer && hasToolResultOnlyUserMessage(firstNewer) && rangeStart > 0) {
+            const pair = await dbGetMessageRange({
+              sessionId,
+              start: rangeStart - 1,
+              end: rangeStart,
+              oversizedBytes: MESSAGE_WINDOW_OVERSIZED_BYTES
+            })
+            if (pair.success && pair.rows.length > 0) {
+              rangeRows = [...pair.rows, ...rangeRows]
+              rangeStart = pair.start
+            }
+          }
+          const lastNewer = rangeRows.length
+            ? rowToWindowMessage(rangeRows[rangeRows.length - 1])
+            : null
+          if (lastNewer && hasToolUseMessage(lastNewer) && rangeEnd < range.total) {
+            const pair = await dbGetMessageRange({
+              sessionId,
+              start: rangeEnd,
+              end: rangeEnd + 1,
+              oversizedBytes: MESSAGE_WINDOW_OVERSIZED_BYTES
+            })
+            if (pair.success && pair.rows.length > 0) {
+              rangeRows = [...rangeRows, ...pair.rows]
+              rangeEnd = pair.end
+            }
+          }
+          if (getMessageWindowGeneration(sessionId) !== generation) return 0
+          const newerMessages = rangeRows.map(rowToWindowMessage)
+          set((state) => {
+            const target = state.sessions.find((item) => item.id === sessionId)
+            if (!target) return
+            const byId = new Map(target.messages.map((message) => [message.id, message]))
+            for (const message of newerMessages) {
+              const resident = byId.get(message.id)
+              byId.set(message.id, resident ? preferWindowMessage(resident, message) : message)
+            }
+            const orderById = new Map<string, number>()
+            target.messages.forEach((message, index) => {
+              orderById.set(
+                message.id,
+                typeof message.sortOrder === 'number' && Number.isFinite(message.sortOrder)
+                  ? message.sortOrder
+                  : target.loadedRangeStart + index
+              )
+            })
+            rangeRows.forEach((row, index) =>
+              orderById.set(
+                row.id,
+                typeof row.sort_order === 'number' ? row.sort_order : rangeStart + index
+              )
+            )
+            target.messages = [...byId.values()].sort(
+              (left, right) =>
+                (orderById.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+                (orderById.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+            )
+            target.messagesLoaded = true
+            const residentOrders = target.messages
+              .map((message) => message.sortOrder)
+              .filter(
+                (order): order is number => typeof order === 'number' && Number.isFinite(order)
+              )
+            const effectiveTotal = Math.max(
+              target.messageCount ?? 0,
+              range.total,
+              ...residentOrders.map((order) => order + 1)
+            )
+            target.messageCount = effectiveTotal
+            target.loadedRangeStart = Math.min(target.loadedRangeStart, rangeStart)
+            target.loadedRangeEnd = Math.max(target.loadedRangeEnd, rangeEnd)
+            target.hasOlder = target.loadedRangeStart > 0 || range.hasOlder
+            target.hasNewer = target.loadedRangeEnd < effectiveTotal || range.hasNewer
+            target.lastKnownMessageCount = effectiveTotal
+            target.residentBytes = getResidentMessageBytes(target.messages)
+            trimSessionMessageWindow(target, getMessageWindowPreserveMode(target, 'tail'))
+          })
+          logMessageWindowPerf('newer', {
+            sessionId,
+            indexElapsedMs,
+            rangeElapsedMs,
+            loadedBytes: range.loadedBytes,
+            start: range.start,
+            end: range.end,
+            total: range.total
+          })
+          return newerMessages.length
+        } catch (error) {
+          console.error('[ChatStore] Failed to load newer content-aware messages:', error)
+          return 0
+        }
+      })
     },
 
     loadMessageWindowAround: async (
@@ -3122,22 +3788,72 @@ export const useChatStore = create<ChatStore>()(
     ) => {
       const session = get().sessions.find((s) => s.id === sessionId)
       if (!session) return
+      const generation = invalidateMessageWindowGeneration(sessionId)
       const safeLimit = Math.max(
         MIN_INITIAL_SESSION_MESSAGE_PAGE_SIZE,
         Math.min(MESSAGE_WINDOW_MAX_SIZE, Math.floor(limit))
       )
       try {
-        const result = await dbListMessagesWindowAround({
-          sessionId,
-          messageId: anchor.messageId,
-          sortOrder: anchor.sortOrder,
-          limit: safeLimit
-        })
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to load message window')
+        let result: MessageRangeResult | null = null
+        const anchorSortOrder =
+          typeof anchor.sortOrder === 'number' && Number.isFinite(anchor.sortOrder)
+            ? Math.max(0, Math.floor(anchor.sortOrder))
+            : null
+        if (anchorSortOrder !== null) {
+          const start = Math.max(0, anchorSortOrder - Math.floor(safeLimit / 2))
+          result = await dbGetMessageRange({
+            sessionId,
+            start,
+            end: start + safeLimit,
+            oversizedBytes: MESSAGE_WINDOW_OVERSIZED_BYTES
+          })
         }
+        if (
+          !result?.success ||
+          (anchor.messageId && !result.rows.some((row) => row.id === anchor.messageId))
+        ) {
+          // Older workers, sparse sort orders, and callers without a locator
+          // order still use the compatibility around query. It is deliberately
+          // a fallback; the normal locator path is index -> range and can shell
+          // oversized rows.
+          const around = await dbListMessagesWindowAround({
+            sessionId,
+            messageId: anchor.messageId,
+            sortOrder: anchor.sortOrder,
+            limit: safeLimit
+          })
+          if (!around.success) {
+            throw new Error(around.error || result?.error || 'Failed to load message window')
+          }
+          result = {
+            success: true,
+            rows: around.rows.map((row) => ({
+              id: row.id,
+              session_id: row.session_id,
+              role: row.role,
+              content: row.content,
+              preview: null,
+              meta: row.meta,
+              created_at: row.created_at,
+              usage: row.usage,
+              sort_order: row.sort_order,
+              content_bytes: new TextEncoder().encode(row.content).byteLength,
+              content_state: 'full' as const
+            })),
+            start: around.start,
+            end: around.end,
+            total: around.total,
+            hasOlder: around.start > 0,
+            hasNewer: around.end < around.total,
+            loadedBytes: around.rows.reduce(
+              (sum, row) => sum + new TextEncoder().encode(row.content).byteLength,
+              0
+            )
+          }
+        }
+        if (getMessageWindowGeneration(sessionId) !== generation || !result) return
 
-        const messages = result.rows.map(rowToMessage)
+        const messages = result.rows.map(rowToWindowMessage)
         const messageSortOrders = result.rows.map((row) => row.sort_order)
         set((state) => {
           const target = state.sessions.find((s) => s.id === sessionId)
@@ -3152,10 +3868,21 @@ export const useChatStore = create<ChatStore>()(
           )
           target.messages = merged.messages
           target.messagesLoaded = true
-          target.messageCount = result.total
+          const residentOrders = target.messages
+            .map((message) => message.sortOrder)
+            .filter((order): order is number => typeof order === 'number' && Number.isFinite(order))
+          const effectiveTotal = Math.max(
+            target.messageCount ?? 0,
+            result.total,
+            ...residentOrders.map((order) => order + 1)
+          )
+          target.messageCount = effectiveTotal
           target.loadedRangeStart = merged.loadedRangeStart
           target.loadedRangeEnd = merged.loadedRangeEnd
-          target.lastKnownMessageCount = result.total
+          target.hasOlder = target.loadedRangeStart > 0
+          target.hasNewer = target.loadedRangeEnd < effectiveTotal || result.hasNewer
+          target.lastKnownMessageCount = effectiveTotal
+          target.residentBytes = getResidentMessageBytes(target.messages)
           trimSessionMessageWindow(
             target,
             getMessageWindowPreserveMode(
@@ -3169,12 +3896,60 @@ export const useChatStore = create<ChatStore>()(
       }
     },
 
+    loadMessageContent: async (sessionId, messageId) => {
+      const generation = getMessageWindowGeneration(sessionId)
+      const key = `${sessionId}:${messageId}:${generation}`
+      const existing = _pendingMessageContentRequests.get(key)
+      if (existing) return existing
+      const request = (async (): Promise<boolean> => {
+        try {
+          const result = await dbGetMessageContent({ sessionId, messageId })
+          if (!result.success || !result.row) return false
+          if (getMessageWindowGeneration(sessionId) !== generation) return false
+          const hydrated = rowToMessage(result.row)
+          hydrated.contentState = 'full'
+          set((state) => {
+            const target = state.sessions.find((item) => item.id === sessionId)
+            const index = target?.messages.findIndex((message) => message.id === messageId) ?? -1
+            if (!target || index < 0 || getMessageWindowGeneration(sessionId) !== generation) return
+            const resident = target.messages[index]
+            if (hasPendingLocalMessageWrite(messageId)) return
+            hydrated._revision = (resident._revision ?? 0) + 1
+            target.messages[index] = {
+              ...resident,
+              ...hydrated,
+              contentState: 'full',
+              contentBytes: Math.max(hydrated.contentBytes ?? 0, resident.contentBytes ?? 0),
+              sortOrder: resident.sortOrder ?? hydrated.sortOrder
+            }
+            const preserveFallback =
+              (resident.sortOrder ?? target.loadedRangeEnd - 1) >=
+              target.loadedRangeEnd - MESSAGE_WINDOW_TAIL_PRESERVE
+                ? 'tail'
+                : 'head'
+            trimSessionMessageWindow(target, getMessageWindowPreserveMode(target, preserveFallback))
+          })
+          return true
+        } catch (error) {
+          console.error('[ChatStore] Failed to hydrate message content:', error)
+          return false
+        }
+      })().finally(() => {
+        if (_pendingMessageContentRequests.get(key) === request) {
+          _pendingMessageContentRequests.delete(key)
+        }
+      })
+      _pendingMessageContentRequests.set(key, request)
+      return request
+    },
+
     insertCompactArtifacts: async (sessionId, artifacts, options) => {
       const artifactMessages = artifacts.filter(isCompactArtifactMessage)
       if (artifactMessages.length === 0) return false
 
       const session = get().sessions.find((s) => s.id === sessionId)
       if (!session) return false
+      invalidateMessageWindowGeneration(sessionId)
 
       const insertBeforeMessageId = options?.insertBeforeMessageId ?? null
       const insertBeforeIndex = insertBeforeMessageId
@@ -3245,8 +4020,11 @@ export const useChatStore = create<ChatStore>()(
           residentInsertIndex = residentWithoutArtifacts.length
         }
 
-        const revisedArtifacts = artifactMessages.map((artifact) => ({
+        const revisedArtifacts = artifactMessages.map((artifact, index) => ({
           ...artifact,
+          sortOrder: result.start + index,
+          contentState: 'full' as const,
+          contentBytes: estimateMessageWeight(artifact),
           _revision: (artifact._revision ?? 0) + 1
         }))
         target.messages =
@@ -3271,6 +4049,7 @@ export const useChatStore = create<ChatStore>()(
           )
           trimSessionMessageWindow(target, getMessageWindowPreserveMode(target, 'head'))
         }
+        syncSessionMessageWindowFlags(target)
         target.lastKnownMessageCount = result.total
         target.updatedAt = now
       })
@@ -3288,6 +4067,7 @@ export const useChatStore = create<ChatStore>()(
     loadSessionMessages: async (sessionId, force = false) => {
       const session = get().sessions.find((s) => s.id === sessionId)
       if (!session) return
+      const generation = getMessageWindowGeneration(sessionId)
       const knownCount = session.messageCount ?? session.messages.length
       const sessionTailMessageIds = session.messages
         .slice(-MESSAGE_LOAD_SNAPSHOT_TAIL_SIZE)
@@ -3303,12 +4083,19 @@ export const useChatStore = create<ChatStore>()(
         const messages = msgRows.map(rowToMessage)
         const messageSortOrders = msgRows.map((row) => row.sort_order)
         const latestSession = get().sessions.find((s) => s.id === sessionId)
-        if (!matchesMessageLoadSnapshot(latestSession, knownCount, sessionTailMessageIds)) {
+        if (
+          getMessageWindowGeneration(sessionId) !== generation ||
+          !matchesMessageLoadSnapshot(latestSession, knownCount, sessionTailMessageIds)
+        ) {
           return
         }
         set((state) => {
           const target = state.sessions.find((s) => s.id === sessionId)
-          if (!target || !matchesMessageLoadSnapshot(target, knownCount, sessionTailMessageIds)) {
+          if (
+            !target ||
+            getMessageWindowGeneration(sessionId) !== generation ||
+            !matchesMessageLoadSnapshot(target, knownCount, sessionTailMessageIds)
+          ) {
             return
           }
           const merged = mergeLoadedMessagesWithResident(
@@ -3324,6 +4111,9 @@ export const useChatStore = create<ChatStore>()(
           target.messageCount = merged.messageCount
           target.loadedRangeStart = merged.loadedRangeStart
           target.loadedRangeEnd = merged.loadedRangeEnd
+          target.hasOlder = target.loadedRangeStart > 0
+          target.hasNewer = target.loadedRangeEnd < merged.messageCount
+          target.residentBytes = getResidentMessageBytes(target.messages)
           target.lastKnownMessageCount = merged.messageCount
         })
       } catch (err) {
@@ -3334,6 +4124,7 @@ export const useChatStore = create<ChatStore>()(
     loadWindowSessionMessages: async (sessionId, offset, limit) => {
       const session = get().sessions.find((s) => s.id === sessionId)
       if (!session) return
+      const generation = getMessageWindowGeneration(sessionId)
       const knownCount = session.messageCount ?? session.messages.length
       const sessionTailMessageIds = session.messages
         .slice(-MESSAGE_LOAD_SNAPSHOT_TAIL_SIZE)
@@ -3349,12 +4140,19 @@ export const useChatStore = create<ChatStore>()(
         const messages = msgRows.map(rowToMessage)
         const messageSortOrders = msgRows.map((row) => row.sort_order)
         const latestSession = get().sessions.find((s) => s.id === sessionId)
-        if (!matchesMessageLoadSnapshot(latestSession, knownCount, sessionTailMessageIds)) {
+        if (
+          getMessageWindowGeneration(sessionId) !== generation ||
+          !matchesMessageLoadSnapshot(latestSession, knownCount, sessionTailMessageIds)
+        ) {
           return
         }
         set((state) => {
           const target = state.sessions.find((s) => s.id === sessionId)
-          if (!target || !matchesMessageLoadSnapshot(target, knownCount, sessionTailMessageIds)) {
+          if (
+            !target ||
+            getMessageWindowGeneration(sessionId) !== generation ||
+            !matchesMessageLoadSnapshot(target, knownCount, sessionTailMessageIds)
+          ) {
             return
           }
           const merged = mergeLoadedMessagesWithResident(
@@ -3370,6 +4168,9 @@ export const useChatStore = create<ChatStore>()(
           target.messageCount = merged.messageCount
           target.loadedRangeStart = merged.loadedRangeStart
           target.loadedRangeEnd = merged.loadedRangeEnd
+          target.hasOlder = target.loadedRangeStart > 0
+          target.hasNewer = target.loadedRangeEnd < merged.messageCount
+          target.residentBytes = getResidentMessageBytes(target.messages)
           target.lastKnownMessageCount = merged.messageCount
           trimSessionMessageWindow(target, 'tail')
         })
@@ -3423,35 +4224,210 @@ export const useChatStore = create<ChatStore>()(
     },
 
     loadProjectSessions: async (projectId) => {
-      const currentState = get().projectSessionLoadState[projectId] ?? 'idle'
-      if (currentState === 'loading' || currentState === 'loaded') return
+      const current = get().sessionListPageState[projectId]
+      const currentGeneration = getSessionListPageGeneration(projectId)
+      if (current?.loading && current.generation === currentGeneration) return
+      if (current?.loaded && current.generation === currentGeneration) return
+      const generation = invalidateSessionListPageGeneration(projectId)
       set((state) => {
         state.projectSessionLoadState[projectId] = 'loading'
+        state.sessionListPageState[projectId] = {
+          cursor: null,
+          hasMore: true,
+          loading: true,
+          loaded: false,
+          generation,
+          error: null
+        }
       })
       try {
-        const rows = await invokeMessagePackBinary<SessionRow[]>(DB_SESSIONS_LIST_MSGPACK_CHANNEL, {
-          projectId
-        })
+        const activeSession = get().sessions.find((item) => item.id === get().activeSessionId)
+        const page = await invokeMessagePackBinary<SessionListPageResult>(
+          DB_SESSIONS_LIST_PAGE_MSGPACK_CHANNEL,
+          {
+            projectId,
+            limit: 50,
+            includePinned: true,
+            includeSessionIds:
+              activeSession?.projectId === projectId ? [activeSession.id] : undefined
+          }
+        )
+        if (getSessionListPageGeneration(projectId) !== generation) return
         const project = get().projects.find((item) => item.id === projectId)
         set((state) => {
-          for (const row of rows) {
+          for (const row of page.rows) {
             const session = rowToSession(row, [])
             if (project) {
               session.workingFolder = project.workingFolder
               session.sshConnectionId = project.sshConnectionId
             }
             const existing = dedupeSessionsById(state, session.id)
-            if (existing) mergeSessionSummary(existing, session)
+            if (existing) mergeSessionSummary(existing, session, { preserveLoadedMessages: true })
             else state.sessions.push(session)
           }
           syncSessionsById(state)
           state.projectSessionLoadState[projectId] = 'loaded'
+          state.sessionListPageState[projectId] = {
+            cursor: page.nextCursor,
+            hasMore: page.hasMore,
+            loading: false,
+            loaded: true,
+            generation,
+            error: null
+          }
         })
       } catch (error) {
+        if (getSessionListPageGeneration(projectId) !== generation) return
         console.error('[ChatStore] Failed to load project sessions:', error)
         set((state) => {
           state.projectSessionLoadState[projectId] = 'error'
+          state.sessionListPageState[projectId] = {
+            ...(state.sessionListPageState[projectId] ?? {
+              cursor: null,
+              hasMore: true,
+              loaded: false,
+              generation
+            }),
+            generation,
+            loading: false,
+            error: error instanceof Error ? error.message : String(error)
+          }
         })
+      } finally {
+        clearStaleSessionPageLoading(set, projectId, generation)
+      }
+    },
+
+    loadMoreProjectSessions: async (projectId) => {
+      const current = get().sessionListPageState[projectId]
+      const generation = getSessionListPageGeneration(projectId)
+      const isStale = !!current && current.generation !== generation
+      if (!current || (current.loading && !isStale) || (!current.hasMore && !isStale)) return
+      const cursor = isStale ? null : current.cursor
+      set((state) => {
+        const pageState = state.sessionListPageState[projectId]
+        if (pageState) {
+          pageState.generation = generation
+          pageState.cursor = cursor
+          pageState.hasMore = true
+          pageState.loading = true
+          pageState.error = null
+        }
+      })
+      try {
+        const activeSession = get().sessions.find((item) => item.id === get().activeSessionId)
+        const page = await invokeMessagePackBinary<SessionListPageResult>(
+          DB_SESSIONS_LIST_PAGE_MSGPACK_CHANNEL,
+          {
+            projectId,
+            limit: 50,
+            cursor,
+            includePinned: true,
+            includeSessionIds:
+              activeSession?.projectId === projectId ? [activeSession.id] : undefined
+          }
+        )
+        if (getSessionListPageGeneration(projectId) !== generation) return
+        const project = get().projects.find((item) => item.id === projectId)
+        set((state) => {
+          for (const row of page.rows) {
+            const session = rowToSession(row, [])
+            if (project) {
+              session.workingFolder = project.workingFolder
+              session.sshConnectionId = project.sshConnectionId
+            }
+            const existing = dedupeSessionsById(state, session.id)
+            if (existing) mergeSessionSummary(existing, session, { preserveLoadedMessages: true })
+            else state.sessions.push(session)
+          }
+          syncSessionsById(state)
+          state.sessionListPageState[projectId] = {
+            cursor: page.nextCursor,
+            hasMore: page.hasMore,
+            loading: false,
+            loaded: true,
+            generation,
+            error: null
+          }
+        })
+      } catch (error) {
+        if (getSessionListPageGeneration(projectId) !== generation) return
+        console.error('[ChatStore] Failed to load more project sessions:', error)
+        set((state) => {
+          const pageState = state.sessionListPageState[projectId]
+          if (pageState) {
+            pageState.loading = false
+            pageState.error = error instanceof Error ? error.message : String(error)
+          }
+        })
+      } finally {
+        clearStaleSessionPageLoading(set, projectId, generation)
+      }
+    },
+
+    loadMoreChatSessions: async () => {
+      const scope = '__chats__'
+      const current = get().sessionListPageState[scope]
+      const generation = getSessionListPageGeneration(scope)
+      const isStale = !!current && current.generation !== generation
+      if (!current || (current.loading && !isStale) || (!current.hasMore && !isStale)) return
+      const cursor = isStale ? null : current.cursor
+      set((state) => {
+        const pageState = state.sessionListPageState[scope]
+        if (pageState) {
+          pageState.generation = generation
+          pageState.cursor = cursor
+          pageState.hasMore = true
+          pageState.loading = true
+          pageState.error = null
+        }
+      })
+      try {
+        const activeSession = get().sessions.find((item) => item.id === get().activeSessionId)
+        const page = await invokeMessagePackBinary<SessionListPageResult>(
+          DB_SESSIONS_LIST_PAGE_MSGPACK_CHANNEL,
+          {
+            projectId: null,
+            limit: 50,
+            cursor,
+            includePinned: true,
+            includeSessionIds: activeSession?.projectId
+              ? undefined
+              : activeSession
+                ? [activeSession.id]
+                : undefined
+          }
+        )
+        if (getSessionListPageGeneration(scope) !== generation) return
+        set((state) => {
+          for (const row of page.rows) {
+            const session = rowToSession(row, [])
+            const existing = dedupeSessionsById(state, session.id)
+            if (existing) mergeSessionSummary(existing, session, { preserveLoadedMessages: true })
+            else state.sessions.push(session)
+          }
+          syncSessionsById(state)
+          state.sessionListPageState[scope] = {
+            cursor: page.nextCursor,
+            hasMore: page.hasMore,
+            loading: false,
+            loaded: true,
+            generation,
+            error: null
+          }
+        })
+      } catch (error) {
+        if (getSessionListPageGeneration(scope) !== generation) return
+        console.error('[ChatStore] Failed to load more chat sessions:', error)
+        set((state) => {
+          const pageState = state.sessionListPageState[scope]
+          if (pageState) {
+            pageState.loading = false
+            pageState.error = error instanceof Error ? error.message : String(error)
+          }
+        })
+      } finally {
+        clearStaleSessionPageLoading(set, scope, generation)
       }
     },
 
@@ -3467,16 +4443,25 @@ export const useChatStore = create<ChatStore>()(
           (typeof window !== 'undefined'
             ? new URLSearchParams(window.location.search).get('sessionId')
             : null)
-        const [projectRows, sessionRows] = await Promise.all([
+        const [projectRows, sessionPage] = await Promise.all([
           invokeMessagePackBinary<ProjectRow[]>(DB_PROJECTS_LIST_MSGPACK_CHANNEL, {}),
-          invokeMessagePackBinary<SessionRow[]>(DB_SESSIONS_LIST_MSGPACK_CHANNEL, { projectId: null })
+          invokeMessagePackBinary<SessionListPageResult>(DB_SESSIONS_LIST_PAGE_MSGPACK_CHANNEL, {
+            projectId: null,
+            limit: 50,
+            includePinned: true,
+            includeSessionIds: directSessionId ? [directSessionId] : undefined
+          })
         ])
+        const sessionRows = sessionPage.rows
         let projects = projectRows.map(rowToProject)
         let directSessionRow: SessionRow | null = null
         if (directSessionId && !sessionRows.some((row) => row.id === directSessionId)) {
           const result = await invokeMessagePackBinary<{
             session?: SessionRow | null
-          } | null>(DB_SESSIONS_GET_MSGPACK_CHANNEL, directSessionId)
+          } | null>(DB_SESSIONS_GET_MSGPACK_CHANNEL, {
+            id: directSessionId,
+            includeMessages: false
+          })
           directSessionRow = result?.session ?? null
           if (directSessionRow?.project_id) {
             const project = await invokeMessagePackBinary<ProjectRow | null>(
@@ -3496,7 +4481,10 @@ export const useChatStore = create<ChatStore>()(
 
         const projectMap = new Map(projects.map((project) => [project.id, project]))
 
-        const sessions: Session[] = [...sessionRows, ...(directSessionRow ? [directSessionRow] : [])].map((row) => {
+        const sessions: Session[] = [
+          ...sessionRows,
+          ...(directSessionRow ? [directSessionRow] : [])
+        ].map((row) => {
           const session = rowToSession(row, [])
           if (session.projectId) {
             const project = projectMap.get(session.projectId)
@@ -3514,6 +4502,9 @@ export const useChatStore = create<ChatStore>()(
           return session
         })
 
+        invalidateSessionListPageGeneration('__chats__')
+        for (const project of projects) invalidateSessionListPageGeneration(project.id)
+
         let nextActiveSessionId: string | null = null
         let nextActiveProjectId: string | null = null
 
@@ -3521,6 +4512,26 @@ export const useChatStore = create<ChatStore>()(
           state.projects = projects
           state.sessions = sessions
           syncSessionsById(state)
+          state.sessionListPageState.__chats__ = {
+            cursor: sessionPage.nextCursor,
+            hasMore: sessionPage.hasMore,
+            loading: false,
+            loaded: true,
+            generation: getSessionListPageGeneration('__chats__'),
+            error: null
+          }
+          for (const project of projects) {
+            if (!state.sessionListPageState[project.id]) {
+              state.sessionListPageState[project.id] = {
+                cursor: null,
+                hasMore: true,
+                loading: false,
+                loaded: false,
+                generation: getSessionListPageGeneration(project.id),
+                error: null
+              }
+            }
+          }
           state._loaded = true
 
           const routeSessionId =
@@ -3538,6 +4549,10 @@ export const useChatStore = create<ChatStore>()(
             ? routeSessionId
             : (preservedActiveSessionId ?? sessions[0]?.id ?? null)
           state.activeSessionId = nextActiveSessionId
+          if (nextActiveSessionId) {
+            invalidateMessageWindowGeneration(nextActiveSessionId)
+            touchSessionWindowLru(nextActiveSessionId)
+          }
 
           const activeSession = sessions.find((session) => session.id === nextActiveSessionId)
           const routeProjectId =
@@ -3561,7 +4576,7 @@ export const useChatStore = create<ChatStore>()(
         if (nextActiveSessionId) {
           const planStore = usePlanStore.getState()
           const [, , activePlan] = await Promise.all([
-            get().loadRecentSessionMessages(nextActiveSessionId),
+            get().ensureSessionWindow(nextActiveSessionId),
             useTaskStore.getState().loadTasksForSession(nextActiveSessionId),
             planStore.loadPlanForSession(nextActiveSessionId)
           ])
@@ -3627,6 +4642,9 @@ export const useChatStore = create<ChatStore>()(
         messagesLoaded: true,
         loadedRangeStart: 0,
         loadedRangeEnd: 0,
+        hasOlder: false,
+        hasNewer: false,
+        residentBytes: 0,
         lastKnownMessageCount: 0,
         createdAt: now,
         updatedAt: now,
@@ -3638,9 +4656,12 @@ export const useChatStore = create<ChatStore>()(
         providerId: sessionProviderId,
         modelId: sessionModelId
       }
+      const initialSessionScope = targetProjectId ?? '__chats__'
+      invalidateSessionListPageGeneration(initialSessionScope)
       set((state) => {
         state.sessions.push(newSession)
         syncSessionsById(state)
+        resetSessionListCursorForScope(state, initialSessionScope)
         state.activeSessionId = id
         if (targetProjectId) {
           state.activeProjectId = targetProjectId
@@ -3655,6 +4676,8 @@ export const useChatStore = create<ChatStore>()(
             set((state) => {
               const session = state.sessions.find((item) => item.id === id)
               if (!session || session.projectId) return
+              resetSessionListCursorForScope(state, '__chats__')
+              resetSessionListCursorForScope(state, project.id)
               session.projectId = project.id
               session.workingFolder = project.workingFolder
               session.sshConnectionId = project.sshConnectionId
@@ -3676,12 +4699,15 @@ export const useChatStore = create<ChatStore>()(
     },
 
     deleteSession: (id) => {
+      invalidateMessageWindowGeneration(id)
       const deletedSession = get().sessions.find((session) => session.id === id)
       const wasActiveSession = get().activeSessionId === id
       const deletedProjectId = deletedSession?.projectId ?? null
       const deletedStreamingMsgId = get().streamingMessages[id]
       const deletedMessageIds = deletedSession?.messages.map((message) => message.id) ?? []
       const currentChatView = useUIStore.getState().chatView
+      const deletedSessionScope = deletedProjectId ?? '__chats__'
+      invalidateSessionListPageGeneration(deletedSessionScope)
       let nextActiveId: string | null = null
 
       set((state) => {
@@ -3689,6 +4715,7 @@ export const useChatStore = create<ChatStore>()(
         if (idx !== -1) {
           state.sessions.splice(idx, 1)
           syncSessionsById(state)
+          resetSessionListCursorForScope(state, deletedSessionScope)
         }
 
         if (wasActiveSession) {
@@ -3706,7 +4733,8 @@ export const useChatStore = create<ChatStore>()(
         _streamingDirtyMessageIds.delete(deletedStreamingMsgId)
       }
       clearDeferredMessageAdds(id)
-      _preservedResidentHistorySessionIds.delete(id)
+      const lruIndex = _recentSessionWindowLru.indexOf(id)
+      if (lruIndex >= 0) _recentSessionWindowLru.splice(lruIndex, 1)
 
       const agentState = useAgentStore.getState()
       const wasLiveSession = agentState.liveSessionId === id
@@ -3755,6 +4783,9 @@ export const useChatStore = create<ChatStore>()(
 
     setActiveSession: (id) => {
       const prevId = get().activeSessionId
+      if (id) touchSessionWindowLru(id)
+      if (prevId && prevId !== id) invalidateMessageWindowGeneration(prevId)
+      if (id && prevId !== id) invalidateMessageWindowGeneration(id)
       invalidateVisibleSessionCache()
       if (prevId && prevId !== id) {
         agentStream.notifySessionVisibility(prevId, false)
@@ -3794,11 +4825,14 @@ export const useChatStore = create<ChatStore>()(
 
     updateSessionTitle: (id, title) => {
       const now = Date.now()
+      const scope = get().sessions.find((session) => session.id === id)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(scope)
       set((state) => {
         const session = state.sessions.find((s) => s.id === id)
         if (session) {
           session.title = title
           session.updatedAt = now
+          resetSessionListCursorForScope(state, scope)
         }
       })
       dbUpdateSession(id, { title, updatedAt: now })
@@ -3806,11 +4840,14 @@ export const useChatStore = create<ChatStore>()(
 
     updateSessionIcon: (id, icon) => {
       const now = Date.now()
+      const scope = get().sessions.find((session) => session.id === id)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(scope)
       set((state) => {
         const session = state.sessions.find((s) => s.id === id)
         if (session) {
           session.icon = icon
           session.updatedAt = now
+          resetSessionListCursorForScope(state, scope)
         }
       })
       dbUpdateSession(id, { icon, updatedAt: now })
@@ -3818,6 +4855,8 @@ export const useChatStore = create<ChatStore>()(
 
     updateSessionMode: (id, mode) => {
       const now = Date.now()
+      const scope = get().sessions.find((session) => session.id === id)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(scope)
       set((state) => {
         const session = state.sessions.find((s) => s.id === id)
         if (session) {
@@ -3877,6 +4916,9 @@ export const useChatStore = create<ChatStore>()(
 
     setSessionModelManual: (sessionId, providerId, modelId) => {
       const now = Date.now()
+      const scope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(scope)
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (session) {
@@ -3897,6 +4939,9 @@ export const useChatStore = create<ChatStore>()(
 
     setSessionModelAuto: (sessionId) => {
       const now = Date.now()
+      const scope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(scope)
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (session) {
@@ -3917,6 +4962,9 @@ export const useChatStore = create<ChatStore>()(
 
     setSessionModelInherit: (sessionId) => {
       const now = Date.now()
+      const scope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(scope)
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (session) {
@@ -3945,6 +4993,9 @@ export const useChatStore = create<ChatStore>()(
 
     setSessionPlanId: (sessionId, planId) => {
       const now = Date.now()
+      const scope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(scope)
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (session) {
@@ -3986,10 +5037,14 @@ export const useChatStore = create<ChatStore>()(
 
     togglePinSession: (sessionId) => {
       let pinned = false
+      const scope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(scope)
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (session) {
           session.pinned = !session.pinned
+          resetSessionListCursorForScope(state, scope)
           pinned = session.pinned
         }
       })
@@ -4019,6 +5074,12 @@ export const useChatStore = create<ChatStore>()(
         messagesLoaded: session.messagesLoaded ?? true,
         loadedRangeStart: session.loadedRangeStart ?? 0,
         loadedRangeEnd: session.loadedRangeEnd ?? session.messages.length,
+        hasOlder: session.hasOlder ?? (session.loadedRangeStart ?? 0) > 0,
+        hasNewer:
+          session.hasNewer ??
+          (session.loadedRangeEnd ?? session.messages.length) <
+            (session.messageCount ?? session.messages.length),
+        residentBytes: session.residentBytes ?? getResidentMessageBytes(session.messages),
         lastKnownMessageCount:
           session.lastKnownMessageCount ?? session.messageCount ?? session.messages.length,
         modelSelectionMode: normalizeSessionModelSelectionMode(
@@ -4027,9 +5088,12 @@ export const useChatStore = create<ChatStore>()(
           session.modelId
         )
       }
+      const restoreScope = targetProjectId ?? '__chats__'
+      invalidateSessionListPageGeneration(restoreScope)
       set((state) => {
         state.sessions.push(normalizedSession)
         syncSessionsById(state)
+        resetSessionListCursorForScope(state, restoreScope)
         state.activeSessionId = normalizedSession.id
         if (targetProjectId) {
           state.activeProjectId = targetProjectId
@@ -4044,6 +5108,8 @@ export const useChatStore = create<ChatStore>()(
             set((state) => {
               const target = state.sessions.find((item) => item.id === normalizedSession.id)
               if (!target || target.projectId) return
+              resetSessionListCursorForScope(state, '__chats__')
+              resetSessionListCursorForScope(state, defaultProject.id)
               target.projectId = defaultProject.id
               target.workingFolder = defaultProject.workingFolder
               target.sshConnectionId = defaultProject.sshConnectionId
@@ -4086,6 +5152,9 @@ export const useChatStore = create<ChatStore>()(
         messagesLoaded: true,
         loadedRangeStart: 0,
         loadedRangeEnd: importedMessages.length,
+        hasOlder: false,
+        hasNewer: false,
+        residentBytes: getResidentMessageBytes(importedMessages),
         lastKnownMessageCount: importedMessages.length,
         promptSnapshot: undefined,
         projectId: targetProjectId ?? undefined,
@@ -4102,10 +5171,13 @@ export const useChatStore = create<ChatStore>()(
           session.modelId
         )
       }
+      const importScope = targetProjectId ?? '__chats__'
+      invalidateSessionListPageGeneration(importScope)
 
       set((state) => {
         state.sessions.push(normalizedSession)
         syncSessionsById(state)
+        resetSessionListCursorForScope(state, importScope)
         state.activeSessionId = normalizedSession.id
         if (targetProjectId) {
           state.activeProjectId = targetProjectId
@@ -4120,6 +5192,8 @@ export const useChatStore = create<ChatStore>()(
             set((state) => {
               const target = state.sessions.find((item) => item.id === normalizedSession.id)
               if (!target || target.projectId) return
+              resetSessionListCursorForScope(state, '__chats__')
+              resetSessionListCursorForScope(state, defaultProject.id)
               target.projectId = defaultProject.id
               target.workingFolder = defaultProject.workingFolder
               target.sshConnectionId = defaultProject.sshConnectionId
@@ -4173,6 +5247,9 @@ export const useChatStore = create<ChatStore>()(
 
     clearAllSessions: () => {
       const ids = get().sessions.map((s) => s.id)
+      const sessionScopes = new Set(
+        get().sessions.map((session) => session.projectId ?? '__chats__')
+      )
       const deletedMessageIds = get().sessions.flatMap((s) =>
         s.messages.map((message) => message.id)
       )
@@ -4180,8 +5257,13 @@ export const useChatStore = create<ChatStore>()(
         state.sessions = []
         state.sessionsById = {}
         state.activeSessionId = null
+        state.sessionListPageState = {}
+        state.projectSessionLoadState = {}
       })
-      _preservedResidentHistorySessionIds.clear()
+      _recentSessionWindowLru.length = 0
+      invalidateSessionListPageGeneration('__chats__')
+      for (const scope of sessionScopes) invalidateSessionListPageGeneration(scope)
+      for (const id of ids) invalidateMessageWindowGeneration(id)
       // Clean up agent-store, team-store, plan-store, task-store for all sessions
       const agentState = useAgentStore.getState()
       const teamState = useTeamStore.getState()
@@ -4210,8 +5292,11 @@ export const useChatStore = create<ChatStore>()(
 
     upsertSessionFromSync: (row, options) => {
       const syncedSession = rowToSession(row, [])
+      const scope = syncedSession.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(scope)
 
       set((state) => {
+        resetSessionListCursorForScope(state, scope)
         const existing = dedupeSessionsById(state, row.id)
         const projectLoaded = row.project_id
           ? state.projectSessionLoadState[row.project_id] === 'loaded'
@@ -4252,10 +5337,13 @@ export const useChatStore = create<ChatStore>()(
       const deletedProjectId = deletedSession.projectId ?? null
       const deletedMessageIds = deletedSession.messages.map((message) => message.id)
       const currentChatView = useUIStore.getState().chatView
+      invalidateMessageWindowGeneration(sessionId)
+      invalidateSessionListPageGeneration(deletedProjectId ?? projectId ?? '__chats__')
 
       set((state) => {
         state.sessions = state.sessions.filter((session) => session.id !== sessionId)
         syncSessionsById(state)
+        resetSessionListCursorForScope(state, deletedProjectId ?? projectId ?? '__chats__')
 
         if (wasActiveSession) {
           state.activeSessionId = null
@@ -4270,6 +5358,10 @@ export const useChatStore = create<ChatStore>()(
 
       bumpMessageWriteGeneration(sessionId)
       clearDeferredMessageAdds(sessionId)
+      if (projectId) invalidateSessionListPageGeneration(projectId)
+      else invalidateSessionListPageGeneration('__chats__')
+      const lruIndex = _recentSessionWindowLru.indexOf(sessionId)
+      if (lruIndex >= 0) _recentSessionWindowLru.splice(lruIndex, 1)
       scheduleAfterNextPaint(() => cleanupDeletedSessionMessages(deletedMessageIds))
 
       const agentState = useAgentStore.getState()
@@ -4308,6 +5400,10 @@ export const useChatStore = create<ChatStore>()(
     },
 
     clearSessionMessages: (sessionId) => {
+      invalidateMessageWindowGeneration(sessionId)
+      const messageScope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(messageScope)
       const now = Date.now()
       const deletedMessageIds =
         get()
@@ -4316,11 +5412,15 @@ export const useChatStore = create<ChatStore>()(
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (session) {
+          resetSessionListCursorForScope(state, messageScope)
           session.messages = []
           session.messageCount = 0
           session.messagesLoaded = true
           session.loadedRangeStart = 0
           session.loadedRangeEnd = 0
+          session.hasOlder = false
+          session.hasNewer = false
+          session.residentBytes = 0
           session.lastKnownMessageCount = 0
           delete session.promptSnapshot
           session.updatedAt = now
@@ -4328,7 +5428,6 @@ export const useChatStore = create<ChatStore>()(
       })
       clearPendingMessageFlushes(deletedMessageIds)
       clearDeferredMessageAdds(sessionId)
-      _preservedResidentHistorySessionIds.delete(sessionId)
       for (const messageId of deletedMessageIds) {
         _streamingDirtyMessageIds.delete(messageId)
       }
@@ -4362,6 +5461,9 @@ export const useChatStore = create<ChatStore>()(
         messagesLoaded: true,
         loadedRangeStart: 0,
         loadedRangeEnd: clonedMessages.length,
+        hasOlder: false,
+        hasNewer: false,
+        residentBytes: getResidentMessageBytes(clonedMessages),
         lastKnownMessageCount: clonedMessages.length,
         createdAt: now,
         updatedAt: now,
@@ -4413,6 +5515,9 @@ export const useChatStore = create<ChatStore>()(
         messagesLoaded: true,
         loadedRangeStart: 0,
         loadedRangeEnd: clonedMessages.length,
+        hasOlder: false,
+        hasNewer: false,
+        residentBytes: getResidentMessageBytes(clonedMessages),
         lastKnownMessageCount: clonedMessages.length,
         createdAt: now,
         updatedAt: now,
@@ -4446,6 +5551,7 @@ export const useChatStore = create<ChatStore>()(
     },
 
     removeLastAssistantMessage: (sessionId) => {
+      invalidateMessageWindowGeneration(sessionId)
       const session = get().sessions.find((s) => s.id === sessionId)
       if (!session || session.messages.length === 0) return false
       // Find the last assistant message, skipping trailing tool_result-only user messages
@@ -4466,15 +5572,21 @@ export const useChatStore = create<ChatStore>()(
         break // hit a real user message or something else — stop
       }
       if (assistantIdx < 0) return false
+      const messageScope = session.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(messageScope)
       const deletedMessageIds = session.messages.slice(assistantIdx).map((message) => message.id)
       // Truncate from the assistant message onward (removes it + trailing tool_result messages)
       set((state) => {
         const s = state.sessions.find((s) => s.id === sessionId)
         if (s) {
+          resetSessionListCursorForScope(state, messageScope)
           s.messages.splice(assistantIdx)
           s.messageCount = s.messages.length
           s.loadedRangeStart = 0
           s.loadedRangeEnd = s.messages.length
+          s.hasOlder = false
+          s.hasNewer = false
+          s.residentBytes = getResidentMessageBytes(s.messages)
           s.lastKnownMessageCount = s.messages.length
         }
       })
@@ -4489,18 +5601,25 @@ export const useChatStore = create<ChatStore>()(
     },
 
     removeLastUserMessage: (sessionId) => {
+      invalidateMessageWindowGeneration(sessionId)
       const session = get().sessions.find((s) => s.id === sessionId)
       if (!session || session.messages.length === 0) return
       const lastMsg = session.messages[session.messages.length - 1]
       if (lastMsg.role !== 'user') return
+      const messageScope = session.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(messageScope)
       const deletedMessageIds = [lastMsg.id]
       set((state) => {
         const s = state.sessions.find((s) => s.id === sessionId)
         if (s && s.messages.length > 0 && s.messages[s.messages.length - 1].role === 'user') {
+          resetSessionListCursorForScope(state, messageScope)
           s.messages.pop()
           s.messageCount = s.messages.length
           s.loadedRangeStart = 0
           s.loadedRangeEnd = s.messages.length
+          s.hasOlder = false
+          s.hasNewer = false
+          s.residentBytes = getResidentMessageBytes(s.messages)
           s.lastKnownMessageCount = s.messages.length
         }
       })
@@ -4514,6 +5633,10 @@ export const useChatStore = create<ChatStore>()(
     },
 
     truncateMessagesFrom: (sessionId, fromIndex) => {
+      invalidateMessageWindowGeneration(sessionId)
+      const messageScope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(messageScope)
       const deletedMessageIds =
         get()
           .sessions.find((s) => s.id === sessionId)
@@ -4522,10 +5645,14 @@ export const useChatStore = create<ChatStore>()(
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (session && fromIndex >= 0 && fromIndex < session.messages.length) {
+          resetSessionListCursorForScope(state, messageScope)
           session.messages.splice(fromIndex)
           session.messageCount = session.messages.length
           session.loadedRangeStart = 0
           session.loadedRangeEnd = session.messages.length
+          session.hasOlder = false
+          session.hasNewer = false
+          session.residentBytes = getResidentMessageBytes(session.messages)
           session.lastKnownMessageCount = session.messages.length
           session.updatedAt = Date.now()
         }
@@ -4540,6 +5667,10 @@ export const useChatStore = create<ChatStore>()(
     },
 
     replaceSessionMessages: (sessionId, messages) => {
+      invalidateMessageWindowGeneration(sessionId)
+      const messageScope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(messageScope)
       const now = Date.now()
       const previousMessageIds =
         get()
@@ -4552,11 +5683,15 @@ export const useChatStore = create<ChatStore>()(
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (session) {
+          resetSessionListCursorForScope(state, messageScope)
           session.messages = revisedMessages
           session.messageCount = revisedMessages.length
           session.messagesLoaded = true
           session.loadedRangeStart = 0
           session.loadedRangeEnd = revisedMessages.length
+          session.hasOlder = false
+          session.hasNewer = false
+          session.residentBytes = getResidentMessageBytes(revisedMessages)
           session.lastKnownMessageCount = revisedMessages.length
           session.updatedAt = now
         }
@@ -4602,6 +5737,8 @@ export const useChatStore = create<ChatStore>()(
 
     stripOldSystemReminders: (sessionId) => {
       const changedMsgIds = new Set<string>()
+      const messageScope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
       set((state) => {
         const session = state.sessions.find((s) => s.id === sessionId)
         if (!session || session.messages.length === 0) return
@@ -4628,7 +5765,9 @@ export const useChatStore = create<ChatStore>()(
         }
 
         if (changed) {
+          syncSessionMessageWindowFlags(session)
           session.updatedAt = Date.now()
+          resetSessionListCursorForScope(state, messageScope)
         }
       })
 
@@ -4652,12 +5791,18 @@ export const useChatStore = create<ChatStore>()(
     },
 
     addMessage: (sessionId, msg) => {
+      invalidateMessageWindowGeneration(sessionId)
+      const messageScope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(messageScope)
       let sortOrder = 0
       let shouldPersist = false
       set((state) => {
         const session = getSessionByIdFromState(state, sessionId)
         if (!session) return
         shouldPersist = true
+        const previousMessageCount = session.messageCount
+        const wasResidentAtTail = session.loadedRangeEnd >= previousMessageCount
         sortOrder = session.messageCount
         if (!session.messagesLoaded) {
           session.messagesLoaded = true
@@ -4665,13 +5810,22 @@ export const useChatStore = create<ChatStore>()(
           session.loadedRangeStart = session.messageCount
           session.loadedRangeEnd = session.messageCount
         }
+        msg.sortOrder = sortOrder
+        msg.contentState = 'full'
+        msg.contentBytes = estimateMessageWeight(msg)
         msg._revision = (msg._revision ?? 0) + 1
         session.messages.push(msg)
         session.messageCount += 1
-        session.loadedRangeEnd = session.messageCount
+        if (wasResidentAtTail) {
+          session.loadedRangeEnd = session.messageCount
+        }
         session.lastKnownMessageCount = session.messageCount
-        trimSessionMessageWindow(session)
+        trimSessionMessageWindow(
+          session,
+          getMessageWindowPreserveMode(session, wasResidentAtTail ? 'tail' : 'head')
+        )
         session.updatedAt = Date.now()
+        resetSessionListCursorForScope(state, messageScope)
         releaseDormantSessionMemory(state)
       })
       if (!shouldPersist) return
@@ -4687,6 +5841,10 @@ export const useChatStore = create<ChatStore>()(
     },
 
     beginUserTurn: (sessionId, userMsg, assistantMsg, streamingMessageId) => {
+      invalidateMessageWindowGeneration(sessionId)
+      const messageScope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateSessionListPageGeneration(messageScope)
       let userSortOrder = 0
       let assistantSortOrder = 0
       let shouldPersistUser = false
@@ -4694,6 +5852,8 @@ export const useChatStore = create<ChatStore>()(
       set((state) => {
         const session = getSessionByIdFromState(state, sessionId)
         if (!session) return
+        const previousMessageCount = session.messageCount
+        const wasResidentAtTail = session.loadedRangeEnd >= previousMessageCount
         if (!session.messagesLoaded) {
           session.messagesLoaded = true
           session.messages = []
@@ -4703,6 +5863,9 @@ export const useChatStore = create<ChatStore>()(
         if (userMsg) {
           shouldPersistUser = true
           userSortOrder = session.messageCount
+          userMsg.sortOrder = userSortOrder
+          userMsg.contentState = 'full'
+          userMsg.contentBytes = estimateMessageWeight(userMsg)
           userMsg._revision = (userMsg._revision ?? 0) + 1
           session.messages.push(userMsg)
           session.messageCount += 1
@@ -4710,14 +5873,23 @@ export const useChatStore = create<ChatStore>()(
         if (assistantMsg) {
           shouldPersistAssistant = true
           assistantSortOrder = session.messageCount
+          assistantMsg.sortOrder = assistantSortOrder
+          assistantMsg.contentState = 'full'
+          assistantMsg.contentBytes = estimateMessageWeight(assistantMsg)
           assistantMsg._revision = (assistantMsg._revision ?? 0) + 1
           session.messages.push(assistantMsg)
           session.messageCount += 1
         }
-        session.loadedRangeEnd = session.messageCount
+        if (wasResidentAtTail) {
+          session.loadedRangeEnd = session.messageCount
+        }
         session.lastKnownMessageCount = session.messageCount
-        trimSessionMessageWindow(session)
+        trimSessionMessageWindow(
+          session,
+          getMessageWindowPreserveMode(session, wasResidentAtTail ? 'tail' : 'head')
+        )
         session.updatedAt = Date.now()
+        resetSessionListCursorForScope(state, messageScope)
 
         if (streamingMessageId !== null) {
           _streamingBackfillBlockedSessionIds.delete(sessionId)
@@ -4756,6 +5928,7 @@ export const useChatStore = create<ChatStore>()(
             msg.usage = mergeUsageSnapshot(msg.usage, usage)
           }
           bumpMessageRevision(msg)
+          syncSessionMessageWindowFlags(session)
         }
       })
       if (_activeStreamingMessageIds.has(msgId)) {
@@ -4778,6 +5951,10 @@ export const useChatStore = create<ChatStore>()(
       let removed = false
       let wasStreamingMessage = false
       const now = Date.now()
+      const messageScope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateMessageWindowGeneration(sessionId)
+      invalidateSessionListPageGeneration(messageScope)
       set((state) => {
         const session = getSessionByIdFromState(state, sessionId)
         if (!session) return
@@ -4786,15 +5963,28 @@ export const useChatStore = create<ChatStore>()(
 
         removed = true
         wasStreamingMessage = state.streamingMessages[sessionId] === msgId
+        const previousMessageCount = session.messageCount
+        const removedOrder =
+          typeof session.messages[index].sortOrder === 'number'
+            ? session.messages[index].sortOrder
+            : session.loadedRangeStart + index
+        const wasResidentAtTail = session.loadedRangeEnd >= previousMessageCount
+        resetSessionListCursorForScope(state, messageScope)
         session.messages.splice(index, 1)
         session.messageCount = Math.max(0, session.messageCount - 1)
         if (session.messageCount === 0) {
           session.messagesLoaded = true
           session.loadedRangeStart = 0
           session.loadedRangeEnd = 0
+          session.hasOlder = false
+          session.hasNewer = false
+          session.residentBytes = 0
           session.lastKnownMessageCount = 0
         } else {
-          session.loadedRangeEnd = Math.max(session.loadedRangeStart, session.loadedRangeEnd - 1)
+          if (wasResidentAtTail || removedOrder < session.loadedRangeEnd) {
+            session.loadedRangeEnd = Math.max(session.loadedRangeStart, session.loadedRangeEnd - 1)
+          }
+          syncSessionMessageWindowFlags(session)
           session.lastKnownMessageCount = session.messageCount
         }
         session.updatedAt = now
@@ -4858,6 +6048,8 @@ export const useChatStore = create<ChatStore>()(
             },
             ...(existingText ? [{ type: 'text' as const, text: existingText }] : [])
           ]
+          msg.contentBytes = estimateMessageWeight(msg)
+          syncSessionMessageWindowFlags(session)
           return
         }
 
@@ -4899,6 +6091,8 @@ export const useChatStore = create<ChatStore>()(
             startedAt: now
           })
         }
+        msg.contentBytes = estimateMessageWeight(msg)
+        syncSessionMessageWindowFlags(session)
       })
 
       const session = getSessionByIdFromState(get(), sessionId)
@@ -4921,6 +6115,8 @@ export const useChatStore = create<ChatStore>()(
           }
         }
         bumpMessageRevision(msg)
+        msg.contentBytes = estimateMessageWeight(msg)
+        syncSessionMessageWindowFlags(session)
       })
       // Immediate persist after thinking completes
       const session = getSessionByIdFromState(get(), sessionId)
@@ -4965,6 +6161,8 @@ export const useChatStore = create<ChatStore>()(
           }
         }
         bumpMessageRevision(msg)
+        msg.contentBytes = estimateMessageWeight(msg)
+        syncSessionMessageWindowFlags(session)
       })
       // Persist immediately for tool use blocks
       const session = getSessionByIdFromState(get(), sessionId)
@@ -5007,6 +6205,8 @@ export const useChatStore = create<ChatStore>()(
             })
           }
           bumpMessageRevision(msg)
+          msg.contentBytes = estimateMessageWeight(msg)
+          syncSessionMessageWindowFlags(session)
         }
       })
       const session = getSessionByIdFromState(get(), sessionId)
@@ -5029,6 +6229,8 @@ export const useChatStore = create<ChatStore>()(
           appendOrUpsertContentBlock(msg.content as ContentBlock[], block)
         }
         bumpMessageRevision(msg)
+        msg.contentBytes = estimateMessageWeight(msg)
+        syncSessionMessageWindowFlags(session)
       })
       const session = getSessionByIdFromState(get(), sessionId)
       const msg = session?.messages.find((m) => m.id === msgId)
@@ -5037,9 +6239,16 @@ export const useChatStore = create<ChatStore>()(
 
     applyBackgroundSnapshot: (sessionId, snapshot) => {
       let mergedAny = false
+      const messageScope =
+        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
+      invalidateMessageWindowGeneration(sessionId)
+      invalidateSessionListPageGeneration(messageScope)
       set((state) => {
         const session = getSessionByIdFromState(state, sessionId)
         if (!session) return
+        const residentStartBefore = session.loadedRangeStart
+        const residentEndBefore = session.loadedRangeEnd
+        const wasResidentAtTail = residentEndBefore >= session.messageCount
 
         // 1. Apply patched messages: existing -> override fields, missing -> insert as new.
         //    This eliminates the "silent updateMessage failure when id isn't in the loaded window" bug.
@@ -5056,10 +6265,19 @@ export const useChatStore = create<ChatStore>()(
             bumpMessageRevision(existing)
             mergedAny = true
           } else {
-            const cloned: UnifiedMessage = { ...bufferedMsg, _revision: 1 }
+            const cloned: UnifiedMessage = {
+              ...bufferedMsg,
+              sortOrder:
+                typeof bufferedMsg.sortOrder === 'number'
+                  ? bufferedMsg.sortOrder
+                  : session.messageCount,
+              contentState: 'full',
+              contentBytes: bufferedMsg.contentBytes ?? estimateMessageWeight(bufferedMsg),
+              _revision: 1
+            }
             session.messages.push(cloned)
             session.messageCount = Math.max(session.messageCount, session.messages.length)
-            session.loadedRangeEnd = session.messageCount
+            if (wasResidentAtTail) session.loadedRangeEnd = session.messageCount
             session.lastKnownMessageCount = session.messageCount
             mergedAny = true
           }
@@ -5070,15 +6288,46 @@ export const useChatStore = create<ChatStore>()(
           if (session.messages.some((m) => m.id === msgId)) continue
           const msg = snapshot.addedMessagesById[msgId]
           if (!msg) continue
-          const cloned: UnifiedMessage = { ...msg, _revision: 1 }
+          const cloned: UnifiedMessage = {
+            ...msg,
+            sortOrder: typeof msg.sortOrder === 'number' ? msg.sortOrder : session.messageCount,
+            contentState: 'full',
+            contentBytes: msg.contentBytes ?? estimateMessageWeight(msg),
+            _revision: 1
+          }
           session.messages.push(cloned)
           session.messageCount = Math.max(session.messageCount, session.messages.length)
-          session.loadedRangeEnd = session.messageCount
+          if (wasResidentAtTail) session.loadedRangeEnd = session.messageCount
           session.lastKnownMessageCount = session.messageCount
           mergedAny = true
         }
 
         if (mergedAny) {
+          session.messages.sort(
+            (left, right) =>
+              (left.sortOrder ?? Number.MAX_SAFE_INTEGER) -
+                (right.sortOrder ?? Number.MAX_SAFE_INTEGER) || left.createdAt - right.createdAt
+          )
+          const residentOrders = session.messages
+            .map((message) => message.sortOrder)
+            .filter((order): order is number => typeof order === 'number' && Number.isFinite(order))
+          const maxResidentOrder = residentOrders.length > 0 ? Math.max(...residentOrders) : -1
+          const minResidentOrder = residentOrders.length > 0 ? Math.min(...residentOrders) : 0
+          session.messageCount = Math.max(
+            session.messageCount,
+            maxResidentOrder + 1,
+            session.messages.length
+          )
+          session.loadedRangeStart = Math.min(residentStartBefore, minResidentOrder)
+          session.loadedRangeEnd = wasResidentAtTail
+            ? Math.max(residentEndBefore, maxResidentOrder + 1)
+            : residentEndBefore
+          syncSessionMessageWindowFlags(session)
+          resetSessionListCursorForScope(state, messageScope)
+          trimSessionMessageWindow(
+            session,
+            getMessageWindowPreserveMode(session, wasResidentAtTail ? 'tail' : 'head')
+          )
           session.updatedAt = Date.now()
         }
       })
@@ -5194,8 +6443,8 @@ export const useChatStore = create<ChatStore>()(
 
     recoverFromRendererOom: async (sessionId) => {
       const targetSessionId = sessionId ?? get().activeSessionId
-
-      _preservedResidentHistorySessionIds.clear()
+      const sessionsBeforeRecovery = get().sessions.map((session) => session.id)
+      for (const id of sessionsBeforeRecovery) invalidateMessageWindowGeneration(id)
 
       set((state) => {
         state.sessions = state.sessions.map((session) => {
@@ -5206,6 +6455,9 @@ export const useChatStore = create<ChatStore>()(
               messagesLoaded: session.messageCount === 0,
               loadedRangeStart: session.messageCount,
               loadedRangeEnd: session.messageCount,
+              hasOlder: session.messageCount > 0,
+              hasNewer: false,
+              residentBytes: 0,
               lastKnownMessageCount: session.messageCount,
               promptSnapshot: undefined
             }
@@ -5217,6 +6469,9 @@ export const useChatStore = create<ChatStore>()(
             messagesLoaded: session.messageCount === 0,
             loadedRangeStart: session.messageCount,
             loadedRangeEnd: session.messageCount,
+            hasOlder: session.messageCount > 0,
+            hasNewer: false,
+            residentBytes: 0,
             lastKnownMessageCount: session.messageCount,
             promptSnapshot: undefined
           }
@@ -5240,11 +6495,7 @@ export const useChatStore = create<ChatStore>()(
       usePlanStore.getState().releaseDormantPlans(targetSessionId ?? null)
 
       if (targetSessionId) {
-        await get().loadRecentSessionMessages(
-          targetSessionId,
-          true,
-          INITIAL_SESSION_DISPLAY_PAGE_SIZE
-        )
+        await get().ensureSessionWindow(targetSessionId, true)
         await useTaskStore.getState().loadTasksForSession(targetSessionId)
         const planStore = usePlanStore.getState()
         const activePlan = await planStore.loadPlanForSession(targetSessionId)
@@ -5267,10 +6518,15 @@ export const useChatStore = create<ChatStore>()(
     },
 
     trimResidentMessageWindows: () => {
-      _preservedResidentHistorySessionIds.clear()
       set((state) => {
         for (const session of state.sessions) {
-          if (session.messages.length <= MESSAGE_WINDOW_MAX_SIZE) continue
+          if (
+            session.messages.length <= MESSAGE_WINDOW_MAX_SIZE &&
+            getResidentMessageBytes(session.messages) <= MESSAGE_WINDOW_MAX_RESIDENT_BYTES
+          ) {
+            syncSessionMessageWindowFlags(session)
+            continue
+          }
           trimSessionMessageWindow(
             session,
             getMessageWindowPreserveMode(
@@ -5357,8 +6613,11 @@ function applyStreamDeltas(
         }
 
         bumpMessageRevision(msg)
+        msg.contentBytes = Math.max(msg.contentBytes ?? 0, estimateMessageWeight(msg))
         affectedMessages.push({ sessionId, msgId: delta.msgId })
       }
+      syncSessionMessageWindowFlags(session)
+      trimSessionMessageWindow(session, getMessageWindowPreserveMode(session, 'tail'))
     }
   })
 }

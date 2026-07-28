@@ -29,6 +29,7 @@ interface VideoJob {
 }
 
 const POLL_INTERVAL_MS = 4000
+const MAX_POLL_ERRORS = 6
 const jobs = new Map<string, VideoJob>()
 const jobControllers = new Map<string, AbortController>()
 
@@ -68,6 +69,7 @@ function sleep(ms: number): Promise<void> {
 
 async function pollJob(job: VideoJob, provider: unknown, signal: AbortSignal): Promise<void> {
   const worker = getNativeWorker()
+  let consecutiveErrors = 0
   while (!job.done) {
     await sleep(POLL_INTERVAL_MS)
     if (job.done || signal.aborted) return
@@ -128,12 +130,19 @@ async function pollJob(job: VideoJob, provider: unknown, signal: AbortSignal): P
 
       broadcast(job)
     } catch (error) {
+      consecutiveErrors += 1
+      if (consecutiveErrors < MAX_POLL_ERRORS) {
+        // Transient network error — keep polling
+        broadcast(job)
+        continue
+      }
       job.status = 'failed'
       job.error = error instanceof Error ? error.message : String(error)
       job.done = true
       broadcast(job)
       return
     }
+    consecutiveErrors = 0
   }
 }
 

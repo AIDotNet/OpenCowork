@@ -1,7 +1,14 @@
-using System.Net;
+﻿using System.Net;
 
 internal static class WorkerHttpClientFactory
 {
+    /// <summary>
+    /// Creates a pooled HttpClient. When <paramref name="timeout"/> is omitted the client keeps
+    /// HttpClient's 100s default; pass <see cref="Timeout.InfiniteTimeSpan"/> to opt out and bound
+    /// each request with a linked CancellationTokenSource instead. A user-configurable deadline
+    /// must take that route, because HttpClient.Timeout can no longer be reassigned once the
+    /// client has dispatched its first request.
+    /// </summary>
     public static HttpClient Create(
         TimeSpan? timeout = null,
         bool allowAutoRedirect = true,

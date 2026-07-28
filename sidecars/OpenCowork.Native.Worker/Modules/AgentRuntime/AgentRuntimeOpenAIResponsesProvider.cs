@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.WebSockets;
@@ -12,7 +12,10 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
     private const string ResponsesWebSocketBetaValue = "responses_websockets=2026-02-06";
     private const string ResponsesWebSocketAgentMainScope = "agent-main";
     private const string ResponsesWebSocketSubAgentScopePrefix = "sub-agent";
-    private static readonly HttpClient Http = WorkerHttpClientFactory.Create();
+    // Infinite client timeout: the effective deadline is user-configurable and therefore
+    // applied per request via AgentRuntimeRequestTimeout.
+    private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
+        timeout: Timeout.InfiniteTimeSpan);
     private static readonly JsonWriterOptions WriterOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
@@ -136,9 +139,12 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             !state.IsCancellationRequested &&
             !parseState.ReceivedAnyMessage)
         {
-            // HttpClient reports request timeouts as OperationCanceledException. Retrying is
-            // safe only before the provider has emitted an event; otherwise a replay could
-            // duplicate streamed text or tool execution.
+            // Covers transport-level interruptions that surface as cancellation without the
+            // run being cancelled. A configured request timeout is deliberately NOT retried
+            // here — AgentRuntimeRequestTimeout raises TimeoutException for that case, so the
+            // user's chosen deadline is honoured once instead of being silently doubled.
+            // Retrying is safe only before the provider has emitted an event; otherwise a
+            // replay could duplicate streamed text or tool execution.
             WorkerLog.Warn(
                 "responses HTTP request interrupted before first event; retrying once " +
                 $"url={httpUrl} error={ex.GetType().Name}: {ex.Message}");

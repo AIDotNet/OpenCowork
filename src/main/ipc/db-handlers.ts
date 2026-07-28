@@ -34,6 +34,8 @@ import {
   DB_MESSAGES_LIST_MSGPACK_CHANNEL,
   DB_MESSAGES_LIST_PAGE_MSGPACK_CHANNEL,
   DB_MESSAGES_LIST_USER_MSGPACK_CHANNEL,
+  DB_MESSAGES_CONTENT_MSGPACK_CHANNEL,
+  DB_MESSAGES_RANGE_MSGPACK_CHANNEL,
   DB_MESSAGES_REQUEST_CONTEXT_MSGPACK_CHANNEL,
   DB_MESSAGES_REPLACE_MSGPACK_CHANNEL,
   DB_MESSAGES_SEARCH_CONTENT_MSGPACK_CHANNEL,
@@ -41,6 +43,7 @@ import {
   DB_MESSAGES_UPDATE_MSGPACK_CHANNEL,
   DB_MESSAGES_UPSERT_MSGPACK_CHANNEL,
   DB_MESSAGES_WINDOW_AROUND_MSGPACK_CHANNEL,
+  DB_MESSAGES_WINDOW_INDEX_MSGPACK_CHANNEL,
   DB_PLANS_CREATE_MSGPACK_CHANNEL,
   DB_PLANS_DELETE_MSGPACK_CHANNEL,
   DB_PLANS_GET_BY_SESSION_MSGPACK_CHANNEL,
@@ -59,6 +62,7 @@ import {
   DB_SESSIONS_DELETE_MSGPACK_CHANNEL,
   DB_SESSIONS_GET_MSGPACK_CHANNEL,
   DB_SESSIONS_LIST_MSGPACK_CHANNEL,
+  DB_SESSIONS_LIST_PAGE_MSGPACK_CHANNEL,
   DB_SESSIONS_UPDATE_MSGPACK_CHANNEL,
   DB_TASKS_CREATE_MSGPACK_CHANNEL,
   DB_TASKS_DELETE_BY_SESSION_MSGPACK_CHANNEL,
@@ -341,16 +345,33 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
   // --- Sessions ---
 
   ipcMain.handle(DB_SESSIONS_LIST_MSGPACK_CHANNEL, async (_event, bytes?: Uint8Array) => {
-    const args = bytes && bytes.byteLength > 0
-      ? decodeMessagePackPayload<{ projectId?: string | null }>(bytes)
-      : undefined
+    const args =
+      bytes && bytes.byteLength > 0
+        ? decodeMessagePackPayload<{ projectId?: string | null }>(bytes)
+        : undefined
     return encodeMessagePackPayload(await sessionsDao.listSessions(2000, 0, args?.projectId))
   })
 
+  ipcMain.handle(DB_SESSIONS_LIST_PAGE_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<{
+      limit?: number
+      projectId?: string | null
+      cursor?: { pinned: number; updatedAt: number; id: string } | null
+      includePinned?: boolean
+      includeSessionIds?: string[]
+    }>(bytes)
+    return encodeMessagePackPayload(await sessionsDao.listSessionsPage(args))
+  })
+
   ipcMain.handle(DB_SESSIONS_GET_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
-    const id = decodeMessagePackPayload<string>(bytes)
+    const request = decodeMessagePackPayload<string | { id: string; includeMessages?: boolean }>(
+      bytes
+    )
+    const id = typeof request === 'string' ? request : request.id
+    const includeMessages = typeof request === 'string' || request.includeMessages !== false
     const session = await sessionsDao.getSession(id)
     if (!session) return encodeMessagePackPayload(null)
+    if (!includeMessages) return encodeMessagePackPayload({ session })
     const messages = await messagesDao.getMessages(id)
     return encodeMessagePackPayload({ session, messages })
   })
@@ -417,8 +438,14 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
   })
 
   ipcMain.handle(DB_SESSIONS_CLEAR_PROJECT_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
-    const args = decodeMessagePackPayload<{ projectId: string; excludeSessionIds?: string[] }>(bytes)
-    const result = await sessionsDao.clearProjectSessions(args.projectId, args.excludeSessionIds ?? [])
+    const args = decodeMessagePackPayload<{
+      projectId: string | null
+      excludeSessionIds?: string[]
+    }>(bytes)
+    const result = await sessionsDao.clearProjectSessions(
+      args.projectId,
+      args.excludeSessionIds ?? []
+    )
     for (const sessionId of result.sessionIds) {
       emitSessionDeleted(sessionId, 'project-session-cleared', options)
     }
@@ -449,6 +476,33 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
     return encodeMessagePackPayload(
       await messagesDao.getMessagesPage(args.sessionId, args.limit, args.offset)
     )
+  })
+
+  ipcMain.handle(DB_MESSAGES_WINDOW_INDEX_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<{
+      sessionId: string
+      direction: 'tail' | 'older' | 'newer'
+      anchorSortOrder?: number
+      byteBudget: number
+      maxRows: number
+    }>(bytes)
+    return encodeMessagePackPayload(await messagesDao.getMessageWindowIndex(args))
+  })
+
+  ipcMain.handle(DB_MESSAGES_RANGE_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<{
+      sessionId: string
+      start: number
+      end: number
+      oversizedBytes?: number
+      includeLargeContent?: boolean
+    }>(bytes)
+    return encodeMessagePackPayload(await messagesDao.getMessageRange(args))
+  })
+
+  ipcMain.handle(DB_MESSAGES_CONTENT_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<{ sessionId: string; messageId: string }>(bytes)
+    return encodeMessagePackPayload(await messagesDao.getMessageContent(args))
   })
 
   ipcMain.handle(DB_MESSAGES_REQUEST_CONTEXT_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {

@@ -35,6 +35,148 @@ internal static class DbSessionTools
         }
     }
 
+    public static WorkerResponse ListPage(JsonElement parameters)
+    {
+        try
+        {
+            var limit = Math.Clamp(JsonHelpers.GetInt(parameters, "limit", 50), 1, 500);
+            var hasProjectFilter = parameters.TryGetProperty("projectId", out var projectIdValue);
+            var projectId = hasProjectFilter && projectIdValue.ValueKind != JsonValueKind.Null
+                ? JsonHelpers.GetString(parameters, "projectId")
+                : null;
+            var hasCursor = parameters.TryGetProperty("cursor", out var cursorValue) &&
+                cursorValue.ValueKind == JsonValueKind.Object;
+            var cursorPinned = hasCursor ? JsonHelpers.GetInt(cursorValue, "pinned", 0) : 0;
+            var cursorUpdatedAt = hasCursor ? JsonHelpers.GetLong(cursorValue, "updatedAt", 0) : 0;
+            var cursorId = hasCursor ? JsonHelpers.GetString(cursorValue, "id") ?? string.Empty : string.Empty;
+            var includePinned = JsonHelpers.GetBool(parameters, "includePinned", false);
+            var includeSessionIds = JsonHelpers.GetStringArray(parameters, "includeSessionIds")
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
+                .Take(32)
+                .ToArray();
+
+            using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+            using var command = connection.CreateCommand();
+            var projectClause = hasProjectFilter
+                ? (projectId is null
+                    ? "project_id IS NULL AND plugin_id IS NULL"
+                    : "project_id = $projectId")
+                : "1 = 1";
+            var cursorClause = hasCursor
+                ? " AND (pinned < $cursorPinned OR (pinned = $cursorPinned AND (updated_at < $cursorUpdatedAt OR (updated_at = $cursorUpdatedAt AND id < $cursorId))))"
+                : string.Empty;
+            command.CommandText = $"""
+                {SessionSelectSql}
+                 WHERE {projectClause}{cursorClause}
+                 ORDER BY pinned DESC, updated_at DESC, id DESC
+                 LIMIT $limit
+                """;
+            if (projectId is not null)
+            {
+                command.Parameters.AddWithValue("$projectId", projectId);
+            }
+            if (hasCursor)
+            {
+                command.Parameters.AddWithValue("$cursorPinned", cursorPinned);
+                command.Parameters.AddWithValue("$cursorUpdatedAt", cursorUpdatedAt);
+                command.Parameters.AddWithValue("$cursorId", cursorId);
+            }
+            command.Parameters.AddWithValue("$limit", limit + 1);
+
+            var pageRows = ReadSessionRows(command);
+            var hasMore = pageRows.Count > limit;
+            if (hasMore)
+            {
+                pageRows.RemoveAt(pageRows.Count - 1);
+            }
+
+            SessionListCursor? nextCursor = null;
+            if (hasMore && pageRows.Count > 0)
+            {
+                // The cursor belongs to the ordinary page only. Injected rows
+                // must never move the cursor backwards or cause duplicates on
+                // the next page.
+                var last = pageRows[^1];
+                nextCursor = new SessionListCursor(last.Pinned, last.UpdatedAt, last.Id);
+            }
+
+            var rows = pageRows;
+            if (includePinned || includeSessionIds.Length > 0)
+            {
+                var injectedRows = ReadInjectedSessionRows(
+                    connection,
+                    projectClause,
+                    projectId,
+                    includePinned,
+                    includeSessionIds);
+                var seen = new HashSet<string>(rows.Select(row => row.Id), StringComparer.Ordinal);
+                foreach (var injected in injectedRows)
+                {
+                    if (seen.Add(injected.Id)) rows.Add(injected);
+                }
+                rows.Sort(CompareSessionRows);
+            }
+
+            return WorkerResponse.Json(
+                new SessionListPageResult(rows, nextCursor, hasMore),
+                WorkerJsonContext.Default.SessionListPageResult);
+        }
+        catch (Exception ex)
+        {
+            return WorkerResponse.Error(ex.Message);
+        }
+    }
+
+    private static List<SessionRow> ReadInjectedSessionRows(
+        SqliteConnection connection,
+        string projectClause,
+        string? projectId,
+        bool includePinned,
+        IReadOnlyCollection<string> includeSessionIds)
+    {
+        var predicates = new List<string>();
+        var parameters = new List<DbSql.SqlParam>();
+        if (includePinned)
+        {
+            predicates.Add("pinned = 1");
+        }
+
+        var idIndex = 0;
+        foreach (var id in includeSessionIds)
+        {
+            var name = $"$includeId{idIndex++}";
+            predicates.Add($"id = {name}");
+            parameters.Add(new DbSql.SqlParam(name, id));
+        }
+
+        if (predicates.Count == 0) return new List<SessionRow>();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            {SessionSelectSql}
+             WHERE {projectClause}
+               AND ({string.Join(" OR ", predicates)})
+             ORDER BY pinned DESC, updated_at DESC, id DESC
+            """;
+        if (projectId is not null)
+        {
+            command.Parameters.AddWithValue("$projectId", projectId);
+        }
+        foreach (var parameter in parameters)
+        {
+            command.Parameters.AddWithValue(parameter.Name, parameter.Value ?? DBNull.Value);
+        }
+        return ReadSessionRows(command);
+    }
+
+    private static int CompareSessionRows(SessionRow left, SessionRow right)
+    {
+        if (left.Pinned != right.Pinned) return right.Pinned.CompareTo(left.Pinned);
+        if (left.UpdatedAt != right.UpdatedAt) return right.UpdatedAt.CompareTo(left.UpdatedAt);
+        return string.CompareOrdinal(right.Id, left.Id);
+    }
+
     public static WorkerResponse Get(JsonElement parameters)
     {
         try
@@ -187,7 +329,10 @@ internal static class DbSessionTools
     {
         try
         {
-            var projectId = RequireString(parameters, "projectId");
+            var projectId = parameters.TryGetProperty("projectId", out var projectIdValue) &&
+                projectIdValue.ValueKind != JsonValueKind.Null
+                ? JsonHelpers.GetString(parameters, "projectId")
+                : null;
             var excluded = new HashSet<string>(StringComparer.Ordinal);
             if (parameters.TryGetProperty("excludeSessionIds", out var excludeValue) &&
                 excludeValue.ValueKind == JsonValueKind.Array)
@@ -213,20 +358,28 @@ internal static class DbSessionTools
                     WorkerJsonContext.Default.SessionClearAllResult);
             }
 
-            var placeholders = string.Join(", ", sessionIds.Select((_, index) => $"$id{index}"));
-            var values = sessionIds
-                .Select((id, index) => new DbSql.SqlParam($"$id{index}", id))
-                .ToArray();
-            var deletedMessages = DbSql.ExecuteNonQuery(
-                connection,
-                transaction,
-                $"DELETE FROM messages WHERE session_id IN ({placeholders})",
-                values);
-            var deletedSessions = DbSql.ExecuteNonQuery(
-                connection,
-                transaction,
-                $"DELETE FROM sessions WHERE id IN ({placeholders})",
-                values);
+            var deletedMessages = 0;
+            var deletedSessions = 0;
+            // Keep each statement comfortably below SQLite's host-parameter
+            // limit. Cursor pagination means a scope can now legitimately
+            // contain far more sessions than the old renderer cap.
+            foreach (var batch in sessionIds.Chunk(400))
+            {
+                var placeholders = string.Join(", ", batch.Select((_, index) => $"$id{index}"));
+                var values = batch
+                    .Select((id, index) => new DbSql.SqlParam($"$id{index}", id))
+                    .ToArray();
+                deletedMessages += DbSql.ExecuteNonQuery(
+                    connection,
+                    transaction,
+                    $"DELETE FROM messages WHERE session_id IN ({placeholders})",
+                    values);
+                deletedSessions += DbSql.ExecuteNonQuery(
+                    connection,
+                    transaction,
+                    $"DELETE FROM sessions WHERE id IN ({placeholders})",
+                    values);
+            }
             transaction.Commit();
 
             return WorkerResponse.Json(
@@ -544,13 +697,18 @@ internal static class DbSessionTools
     private static List<string> GetProjectSessionIds(
         SqliteConnection connection,
         SqliteTransaction transaction,
-        string projectId,
+        string? projectId,
         HashSet<string> excluded)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT id FROM sessions WHERE project_id = $projectId";
-        command.Parameters.AddWithValue("$projectId", projectId);
+        command.CommandText = projectId is null
+            ? "SELECT id FROM sessions WHERE project_id IS NULL AND plugin_id IS NULL"
+            : "SELECT id FROM sessions WHERE project_id = $projectId";
+        if (projectId is not null)
+        {
+            command.Parameters.AddWithValue("$projectId", projectId);
+        }
         var ids = new List<string>();
         using var reader = command.ExecuteReader();
         while (reader.Read())

@@ -111,6 +111,7 @@ export interface SidecarProviderConfig {
   systemPrompt?: string
   useSystemProxy?: boolean
   allowInsecureTls?: boolean
+  requestTimeoutSeconds?: number
   thinkingEnabled?: boolean
   thinkingConfig?: ProviderConfig['thinkingConfig']
   reasoningEffort?: string
@@ -518,6 +519,9 @@ function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig {
     ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
     ...(provider.allowInsecureTls !== undefined
       ? { allowInsecureTls: provider.allowInsecureTls }
+      : {}),
+    ...(provider.requestTimeoutSeconds !== undefined
+      ? { requestTimeoutSeconds: provider.requestTimeoutSeconds }
       : {}),
     ...(provider.thinkingEnabled !== undefined
       ? { thinkingEnabled: provider.thinkingEnabled }

@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { nanoid } from 'nanoid'
 import type {
@@ -18,7 +18,7 @@ import {
 } from '../lib/api/responses-image-generation'
 import { resolveProviderUserAgent } from '../lib/api/api-user-agent'
 import { aiProviderStorage } from '../lib/ipc/ai-provider-storage'
-import { useSettingsStore } from './settings-store'
+import { useSettingsStore, clampApiRequestTimeoutSeconds } from './settings-store'
 
 export { builtinProviderPresets }
 export type { BuiltinProviderPreset }
@@ -584,6 +584,14 @@ function resolveServiceTier(
 function resolveProviderAccountId(provider: AIProvider): string | undefined {
   const accountId = provider.oauth?.accountId?.trim()
   return accountId ? accountId : undefined
+}
+
+/**
+ * Reads the global request timeout so every provider config carries it to the runtime.
+ * Read at build time rather than captured, so changing the setting affects the next request.
+ */
+function resolveRequestTimeoutSeconds(): number {
+  return clampApiRequestTimeoutSeconds(useSettingsStore.getState().apiRequestTimeoutSeconds)
 }
 
 function resolveResponsesWebsocket(
@@ -1433,6 +1441,7 @@ export const useProviderStore = create<ProviderStore>()(
           ...(provider.allowInsecureTls !== undefined
             ? { allowInsecureTls: provider.allowInsecureTls }
             : {}),
+          requestTimeoutSeconds: resolveRequestTimeoutSeconds(),
           responseSummary: activeModel?.responseSummary,
           ...(responsesImageGeneration ? { responsesImageGeneration } : {}),
           enablePromptCache: activeModel?.enablePromptCache,
@@ -1555,6 +1564,7 @@ export const useProviderStore = create<ProviderStore>()(
           ...(provider.allowInsecureTls !== undefined
             ? { allowInsecureTls: provider.allowInsecureTls }
             : {}),
+          requestTimeoutSeconds: resolveRequestTimeoutSeconds(),
           responseSummary: model?.responseSummary,
           ...(responsesImageGeneration ? { responsesImageGeneration } : {}),
           enablePromptCache: model?.enablePromptCache,
@@ -1660,6 +1670,7 @@ export const useProviderStore = create<ProviderStore>()(
           ...(provider.allowInsecureTls !== undefined
             ? { allowInsecureTls: provider.allowInsecureTls }
             : {}),
+          requestTimeoutSeconds: resolveRequestTimeoutSeconds(),
           responseSummary: fastModel?.responseSummary,
           ...(responsesImageGeneration ? { responsesImageGeneration } : {}),
           enablePromptCache: fastModel?.enablePromptCache,

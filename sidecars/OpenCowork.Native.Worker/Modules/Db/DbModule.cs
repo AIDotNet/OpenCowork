@@ -8,6 +8,7 @@
         context.Register("db/session-reset-conversation", DbSessionTools.ResetConversation);
         context.Register("db/session-status", DbSessionTools.Status);
         context.Register("db/sessions-list", DbSessionTools.List);
+        context.Register("db/sessions-list-page", DbSessionTools.ListPage);
         context.Register("db/sessions-get", DbSessionTools.Get);
         context.Register("db/sessions-create", DbSessionTools.Create);
         context.Register("db/sessions-update", DbSessionTools.Update);
@@ -119,6 +120,9 @@
         context.Register("db/messages-list-user", DbMessageTools.ListUser);
         context.Register("db/messages-list-locator", DbMessageTools.ListLocator);
         context.Register("db/messages-list-page", DbMessageTools.ListPage);
+        context.Register("db/messages-window-index", DbMessageTools.WindowIndex);
+        context.Register("db/messages-range", DbMessageTools.Range);
+        context.Register("db/messages-content", DbMessageTools.Content);
         context.Register("db/messages-request-context", DbMessageTools.RequestContext);
         context.Register("db/messages-window-around", DbMessageTools.WindowAround);
         context.Register("db/messages-search-content", DbMessageTools.SearchContent);

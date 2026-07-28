@@ -74,6 +74,16 @@ internal sealed record SessionFindResult(
     SessionRow? Session,
     string? Error);
 
+internal sealed record SessionListCursor(
+    int Pinned,
+    long UpdatedAt,
+    string Id);
+
+internal sealed record SessionListPageResult(
+    List<SessionRow> Rows,
+    SessionListCursor? NextCursor,
+    bool HasMore);
+
 internal sealed record SessionMutationResult(
     bool Success,
     int Changed,

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+﻿import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ArrowLeft,
   Settings,
@@ -35,14 +35,18 @@ import { useChatStore } from '@renderer/stores/chat-store'
 import {
   clampMaxParallelToolCalls,
   clampMaxConcurrentSubAgents,
+  clampApiRequestTimeoutSeconds,
   DEFAULT_THEME_MODE,
   DEFAULT_MAX_PARALLEL_TOOL_CALLS,
   DEFAULT_MAX_CONCURRENT_SUB_AGENTS,
+  DEFAULT_API_REQUEST_TIMEOUT_SECONDS,
   DEFAULT_SHELL_EXECUTION_ENDPOINT,
   MAX_MAX_PARALLEL_TOOL_CALLS,
   MIN_MAX_PARALLEL_TOOL_CALLS,
   MAX_MAX_CONCURRENT_SUB_AGENTS,
   MIN_MAX_CONCURRENT_SUB_AGENTS,
+  MAX_API_REQUEST_TIMEOUT_SECONDS,
+  MIN_API_REQUEST_TIMEOUT_SECONDS,
   resolveShellExecutable,
   type ShellExecutionEndpoint,
   useSettingsStore
@@ -1408,6 +1412,62 @@ function GeneralPanel(): React.JSX.Element {
 
       <Separator />
 
+      {/* API Request Timeout */}
+      <section className="space-y-3">
+        <div className="flex items-start justify-between gap-3 max-w-lg">
+          <div className="min-w-0">
+            <label className="text-sm font-medium">
+              {t('general.apiRequestTimeout', { defaultValue: 'API Request Timeout' })}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t('general.apiRequestTimeoutDesc', {
+                defaultValue:
+                  'How long to wait for a model to start responding, in seconds. Raise this for local models (e.g. Ollama) that need a long warm-up. Set 0 to wait indefinitely until you cancel.'
+              })}
+            </p>
+          </div>
+          <Input
+            type="number"
+            min={MIN_API_REQUEST_TIMEOUT_SECONDS}
+            max={MAX_API_REQUEST_TIMEOUT_SECONDS}
+            step={10}
+            value={settings.apiRequestTimeoutSeconds}
+            onChange={(e) =>
+              settings.updateSettings({
+                apiRequestTimeoutSeconds: clampApiRequestTimeoutSeconds(Number(e.target.value))
+              })
+            }
+            className="w-24 shrink-0 text-sm"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          {[0, 100, 300, 600, 1800].map((value) => (
+            <button
+              key={value}
+              onClick={() => settings.updateSettings({ apiRequestTimeoutSeconds: value })}
+              className={`rounded px-2 py-0.5 text-[10px] transition-colors ${
+                settings.apiRequestTimeoutSeconds === value
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {value === 0
+                ? t('general.apiRequestTimeoutNoLimit', { defaultValue: 'No limit' })
+                : `${value}s`}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground/70">
+          {t('general.apiRequestTimeoutHint', {
+            defaultValue:
+              'Only bounds the wait before the first response; an active stream is never cut off. Default {{default}}s.',
+            default: DEFAULT_API_REQUEST_TIMEOUT_SECONDS
+          })}
+        </p>
+      </section>
+
+      <Separator />
+
       {/* Context Compression */}
       <section className="space-y-3">
         <div className="flex items-center justify-between max-w-lg">
@@ -1661,6 +1721,7 @@ function GeneralPanel(): React.JSX.Element {
               toolbarCollapsedByDefault: false,
               maxParallelToolCalls: DEFAULT_MAX_PARALLEL_TOOL_CALLS,
               maxConcurrentSubAgents: DEFAULT_MAX_CONCURRENT_SUB_AGENTS,
+              apiRequestTimeoutSeconds: DEFAULT_API_REQUEST_TIMEOUT_SECONDS,
               autoUpdateEnabled: true,
               apiKey: currentKey
             })

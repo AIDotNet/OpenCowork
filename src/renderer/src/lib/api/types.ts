@@ -1,4 +1,4 @@
-// ===== Unified API Type System =====
+﻿// ===== Unified API Type System =====
 
 // --- Token Usage ---
 
@@ -313,6 +313,13 @@ export interface UnifiedMessage {
    * Not persisted to the database.
    */
   _revision?: number
+  /** Renderer-only marker used by content-aware message windows. Preview rows keep
+   * their timeline position while the full SQLite content is fetched on demand. */
+  contentState?: 'full' | 'preview'
+  /** UTF-8 byte size reported by the lightweight message index. */
+  contentBytes?: number
+  /** Renderer-only logical order copied from SQLite for gap-safe window anchors. */
+  sortOrder?: number
 }
 
 // --- Streaming Events ---
@@ -730,6 +737,11 @@ export interface ProviderConfig {
   useSystemProxy?: boolean
   /** Whether to skip TLS certificate validation for this provider request */
   allowInsecureTls?: boolean
+  /**
+   * Deadline for this request to return response headers, in seconds.
+   * 0 waits indefinitely. Sourced from the global apiRequestTimeoutSeconds setting.
+   */
+  requestTimeoutSeconds?: number
   /** Whether thinking mode is enabled for this request */
   thinkingEnabled?: boolean
   /** Thinking configuration from the active model */

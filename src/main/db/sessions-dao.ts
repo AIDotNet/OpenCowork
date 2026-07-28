@@ -20,6 +20,18 @@ export interface SessionRow {
   message_count?: number
 }
 
+export interface SessionListCursor {
+  pinned: number
+  updatedAt: number
+  id: string
+}
+
+export interface SessionListPageResult {
+  rows: SessionRow[]
+  nextCursor: SessionListCursor | null
+  hasMore: boolean
+}
+
 interface SessionFindResult {
   success: boolean
   session?: SessionRow | null
@@ -42,7 +54,6 @@ interface SessionClearAllResult {
 
 export interface SessionClearProjectResult extends SessionClearAllResult {}
 
-
 async function requestMutation(method: string, params: object): Promise<SessionMutationResult> {
   const result = await getNativeWorker().request<SessionMutationResult>(method, params, 120_000)
   if (!result.success) {
@@ -56,7 +67,21 @@ export function listSessions(
   offset = 0,
   projectId?: string | null
 ): Promise<SessionRow[]> {
-  return getNativeWorker().request<SessionRow[]>('db/sessions-list', { limit, offset, projectId }, 120_000)
+  return getNativeWorker().request<SessionRow[]>(
+    'db/sessions-list',
+    { limit, offset, projectId },
+    120_000
+  )
+}
+
+export function listSessionsPage(args: {
+  limit?: number
+  projectId?: string | null
+  cursor?: SessionListCursor | null
+  includePinned?: boolean
+  includeSessionIds?: string[]
+}): Promise<SessionListPageResult> {
+  return getNativeWorker().request<SessionListPageResult>('db/sessions-list-page', args, 120_000)
 }
 
 export async function getSession(id: string): Promise<SessionRow | undefined> {
@@ -129,7 +154,7 @@ export async function clearAllSessions(): Promise<SessionClearAllResult> {
 }
 
 export async function clearProjectSessions(
-  projectId: string,
+  projectId: string | null,
   excludeSessionIds: string[] = []
 ): Promise<SessionClearProjectResult> {
   const result = await getNativeWorker().request<SessionClearProjectResult>(

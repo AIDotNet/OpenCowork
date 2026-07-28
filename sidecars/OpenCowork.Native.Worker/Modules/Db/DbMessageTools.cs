@@ -6,7 +6,9 @@ using Microsoft.Data.Sqlite;
 internal static class DbMessageTools
 {
     private const int DefaultRequestContextHeadLimit = 12;
-    private const int LocatorTextCharLimit = 6000;
+    // Locator rails only need a short preview. Keeping this bounded prevents a
+    // large history scan from becoming another full-content IPC transfer.
+    private const int LocatorTextCharLimit = 1200;
     private const string LocatorTruncatedSuffix = "\n[...truncated for locator]";
 
     private static readonly IReadOnlyDictionary<string, int> RoleOrder = new Dictionary<string, int>(StringComparer.Ordinal)
@@ -35,12 +37,19 @@ internal static class DbMessageTools
 
             using var command = connection.CreateCommand();
             command.CommandText = """
-                SELECT id, session_id, role, content, meta, created_at, sort_order
+                SELECT id, session_id, role,
+                       CASE
+                         WHEN length(CAST(content AS BLOB)) <= $previewChars
+                         THEN content
+                         ELSE substr(content, 1, $previewChars)
+                       END AS content,
+                       meta, created_at, sort_order
                   FROM messages
                  WHERE session_id = $sessionId
                  ORDER BY sort_order ASC, created_at ASC
                 """;
             command.Parameters.AddWithValue("$sessionId", sessionId);
+            command.Parameters.AddWithValue("$previewChars", LocatorTextCharLimit * 8);
 
             var rows = new List<MessageLocatorRow>();
             using var reader = command.ExecuteReader();
@@ -60,6 +69,140 @@ internal static class DbMessageTools
     public static WorkerResponse ListPage(JsonElement parameters)
     {
         return ReadRows(parameters, role: null, paged: true);
+    }
+
+    public static WorkerResponse WindowIndex(JsonElement parameters)
+    {
+        try
+        {
+            var sessionId = RequireString(parameters, "sessionId");
+            var direction = (JsonHelpers.GetString(parameters, "direction") ?? "tail").Trim().ToLowerInvariant();
+            var byteBudget = Math.Clamp(
+                JsonHelpers.GetInt(parameters, "byteBudget", 256 * 1024),
+                1,
+                8 * 1024 * 1024);
+            var maxRows = Math.Clamp(JsonHelpers.GetInt(parameters, "maxRows", 30), 1, 240);
+            var anchorSortOrder = JsonHelpers.GetInt(parameters, "anchorSortOrder", -1);
+
+            using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+            var total = GetSessionMessageCount(connection, sessionId);
+            if (total <= 0)
+            {
+                return WorkerResponse.Json(
+                    new MessageWindowIndexResult(true, new List<MessageIndexRow>(), 0, 0, 0, false, false, 0, null),
+                    WorkerJsonContext.Default.MessageWindowIndexResult);
+            }
+
+            var rows = ReadMessageIndexRows(connection, sessionId, direction, anchorSortOrder, maxRows);
+            var selected = new List<MessageIndexRow>(rows.Count);
+            var loadedBytes = 0;
+            foreach (var row in rows)
+            {
+                if (selected.Count > 0 && loadedBytes >= byteBudget)
+                {
+                    break;
+                }
+
+                selected.Add(row);
+                loadedBytes = Math.Min(int.MaxValue, loadedBytes + Math.Max(0, row.ContentBytes));
+            }
+
+            selected.Sort((left, right) =>
+                left.SortOrder != right.SortOrder
+                    ? left.SortOrder.CompareTo(right.SortOrder)
+                    : left.CreatedAt.CompareTo(right.CreatedAt));
+
+            var start = selected.Count == 0
+                ? ResolveIndexStart(connection, sessionId, total, direction, anchorSortOrder)
+                : ResolveIndexStart(connection, sessionId, total, direction, anchorSortOrder, selected.Count);
+            var end = Math.Min(total, start + selected.Count);
+
+            return WorkerResponse.Json(
+                new MessageWindowIndexResult(
+                    true,
+                    selected,
+                    start,
+                    end,
+                    total,
+                    start > 0,
+                    end < total,
+                    loadedBytes,
+                    null),
+                WorkerJsonContext.Default.MessageWindowIndexResult);
+        }
+        catch (Exception ex)
+        {
+            return WorkerResponse.Json(
+                new MessageWindowIndexResult(false, new List<MessageIndexRow>(), 0, 0, 0, false, false, 0, ex.Message),
+                WorkerJsonContext.Default.MessageWindowIndexResult);
+        }
+    }
+
+    public static WorkerResponse Range(JsonElement parameters)
+    {
+        try
+        {
+            var sessionId = RequireString(parameters, "sessionId");
+            var requestedStart = Math.Max(0, JsonHelpers.GetInt(parameters, "start", 0));
+            var requestedEnd = Math.Max(requestedStart, JsonHelpers.GetInt(parameters, "end", requestedStart));
+            var oversizedBytes = Math.Clamp(
+                JsonHelpers.GetInt(parameters, "oversizedBytes", 512 * 1024),
+                1,
+                16 * 1024 * 1024);
+            var includeLargeContent = JsonHelpers.GetBool(parameters, "includeLargeContent", false);
+
+            using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+            var total = GetSessionMessageCount(connection, sessionId);
+            var start = Math.Min(requestedStart, total);
+            var end = Math.Min(Math.Max(start, requestedEnd), total);
+            var rows = ReadMessageRangeRows(connection, sessionId, start, Math.Max(0, end - start), oversizedBytes, includeLargeContent);
+            var loadedBytes = rows.Aggregate(0, (sum, row) => Math.Min(int.MaxValue, sum + Math.Max(0, row.ContentBytes)));
+
+            return WorkerResponse.Json(
+                new MessageRangeResult(true, rows, start, end, total, start > 0, end < total, loadedBytes, null),
+                WorkerJsonContext.Default.MessageRangeResult);
+        }
+        catch (Exception ex)
+        {
+            return WorkerResponse.Json(
+                new MessageRangeResult(false, new List<MessageRangeRow>(), 0, 0, 0, false, false, 0, ex.Message),
+                WorkerJsonContext.Default.MessageRangeResult);
+        }
+    }
+
+    public static WorkerResponse Content(JsonElement parameters)
+    {
+        try
+        {
+            var sessionId = RequireString(parameters, "sessionId");
+            var messageId = RequireString(parameters, "messageId");
+            using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT id, session_id, role, content, meta, created_at, usage, sort_order,
+                       length(CAST(content AS BLOB)) AS content_bytes
+                  FROM messages
+                 WHERE session_id = $sessionId AND id = $messageId
+                 LIMIT 1
+                """;
+            command.Parameters.AddWithValue("$sessionId", sessionId);
+            command.Parameters.AddWithValue("$messageId", messageId);
+            using var reader = command.ExecuteReader();
+            var row = reader.Read() ? ReadMessageRow(reader) : null;
+            if (row is not null)
+            {
+                row.ContentBytes = reader.IsDBNull(8) ? 0 : Math.Max(0, reader.GetInt32(8));
+            }
+            return WorkerResponse.Json(
+                new MessageContentResult(row is not null, row, row is null ? "Message not found" : null),
+                WorkerJsonContext.Default.MessageContentResult);
+        }
+        catch (Exception ex)
+        {
+            return WorkerResponse.Json(
+                new MessageContentResult(false, null, ex.Message),
+                WorkerJsonContext.Default.MessageContentResult);
+        }
     }
 
     public static WorkerResponse RequestContext(JsonElement parameters)
@@ -825,6 +968,137 @@ internal static class DbMessageTools
             rows.Add(ReadMessageRow(reader));
         }
         return rows;
+    }
+
+    private static List<MessageIndexRow> ReadMessageIndexRows(
+        SqliteConnection connection,
+        string sessionId,
+        string direction,
+        int anchorSortOrder,
+        int maxRows)
+    {
+        using var command = connection.CreateCommand();
+        var effectiveDirection = direction is "older" or "newer" ? direction : "tail";
+        var predicate = effectiveDirection switch
+        {
+            "older" => " AND sort_order < $anchorSortOrder",
+            "newer" => " AND sort_order >= $anchorSortOrder",
+            _ => string.Empty
+        };
+        var order = effectiveDirection == "older" || effectiveDirection == "tail"
+            ? "DESC"
+            : "ASC";
+        command.CommandText = $"""
+            SELECT id, session_id, role, meta, created_at, sort_order,
+                   length(CAST(content AS BLOB)) AS content_bytes
+              FROM messages
+             WHERE session_id = $sessionId{predicate}
+             ORDER BY sort_order {order}, created_at {order}
+             LIMIT $limit
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        if (effectiveDirection is "older" or "newer")
+        {
+            command.Parameters.AddWithValue("$anchorSortOrder", Math.Max(0, anchorSortOrder));
+        }
+        command.Parameters.AddWithValue("$limit", maxRows);
+
+        var rows = new List<MessageIndexRow>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            rows.Add(new MessageIndexRow
+            {
+                Id = reader.GetString(0),
+                SessionId = reader.GetString(1),
+                Role = reader.GetString(2),
+                Meta = reader.IsDBNull(3) ? null : reader.GetString(3),
+                CreatedAt = reader.GetInt64(4),
+                SortOrder = reader.GetInt32(5),
+                ContentBytes = reader.IsDBNull(6) ? 0 : Math.Max(0, reader.GetInt32(6))
+            });
+        }
+        return rows;
+    }
+
+    private static List<MessageRangeRow> ReadMessageRangeRows(
+        SqliteConnection connection,
+        string sessionId,
+        int start,
+        int limit,
+        int oversizedBytes,
+        bool includeLargeContent)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, session_id, role,
+                   CASE
+                     WHEN $includeLargeContent = 1
+                       OR length(CAST(content AS BLOB)) <= $oversizedBytes
+                     THEN content
+                     ELSE substr(content, 1, $previewChars)
+                   END AS content,
+                   meta, created_at, usage, sort_order,
+                   length(CAST(content AS BLOB)) AS content_bytes
+              FROM messages
+             WHERE session_id = $sessionId
+             ORDER BY sort_order ASC, created_at ASC
+             LIMIT $limit OFFSET $offset
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        command.Parameters.AddWithValue("$limit", limit);
+        command.Parameters.AddWithValue("$offset", start);
+        command.Parameters.AddWithValue("$oversizedBytes", oversizedBytes);
+        command.Parameters.AddWithValue("$includeLargeContent", includeLargeContent ? 1 : 0);
+        command.Parameters.AddWithValue(
+            "$previewChars",
+            Math.Max(1024, Math.Min(16 * 1024, oversizedBytes / 2)));
+
+        var rows = new List<MessageRangeRow>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var content = reader.GetString(3);
+            var contentBytes = reader.IsDBNull(8) ? 0 : Math.Max(0, reader.GetInt32(8));
+            var isOversized = !includeLargeContent && contentBytes > oversizedBytes;
+            rows.Add(new MessageRangeRow
+            {
+                Id = reader.GetString(0),
+                SessionId = reader.GetString(1),
+                Role = reader.GetString(2),
+                Content = isOversized ? null : content,
+                Preview = isOversized ? BuildLocatorContent(content) : null,
+                Meta = reader.IsDBNull(4) ? null : reader.GetString(4),
+                CreatedAt = reader.GetInt64(5),
+                Usage = reader.IsDBNull(6) ? null : reader.GetString(6),
+                SortOrder = reader.GetInt32(7),
+                ContentBytes = contentBytes,
+                ContentState = isOversized ? "preview" : "full"
+            });
+        }
+        return rows;
+    }
+
+    private static int ResolveIndexStart(
+        SqliteConnection connection,
+        string sessionId,
+        int total,
+        string direction,
+        int anchorSortOrder,
+        int selectedCount = 0)
+    {
+        if (direction == "tail") return Math.Max(0, total - selectedCount);
+
+        using var command = connection.CreateCommand();
+        command.CommandText = direction == "older"
+            ? "SELECT COUNT(*) FROM messages WHERE session_id = $sessionId AND sort_order < $anchorSortOrder"
+            : "SELECT COUNT(*) FROM messages WHERE session_id = $sessionId AND sort_order < $anchorSortOrder";
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        command.Parameters.AddWithValue("$anchorSortOrder", Math.Max(0, anchorSortOrder));
+        var rowsBeforeAnchor = Convert.ToInt32(command.ExecuteScalar() ?? 0);
+        return direction == "older"
+            ? Math.Max(0, rowsBeforeAnchor - selectedCount)
+            : Math.Clamp(rowsBeforeAnchor, 0, total);
     }
 
     private static List<MessageRow> ReadCompactArtifactRows(SqliteConnection connection, string sessionId)

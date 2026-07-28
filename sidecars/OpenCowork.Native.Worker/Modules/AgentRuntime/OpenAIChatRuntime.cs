@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
@@ -21,7 +21,10 @@ internal static class OpenAIChatRuntime
         "</turn-context>";
     private const string PlanRevisionInstruction =
         "Please revise the current plan file accordingly with Write/Edit, then call ExitPlanMode.";
-    private static readonly HttpClient Http = WorkerHttpClientFactory.Create();
+    // Infinite client timeout: the effective deadline is user-configurable and therefore
+    // applied per request via AgentRuntimeRequestTimeout.
+    private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
+        timeout: Timeout.InfiniteTimeSpan);
     private static readonly JsonWriterOptions WriterOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
@@ -698,9 +701,11 @@ internal static class OpenAIChatRuntime
         var toolBuffers = new Dictionary<int, ToolCallBuffer>();
         var toolCalls = new List<AgentRuntimeNativeToolCall>();
 
-        using var response = await Http.SendAsync(
+        using var response = await AgentRuntimeRequestTimeout.SendAsync(
+            Http,
             request,
-            HttpCompletionOption.ResponseHeadersRead,
+            provider,
+            "OpenAI-compatible chat",
             state.CancellationToken);
         if (!response.IsSuccessStatusCode)
         {

@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { ProviderType, ReasoningEffortLevel, ThinkingConfig } from '../lib/api/types'
 import { ipcStorage } from '../lib/ipc/ipc-storage'
@@ -102,6 +102,14 @@ export const MAX_MAX_PARALLEL_TOOL_CALLS = 16
 export const DEFAULT_MAX_CONCURRENT_SUB_AGENTS = 2
 export const MIN_MAX_CONCURRENT_SUB_AGENTS = 1
 export const MAX_MAX_CONCURRENT_SUB_AGENTS = 8
+
+// Deadline for a provider API request to return response headers, in seconds. Matches
+// HttpClient's historical 100s default so existing behaviour is unchanged; 0 disables the
+// deadline, leaving cancellation to the user (for local models such as Ollama with long TTFT).
+export const DEFAULT_API_REQUEST_TIMEOUT_SECONDS = 100
+export const MIN_API_REQUEST_TIMEOUT_SECONDS = 0
+/** 24h ceiling: generous enough for any local warm-up while still bounding typos. */
+export const MAX_API_REQUEST_TIMEOUT_SECONDS = 86_400
 
 export interface RecentWorkingTarget {
   workingFolder: string
@@ -265,6 +273,14 @@ export function clampMaxConcurrentSubAgents(value: number): number {
   )
 }
 
+export function clampApiRequestTimeoutSeconds(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_API_REQUEST_TIMEOUT_SECONDS
+  return Math.min(
+    MAX_API_REQUEST_TIMEOUT_SECONDS,
+    Math.max(MIN_API_REQUEST_TIMEOUT_SECONDS, Math.floor(value))
+  )
+}
+
 export function normalizeShellExecutionEndpoint(value: unknown): ShellExecutionEndpoint {
   if (
     value === 'auto' ||
@@ -380,6 +396,11 @@ interface SettingsStore {
   editorRemoteLanguageServiceEnabled: boolean
   maxParallelToolCalls: number
   maxConcurrentSubAgents: number
+  /**
+   * Deadline for an AI provider request to return its response headers, in seconds.
+   * 0 waits indefinitely — useful for local models with a long time to first token.
+   */
+  apiRequestTimeoutSeconds: number
   toolResultFormat: 'toon' | 'json'
   fileDiffViewMode: FileDiffViewMode
   shellExecutionEndpoint: ShellExecutionEndpoint
@@ -507,6 +528,7 @@ export const useSettingsStore = create<SettingsStore>()(
       editorRemoteLanguageServiceEnabled: false,
       maxParallelToolCalls: DEFAULT_MAX_PARALLEL_TOOL_CALLS,
       maxConcurrentSubAgents: DEFAULT_MAX_CONCURRENT_SUB_AGENTS,
+      apiRequestTimeoutSeconds: DEFAULT_API_REQUEST_TIMEOUT_SECONDS,
       toolResultFormat: 'toon',
       fileDiffViewMode: 'split',
       shellExecutionEndpoint: DEFAULT_SHELL_EXECUTION_ENDPOINT,
@@ -590,6 +612,13 @@ export const useSettingsStore = create<SettingsStore>()(
               ? {}
               : {
                   maxConcurrentSubAgents: clampMaxConcurrentSubAgents(patch.maxConcurrentSubAgents)
+                }),
+            ...(patch.apiRequestTimeoutSeconds === undefined
+              ? {}
+              : {
+                  apiRequestTimeoutSeconds: clampApiRequestTimeoutSeconds(
+                    patch.apiRequestTimeoutSeconds
+                  )
                 })
           }
 
@@ -806,6 +835,16 @@ export const useSettingsStore = create<SettingsStore>()(
         } else {
           state.maxConcurrentSubAgents = clampMaxConcurrentSubAgents(state.maxConcurrentSubAgents)
         }
+        if (
+          state.apiRequestTimeoutSeconds === undefined ||
+          typeof state.apiRequestTimeoutSeconds !== 'number'
+        ) {
+          state.apiRequestTimeoutSeconds = DEFAULT_API_REQUEST_TIMEOUT_SECONDS
+        } else {
+          state.apiRequestTimeoutSeconds = clampApiRequestTimeoutSeconds(
+            state.apiRequestTimeoutSeconds
+          )
+        }
         if (state.reasoningEffortByModel === undefined) {
           state.reasoningEffortByModel = {}
         }
@@ -936,6 +975,7 @@ export const useSettingsStore = create<SettingsStore>()(
         editorRemoteLanguageServiceEnabled: state.editorRemoteLanguageServiceEnabled,
         maxParallelToolCalls: clampMaxParallelToolCalls(state.maxParallelToolCalls),
         maxConcurrentSubAgents: clampMaxConcurrentSubAgents(state.maxConcurrentSubAgents),
+        apiRequestTimeoutSeconds: clampApiRequestTimeoutSeconds(state.apiRequestTimeoutSeconds),
         toolResultFormat: state.toolResultFormat,
         fileDiffViewMode: state.fileDiffViewMode,
         shellExecutionEndpoint: normalizeShellExecutionEndpoint(state.shellExecutionEndpoint),

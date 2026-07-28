@@ -121,10 +121,11 @@ export const routinAiPreset: BuiltinProviderPreset = {
       }
     },
     {
-      id: 'K3',
+      id: 'kimi-k3',
       name: 'Kimi K3',
       icon: 'kimi',
       enabled: true,
+      type: 'anthropic',
       contextLength: 1_048_576,
       maxOutputTokens: 131_072,
       supportsVision: true,

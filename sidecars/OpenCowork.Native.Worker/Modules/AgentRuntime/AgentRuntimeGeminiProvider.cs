@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -6,7 +6,10 @@ using System.Text.Json;
 
 internal static class AgentRuntimeGeminiProvider
 {
-    private static readonly HttpClient Http = WorkerHttpClientFactory.Create();
+    // Infinite client timeout: the effective deadline is user-configurable and therefore
+    // applied per request via AgentRuntimeRequestTimeout.
+    private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
+        timeout: Timeout.InfiniteTimeSpan);
     private static readonly JsonWriterOptions WriterOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
@@ -50,9 +53,11 @@ internal static class AgentRuntimeGeminiProvider
         var parseState = new GeminiParseState();
         WorkerLog.Debug($"gemini request start provider={providerType} model={model} url={url}");
 
-        using var response = await Http.SendAsync(
+        using var response = await AgentRuntimeRequestTimeout.SendAsync(
+            Http,
             request,
-            HttpCompletionOption.ResponseHeadersRead,
+            provider,
+            "Gemini",
             state.CancellationToken);
         if (!response.IsSuccessStatusCode)
         {

@@ -600,7 +600,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
                 writer.WritePropertyName("input_schema");
                 if (tool.TryGetProperty("inputSchema", out var schema))
                 {
-                    schema.WriteTo(writer);
+                    WriteAnthropicInputSchema(writer, schema);
                 }
                 else
                 {
@@ -624,6 +624,143 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         writer.WriteStartObject();
         writer.WriteString("type", "auto");
         writer.WriteEndObject();
+    }
+
+    // Anthropic's Messages API rejects oneOf/anyOf/allOf at the *top level* of a
+    // tool's input_schema (HTTP 400: "input_schema does not support oneOf, allOf,
+    // or anyOf at the top level"). Tool definitions may legitimately carry a
+    // top-level combinator — the Task tool models its variants with oneOf, and
+    // extension/MCP tools can forward arbitrary schemas — so flatten it into a
+    // single permissive object schema before serializing. Nested combinators
+    // (e.g. inside a property's `items`) are allowed and left untouched.
+    private static void WriteAnthropicInputSchema(Utf8JsonWriter writer, JsonElement schema)
+    {
+        if (schema.ValueKind != JsonValueKind.Object || !HasTopLevelSchemaCombinator(schema))
+        {
+            schema.WriteTo(writer);
+            return;
+        }
+
+        // Merge properties from the base schema and every branch (first writer wins
+        // for a duplicate key, so the base schema's shape takes precedence).
+        var properties = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        var propertyOrder = new List<string>();
+        CollectSchemaProperties(schema, properties, propertyOrder);
+
+        // A field on the base schema applies unconditionally, so it is always required.
+        var required = new HashSet<string>(SchemaRequired(schema), StringComparer.Ordinal);
+
+        // allOf branches must all be satisfied → union of their required fields.
+        foreach (var branch in SchemaBranches(schema, "allOf"))
+        {
+            CollectSchemaProperties(branch, properties, propertyOrder);
+            required.UnionWith(SchemaRequired(branch));
+        }
+
+        // oneOf/anyOf branches are alternatives → a field is only safely required
+        // when every alternative requires it (intersection).
+        HashSet<string>? alternativeRequired = null;
+        foreach (var branch in SchemaBranches(schema, "oneOf").Concat(SchemaBranches(schema, "anyOf")))
+        {
+            CollectSchemaProperties(branch, properties, propertyOrder);
+            var branchRequired = new HashSet<string>(SchemaRequired(branch), StringComparer.Ordinal);
+            if (alternativeRequired is null)
+            {
+                alternativeRequired = branchRequired;
+            }
+            else
+            {
+                alternativeRequired.IntersectWith(branchRequired);
+            }
+        }
+        if (alternativeRequired is not null)
+        {
+            required.UnionWith(alternativeRequired);
+        }
+
+        writer.WriteStartObject();
+        writer.WriteString("type", "object");
+        writer.WritePropertyName("properties");
+        writer.WriteStartObject();
+        foreach (var name in propertyOrder)
+        {
+            writer.WritePropertyName(name);
+            properties[name].WriteTo(writer);
+        }
+        writer.WriteEndObject();
+        if (required.Count > 0)
+        {
+            writer.WritePropertyName("required");
+            writer.WriteStartArray();
+            foreach (var name in propertyOrder)
+            {
+                if (required.Contains(name))
+                {
+                    writer.WriteStringValue(name);
+                }
+            }
+            writer.WriteEndArray();
+        }
+        writer.WriteEndObject();
+    }
+
+    // The API rejects the *presence* of these keys at the top level, so an empty or
+    // malformed branch list has to be dropped as well, not merely merged.
+    private static bool HasTopLevelSchemaCombinator(JsonElement schema)
+        => schema.TryGetProperty("oneOf", out _)
+            || schema.TryGetProperty("anyOf", out _)
+            || schema.TryGetProperty("allOf", out _);
+
+    private static IEnumerable<JsonElement> SchemaBranches(JsonElement schema, string keyword)
+    {
+        if (!schema.TryGetProperty(keyword, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+        foreach (var branch in value.EnumerateArray())
+        {
+            if (branch.ValueKind == JsonValueKind.Object)
+            {
+                yield return branch;
+            }
+        }
+    }
+
+    private static void CollectSchemaProperties(
+        JsonElement schema,
+        Dictionary<string, JsonElement> properties,
+        List<string> order)
+    {
+        if (!schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+        foreach (var property in props.EnumerateObject())
+        {
+            if (properties.TryAdd(property.Name, property.Value))
+            {
+                order.Add(property.Name);
+            }
+        }
+    }
+
+    private static IEnumerable<string> SchemaRequired(JsonElement schema)
+    {
+        if (!schema.TryGetProperty("required", out var required) || required.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+        foreach (var entry in required.EnumerateArray())
+        {
+            if (entry.ValueKind == JsonValueKind.String)
+            {
+                var value = entry.GetString();
+                if (!string.IsNullOrEmpty(value))
+                {
+                    yield return value;
+                }
+            }
+        }
     }
 
     private static HashSet<string> CollectAnthropicMessageCacheTargets(

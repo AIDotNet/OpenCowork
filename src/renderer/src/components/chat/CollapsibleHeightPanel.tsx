@@ -27,7 +27,14 @@ export function CollapsibleHeightPanel({
   const [mounted, setMounted] = React.useState(open || !enabled)
   const [height, setHeight] = React.useState<number | 'auto'>(open || !enabled ? 'auto' : 0)
   const panelRef = React.useRef<HTMLDivElement>(null)
+  const contentRef = React.useRef<HTMLDivElement>(null)
   const openRef = React.useRef(open)
+  const heightRef = React.useRef<number | 'auto'>(height)
+  const lastMeasuredHeightRef = React.useRef<number | null>(null)
+
+  React.useEffect(() => {
+    heightRef.current = height
+  }, [height])
 
   React.useLayoutEffect(() => {
     if (!enabled) {
@@ -44,7 +51,7 @@ export function CollapsibleHeightPanel({
       setMounted(true)
       setHeight(0)
       requestAnimationFrame(() => {
-        const measured = panelRef.current?.scrollHeight ?? 0
+        const measured = contentRef.current?.scrollHeight ?? 0
         setHeight(measured > 0 ? measured : 'auto')
       })
       return
@@ -59,16 +66,49 @@ export function CollapsibleHeightPanel({
     }
   }, [enabled, open])
 
-  // Content may resize while open (tool output arrives); keep a px lock when still on auto.
+  // Content may resize while open (tool output arrives or a nested block expands).
+  // Keep the animated wrapper in sync with the real content instead of relying on
+  // React children identity (which can stay stable while a nested component changes).
   React.useLayoutEffect(() => {
     if (!enabled || !open || !mounted) return
-    if (height !== 'auto') return
-    const measured = panelRef.current?.scrollHeight ?? 0
-    if (measured > 0) setHeight(measured)
-  }, [children, enabled, height, mounted, open])
+    const measured = contentRef.current?.scrollHeight ?? 0
+    if (measured <= 0) return
+    if (lastMeasuredHeightRef.current === measured) return
+    lastMeasuredHeightRef.current = measured
+    setHeight((current) => (current === measured ? current : measured))
+  }, [children, enabled, mounted, open])
+
+  React.useLayoutEffect(() => {
+    if (!enabled || !open || !mounted || typeof ResizeObserver === 'undefined') return
+
+    let frame: number | null = null
+    const syncToContent = (): void => {
+      frame = null
+      const measured = contentRef.current?.scrollHeight ?? 0
+      if (measured <= 0 || !openRef.current) return
+      if (lastMeasuredHeightRef.current === measured) return
+      lastMeasuredHeightRef.current = measured
+      setHeight((current) => (current === measured ? current : measured))
+    }
+    const observer = new ResizeObserver(() => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(syncToContent)
+    })
+    if (contentRef.current) observer.observe(contentRef.current)
+    syncToContent()
+
+    return () => {
+      observer.disconnect()
+      if (frame !== null) cancelAnimationFrame(frame)
+    }
+  }, [enabled, mounted, open])
 
   if (!enabled) {
-    return <div className={className}>{children}</div>
+    return (
+      <div ref={contentRef} className={className}>
+        {children}
+      </div>
+    )
   }
 
   if (!mounted) return null
@@ -86,16 +126,18 @@ export function CollapsibleHeightPanel({
       transition={PANEL_TRANSITION}
       className={className}
       onAnimationComplete={() => {
-        if (!open && height === 0) {
+        if (!openRef.current && heightRef.current === 0) {
           setMounted(false)
           return
         }
-        if (open && typeof height === 'number' && height > 0) {
+        if (openRef.current && typeof heightRef.current === 'number' && heightRef.current > 0) {
           setHeight('auto')
         }
       }}
     >
-      <div className={contentClassName}>{children}</div>
+      <div ref={contentRef} className={contentClassName}>
+        {children}
+      </div>
     </motion.div>
   )
 }

@@ -276,15 +276,17 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
     success: boolean
     error?: string
   }> {
-    // Upsert is used by streaming/final persistence. It is intentionally silent:
-    // the renderer already has the live state, and emitting structural updates here
-    // can trigger DB reloads that race against in-memory streaming.
+    // Streaming updates to an existing row stay silent because the renderer already owns
+    // the live content. A true insert is structural and must invalidate message locators.
     const existing = await sessionsDao.getSession(msg.sessionId)
     if (!existing) {
       return { success: false, error: 'session-not-found' }
     }
     recordDbUpsertTrace(msg)
-    await messagesDao.upsertMessage(msg)
+    const inserted = await messagesDao.upsertMessage(msg)
+    if (inserted) {
+      await emitSessionUpdated(msg.sessionId, 'message-added')
+    }
     return { success: true }
   }
 

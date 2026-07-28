@@ -115,6 +115,7 @@ export interface MessageInsertArtifactsResult {
 interface MessageMutationResult {
   success: boolean
   changed: number
+  inserted?: boolean
   error?: string | null
 }
 
@@ -254,8 +255,9 @@ export async function addMessages(msgs: MessageInput[]): Promise<void> {
   await requestMutation('db/messages-add-batch', { messages: msgs })
 }
 
-export async function upsertMessage(msg: MessageInput): Promise<void> {
-  await requestMutation('db/messages-upsert', msg)
+export async function upsertMessage(msg: MessageInput): Promise<boolean> {
+  const result = await requestMutation('db/messages-upsert', msg)
+  return result.inserted === true
 }
 
 export async function updateMessage(

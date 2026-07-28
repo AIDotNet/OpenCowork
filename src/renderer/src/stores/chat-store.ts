@@ -1385,6 +1385,9 @@ interface ChatStore {
   projectSessionLoadState: Record<string, 'idle' | 'loading' | 'loaded' | 'error'>
   /** Cursor state is kept per project and for project-less chats (`__chats__`). */
   sessionListPageState: Record<string, SessionPageState>
+  messageLocatorVersions: Record<string, number>
+  bumpMessageLocatorVersion: (sessionId: string) => void
+  clearMessageLocatorVersion: (sessionId: string) => void
 
   // Initialization
   loadFromDb: () => Promise<void>
@@ -2935,6 +2938,19 @@ export const useChatStore = create<ChatStore>()(
     _loaded: false,
     projectSessionLoadState: {},
     sessionListPageState: {},
+    messageLocatorVersions: {},
+
+    bumpMessageLocatorVersion: (sessionId) => {
+      set((state) => {
+        state.messageLocatorVersions[sessionId] = (state.messageLocatorVersions[sessionId] ?? 0) + 1
+      })
+    },
+
+    clearMessageLocatorVersion: (sessionId) => {
+      set((state) => {
+        delete state.messageLocatorVersions[sessionId]
+      })
+    },
 
     ensureDefaultProject: async () => {
       try {
@@ -3133,6 +3149,7 @@ export const useChatStore = create<ChatStore>()(
           const shouldDelete = deletedSet.has(session.id) || session.projectId === projectId
           if (shouldDelete) {
             delete state.streamingMessages[session.id]
+            delete state.messageLocatorVersions[session.id]
           }
           return !shouldDelete
         })
@@ -4725,6 +4742,7 @@ export const useChatStore = create<ChatStore>()(
 
         nextActiveId = state.activeSessionId
         delete state.streamingMessages[id]
+        delete state.messageLocatorVersions[id]
       })
 
       // Clean up deferred streaming state for deleted session
@@ -5259,6 +5277,7 @@ export const useChatStore = create<ChatStore>()(
         state.activeSessionId = null
         state.sessionListPageState = {}
         state.projectSessionLoadState = {}
+        state.messageLocatorVersions = {}
       })
       _recentSessionWindowLru.length = 0
       invalidateSessionListPageGeneration('__chats__')
@@ -5344,6 +5363,7 @@ export const useChatStore = create<ChatStore>()(
         state.sessions = state.sessions.filter((session) => session.id !== sessionId)
         syncSessionsById(state)
         resetSessionListCursorForScope(state, deletedProjectId ?? projectId ?? '__chats__')
+        delete state.messageLocatorVersions[sessionId]
 
         if (wasActiveSession) {
           state.activeSessionId = null

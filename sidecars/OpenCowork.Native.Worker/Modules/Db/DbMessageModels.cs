@@ -118,7 +118,11 @@ internal sealed record MessageContentMatch(
     [property: JsonPropertyName("session_id")] string SessionId,
     [property: JsonPropertyName("snippet")] string Snippet);
 
-internal sealed record MessageMutationResult(bool Success, int Changed, string? Error);
+internal sealed record MessageMutationResult(
+    bool Success,
+    int Changed,
+    string? Error,
+    bool Inserted = false);
 
 internal sealed record MessageDeleteResult(bool Success, bool Deleted, string? Error);
 

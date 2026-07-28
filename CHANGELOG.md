@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.6] - 2026-07-28
+
+### Added
+
+- Added message windowing for long conversations, including targeted verification scripts for windowing behavior and pure message-window data handling.
+- Added native-worker request timeout handling and resilient message/session persistence paths for long-running agent tasks.
+
+### Changed
+
+- Updated native-worker context compression, video tool integrations, Seedance IPC handling, provider settings, and related renderer UI.
+- Enabled recursive Git submodule checkout in the native-worker build workflow.
+- Improved collapsible tool-output panels by observing dynamic content size changes.
+
+### Fixed
+
+- Flattened top-level `oneOf`, `anyOf`, and `allOf` tool input schemas before Anthropic Messages API requests, preventing HTTP 400 validation failures.
+- Fixed stale animation-completion state in collapsible panels.
+
 ## [1.2.5] - 2026-07-26
 
 ### Added

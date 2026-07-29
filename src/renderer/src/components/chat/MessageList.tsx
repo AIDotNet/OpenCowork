@@ -258,7 +258,6 @@ const EMPTY_MESSAGES: UnifiedMessage[] = []
 const EMPTY_TEAM_HISTORY: ActiveTeam[] = []
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 24
 const STREAMING_AUTO_SCROLL_BOTTOM_THRESHOLD = 80
-const STREAMING_AUTO_SCROLL_STOP_THRESHOLD = 240
 const TAIL_STATIC_MESSAGE_COUNT = 4
 const TAIL_LIVE_MESSAGE_COUNT = 6
 const FOLLOW_BOTTOM_SETTLE_FRAMES = 3
@@ -266,9 +265,7 @@ const BOTTOM_SCROLL_CORRECTION_EPSILON = 2
 const AUTO_SCROLL_MIN_DELTA = 24
 const PROGRAMMATIC_SCROLL_GUARD_MS = 160
 const STREAMING_AUTO_SCROLL_POLL_MS = 500
-const USER_LOCATOR_HIGHLIGHT_MS = 1400
 const ASSISTANT_RAIL_PREVIEW_LIMIT = 120
-const ASSISTANT_RAIL_SCROLL_OFFSET = 28
 const ASSISTANT_RAIL_HEIGHT_PX = 420
 const ASSISTANT_RAIL_MARKER_HEIGHT_PX = 2
 const ASSISTANT_RAIL_MARKER_WIDTH_PX = 6
@@ -1029,15 +1026,12 @@ function parseLocatorMeta(rawMeta: string | null): UnifiedMessage['meta'] {
 function AssistantReplyRail({
   items,
   activeMessageIds,
-  onJump,
   onWheel
 }: {
   items: AssistantReplyRailItem[]
   activeMessageIds: Set<string>
-  onJump: (item: AssistantReplyRailItem) => void
   onWheel: (event: React.WheelEvent<HTMLDivElement>) => void
 }): React.JSX.Element | null {
-  const { t } = useTranslation('chat')
   const animationsEnabled = useSettingsStore((state) => state.animationsEnabled)
   const [previewMessageId, setPreviewMessageId] = React.useState<string | null>(null)
   const [pointerPosition, setPointerPosition] = React.useState<{ y: number } | null>(null)
@@ -1264,42 +1258,6 @@ function AssistantReplyRail({
     )
   }
 
-  const getLabel = (item: AssistantReplyRailItem): string => {
-    if (activeMessageIds.has(item.id)) {
-      return t('messageList.assistantRail.currentLabel', {
-        index: item.index,
-        preview: item.preview,
-        defaultValue: 'Current message {{index}}: {{preview}}'
-      })
-    }
-    if (item.kind === 'user') {
-      return t('messageList.assistantRail.userLabel', {
-        index: item.index,
-        preview: item.preview,
-        defaultValue: 'Jump to user message {{index}}: {{preview}}'
-      })
-    }
-    if (item.kind === 'streaming') {
-      return t('messageList.assistantRail.streamingLabel', {
-        index: item.index,
-        preview: item.preview,
-        defaultValue: 'Jump to streaming assistant reply {{index}}: {{preview}}'
-      })
-    }
-    if (item.kind === 'summary') {
-      return t('messageList.assistantRail.summaryLabel', {
-        index: item.index,
-        preview: item.preview,
-        defaultValue: 'Jump to compressed history summary {{index}}: {{preview}}'
-      })
-    }
-    return t('messageList.assistantRail.jumpLabel', {
-      index: item.index,
-      preview: item.preview,
-      defaultValue: 'Jump to message {{index}}: {{preview}}'
-    })
-  }
-
   return (
     <div
       className="pointer-events-none absolute left-2 top-1/2 z-20 hidden -translate-y-1/2 md:block"
@@ -1332,10 +1290,7 @@ function AssistantReplyRail({
 
         <div
           ref={railViewportRef}
-          className={cn(
-            'pointer-events-auto absolute left-0 top-0 w-8 overflow-y-hidden',
-            dense && 'cursor-pointer'
-          )}
+          className="pointer-events-auto absolute left-0 top-0 w-8 overflow-y-hidden"
           style={{
             height: ASSISTANT_RAIL_HEIGHT_PX,
             maskImage,
@@ -1362,14 +1317,6 @@ function AssistantReplyRail({
             setPointerPosition(null)
             if (dense) setPreviewMessageId(null)
           }}
-          onClick={
-            dense
-              ? (event) => {
-                  const item = getNearestItem(event.clientY, event.currentTarget)
-                  if (item) onJump(item)
-                }
-              : undefined
-          }
         >
           <div className="relative w-8" style={{ height: railContentHeight }}>
             {items.map((item, itemIndex) => {
@@ -1387,13 +1334,10 @@ function AssistantReplyRail({
                   {renderMarker(item, itemIndex, previewing)}
                 </span>
               ) : (
-                <button
+                <span
                   key={item.id}
-                  type="button"
-                  aria-current={activeMessageIds.has(item.id) ? 'true' : undefined}
-                  aria-label={getLabel(item)}
                   title={item.preview}
-                  className="pointer-events-auto group/assistant-marker absolute left-0 flex w-8 -translate-y-1/2 items-center justify-start rounded-sm outline-none"
+                  className="pointer-events-auto absolute left-0 flex w-8 -translate-y-1/2 items-center justify-start"
                   style={{
                     top: markerTop,
                     // Hit areas tile at the fixed marker pitch without overlapping.
@@ -1401,40 +1345,13 @@ function AssistantReplyRail({
                   }}
                   onPointerEnter={() => setPreviewMessageId(item.id)}
                   onPointerLeave={() => setPreviewMessageId(null)}
-                  onFocus={() => {
-                    setPreviewMessageId(item.id)
-                    scrollMarkerIntoView(itemIndex)
-                  }}
-                  onBlur={() => setPreviewMessageId(null)}
-                  onClick={() => onJump(item)}
                 >
                   {renderMarker(item, itemIndex, previewing)}
-                </button>
+                </span>
               )
             })}
           </div>
         </div>
-
-        {dense ? (
-          <div className="sr-only">
-            {items.map((item, itemIndex) => (
-              <button
-                key={`assistant-rail-keyboard-${item.id}`}
-                type="button"
-                aria-current={activeMessageIds.has(item.id) ? 'true' : undefined}
-                aria-label={getLabel(item)}
-                onFocus={() => {
-                  setPreviewMessageId(item.id)
-                  scrollMarkerIntoView(itemIndex)
-                }}
-                onBlur={() => setPreviewMessageId(null)}
-                onClick={() => onJump(item)}
-              >
-                {item.preview}
-              </button>
-            ))}
-          </div>
-        ) : null}
       </div>
     </div>
   )
@@ -1789,7 +1706,6 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   const initialPositionStartedAtRef = React.useRef<number | null>(null)
   const scheduledScrollFrameRef = React.useRef<number | null>(null)
   const scheduledAssistantRailSyncRef = React.useRef<number | null>(null)
-  const highlightedMessageTimerRef = React.useRef<number | null>(null)
   const lastScrollOffsetRef = React.useRef(0)
   const programmaticScrollUntilRef = React.useRef(0)
   const wasSessionOutputtingRef = React.useRef(isSessionOutputting)
@@ -1798,7 +1714,6 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   const [activeAssistantRailMessageIds, setActiveAssistantRailMessageIds] = React.useState<
     Set<string>
   >(() => new Set())
-  const [highlightedMessageId, setHighlightedMessageId] = React.useState<string | null>(null)
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = React.useState(false)
   const [isLoadingNewerMessages, setIsLoadingNewerMessages] = React.useState(false)
   const [loadingMessageContentId, setLoadingMessageContentId] = React.useState<string | null>(null)
@@ -2131,36 +2046,33 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     const previousOffset = lastScrollOffsetRef.current
     const currentOffset = ref.scrollTop
     const scrolledUp = currentOffset < previousOffset - BOTTOM_SCROLL_CORRECTION_EPSILON
+    const scrolledDown = currentOffset > previousOffset
     const isProgrammaticScroll = window.performance.now() < programmaticScrollUntilRef.current
 
     lastScrollOffsetRef.current = currentOffset
 
-    // While streaming, keep the wider escape distance so minor jitter does not
-    // detach the follow mode; when idle, any deliberate upward scroll releases it.
-    const followReleaseThreshold = isSessionOutputting
-      ? STREAMING_AUTO_SCROLL_STOP_THRESHOLD
-      : threshold
-    if (scrolledUp && distanceToBottom > followReleaseThreshold && !isProgrammaticScroll) {
+    if (scrolledUp) {
       autoScrollModeRef.current = 'off'
       setIsAtBottom(false)
       return
     }
 
     const physicallyAtBottom = distanceToBottom <= threshold
-    // A rail jump deliberately turns following off before it starts its
-    // programmatic scroll. Do not immediately turn it back on just because the
-    // first scroll event still falls within the bottom tolerance.
+    const reachedBottom = distanceToBottom <= BOTTOM_SCROLL_CORRECTION_EPSILON
+    // Programmatic scroll adjustments may move downward too. Resume following only when a
+    // non-programmatic scroll reaches the real bottom, not merely its tolerance zone.
     if (
-      physicallyAtBottom &&
-      isSessionOutputting &&
+      reachedBottom &&
       autoScrollModeRef.current === 'off' &&
+      scrolledDown &&
       !isProgrammaticScroll
     ) {
-      autoScrollModeRef.current = 'stream'
+      autoScrollModeRef.current = isSessionOutputting ? 'stream' : 'user'
     }
 
     const nextAtBottom =
-      physicallyAtBottom || (isSessionOutputting && autoScrollModeRef.current === 'stream')
+      autoScrollModeRef.current !== 'off' &&
+      (physicallyAtBottom || (isSessionOutputting && autoScrollModeRef.current === 'stream'))
 
     setIsAtBottom((prev) => (prev === nextAtBottom ? prev : nextAtBottom))
   }, [isSessionOutputting])
@@ -2232,87 +2144,6 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       syncActiveAssistantRail()
     })
   }, [syncActiveAssistantRail])
-
-  const handleJumpToAssistantMessage = React.useCallback(
-    async (item: AssistantReplyRailItem): Promise<void> => {
-      const messageId = item.id
-      autoScrollModeRef.current = 'off'
-      setIsAtBottom(false)
-
-      const setHighlightTimer = (): void => {
-        setHighlightedMessageId(messageId)
-        if (highlightedMessageTimerRef.current !== null) {
-          window.clearTimeout(highlightedMessageTimerRef.current)
-        }
-        highlightedMessageTimerRef.current = window.setTimeout(() => {
-          setHighlightedMessageId((prev) => (prev === messageId ? null : prev))
-          highlightedMessageTimerRef.current = null
-        }, USER_LOCATOR_HIGHLIGHT_MS)
-      }
-
-      const scrollToTarget = (behavior: ScrollBehavior = 'smooth'): boolean => {
-        const ref = listRef.current
-        if (!ref) return false
-
-        const target = Array.from(ref.querySelectorAll<HTMLElement>('[data-message-id]')).find(
-          (element) => element.dataset.messageId === messageId
-        )
-        if (!target) return false
-
-        markProgrammaticScroll()
-        setActiveAssistantRailIds(new Set([messageId]))
-        setHighlightTimer()
-        // offsetTop is relative to the absolutely-positioned virtual row wrapper and
-        // ignores its translateY, so derive the real position from bounding rects.
-        const targetTop =
-          ref.scrollTop + (target.getBoundingClientRect().top - ref.getBoundingClientRect().top)
-        ref.scrollTo({
-          top: Math.max(0, targetTop - ASSISTANT_RAIL_SCROLL_OFFSET),
-          behavior
-        })
-        requestAssistantRailSync()
-        return true
-      }
-
-      if (scrollToTarget()) return
-      if (!activeSessionId) return
-
-      await useChatStore
-        .getState()
-        .loadMessageWindowAround(activeSessionId, { messageId, sortOrder: item.sortOrder }, 30)
-
-      await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => {
-          window.requestAnimationFrame(() => resolve())
-        })
-      })
-
-      if (scrollToTarget()) return
-
-      const chatState = useChatStore.getState()
-      const targetIndex = chatState
-        .getSessionMessages(activeSessionId)
-        .findIndex((message) => message.id === messageId)
-      if (targetIndex >= 0) {
-        const targetSession = chatState.sessions.find((session) => session.id === activeSessionId)
-        rowVirtualizer.scrollToIndex(
-          targetIndex + ((targetSession?.loadedRangeStart ?? 0) > 0 ? 1 : 0),
-          { align: 'center' }
-        )
-        await new Promise<void>((resolve) => {
-          window.requestAnimationFrame(() => resolve())
-        })
-        scrollToTarget('auto')
-      }
-    },
-    [
-      activeSessionId,
-      markProgrammaticScroll,
-      requestAssistantRailSync,
-      rowVirtualizer,
-      setActiveAssistantRailIds
-    ]
-  )
 
   const loadOlderMessages = React.useCallback(async (): Promise<number> => {
     if (
@@ -2656,10 +2487,16 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
 
   React.useEffect(() => {
     const wasOutputting = wasSessionOutputtingRef.current
-    if (!wasOutputting && isSessionOutputting && isAtBottom && !pendingAskUserQuestion) {
+    if (
+      !wasOutputting &&
+      isSessionOutputting &&
+      isAtBottom &&
+      autoScrollModeRef.current !== 'off' &&
+      !pendingAskUserQuestion
+    ) {
       autoScrollModeRef.current = 'stream'
     } else if (wasOutputting && !isSessionOutputting && autoScrollModeRef.current === 'stream') {
-      autoScrollModeRef.current = 'off'
+      autoScrollModeRef.current = 'user'
     }
     wasSessionOutputtingRef.current = isSessionOutputting
   }, [isAtBottom, isSessionOutputting, pendingAskUserQuestion])
@@ -2874,9 +2711,6 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       }
       if (scheduledAssistantRailSyncRef.current !== null) {
         window.cancelAnimationFrame(scheduledAssistantRailSyncRef.current)
-      }
-      if (highlightedMessageTimerRef.current !== null) {
-        window.clearTimeout(highlightedMessageTimerRef.current)
       }
     }
   }, [])
@@ -3167,7 +3001,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                             duplicatePlanReviewToolUseIds
                           )}
                           anchorMessageId={null}
-                          highlightMessageId={highlightedMessageId}
+                          highlightMessageId={null}
                           renderMode={rowRenderMode}
                           requestRetryState={
                             isLastAssistantMessage ? (sessionRequestRetryState ?? null) : null
@@ -3230,7 +3064,6 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
         key={activeSessionId ?? 'no-session'}
         items={assistantRailItems}
         activeMessageIds={activeAssistantRailMessageIds}
-        onJump={handleJumpToAssistantMessage}
         onWheel={handleAssistantRailWheel}
       />
 

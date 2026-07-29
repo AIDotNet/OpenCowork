@@ -486,6 +486,15 @@ function App(): React.JSX.Element {
         'messages-truncated',
         'session-created-with-message'
       ])
+      const locatorInvalidationReasons = new Set([
+        'message-added',
+        'message-deleted',
+        'messages-artifacts-inserted',
+        'messages-cleared',
+        'messages-replaced',
+        'messages-truncated',
+        'session-created-with-message'
+      ])
       const reason = payload.reason ?? ''
       const chatState = useChatStore.getState()
       const existingSession = chatState.sessions.find((session) => session.id === sessionPayload.id)
@@ -511,6 +520,9 @@ function App(): React.JSX.Element {
       chatState.upsertSessionFromSync(sessionPayload, {
         preserveLoadedMessages: hasResidentMessages || shouldReloadMessages
       })
+      if (locatorInvalidationReasons.has(reason)) {
+        chatState.bumpMessageLocatorVersion(sessionPayload.id)
+      }
 
       if (shouldReloadMessages) {
         void chatState

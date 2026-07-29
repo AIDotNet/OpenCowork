@@ -206,8 +206,10 @@ interface AssistantRailLayoutRow extends MessageLocatorSource {
 
 interface AssistantReplyRailItem {
   id: string
+  messageIds: string[]
   index: number
   preview: string
+  detail: string | null
   time: string
   position: number
   sortOrder: number
@@ -267,7 +269,15 @@ const STREAMING_AUTO_SCROLL_POLL_MS = 500
 const USER_LOCATOR_HIGHLIGHT_MS = 1400
 const ASSISTANT_RAIL_PREVIEW_LIMIT = 120
 const ASSISTANT_RAIL_SCROLL_OFFSET = 28
-const ASSISTANT_RAIL_DENSE_THRESHOLD = 80
+const ASSISTANT_RAIL_HEIGHT_PX = 420
+const ASSISTANT_RAIL_MARKER_HEIGHT_PX = 2
+const ASSISTANT_RAIL_MARKER_WIDTH_PX = 6
+const ASSISTANT_RAIL_MARKER_PITCH_PX = 9
+const ASSISTANT_RAIL_CONTENT_PADDING_PX = 18
+const ASSISTANT_RAIL_ACTIVE_INSET_PX = 24
+const ASSISTANT_RAIL_FADE_SIZE_PX = 18
+const ASSISTANT_RAIL_PREVIEW_INSET_PX = 44
+const ASSISTANT_RAIL_HOVER_WIDTHS_PX = [26, 20, 14, 10, 6] as const
 const OLDER_MESSAGE_LOAD_SCROLL_THRESHOLD = 72
 const NEWER_MESSAGE_LOAD_SCROLL_THRESHOLD = 72
 const MIN_RENDERABLE_HISTORY_ROWS = 3
@@ -299,6 +309,7 @@ interface MessageListSessionSelection {
   messages: UnifiedMessage[]
   messagesLoaded: boolean
   messageCount: number
+  messageLocatorVersion: number
   workingFolder?: string
   loadedRangeStart: number
   loadedRangeEnd: number
@@ -319,6 +330,7 @@ const EMPTY_MESSAGE_LIST_SESSION_SELECTION: MessageListSessionSelection = {
   messages: EMPTY_MESSAGES,
   messagesLoaded: false,
   messageCount: 0,
+  messageLocatorVersion: 0,
   loadedRangeStart: 0,
   loadedRangeEnd: 0,
   hasOlder: false,
@@ -471,6 +483,7 @@ function selectMessageListSession(
     messages: session.messages ?? EMPTY_MESSAGES,
     messagesLoaded: session.messagesLoaded ?? false,
     messageCount: session.messageCount ?? 0,
+    messageLocatorVersion: state.messageLocatorVersions[sessionId] ?? 0,
     workingFolder: session.workingFolder,
     loadedRangeStart: session.loadedRangeStart ?? 0,
     loadedRangeEnd: session.loadedRangeEnd ?? 0,
@@ -734,6 +747,33 @@ function buildAssistantRailPreview(
   })
 }
 
+function buildAssistantRailTurnPreview(rows: AssistantRailLayoutRow[], t: TFunction): string {
+  const visiblePreviews = rows
+    .map((row) => {
+      if (row.markerKind === 'summary') {
+        return getCompactSummaryDisplayText({
+          id: row.id,
+          role: row.role,
+          content: row.content,
+          createdAt: row.createdAt,
+          meta: row.meta
+        })
+      }
+      if (row.markerKind === 'user') return getUserMessageText(row.content)
+      return getAssistantVisibleText(row.content)
+    })
+    .map(normalizeLocatorPreview)
+    .filter(Boolean)
+
+  if (visiblePreviews.length > 0) {
+    return truncateAssistantRailPreview(visiblePreviews.join(' · '))
+  }
+
+  return truncateAssistantRailPreview(
+    rows.map((row) => buildAssistantRailPreview(row, row.markerKind!, t)).join(' · ')
+  )
+}
+
 function estimateLocatorRowHeight(source: MessageLocatorSource): number {
   if (source.meta?.compressionStatus) return 64
   if (source.meta?.compactBoundary) return 40
@@ -797,21 +837,103 @@ function buildAssistantRailLayout(args: {
 
   const totalEstimatedHeight = Math.max(1, estimatedTop)
   const items: AssistantReplyRailItem[] = []
-  for (const row of rows) {
-    if (!row.markerKind) continue
-    items.push({
-      id: row.id,
-      index: items.length + 1,
-      preview: buildAssistantRailPreview(row, row.markerKind, args.t),
-      time: formatLocatorTime(row.createdAt),
-      position: (row.estimatedTop + row.estimatedHeight / 2) / totalEstimatedHeight,
-      sortOrder: row.sortOrder,
-      createdAt: row.createdAt,
-      estimatedTop: row.estimatedTop,
-      estimatedHeight: row.estimatedHeight,
-      kind: row.markerKind
-    })
+
+  interface PendingTurn {
+    anchor: AssistantRailLayoutRow
+    rows: AssistantRailLayoutRow[]
+    markerRows: AssistantRailLayoutRow[]
+    hasAssistant: boolean
   }
+
+  let pendingTurn: PendingTurn | null = null
+
+  const pushTurn = (): void => {
+    if (!pendingTurn || pendingTurn.markerRows.length === 0) return
+
+    const firstRow = pendingTurn.rows[0]
+    const lastRow = pendingTurn.rows[pendingTurn.rows.length - 1]
+    const userRows = pendingTurn.markerRows.filter((row) => row.markerKind === 'user')
+    const assistantRows = pendingTurn.markerRows.filter(
+      (row) => row.markerKind === 'assistant' || row.markerKind === 'streaming'
+    )
+    const previewRows = userRows.length > 0 ? userRows : pendingTurn.markerRows
+    const preview = buildAssistantRailTurnPreview(previewRows, args.t)
+    const detail =
+      userRows.length > 0 && assistantRows.length > 0
+        ? buildAssistantRailTurnPreview(assistantRows, args.t)
+        : null
+    const kind = pendingTurn.markerRows.some((row) => row.markerKind === 'streaming')
+      ? 'streaming'
+      : pendingTurn.anchor.markerKind!
+    const turnHeight = lastRow.estimatedTop + lastRow.estimatedHeight - firstRow.estimatedTop
+
+    items.push({
+      id: pendingTurn.anchor.id,
+      messageIds: pendingTurn.rows.map((row) => row.id),
+      index: items.length + 1,
+      preview,
+      detail,
+      time: formatLocatorTime(pendingTurn.anchor.createdAt),
+      position: (firstRow.estimatedTop + turnHeight / 2) / totalEstimatedHeight,
+      sortOrder: pendingTurn.anchor.sortOrder,
+      createdAt: pendingTurn.anchor.createdAt,
+      estimatedTop: firstRow.estimatedTop,
+      estimatedHeight: turnHeight,
+      kind
+    })
+    pendingTurn = null
+  }
+
+  // A rail marker represents a conversational turn, not one database row. Consecutive
+  // questions share the next answer, while retries and tool-driven assistant messages stay
+  // with the question until another user message starts the following turn.
+  for (const row of rows) {
+    if (row.markerKind === 'summary') {
+      pushTurn()
+      pendingTurn = {
+        anchor: row,
+        rows: [row],
+        markerRows: [row],
+        hasAssistant: false
+      }
+      pushTurn()
+      continue
+    }
+
+    if (row.markerKind === 'user') {
+      if (pendingTurn?.hasAssistant) pushTurn()
+      if (!pendingTurn) {
+        pendingTurn = {
+          anchor: row,
+          rows: [],
+          markerRows: [],
+          hasAssistant: false
+        }
+      }
+      pendingTurn.rows.push(row)
+      pendingTurn.markerRows.push(row)
+      continue
+    }
+
+    if (row.markerKind === 'assistant' || row.markerKind === 'streaming') {
+      if (!pendingTurn) {
+        pendingTurn = {
+          anchor: row,
+          rows: [],
+          markerRows: [],
+          hasAssistant: false
+        }
+      }
+      pendingTurn.rows.push(row)
+      pendingTurn.markerRows.push(row)
+      pendingTurn.hasAssistant = true
+      continue
+    }
+
+    if (pendingTurn) pendingTurn.rows.push(row)
+  }
+
+  pushTurn()
 
   return { rows, items, totalEstimatedHeight }
 }
@@ -832,25 +954,37 @@ function countImageBlocks(content: UnifiedMessage['content']): number {
   return content.filter((block) => block.type === 'image' || block.type === 'image_error').length
 }
 
-function getCompactRailGapPx(total: number): number {
-  return Math.max(3.5, Math.min(9, 176 / (Math.max(2, total) - 1)))
+function getAssistantRailMarkerSpanPx(total: number): number {
+  if (total <= 0) return 0
+  return (total - 1) * ASSISTANT_RAIL_MARKER_PITCH_PX + ASSISTANT_RAIL_MARKER_HEIGHT_PX
 }
 
-function getCompactRailMarkerOffsetPx(index: number, total: number): number {
-  const safeTotal = Math.max(1, total)
-  if (safeTotal === 1) return 0
-
-  const gapPx = getCompactRailGapPx(safeTotal)
-  return (index - (safeTotal - 1) / 2) * gapPx
+function getAssistantRailContentHeightPx(total: number): number {
+  const naturalHeight = getAssistantRailMarkerSpanPx(total) + ASSISTANT_RAIL_CONTENT_PADDING_PX * 2
+  return Math.max(ASSISTANT_RAIL_HEIGHT_PX, naturalHeight)
 }
 
-function getCompactRailMarkerTop(index: number, total: number): string {
-  const offsetPx = getCompactRailMarkerOffsetPx(index, total)
-  return `calc(50% + ${Number(offsetPx.toFixed(2))}px)`
+function getAssistantRailMarkerCenterPx(index: number, total: number): number {
+  const contentHeight = getAssistantRailContentHeightPx(total)
+  const markerSpan = getAssistantRailMarkerSpanPx(total)
+  const firstMarkerCenter = (contentHeight - markerSpan) / 2 + ASSISTANT_RAIL_MARKER_HEIGHT_PX / 2
+  return firstMarkerCenter + index * ASSISTANT_RAIL_MARKER_PITCH_PX
 }
 
-function getCompactRailMarkerY(rect: DOMRect, index: number, total: number): number {
-  return rect.top + rect.height / 2 + getCompactRailMarkerOffsetPx(index, total)
+function getAssistantRailMaskImage(
+  canScrollUp: boolean,
+  canScrollDown: boolean
+): string | undefined {
+  if (canScrollUp && canScrollDown) {
+    return `linear-gradient(to bottom, transparent 0, black ${ASSISTANT_RAIL_FADE_SIZE_PX}px, black calc(100% - ${ASSISTANT_RAIL_FADE_SIZE_PX}px), transparent 100%)`
+  }
+  if (canScrollUp) {
+    return `linear-gradient(to bottom, transparent 0, black ${ASSISTANT_RAIL_FADE_SIZE_PX}px, black 100%)`
+  }
+  if (canScrollDown) {
+    return `linear-gradient(to bottom, black 0, black calc(100% - ${ASSISTANT_RAIL_FADE_SIZE_PX}px), transparent 100%)`
+  }
+  return undefined
 }
 
 function formatLocatorTime(timestamp: number): string {
@@ -895,39 +1029,49 @@ function parseLocatorMeta(rawMeta: string | null): UnifiedMessage['meta'] {
 function AssistantReplyRail({
   items,
   activeMessageIds,
-  onJump
+  onJump,
+  onWheel
 }: {
   items: AssistantReplyRailItem[]
   activeMessageIds: Set<string>
   onJump: (item: AssistantReplyRailItem) => void
+  onWheel: (event: React.WheelEvent<HTMLDivElement>) => void
 }): React.JSX.Element | null {
   const { t } = useTranslation('chat')
+  const animationsEnabled = useSettingsStore((state) => state.animationsEnabled)
   const [previewMessageId, setPreviewMessageId] = React.useState<string | null>(null)
-  const [pointerPosition, setPointerPosition] = React.useState<{
-    y: number
-    railHeight: number
-  } | null>(null)
+  const [pointerPosition, setPointerPosition] = React.useState<{ y: number } | null>(null)
+  const [railScrollTop, setRailScrollTop] = React.useState(0)
+  const railViewportRef = React.useRef<HTMLDivElement | null>(null)
+  const hasPositionedRailRef = React.useRef(false)
   const pointerFrameRef = React.useRef<number | null>(null)
+  const railScrollFrameRef = React.useRef<number | null>(null)
   const pendingPointerPositionRef = React.useRef<typeof pointerPosition>(null)
-  const dense = items.length >= ASSISTANT_RAIL_DENSE_THRESHOLD
+  const pendingRailScrollTopRef = React.useRef(0)
+  const railContentHeight = getAssistantRailContentHeightPx(items.length)
+  const maxRailScrollTop = Math.max(0, railContentHeight - ASSISTANT_RAIL_HEIGHT_PX)
+  const dense = maxRailScrollTop > 0
+  const itemById = React.useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
+  const itemIndexById = React.useMemo(
+    () => new Map(items.map((item, itemIndex) => [item.id, itemIndex])),
+    [items]
+  )
 
   const getNearestItem = React.useCallback(
-    (clientY: number, target: HTMLElement): AssistantReplyRailItem | null => {
+    (clientY: number, target: HTMLDivElement): AssistantReplyRailItem | null => {
       if (items.length === 0) return null
       const rect = target.getBoundingClientRect()
       if (rect.height <= 0) return null
-      let nearestItem = items[0]
-      let nearestDistance = Number.POSITIVE_INFINITY
-      for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
-        const item = items[itemIndex]
-        const markerY = getCompactRailMarkerY(rect, itemIndex, items.length)
-        const distance = Math.abs(markerY - clientY)
-        if (distance < nearestDistance) {
-          nearestDistance = distance
-          nearestItem = item
-        }
-      }
-      return nearestItem
+      const pointerContentY = clientY - rect.top + target.scrollTop
+      const firstMarkerCenter = getAssistantRailMarkerCenterPx(0, items.length)
+      const nearestIndex = Math.max(
+        0,
+        Math.min(
+          items.length - 1,
+          Math.round((pointerContentY - firstMarkerCenter) / ASSISTANT_RAIL_MARKER_PITCH_PX)
+        )
+      )
+      return items[nearestIndex] ?? null
     },
     [items]
   )
@@ -942,35 +1086,160 @@ function AssistantReplyRail({
     })
   }, [])
 
+  const scheduleRailScrollTop = React.useCallback((scrollTop: number) => {
+    pendingRailScrollTopRef.current = scrollTop
+    if (railScrollFrameRef.current !== null) return
+
+    railScrollFrameRef.current = window.requestAnimationFrame(() => {
+      railScrollFrameRef.current = null
+      setRailScrollTop(pendingRailScrollTopRef.current)
+    })
+  }, [])
+
+  const scrollMarkerIntoView = React.useCallback(
+    (itemIndex: number, behaviorOverride?: ScrollBehavior) => {
+      const viewport = railViewportRef.current
+      if (!viewport || maxRailScrollTop <= 0) return
+
+      const markerCenter = getAssistantRailMarkerCenterPx(itemIndex, items.length)
+      const visibleStart = viewport.scrollTop + ASSISTANT_RAIL_ACTIVE_INSET_PX
+      const visibleEnd = viewport.scrollTop + viewport.clientHeight - ASSISTANT_RAIL_ACTIVE_INSET_PX
+      let nextScrollTop = viewport.scrollTop
+
+      if (markerCenter < visibleStart) {
+        nextScrollTop = markerCenter - ASSISTANT_RAIL_ACTIVE_INSET_PX
+      } else if (markerCenter > visibleEnd) {
+        nextScrollTop = markerCenter - viewport.clientHeight + ASSISTANT_RAIL_ACTIVE_INSET_PX
+      } else {
+        return
+      }
+
+      nextScrollTop = Math.max(0, Math.min(maxRailScrollTop, nextScrollTop))
+      if (Math.abs(nextScrollTop - viewport.scrollTop) < 0.5) return
+
+      const behavior = behaviorOverride ?? (animationsEnabled ? 'smooth' : 'auto')
+      if (behavior === 'auto') {
+        viewport.scrollTop = nextScrollTop
+        scheduleRailScrollTop(nextScrollTop)
+        return
+      }
+      viewport.scrollTo({ top: nextScrollTop, behavior })
+    },
+    [animationsEnabled, items.length, maxRailScrollTop, scheduleRailScrollTop]
+  )
+
+  React.useLayoutEffect(() => {
+    const viewport = railViewportRef.current
+    if (!viewport) return
+
+    const nextScrollTop = Math.max(0, Math.min(maxRailScrollTop, viewport.scrollTop))
+    if (Math.abs(nextScrollTop - viewport.scrollTop) >= 0.5) {
+      viewport.scrollTop = nextScrollTop
+    }
+    setRailScrollTop(nextScrollTop)
+  }, [maxRailScrollTop])
+
+  React.useLayoutEffect(() => {
+    if (activeMessageIds.size === 0 || maxRailScrollTop <= 0) return
+
+    const viewport = railViewportRef.current
+    if (!viewport) return
+    const activeIndexes = Array.from(activeMessageIds)
+      .map((messageId) => itemIndexById.get(messageId))
+      .filter((itemIndex): itemIndex is number => itemIndex !== undefined)
+      .sort((first, second) => first - second)
+    if (activeIndexes.length === 0) return
+
+    const visibleStart = viewport.scrollTop + ASSISTANT_RAIL_ACTIVE_INSET_PX
+    const visibleEnd = viewport.scrollTop + viewport.clientHeight - ASSISTANT_RAIL_ACTIVE_INSET_PX
+    const activeCenters = activeIndexes.map((itemIndex) =>
+      getAssistantRailMarkerCenterPx(itemIndex, items.length)
+    )
+    const streamingActiveIndex = activeIndexes.find(
+      (itemIndex) => items[itemIndex]?.kind === 'streaming'
+    )
+
+    if (streamingActiveIndex !== undefined) {
+      const streamingCenter = getAssistantRailMarkerCenterPx(streamingActiveIndex, items.length)
+      if (streamingCenter < visibleStart || streamingCenter > visibleEnd) {
+        scrollMarkerIntoView(
+          streamingActiveIndex,
+          hasPositionedRailRef.current ? undefined : 'auto'
+        )
+      }
+      hasPositionedRailRef.current = true
+      return
+    }
+
+    if (activeCenters.some((center) => center >= visibleStart && center <= visibleEnd)) {
+      hasPositionedRailRef.current = true
+      return
+    }
+
+    const targetIndex =
+      activeCenters[activeCenters.length - 1] < visibleStart
+        ? activeIndexes[activeIndexes.length - 1]
+        : activeIndexes[0]
+    scrollMarkerIntoView(targetIndex, hasPositionedRailRef.current ? undefined : 'auto')
+    hasPositionedRailRef.current = true
+  }, [activeMessageIds, itemIndexById, items, maxRailScrollTop, scrollMarkerIntoView])
+
   React.useEffect(() => {
     return () => {
       if (pointerFrameRef.current !== null) {
         window.cancelAnimationFrame(pointerFrameRef.current)
       }
+      if (railScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(railScrollFrameRef.current)
+      }
     }
   }, [])
 
+  React.useEffect(() => {
+    if (!dense || !pointerPosition) return
+    const viewport = railViewportRef.current
+    if (!viewport) return
+
+    const rect = viewport.getBoundingClientRect()
+    const item = getNearestItem(rect.top + pointerPosition.y, viewport)
+    setPreviewMessageId((previousId) => (previousId === item?.id ? previousId : (item?.id ?? null)))
+  }, [dense, getNearestItem, pointerPosition, railScrollTop])
+
   if (items.length < 2) return null
 
-  const previewItem = previewMessageId
-    ? (items.find((item) => item.id === previewMessageId) ?? null)
+  const previewItem = previewMessageId ? (itemById.get(previewMessageId) ?? null) : null
+  const previewItemIndex = previewItem ? (itemIndexById.get(previewItem.id) ?? -1) : -1
+  const previewCopy = previewItem
+    ? previewItem.detail
+      ? { title: previewItem.preview, detail: previewItem.detail }
+      : splitLocatorPreview(previewItem.preview)
     : null
-  const previewItemIndex = previewItem ? items.findIndex((item) => item.id === previewItem.id) : -1
-  const previewCopy = previewItem ? splitLocatorPreview(previewItem.preview) : null
-  const previewTop =
-    previewItemIndex >= 0 ? getCompactRailMarkerTop(previewItemIndex, items.length) : '50%'
+  const rawPreviewTop =
+    previewItemIndex >= 0
+      ? getAssistantRailMarkerCenterPx(previewItemIndex, items.length) - railScrollTop
+      : ASSISTANT_RAIL_HEIGHT_PX / 2
+  const previewTop = Math.max(
+    ASSISTANT_RAIL_PREVIEW_INSET_PX,
+    Math.min(ASSISTANT_RAIL_HEIGHT_PX - ASSISTANT_RAIL_PREVIEW_INSET_PX, rawPreviewTop)
+  )
+  const canScrollUp = railScrollTop > 0.5
+  const canScrollDown = railScrollTop < maxRailScrollTop - 0.5
+  const maskImage = getAssistantRailMaskImage(canScrollUp, canScrollDown)
 
   const getMarkerWaveScale = (itemIndex: number): number => {
     if (!pointerPosition) return 1
-    const markerY =
-      pointerPosition.railHeight / 2 + getCompactRailMarkerOffsetPx(itemIndex, items.length)
+    const markerY = getAssistantRailMarkerCenterPx(itemIndex, items.length) - railScrollTop
     const distance = Math.abs(markerY - pointerPosition.y)
-    const influenceRadius = Math.max(24, getCompactRailGapPx(items.length) * 4.5)
-    if (distance >= influenceRadius) return 1
+    const distanceInMarkers = distance / ASSISTANT_RAIL_MARKER_PITCH_PX
+    const lastWidthIndex = ASSISTANT_RAIL_HOVER_WIDTHS_PX.length - 1
+    if (distanceInMarkers >= lastWidthIndex) return 1
 
-    const normalizedDistance = distance / influenceRadius
-    const extension = 7 * Math.exp(-4 * normalizedDistance * normalizedDistance)
-    return (12 + extension) / 12
+    const widthIndex = Math.floor(distanceInMarkers)
+    const progress = distanceInMarkers - widthIndex
+    const startWidth = ASSISTANT_RAIL_HOVER_WIDTHS_PX[widthIndex]
+    const endWidth = ASSISTANT_RAIL_HOVER_WIDTHS_PX[widthIndex + 1]
+    const width = startWidth + (endWidth - startWidth) * progress
+    return width / ASSISTANT_RAIL_MARKER_WIDTH_PX
   }
 
   const renderMarker = (
@@ -982,19 +1251,15 @@ function AssistantReplyRail({
     return (
       <span
         className={cn(
-          'block h-0.5 w-3 origin-left rounded-full transition-[color,background-color,opacity,transform] duration-100 ease-out will-change-transform',
-          item.kind === 'summary'
-            ? 'bg-amber-500/55'
-            : item.kind === 'user'
-              ? 'bg-primary/45'
-              : item.kind === 'streaming'
-                ? 'bg-primary/65'
-                : 'bg-muted-foreground/35',
-          item.kind === 'streaming' && 'animate-pulse',
+          'block h-0.5 origin-left rounded-full transition-[color,background-color,opacity,transform] duration-100 ease-out will-change-transform',
+          'bg-muted-foreground/45',
           active ? 'bg-foreground/85 opacity-100' : 'opacity-65',
           previewing && 'bg-foreground/95 opacity-100'
         )}
-        style={{ transform: `scaleX(${getMarkerWaveScale(itemIndex)})` }}
+        style={{
+          width: ASSISTANT_RAIL_MARKER_WIDTH_PX,
+          transform: `scaleX(${getMarkerWaveScale(itemIndex)})`
+        }}
       />
     )
   }
@@ -1036,27 +1301,22 @@ function AssistantReplyRail({
   }
 
   return (
-    <div className="pointer-events-none absolute bottom-5 left-2 top-5 z-20 hidden md:block">
-      <div className="pointer-events-none relative h-full w-[min(320px,calc(100vw-3rem))]">
+    <div
+      className="pointer-events-none absolute left-2 top-1/2 z-20 hidden -translate-y-1/2 md:block"
+      style={{ height: ASSISTANT_RAIL_HEIGHT_PX }}
+    >
+      <div
+        className="pointer-events-none relative w-[min(320px,calc(100vw-3rem))]"
+        style={{ height: ASSISTANT_RAIL_HEIGHT_PX }}
+      >
         {previewItem && previewCopy ? (
           <div
-            className="absolute left-7 w-[min(276px,calc(100vw-5rem))] -translate-y-1/2 animate-in fade-in-0 slide-in-from-left-1 duration-150"
+            className="absolute left-9 w-[min(276px,calc(100vw-5rem))] -translate-y-1/2 animate-in fade-in-0 slide-in-from-left-1 duration-150"
             style={{ top: previewTop }}
           >
             <div className="overflow-hidden rounded-xl border border-border/70 bg-popover/95 px-3 py-2.5 text-popover-foreground shadow-xl backdrop-blur-xl">
               <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    'h-1.5 w-1.5 shrink-0 rounded-full',
-                    previewItem.kind === 'summary'
-                      ? 'bg-amber-500/80'
-                      : previewItem.kind === 'user'
-                        ? 'bg-primary/80'
-                        : previewItem.kind === 'streaming'
-                          ? 'bg-primary/80'
-                          : 'bg-muted-foreground/70'
-                  )}
-                />
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/70" />
                 <div className="min-w-0 flex-1 line-clamp-1 text-[12px] font-semibold leading-5">
                   {previewCopy.title}
                 </div>
@@ -1071,15 +1331,22 @@ function AssistantReplyRail({
         ) : null}
 
         <div
+          ref={railViewportRef}
           className={cn(
-            'pointer-events-auto absolute left-0 top-0 h-full w-6',
+            'pointer-events-auto absolute left-0 top-0 w-8 overflow-y-hidden',
             dense && 'cursor-pointer'
           )}
+          style={{
+            height: ASSISTANT_RAIL_HEIGHT_PX,
+            maskImage,
+            WebkitMaskImage: maskImage
+          }}
+          onScroll={(event) => scheduleRailScrollTop(event.currentTarget.scrollTop)}
+          onWheel={onWheel}
           onPointerMove={(event) => {
             const rect = event.currentTarget.getBoundingClientRect()
             schedulePointerPosition({
-              y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
-              railHeight: rect.height
+              y: Math.max(0, Math.min(rect.height, event.clientY - rect.top))
             })
             if (dense) {
               const item = getNearestItem(event.clientY, event.currentTarget)
@@ -1104,51 +1371,62 @@ function AssistantReplyRail({
               : undefined
           }
         >
-          {items.map((item, itemIndex) => {
-            const previewing = previewMessageId === item.id
-            return dense ? (
-              <span
-                key={item.id}
-                className="absolute left-0 flex h-3 w-6 -translate-y-1/2 items-center justify-start"
-                style={{ top: getCompactRailMarkerTop(itemIndex, items.length) }}
-              >
-                {renderMarker(item, itemIndex, previewing)}
-              </span>
-            ) : (
-              <button
-                key={item.id}
-                type="button"
-                aria-current={activeMessageIds.has(item.id) ? 'true' : undefined}
-                aria-label={getLabel(item)}
-                title={item.preview}
-                className="pointer-events-auto group/assistant-marker absolute left-0 flex w-6 -translate-y-1/2 items-center justify-start rounded-sm outline-none"
-                style={{
-                  top: getCompactRailMarkerTop(itemIndex, items.length),
-                  // Hit areas must tile without overlap: taller buttons would let the
-                  // next (later-in-DOM) marker steal hover below each line.
-                  height: getCompactRailGapPx(items.length)
-                }}
-                onPointerEnter={() => setPreviewMessageId(item.id)}
-                onPointerLeave={() => setPreviewMessageId(null)}
-                onFocus={() => setPreviewMessageId(item.id)}
-                onBlur={() => setPreviewMessageId(null)}
-                onClick={() => onJump(item)}
-              >
-                {renderMarker(item, itemIndex, previewing)}
-              </button>
-            )
-          })}
+          <div className="relative w-8" style={{ height: railContentHeight }}>
+            {items.map((item, itemIndex) => {
+              const previewing = previewMessageId === item.id
+              const markerTop = getAssistantRailMarkerCenterPx(itemIndex, items.length)
+              return dense ? (
+                <span
+                  key={item.id}
+                  className="absolute left-0 flex w-8 -translate-y-1/2 items-center justify-start"
+                  style={{
+                    top: markerTop,
+                    height: ASSISTANT_RAIL_MARKER_PITCH_PX
+                  }}
+                >
+                  {renderMarker(item, itemIndex, previewing)}
+                </span>
+              ) : (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-current={activeMessageIds.has(item.id) ? 'true' : undefined}
+                  aria-label={getLabel(item)}
+                  title={item.preview}
+                  className="pointer-events-auto group/assistant-marker absolute left-0 flex w-8 -translate-y-1/2 items-center justify-start rounded-sm outline-none"
+                  style={{
+                    top: markerTop,
+                    // Hit areas tile at the fixed marker pitch without overlapping.
+                    height: ASSISTANT_RAIL_MARKER_PITCH_PX
+                  }}
+                  onPointerEnter={() => setPreviewMessageId(item.id)}
+                  onPointerLeave={() => setPreviewMessageId(null)}
+                  onFocus={() => {
+                    setPreviewMessageId(item.id)
+                    scrollMarkerIntoView(itemIndex)
+                  }}
+                  onBlur={() => setPreviewMessageId(null)}
+                  onClick={() => onJump(item)}
+                >
+                  {renderMarker(item, itemIndex, previewing)}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         {dense ? (
           <div className="sr-only">
-            {items.map((item) => (
+            {items.map((item, itemIndex) => (
               <button
                 key={`assistant-rail-keyboard-${item.id}`}
                 type="button"
                 aria-current={activeMessageIds.has(item.id) ? 'true' : undefined}
                 aria-label={getLabel(item)}
-                onFocus={() => setPreviewMessageId(item.id)}
+                onFocus={() => {
+                  setPreviewMessageId(item.id)
+                  scrollMarkerIntoView(itemIndex)
+                }}
                 onBlur={() => setPreviewMessageId(null)}
                 onClick={() => onJump(item)}
               >
@@ -1396,6 +1674,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     messages,
     messagesLoaded: activeSessionLoaded,
     messageCount: activeSessionMessageCount,
+    messageLocatorVersion,
     workingFolder: activeWorkingFolder,
     loadedRangeStart,
     hasOlder,
@@ -1621,30 +1900,20 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   )
 
   const messageLocatorSources = React.useMemo<MessageLocatorSource[]>(() => {
-    const sourcesById = new Map<string, MessageLocatorSource>()
-    for (const row of messageLocatorRows) {
+    const residentMessagesById = new Map(messages.map((message) => [message.id, message]))
+    return messageLocatorRows.map((row) => {
       const source = parseLocatorRowSource(row)
-      sourcesById.set(source.id, source)
-    }
-
-    messages.forEach((message, messageIndex) => {
-      const existing = sourcesById.get(message.id)
-      sourcesById.set(message.id, {
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        meta: message.meta,
-        createdAt: message.createdAt,
-        sortOrder: existing?.sortOrder ?? loadedRangeStart + messageIndex,
-        source: message.source
-      })
+      const residentMessage = residentMessagesById.get(source.id)
+      if (!residentMessage) return source
+      return {
+        ...source,
+        role: residentMessage.role,
+        content: residentMessage.content,
+        meta: residentMessage.meta,
+        source: residentMessage.source
+      }
     })
-
-    return [...sourcesById.values()].sort((first, second) => {
-      if (first.sortOrder !== second.sortOrder) return first.sortOrder - second.sortOrder
-      return first.createdAt - second.createdAt
-    })
-  }, [loadedRangeStart, messageLocatorRows, messages])
+  }, [messageLocatorRows, messages])
 
   const hiddenAssistantRailCompactSummaryIds = React.useMemo(() => {
     const sourceIds = new Set(messageLocatorSources.map((source) => source.id))
@@ -1678,10 +1947,13 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   ])
 
   const assistantRailItems = assistantRailLayout.items
-  const assistantRailItemById = React.useMemo(
-    () => new Map(assistantRailItems.map((item) => [item.id, item])),
-    [assistantRailItems]
-  )
+  const assistantRailItemIdByMessageId = React.useMemo(() => {
+    const itemIdByMessageId = new Map<string, string>()
+    for (const item of assistantRailItems) {
+      for (const messageId of item.messageIds) itemIdByMessageId.set(messageId, item.id)
+    }
+    return itemIdByMessageId
+  }, [assistantRailItems])
 
   React.useEffect(() => {
     let cancelled = false
@@ -1722,7 +1994,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [activeSessionId, activeSessionMessageCount])
+  }, [activeSessionId, messageLocatorVersion])
 
   const rows = React.useMemo<MessageListRow[]>(() => {
     return renderableMessages
@@ -1937,15 +2209,16 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     for (const element of ref.querySelectorAll<HTMLElement>('[data-message-id]')) {
       const messageId = element.dataset.messageId
       if (!messageId) continue
-      if (!assistantRailItemById.has(messageId)) continue
+      const itemId = assistantRailItemIdByMessageId.get(messageId)
+      if (!itemId) continue
       const rect = element.getBoundingClientRect()
       if (rect.bottom <= containerRect.top || rect.top >= containerRect.bottom) continue
-      nextActiveIds.add(messageId)
+      nextActiveIds.add(itemId)
     }
 
     setActiveAssistantRailIds(nextActiveIds)
   }, [
-    assistantRailItemById,
+    assistantRailItemIdByMessageId,
     assistantRailItems,
     assistantRailLayout,
     measureVisibleMessageHeights,
@@ -2231,11 +2504,12 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
           return
         }
         syncBottomState()
+        requestAssistantRailSync()
       }
 
       scheduledScrollFrameRef.current = window.requestAnimationFrame(run)
     },
-    [canAutoScroll, scrollToBottomImmediate, syncBottomState]
+    [canAutoScroll, requestAssistantRailSync, scrollToBottomImmediate, syncBottomState]
   )
 
   React.useEffect(() => {
@@ -2293,6 +2567,14 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     requestAssistantRailSync,
     syncBottomState
   ])
+
+  const handleAssistantRailWheel = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const ref = listRef.current
+    if (!ref || event.deltaY === 0) return
+
+    const multiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? ref.clientHeight : 1
+    ref.scrollTop += event.deltaY * multiplier
+  }, [])
 
   React.useEffect(() => {
     if (!activeSessionId) return
@@ -2463,9 +2745,10 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
             // Keep following only until the user deliberately scrolls upward.
             if (messageWindowPhase === 'positioning') {
               initialPositionStableFramesRef.current = 0
-              return
+            } else if (canAutoScroll()) {
+              scrollToBottomImmediate()
             }
-            if (canAutoScroll()) scrollToBottomImmediate()
+            requestAssistantRailSync()
           })
 
     observer?.observe(viewport)
@@ -2482,6 +2765,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     canAutoScroll,
     messages.length,
     messageWindowPhase,
+    requestAssistantRailSync,
     scrollToBottomImmediate,
     syncBottomState
   ])
@@ -2943,9 +3227,11 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       </div>
 
       <AssistantReplyRail
+        key={activeSessionId ?? 'no-session'}
         items={assistantRailItems}
         activeMessageIds={activeAssistantRailMessageIds}
         onJump={handleJumpToAssistantMessage}
+        onWheel={handleAssistantRailWheel}
       />
 
       <AnimatePresence>

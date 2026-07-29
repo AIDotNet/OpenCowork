@@ -517,7 +517,7 @@ internal static class DbMessageTools
                 IncrementMessageCount(connection, transaction, message.SessionId, 1);
             }
             transaction.Commit();
-            return Mutation(1);
+            return Mutation(1, inserted: !exists);
         }
         catch (Exception ex)
         {
@@ -1777,10 +1777,10 @@ internal static class DbMessageTools
         values.Add(new($"${propertyName}", value.ValueKind == JsonValueKind.Null ? null : value.GetString()));
     }
 
-    private static WorkerResponse Mutation(int changed)
+    private static WorkerResponse Mutation(int changed, bool inserted = false)
     {
         return WorkerResponse.Json(
-            new MessageMutationResult(true, changed, null),
+            new MessageMutationResult(true, changed, null, inserted),
             WorkerJsonContext.Default.MessageMutationResult);
     }
 

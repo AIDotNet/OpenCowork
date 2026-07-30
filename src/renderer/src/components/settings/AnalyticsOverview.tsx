@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { motion } from 'motion/react'
 import {
   Area,
   AreaChart,
@@ -14,6 +15,7 @@ import {
 } from 'recharts'
 import { Badge } from '@renderer/components/ui/badge'
 import { getCacheReadRatio } from '@renderer/lib/format-tokens'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import type {
   UsageAnalyticsGroupRow,
   UsageAnalyticsOverview,
@@ -243,12 +245,26 @@ function buildTimeline(
   return normalized
 }
 
-function MetricCard({ label, value }: MetricCardProps): React.JSX.Element {
+function MetricCard({
+  label,
+  value,
+  index = 0,
+  animationsEnabled = true
+}: MetricCardProps & { index?: number; animationsEnabled?: boolean }): React.JSX.Element {
   return (
-    <div className="rounded-2xl border border-border/50 bg-background/50 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+    <motion.div
+      initial={animationsEnabled ? { opacity: 0, y: 8 } : false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={
+        animationsEnabled
+          ? { duration: 0.22, delay: index * 0.04, ease: 'easeOut' }
+          : { duration: 0 }
+      }
+      className="rounded-2xl border border-border/50 bg-background/50 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
+    >
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-2 text-lg font-semibold tabular-nums">{value}</div>
-    </div>
+    </motion.div>
   )
 }
 
@@ -257,10 +273,19 @@ function ChartCard({
   badge,
   summaryLabel,
   summaryValue,
-  children
-}: ChartCardProps): React.JSX.Element {
+  children,
+  delay = 0,
+  animationsEnabled = true
+}: ChartCardProps & { delay?: number; animationsEnabled?: boolean }): React.JSX.Element {
   return (
-    <section className="flex h-full min-h-0 flex-col rounded-2xl border border-border/50 bg-background/50 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+    <motion.section
+      initial={animationsEnabled ? { opacity: 0, y: 10 } : false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={
+        animationsEnabled ? { duration: 0.24, delay, ease: 'easeOut' } : { duration: 0 }
+      }
+      className="flex h-full min-h-0 flex-col rounded-2xl border border-border/50 bg-background/50 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <Badge
@@ -277,15 +302,32 @@ function ChartCard({
         </div>
       </div>
       <div className="mt-4 flex-1 min-h-0">{children}</div>
-    </section>
+    </motion.section>
   )
 }
 
-function EmptyChart({ title, badge }: { title: string; badge: string }): React.JSX.Element {
+function EmptyChart({
+  title,
+  badge,
+  animationsEnabled = true,
+  delay = 0
+}: {
+  title: string
+  badge: string
+  animationsEnabled?: boolean
+  delay?: number
+}): React.JSX.Element {
   const { t } = useTranslation('settings')
 
   return (
-    <ChartCard title={title} badge={badge} summaryLabel={t('analytics.requests')} summaryValue="0">
+    <ChartCard
+      title={title}
+      badge={badge}
+      summaryLabel={t('analytics.requests')}
+      summaryValue="0"
+      animationsEnabled={animationsEnabled}
+      delay={delay}
+    >
       <div className="flex h-72 items-center justify-center rounded-xl border border-dashed border-border/40 bg-muted/15 text-sm text-muted-foreground">
         {t('analytics.empty')}
       </div>
@@ -379,6 +421,7 @@ export function AnalyticsOverview({
   inputTokenLabel
 }: AnalyticsOverviewProps): React.JSX.Element {
   const { t } = useTranslation('settings')
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
 
   const rangeLabel =
     rangeDays === 1
@@ -420,23 +463,44 @@ export function AnalyticsOverview({
   return (
     <div className="space-y-4">
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <MetricCard label={t('analytics.costUsd')} value={'$' + fmtMoney(totalCost)} />
-        <MetricCard label={t('analytics.requests')} value={fmtInt(totalRequests, tokenLocale)} />
         <MetricCard
+          index={0}
+          animationsEnabled={animationsEnabled}
+          label={t('analytics.costUsd')}
+          value={'$' + fmtMoney(totalCost)}
+        />
+        <MetricCard
+          index={1}
+          animationsEnabled={animationsEnabled}
+          label={t('analytics.requests')}
+          value={fmtInt(totalRequests, tokenLocale)}
+        />
+        <MetricCard
+          index={2}
+          animationsEnabled={animationsEnabled}
           label={t('analytics.outputTokens')}
           value={renderTokenValue(totalOutputTokens, tokenLocale, true)}
         />
         <MetricCard
+          index={3}
+          animationsEnabled={animationsEnabled}
           label={t('analytics.cacheReadRatio', { defaultValue: 'Cache Read Ratio' })}
           value={fmtPercent(totalCacheReadRatio, tokenLocale)}
         />
-        <MetricCard label={t('analytics.avgTotal')} value={fmtMs(overview?.avg_total_ms)} />
+        <MetricCard
+          index={4}
+          animationsEnabled={animationsEnabled}
+          label={t('analytics.avgTotal')}
+          value={fmtMs(overview?.avg_total_ms)}
+        />
       </section>
 
       <section className="grid gap-4 items-stretch xl:grid-cols-12">
         <div className="h-full xl:col-span-5">
           {hasData ? (
             <ChartCard
+              delay={0.08}
+              animationsEnabled={animationsEnabled}
               title={t('analytics.chartCost')}
               badge={chartBadge}
               summaryLabel={t('analytics.costUsd')}
@@ -479,13 +543,20 @@ export function AnalyticsOverview({
               </div>
             </ChartCard>
           ) : (
-            <EmptyChart title={t('analytics.chartCost')} badge={chartBadge} />
+            <EmptyChart
+              title={t('analytics.chartCost')}
+              badge={chartBadge}
+              animationsEnabled={animationsEnabled}
+              delay={0.08}
+            />
           )}
         </div>
 
         <div className="h-full xl:col-span-7">
           {hasData ? (
             <ChartCard
+              delay={0.12}
+              animationsEnabled={animationsEnabled}
               title={t('analytics.chartTokens')}
               badge={chartBadge}
               summaryLabel={t('analytics.chartTokens')}
@@ -549,13 +620,20 @@ export function AnalyticsOverview({
               </div>
             </ChartCard>
           ) : (
-            <EmptyChart title={t('analytics.chartTokens')} badge={chartBadge} />
+            <EmptyChart
+              title={t('analytics.chartTokens')}
+              badge={chartBadge}
+              animationsEnabled={animationsEnabled}
+              delay={0.12}
+            />
           )}
         </div>
 
         <div className="h-full xl:col-span-12">
           {hasData ? (
             <ChartCard
+              delay={0.16}
+              animationsEnabled={animationsEnabled}
               title={t('analytics.chartRequests')}
               badge={chartBadge}
               summaryLabel={t('analytics.requests')}
@@ -609,7 +687,12 @@ export function AnalyticsOverview({
               </div>
             </ChartCard>
           ) : (
-            <EmptyChart title={t('analytics.chartRequests')} badge={chartBadge} />
+            <EmptyChart
+              title={t('analytics.chartRequests')}
+              badge={chartBadge}
+              animationsEnabled={animationsEnabled}
+              delay={0.16}
+            />
           )}
         </div>
       </section>

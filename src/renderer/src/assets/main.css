@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+﻿@import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'markstream-react/index.css';
 @import 'katex/dist/katex.min.css';
@@ -569,37 +569,63 @@
   }
 }
 
-/* Custom scrollbars — thin, auto-hide style */
+/* Custom scrollbars — thin rectangular thumb */
 * {
   scrollbar-width: thin;
-  scrollbar-color: oklch(0.7 0 0 / 0.2) transparent;
+  scrollbar-color: oklch(0.72 0 0 / 0.3) transparent;
 }
 .dark * {
-  scrollbar-color: oklch(0.5 0 0 / 0.25) transparent;
+  scrollbar-color: oklch(0.86 0 0 / 0.36) transparent;
 }
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+  margin: 4px 0;
 }
 ::-webkit-scrollbar-thumb {
-  background: oklch(0.7 0 0 / 0.15);
-  border-radius: 999px;
-  transition: background 0.2s;
+  background-color: oklch(0.72 0 0 / 0.26);
+  background-clip: border-box;
+  border: 0;
+  border-radius: 0;
+  transition: background-color 0.15s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.6 0 0 / 0.4);
+  background-color: oklch(0.78 0 0 / 0.62);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+::-webkit-scrollbar-thumb:active {
+  background-color: oklch(0.84 0 0 / 0.78);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
 .dark ::-webkit-scrollbar-thumb {
-  background: oklch(0.5 0 0 / 0.2);
+  background-color: oklch(0.84 0 0 / 0.28);
+  border-radius: 0;
 }
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.6 0 0 / 0.45);
+  background-color: oklch(0.94 0 0 / 0.58);
+  border-radius: 0;
+  box-shadow: none;
+}
+.dark ::-webkit-scrollbar-thumb:active {
+  background-color: oklch(0.98 0 0 / 0.72);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.monaco-editor .monaco-scrollable-element > .scrollbar > .slider,
+.monaco-editor .minimap-slider {
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
 .extension-scroll-area {
@@ -615,13 +641,13 @@
 }
 
 .extension-scroll-area::-webkit-scrollbar-track {
-  border-radius: 999px;
+  border-radius: 2px;
   background: color-mix(in srgb, var(--border) 55%, transparent);
 }
 
 .extension-scroll-area::-webkit-scrollbar-thumb {
   border: 2px solid color-mix(in srgb, var(--border) 55%, transparent);
-  border-radius: 999px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
 }
 
@@ -1654,30 +1680,63 @@
   .workspace-terminal-resize-handle {
     position: absolute;
     z-index: 20;
-    top: -0.25rem;
+    top: -0.4rem;
     right: 0;
     left: 0;
-    height: 0.5rem;
+    height: 0.8rem;
     cursor: row-resize;
+    touch-action: none;
+  }
+
+  .workspace-terminal-resize-handle::before {
+    position: absolute;
+    inset: 0.28rem 0;
+    background: transparent;
+    transition: background-color 0.18s ease;
+    content: '';
   }
 
   .workspace-terminal-resize-handle::after {
     position: absolute;
-    top: 0.1875rem;
+    top: 50%;
     left: 50%;
+    width: 2.5rem;
     height: 0.1875rem;
-    width: 3.25rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--foreground) 24%, transparent);
-    opacity: 0;
-    transform: translateX(-50%);
-    transition: opacity 0.14s ease;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--foreground) 34%, transparent);
+    opacity: 0.5;
+    transform: translate(-50%, -50%);
+    box-shadow: none;
+    transition:
+      opacity 0.15s ease,
+      width 0.15s ease,
+      height 0.15s ease,
+      background-color 0.15s ease;
     content: '';
+  }
+
+  .workspace-terminal-resize-handle:hover::before,
+  .workspace-terminal-dock--resizing .workspace-terminal-resize-handle::before {
+    background: color-mix(in srgb, var(--foreground) 8%, transparent);
   }
 
   .workspace-terminal-resize-handle:hover::after,
   .workspace-terminal-dock--resizing .workspace-terminal-resize-handle::after {
+    width: 3rem;
+    height: 0.375rem;
+    border-radius: 0;
     opacity: 1;
+    background: color-mix(in srgb, var(--foreground) 62%, transparent);
+    box-shadow: none;
+  }
+
+  .workspace-terminal-dock--resizing .workspace-terminal-resize-handle::after {
+    width: 3.25rem;
+    height: 0.4375rem;
+    border-radius: 0;
+    opacity: 1;
+    background: color-mix(in srgb, var(--foreground) 74%, transparent);
+    box-shadow: none;
   }
 
   .workspace-terminal-header {

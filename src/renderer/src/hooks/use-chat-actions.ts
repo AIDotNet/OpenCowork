@@ -5161,11 +5161,16 @@ export function useChatActions(): {
             })
 
             const maxParallelTools = getConfiguredMaxParallelTools()
+            // A tool-result continuation writes into the existing assistant bubble, but
+            // must still be a distinct worker run. Reusing the message ID here restarts
+            // the worker's per-run sequence at 1 under an already-seen ID, causing the
+            // stream receiver to discard all early events as duplicates.
+            const sidecarRunId = source === 'continue' ? nanoid() : assistantMsgId
             const sidecarRequest = buildSidecarAgentRunRequest({
               messages: messagesToSend,
               provider: agentProviderConfig,
               tools: effectiveToolDefs,
-              runId: assistantMsgId,
+              runId: sidecarRunId,
               sessionId,
               workingFolder: sessionWorkingFolder,
               maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,

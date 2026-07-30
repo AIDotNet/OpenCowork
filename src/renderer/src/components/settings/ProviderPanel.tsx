@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+﻿import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import {
@@ -651,7 +651,7 @@ function AddProviderDialog({
                   <SelectItem value="openai-chat">{t('provider.openaiChatCompat')}</SelectItem>
                   <SelectItem value="openai-responses">{t('provider.openaiResponses')}</SelectItem>
                   <SelectItem value="anthropic">{t('provider.anthropicMessages')}</SelectItem>
-                  <SelectItem value="gemini">Gemini</SelectItem>
+                  <SelectItem value="gemini-interactions">Gemini Interactions</SelectItem>
                   <SelectItem value="seedance-video">
                     {t('provider.seedanceVideo', { defaultValue: 'Seedance Video (Volcengine)' })}
                   </SelectItem>
@@ -1121,8 +1121,8 @@ function ModelFormDialog({
                 <SelectItem value="anthropic" className="text-xs">
                   Anthropic
                 </SelectItem>
-                <SelectItem value="gemini" className="text-xs">
-                  Gemini
+                <SelectItem value="gemini-interactions" className="text-xs">
+                  Gemini Interactions
                 </SelectItem>
                 <SelectItem value="openai-images" className="text-xs">
                   OpenAI Images
@@ -3434,8 +3434,8 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
                 <SelectItem value="anthropic" className="text-xs">
                   Anthropic
                 </SelectItem>
-                <SelectItem value="gemini" className="text-xs">
-                  Gemini
+                <SelectItem value="gemini-interactions" className="text-xs">
+                  Gemini Interactions
                 </SelectItem>
                 <SelectItem value="openai-images" className="text-xs">
                   OpenAI Images

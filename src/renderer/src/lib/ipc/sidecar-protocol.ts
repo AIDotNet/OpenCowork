@@ -383,7 +383,7 @@ export function isNativeSidecarProviderConfig(provider: ProviderConfig): boolean
     provider.type !== 'openai-chat' &&
     provider.type !== 'openai-responses' &&
     provider.type !== 'anthropic' &&
-    provider.type !== 'gemini' &&
+    provider.type !== 'gemini-interactions' &&
     provider.type !== 'vertex-ai'
   ) {
     return false

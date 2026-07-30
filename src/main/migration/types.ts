@@ -1,4 +1,4 @@
-export type ProviderType = 'anthropic' | 'openai-chat' | 'openai-responses' | 'gemini'
+﻿export type ProviderType = 'anthropic' | 'openai-chat' | 'openai-responses' | 'gemini-interactions'
 
 export interface RequestOverrides {
   headers?: Record<string, string>

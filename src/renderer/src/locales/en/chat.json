@@ -1,4 +1,4 @@
-{
+﻿{
   "input": {
     "placeholder": "Type a message...",
     "placeholderClarify": "Describe your idea and I will keep probing until the requirements are clear...",
@@ -307,6 +307,7 @@
     "recommended": "Recommended",
     "previewBadge": "Preview",
     "previewTitle": "Option preview",
+    "previewEmpty": "Hover or select an option to see its preview.",
     "notesTitle": "Notes (optional)",
     "notesPlaceholder": "Add constraints, preferences, or context…",
     "autoAnswered": "Auto-answered",

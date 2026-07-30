@@ -1248,7 +1248,8 @@ function AssistantReplyRail({
           'block h-0.5 origin-left rounded-full transition-[color,background-color,opacity,transform] duration-100 ease-out will-change-transform',
           'bg-muted-foreground/45',
           active ? 'bg-foreground/85 opacity-100' : 'opacity-65',
-          previewing && 'bg-foreground/95 opacity-100'
+          previewing && 'bg-foreground/95 opacity-100',
+          item.kind === 'streaming' && active && animationsEnabled && 'animate-pulse'
         )}
         style={{
           width: ASSISTANT_RAIL_MARKER_WIDTH_PX,
@@ -1267,26 +1268,40 @@ function AssistantReplyRail({
         className="pointer-events-none relative w-[min(320px,calc(100vw-3rem))]"
         style={{ height: ASSISTANT_RAIL_HEIGHT_PX }}
       >
-        {previewItem && previewCopy ? (
-          <div
-            className="absolute left-9 w-[min(276px,calc(100vw-5rem))] -translate-y-1/2 animate-in fade-in-0 slide-in-from-left-1 duration-150"
-            style={{ top: previewTop }}
-          >
-            <div className="overflow-hidden rounded-xl border border-border/70 bg-popover/95 px-3 py-2.5 text-popover-foreground shadow-xl backdrop-blur-xl">
-              <div className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/70" />
-                <div className="min-w-0 flex-1 line-clamp-1 text-[12px] font-semibold leading-5">
-                  {previewCopy.title}
+        <AnimatePresence mode="popLayout">
+          {previewItem && previewCopy ? (
+            <motion.div
+              key={previewItem.id}
+              className="absolute left-9 w-[min(276px,calc(100vw-5rem))] -translate-y-1/2"
+              style={{ top: previewTop }}
+              initial={animationsEnabled ? { opacity: 0, x: -4 } : false}
+              animate={{ opacity: 1, x: 0 }}
+              exit={animationsEnabled ? { opacity: 0, x: -4 } : undefined}
+              transition={
+                animationsEnabled ? { duration: 0.12, ease: 'easeOut' } : { duration: 0 }
+              }
+            >
+              <div className="overflow-hidden rounded-xl border border-border/70 bg-popover/95 px-3 py-2.5 text-popover-foreground shadow-xl backdrop-blur-xl">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/70',
+                      previewItem.kind === 'streaming' && animationsEnabled && 'animate-pulse bg-primary'
+                    )}
+                  />
+                  <div className="min-w-0 flex-1 line-clamp-1 text-[12px] font-semibold leading-5">
+                    {previewCopy.title}
+                  </div>
                 </div>
+                {previewCopy.detail ? (
+                  <div className="mt-0.5 line-clamp-2 text-[11px] leading-[18px] text-muted-foreground">
+                    {previewCopy.detail}
+                  </div>
+                ) : null}
               </div>
-              {previewCopy.detail ? (
-                <div className="mt-0.5 line-clamp-2 text-[11px] leading-[18px] text-muted-foreground">
-                  {previewCopy.detail}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         <div
           ref={railViewportRef}
@@ -2781,8 +2796,15 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     return (
       <div className="flex flex-1 flex-col gap-4 overflow-hidden px-4 pt-6">
         {[0, 1, 2].map((index) => (
-          <div
+          <motion.div
             key={index}
+            initial={animationsEnabled ? { opacity: 0, y: 6 } : false}
+            animate={{ opacity: 1, y: 0 }}
+            transition={
+              animationsEnabled
+                ? { duration: 0.2, delay: index * 0.05, ease: 'easeOut' }
+                : { duration: 0 }
+            }
             className={`${getMessageColumnClass(fullWidth)} space-y-2 ${
               index % 2 === 0 ? 'self-start' : 'self-end'
             }`}
@@ -2790,7 +2812,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
             <div className="h-3 w-3/5 animate-pulse rounded-md bg-muted/50" />
             <div className="h-3 w-4/5 animate-pulse rounded-md bg-muted/40" />
             <div className="h-3 w-1/2 animate-pulse rounded-md bg-muted/30" />
-          </div>
+          </motion.div>
         ))}
       </div>
     )
@@ -2804,9 +2826,31 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       : mode === 'chat'
         ? 'What should we talk through?'
         : t(hint.titleKey)
+    const suggestedPrompts =
+      mode === 'chat'
+        ? [
+            t('messageList.explainAsync'),
+            t('messageList.compareRest'),
+            t('messageList.writeRegex')
+          ]
+        : activeWorkingFolder
+          ? [
+              t('messageList.summarizeProject'),
+              t('messageList.findBugs'),
+              t('messageList.addErrorHandling')
+            ]
+          : [
+              t('messageList.reviewCodebase'),
+              t('messageList.addTests'),
+              t('messageList.refactorError')
+            ]
+
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-        <div
+        <motion.div
+          initial={animationsEnabled ? { opacity: 0, y: 8 } : false}
+          animate={{ opacity: 1, y: 0 }}
+          transition={animationsEnabled ? { duration: 0.25, ease: 'easeOut' } : { duration: 0 }}
           className={`flex flex-col items-center gap-3 ${getMessageColumnCompactClass(fullWidth)}`}
         >
           <div>
@@ -2817,34 +2861,27 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
               {projectScoped ? t('messageList.startCodingDesc') : t(hint.descKey)}
             </p>
           </div>
-        </div>
+        </motion.div>
 
         <div className="mt-6 flex max-w-[520px] flex-wrap justify-center gap-2">
-          {(mode === 'chat'
-            ? [
-                t('messageList.explainAsync'),
-                t('messageList.compareRest'),
-                t('messageList.writeRegex')
-              ]
-            : activeWorkingFolder
-              ? [
-                  t('messageList.summarizeProject'),
-                  t('messageList.findBugs'),
-                  t('messageList.addErrorHandling')
-                ]
-              : [
-                  t('messageList.reviewCodebase'),
-                  t('messageList.addTests'),
-                  t('messageList.refactorError')
-                ]
-          ).map((prompt) => (
-            <button
+          {suggestedPrompts.map((prompt, index) => (
+            <motion.button
               key={prompt}
+              type="button"
+              initial={animationsEnabled ? { opacity: 0, y: 6 } : false}
+              animate={{ opacity: 1, y: 0 }}
+              transition={
+                animationsEnabled
+                  ? { duration: 0.2, delay: 0.08 + index * 0.04, ease: 'easeOut' }
+                  : { duration: 0 }
+              }
+              whileHover={animationsEnabled ? { y: -1 } : undefined}
+              whileTap={animationsEnabled ? { scale: 0.98 } : undefined}
               className="rounded-md border border-border/60 bg-background/50 px-3 py-1.5 text-[11px] text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground"
               onClick={() => applySuggestedPrompt(prompt)}
             >
               {prompt}
-            </button>
+            </motion.button>
           ))}
         </div>
       </div>
@@ -2935,10 +2972,17 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
               >
                 {isLoadOlderRow ? (
                   <div
-                    className={`${getMessageColumnClass(fullWidth)} flex justify-center pb-3 pt-3 animate-in fade-in-0 duration-200`}
+                    className={`${getMessageColumnClass(fullWidth)} flex justify-center pb-3 pt-3`}
                   >
-                    <button
+                    <motion.button
                       type="button"
+                      initial={animationsEnabled ? { opacity: 0, y: -4 } : false}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={
+                        animationsEnabled ? { duration: 0.16, ease: 'easeOut' } : { duration: 0 }
+                      }
+                      whileHover={animationsEnabled ? { y: -1 } : undefined}
+                      whileTap={animationsEnabled ? { scale: 0.98 } : undefined}
                       className="rounded-full border border-border/70 bg-background/92 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-70"
                       onClick={() => void loadOlderMessages()}
                       disabled={isLoadingOlderMessages}
@@ -2946,7 +2990,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                       {isLoadingOlderMessages
                         ? t('messageList.loadingOlder')
                         : t('messageList.loadOlder', { count: loadedRangeStart })}
-                    </button>
+                    </motion.button>
                   </div>
                 ) : (
                   (() => {

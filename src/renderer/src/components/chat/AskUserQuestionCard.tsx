@@ -1,4 +1,4 @@
-import * as React from 'react'
+﻿import * as React from 'react'
 import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
@@ -273,28 +273,49 @@ function buildPreviewDocument(preview: string): string {
 </html>`
 }
 
-function PreviewPane({ preview }: { preview: string }): React.JSX.Element {
+function PreviewPane({
+  preview,
+  className
+}: {
+  preview?: string | null
+  className?: string
+}): React.JSX.Element {
   const { t } = useTranslation('chat')
-  const isHtml = looksLikeHtmlPreview(preview)
+  const isHtml = !!preview && looksLikeHtmlPreview(preview)
 
   return (
-    <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
-      <div className="mb-2 flex items-center gap-2">
+    <div
+      className={cn(
+        'flex min-h-0 flex-col rounded-xl border border-border/70 bg-muted/20 p-3',
+        className
+      )}
+    >
+      <div className="mb-2 flex h-5 shrink-0 items-center gap-2">
         <PanelRight className="size-3.5 text-primary/80" />
         <div className="text-xs font-medium text-foreground">{t('askUser.previewTitle')}</div>
-        <Badge variant="outline" className="ml-auto text-[10px]">
-          {isHtml ? 'HTML' : 'Markdown'}
-        </Badge>
+        {preview && (
+          <Badge variant="outline" className="ml-auto text-[10px]">
+            {isHtml ? 'HTML' : 'Markdown'}
+          </Badge>
+        )}
       </div>
-      {isHtml ? (
+      {/* The pane fills the row height set by the question column, so preview
+          content (or its height) never drives the card height. */}
+      {!preview ? (
+        <div className="flex min-h-0 w-full flex-1 items-center justify-center rounded-lg border border-dashed border-border/60 bg-background/60 px-4 text-center text-[11px] leading-snug text-muted-foreground/70">
+          {t('askUser.previewEmpty', {
+            defaultValue: 'Hover or select an option to see its preview.'
+          })}
+        </div>
+      ) : isHtml ? (
         <iframe
           title="Ask user question preview"
           sandbox=""
           srcDoc={buildPreviewDocument(preview)}
-          className="h-56 w-full rounded-lg border border-border/60 bg-background"
+          className="min-h-0 w-full flex-1 rounded-lg border border-border/60 bg-background"
         />
       ) : (
-        <div className="max-h-56 overflow-auto rounded-lg border border-border/60 bg-background px-3 py-2 font-mono text-[12px] leading-relaxed text-foreground">
+        <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border/60 bg-background px-3 py-2 font-mono text-[12px] leading-relaxed text-foreground">
           <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-muted prose-pre:px-3 prose-pre:py-2 prose-code:before:content-none prose-code:after:content-none prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded-sm prose-code:font-mono prose-pre:font-mono">
             <Markdown
               remarkPlugins={MARKDOWN_REMARK_PLUGINS}
@@ -346,13 +367,17 @@ function QuestionBlock({
       ? item.options?.find((option) => option.label === hoveredOption)
       : undefined
   const selectedPreview = hoveredPreviewOption?.preview ?? selectedOption?.preview
+  // Reserve the preview column when any option can preview, so hover/selection
+  // changes swap content without changing the card's layout or height.
+  const hasPreviewColumn =
+    !item.multiSelect && !!item.options?.some((option) => !!option.preview) && !isOtherSelected
   const showNotes = !!item.options?.length && selectedLabels.length > 0 && !isOtherSelected
 
   return (
     <div
       className={cn(
         'grid gap-3',
-        selectedPreview && 'lg:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.9fr)]'
+        hasPreviewColumn && 'lg:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.9fr)]'
       )}
     >
       <div className="space-y-3">
@@ -509,7 +534,13 @@ function QuestionBlock({
         )}
       </div>
 
-      {selectedPreview && <PreviewPane preview={selectedPreview} />}
+      {hasPreviewColumn && (
+        // Absolute inner pane: preview content is taken out of layout flow so its
+        // height can never feed back into the grid row / card height.
+        <div className="relative min-h-56">
+          <PreviewPane preview={selectedPreview} className="absolute inset-0" />
+        </div>
+      )}
     </div>
   )
 }
@@ -899,7 +930,7 @@ export function AskUserQuestionCard({
                   )}
                   {pair.annotation?.preview && (
                     <div className="rounded-lg border border-border/50 bg-background/70 p-2.5">
-                      <PreviewPane preview={pair.annotation.preview} />
+                      <PreviewPane preview={pair.annotation.preview} className="h-64" />
                     </div>
                   )}
                 </div>

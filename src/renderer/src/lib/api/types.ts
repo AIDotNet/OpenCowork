@@ -424,7 +424,9 @@ export type ProviderType =
   | 'openai-video'
   | 'seedance-video'
   | 'xai-video'
-  | 'gemini'
+  /** Google Interactions API (POST /interactions). Replaced the legacy generateContent transport. */
+  | 'gemini-interactions'
+  /** Vertex AI still exposes only generateContent on aiplatform.googleapis.com. */
   | 'vertex-ai'
 export type ResponseSummary = 'auto' | 'concise' | 'detailed'
 export type ResponsesImageGenerationAction = 'auto' | 'generate' | 'edit'

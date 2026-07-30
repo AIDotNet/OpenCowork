@@ -37,7 +37,7 @@ internal static class OpenAIChatRuntime
     {
         var provider = GetObject(parameters, "provider");
         var providerType = JsonHelpers.GetString(provider, "type") ?? string.Empty;
-        if (providerType is not ("openai-chat" or "openai-responses" or "anthropic" or "gemini" or "vertex-ai"))
+        if (providerType is not ("openai-chat" or "openai-responses" or "anthropic" or "gemini-interactions" or "vertex-ai"))
         {
             throw new InvalidOperationException($"Native AgentRuntime provider is not migrated yet: {providerType}");
         }
@@ -318,7 +318,7 @@ internal static class OpenAIChatRuntime
     {
         var provider = GetObject(parameters, "provider");
         var providerType = JsonHelpers.GetString(provider, "type") ?? string.Empty;
-        if (providerType is not ("openai-chat" or "openai-responses" or "anthropic" or "gemini" or "vertex-ai"))
+        if (providerType is not ("openai-chat" or "openai-responses" or "anthropic" or "gemini-interactions" or "vertex-ai"))
         {
             throw new InvalidOperationException($"Native AgentRuntime provider is not migrated yet: {providerType}");
         }
@@ -652,7 +652,18 @@ internal static class OpenAIChatRuntime
                 state,
                 context);
         }
-        if (providerType is "gemini" or "vertex-ai")
+        if (providerType == "gemini-interactions")
+        {
+            return await AgentRuntimeGeminiInteractionsProvider.ExecuteTurnAsync(
+                parameters,
+                provider,
+                conversation,
+                state,
+                context);
+        }
+        // Vertex AI has no Interactions endpoint on aiplatform.googleapis.com, so it stays
+        // on generateContent.
+        if (providerType == "vertex-ai")
         {
             return await AgentRuntimeGeminiProvider.ExecuteTurnAsync(
                 parameters,

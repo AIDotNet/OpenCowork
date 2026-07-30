@@ -1,4 +1,4 @@
-import * as fs from 'fs'
+﻿import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import type {
@@ -180,7 +180,7 @@ function inferBuiltinId(source: OpenCodeSourceProvider): string | undefined {
 
 function inferProviderType(source: OpenCodeSourceProvider, builtinId?: string): ProviderType {
   if (builtinId === 'anthropic') return 'anthropic'
-  if (builtinId === 'google') return 'gemini'
+  if (builtinId === 'google') return 'gemini-interactions'
   if (builtinId === 'ollama') return 'openai-chat'
   if (builtinId === 'openai') return 'openai-chat'
   if (builtinId === 'openrouter') return 'openai-chat'
@@ -189,7 +189,7 @@ function inferProviderType(source: OpenCodeSourceProvider, builtinId?: string): 
   const npm = (source.npm ?? '').toLowerCase()
   const api = (source.api ?? '').toLowerCase()
   if (npm.includes('anthropic') || api.includes('anthropic')) return 'anthropic'
-  if (npm.includes('google') || api.includes('google')) return 'gemini'
+  if (npm.includes('google') || api.includes('google')) return 'gemini-interactions'
   return 'openai-chat'
 }
 
@@ -218,7 +218,7 @@ function inferModelIcon(modelId: string): string | undefined {
 
 function inferModelType(modelId: string, providerType: ProviderType): ProviderType | undefined {
   const normalized = modelId.toLowerCase()
-  if (providerType === 'anthropic' || providerType === 'gemini') return providerType
+  if (providerType === 'anthropic' || providerType === 'gemini-interactions') return providerType
   if (normalized.startsWith('gpt-5') || /^o[134]/.test(normalized)) return 'openai-responses'
   return undefined
 }

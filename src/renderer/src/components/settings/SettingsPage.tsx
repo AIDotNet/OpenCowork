@@ -3911,7 +3911,10 @@ export function SettingsPage(): React.JSX.Element {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-muted/10">
-      <header
+      <motion.header
+        initial={animationsEnabled ? { opacity: 0, y: -4 } : false}
+        animate={{ opacity: 1, y: 0 }}
+        transition={animationsEnabled ? { duration: 0.18, ease: 'easeOut' } : { duration: 0 }}
         className={`titlebar-drag relative flex h-10 shrink-0 items-center gap-3 border-b bg-background/90 px-3 backdrop-blur ${isMac ? 'pl-[104px]' : 'pr-[132px]'}`}
         style={{ paddingRight: isMac ? undefined : 'calc(132px + 0.75rem)' }}
       >
@@ -3935,22 +3938,34 @@ export function SettingsPage(): React.JSX.Element {
             <WindowControls />
           </div>
         ) : null}
-      </header>
+      </motion.header>
 
       <div className="flex min-h-0 flex-1">
         <div className="flex w-[236px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
           <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 pb-2 pt-4">
-            {menuGroupDefs.map((group) => (
-              <div key={group.labelKey} className="space-y-0.5">
+            {menuGroupDefs.map((group, groupIndex) => (
+              <motion.div
+                key={group.labelKey}
+                initial={animationsEnabled ? { opacity: 0, x: -6 } : false}
+                animate={{ opacity: 1, x: 0 }}
+                transition={
+                  animationsEnabled
+                    ? { duration: 0.2, delay: groupIndex * 0.03, ease: 'easeOut' }
+                    : { duration: 0 }
+                }
+                className="space-y-0.5"
+              >
                 <p className="mb-1 px-3 text-[11px] font-medium text-muted-foreground/70">
                   {t(group.labelKey)}
                 </p>
                 {group.items.map((item) => {
                   const active = effectiveSettingsTab === item.id
                   return (
-                    <button
+                    <motion.button
                       key={item.id}
+                      type="button"
                       onClick={() => setSettingsTab(item.id)}
+                      whileTap={animationsEnabled ? { scale: 0.985 } : undefined}
                       className={`group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors duration-150 ${
                         active
                           ? `font-medium text-sidebar-accent-foreground${
@@ -3963,7 +3978,7 @@ export function SettingsPage(): React.JSX.Element {
                         <motion.div
                           layoutId="settings-nav-active"
                           className="absolute inset-0 rounded-lg bg-sidebar-accent"
-                          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                          transition={{ type: 'spring', stiffness: 420, damping: 32, mass: 0.7 }}
                         />
                       )}
                       <span
@@ -3978,10 +3993,10 @@ export function SettingsPage(): React.JSX.Element {
                       <span className="relative z-10 min-w-0 flex-1 truncate">
                         {t(item.labelKey)}
                       </span>
-                    </button>
+                    </motion.button>
                   )
                 })}
-              </div>
+              </motion.div>
             ))}
           </nav>
 

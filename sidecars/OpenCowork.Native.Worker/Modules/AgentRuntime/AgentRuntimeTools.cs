@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 
 internal static class AgentRuntimeTools
@@ -53,7 +53,7 @@ internal static class AgentRuntimeTools
             "provider.openai-responses" or
             "provider.openai-images" or
             "provider.anthropic" or
-            "provider.gemini" or
+            "provider.gemini-interactions" or
             "provider.vertex-ai" or
             "agent.stream.msgpack" or
             "sidecar.reverse.msgpack" or

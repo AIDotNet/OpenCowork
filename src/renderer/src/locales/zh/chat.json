@@ -1,4 +1,4 @@
-{
+﻿{
   "input": {
     "placeholder": "输入消息...",
     "placeholderClarify": "描述你的想法，我会先不断追问把需求问透...",
@@ -307,6 +307,7 @@
     "recommended": "推荐",
     "previewBadge": "预览",
     "previewTitle": "选项预览",
+    "previewEmpty": "悬停或选择某个选项查看预览。",
     "notesTitle": "补充说明（可选）",
     "notesPlaceholder": "补充你的约束、偏好或说明…",
     "autoAnswered": "自动回答",

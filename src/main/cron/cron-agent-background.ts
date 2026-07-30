@@ -94,7 +94,7 @@ type ProviderType =
   | 'openai-responses'
   | 'openai-images'
   | 'openai-video'
-  | 'gemini'
+  | 'gemini-interactions'
   | 'vertex-ai'
 
 type ToolInputSchema =
@@ -395,7 +395,7 @@ const activeRuns = new Map<string, AbortController>()
 const executionState = new Map<string, ExecutionState>()
 
 function normalizeProviderType(type: ProviderType): ProviderType {
-  if (type === 'gemini' || type === 'vertex-ai') return 'openai-chat'
+  if (type === 'vertex-ai') return 'openai-chat'
   return type
 }
 
@@ -451,7 +451,7 @@ function normalizeProviderBaseUrl(baseUrl: string, requestType: ProviderType): s
   if (normalizedType === 'anthropic') {
     return trimmed.replace(/\/v1(?:\/messages)?$/i, '')
   }
-  if (requestType === 'gemini' || requestType === 'vertex-ai') {
+  if (requestType === 'gemini-interactions' || requestType === 'vertex-ai') {
     return trimmed.replace(/\/openai$/i, '')
   }
   return trimmed

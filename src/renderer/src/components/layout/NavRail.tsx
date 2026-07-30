@@ -10,9 +10,11 @@ import {
   Wand2,
   Waypoints
 } from 'lucide-react'
+import { motion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { useUIStore, type NavItem } from '@renderer/stores/ui-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
 import { cn } from '@renderer/lib/utils'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
@@ -32,6 +34,7 @@ const navItems: { value: NavItem | 'ssh'; icon: React.ReactNode; labelKey: strin
 
 export function NavRail(): React.JSX.Element {
   const { t } = useTranslation('layout')
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
   const activeNavItem = useUIStore((s) => s.activeNavItem)
   const setActiveNavItem = useUIStore((s) => s.setActiveNavItem)
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen)
@@ -43,6 +46,7 @@ export function NavRail(): React.JSX.Element {
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
   const tasksPageOpen = useUIStore((s) => s.tasksPageOpen)
   const codeGraphPageOpen = useUIStore((s) => s.codeGraphPageOpen)
+  const settingsPageOpen = useUIStore((s) => s.settingsPageOpen)
 
   const handleNavClick = (item: NavItem | 'ssh'): void => {
     if (item === 'tasks') {
@@ -107,44 +111,68 @@ export function NavRail(): React.JSX.Element {
     <div className="flex h-full w-12 shrink-0 flex-col items-center border-r bg-muted/30 py-2">
       {/* Top nav items */}
       <div className="flex flex-col items-center gap-1">
-        {navItems.map((item) => (
-          <Tooltip key={item.value}>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => handleNavClick(item.value)}
-                className={cn(
-                  'flex size-9 items-center justify-center rounded-lg transition-all duration-200',
-                  (item.value === 'tasks' && tasksPageOpen) ||
-                    (item.value === 'resources' && resourcesPageOpen) ||
-                    (item.value === 'skills' && skillsPageOpen) ||
-                    (item.value === 'souls' && soulsPageOpen) ||
-                    (item.value === 'sync' && syncPageOpen) ||
-                    (item.value === 'draw' && drawPageOpen) ||
-                    (item.value === 'codegraph' && codeGraphPageOpen) ||
-                    (item.value === 'translate' && translatePageOpen) ||
-                    (![
-                      'tasks',
-                      'resources',
-                      'skills',
-                      'souls',
-                      'sync',
-                      'draw',
-                      'codegraph',
-                      'translate',
-                      'ssh'
-                    ].includes(item.value) &&
-                      activeNavItem === item.value &&
-                      leftSidebarOpen)
-                    ? 'bg-primary/10 text-primary shadow-sm'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                )}
-              >
-                {item.icon}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
-          </Tooltip>
-        ))}
+        {navItems.map((item, index) => {
+          const active =
+            (item.value === 'tasks' && tasksPageOpen) ||
+            (item.value === 'resources' && resourcesPageOpen) ||
+            (item.value === 'skills' && skillsPageOpen) ||
+            (item.value === 'souls' && soulsPageOpen) ||
+            (item.value === 'sync' && syncPageOpen) ||
+            (item.value === 'draw' && drawPageOpen) ||
+            (item.value === 'codegraph' && codeGraphPageOpen) ||
+            (item.value === 'translate' && translatePageOpen) ||
+            (![
+              'tasks',
+              'resources',
+              'skills',
+              'souls',
+              'sync',
+              'draw',
+              'codegraph',
+              'translate',
+              'ssh'
+            ].includes(item.value) &&
+              activeNavItem === item.value &&
+              leftSidebarOpen)
+
+          return (
+            <Tooltip key={item.value}>
+              <TooltipTrigger asChild>
+                <motion.button
+                  type="button"
+                  onClick={() => handleNavClick(item.value)}
+                  initial={animationsEnabled ? { opacity: 0, y: 4 } : false}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={
+                    animationsEnabled
+                      ? { duration: 0.18, delay: index * 0.02, ease: 'easeOut' }
+                      : { duration: 0 }
+                  }
+                  whileHover={animationsEnabled ? { scale: 1.05 } : undefined}
+                  whileTap={animationsEnabled ? { scale: 0.95 } : undefined}
+                  className={cn(
+                    'relative flex size-9 items-center justify-center rounded-lg transition-colors duration-200',
+                    active
+                      ? 'text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                >
+                  {animationsEnabled && active ? (
+                    <motion.span
+                      layoutId="nav-rail-active"
+                      className="absolute inset-0 rounded-lg bg-primary/10 shadow-sm"
+                      transition={{ type: 'spring', stiffness: 420, damping: 32, mass: 0.7 }}
+                    />
+                  ) : active ? (
+                    <span className="absolute inset-0 rounded-lg bg-primary/10 shadow-sm" />
+                  ) : null}
+                  <span className="relative z-10">{item.icon}</span>
+                </motion.button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+            </Tooltip>
+          )
+        })}
       </div>
 
       {/* Spacer */}
@@ -154,12 +182,29 @@ export function NavRail(): React.JSX.Element {
       <div className="flex flex-col items-center gap-1">
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <motion.button
+              type="button"
               onClick={() => useUIStore.getState().openSettingsPage()}
-              className="flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-all duration-200 hover:bg-muted hover:text-foreground"
+              whileHover={animationsEnabled ? { scale: 1.05 } : undefined}
+              whileTap={animationsEnabled ? { scale: 0.95 } : undefined}
+              className={cn(
+                'relative flex size-9 items-center justify-center rounded-lg transition-colors duration-200',
+                settingsPageOpen
+                  ? 'text-primary'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              )}
             >
-              <Settings className="size-5" />
-            </button>
+              {animationsEnabled && settingsPageOpen ? (
+                <motion.span
+                  layoutId="nav-rail-active"
+                  className="absolute inset-0 rounded-lg bg-primary/10 shadow-sm"
+                  transition={{ type: 'spring', stiffness: 420, damping: 32, mass: 0.7 }}
+                />
+              ) : settingsPageOpen ? (
+                <span className="absolute inset-0 rounded-lg bg-primary/10 shadow-sm" />
+              ) : null}
+              <Settings className="relative z-10 size-5" />
+            </motion.button>
           </TooltipTrigger>
           <TooltipContent side="right">{t('navRail.settings')}</TooltipContent>
         </Tooltip>

@@ -468,7 +468,8 @@ export function normalizeProviderBaseUrl(
     // Anthropic provider will append `/v1/messages` itself.
     return trimmed.replace(/\/v1(?:\/messages)?$/i, '')
   }
-  if (requestType === 'gemini' || requestType === 'vertex-ai') {
+  if (requestType === 'gemini-interactions' || requestType === 'vertex-ai') {
+    // Strip the OpenAI-compat suffix: both Gemini transports target the native surface.
     return trimmed.replace(/\/openai$/i, '')
   }
   return trimmed
@@ -1838,12 +1839,42 @@ function migrateLegacyOAuthProviders(): void {
 }
 
 /**
+ * Move providers off the removed `gemini` (generateContent) protocol onto the Interactions
+ * API. Built-in Google is already handled by the preset version bump, so this only rescues
+ * user-created providers, which would otherwise point at a protocol that no longer exists.
+ * Vertex AI is untouched: it has no Interactions endpoint.
+ */
+function migrateLegacyGeminiProviders(): void {
+  const state = useProviderStore.getState()
+  let changed = false
+  const nextProviders = state.providers.map((provider) => {
+    const legacyType = provider.type as ProviderType | 'gemini'
+    if (legacyType !== 'gemini') return provider
+    changed = true
+    return {
+      ...provider,
+      type: 'gemini-interactions' as ProviderType,
+      baseUrl: normalizeProviderBaseUrl(provider.baseUrl, 'gemini-interactions'),
+      models: provider.models.map((model) =>
+        (model.type as ProviderType | 'gemini' | undefined) === 'gemini'
+          ? { ...model, type: 'gemini-interactions' as ProviderType }
+          : model
+      )
+    }
+  })
+  if (changed) {
+    useProviderStore.setState({ providers: nextProviders })
+  }
+}
+
+/**
  * Ensure built-in presets exist and pick a default active provider.
  * Safe to call multiple times — idempotent.
  */
 function ensureBuiltinPresets(): void {
   removeLegacyModelCompressionThresholds()
   migrateLegacyOAuthProviders()
+  migrateLegacyGeminiProviders()
   const currentProviders = useProviderStore.getState().providers
   const upgradedPresets = builtinProviderPresets.filter((preset) => {
     const existing = currentProviders.find((provider) => provider.builtinId === preset.builtinId)

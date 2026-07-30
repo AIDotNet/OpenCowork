@@ -1,4 +1,4 @@
-import type { BuiltinProviderPreset } from './types'
+﻿import type { BuiltinProviderPreset } from './types'
 
 export const routinAiPreset: BuiltinProviderPreset = {
   builtinId: 'routin-ai',
@@ -8,7 +8,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v7: add the OpenAI Sora 2 video model.
   // v8: add the Volcengine Seedance 2.0 video models (structured task params).
   // v9: add Qwen3.8 Max Preview and Claude Opus 5.
-  version: 9,
+  // v10: add GPT Image 2 All / Fast / 4K image models.
+  version: 10,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -912,6 +913,36 @@ export const routinAiPreset: BuiltinProviderPreset = {
       supportsFunctionCall: false
     },
     {
+      id: 'gpt-image-2-all',
+      name: 'GPT Image 2 All',
+      icon: 'openai',
+      enabled: true,
+      category: 'image',
+      type: 'openai-images',
+      supportsVision: true,
+      supportsFunctionCall: false
+    },
+    {
+      id: 'gpt-image-2-fast',
+      name: 'GPT Image 2 Fast',
+      icon: 'openai',
+      enabled: true,
+      category: 'image',
+      type: 'openai-images',
+      supportsVision: true,
+      supportsFunctionCall: false
+    },
+    {
+      id: 'gpt-image-2-4k',
+      name: 'GPT Image 2 4K',
+      icon: 'openai',
+      enabled: true,
+      category: 'image',
+      type: 'openai-images',
+      supportsVision: true,
+      supportsFunctionCall: false
+    },
+    {
       id: 'grok-imagine-image-quality',
       name: 'Grok Imagine Image Quality',
       icon: 'grok',
@@ -1207,7 +1238,9 @@ export const routinAiPreset: BuiltinProviderPreset = {
       icon: 'gemini',
       enabled: true,
       category: 'image',
-      type: 'gemini',
+      // Routin AI is an OpenAI-compatible relay, so Google's native transport is not
+      // reachable here; images go through the OpenAI Images route.
+      type: 'openai-images',
       supportsVision: true,
       supportsFunctionCall: false
     },
@@ -1217,7 +1250,7 @@ export const routinAiPreset: BuiltinProviderPreset = {
       icon: 'gemini',
       enabled: true,
       category: 'image',
-      type: 'gemini',
+      type: 'openai-images',
       supportsVision: true,
       supportsFunctionCall: false
     },

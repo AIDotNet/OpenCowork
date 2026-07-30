@@ -1,4 +1,5 @@
 import { Monitor, MoonStar, SunMedium } from 'lucide-react'
+import { motion } from 'motion/react'
 import { useTheme } from 'next-themes'
 import { useTranslation } from 'react-i18next'
 import {
@@ -114,12 +115,17 @@ function PresetCard({
 }): React.JSX.Element {
   const { t } = useTranslation('settings')
 
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
+
   return (
-    <button
+    <motion.button
       type="button"
       onClick={onClick}
+      whileHover={animationsEnabled ? { y: -2 } : undefined}
+      whileTap={animationsEnabled ? { scale: 0.985 } : undefined}
+      transition={animationsEnabled ? { duration: 0.16, ease: 'easeOut' } : undefined}
       className={cn(
-        'group flex min-h-[142px] flex-col rounded-[18px] border bg-card p-3 text-left transition-all hover:border-primary/35 hover:bg-accent/40',
+        'group flex min-h-[142px] flex-col rounded-[18px] border bg-card p-3 text-left transition-colors hover:border-primary/35 hover:bg-accent/40',
         active
           ? 'border-primary shadow-[0_18px_38px_-28px_color-mix(in_srgb,var(--primary)_72%,transparent)]'
           : 'border-border',
@@ -161,7 +167,7 @@ function PresetCard({
           </span>
         )}
       </div>
-    </button>
+    </motion.button>
   )
 }
 
@@ -175,6 +181,7 @@ export function GlobalThemePanel({
   const { t } = useTranslation('settings')
   const { resolvedTheme, setTheme } = useTheme()
   const settings = useSettingsStore()
+  const animationsEnabled = settings.animationsEnabled
   const resolvedMode = resolveAppThemeMode(
     settings.theme === 'system' ? resolvedTheme : settings.theme
   )
@@ -202,15 +209,17 @@ export function GlobalThemePanel({
             const Icon = option.icon
 
             return (
-              <button
+              <motion.button
                 key={option.value}
                 type="button"
                 onClick={() => {
                   settings.updateSettings({ theme: option.value })
                   setTheme(option.value)
                 }}
+                whileHover={animationsEnabled ? { y: -1 } : undefined}
+                whileTap={animationsEnabled ? { scale: 0.97 } : undefined}
                 className={cn(
-                  'flex items-center justify-center gap-2 rounded-[16px] border px-3 py-3 text-sm transition-all',
+                  'relative flex items-center justify-center gap-2 rounded-[16px] border px-3 py-3 text-sm transition-colors',
                   active
                     ? 'border-primary bg-primary text-primary-foreground shadow-[0_16px_32px_-24px_color-mix(in_srgb,var(--primary)_75%,transparent)]'
                     : 'border-border bg-card text-foreground hover:border-foreground/15 hover:bg-accent'
@@ -218,7 +227,7 @@ export function GlobalThemePanel({
               >
                 <Icon className="size-4" />
                 <span>{t(option.labelKey)}</span>
-              </button>
+              </motion.button>
             )
           })}
         </div>

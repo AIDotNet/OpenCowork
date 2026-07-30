@@ -4,6 +4,13 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 
+/// <summary>
+/// Vertex AI transport (generateContent on aiplatform.googleapis.com).
+///
+/// Google AI Studio's `gemini` generateContent path was removed in favour of
+/// <see cref="AgentRuntimeGeminiInteractionsProvider"/>. Vertex AI keeps this transport
+/// because the Interactions API is not served on aiplatform.googleapis.com.
+/// </summary>
 internal static class AgentRuntimeGeminiProvider
 {
     // Infinite client timeout: the effective deadline is user-configurable and therefore
@@ -22,7 +29,7 @@ internal static class AgentRuntimeGeminiProvider
         AgentRuntimeTools.AgentRuntimeRunState state,
         WorkerRequestContext context)
     {
-        var providerType = JsonHelpers.GetString(provider, "type") ?? "gemini";
+        var providerType = JsonHelpers.GetString(provider, "type") ?? "vertex-ai";
         var model = JsonHelpers.GetString(provider, "model") ?? string.Empty;
         var url = BuildApiUrl(providerType, JsonHelpers.GetString(provider, "baseUrl"), model, stream: true);
         var body = BuildRequestBody(parameters, provider, conversation);

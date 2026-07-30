@@ -1,7 +1,6 @@
 import * as React from 'react'
 import Markdown from 'react-markdown'
 import { Users, CircleUserRound, ChevronDown } from 'lucide-react'
-import { SlideIn } from '@renderer/components/animate-ui'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
 import { ContextCompressionMessage } from './ContextCompressionMessage'
@@ -214,27 +213,22 @@ function MessageItemInner({
 
   if (!inner) return null
 
-  if (disableAnimation) {
-    // Tail rows skip the motion SlideIn (spring transforms fight bottom-pinned
-    // auto-scroll); a one-shot CSS enter keeps arrival visible at zero per-render
-    // cost and is neutralized globally by data-animations='disabled'.
-    return (
-      <div className="group/ts relative animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
-        <span className="absolute -left-12 top-1 hidden group-hover/ts:block text-[10px] text-muted-foreground/40 whitespace-nowrap">
-          {formatTime(message.createdAt)}
-        </span>
-        {inner}
-      </div>
-    )
-  }
-
+  // Virtualized rows remount frequently. Prefer one-shot CSS enter over motion/spring:
+  // zero JS per-frame cost, no layout thrash against bottom-pinned auto-scroll, and
+  // neutralized globally by data-animations='disabled'.
   return (
-    <SlideIn className="group/ts relative" direction="up" offset={10} duration={0.3}>
+    <div
+      className={
+        disableAnimation
+          ? 'group/ts relative animate-in fade-in-0 duration-150'
+          : 'group/ts relative animate-in fade-in-0 slide-in-from-bottom-1 duration-200'
+      }
+    >
       <span className="absolute -left-12 top-1 hidden group-hover/ts:block text-[10px] text-muted-foreground/40 whitespace-nowrap">
         {formatTime(message.createdAt)}
       </span>
       {inner}
-    </SlideIn>
+    </div>
   )
 }
 

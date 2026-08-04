@@ -14,6 +14,7 @@ internal static class OpenAIChatRuntime
     private const double DefaultContextCompressionThreshold = 0.8;
     private const int DefaultContextCompressionReservedOutputTokens = 20_000;
     private const int ContextCompressionAutoBufferTokens = 13_000;
+    private const int ContextCompressionPreserveRecentMessages = 12;
     private const int ContextSourceHeadMessageLimit = 12;
     private const string PlanModeTurnContextText =
         "<turn-context>\n" +
@@ -137,7 +138,7 @@ internal static class OpenAIChatRuntime
                     try
                     {
                         var originalCount = wireConversation.Count;
-                        var preserveCount = iteration == 1 ? GetInitialCompressionPreserveCount(wireConversation) : 0;
+                        var preserveCount = GetCompressionPreserveCount(wireConversation);
                         WorkerLog.Info(
                             $"agent context compression start runId={state.RunId} tokens={lastInputTokens} " +
                             $"messages={originalCount} preserveCount={preserveCount}");
@@ -183,6 +184,12 @@ internal static class OpenAIChatRuntime
                                 $"agent context compression ok runId={state.RunId} original={originalCount} " +
                                 $"compressed={compressed.Messages.Length} summarized={summarized}");
                             lastInputTokens = 0;
+                        }
+                        else if (compressed.Result.SummarizerFailed == true)
+                        {
+                            WorkerLog.Warn(
+                                $"agent context compression preserved original context after summarizer failure " +
+                                $"runId={state.RunId} error={compressed.Result.Error}");
                         }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -535,28 +542,11 @@ internal static class OpenAIChatRuntime
         return 0;
     }
 
-    private static int GetInitialCompressionPreserveCount(IReadOnlyList<JsonElement> messages)
+    private static int GetCompressionPreserveCount(IReadOnlyList<JsonElement> messages)
     {
-        return ShouldPreserveInitialUserMessage(messages.Count > 0 ? messages[^1] : default) ? 1 : 0;
-    }
-
-    private static bool ShouldPreserveInitialUserMessage(JsonElement message)
-    {
-        if (message.ValueKind != JsonValueKind.Object ||
-            JsonHelpers.GetString(message, "role") != "user" ||
-            IsCompactSummaryLikeMessage(message))
-        {
-            return false;
-        }
-
-        if (!message.TryGetProperty("content", out var content) ||
-            content.ValueKind != JsonValueKind.Array ||
-            content.GetArrayLength() == 0)
-        {
-            return true;
-        }
-
-        return !content.EnumerateArray().All(block => JsonHelpers.GetString(block, "type") == "tool_result");
+        return Math.Min(
+            ContextCompressionPreserveRecentMessages,
+            Math.Max(0, messages.Count - 2));
     }
 
     private static bool IsCompactSummaryLikeMessage(JsonElement message)

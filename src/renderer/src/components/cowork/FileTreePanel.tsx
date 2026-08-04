@@ -42,7 +42,7 @@ import { useUIStore } from '@renderer/stores/ui-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ensureProjectTerminalReady } from '@renderer/lib/terminal/project-terminal-context'
-import { createSelectFileTag } from '@renderer/lib/select-file-tags'
+import { createFileReferenceMarkdown } from '@renderer/lib/select-file-tags'
 import { cn } from '@renderer/lib/utils'
 import { AnimatePresence, motion } from 'motion/react'
 import { toast } from 'sonner'
@@ -916,7 +916,7 @@ export function FileTreePanel({
   const handleAddToChat = useCallback(
     (filePath: string) => {
       const relativePath = toRelativePath(filePath, workingFolder)
-      useUIStore.getState().setPendingInsertText(createSelectFileTag(relativePath))
+      useUIStore.getState().setPendingInsertText(createFileReferenceMarkdown(relativePath))
     },
     [workingFolder]
   )

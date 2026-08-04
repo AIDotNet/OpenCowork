@@ -9,6 +9,10 @@
 // HttpCompletionOption.ResponseHeadersRead, so HttpClient.Timeout would equally have stopped
 // applying once the response headers arrived; the countdown is dropped at that same point so a
 // slow-but-healthy stream is never truncated.
+//
+// This is also where transport faults are classified. Everything raised here happens before any
+// response body is read, so a failure at this point is always safe to replay — no events have
+// reached the UI yet.
 internal static class AgentRuntimeRequestTimeout
 {
     // Mirrors HttpClient's historical default so behaviour is unchanged when unset.
@@ -38,33 +42,52 @@ internal static class AgentRuntimeRequestTimeout
         string providerLabel,
         CancellationToken cancellationToken)
     {
+        var host = request.RequestUri?.Host;
         var configured = Resolve(provider);
-        if (configured is not { } timeout)
-        {
-            return await http.SendAsync(
-                request,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
-        }
 
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(timeout);
         try
         {
-            return await http.SendAsync(
-                request,
-                HttpCompletionOption.ResponseHeadersRead,
-                deadline.Token);
+            if (configured is not { } timeout)
+            {
+                return await http.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken);
+            }
+
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(timeout);
+            try
+            {
+                return await http.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    deadline.Token);
+            }
+            catch (OperationCanceledException ex)
+                when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                // Distinguish "the deadline elapsed" from "the user cancelled the run", which would
+                // otherwise both surface as an indistinguishable OperationCanceledException.
+                // This is deliberately NOT retried: the user's chosen deadline is honoured once
+                // rather than being silently multiplied by the retry count.
+                throw new TimeoutException(
+                    $"{providerLabel} did not return response headers within {timeout.TotalSeconds:0}s. " +
+                    "Raise the API request timeout in Settings (0 waits indefinitely) if this model " +
+                    "needs longer before it starts responding.",
+                    ex);
+            }
         }
-        catch (OperationCanceledException ex)
-            when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (
+            ex is not OperationCanceledException and not TimeoutException &&
+            !cancellationToken.IsCancellationRequested &&
+            WorkerHttpFaultClassifier.Classify(ex, host) is { Retryable: true } fault)
         {
-            // Distinguish "the deadline elapsed" from "the user cancelled the run", which would
-            // otherwise both surface as an indistinguishable OperationCanceledException.
-            throw new TimeoutException(
-                $"{providerLabel} did not return response headers within {timeout.TotalSeconds:0}s. " +
-                "Raise the API request timeout in Settings (0 waits indefinitely) if this model " +
-                "needs longer before it starts responding.",
+            // Nothing has been streamed yet, so replay is unconditionally safe here.
+            throw new AgentRuntimeProviderTransportException(
+                providerLabel,
+                fault,
+                anyEventsEmitted: false,
                 ex);
         }
     }

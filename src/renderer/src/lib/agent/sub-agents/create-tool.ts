@@ -67,7 +67,7 @@ Available agent types and the tools they have access to:
 ${agentLines}
 - custom: General-purpose sub-agent with a built-in default system prompt and the same tools as the parent agent. Use this when none of the specialized agents above are a clean fit. You only supply the task via "prompt" - tool access is inherited automatically. (Tools: same as parent agent)
 
-When using the Task tool, you MUST specify a "subagent_type" parameter to select which agent type to use.
+The "subagent_type" parameter is optional. When omitted, the Task tool uses "custom".
 
 When NOT to use the Task tool:
 - If you want to read a specific file path, use the Read or Glob tool instead, to find the match more quickly.
@@ -133,7 +133,7 @@ export function createTaskTool(_providerGetter: () => ProviderConfig): ToolHandl
                 type: 'string',
                 enum: subTypeEnum,
                 description:
-                  'The type of specialized agent to use for this task. Every sub-agent inherits the tools exposed to the parent agent for the current run. Use "custom" for a general-purpose sub-agent with a built-in default system prompt.'
+                  'Optional specialized agent type. Defaults to "custom", a general-purpose sub-agent with a built-in system prompt. Every sub-agent inherits the tools exposed to the parent agent for the current run.'
               },
               model: {
                 type: 'string',
@@ -141,7 +141,7 @@ export function createTaskTool(_providerGetter: () => ProviderConfig): ToolHandl
                   'Deprecated and ignored. Synchronous sub-agents always use the configured fast model.'
               }
             },
-            required: ['description', 'prompt', 'subagent_type'],
+            required: ['description', 'prompt'],
             additionalProperties: false
           },
           {

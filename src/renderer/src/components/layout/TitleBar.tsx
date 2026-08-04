@@ -1,9 +1,4 @@
 import {
-  Briefcase,
-  Check,
-  ChevronDown,
-  CircleHelp,
-  Code2,
   Download,
   FolderOpen,
   HelpCircle,
@@ -13,24 +8,21 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Send,
-  SquareTerminal,
-  ShieldCheck
+  SquareTerminal
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@renderer/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@renderer/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
 import { cn } from '@renderer/lib/utils'
 import { PendingInboxPopover } from './PendingInboxPopover'
+import {
+  TitlebarModeSwitch,
+  getAvailableModeOptions,
+  getTitlebarModeOptions
+} from './TitlebarModeSwitch'
 import { WindowControls } from './WindowControls'
 
 interface TitleBarUpdateInfo {
@@ -48,46 +40,6 @@ interface TitleBarProps {
   tooltip?: string | null
   showSidebarToggle?: boolean
   insetForMacTrafficLights?: boolean
-}
-
-function getTitlebarModeOptions(tCommon: (key: string) => string): Array<{
-  value: AppMode
-  label: string
-  description: string
-  icon: React.JSX.Element
-}> {
-  return [
-    {
-      value: 'chat',
-      label: tCommon('mode.chat'),
-      description: tCommon('mode.descriptions.chat'),
-      icon: <Send className="size-3.5 text-inherit" />
-    },
-    {
-      value: 'clarify',
-      label: tCommon('mode.clarify'),
-      description: tCommon('mode.descriptions.clarify'),
-      icon: <CircleHelp className="size-3.5 text-inherit" />
-    },
-    {
-      value: 'cowork',
-      label: tCommon('mode.cowork'),
-      description: tCommon('mode.descriptions.cowork'),
-      icon: <Briefcase className="size-3.5 text-inherit" />
-    },
-    {
-      value: 'code',
-      label: tCommon('mode.code'),
-      description: tCommon('mode.descriptions.code'),
-      icon: <Code2 className="size-3.5 text-inherit" />
-    },
-    {
-      value: 'acp',
-      label: tCommon('mode.acp'),
-      description: tCommon('mode.descriptions.acp'),
-      icon: <ShieldCheck className="size-3.5 text-inherit" />
-    }
-  ]
 }
 
 export function TitleBar({
@@ -187,20 +139,10 @@ export function TitleBar({
   const allModeOptions = getTitlebarModeOptions(tCommon)
   const modeProjectScoped =
     chatView === 'session' ? Boolean(sessionContext.sessionProjectId) : Boolean(activeProjectId)
-  const availableModeOptions = modeProjectScoped
-    ? allModeOptions.filter((option) => option.value !== 'chat')
-    : allModeOptions.filter((option) => option.value === 'chat')
   const showTitlebarModeSwitch =
     chatSurfaceActive &&
     (chatView === 'home' || chatView === 'project' || chatView === 'session') &&
-    availableModeOptions.length > 1
-  const defaultProjectModeOption =
-    allModeOptions.find((option) => option.value === 'cowork') ?? allModeOptions[0]!
-  const activeTitlebarMode =
-    availableModeOptions.find((option) => option.value === mode) ??
-    (modeProjectScoped ? defaultProjectModeOption : undefined) ??
-    availableModeOptions[0] ??
-    allModeOptions[0]!
+    getAvailableModeOptions(allModeOptions, modeProjectScoped).length > 1
   const showInspectorToggle = chatSurfaceActive && chatView === 'session'
   const showRuntimeStatusToggle = chatSurfaceActive && chatView === 'session'
   const showFileManagerToggle =
@@ -269,58 +211,12 @@ export function TitleBar({
         ) : null}
 
         {showTitlebarModeSwitch ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                data-tour="mode-switch"
-                className="workspace-titlebar-action titlebar-no-drag group h-7 gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
-                disabled={activeSessionIsStreaming}
-              >
-                <span className="text-primary">{activeTitlebarMode.icon}</span>
-                <span className="font-medium">{activeTitlebarMode.label}</span>
-                <ChevronDown className="size-3.5 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-180" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64 p-1.5">
-              {availableModeOptions.map((option) => {
-                const active = mode === option.value
-                return (
-                  <DropdownMenuItem
-                    key={option.value}
-                    className={cn(
-                      'group items-start gap-2.5 rounded-lg px-2 py-2',
-                      active && 'bg-accent/50 focus:bg-accent'
-                    )}
-                    onSelect={() => handleTitlebarModeSwitch(option.value)}
-                  >
-                    <span
-                      className={cn(
-                        'mt-px flex size-7 shrink-0 items-center justify-center rounded-md border transition-colors',
-                        active
-                          ? 'border-primary/30 bg-primary/10 text-primary'
-                          : 'border-border/60 bg-muted/40 text-muted-foreground group-focus:text-foreground'
-                      )}
-                    >
-                      {option.icon}
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="flex items-center gap-1.5 text-[13px] font-medium leading-none text-foreground">
-                        {option.label}
-                        {active ? (
-                          <Check className="size-3.5 text-primary" strokeWidth={2.5} />
-                        ) : null}
-                      </span>
-                      <span className="text-[11px] leading-snug text-muted-foreground">
-                        {option.description}
-                      </span>
-                    </span>
-                  </DropdownMenuItem>
-                )
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <TitlebarModeSwitch
+            mode={mode}
+            projectScoped={modeProjectScoped}
+            disabled={activeSessionIsStreaming}
+            onSelect={handleTitlebarModeSwitch}
+          />
         ) : null}
 
         <div className="min-w-0 flex-1">

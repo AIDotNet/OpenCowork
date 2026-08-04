@@ -81,11 +81,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
             return ErrorResult("Background Task requires a non-empty `prompt`.");
         }
 
-        var subAgentType = JsonHelpers.GetString(call.Input, "subagent_type")?.Trim();
-        if (string.IsNullOrWhiteSpace(subAgentType))
-        {
-            subAgentType = CustomSubAgentType;
-        }
+        var subAgentType = ResolveRequestedSubAgentType(call.Input);
 
         var definition = ResolveDefinition(subAgentType, parameters, call.Input);
         if (definition is null)
@@ -241,11 +237,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
             return ErrorResult("Background Task requires a non-empty `prompt`.");
         }
 
-        var subAgentType = JsonHelpers.GetString(call.Input, "subagent_type")?.Trim();
-        if (string.IsNullOrWhiteSpace(subAgentType))
-        {
-            subAgentType = CustomSubAgentType;
-        }
+        var subAgentType = ResolveRequestedSubAgentType(call.Input);
 
         var definition = ResolveDefinition(subAgentType, parameters, call.Input);
         if (definition is null)

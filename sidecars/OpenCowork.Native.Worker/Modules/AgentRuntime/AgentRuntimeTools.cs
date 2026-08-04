@@ -265,7 +265,9 @@ internal static class AgentRuntimeTools
                 new AgentRuntimeStreamEvent(
                     "error",
                     Message: ex.Message,
-                    ErrorType: ex.GetType().Name,
+                    // A stable code where we have one, so the renderer can categorise the error
+                    // without pattern-matching on message text. Falls back to the CLR type name.
+                    ErrorType: ResolveErrorType(ex),
                     Details: ex.Message,
                     StackTrace: ex.StackTrace));
             await OpenAIChatRuntime.EmitLoopEndFromOuterAsync(
@@ -283,6 +285,27 @@ internal static class AgentRuntimeTools
             WorkerLog.Info($"agent run finalized runtime=native-aot runId={state.RunId}");
             WorkerMemory.ReportCompletedWork("agent-run", pressureBytes: 0);
         }
+    }
+
+    /// <summary>
+    /// Maps an exception to a stable, machine-readable error code where one applies. The renderer
+    /// categorises errors from this value; without it, it is left matching on message text, which
+    /// is unreliable both across locales and under UseSystemResourceKeys in published builds.
+    /// </summary>
+    private static string ResolveErrorType(Exception exception)
+    {
+        return exception switch
+        {
+            AgentRuntimeProviderTransportException transport => transport.Fault.Kind switch
+            {
+                WorkerHttpFaultKind.TlsCertificate or
+                WorkerHttpFaultKind.TlsHandshake => "network_tls",
+                WorkerHttpFaultKind.Proxy => "network_proxy",
+                _ => "network_transport"
+            },
+            TimeoutException => "network_timeout",
+            _ => exception.GetType().Name
+        };
     }
 
     internal static async Task EmitAsync(

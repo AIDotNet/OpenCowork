@@ -152,7 +152,11 @@
     "startAcp": "Start an ACP session",
     "startAcpDesc": "First clarify the goal, background, constraints, and acceptance criteria. Then design the architecture and delegate tasks before writing code.",
     "homeTitleAcp": "ACP mode",
-    "homeDescAcp": "In ACP mode, begin by clarifying goals, background, constraints, and acceptance criteria. Then propose an architecture and task breakdown before implementation."
+    "homeDescAcp": "In ACP mode, begin by clarifying goals, background, constraints, and acceptance criteria. Then propose an architecture and task breakdown before implementation.",
+    "fileReference": {
+      "remove": "Remove reference",
+      "removePlugin": "Remove plugin reference"
+    }
   },
   "planReview": {
     "awaitingReview": "Awaiting Review",
@@ -992,6 +996,7 @@
     "activeTools": "{{count}} active tools",
     "toolExecutions": "{{count}} tool executions",
     "completionFinished": "Completed",
+    "processSummary": "Processed",
     "metricTokens": "Tokens",
     "metricCost": "Cost",
     "metricTotalDuration": "Total",

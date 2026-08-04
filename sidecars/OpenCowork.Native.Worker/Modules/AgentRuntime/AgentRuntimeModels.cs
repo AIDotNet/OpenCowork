@@ -23,7 +23,8 @@ internal sealed record AgentRuntimeContextCompressionResult(
     int OriginalCount,
     int NewCount,
     int? MessagesSummarized = null,
-    bool? SummarizerFailed = null);
+    bool? SummarizerFailed = null,
+    string? Error = null);
 
 internal sealed record AgentRuntimeReverseResponseResult(bool Ok);
 

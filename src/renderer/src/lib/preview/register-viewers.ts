@@ -7,7 +7,7 @@ const HtmlViewer = React.lazy(async () => {
 })
 
 const SpreadsheetViewer = React.lazy(async () => {
-  const mod = await import('./viewers/spreadsheet-viewer')
+  const mod = await import('./viewers/spreadsheet')
   return { default: mod.SpreadsheetViewer }
 })
 

@@ -2402,6 +2402,19 @@ function applyLatestCompactRequestView(messages: UnifiedMessage[]): UnifiedMessa
     })
   }
 
+  const activeSummary = activeCompact.summaryId
+    ? messages.find((message) => message.id === activeCompact.summaryId)
+    : undefined
+  if (activeSummary?.meta?.compactSummary?.summarizerFailed === true) {
+    // Older builds persisted a destructive placeholder when summarization failed.
+    // Ignore that boundary for model requests so the intact transcript in SQLite
+    // becomes eligible for a fresh compression attempt instead of making the loss
+    // of context permanent.
+    return messages.filter(
+      (message) => !isUiOnlyRequestMessage(message) && !isCompactArtifactMessage(message)
+    )
+  }
+
   const compactMessages: UnifiedMessage[] = []
   const seenIds = new Set<string>()
   const boundaryMessage = activeCompact.boundaryId

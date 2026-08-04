@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 internal static partial class AgentRuntimeSubAgentExecutor
 {
     private const string TaskToolName = "Task";
-    private const int DefaultMaxTurns = 12;
+    private const int DefaultMaxTurns = 1000;
     private const int MaxRecentTaskInvocationKeys = 512;
     private const long RecentTaskInvocationTtlMs = 6 * 60 * 60 * 1_000;
     private const string AgentsDirectoryName = ".open-cowork/agents";
@@ -71,11 +71,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
             return await ExecuteBackgroundTaskAsync(call, parameters, parentState, context, cancellationToken);
         }
 
-        var subAgentType = JsonHelpers.GetString(call.Input, "subagent_type")?.Trim() ?? string.Empty;
-        if (subAgentType.Length == 0)
-        {
-            return ErrorResult("`subagent_type` is required for synchronous Task.");
-        }
+        var subAgentType = ResolveRequestedSubAgentType(call.Input);
 
         var definition = ResolveDefinition(subAgentType, parameters, call.Input);
         if (definition is null)
@@ -449,7 +445,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
 
     private static string BuildTaskDedupKey(JsonElement input)
     {
-        var subType = JsonHelpers.GetString(input, "subagent_type")?.Trim() ?? string.Empty;
+        var subType = ResolveRequestedSubAgentType(input);
         var prompt =
             NormalizeTaskPrompt(JsonHelpers.GetString(input, "prompt")) ??
             NormalizeTaskPrompt(JsonHelpers.GetString(input, "query")) ??
@@ -457,6 +453,12 @@ internal static partial class AgentRuntimeSubAgentExecutor
             NormalizeTaskPrompt(JsonHelpers.GetString(input, "target")) ??
             string.Empty;
         return $"{subType}::{prompt}";
+    }
+
+    private static string ResolveRequestedSubAgentType(JsonElement input)
+    {
+        var subAgentType = JsonHelpers.GetString(input, "subagent_type")?.Trim();
+        return string.IsNullOrWhiteSpace(subAgentType) ? CustomSubAgentType : subAgentType;
     }
 
     private static string? NormalizeTaskPrompt(string? value)

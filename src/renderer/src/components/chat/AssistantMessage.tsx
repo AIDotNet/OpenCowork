@@ -912,15 +912,19 @@ function GenerationProcessLine({
   active,
   label,
   detail,
+  elapsed,
   expanded,
   collapsible = false,
+  ariaLabel,
   onClick
 }: {
   active: boolean
   label: string
   detail?: string | null
+  elapsed?: string | null
   expanded?: boolean
   collapsible?: boolean
+  ariaLabel?: string
   onClick?: () => void
 }): React.JSX.Element {
   const content = (
@@ -941,6 +945,9 @@ function GenerationProcessLine({
       ) : (
         <span className="min-w-0 flex-1" />
       )}
+      {elapsed ? (
+        <span className="shrink-0 tabular-nums text-muted-foreground/60">{elapsed}</span>
+      ) : null}
       {collapsible ? (
         expanded ? (
           <ChevronDown className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
@@ -956,7 +963,13 @@ function GenerationProcessLine({
 
   if (collapsible) {
     return (
-      <button type="button" onClick={onClick} aria-expanded={expanded} className={className}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-expanded={expanded}
+        aria-label={ariaLabel}
+        className={className}
+      >
         {content}
       </button>
     )
@@ -2140,6 +2153,82 @@ export function AssistantMessage({
 
     return items
   }, [inlineCompactSummaryEntries, normalizedContent, renderItems, toolExecutionOutline.runById])
+  // A run that errored, was stopped, or is waiting on the user must keep its process
+  // detail visible — collapsing it would hide the very blocks explaining what went wrong.
+  const turnEndedAbnormally = useMemo(() => {
+    if (showContinue) return true
+    if (normalizedContent?.some((block) => block.type === 'agent_error')) return true
+    return toolExecutionOutline.items.some(
+      (item) =>
+        item.visibility !== 'hidden' &&
+        (item.hasError ||
+          item.requiresApproval ||
+          item.status === 'error' ||
+          item.status === 'canceled' ||
+          item.status === 'pending_approval')
+    )
+  }, [normalizedContent, showContinue, toolExecutionOutline.items])
+  // A completed agent loop ends on a closing text block. Everything before it is process
+  // detail (tool calls, interim narration) worth folding away once the run settled.
+  const processSection = useMemo(() => {
+    const items = renderItemsWithInlineSummaries
+    if (!normalizedContent || items.length < 2) return null
+
+    const finalItem = items[items.length - 1]
+    if (finalItem.kind !== 'block') return null
+    const finalBlock = normalizedContent[finalItem.index]
+    if (finalBlock?.type !== 'text' || !stripThinkTags(finalBlock.text).trim()) return null
+
+    const intermediate = items.slice(0, items.length - 1)
+    const blockTypeAt = (index: number): ContentBlock['type'] | undefined =>
+      normalizedContent[index]?.type
+    // Images are the deliverable, not process detail — a turn that produced one stays open.
+    const producedVisualOutput = intermediate.some((item) => {
+      if (item.kind === 'tool-run') {
+        const run = toolExecutionOutline.runById.get(item.runId)
+        return !!run?.itemIds.some(
+          (toolUseId) => toolExecutionOutline.itemByToolUseId.get(toolUseId)?.category === 'visual'
+        )
+      }
+      if (item.kind !== 'block') return false
+      if (blockTypeAt(item.index) === 'image') return true
+      const block = normalizedContent[item.index]
+      return (
+        block?.type === 'tool_use' &&
+        toolExecutionOutline.itemByToolUseId.get(block.id)?.category === 'visual'
+      )
+    })
+    if (producedVisualOutput) return null
+
+    const hasToolWork = intermediate.some(
+      (item) =>
+        item.kind === 'tool-run' ||
+        (item.kind === 'block' && blockTypeAt(item.index) === 'tool_use')
+    )
+    if (!hasToolWork) return null
+
+    return { intermediate, finalItem }
+  }, [
+    normalizedContent,
+    renderItemsWithInlineSummaries,
+    toolExecutionOutline.itemByToolUseId,
+    toolExecutionOutline.runById
+  ])
+  const canCollapseProcess = !!processSection && !isStreaming && !turnEndedAbnormally
+  const [processCollapseOverride, setProcessCollapseOverride] = useState<{
+    msgId?: string
+    expanded: boolean
+  } | null>(null)
+  const processExpanded =
+    processCollapseOverride !== null && processCollapseOverride.msgId === msgId
+      ? processCollapseOverride.expanded
+      : false
+  const toggleProcessExpanded = useCallback((): void => {
+    setProcessCollapseOverride((current) => ({
+      msgId,
+      expanded: !(current !== null && current.msgId === msgId ? current.expanded : false)
+    }))
+  }, [msgId])
   const renderContent = (): React.JSX.Element => {
     const shouldShowImageGeneratingLoader = isGeneratingImage && isStreaming
     const hasEmptyContent =
@@ -2606,180 +2695,219 @@ export function AssistantMessage({
       )
     }
 
+    const renderRenderItem = (
+      item: AssistantRenderItemWithInlineSummary
+    ): React.JSX.Element | null => {
+      if (item.kind === 'compact-summary') {
+        return (
+          <ContextCompressionMessage
+            key={`compact-summary-${item.message.id}`}
+            message={item.message}
+          />
+        )
+      }
+      if (item.kind === 'block') {
+        const block = normalizedContent[item.index]
+        switch (block.type) {
+          case 'thinking':
+            return (
+              <ThinkingBlock
+                key={`${item.index}-${block.completedAt ? 'settled' : 'active'}`}
+                thinking={block.thinking}
+                isStreaming={isStreaming}
+                startedAt={block.startedAt}
+                completedAt={block.completedAt}
+              />
+            )
+          case 'text': {
+            // When provider already streamed structured thinking blocks, ignore any
+            // duplicated <think>...</think> segments embedded in text blocks.
+            if (hasStructuredThinkingBlocks) {
+              const visibleText = stripThinkTags(block.text)
+              if (!visibleText.trim()) return null
+              return (
+                <div key={item.index} className={MARKDOWN_WRAPPER_CLASS}>
+                  <StreamingMarkdownContent
+                    text={visibleText}
+                    isStreaming={!!isStreaming && item.index === lastStructuredTextIdx}
+                  />
+                </div>
+              )
+            }
+
+            const textSegments = parseThinkTags(block.text)
+            const hasThinkInBlock = textSegments.some((s) => s.type === 'think')
+            if (!hasThinkInBlock) {
+              return (
+                <div key={item.index} className={MARKDOWN_WRAPPER_CLASS}>
+                  <StreamingMarkdownContent
+                    text={block.text}
+                    isStreaming={!!isStreaming && item.index === lastStructuredTextIdx}
+                  />
+                </div>
+              )
+            }
+            const isBlockStreaming = !!(isStreaming && item.index === lastStructuredTextIdx)
+            const lastTxtSeg = textSegments.reduce(
+              (acc: number, s, j) => (s.type === 'text' ? j : acc),
+              -1
+            )
+            return (
+              <div key={item.index}>
+                {textSegments.map((seg, j) => {
+                  if (seg.type === 'think') {
+                    return (
+                      <ThinkingBlock
+                        key={`${item.index}-${j}-${seg.closed ? 'settled' : 'active'}`}
+                        thinking={seg.content}
+                        isStreaming={isBlockStreaming && !seg.closed}
+                      />
+                    )
+                  }
+                  return (
+                    <div key={j} className={MARKDOWN_WRAPPER_CLASS}>
+                      <StreamingMarkdownContent
+                        text={seg.content}
+                        isStreaming={isBlockStreaming && j === lastTxtSeg}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          }
+          case 'image': {
+            const imgBlock = block as Extract<ContentBlock, { type: 'image' }>
+            const imgSrc =
+              imgBlock.source.type === 'base64' && imgBlock.source.data
+                ? `data:${imgBlock.source.mediaType || 'image/png'};base64,${imgBlock.source.data}`
+                : (imgBlock.source.url ?? '')
+            if (!imgSrc && !imgBlock.source.filePath) return null
+            const editableImage = imageBlockToAttachment(imgBlock)
+            const actions =
+              canEditGeneratedImages && sessionId && editableImage
+                ? [
+                    {
+                      key: 'edit',
+                      label: t('assistantMessage.editImage', {
+                        defaultValue: 'Edit image'
+                      }),
+                      icon: <Pencil className="size-4" />,
+                      onClick: () =>
+                        openImageEditor({
+                          sessionId,
+                          image: editableImage,
+                          mode: 'edit'
+                        })
+                    },
+                    {
+                      key: 'mask',
+                      label: t('assistantMessage.maskEditImage', {
+                        defaultValue: 'Mask edit'
+                      }),
+                      icon: <Eraser className="size-4" />,
+                      onClick: () =>
+                        openImageEditor({
+                          sessionId,
+                          image: editableImage,
+                          mode: 'mask'
+                        })
+                    }
+                  ]
+                : undefined
+            return (
+              <ScaleIn key={item.index} className={liveScaleInClassName}>
+                <ImagePreview
+                  src={imgSrc}
+                  alt="Generated image"
+                  filePath={imgBlock.source.filePath}
+                  actions={actions}
+                />
+              </ScaleIn>
+            )
+          }
+          case 'image_error': {
+            const imageError = block as Extract<ContentBlock, { type: 'image_error' }>
+            return (
+              <ScaleIn key={item.index} className={liveScaleInClassName}>
+                <ImageGenerationErrorCard code={imageError.code} message={imageError.message} />
+              </ScaleIn>
+            )
+          }
+          case 'agent_error': {
+            const agentError = block as Extract<ContentBlock, { type: 'agent_error' }>
+            return (
+              <ScaleIn key={item.index} className={liveScaleInClassName}>
+                <AgentErrorCard
+                  code={agentError.code}
+                  message={agentError.message}
+                  errorType={agentError.errorType}
+                  details={agentError.details}
+                  stackTrace={agentError.stackTrace}
+                />
+              </ScaleIn>
+            )
+          }
+          case 'tool_use':
+            return renderToolBlock(block, block.id, item.index)
+          case 'web_search': {
+            const webSearch = block as Extract<ContentBlock, { type: 'web_search' }>
+            return (
+              <ScaleIn key={item.index} className={liveScaleInClassName}>
+                <WebSearchBlock block={webSearch} />
+              </ScaleIn>
+            )
+          }
+          default:
+            return null
+        }
+      }
+
+      return renderToolRun(item.runId)
+    }
+
+    const processHeaderLabel = t('assistantMessage.processSummary', {
+      defaultValue: 'Processed'
+    })
+    const processElapsed =
+      typeof usage?.totalDurationMs === 'number' && usage.totalDurationMs > 0
+        ? formatDurationMs(usage.totalDurationMs)
+        : null
+    const processToolCount = toolExecutionOutline.totalItemCount
+
     return (
       <div className="space-y-2">
         {orchestrationRun?.kind === 'team' && orchestrationAnchorIndex < 0 ? (
           <OrchestrationBlock run={orchestrationRun} />
         ) : null}
-        {renderItemsWithInlineSummaries.map((item) => {
-          if (item.kind === 'compact-summary') {
-            return (
-              <ContextCompressionMessage
-                key={`compact-summary-${item.message.id}`}
-                message={item.message}
-              />
-            )
-          }
-
-          if (item.kind === 'block') {
-            const block = normalizedContent[item.index]
-            switch (block.type) {
-              case 'thinking':
-                return (
-                  <ThinkingBlock
-                    key={`${item.index}-${block.completedAt ? 'settled' : 'active'}`}
-                    thinking={block.thinking}
-                    isStreaming={isStreaming}
-                    startedAt={block.startedAt}
-                    completedAt={block.completedAt}
-                  />
-                )
-              case 'text': {
-                // When provider already streamed structured thinking blocks, ignore any
-                // duplicated <think>...</think> segments embedded in text blocks.
-                if (hasStructuredThinkingBlocks) {
-                  const visibleText = stripThinkTags(block.text)
-                  if (!visibleText.trim()) return null
-                  return (
-                    <div key={item.index} className={MARKDOWN_WRAPPER_CLASS}>
-                      <StreamingMarkdownContent
-                        text={visibleText}
-                        isStreaming={!!isStreaming && item.index === lastStructuredTextIdx}
-                      />
-                    </div>
-                  )
-                }
-
-                const textSegments = parseThinkTags(block.text)
-                const hasThinkInBlock = textSegments.some((s) => s.type === 'think')
-                if (!hasThinkInBlock) {
-                  return (
-                    <div key={item.index} className={MARKDOWN_WRAPPER_CLASS}>
-                      <StreamingMarkdownContent
-                        text={block.text}
-                        isStreaming={!!isStreaming && item.index === lastStructuredTextIdx}
-                      />
-                    </div>
-                  )
-                }
-                const isBlockStreaming = !!(isStreaming && item.index === lastStructuredTextIdx)
-                const lastTxtSeg = textSegments.reduce(
-                  (acc: number, s, j) => (s.type === 'text' ? j : acc),
-                  -1
-                )
-                return (
-                  <div key={item.index}>
-                    {textSegments.map((seg, j) => {
-                      if (seg.type === 'think') {
-                        return (
-                          <ThinkingBlock
-                            key={`${item.index}-${j}-${seg.closed ? 'settled' : 'active'}`}
-                            thinking={seg.content}
-                            isStreaming={isBlockStreaming && !seg.closed}
-                          />
-                        )
-                      }
-                      return (
-                        <div key={j} className={MARKDOWN_WRAPPER_CLASS}>
-                          <StreamingMarkdownContent
-                            text={seg.content}
-                            isStreaming={isBlockStreaming && j === lastTxtSeg}
-                          />
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
+        {canCollapseProcess && processSection ? (
+          <>
+            <GenerationProcessLine
+              active={false}
+              label={processHeaderLabel}
+              detail={
+                processToolCount > 0
+                  ? t('assistantMessage.toolExecutions', { count: processToolCount })
+                  : null
               }
-              case 'image': {
-                const imgBlock = block as Extract<ContentBlock, { type: 'image' }>
-                const imgSrc =
-                  imgBlock.source.type === 'base64' && imgBlock.source.data
-                    ? `data:${imgBlock.source.mediaType || 'image/png'};base64,${imgBlock.source.data}`
-                    : (imgBlock.source.url ?? '')
-                if (!imgSrc && !imgBlock.source.filePath) return null
-                const editableImage = imageBlockToAttachment(imgBlock)
-                const actions =
-                  canEditGeneratedImages && sessionId && editableImage
-                    ? [
-                        {
-                          key: 'edit',
-                          label: t('assistantMessage.editImage', {
-                            defaultValue: 'Edit image'
-                          }),
-                          icon: <Pencil className="size-4" />,
-                          onClick: () =>
-                            openImageEditor({
-                              sessionId,
-                              image: editableImage,
-                              mode: 'edit'
-                            })
-                        },
-                        {
-                          key: 'mask',
-                          label: t('assistantMessage.maskEditImage', {
-                            defaultValue: 'Mask edit'
-                          }),
-                          icon: <Eraser className="size-4" />,
-                          onClick: () =>
-                            openImageEditor({
-                              sessionId,
-                              image: editableImage,
-                              mode: 'mask'
-                            })
-                        }
-                      ]
-                    : undefined
-                return (
-                  <ScaleIn key={item.index} className={liveScaleInClassName}>
-                    <ImagePreview
-                      src={imgSrc}
-                      alt="Generated image"
-                      filePath={imgBlock.source.filePath}
-                      actions={actions}
-                    />
-                  </ScaleIn>
-                )
+              elapsed={processElapsed}
+              collapsible
+              expanded={processExpanded}
+              ariaLabel={
+                processExpanded
+                  ? t('assistantMessage.collapseToolCalls', { count: processToolCount })
+                  : t('assistantMessage.showToolCalls', { count: processToolCount })
               }
-              case 'image_error': {
-                const imageError = block as Extract<ContentBlock, { type: 'image_error' }>
-                return (
-                  <ScaleIn key={item.index} className={liveScaleInClassName}>
-                    <ImageGenerationErrorCard code={imageError.code} message={imageError.message} />
-                  </ScaleIn>
-                )
-              }
-              case 'agent_error': {
-                const agentError = block as Extract<ContentBlock, { type: 'agent_error' }>
-                return (
-                  <ScaleIn key={item.index} className={liveScaleInClassName}>
-                    <AgentErrorCard
-                      code={agentError.code}
-                      message={agentError.message}
-                      errorType={agentError.errorType}
-                      details={agentError.details}
-                      stackTrace={agentError.stackTrace}
-                    />
-                  </ScaleIn>
-                )
-              }
-              case 'tool_use':
-                return renderToolBlock(block, block.id, item.index)
-              case 'web_search': {
-                const webSearch = block as Extract<ContentBlock, { type: 'web_search' }>
-                return (
-                  <ScaleIn key={item.index} className={liveScaleInClassName}>
-                    <WebSearchBlock block={webSearch} />
-                  </ScaleIn>
-                )
-              }
-              default:
-                return null
-            }
-          }
-
-          return renderToolRun(item.runId)
-        })}
+              onClick={toggleProcessExpanded}
+            />
+            <CollapsibleHeightPanel open={processExpanded} className="overflow-hidden">
+              <div className="space-y-2">{processSection.intermediate.map(renderRenderItem)}</div>
+            </CollapsibleHeightPanel>
+            {renderRenderItem(processSection.finalItem)}
+          </>
+        ) : (
+          renderItemsWithInlineSummaries.map(renderRenderItem)
+        )}
         {isStreaming && <span className={getLiveOutputCursorClass(liveOutputAnimationStyle)} />}
         {shouldShowImageGeneratingLoader && (
           <div className={`pt-3${liveComponentClassName ? ` ${liveComponentClassName}` : ''}`}>

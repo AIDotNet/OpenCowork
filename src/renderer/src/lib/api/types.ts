@@ -217,7 +217,7 @@ export interface CompactBoundaryMeta {
 export interface CompactSummaryMeta {
   messagesSummarized: number
   recentMessagesPreserved: boolean
-  /** The summarizer failed, so older messages were safely truncated instead. */
+  /** Legacy marker: an older runtime persisted a fallback after summarization failed. */
   summarizerFailed?: boolean
   /** UI hint for summaries created while an assistant message is still streaming. */
   displayAnchor?: {

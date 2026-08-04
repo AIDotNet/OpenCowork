@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.7] - 2026-08-04
+
+### Added
+
+- Added a full spreadsheet preview and editing workspace for XLSX, XLSM, CSV, and TSV files, including formulas, formatting, multi-sheet navigation, undo/redo, save support, and an ExcelJS round-trip verification script.
+- Added an app-wide keyboard shortcut layer and a title-bar mode switch shared by the main workspace and detached session windows.
+- Added file-type-aware icons and richer file references across the composer, inline file tags, and file tree.
+- Added an Office Suite architecture plan covering plugin contracts, tool families, milestones, and delivery risks.
+
+### Changed
+
+- Migrated Gemini providers from the retired `generateContent` flow to the Interactions API, including native-worker support and legacy provider-configuration migration.
+- Hardened native-worker HTTP handling with typed DNS, connection, TLS, proxy, reset, and incomplete-stream classification; configurable retry budgets; jittered backoff; connect deadlines; TCP keepalive; and clearer user-facing network errors.
+- Reworked context compression to preserve the 12 most recent messages, allow longer summaries, isolate circuit breakers per provider, and preserve the original conversation when summarization fails instead of silently truncating it.
+- Collapsed successful tool-work details into a compact process summary while keeping failed, cancelled, approval-gated, and visual-output runs expanded.
+- Made `subagent_type` optional with `custom` as the default, increased the default sub-agent turn budget, refreshed OpenAI model pricing, and consolidated layout and shortcut behavior between regular and detached sessions.
+
+### Fixed
+
+- Fixed tool-result continuation events being dropped when a previous message ID was reused.
+- Improved streaming auto-scroll release behavior and message-rail ordering and follow state.
+
 ## [1.2.6] - 2026-07-28
 
 ### Added

@@ -102,7 +102,7 @@ import {
   type ImageAttachment
 } from '@renderer/lib/image-attachments'
 import {
-  createSelectFileToken,
+  createFileReferenceMarkdown,
   getSelectFileMentionQuery,
   selectFileTextToPlainText
 } from '@renderer/lib/select-file-tags'
@@ -1564,7 +1564,6 @@ export function InputArea({
   const defaultSessionInputHeight = Math.max(DEFAULT_SESSION_INPUT_HEIGHT, minComposerHeight)
   const [documentNodes, setDocumentNodes] = React.useState<EditorDocumentNode[]>([])
   const [selectedFiles, setSelectedFiles] = React.useState<SelectedFileItem[]>([])
-  const [highlightedFileId, setHighlightedFileId] = React.useState<string | null>(null)
   const [editorSelection, setEditorSelection] = React.useState({ start: 0, end: 0 })
   const text = React.useMemo(
     () => editorDocumentToPlainText(documentNodes, selectedFiles),
@@ -1603,6 +1602,15 @@ export function InputArea({
   const [selectedOptionIndex, setSelectedOptionIndex] = React.useState(0)
   const currentLanguage = useSettingsStore((state) => state.language)
   const mainModelSelectionMode = useSettingsStore((state) => state.mainModelSelectionMode)
+  const fileReferenceLabels = React.useMemo(
+    () => ({
+      removeFile: t('input.fileReference.remove', { defaultValue: 'Remove reference' }),
+      removePlugin: t('input.fileReference.removePlugin', {
+        defaultValue: 'Remove plugin reference'
+      })
+    }),
+    [t]
+  )
   const autoApprove = useSettingsStore((state) => state.autoApprove)
   const permissionWhitelistEnabled = useSettingsStore((state) => state.permissionPolicy.enabled)
   const clarifyAutoAcceptRecommended = useSettingsStore(
@@ -2204,14 +2212,6 @@ export function InputArea({
     selectedFilesRef.current = selectedFiles
   }, [selectedFiles])
 
-  React.useEffect(() => {
-    if (!highlightedFileId) return
-    const timer = window.setTimeout(() => {
-      setHighlightedFileId((current) => (current === highlightedFileId ? null : current))
-    }, 1600)
-    return () => window.clearTimeout(timer)
-  }, [highlightedFileId])
-
   const applyEditorStateFromSerializedText = React.useCallback(
     (nextText: string, baseFiles: SelectedFileItem[] = selectedFilesRef.current) => {
       const nextState = deserializeEditorState(nextText, workingFolder, baseFiles)
@@ -2533,7 +2533,7 @@ export function InputArea({
           : ' '
 
       replaceSelectionWithText(
-        `${createSelectFileToken(file.sendPath)}${suffix}`,
+        `${createFileReferenceMarkdown(file.sendPath, file.name)}${suffix}`,
         mention,
         0,
         nextFiles
@@ -2778,7 +2778,6 @@ export function InputArea({
     setAttachedImages(persistedDraft?.images ? cloneImageAttachments(persistedDraft.images) : [])
     setPreviewImage(null)
     setSelectedSkill(persistedDraft?.skill ?? null)
-    setHighlightedFileId(null)
     setEditorSelection({ start: 0, end: 0 })
 
     const rafId = window.requestAnimationFrame(() => {
@@ -2933,7 +2932,7 @@ export function InputArea({
       if (filesToInsert.length === 0) return
 
       const replacement = filesToInsert
-        .map((file) => createSelectFileToken(file.sendPath))
+        .map((file) => createFileReferenceMarkdown(file.sendPath, file.name))
         .filter(Boolean)
         .join('\n')
 
@@ -3032,12 +3031,6 @@ export function InputArea({
     [openFilePreview]
   )
 
-  const handleLocateFileReference = React.useCallback((fileId: string) => {
-    setHighlightedFileId(fileId)
-    editorRef.current?.scrollToReference(fileId)
-    editorRef.current?.focus()
-  }, [])
-
   const handleEditorSelectionChange = React.useCallback(
     (selection: { start: number; end: number }) => {
       setEditorSelection((current) =>
@@ -3106,7 +3099,6 @@ export function InputArea({
 
     setDocumentNodes([])
     setSelectedFiles([])
-    setHighlightedFileId(null)
     setEditorSelection({ start: 0, end: 0 })
     setAttachedImages([])
     setPreviewImage(null)
@@ -4467,7 +4459,7 @@ export function InputArea({
                   !activeFileMention &&
                   !slashMenuOpen
                 )}
-                highlightedFileId={highlightedFileId}
+                referenceLabels={fileReferenceLabels}
                 onDocumentChange={handleEditorDocumentChange}
                 onSelectionChange={handleEditorSelectionChange}
                 onFocus={handleRecommendationFocus}
@@ -4479,7 +4471,6 @@ export function InputArea({
                   handleRecommendationCompositionEnd()
                 }}
                 onReferencePreview={handlePreviewFile}
-                onReferenceLocate={handleLocateFileReference}
                 onReferenceDelete={handleRemoveFileReference}
                 className="h-full w-full"
               />

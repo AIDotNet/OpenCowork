@@ -1,5 +1,9 @@
 import { nanoid } from 'nanoid'
-import { createSelectFileTag, createSelectPluginTag, parseSelectFileText } from './select-file-tags'
+import {
+  createFileReferenceMarkdown,
+  createSelectPluginTag,
+  parseSelectFileText
+} from './select-file-tags'
 
 export interface SelectedFileItem {
   id: string
@@ -238,7 +242,7 @@ export function serializeEditorDocument(
       const file = files.find((item) => item.id === node.fileId)
       if (!file) return node.fallbackText
       referencedFileIds.add(file.id)
-      return createSelectFileTag(file.sendPath)
+      return createFileReferenceMarkdown(file.sendPath, file.name)
     })
     .join('')
 
@@ -246,7 +250,7 @@ export function serializeEditorDocument(
 
   const danglingTags = files
     .filter((file) => !referencedFileIds.has(file.id))
-    .map((file) => createSelectFileTag(file.sendPath))
+    .map((file) => createFileReferenceMarkdown(file.sendPath, file.name))
     .filter(Boolean)
 
   if (danglingTags.length === 0) return base

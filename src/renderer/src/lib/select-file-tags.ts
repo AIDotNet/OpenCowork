@@ -1,8 +1,15 @@
 export type SelectFileTextSegment =
   | {
-      type: 'text' | 'file'
+      type: 'text'
       text: string
       raw: string
+    }
+  | {
+      type: 'file'
+      text: string
+      raw: string
+      /** Display label carried by the markdown link, when it differs from the path. */
+      label?: string
     }
   | {
       type: 'plugin'
@@ -24,18 +31,28 @@ export interface SelectFileTagRange {
   end: number
   text: string
   raw: string
-  syntax: 'tag' | 'token' | 'plugin'
-  pluginId?: string
+  syntax: 'markdown' | 'tag' | 'token' | 'plugin'
   label?: string
+  pluginId?: string
   prompt?: string
 }
 
+/**
+ * `[label](path)` — the canonical form. Legacy `<select-file>` tags and `@{path}` tokens are still
+ * parsed so that messages persisted before the switch keep rendering as file chips.
+ */
+const SELECT_FILE_MARKDOWN_RE =
+  /(!?)\[((?:\\.|[^\\[\]\n])*)\]\(\s*(?:<((?:\\.|[^\\<>\n])*)>|((?:\\.|[^\s()\\])+))\s*\)/g
 const SELECT_FILE_TAG_RE = /<select-file>([\s\S]*?)<\/select-file>/gi
 const SELECT_PLUGIN_TAG_RE = /<select-plugin>([\s\S]*?)<\/select-plugin>/gi
 const SELECT_FILE_TOKEN_RE = /@\{([^}\r\n]+)\}/g
 const SELECT_FILE_TAG_TEST_RE = /<select-file>[\s\S]*?<\/select-file>/i
 const SELECT_FILE_TOKEN_TEST_RE = /@\{[^}\r\n]+\}/
 const SELECT_PLUGIN_TAG_TEST_RE = /<select-plugin>[\s\S]*?<\/select-plugin>/i
+
+const URI_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/
+const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/
+const FILE_EXTENSION_RE = /\.[A-Za-z0-9]{1,10}$/
 
 export interface SelectPluginPayload {
   pluginId: string
@@ -53,6 +70,40 @@ function encodeTagText(value: string): string {
 
 function normalizeFilePath(value: string): string {
   return value.replace(/\\/g, '/').trim()
+}
+
+function unescapeMarkdown(value: string): string {
+  return value.replace(/\\([\\[\]()<>])/g, '$1')
+}
+
+function escapeMarkdownLabel(value: string): string {
+  return value.replace(/[\\[\]]/g, (char) => `\\${char}`).replace(/\r?\n/g, ' ')
+}
+
+function encodeMarkdownDestination(value: string): string {
+  if (/[\s()<>]/.test(value)) {
+    return `<${value.replace(/[\\<>]/g, (char) => `\\${char}`)}>`
+  }
+  return value
+}
+
+function getBaseName(value: string): string {
+  const segments = normalizeFilePath(value).split('/')
+  return segments[segments.length - 1] || value
+}
+
+/**
+ * Distinguishes a file reference from an ordinary markdown link. Web links, anchors and prose links
+ * such as `[see here](somewhere)` must stay plain text — only destinations that actually look like a
+ * path are promoted to file chips.
+ */
+function isFileDestination(destination: string, label: string): boolean {
+  if (!destination) return false
+  if (destination.startsWith('#')) return false
+  if (!WINDOWS_DRIVE_RE.test(destination) && URI_SCHEME_RE.test(destination)) return false
+  if (/[\\/]/.test(destination)) return true
+  if (FILE_EXTENSION_RE.test(destination)) return true
+  return normalizeFilePath(label) === normalizeFilePath(destination)
 }
 
 function normalizePluginPayload(value: Partial<SelectPluginPayload>): SelectPluginPayload | null {
@@ -77,6 +128,24 @@ function collectSelectFileRanges(text: string): SelectFileTagRange[] {
   if (!text) return []
 
   const ranges: SelectFileTagRange[] = []
+
+  for (const match of text.matchAll(SELECT_FILE_MARKDOWN_RE)) {
+    const start = match.index ?? -1
+    const raw = match[0] ?? ''
+    if (start < 0 || !raw) continue
+    if (match[1]) continue // `![alt](src)` is an image, not a file reference
+    const label = unescapeMarkdown(match[2] ?? '')
+    const destination = normalizeFilePath(unescapeMarkdown(match[3] ?? match[4] ?? ''))
+    if (!isFileDestination(destination, label)) continue
+    ranges.push({
+      start,
+      end: start + raw.length,
+      raw,
+      text: destination,
+      label: label || undefined,
+      syntax: 'markdown'
+    })
+  }
 
   for (const match of text.matchAll(SELECT_FILE_TAG_RE)) {
     const start = match.index ?? -1
@@ -138,16 +207,15 @@ function collectSelectFileRanges(text: string): SelectFileTagRange[] {
   return merged
 }
 
-export function createSelectFileTag(filePath: string): string {
+/**
+ * Builds the markdown link that represents a file reference in message text.
+ * The label defaults to the file's base name so the raw text stays readable outside the composer.
+ */
+export function createFileReferenceMarkdown(filePath: string, label?: string): string {
   const normalized = normalizeFilePath(filePath)
   if (!normalized) return ''
-  return `<select-file>${encodeTagText(normalized)}</select-file>`
-}
-
-export function createSelectFileToken(filePath: string): string {
-  const normalized = normalizeFilePath(filePath)
-  if (!normalized || normalized.includes('}')) return ''
-  return `@{${normalized}}`
+  const displayLabel = (label ?? getBaseName(normalized)).trim() || normalized
+  return `[${escapeMarkdownLabel(displayLabel)}](${encodeMarkdownDestination(normalized)})`
 }
 
 export function createSelectPluginTag(payload: SelectPluginPayload): string {
@@ -183,7 +251,8 @@ export function parseSelectFileText(text: string): SelectFileTextSegment[] {
       segments.push({
         type: 'file',
         text: range.text,
-        raw: range.raw
+        raw: range.raw,
+        label: range.label
       })
     }
 
@@ -205,10 +274,12 @@ export function getSelectFileTagRanges(text: string): SelectFileTagRange[] {
 }
 
 export function hasSelectFileTag(text: string): boolean {
+  if (!text) return false
   return (
     SELECT_FILE_TAG_TEST_RE.test(text) ||
     SELECT_FILE_TOKEN_TEST_RE.test(text) ||
-    SELECT_PLUGIN_TAG_TEST_RE.test(text)
+    SELECT_PLUGIN_TAG_TEST_RE.test(text) ||
+    collectSelectFileRanges(text).some((range) => range.syntax === 'markdown')
   )
 }
 
@@ -218,25 +289,14 @@ export function selectFileTextToPlainText(text: string): string {
   return segments.map((segment) => segment.text).join('')
 }
 
-export function normalizeSelectFileText(text: string): string {
-  if (!text) return ''
-  const segments = parseSelectFileText(text)
-  if (segments.length === 0) return text
-  return segments
-    .map((segment) => {
-      if (segment.type === 'file') return createSelectFileToken(segment.text)
-      return segment.raw
-    })
-    .join('')
-}
-
+/** Rewrites every recognized reference into the canonical markdown form. */
 export function serializeSelectFileText(text: string): string {
   if (!text) return ''
   const segments = parseSelectFileText(text)
   if (segments.length === 0) return text
   return segments
     .map((segment) => {
-      if (segment.type === 'file') return createSelectFileTag(segment.text)
+      if (segment.type === 'file') return createFileReferenceMarkdown(segment.text, segment.label)
       if (segment.type === 'plugin') return createSelectPluginTag(segment)
       return segment.raw
     })

@@ -70,10 +70,9 @@
       "Bash(rm -f ssh-stage.tmp.mjs && git status)",
       "Bash(pkill -f \"npm run dev\")",
       "Bash(lsof -ti:5173)",
-      "Bash(xargs kill -9)"
+      "Bash(xargs kill -9)",
+      "Bash(awk 'NR>=630 && /private static IEnumerable<string> SchemaRequired/{f=NR} END{}' AgentRuntimeAnthropicMessagesInputWriter.cs)"
     ],
-    "additionalDirectories": [
-      "/Users/token/Desktop/code/OpenCowork"
-    ]
+    "additionalDirectories": ["/Users/token/Desktop/code/OpenCowork"]
   }
 }

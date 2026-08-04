@@ -75,7 +75,7 @@ export function ContextCompressionMessage({
               <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
                 <AlertTriangle className="size-3" />
                 {t('contextCompression.summaryFallbackWarning', {
-                  defaultValue: 'Summary unavailable; older context removed'
+                  defaultValue: 'Summary failed; original context restored'
                 })}
               </span>
             ) : null}

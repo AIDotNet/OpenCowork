@@ -152,7 +152,11 @@
     "startAcp": "开始 ACP 会话",
     "startAcpDesc": "先澄清目标、背景、约束和验收标准，再做架构设计与任务分派，最后再进入实现。",
     "homeTitleAcp": "ACP 模式",
-    "homeDescAcp": "ACP 模式下先把目标、背景、约束和验收标准问清楚，再进行架构设计与任务拆分，最后才进入编码。"
+    "homeDescAcp": "ACP 模式下先把目标、背景、约束和验收标准问清楚，再进行架构设计与任务拆分，最后才进入编码。",
+    "fileReference": {
+      "remove": "移除引用",
+      "removePlugin": "移除插件引用"
+    }
   },
   "planReview": {
     "awaitingReview": "待审阅",
@@ -993,6 +997,7 @@
     "activeTools": "{{count}} 个工具运行中",
     "toolExecutions": "{{count}} 个工具执行",
     "completionFinished": "已完成",
+    "processSummary": "已处理",
     "metricTokens": "Token",
     "metricCost": "费用",
     "metricTotalDuration": "总耗时",

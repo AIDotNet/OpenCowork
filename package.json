@@ -1,6 +1,6 @@
 {
   "name": "open-cowork",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "Open-source desktop platform for multi-agent AI collaboration with local tools and workplace integration",
   "main": "./out/main/index.js",
   "author": "example.com",
@@ -56,6 +56,7 @@
     "dingtalk-stream": "^2.1.4",
     "docx": "^9.6.1",
     "electron-updater": "^6.3.9",
+    "exceljs": "^4.4.0",
     "glob": "^13.0.1",
     "gpt-tokenizer": "^3.4.0",
     "html-to-image": "^1.11.13",

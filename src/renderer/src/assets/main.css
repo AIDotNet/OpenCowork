@@ -1369,12 +1369,6 @@
     color: var(--foreground);
   }
 
-  .composer-file-ref--highlighted {
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--primary) 26%, transparent),
-      0 0 0 4px color-mix(in srgb, var(--primary) 8%, transparent);
-  }
-
   .composer-file-ref-action {
     color: color-mix(in srgb, var(--composer-chip-text) 82%, transparent);
   }

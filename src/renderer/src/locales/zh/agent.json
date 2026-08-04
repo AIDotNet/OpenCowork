@@ -13,7 +13,7 @@
     "summaryRecentPreserved": "原文仍可查看",
     "summaryExpand": "展开摘要",
     "summaryCollapse": "收起摘要",
-    "summaryFallbackWarning": "摘要不可用，已移除较早上下文",
+    "summaryFallbackWarning": "摘要失败，已恢复原始上下文",
     "compressing": "正在压缩上下文…",
     "compressed": "上下文压缩完成",
     "compressedDetail": "已压缩 {{count}} 条消息",

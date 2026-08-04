@@ -6758,6 +6758,12 @@ export function useChatActions(): {
         focusPrompt: focusPrompt || undefined,
         preTokens
       })
+      if (result.summarizerFailed) {
+        toast.error('Compression failed', {
+          description: result.error || 'The summary request failed; original context was preserved.'
+        })
+        return 'failed'
+      }
       if (!result.compressed) {
         toast.warning('No compression needed', {
           description: 'No compressible context found'
@@ -6772,12 +6778,6 @@ export function useChatActions(): {
       if (!merged) {
         toast.error('Compression failed', { description: 'Could not merge compressed context' })
         return 'failed'
-      }
-      if (result.summarizerFailed) {
-        toast.warning('Context compressed with fallback', {
-          description: 'The summary request timed out or failed, so older messages were removed.'
-        })
-        return 'fallback'
       }
       return 'compressed'
     } catch (err) {

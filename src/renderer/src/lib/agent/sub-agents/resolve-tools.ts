@@ -11,7 +11,9 @@ export function resolveSubAgentTools(
   allTools: ToolDefinition[]
 ): ResolvedSubAgentTools {
   return {
-    tools: [...allTools],
+    // Sub-agents are leaf workers. Keep the parent's other tools, but never expose
+    // the delegation tool that could recursively create another sub-agent.
+    tools: allTools.filter((tool) => tool.name !== 'Task'),
     invalidTools: []
   }
 }

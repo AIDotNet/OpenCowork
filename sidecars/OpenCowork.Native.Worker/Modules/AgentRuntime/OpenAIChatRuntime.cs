@@ -1330,14 +1330,37 @@ internal static class OpenAIChatRuntime
                     RequiresApproval: requiresApproval,
                     StartedAt: startedAt)));
 
-        var result = nativeTool
-            ? await AgentRuntimeNativeToolExecutor.ExecuteAsync(
-                new NativeToolCallView(call.Id, call.Name, call.Input),
-                parameters,
+        var nestedSubAgentTask =
+            AgentRuntimeSubAgentExecutor.IsTaskTool(call.Name) &&
+            AgentRuntimeSubAgentExecutor.IsSubAgentRun(parameters);
+        RendererToolResult result;
+        if (nestedSubAgentTask)
+        {
+            var message = AgentRuntimeSubAgentExecutor.NestedTaskDeniedMessage;
+            // A provider can still emit an unadvertised tool call. Stop the leaf run
+            // immediately instead of returning a generic missing-tool error that may
+            // cause the model to retry delegation for hundreds of iterations.
+            state.RequestStop("error");
+            await AgentRuntimeTools.EmitAsync(
                 state,
                 context,
-                state.CancellationToken)
-            : CreateMissingNativeToolResult(call.Name);
+                new AgentRuntimeStreamEvent(
+                    "error",
+                    Message: message,
+                    ErrorType: "subagent_task_denied"));
+            result = new RendererToolResult(CreateStringElement(message), true, message);
+        }
+        else
+        {
+            result = nativeTool
+                ? await AgentRuntimeNativeToolExecutor.ExecuteAsync(
+                    new NativeToolCallView(call.Id, call.Name, call.Input),
+                    parameters,
+                    state,
+                    context,
+                    state.CancellationToken)
+                : CreateMissingNativeToolResult(call.Name);
+        }
         var completedAt = NowMs();
         var status = result.IsError ? "error" : "completed";
         var boundedContent = LimitToolResultContent(result.Content);
@@ -1383,7 +1406,7 @@ internal static class OpenAIChatRuntime
                 boundedContent,
                 result.IsError ? true : null),
             hookContextTexts,
-            postHook.Blocked);
+            nestedSubAgentTask || postHook.Blocked);
     }
 
     private static void AppendHookContextText(List<string> target, AgentRuntimeHookResult hookResult)

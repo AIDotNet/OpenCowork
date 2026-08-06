@@ -3721,7 +3721,7 @@ export function InputArea({
               size="sm"
               className={cn(
                 composerIconControlClass,
-                'gap-1.5 px-2 text-xs font-medium',
+                'group overflow-hidden gap-0 px-1.5 text-xs font-medium transition-[gap,padding,width] duration-200 ease-out hover:gap-1.5 hover:px-2 focus-visible:gap-1.5 focus-visible:px-2',
                 permissionMode === 'fullAccess' && 'text-amber-600 dark:text-amber-400',
                 permissionMode === 'whitelist' && 'text-emerald-600 dark:text-emerald-400'
               )}
@@ -3732,7 +3732,7 @@ export function InputArea({
               ) : (
                 <ShieldCheck className="size-3.5" />
               )}
-              <span className="max-w-24 truncate">
+              <span className="max-w-0 truncate whitespace-nowrap opacity-0 transition-[max-width,opacity] duration-200 ease-out group-hover:max-w-24 group-hover:opacity-100 group-focus-visible:max-w-24 group-focus-visible:opacity-100">
                 {permissionMode === 'fullAccess'
                   ? t('permission.fullAccess')
                   : permissionMode === 'whitelist'

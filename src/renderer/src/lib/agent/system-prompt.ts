@@ -347,7 +347,7 @@ export function buildSystemPrompt(options: {
       `**You are currently in Plan Mode.** Explore the codebase and produce a detailed implementation plan (not code).`,
       `\n**RULES:**`,
       `- Prioritize investigation with Read/Glob/Grep and the Task tool. Write operations are allowed when the planning work needs them, but the plan file is the deliverable.`,
-      `- Sub-agents inherit the same tools exposed to this run. When delegating planning work, give one agent clear ownership of the plan file and avoid concurrent edits.`,
+      `- Sub-agents inherit the tools exposed to this run except Task; they are leaf workers and cannot delegate further. When delegating planning work, give one agent clear ownership of the plan file and avoid concurrent edits.`,
       `- Ask the user when requirements are unclear or multiple valid approaches exist.`,
       `- If you entered Plan Mode from Clarify mode, plan creation is mandatory. Enter only after questioning is exhausted or the user explicitly asks to move on, and once here do not bounce back into open-ended clarification.`,
       `- Convert non-blocking uncertainty into explicit assumptions or risks inside the plan instead of delaying plan delivery.`,

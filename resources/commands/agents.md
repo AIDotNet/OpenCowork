@@ -55,8 +55,9 @@ Default field rules
 - `maxIterations`: `0` unless there is a clear reason to set a limit
 
 Sub-agents automatically inherit the complete tool set available to the parent agent for the
-current run. Do not add `allowedTools` or `disallowedTools` to restrict a sub-agent; legacy fields
-are accepted for compatibility but are not enforced.
+current run except the parent-only `Task` delegation tool. Sub-agents are leaf workers and cannot
+spawn nested sub-agents. Do not add `allowedTools` or `disallowedTools` to restrict a sub-agent;
+legacy fields are accepted for compatibility but are not enforced.
 
 Body requirements
 

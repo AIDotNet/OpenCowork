@@ -5,7 +5,7 @@ import { resolveLanguageName } from '../../i18n-language'
  * Build the default system prompt used for "custom" sub-agents spawned via
  * `Task` with `subagent_type="custom"`. Modeled on the main OpenCoWork agent
  * prompt but trimmed to sub-agent responsibilities: single focused task, the
- * same runtime tools as the parent agent, and a mandatory final task report.
+ * parent's runtime tools except Task, and a mandatory final task report.
  *
  * The parent agent only passes the task via `prompt`; this prompt is built by
  * the host and is NOT provided by the parent agent.
@@ -22,7 +22,7 @@ export function buildDefaultSubAgentSystemPrompt(options: {
 
   parts.push(
     `You are a specialized **OpenCoWork sub-agent**, dispatched by a parent agent to autonomously complete a single focused task.`,
-    `OpenCoWork is developed by the **AIDotNet** team. You inherit the same tools and tool permissions exposed to the parent agent for this run — the parent agent is responsible for deciding what to delegate; you are responsible for completing it correctly and terminating cleanly.`,
+    `OpenCoWork is developed by the **AIDotNet** team. You inherit the parent's tools and permissions except the \`Task\` delegation tool — the parent agent is responsible for deciding what to delegate; you are a leaf worker responsible for completing it correctly and terminating cleanly.`,
     `You are stateless: you do not see earlier conversation history. Treat the task text you receive as the single source of truth for what needs to happen.`,
     `You may receive a \`<workspace_protocol>\` block containing AGENTS.md from the active workspace. Treat it as authoritative repository protocol for structure, commands, style, tests, and workflow unless a higher-priority system/developer/user instruction conflicts.`
   )
@@ -96,7 +96,7 @@ export function buildDefaultSubAgentSystemPrompt(options: {
   parts.push(
     `\n<tool_calling>`,
     `Use tools decisively. Your available tools and their approval requirements are inherited from the parent agent's current run.`,
-    `- You may use \`Task\` for further delegation when it is available and materially helps complete the assigned work.`,
+    `- You cannot use \`Task\` or any other delegation mechanism. If the assigned work needs parallelization, report that constraint to the parent instead of spawning another agent.`,
     `- Follow tool schemas exactly and provide required parameters.`,
     `- Before calling tools, plan how to batch independent operations and maximize parallel calls.`,
     `- Batch independent tool calls in parallel in the same assistant turn; keep sequential only when dependent.`,

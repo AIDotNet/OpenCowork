@@ -9,7 +9,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v8: add the Volcengine Seedance 2.0 video models (structured task params).
   // v9: add Qwen3.8 Max Preview and Claude Opus 5.
   // v10: add GPT Image 2 All / Fast / 4K image models.
-  version: 10,
+  // v11: DeepSeek 模型改用 OpenAI Chat Completions 协议（openai-chat）
+  version: 11,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -1139,7 +1140,7 @@ export const routinAiPreset: BuiltinProviderPreset = {
       maxOutputTokens: 384_000,
       supportsVision: false,
       supportsFunctionCall: true,
-      type: 'anthropic',
+      type: 'openai-chat',
       inputPrice: 1,
       outputPrice: 2,
       cacheCreationPrice: 1,
@@ -1159,7 +1160,7 @@ export const routinAiPreset: BuiltinProviderPreset = {
       maxOutputTokens: 384_000,
       supportsVision: false,
       supportsFunctionCall: true,
-      type: 'anthropic',
+      type: 'openai-chat',
       inputPrice: 12,
       outputPrice: 24,
       cacheCreationPrice: 12,

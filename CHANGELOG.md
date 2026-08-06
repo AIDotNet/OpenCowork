@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.8] - 2026-08-06
+
+### Added
+
+- Added leaf-worker guardrails for sub-agents and teammates so they cannot spawn nested agents.
+
+### Changed
+
+- Updated sub-agent tool inheritance and prompts to retain the parent's tools except `Task`, with clearer delegation guidance.
+
+### Fixed
+
+- Prevented recursive sub-agent creation by removing the `Task` delegation tool from resolved sub-agent tool sets.
+
 ## [1.2.7] - 2026-08-04
 
 ### Added

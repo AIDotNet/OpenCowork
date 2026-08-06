@@ -2,10 +2,11 @@ import type { BuiltinProviderPreset } from './types'
 
 export const deepseekPreset: BuiltinProviderPreset = {
   builtinId: 'deepseek',
-  version: 1,
+  // v2: DeepSeek 模型改用 OpenAI Chat Completions 协议（/chat/completions）
+  version: 2,
   name: 'DeepSeek',
-  type: 'anthropic',
-  defaultBaseUrl: 'https://api.deepseek.com/anthropic',
+  type: 'openai-chat',
+  defaultBaseUrl: 'https://api.deepseek.com/v1',
   homepage: 'https://platform.deepseek.com',
   apiKeyUrl: 'https://platform.deepseek.com/api_keys',
   defaultModel: 'deepseek-v4-flash',

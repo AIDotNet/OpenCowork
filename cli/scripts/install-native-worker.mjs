@@ -65,7 +65,10 @@ async function verifyChecksum(archivePath) {
 
 async function install() {
   if (process.env.OPEN_COWORK_SKIP_NATIVE_DOWNLOAD === '1') return
-  if (isInstalled()) return
+  if (isInstalled()) {
+    printCoworkShortcut()
+    return
+  }
 
   mkdirSync(workerRoot, { recursive: true })
   const archivePath = join(workerRoot, `.${archiveName}.${process.pid}.download`)
@@ -93,9 +96,22 @@ async function install() {
       chmodSync(codeGraphPath, 0o755)
     }
     writeFileSync(join(workerRoot, '.version'), `${version}\n${rid}\n`, 'utf8')
+    printCoworkShortcut()
   } finally {
     rmSync(archivePath, { force: true })
   }
+}
+
+function printCoworkShortcut() {
+  const isGlobalInstall = ['true', '1'].includes(
+    process.env.npm_config_global || process.env.NPM_CONFIG_GLOBAL
+  )
+  if (!isGlobalInstall || !['darwin', 'linux'].includes(process.platform)) return
+
+  console.log('')
+  console.log('OpenCowork installed successfully. Start it with: cowork')
+  console.log("If cowork is not found, add npm's global bin directory to your PATH:")
+  console.log('  export PATH="$(npm bin -g):$PATH"')
 }
 
 install().catch((error) => {

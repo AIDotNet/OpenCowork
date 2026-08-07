@@ -13,13 +13,37 @@ OpenCowork 的终端 UI。默认模式直接连接 `OpenCowork.Native.Worker`；
 
 ```bash
 npm install -g @aidotnet/opencowork
-opencowork
+cowork
 ```
+
+`opencowork` 与 `cowork` 都可启动 CLI；推荐使用较短的 `cowork`。
 
 安装脚本会显示 OpenCowork 品牌化的安装面板，自动识别当前平台和 CPU 架构，从对应的
 GitHub Release 下载 Native Worker，并在校验文件可用时验证 SHA-256。支持 macOS
 (`osx-arm64` / `osx-x64`)、Windows (`win-arm64` / `win-x64`) 和 Linux
 (`linux-arm64` / `linux-x64`)。
+
+在 macOS 或 Linux 全局安装完成后，安装器会提示 `cowork` 的使用方式。若 shell 找不到该命令，
+将 npm 全局 bin 目录加入 shell 配置后重新打开终端：
+
+```bash
+export PATH="$(npm bin -g):$PATH"
+```
+
+## 更新
+
+每次交互式启动 `cowork` 时，CLI 会检查 npm 上的最新版本；检测到新版本后可以在提示中选择立即更新。
+也可以手动执行：
+
+```bash
+cowork update
+```
+
+更新失败时，执行：
+
+```bash
+npm install -g @aidotnet/opencowork@latest
+```
 
 如果网络环境需要镜像，可以指定完整的 Worker 压缩包地址：
 
@@ -53,7 +77,6 @@ npm run build
 npm run dev
 ```
 
-npm uninstall -g @aidotnet/opencowork
 常用入口：
 
 ```bash
@@ -79,7 +102,8 @@ Settings → Models 管理，不会复制到 CLI 配置。
 ## 命令参数
 
 ```text
-opencowork [prompt]
+cowork [prompt]
+  update
   --doctor
   --provider <provider-id>
   --model <model-id>

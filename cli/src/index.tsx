@@ -8,6 +8,7 @@ import { CliApp } from './app.js'
 import { OpenCoworkWorkerRuntime } from './runtime/open-cowork-worker-runtime.js'
 import { TerminalScreen } from './terminal/terminal-screen.js'
 import type { PermissionMode, TuiMode } from './types.js'
+import { offerUpdate, updateCli } from './update.js'
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url))
 
@@ -26,7 +27,7 @@ function loadPackageMetadata(): { version: string } {
       if (metadata.name === 'open-cowork' && metadata.bin?.opencowork && metadata.version) {
         return { version: metadata.version }
       }
-      if (metadata.name === '@opencowork/cli' && metadata.version) {
+      if (metadata.name === '@aidotnet/opencowork' && metadata.version) {
         return { version: metadata.version }
       }
     } catch {
@@ -50,7 +51,7 @@ interface CliOptions {
 const program = new Command()
 
 program
-  .name('opencowork')
+  .name('cowork')
   .description('OpenCowork — an agentic coding assistant for your terminal')
   .version(pkg.version, '-v, --version')
   .argument('[prompt]', 'Initial prompt to place in the editor')
@@ -68,6 +69,16 @@ program
       .choices(['classic', 'fullscreen'])
       .default('classic')
   )
+
+program
+  .command('update')
+  .description('Update OpenCowork CLI to the latest version')
+  .action(async () => {
+    if (await updateCli()) return
+    program.error('Update failed. Run: npm install -g @aidotnet/opencowork@latest')
+  })
+
+program
   .addHelpText(
     'after',
     `
@@ -79,6 +90,9 @@ Interactive shortcuts:
 `
   )
   .action(async (prompt: string | undefined, options: CliOptions) => {
+    if (!options.doctor && process.stdin.isTTY && process.stdout.isTTY) {
+      await offerUpdate(pkg.version)
+    }
     const workerRuntime = new OpenCoworkWorkerRuntime({
       appVersion: pkg.version,
       cwd: process.cwd(),

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.12] - 2026-08-08
+
+### Fixed
+
+- Allow the CLI to run directly from the bundled platform Native Worker when npm lifecycle scripts are skipped, avoiding a missing Worker error after global installation.
+
 ## [1.2.11] - 2026-08-08
 
 ### Added

@@ -94,6 +94,7 @@ function resolveWorkerPath(explicitPath?: string): string | null {
   const rid = getCurrentRid()
   const candidates = [
     join(cliDirectory, 'native-worker', executable),
+    join(cliDirectory, 'native-workers', rid, executable),
     join(cliDirectory, 'resources', 'native-worker', executable),
     join(repositoryDirectory, 'resources', 'native-worker', executable),
     join(

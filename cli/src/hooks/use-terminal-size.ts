@@ -18,7 +18,9 @@ export function useTerminalSize(): TerminalSize {
   useEffect(() => {
     const handleResize = (): void => setSize(readSize())
     process.stdout.on('resize', handleResize)
-    return () => process.stdout.off('resize', handleResize)
+    return () => {
+      process.stdout.off('resize', handleResize)
+    }
   }, [])
 
   return size

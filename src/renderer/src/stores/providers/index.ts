@@ -1,4 +1,4 @@
-export type { BuiltinProviderPreset } from './types'
+﻿export type { BuiltinProviderPreset } from './types'
 
 import type { ReasoningEffortLevel } from '../../lib/api/types'
 import { routinAiPlanPreset, routinAiPreset } from './routin-ai'
@@ -8,6 +8,7 @@ import { longcatPreset } from './longcat'
 import { googlePreset } from './google'
 import { deepseekPreset } from './deepseek'
 import { openrouterPreset } from './openrouter'
+import { opencodeGoPreset } from './opencode-go'
 import { ollamaPreset } from './ollama'
 import { azureOpenaiPreset } from './azure-openai'
 import { moonshotCodingPreset, moonshotPreset } from './moonshot'
@@ -108,6 +109,7 @@ export const builtinProviderPresets: BuiltinProviderPreset[] = [
   googlePreset,
   deepseekPreset,
   openrouterPreset,
+  opencodeGoPreset,
   ollamaPreset,
   azureOpenaiPreset,
   moonshotCodingPreset,

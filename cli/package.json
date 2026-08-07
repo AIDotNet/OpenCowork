@@ -13,9 +13,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/index.ts",
-    "dev:classic": "tsx src/index.ts --tui classic",
-    "demo": "tsx src/index.ts --demo --tui classic",
+    "dev": "tsx src/index.tsx",
+    "dev:classic": "tsx src/index.tsx --tui classic",
+    "demo": "tsx src/index.tsx --demo --tui classic",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

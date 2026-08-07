@@ -1,4 +1,4 @@
-import { Bot, Sparkles } from 'lucide-react'
+﻿import { Bot, Sparkles } from 'lucide-react'
 import { useTheme } from 'next-themes'
 
 const ICON_BASE = 'https://unpkg.com/@lobehub/icons-static-png@1.83.0'
@@ -15,6 +15,7 @@ const providerIconSlugMap: Record<string, string> = {
   google: 'google',
   deepseek: 'deepseek',
   openrouter: 'openrouter',
+  'opencode-go': 'opencode',
   ollama: 'ollama',
   'azure-openai': 'azureai',
   moonshot: 'moonshot',

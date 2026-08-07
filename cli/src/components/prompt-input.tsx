@@ -53,6 +53,10 @@ export function PromptInput({
 }: PromptInputProps): React.JSX.Element {
   const [value, setValue] = useState(initialValue)
   const [cursor, setCursor] = useState(graphemes(initialValue).length)
+  const editorRef = useRef<EditorSnapshot>({
+    value: initialValue,
+    cursor: graphemes(initialValue).length
+  })
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [menuSuppressed, setMenuSuppressed] = useState(false)
   const historyRef = useRef<string[]>([])
@@ -69,8 +73,9 @@ export function PromptInput({
   useEffect(() => setSelectedIndex(0), [value])
 
   const mutate = (nextValue: string, nextCursor: number): void => {
-    undoRef.current.push({ value, cursor })
+    undoRef.current.push(editorRef.current)
     if (undoRef.current.length > 100) undoRef.current.shift()
+    editorRef.current = { value: nextValue, cursor: nextCursor }
     setValue(nextValue)
     setCursor(nextCursor)
     setMenuSuppressed(false)
@@ -78,13 +83,19 @@ export function PromptInput({
   }
 
   const replaceRange = (start: number, end: number, replacement: string): void => {
+    const currentCharacters = graphemes(editorRef.current.value)
     const replacementCharacters = graphemes(replacement)
     const next = [
-      ...characters.slice(0, start),
+      ...currentCharacters.slice(0, start),
       ...replacementCharacters,
-      ...characters.slice(end)
+      ...currentCharacters.slice(end)
     ]
     mutate(next.join(''), start + replacementCharacters.length)
+  }
+
+  const moveCursor = (nextCursor: number): void => {
+    editorRef.current = { ...editorRef.current, cursor: nextCursor }
+    setCursor(nextCursor)
   }
 
   const rememberKill = (text: string): void => {
@@ -99,6 +110,7 @@ export function PromptInput({
     if (historyRef.current.at(-1) !== submission) historyRef.current.push(submission)
     historyIndexRef.current = null
     undoRef.current = []
+    editorRef.current = { value: '', cursor: 0 }
     setValue('')
     setCursor(0)
     setMenuSuppressed(false)
@@ -112,6 +124,7 @@ export function PromptInput({
     next = Math.max(0, Math.min(historyRef.current.length - 1, next))
     historyIndexRef.current = next
     const historicalValue = historyRef.current[next] ?? ''
+    editorRef.current = { value: historicalValue, cursor: graphemes(historicalValue).length }
     setValue(historicalValue)
     setCursor(graphemes(historicalValue).length)
     setMenuSuppressed(true)
@@ -119,17 +132,22 @@ export function PromptInput({
 
   useInput(
     (input, key) => {
-      if (key.ctrl && input === 'c') {
+      const currentEditor = editorRef.current
+      const currentValue = currentEditor.value
+      const currentCursor = currentEditor.cursor
+      const currentCharacters = graphemes(currentValue)
+      const rawCtrlCCount = input.split('\u0003').length - 1
+      if ((key.ctrl && input === 'c') || rawCtrlCCount > 0) {
         if (isRunning) {
           onAbort()
           return
         }
-        if (value) {
+        if (currentValue) {
           mutate('', 0)
           return
         }
         const now = Date.now()
-        if (now - lastCtrlCRef.current < 1_000) {
+        if (rawCtrlCCount > 1 || now - lastCtrlCRef.current < 3_000) {
           onExit()
         } else {
           lastCtrlCRef.current = now
@@ -147,8 +165,8 @@ export function PromptInput({
         return
       }
       if (key.ctrl && input === 's') {
-        if (value) {
-          stashRef.current = { value, cursor }
+        if (currentValue) {
+          stashRef.current = currentEditor
           mutate('', 0)
           onNotice('Prompt stashed · Ctrl-S to restore')
         } else if (stashRef.current) {
@@ -159,38 +177,39 @@ export function PromptInput({
         return
       }
       if (key.ctrl && input === 'a') {
-        setCursor(lineStart(characters, cursor))
+        moveCursor(lineStart(currentCharacters, currentCursor))
         return
       }
       if (key.ctrl && input === 'e') {
-        setCursor(lineEnd(characters, cursor))
+        moveCursor(lineEnd(currentCharacters, currentCursor))
         return
       }
       if (key.ctrl && input === 'k') {
-        const end = lineEnd(characters, cursor)
-        rememberKill(characters.slice(cursor, end).join(''))
-        replaceRange(cursor, end, '')
+        const end = lineEnd(currentCharacters, currentCursor)
+        rememberKill(currentCharacters.slice(currentCursor, end).join(''))
+        replaceRange(currentCursor, end, '')
         return
       }
       if (key.ctrl && input === 'u') {
-        const start = lineStart(characters, cursor)
-        rememberKill(characters.slice(start, cursor).join(''))
-        replaceRange(start, cursor, '')
+        const start = lineStart(currentCharacters, currentCursor)
+        rememberKill(currentCharacters.slice(start, currentCursor).join(''))
+        replaceRange(start, currentCursor, '')
         return
       }
       if (key.ctrl && input === 'w') {
-        const start = previousWordStart(characters, cursor)
-        rememberKill(characters.slice(start, cursor).join(''))
-        replaceRange(start, cursor, '')
+        const start = previousWordStart(currentCharacters, currentCursor)
+        rememberKill(currentCharacters.slice(start, currentCursor).join(''))
+        replaceRange(start, currentCursor, '')
         return
       }
       if (key.ctrl && input === 'y') {
-        replaceRange(cursor, cursor, killRingRef.current[0] ?? '')
+        replaceRange(currentCursor, currentCursor, killRingRef.current[0] ?? '')
         return
       }
       if (key.ctrl && input === '_') {
         const previous = undoRef.current.pop()
         if (previous) {
+          editorRef.current = previous
           setValue(previous.value)
           setCursor(previous.cursor)
         }
@@ -237,7 +256,7 @@ export function PromptInput({
         }
         const now = Date.now()
         if (now - lastEscapeRef.current < 800) {
-          if (value) mutate('', 0)
+          if (currentValue) mutate('', 0)
           else onNotice('Rewind requires an active runtime checkpoint')
           lastEscapeRef.current = 0
         } else {
@@ -247,17 +266,17 @@ export function PromptInput({
         return
       }
 
-      if (input === '?' && value.length === 0) {
+      if (input === '?' && currentValue.length === 0) {
         onToggleHelp()
         return
       }
 
       if (key.leftArrow) {
-        setCursor((current) => Math.max(0, current - 1))
+        moveCursor(Math.max(0, currentCursor - 1))
         return
       }
       if (key.rightArrow) {
-        setCursor((current) => Math.min(characters.length, current + 1))
+        moveCursor(Math.min(currentCharacters.length, currentCursor + 1))
         return
       }
       if (key.upArrow) {
@@ -269,28 +288,33 @@ export function PromptInput({
         return
       }
       if (key.meta && input.toLowerCase() === 'b') {
-        setCursor(previousWordStart(characters, cursor))
+        moveCursor(previousWordStart(currentCharacters, currentCursor))
         return
       }
       if (key.meta && input.toLowerCase() === 'f') {
-        setCursor(nextWordEnd(characters, cursor))
+        moveCursor(nextWordEnd(currentCharacters, currentCursor))
         return
       }
       if (key.backspace || key.delete) {
-        if (cursor > 0) replaceRange(cursor - 1, cursor, '')
+        if (currentCursor > 0) replaceRange(currentCursor - 1, currentCursor, '')
         return
       }
       if (key.return) {
-        if (key.shift || characters[cursor - 1] === '\\') {
-          if (characters[cursor - 1] === '\\') replaceRange(cursor - 1, cursor, '\n')
-          else replaceRange(cursor, cursor, '\n')
+        if (key.shift || currentCharacters[currentCursor - 1] === '\\') {
+          if (currentCharacters[currentCursor - 1] === '\\') {
+            replaceRange(currentCursor - 1, currentCursor, '\n')
+          } else {
+            replaceRange(currentCursor, currentCursor, '\n')
+          }
         } else {
-          submit(value)
+          submit(currentValue)
         }
         return
       }
 
-      if (input && !key.ctrl && !key.meta && !key.tab) replaceRange(cursor, cursor, input)
+      if (input && !key.ctrl && !key.meta && !key.tab) {
+        replaceRange(currentCursor, currentCursor, input)
+      }
     },
     { isActive: active }
   )
@@ -306,7 +330,8 @@ export function PromptInput({
         <Text bold color={value.startsWith('!') ? theme.warning : theme.primary}>❯ </Text>
         <Text wrap="wrap">
           {beforeCursor}
-          <Text inverse>{cursorCharacter === '\n' || !cursorCharacter ? ' ' : cursorCharacter}</Text>
+          <Text bold color={theme.primary}>▏</Text>
+          {cursorCharacter === '\n' ? '' : cursorCharacter}
           {cursorCharacter === '\n' ? '\n' : ''}
           {afterCursor}
         </Text>

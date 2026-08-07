@@ -50,6 +50,7 @@ export function WelcomeCard({
   const wide = cardWidth >= 72
   const leftWidth = wide ? Math.floor((cardWidth - 3) * 0.62) : cardWidth - 2
   const rightWidth = wide ? cardWidth - 3 - leftWidth : 0
+  const rightContentWidth = Math.max(1, rightWidth - 2)
   const shortCwd = fitText(cwd, Math.max(12, leftWidth - 4))
   const project = path.basename(cwd) || cwd
 
@@ -66,14 +67,18 @@ export function WelcomeCard({
   ]
 
   const rightRows: React.ReactNode[] = [
-    <Text bold key="tips-title">Tips for getting started</Text>,
-    <Text color={theme.muted} key="tip-init">Run <Text color={theme.accent}>/init</Text> to create an AGENTS.md</Text>,
-    <Text color={theme.border} key="right-divider">{'─'.repeat(Math.max(1, rightWidth - 4))}</Text>,
+    <Text bold key="tips-title">{fitText('Tips for getting started', rightContentWidth)}</Text>,
+    <Text color={theme.muted} key="tip-init">
+      {fitText('Run /init to create an AGENTS.md', rightContentWidth)}
+    </Text>,
+    <Text color={theme.border} key="right-divider">{'─'.repeat(rightContentWidth)}</Text>,
     <Text bold key="recent-title">Recent activity</Text>,
-    <Text color={theme.muted} key="recent-value">No recent sessions in {fitText(project, 12)}</Text>,
+    <Text color={theme.muted} key="recent-value">
+      {fitText(`No recent sessions in ${project}`, rightContentWidth)}
+    </Text>,
     null,
-    <Text color={theme.dim} key="tip-command">Type / for commands</Text>,
-    <Text color={theme.dim} key="tip-files">Type @ to mention files</Text>,
+    <Text color={theme.dim} key="tip-command">{fitText('Type / for commands', rightContentWidth)}</Text>,
+    <Text color={theme.dim} key="tip-files">{fitText('Type @ to mention files', rightContentWidth)}</Text>,
     null
   ]
 

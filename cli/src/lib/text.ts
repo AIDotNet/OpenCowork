@@ -25,6 +25,50 @@ export function fitText(value: string, width: number, suffix = '…'): string {
   return output + (width >= suffixWidth ? suffix : '')
 }
 
+export function wrapText(value: string, width: number): string[] {
+  const safeWidth = Math.max(1, width)
+  const lines: string[] = []
+  for (const sourceLine of value.split(/\r?\n/u)) {
+    if (!sourceLine) {
+      lines.push('')
+      continue
+    }
+    let current = ''
+    for (const grapheme of graphemes(sourceLine)) {
+      if (stringWidth(current + grapheme) > safeWidth && current) {
+        lines.push(current)
+        current = ''
+      }
+      current += grapheme
+    }
+    lines.push(current)
+  }
+  return lines
+}
+
+export function hasTerminalInputControl(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0
+    if (code < 0x20 || code === 0x7f) return true
+  }
+  return false
+}
+
+export function stripTerminalPreviewControls(value: string): string {
+  return Array.from(value)
+    .filter((character) => {
+      const code = character.codePointAt(0) ?? 0
+      return !(
+        code <= 0x08 ||
+        code === 0x0b ||
+        code === 0x0c ||
+        (code >= 0x0e && code <= 0x1f) ||
+        code === 0x7f
+      )
+    })
+    .join('')
+}
+
 export function padText(value: string, width: number): string {
   const fitted = fitText(value, width)
   return fitted + ' '.repeat(Math.max(0, width - stringWidth(fitted)))

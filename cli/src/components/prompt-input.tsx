@@ -1,13 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { findCommands } from '../commands.js'
-import {
-  graphemes,
-  lineEnd,
-  lineStart,
-  nextWordEnd,
-  previousWordStart
-} from '../lib/text.js'
+import { graphemes, lineEnd, lineStart, nextWordEnd, previousWordStart } from '../lib/text.js'
 import { theme } from '../theme.js'
 import { CommandMenu } from './command-menu.js'
 import { Divider } from './divider.js'
@@ -18,6 +12,11 @@ interface EditorSnapshot {
   value: string
 }
 
+// Classic mode intentionally moves completed messages into Ink's <Static> tree. Some Ink
+// versions remount the dynamic input subtree while committing static output, so the double-Ctrl-C
+// deadline must outlive a PromptInput component instance.
+let lastCtrlCAt = 0
+
 interface PromptInputProps {
   active: boolean
   initialValue: string
@@ -26,6 +25,7 @@ interface PromptInputProps {
   onCycleMode(): void
   onExit(): void
   onNotice(message: string): void
+  onOpenAgents(): void
   onOpenModel(): void
   onSubmit(value: string): void
   onToggleDetails(): void
@@ -43,6 +43,7 @@ export function PromptInput({
   onCycleMode,
   onExit,
   onNotice,
+  onOpenAgents,
   onOpenModel,
   onSubmit,
   onToggleDetails,
@@ -64,7 +65,6 @@ export function PromptInput({
   const killRingRef = useRef<string[]>([])
   const stashRef = useRef<EditorSnapshot | null>(null)
   const undoRef = useRef<EditorSnapshot[]>([])
-  const lastCtrlCRef = useRef(0)
   const lastEscapeRef = useRef(0)
   const characters = useMemo(() => graphemes(value), [value])
   const menuOpen = value.startsWith('/') && !value.includes(' ') && !menuSuppressed
@@ -139,22 +139,29 @@ export function PromptInput({
       const rawCtrlCCount = input.split('\u0003').length - 1
       if ((key.ctrl && input === 'c') || rawCtrlCCount > 0) {
         if (isRunning) {
+          lastCtrlCAt = 0
           onAbort()
           return
         }
         if (currentValue) {
+          lastCtrlCAt = 0
           mutate('', 0)
           return
         }
         const now = Date.now()
-        if (rawCtrlCCount > 1 || now - lastCtrlCRef.current < 3_000) {
+        if (rawCtrlCCount > 1 || now - lastCtrlCAt < 3_000) {
+          lastCtrlCAt = 0
           onExit()
         } else {
-          lastCtrlCRef.current = now
+          lastCtrlCAt = now
           onNotice('Press Ctrl-C again to exit')
         }
         return
       }
+
+      // Keep the prompt focused so Ctrl-C can cancel the active Worker turn, but
+      // do not let ordinary editing or submission race the in-flight run.
+      if (isRunning) return
 
       if (key.ctrl && input === 'o') {
         onToggleDetails()
@@ -227,7 +234,9 @@ export function PromptInput({
 
       if (menuOpen && commands.length > 0) {
         if (key.upArrow) {
-          setSelectedIndex((current) => (current === 0 ? Math.min(7, commands.length - 1) : current - 1))
+          setSelectedIndex((current) =>
+            current === 0 ? Math.min(7, commands.length - 1) : current - 1
+          )
           return
         }
         if (key.downArrow) {
@@ -272,6 +281,10 @@ export function PromptInput({
       }
 
       if (key.leftArrow) {
+        if (currentCharacters.length === 0) {
+          onOpenAgents()
+          return
+        }
         moveCursor(Math.max(0, currentCursor - 1))
         return
       }
@@ -327,10 +340,14 @@ export function PromptInput({
     <Box flexDirection="column" width={width}>
       <Divider width={width} />
       <Box minHeight={1}>
-        <Text bold color={value.startsWith('!') ? theme.warning : theme.primary}>❯ </Text>
+        <Text bold color={value.startsWith('!') ? theme.warning : theme.primary}>
+          ❯{' '}
+        </Text>
         <Text wrap="wrap">
           {beforeCursor}
-          <Text bold color={theme.primary}>▏</Text>
+          <Text bold color={theme.primary}>
+            ▏
+          </Text>
           {cursorCharacter === '\n' ? '' : cursorCharacter}
           {cursorCharacter === '\n' ? '\n' : ''}
           {afterCursor}

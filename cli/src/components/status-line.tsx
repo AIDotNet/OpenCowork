@@ -6,15 +6,26 @@ import type { PermissionMode } from '../types.js'
 
 interface StatusLineProps {
   effort: string
+  model: string
   mode: PermissionMode
   notice?: string
   width: number
 }
 
-export function StatusLine({ effort, mode, notice, width }: StatusLineProps): React.JSX.Element {
+export function StatusLine({
+  effort,
+  model,
+  mode,
+  notice,
+  width
+}: StatusLineProps): React.JSX.Element {
   const left = notice ?? (width >= 58 ? '? for shortcuts · ← for agents' : '? shortcuts')
-  const right = `${permissionModeLabels[mode]} · ${effort} effort`
-  const leftWidth = Math.max(8, width - right.length - 3)
+  const contentWidth = Math.max(12, width - 4)
+  const right = fitText(
+    `${model} · ${permissionModeLabels[mode]} · ${effort}`,
+    Math.max(12, Math.floor(contentWidth * 0.62))
+  )
+  const leftWidth = Math.max(6, contentWidth - right.length - 2)
 
   return (
     <Box justifyContent="space-between" paddingX={2} width={width}>

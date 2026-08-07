@@ -10,4 +10,5 @@ obj/
 resources/sidecar/
 resources/native-worker/
 resources/codegraph-worker/
+cli-release-assets/
 .claude\worktrees/

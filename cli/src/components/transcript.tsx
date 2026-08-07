@@ -30,8 +30,12 @@ function TranscriptMessage({
   if (message.kind === 'user') {
     return (
       <Box marginTop={1}>
-        <Text bold color={theme.primary}>❯ </Text>
-        <Text bold wrap="wrap">{message.text}</Text>
+        <Text bold color={theme.primary}>
+          ❯{' '}
+        </Text>
+        <Text bold wrap="wrap">
+          {message.text}
+        </Text>
       </Box>
     )
   }
@@ -40,9 +44,22 @@ function TranscriptMessage({
     return (
       <Box flexDirection="column" marginTop={1}>
         <Box>
-          {message.streaming ? <Spinner /> : <Text bold color={theme.primary}>●</Text>}
+          {message.streaming ? (
+            <Spinner />
+          ) : (
+            <Text bold color={theme.primary}>
+              ●
+            </Text>
+          )}
           <Text> {message.text || (message.streaming ? 'Thinking…' : '')}</Text>
         </Box>
+        {showDetails && message.thinking ? (
+          <Box marginLeft={2}>
+            <Text color={theme.dim} wrap="wrap">
+              Thinking: {message.thinking}
+            </Text>
+          </Box>
+        ) : null}
         {showDetails && (message.model || message.timestamp) ? (
           <Box marginLeft={2}>
             <Text color={theme.dim}>
@@ -68,20 +85,24 @@ function TranscriptMessage({
           {message.status === 'running' ? (
             <Spinner />
           ) : (
-            <Text bold color={statusColor}>{message.status === 'error' ? '●' : '●'}</Text>
+            <Text bold color={statusColor}>
+              {message.status === 'error' ? '●' : '●'}
+            </Text>
           )}
           <Text bold> {fitText(message.title, Math.max(10, width - 4))}</Text>
         </Box>
         {message.summary ? (
           <Box marginLeft={2}>
             <Text color={message.status === 'error' ? theme.error : theme.muted}>
-              ⎿  {fitText(message.summary, Math.max(8, width - 6))}
+              ⎿ {fitText(message.summary, Math.max(8, width - 6))}
             </Text>
           </Box>
         ) : null}
         {showDetails && message.detail ? (
           <Box marginLeft={5}>
-            <Text color={theme.dim} wrap="wrap">{message.detail}</Text>
+            <Text color={theme.dim} wrap="wrap">
+              {message.detail}
+            </Text>
           </Box>
         ) : null}
       </Box>
@@ -90,7 +111,7 @@ function TranscriptMessage({
 
   return (
     <Box marginTop={1} marginLeft={2}>
-      <Text color={toneColor(message.tone)}>⎿  {message.text}</Text>
+      <Text color={toneColor(message.tone)}>⎿ {message.text}</Text>
     </Box>
   )
 }

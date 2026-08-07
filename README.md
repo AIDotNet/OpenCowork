@@ -131,6 +131,32 @@ npm install
 npm run dev
 ```
 
+### Terminal CLI
+
+OpenCowork also ships a Native Worker-backed terminal client. Install it globally from the
+repository with npm:
+
+```bash
+npm install -g aidotnet/opencowork
+opencowork
+```
+
+The installer detects macOS, Windows, and Linux architecture, downloads the matching Native
+Worker from the GitHub Release, verifies its SHA-256 checksum when the checksum asset is
+available, and shows a compact branded progress panel while it works. The CLI shares provider
+credentials, models, agents, and settings with the desktop app under `~/.open-cowork/`.
+
+Useful checks and overrides:
+
+```bash
+opencowork --doctor
+opencowork --help
+OPEN_COWORK_NATIVE_WORKER_PATH=/absolute/path/OpenCowork.Native.Worker opencowork
+```
+
+The global package needs Node.js ≥ 18. The first install requires network access to the matching
+Native Worker Release asset; use `OPEN_COWORK_NATIVE_WORKER_URL` for an internal mirror.
+
 ### Key Commands
 
 | Command             | Description                           |

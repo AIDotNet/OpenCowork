@@ -9,11 +9,12 @@ export interface SlashCommand {
 // registry later, so the command menu does not need to know where a command came from.
 export const slashCommands: SlashCommand[] = [
   { name: '/add-dir', description: 'Add a new working directory', completion: '/add-dir ' },
-  { name: '/agents', description: 'Manage agent configurations' },
+  { name: '/agents', description: 'Inspect configured Native Worker agents', local: true },
   { name: '/background', description: 'Send this session to the background' },
   { name: '/branch', description: 'Create a branch of the current conversation' },
   { name: '/btw', description: 'Ask a side question without interrupting the main task' },
   { name: '/clear', description: 'Start a new session with empty context', local: true },
+  { name: '/codegraph', description: 'Show CodeGraph availability and index status', local: true },
   { name: '/compact', description: 'Compact the conversation to free context space' },
   { name: '/config', description: 'Open configuration' },
   { name: '/context', description: 'Visualize current context usage' },
@@ -27,6 +28,7 @@ export const slashCommands: SlashCommand[] = [
   { name: '/mcp', description: 'Manage MCP servers' },
   { name: '/memory', description: 'Edit project and user memory files' },
   { name: '/model', description: 'Switch the active model', local: true },
+  { name: '/new', description: 'Start a new session with empty context', local: true },
   { name: '/permissions', description: 'View or update permission rules', local: true },
   { name: '/plan', description: 'Enter plan mode', local: true },
   { name: '/resume', description: 'Resume a previous conversation' },

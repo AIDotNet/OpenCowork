@@ -32,8 +32,8 @@ function ShortcutGroup({ group, width }: { group: string[][]; width: number }): 
     <Box flexDirection="column" width={width}>
       {group.map(([key, description]) => (
         <Text key={key} color={theme.muted}>
-          <Text color={theme.text}>{padText(key ?? '', keyWidth)}</Text>
-          {' '}{fitText(description ?? '', descriptionWidth)}
+          <Text color={theme.text}>{padText(key ?? '', keyWidth)}</Text>{' '}
+          {fitText(description ?? '', descriptionWidth)}
         </Text>
       ))}
     </Box>

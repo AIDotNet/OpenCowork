@@ -3,23 +3,48 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Command, Option } from 'commander'
-import React from 'react'
 import { render } from 'ink'
 import { CliApp } from './app.js'
-import { DemoRuntime, ShellRuntime } from './runtime/runtime.js'
+import { OpenCoworkWorkerRuntime } from './runtime/open-cowork-worker-runtime.js'
 import { TerminalScreen } from './terminal/terminal-screen.js'
 import type { PermissionMode, TuiMode } from './types.js'
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url))
-const pkg = JSON.parse(readFileSync(join(currentDirectory, '../package.json'), 'utf-8')) as {
-  version: string
+
+function loadPackageMetadata(): { version: string } {
+  const candidates = [
+    join(currentDirectory, '../../package.json'),
+    join(currentDirectory, '../package.json')
+  ]
+  for (const candidate of candidates) {
+    try {
+      const metadata = JSON.parse(readFileSync(candidate, 'utf-8')) as {
+        bin?: { opencowork?: string }
+        name?: string
+        version?: string
+      }
+      if (metadata.name === 'open-cowork' && metadata.bin?.opencowork && metadata.version) {
+        return { version: metadata.version }
+      }
+      if (metadata.name === '@opencowork/cli' && metadata.version) {
+        return { version: metadata.version }
+      }
+    } catch {
+      // Try the next package boundary. This also keeps the standalone cli package usable.
+    }
+  }
+  return { version: '0.0.0' }
 }
 
+const pkg = loadPackageMetadata()
+
 interface CliOptions {
-  demo: boolean
-  model: string
+  doctor: boolean
+  model?: string
   permissionMode: PermissionMode
+  provider?: string
   tui: TuiMode
+  worker?: string
 }
 
 const program = new Command()
@@ -29,8 +54,10 @@ program
   .description('OpenCowork — an agentic coding assistant for your terminal')
   .version(pkg.version, '-v, --version')
   .argument('[prompt]', 'Initial prompt to place in the editor')
-  .option('--demo', 'Seed a transcript that exercises every UI message type', false)
-  .option('--model <model>', 'Model label shown in the session UI', 'Auto')
+  .option('--doctor', 'Check the Native Worker transport and shared provider configuration', false)
+  .option('--worker <path>', 'Override the OpenCowork.Native.Worker executable path')
+  .option('--provider <provider-id>', 'Select a configured OpenCowork provider for this session')
+  .option('--model <model-id>', 'Select an enabled model for this session')
   .addOption(
     new Option('--permission-mode <mode>', 'Initial permission mode')
       .choices(['manual', 'acceptEdits', 'plan', 'auto'])
@@ -52,12 +79,58 @@ Interactive shortcuts:
 `
   )
   .action(async (prompt: string | undefined, options: CliOptions) => {
+    const workerRuntime = new OpenCoworkWorkerRuntime({
+      appVersion: pkg.version,
+      cwd: process.cwd(),
+      effort: 'high',
+      model: options.model,
+      permissionMode: options.permissionMode,
+      providerId: options.provider,
+      workerPath: options.worker
+    })
+    const selectedModel = workerRuntime.getModelCatalog().active
+    if (options.provider && selectedModel?.providerId !== options.provider) {
+      await workerRuntime.dispose()
+      program.error(
+        `Provider “${options.provider}” is not enabled, authenticated, or configured with chat models.`
+      )
+    }
+    if (options.model && selectedModel?.modelId !== options.model) {
+      await workerRuntime.dispose()
+      program.error(
+        `Model “${options.model}” is not enabled${options.provider ? ` for provider “${options.provider}”` : ''}.`
+      )
+    }
+
+    if (options.doctor) {
+      try {
+        const result = await workerRuntime.doctor()
+        process.stdout.write(
+          [
+            'OpenCowork CLI doctor',
+            `  Worker: ${result.executable}`,
+            `  PID: ${result.pid}`,
+            `  IPC protocol: v${result.protocolVersion}`,
+            `  Agent protocol: v${result.agentProtocolVersion}`,
+            `  Agent runtime: ${result.runtime} ${result.runtimeVersion}`,
+            `  Routes: ${result.routeCount}`,
+            `  Configured model: ${result.configuredModel}`,
+            '  Status: ready',
+            ''
+          ].join('\n')
+        )
+      } finally {
+        await workerRuntime.dispose()
+      }
+      return
+    }
+
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      await workerRuntime.dispose()
       program.error('Interactive mode requires a TTY. Run opencowork --help for options.')
     }
 
     const screen = new TerminalScreen(options.tui)
-    const runtime = options.demo ? new DemoRuntime() : new ShellRuntime()
 
     screen.enter()
 
@@ -65,10 +138,9 @@ Interactive shortcuts:
       const instance = render(
         <CliApp
           cwd={process.cwd()}
-          initialModel={options.model}
           initialPermissionMode={options.permissionMode}
           initialPrompt={prompt ?? ''}
-          runtime={runtime}
+          runtime={workerRuntime}
           tuiMode={options.tui}
           version={pkg.version}
         />,
@@ -80,7 +152,7 @@ Interactive shortcuts:
 
       await instance.waitUntilExit()
     } finally {
-      await runtime.dispose()
+      await workerRuntime.dispose()
       screen.exit()
     }
   })

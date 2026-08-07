@@ -1,8 +1,13 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { chmod, readdir, readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import process from 'node:process'
-import { rebuild } from '@electron/rebuild'
+
+function isGlobalInstall() {
+  const value = process.env.npm_config_global || process.env.NPM_CONFIG_GLOBAL
+  return value === 'true' || value === '1'
+}
 
 /**
  * @param {string} projectDir
@@ -44,7 +49,13 @@ async function ensurePtySpawnHelperExecutable(projectDir) {
  * @returns {Promise<void>}
  */
 async function main() {
-  const projectDir = process.cwd()
+  if (isGlobalInstall()) {
+    await import('./install-cli.mjs')
+    return
+  }
+
+  const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const { rebuild } = await import('@electron/rebuild')
   const electronVersion = await readInstalledElectronVersion(projectDir)
   // These packages ship prebuilt binaries; forcing node-gyp rebuilds makes CI require compilers.
   const prebuiltNativeModules = ['@jitsi/robotjs']

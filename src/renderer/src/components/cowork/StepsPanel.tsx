@@ -323,6 +323,7 @@ function InlineStepsPanelCard({
   summaryLabel,
   canExpand,
   summaryItems,
+  isRunning,
   changeSummary,
   changedFilesLabel,
   reviewLabel
@@ -330,12 +331,15 @@ function InlineStepsPanelCard({
   summaryLabel: string
   canExpand: boolean
   summaryItems: InlineTaskSummaryItem[]
+  isRunning: boolean
   changeSummary: InlineChangeSummary | null
   changedFilesLabel: string | null
   reviewLabel: string
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const openDetailPanel = useUIStore((state) => state.openDetailPanel)
+  const isExecuting = isRunning || summaryItems.some((item) => item.status === 'in_progress')
+  const isComplete = summaryItems.length > 0 && summaryItems.every((item) => item.status === 'completed')
 
   const handleOpenChangeReview = (): void => {
     if (changeSummary?.runId) {
@@ -354,21 +358,50 @@ function InlineStepsPanelCard({
   }
 
   return (
-    <div className="mb-2 overflow-hidden rounded-xl border border-border/60 bg-background/80 shadow-sm">
+    <motion.div
+      layout
+      transition={{ duration: 0.22, ease: EASE }}
+      className={cn(
+        'mb-2 overflow-hidden',
+        expanded
+          ? 'rounded-xl border border-border/60 bg-background/80 shadow-sm'
+          : 'flex justify-center'
+      )}
+    >
       <button
         type="button"
         onClick={() => canExpand && setExpanded((v) => !v)}
         disabled={!canExpand}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/20 disabled:cursor-default disabled:hover:bg-transparent"
+        className={cn(
+          'items-center text-left transition-colors disabled:cursor-default',
+          expanded
+            ? 'flex w-full gap-3 px-3 py-2.5 hover:bg-muted/20 disabled:hover:bg-transparent'
+            : 'inline-flex min-w-0 gap-1.5 rounded-md border border-border/60 bg-background/80 px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+        )}
+        aria-label={summaryLabel}
       >
-        <ClipboardList className="size-3.5 shrink-0 text-muted-foreground/80" />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground/90">
+        {isExecuting ? (
+          <Loader2 className={cn('shrink-0 animate-spin text-blue-500', expanded ? 'size-3.5' : 'size-3')} />
+        ) : isComplete ? (
+          <CheckCircle2 className={cn('shrink-0 text-emerald-500', expanded ? 'size-3.5' : 'size-3')} />
+        ) : (
+          <ClipboardList
+            className={cn('shrink-0 text-muted-foreground/80', expanded ? 'size-3.5' : 'size-3')}
+          />
+        )}
+        <span
+          className={cn(
+            'min-w-0 truncate',
+            expanded ? 'flex-1 text-[13px] font-medium text-foreground/90' : 'text-[11px]'
+          )}
+        >
           {summaryLabel}
         </span>
         {canExpand && (
           <ChevronDown
             className={cn(
-              'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200',
+              'shrink-0 text-muted-foreground transition-transform duration-200',
+              expanded ? 'size-3.5' : 'size-3',
               expanded && 'rotate-180'
             )}
           />
@@ -474,7 +507,7 @@ function InlineStepsPanelCard({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   )
 }
 
@@ -564,7 +597,7 @@ export function InlineStepsPanel({
     [aggregatedLatestChanges, latestChangeSet, latestChangeSummaries]
   )
 
-  if (!data.hasContent && !changeSummary) {
+  if (!data.hasContent) {
     return null
   }
 
@@ -590,6 +623,7 @@ export function InlineStepsPanel({
       summaryLabel={summaryLabel}
       canExpand={canExpand}
       summaryItems={summaryItems}
+      isRunning={data.isRunning}
       changeSummary={changeSummary}
       changedFilesLabel={changedFilesLabel}
       reviewLabel={reviewLabel}

@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.11] - 2026-08-08
+
+### Added
+
+- Added `cowork` as a short CLI command alongside `opencowork`, plus `cowork update` for updating the global npm package.
+- Added an interactive npm version check before starting the CLI, with an option to install the latest version immediately.
+- Bundled Native Worker binaries for macOS, Windows, and Linux into the CLI npm package; installation now selects the matching platform binary locally.
+
+### Changed
+
+- Clear the terminal before entering the interactive CLI interface while preserving the original terminal contents in fullscreen mode.
+- Updated CLI installation guidance for Unix PATH setup and manual npm updates.
+
+### Fixed
+
+- Fixed npm-installed CLI sessions failing to locate the Native Worker when the corresponding GitHub Release asset was unavailable.
+
 ## [1.2.10] - 2026-08-07
 
 ### Added
@@ -25,28 +42,28 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Added Agent Runtime v2 capability negotiation with versioned tool manifests,
- session and project context binding, and runtime feature discovery.
+  session and project context binding, and runtime feature discovery.
 - Added agent-definition schema v2 parsing with explicit tool allowlists,
- bounded turn limits, and compatibility warnings for legacy definitions.
+  bounded turn limits, and compatibility warnings for legacy definitions.
 - Added dependency-free verification for compact request-view pairing and
- truncation behavior.
+  truncation behavior.
 
 ### Changed
 
 - Hardened sidecar tool authorization with manifest validation, provider-visible
- tool reconciliation, input-schema checks, and project-scoped extension tools.
+  tool reconciliation, input-schema checks, and project-scoped extension tools.
 - Preserved raw provider tool arguments and rejected malformed or hook-mutated
- tool input before execution with structured error results.
+  tool input before execution with structured error results.
 - Changed context compression to use the generated summary as the complete
- model-visible history by default, while pairing boundaries and summaries by
- id and keeping their ordering stable.
+  model-visible history by default, while pairing boundaries and summaries by
+  id and keeping their ordering stable.
 
 ### Fixed
 
 - Fixed compact summaries being missed when message sorting moved them before
- their associated compression boundary.
+  their associated compression boundary.
 - Added session and canvas project checks to prevent capability snapshots from
- being reused with the wrong agent run context.
+  being reused with the wrong agent run context.
 
 ## [1.2.8] - 2026-08-06
 

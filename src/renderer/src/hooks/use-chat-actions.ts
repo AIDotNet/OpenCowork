@@ -234,7 +234,6 @@ import type { AgentStreamEvent } from '../../../shared/agent-stream-protocol'
 
 /** Per-session abort controllers — module-level so concurrent sessions don't overwrite each other */
 const sessionAbortControllers = new Map<string, AbortController>()
-const stopAfterCurrentRequestSessions = new Set<string>()
 const continuingToolExecutionSessions = new Set<string>()
 const pendingGoalContinuationSessions = new Set<string>()
 const scheduledGoalContinuationSessions = new Set<string>()
@@ -2071,52 +2070,6 @@ export function hasActiveSessionRunForSession(sessionId: string): boolean {
   return hasActiveSessionRun(sessionId)
 }
 
-function requestStopAfterCurrentRequest(sessionId: string): boolean {
-  if (!hasActiveSessionRun(sessionId)) return false
-  stopAfterCurrentRequestSessions.add(sessionId)
-  return true
-}
-
-function abortCurrentRunImmediately(sessionId: string): void {
-  const activeAbortController = sessionAbortControllers.get(sessionId)
-  if (activeAbortController && !activeAbortController.signal.aborted) {
-    activeAbortController.abort()
-  }
-  void cancelSidecarRun(sessionId)
-}
-
-async function requestSidecarRunStopAfterCurrentIteration(sessionId: string): Promise<boolean> {
-  const runId = sessionSidecarRunIds.get(sessionId)
-  if (!runId) return false
-  try {
-    const result = await agentBridge.requestStopAgent(runId)
-    if (result.stopped) {
-      console.log('[ChatActions] sidecar graceful stop requested', { sessionId, runId })
-      return true
-    }
-  } catch (error) {
-    console.warn('[ChatActions] sidecar graceful stop request failed', {
-      sessionId,
-      runId,
-      error: error instanceof Error ? error.message : String(error)
-    })
-  }
-  return false
-}
-
-function stopActiveRunAfterCurrentRequest(sessionId: string): void {
-  if (!stopAfterCurrentRequestSessions.delete(sessionId)) return
-  if (sessionSidecarRunIds.has(sessionId)) {
-    void requestSidecarRunStopAfterCurrentIteration(sessionId).then((stopped) => {
-      if (!stopped) {
-        abortCurrentRunImmediately(sessionId)
-      }
-    })
-    return
-  }
-  abortCurrentRunImmediately(sessionId)
-}
-
 export function promotePendingSessionMessageForImmediateDispatch(
   sessionId: string,
   messageId: string
@@ -2203,7 +2156,7 @@ export function quotePendingSessionMessageIntoConversation(
   replaceSessionPendingMessages(sessionId, [processOnly, ...remaining])
   setPendingSessionDispatchPaused(sessionId, false)
 
-  if (!requestStopAfterCurrentRequest(sessionId)) {
+  if (!hasActiveSessionRun(sessionId)) {
     dispatchNextQueuedMessage(sessionId)
   }
 
@@ -3355,7 +3308,6 @@ function abortTeamForSession(sessionId: string, clearPendingApprovals = false): 
 function finishStoppingSession(sessionId: string): void {
   setPendingSessionDispatchPaused(sessionId, true)
   clearGoalContinuationState(sessionId)
-  stopAfterCurrentRequestSessions.delete(sessionId)
 
   const ac = sessionAbortControllers.get(sessionId)
   if (ac) {
@@ -4777,7 +4729,6 @@ export function useChatActions(): {
             agentStore.setSessionStatus(sessionId, 'completed')
             sessionAbortControllers.delete(sessionId)
             sessionSidecarRunIds.delete(sessionId)
-            stopAfterCurrentRequestSessions.delete(sessionId)
             if (sessionScope === 'main' && !abortController.signal.aborted) {
               void runMemoryAutomationForSession({
                 sessionId,
@@ -6101,7 +6052,6 @@ export function useChatActions(): {
                         : undefined
                     })
                   }
-                  stopActiveRunAfterCurrentRequest(sessionId!)
                   break
                 }
 
@@ -6380,7 +6330,6 @@ export function useChatActions(): {
             setStreamingMessageIdWithSync(sessionId, null)
             sessionAbortControllers.delete(sessionId)
             sessionSidecarRunIds.delete(sessionId)
-            stopAfterCurrentRequestSessions.delete(sessionId)
             // Derive global isRunning from remaining running sessions
             const hasOtherRunning = Object.values(useAgentStore.getState().runningSessions).some(
               (s) => s === 'running' || s === 'retrying'

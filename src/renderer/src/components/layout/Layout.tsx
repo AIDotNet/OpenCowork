@@ -62,6 +62,11 @@ const TasksPage = lazy(async () => {
   return { default: mod.TasksPage }
 })
 
+const TaskBoardPage = lazy(async () => {
+  const mod = await import('../taskboard/TaskBoardPage')
+  return { default: mod.TaskBoardPage }
+})
+
 const SettingsPage = lazy(async () => {
   const mod = await import('@renderer/components/settings/SettingsPage')
   return { default: mod.SettingsPage }
@@ -323,9 +328,13 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const codeGraphPageOpen = useUIStore((s) => s.codeGraphPageOpen)
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
   const tasksPageOpen = useUIStore((s) => s.tasksPageOpen)
+  const taskBoardPageOpen = useUIStore((s) => s.taskBoardPageOpen)
   const contentHeader = useMemo(() => {
     if (tasksPageOpen) {
       return { title: t('navRail.tasks', { defaultValue: 'Tasks' }), subtitle: null }
+    }
+    if (taskBoardPageOpen) {
+      return { title: t('navRail.taskBoard', { defaultValue: 'Task Board' }), subtitle: null }
     }
     if (resourcesPageOpen) {
       return { title: t('navRail.resources', { defaultValue: 'Resources' }), subtitle: null }
@@ -405,6 +414,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     syncPageOpen,
     t,
     tasksPageOpen,
+    taskBoardPageOpen,
     translatePageOpen
   ])
 
@@ -449,6 +459,15 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
               >
                 <Suspense fallback={<LazyPageFallback />}>
                   <TasksPage />
+                </Suspense>
+              </PageTransition>
+            ) : taskBoardPageOpen ? (
+              <PageTransition
+                key="taskboard-page"
+                className="flex-1 min-w-0 bg-background overflow-hidden"
+              >
+                <Suspense fallback={<LazyPageFallback />}>
+                  <TaskBoardPage />
                 </Suspense>
               </PageTransition>
             ) : resourcesPageOpen ? (

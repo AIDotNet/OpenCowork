@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.10] - 2026-08-07
+
+### Added
+
+- Added a CLI package with interactive terminal UI components, runtime integration, command handling, and demo mode.
+- Added a task board with dashboard, Kanban, list, and Gantt views, task details, filtering, and persisted board state.
+- Added generated native-worker contracts and contract consistency checks.
+
+### Changed
+
+- Extended task persistence, database IPC, agent tools, and worker communication to support the task board workflow.
+- Improved native-worker lifecycle and runtime state reporting, including renderer-side reattachment support.
+- Updated navigation, workspace layout, localization, and agent prompts for task-board workflows.
+
+### Fixed
+
+- Improved task-tool and agent-session behavior around task updates, user interaction, and runtime reconnection.
+
 ## [1.2.9] - 2026-08-07
 
 ### Added

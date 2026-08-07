@@ -374,9 +374,6 @@ const askUserToolDefinition: Omit<ToolDefinition, 'name'> = {
       answers: {
         type: 'object',
         description: 'User answers collected by the permission component.',
-        propertyNames: {
-          type: 'string'
-        },
         additionalProperties: {
           type: 'string'
         }
@@ -385,9 +382,6 @@ const askUserToolDefinition: Omit<ToolDefinition, 'name'> = {
         type: 'object',
         description:
           'Optional per-question annotations from the user, such as notes on preview selections. Keyed by question text.',
-        propertyNames: {
-          type: 'string'
-        },
         additionalProperties: {
           type: 'object',
           properties: {

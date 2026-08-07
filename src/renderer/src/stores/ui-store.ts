@@ -29,6 +29,7 @@ export type NavItem =
   | 'draw'
   | 'translate'
   | 'tasks'
+  | 'taskboard'
   | 'codegraph'
 
 export type ChatView = 'home' | 'project' | 'archive' | 'channels' | 'git' | 'session'
@@ -413,6 +414,9 @@ interface UIStore {
   tasksPageOpen: boolean
   openTasksPage: () => void
   closeTasksPage: () => void
+  taskBoardPageOpen: boolean
+  openTaskBoardPage: () => void
+  closeTaskBoardPage: () => void
   codeGraphPageOpen: boolean
   openCodeGraphPage: () => void
   closeCodeGraphPage: () => void
@@ -707,6 +711,7 @@ const CHAT_SURFACE_NAV_RESET = {
   translatePageOpen: false,
   drawPageOpen: false,
   tasksPageOpen: false,
+  taskBoardPageOpen: false,
   codeGraphPageOpen: false,
   pendingInsertText: null
 } as const
@@ -1405,6 +1410,7 @@ export const useUIStore = create<UIStore>()(
           translatePageOpen: false,
           drawPageOpen: false,
           tasksPageOpen: false,
+          taskBoardPageOpen: false,
           codeGraphPageOpen: false,
           ...closeRightSidePanels()
         })
@@ -1434,6 +1440,7 @@ export const useUIStore = create<UIStore>()(
           translatePageOpen: false,
           drawPageOpen: false,
           tasksPageOpen: false,
+          taskBoardPageOpen: false,
           codeGraphPageOpen: false,
           ...closeRightSidePanels()
         }),
@@ -1450,6 +1457,7 @@ export const useUIStore = create<UIStore>()(
           translatePageOpen: false,
           drawPageOpen: false,
           tasksPageOpen: false,
+          taskBoardPageOpen: false,
           codeGraphPageOpen: false,
           ...closeRightSidePanels()
         }),
@@ -1466,6 +1474,7 @@ export const useUIStore = create<UIStore>()(
           translatePageOpen: false,
           drawPageOpen: false,
           tasksPageOpen: false,
+          taskBoardPageOpen: false,
           codeGraphPageOpen: false,
           ...closeRightSidePanels()
         }),
@@ -1482,6 +1491,7 @@ export const useUIStore = create<UIStore>()(
           translatePageOpen: false,
           drawPageOpen: false,
           tasksPageOpen: false,
+          taskBoardPageOpen: false,
           codeGraphPageOpen: false,
           ...closeRightSidePanels()
         }),
@@ -1498,6 +1508,7 @@ export const useUIStore = create<UIStore>()(
           resourcesPageOpen: false,
           drawPageOpen: false,
           tasksPageOpen: false,
+          taskBoardPageOpen: false,
           codeGraphPageOpen: false,
           ...closeRightSidePanels()
         }),
@@ -1514,6 +1525,7 @@ export const useUIStore = create<UIStore>()(
           resourcesPageOpen: false,
           translatePageOpen: false,
           tasksPageOpen: false,
+          taskBoardPageOpen: false,
           codeGraphPageOpen: false,
           ...closeRightSidePanels()
         }),
@@ -1530,10 +1542,28 @@ export const useUIStore = create<UIStore>()(
           resourcesPageOpen: false,
           translatePageOpen: false,
           drawPageOpen: false,
+          taskBoardPageOpen: false,
           codeGraphPageOpen: false,
           ...closeRightSidePanels()
         }),
       closeTasksPage: () => set({ tasksPageOpen: false }),
+      taskBoardPageOpen: false,
+      openTaskBoardPage: () =>
+        set({
+          activeNavItem: 'taskboard',
+          taskBoardPageOpen: true,
+          settingsPageOpen: false,
+          skillsPageOpen: false,
+          soulsPageOpen: false,
+          syncPageOpen: false,
+          resourcesPageOpen: false,
+          translatePageOpen: false,
+          drawPageOpen: false,
+          tasksPageOpen: false,
+          codeGraphPageOpen: false,
+          ...closeRightSidePanels()
+        }),
+      closeTaskBoardPage: () => set({ taskBoardPageOpen: false }),
       codeGraphPageOpen: false,
       openCodeGraphPage: () =>
         set({
@@ -1547,6 +1577,7 @@ export const useUIStore = create<UIStore>()(
           translatePageOpen: false,
           drawPageOpen: false,
           tasksPageOpen: false,
+          taskBoardPageOpen: false,
           ...closeRightSidePanels()
         }),
       closeCodeGraphPage: () => set({ codeGraphPageOpen: false }),
@@ -2108,6 +2139,7 @@ export const useUIStore = create<UIStore>()(
             translatePageOpen: false,
             drawPageOpen: false,
             tasksPageOpen: false,
+            taskBoardPageOpen: false,
             codeGraphPageOpen: false,
             ...closeRightSidePanels()
           })

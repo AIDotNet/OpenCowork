@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Dashboard",
+    "kanban": "议题看板",
+    "list": "列表视图",
+    "gantt": "时间轴"
+  },
+  "columns": {
+    "pending": "等待认领",
+    "in_progress": "处理中",
+    "blocked": "遇到阻碍",
+    "in_review": "等你确认",
+    "completed": "已完成"
+  },
+  "filters": {
+    "searchPlaceholder": "搜索任务…",
+    "allSessions": "全部会话",
+    "allPriorities": "全部优先级",
+    "refresh": "刷新"
+  },
+  "priority": {
+    "urgent": "紧急",
+    "high": "高",
+    "medium": "中",
+    "low": "低",
+    "none": "无优先级"
+  },
+  "card": {
+    "blockedByCount": "{{count}} 项阻塞",
+    "due": "截止 {{date}}",
+    "running": "Agent 运行中"
+  },
+  "column": {
+    "empty": "暂无任务",
+    "confirmDone": "确认完成"
+  },
+  "empty": {
+    "title": "还没有任务",
+    "description": "各会话中 agent 创建的任务会汇聚到这里。让 agent 规划复杂工作,或在协作会话中创建任务。"
+  },
+  "detail": {
+    "title": "任务详情",
+    "subject": "标题",
+    "description": "描述",
+    "descriptionPlaceholder": "暂无描述",
+    "status": "状态",
+    "priority": "优先级",
+    "tags": "标签",
+    "tagsPlaceholder": "标签1, 标签2",
+    "dueAt": "截止日期",
+    "noDue": "无截止日期",
+    "clearDue": "清除",
+    "session": "所属会话",
+    "sessionLoadFailed": "找不到该会话",
+    "openSession": "在会话中处理",
+    "dependencies": "依赖关系",
+    "blocks": "阻塞",
+    "blockedBy": "被阻塞",
+    "createdAt": "创建时间",
+    "updatedAt": "更新时间",
+    "delete": "删除任务",
+    "close": "关闭",
+    "dispatchMessage": "请继续处理任务:{{subject}}"
+  },
+  "list": {
+    "task": "任务",
+    "session": "会话",
+    "priority": "优先级",
+    "tags": "标签",
+    "updated": "更新时间",
+    "showCompleted": "显示已完成"
+  },
+  "gantt": {
+    "noDated": "该时间范围内没有任务",
+    "today": "今天"
+  },
+  "dashboard": {
+    "total": "任务总数",
+    "activeSessions": "有任务的会话",
+    "blockedTasks": "受阻任务",
+    "completionRate": "完成率",
+    "byStatus": "状态分布",
+    "trend": "近 14 天",
+    "trendCreated": "新建",
+    "trendCompleted": "完成",
+    "blockedList": "当前受阻",
+    "noBlocked": "没有受阻的任务",
+    "recentSessions": "会话"
+  }
+}

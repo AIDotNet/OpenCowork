@@ -176,6 +176,7 @@ import { cn } from '@renderer/lib/utils'
 import { resolveProjectMemoryTextFile } from '@renderer/lib/agent/memory-files'
 import { isProjectSession, workspaceContextAvailable } from '@renderer/lib/session-scope'
 import { getDroppedLocalPaths } from '@renderer/lib/drag-folder'
+import { InlineStepsPanel } from '@renderer/components/cowork/StepsPanel'
 import { GoalSessionBar } from '@renderer/components/goal/GoalSessionControls'
 
 interface ContextRingProps {
@@ -4197,6 +4198,7 @@ export function InputArea({
       )}
 
       <div className={composerWidthClass}>
+        {projectScoped && draftSessionId && <InlineStepsPanel sessionId={draftSessionId} />}
         <div
           ref={containerRef}
           className={cn(

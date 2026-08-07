@@ -109,6 +109,7 @@
     "searchLabel": "Search",
     "pluginsLabel": "Plugins",
     "automationLabel": "Automation",
+    "taskBoardLabel": "Task Board",
     "chats": "Chats",
     "noChats": "No chats yet",
     "smartRename": "Smart Rename",
@@ -740,6 +741,7 @@
   "navRail": {
     "conversations": "Conversations",
     "tasks": "Tasks",
+    "taskBoard": "Task Board",
     "resources": "Resources",
     "skills": "Skills",
     "souls": "SOUL",

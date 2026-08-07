@@ -37,6 +37,7 @@ type Category =
   | 'server'
   | 'badRequest'
   | 'unknown'
+  | 'runtimeFatal'
 
 interface CategoryView {
   icon: React.ComponentType<{ className?: string }>
@@ -59,6 +60,11 @@ const CATEGORY_VIEW: Record<Category, CategoryView> = {
     icon: ServerCrash,
     titleKey: 'assistantMessage.agentError.titleRuntimeUnavailable',
     descKey: 'assistantMessage.agentError.descRuntimeUnavailable'
+  },
+  runtimeFatal: {
+    icon: ServerCrash,
+    titleKey: 'assistantMessage.agentError.titleRuntimeFatal',
+    descKey: 'assistantMessage.agentError.descRuntimeFatal'
   },
   auth: {
     icon: KeyRound,
@@ -133,6 +139,12 @@ function classify(code: AgentErrorCode, message: string, errorType?: string): Ca
   const httpMatch = haystack.match(/\b([45]\d{2})\b/)
   const status = httpMatch ? Number(httpMatch[1]) : undefined
 
+  // Fatal means retry cannot self-heal (stale binary, protocol mismatch,
+  // restart budget exhausted); checked before the generic runtime patterns so
+  // the card shows rebuild guidance instead of "just retry".
+  if (/native worker fatal|protocol mismatch|failed to restart after \d+ attempts/.test(haystack)) {
+    return 'runtimeFatal'
+  }
   if (/sidecar|native worker|native runtime|local agent runtime/.test(haystack)) {
     return 'runtimeUnavailable'
   }

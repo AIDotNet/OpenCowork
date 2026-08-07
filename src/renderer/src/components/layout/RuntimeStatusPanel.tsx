@@ -7,13 +7,11 @@ import {
   GitBranch,
   GitCompare,
   Laptop,
-  ListChecks,
   Loader2,
   Server,
   SquareTerminal,
   X
 } from 'lucide-react'
-import { TodoStatusList } from '@renderer/components/chat/TodoCard'
 import { Button } from '@renderer/components/ui/button'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
@@ -27,17 +25,13 @@ import {
   subscribeInputDraftCache
 } from '@renderer/lib/input-drafts'
 import { useSshStore } from '@renderer/stores/ssh-store'
-import { useTaskStore, type TaskItem } from '@renderer/stores/task-store'
-import { useTeamStore } from '@renderer/stores/team-store'
 import { useTerminalStore, type LocalTerminalSession } from '@renderer/stores/terminal-store'
 import { useUIStore } from '@renderer/stores/ui-store'
-import type { TeamTask } from '@renderer/lib/agent/teams/types'
 import { selectSessionScopedAgentState } from '@renderer/lib/agent/session-scoped-agent-state'
 import { toMessagePackChannel } from '../../../../shared/messagepack/binary-ipc'
 import { EMPTY_SESSION_MESSAGES, mergeSessionSubAgents } from './sub-agent-run-data'
 import { getAgentIcon, getAgentIconTone } from './sub-agent-visuals'
 
-const EMPTY_TASKS: TaskItem[] = []
 const RUNTIME_GIT_SUMMARY_CACHE_MS = 5_000
 
 interface RuntimeStatusPanelProps {
@@ -66,23 +60,6 @@ interface RuntimeGitSummary {
   dirty: boolean
   truncatedLineSummary: boolean
   error: string | null
-}
-
-function teamTaskToItem(task: TeamTask): TaskItem {
-  return {
-    id: task.id,
-    sessionId: '',
-    subject: task.subject,
-    description: task.description,
-    activeForm: task.activeForm,
-    status: task.status,
-    owner: task.owner,
-    blocks: [],
-    blockedBy: task.dependsOn ?? [],
-    metadata: undefined,
-    createdAt: 0,
-    updatedAt: 0
-  }
 }
 
 function compactPath(path: string | null): string {
@@ -395,14 +372,6 @@ export function RuntimeStatusPanel({
     syncSourceFiles()
     return subscribeInputDraftCache(syncSourceFiles)
   }, [resolvedSessionId])
-  const sessionTasks = useTaskStore(
-    useShallow((state) => {
-      if (!resolvedSessionId) return EMPTY_TASKS
-      if (state.currentSessionId === resolvedSessionId) return state.tasks
-      return state.tasksBySession[resolvedSessionId] ?? EMPTY_TASKS
-    })
-  )
-  const activeTeam = useTeamStore((state) => state.activeTeam)
   const sshConnectionName = useSshStore((state) =>
     context.sshConnectionId
       ? (state.connections.find((item) => item.id === context.sshConnectionId)?.name ?? null)
@@ -420,11 +389,6 @@ export function RuntimeStatusPanel({
     )
   )
 
-  const teamTasks = React.useMemo(
-    () => (activeTeam?.tasks ?? []).map(teamTaskToItem),
-    [activeTeam?.tasks]
-  )
-  const tasks = sessionTasks.length > 0 ? sessionTasks : teamTasks
   React.useEffect(() => {
     initTerminals()
   }, [initTerminals])
@@ -601,22 +565,6 @@ export function RuntimeStatusPanel({
           </section>
         </>
       ) : null}
-
-      <div className="h-px bg-border/70" />
-
-      <section className="space-y-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <ListChecks className="size-3.5" />
-          <span>{t('runtimeStatus.progressTitle')}</span>
-        </div>
-        {tasks.length > 0 ? (
-          <TodoStatusList tasks={tasks} embedded />
-        ) : (
-          <div className="rounded-md border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground/65">
-            {t('runtimeStatus.noTasks')}
-          </div>
-        )}
-      </section>
 
       {runningTerminals.length > 0 ? (
         <>

@@ -10,6 +10,8 @@ import {
 } from '../../../shared/messagepack/binary-ipc'
 import { useChatStore } from './chat-store'
 
+export type TaskStatus = 'pending' | 'in_progress' | 'blocked' | 'in_review' | 'completed'
+
 export interface TaskItem {
   id: string
   sessionId?: string
@@ -17,13 +19,36 @@ export interface TaskItem {
   subject: string
   description: string
   activeForm?: string
-  status: 'pending' | 'in_progress' | 'completed'
+  status: TaskStatus
   owner?: string | null
   blocks: string[]
   blockedBy: string[]
   metadata?: Record<string, unknown>
   createdAt: number
   updatedAt: number
+}
+
+export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low'
+
+/** Board-level metadata conventions stored in the task metadata JSON blob. */
+export interface TaskBoardMeta {
+  priority?: TaskPriority
+  tags: string[]
+  dueAt?: number
+}
+
+const TASK_PRIORITIES: readonly TaskPriority[] = ['urgent', 'high', 'medium', 'low']
+
+export function readTaskBoardMeta(metadata: Record<string, unknown> | undefined): TaskBoardMeta {
+  const priorityRaw = metadata?.priority
+  const priority = TASK_PRIORITIES.find((p) => p === priorityRaw)
+  const tagsRaw = metadata?.tags
+  const tags = Array.isArray(tagsRaw)
+    ? tagsRaw.filter((t): t is string => typeof t === 'string' && t.length > 0)
+    : []
+  const dueAtRaw = metadata?.dueAt
+  const dueAt = typeof dueAtRaw === 'number' && Number.isFinite(dueAtRaw) ? dueAtRaw : undefined
+  return { priority, tags, dueAt }
 }
 
 /** @deprecated Use TaskItem instead */

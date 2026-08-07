@@ -416,6 +416,7 @@ export function buildSystemPrompt(options: {
       `- Check for existing tasks in any \`<system-reminder>\` before creating new ones.`,
       `- Create tasks with TaskCreate before starting complex work.`,
       `- Use TaskUpdate to mark \`in_progress\` and \`completed\`; never mark completed unless fully done.`,
+      `- Mark \`blocked\` when a task is stuck on an obstacle you cannot resolve alone; mark \`in_review\` when work is finished and awaits the user's confirmation.`,
       `- Use TaskList/TaskGet to inspect tasks as needed.`,
       `</task_management>`
     )

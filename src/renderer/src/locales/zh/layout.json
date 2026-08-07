@@ -109,6 +109,7 @@
     "searchLabel": "搜索",
     "pluginsLabel": "插件",
     "automationLabel": "自动化",
+    "taskBoardLabel": "任务面板",
     "chats": "对话",
     "noChats": "暂无对话",
     "smartRename": "智能重命名",
@@ -740,6 +741,7 @@
   "navRail": {
     "conversations": "会话",
     "tasks": "任务",
+    "taskBoard": "任务面板",
     "resources": "资源",
     "skills": "技能",
     "souls": "SOUL",

@@ -8,6 +8,10 @@ import * as path from 'path'
 import { decode, encode } from '@msgpack/msgpack'
 import { readNativeMessagePackRoute, type NativeMessagePackRoute } from './messagepack-route-reader'
 import { writeCrashLog } from '../crash-logger'
+import {
+  WORKER_PROTOCOL_VERSION,
+  type WorkerHelloResult
+} from '../../shared/worker-contracts/generated/contracts'
 // Resolved lazily at spawn time (function-level cycle — safe): tells the CodeGraph
 // worker where to load its bundled, updated, or dev tree-sitter grammars from.
 import { resolveCodeGraphGrammarsDir } from './codegraph-assets'
@@ -23,12 +27,27 @@ const NATIVE_WORKER_CONNECT_TIMEOUT_MS = 10_000
 const NATIVE_WORKER_CONNECT_RETRY_MS = 35
 const NATIVE_WORKER_RESTART_BASE_MS = 300
 const NATIVE_WORKER_RESTART_MAX_MS = 30_000
+// Consecutive failed supervised restarts before the manager stops burning CPU
+// and surfaces a fatal state; an explicit ensureStarted() re-arms recovery.
+const NATIVE_WORKER_RESTART_FATAL_ATTEMPTS = 5
 const NATIVE_WORKER_HEARTBEAT_INTERVAL_MS = 15_000
 const NATIVE_WORKER_HEARTBEAT_TIMEOUT_MS = 5_000
 const NATIVE_WORKER_HEARTBEAT_MAX_MISSES = 2
 const NATIVE_WORKER_KILL_ESCALATION_MS = 3_000
 const FRAME_HEADER_BYTES = 4
 const MAX_FRAME_BYTES = 256 * 1024 * 1024
+
+// Read-only methods that are safe to transparently replay on the fresh worker
+// after a crash instead of failing the caller. Mutations never replay: the dead
+// worker may or may not have committed them.
+const IDEMPOTENT_METHOD_PATTERN = new RegExp(
+  '^(?:' +
+    'worker/(?:ping|hello|routes|memory)|' +
+    'settings/(?:read|get)|' +
+    'file/read|' +
+    'db/[a-z0-9-]+(?:-list|-get|-status|-index|-find|-search)(?:-[a-z0-9-]+)?' +
+    ')$'
+)
 const REQUIRED_NATIVE_WORKER_METHODS = [
   'settings/read',
   'settings/get',
@@ -135,18 +154,36 @@ export function setNativeWorkerStartupBarrier(barrier: Promise<void>): void {
 
 type PendingRequest = {
   method: string
+  params: unknown
+  timeoutMs: number | null
+  signal?: AbortSignal
   startedAt: number
   payloadBytes: number
   resolve: (value: unknown) => void
   reject: (error: Error) => void
   timer?: ReturnType<typeof setTimeout>
   removeAbortListener?: () => void
+  /** Read-only request eligible for one transparent replay after a worker restart. */
+  replayable: boolean
+  replayed: boolean
 }
 
 type NativeWorkerResponse = {
   id?: number
   result?: unknown
   error?: string
+}
+
+type NativeWorkerHelloResult = Partial<WorkerHelloResult>
+
+export type NativeWorkerState = 'stopped' | 'starting' | 'ready' | 'restarting' | 'fatal'
+
+export type NativeWorkerStateSnapshot = {
+  id: 'native' | 'codegraph'
+  state: NativeWorkerState
+  pid: number | null
+  restartAttempts: number
+  lastError: string | null
 }
 
 type NativeWorkerEventFrame = {
@@ -170,6 +207,7 @@ class NativeWorkerManager {
   private events = new EventEmitter()
   private rawEvents = new EventEmitter()
   private pending = new Map<number, PendingRequest>()
+  private replayQueue: PendingRequest[] = []
   private readChunks: Buffer[] = []
   private readBufferedBytes = 0
   private pendingFrameLength = -1
@@ -182,6 +220,9 @@ class NativeWorkerManager {
   private restartTimer: ReturnType<typeof setTimeout> | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private heartbeatMisses = 0
+  private lastFrameReceivedAt = 0
+  private state: NativeWorkerState = 'stopped'
+  private lastError: string | null = null
   private lifecycle = new EventEmitter()
   private stderrTail: string[] = []
 
@@ -258,6 +299,39 @@ class NativeWorkerManager {
     }
   }
 
+  onStateChange(listener: (snapshot: NativeWorkerStateSnapshot) => void): () => void {
+    this.lifecycle.on('state', listener)
+    return () => {
+      this.lifecycle.off('state', listener)
+    }
+  }
+
+  getStateSnapshot(): NativeWorkerStateSnapshot {
+    return {
+      id: this.config.id,
+      state: this.state,
+      pid: this.processId,
+      restartAttempts: this.restartAttempts,
+      lastError: this.lastError
+    }
+  }
+
+  private setState(next: NativeWorkerState, errorMessage?: string | null): void {
+    if (errorMessage !== undefined) this.lastError = errorMessage
+    if (this.state === next) return
+    this.state = next
+    this.lifecycle.emit('state', this.getStateSnapshot())
+  }
+
+  // Unrecoverable without user action (stale binary, protocol mismatch, restart
+  // budget exhausted). Supervision stops; an explicit ensureStarted() re-arms it.
+  private enterFatal(message: string): void {
+    this.autoRestartDisabled = true
+    this.clearSupervisedRestart()
+    this.failReplayQueue(new Error(message))
+    this.setState('fatal', message)
+  }
+
   async request<T = unknown>(
     method: string,
     params?: unknown,
@@ -281,77 +355,93 @@ class NativeWorkerManager {
     if (signal?.aborted) {
       throw createAbortError(method)
     }
-    const socket = this.socket
-    if (!socket || !this.isRunning) {
+    if (!this.socket || !this.isRunning) {
       throw new Error('Native worker is not running')
     }
 
+    return await new Promise<T>((resolve, reject) => {
+      const pending: PendingRequest = {
+        method,
+        params: params ?? {},
+        timeoutMs: effectiveTimeoutMs,
+        signal,
+        startedAt: Date.now(),
+        payloadBytes: 0,
+        resolve: (value) => resolve(value as T),
+        reject,
+        replayable: IDEMPOTENT_METHOD_PATTERN.test(method),
+        replayed: false
+      }
+      this.dispatchPending(pending)
+    })
+  }
+
+  // Encodes and writes one request onto the CURRENT socket. Called for fresh
+  // requests and again (with a fresh id) when a queued idempotent request is
+  // replayed onto the respawned worker.
+  private dispatchPending(pending: PendingRequest): void {
+    const socket = this.socket
+    if (!socket || !this.isRunning) {
+      pending.reject(new Error('Native worker is not running'))
+      return
+    }
+
     const id = this.nextId++
-    const payload = encode({ id, method, params: params ?? {} })
+    const payload = encode({ id, method: pending.method, params: pending.params })
     const frame = createFrame(payload)
-    const startedAt = Date.now()
-    const payloadBytes = payload.byteLength
+    pending.startedAt = Date.now()
+    pending.payloadBytes = payload.byteLength
 
     logNativeWorkerDebug('request start', {
       id,
-      method,
-      payloadBytes,
+      method: pending.method,
+      payloadBytes: pending.payloadBytes,
       pending: this.pending.size + 1,
-      timeoutMs: effectiveTimeoutMs ?? 'none'
+      timeoutMs: pending.timeoutMs ?? 'none',
+      replayed: pending.replayed
     })
 
-    return await new Promise<T>((resolve, reject) => {
-      const timer =
-        effectiveTimeoutMs === null
-          ? undefined
-          : setTimeout(() => {
-              const pending = this.pending.get(id)
-              if (!pending) return
-              this.pending.delete(id)
-              pending.removeAbortListener?.()
-              this.sendCancelRequest(id)
-              console.warn('[NativeWorker] request timeout', {
-                id,
-                method,
-                elapsedMs: Date.now() - startedAt,
-                payloadBytes,
-                pending: this.pending.size
-              })
-              pending.reject(new Error(`Native worker request timed out: ${method}`))
-            }, effectiveTimeoutMs)
+    pending.timer =
+      pending.timeoutMs === null
+        ? undefined
+        : setTimeout(() => {
+            if (!this.pending.delete(id)) return
+            pending.removeAbortListener?.()
+            pending.removeAbortListener = undefined
+            this.sendCancelRequest(id)
+            console.warn('[NativeWorker] request timeout', {
+              id,
+              method: pending.method,
+              elapsedMs: Date.now() - pending.startedAt,
+              payloadBytes: pending.payloadBytes,
+              pending: this.pending.size
+            })
+            pending.reject(new Error(`Native worker request timed out: ${pending.method}`))
+          }, pending.timeoutMs)
 
-      const pending: PendingRequest = {
-        method,
-        startedAt,
-        payloadBytes,
-        resolve: (value) => resolve(value as T),
-        reject,
-        timer
+    if (pending.signal) {
+      const signal = pending.signal
+      const onAbort = (): void => {
+        if (!this.pending.delete(id)) return
+        if (pending.timer) clearTimeout(pending.timer)
+        pending.removeAbortListener = undefined
+        this.sendCancelRequest(id)
+        pending.reject(createAbortError(pending.method))
       }
+      signal.addEventListener('abort', onAbort, { once: true })
+      pending.removeAbortListener = () => signal.removeEventListener('abort', onAbort)
+    }
 
-      if (signal) {
-        const onAbort = (): void => {
-          if (!this.pending.delete(id)) return
-          if (timer) clearTimeout(timer)
-          pending.removeAbortListener?.()
-          this.sendCancelRequest(id)
-          pending.reject(createAbortError(method))
-        }
-        signal.addEventListener('abort', onAbort, { once: true })
-        pending.removeAbortListener = () => signal.removeEventListener('abort', onAbort)
-      }
+    this.pending.set(id, pending)
 
-      this.pending.set(id, pending)
-
-      try {
-        socket.write(frame, (error) => {
-          if (!error) return
-          this.rejectPendingRequest(id, error)
-        })
-      } catch (error) {
-        this.rejectPendingRequest(id, asError(error))
-      }
-    })
+    try {
+      socket.write(frame, (error) => {
+        if (!error) return
+        this.rejectPendingRequest(id, error)
+      })
+    } catch (error) {
+      this.rejectPendingRequest(id, asError(error))
+    }
   }
 
   async stop(): Promise<void> {
@@ -359,13 +449,16 @@ class NativeWorkerManager {
     this.stopping = true
     this.clearSupervisedRestart()
     this.stopHeartbeat()
+    this.failReplayQueue(new Error('Native worker stopped'))
     this.closeWorker(new Error('Native worker stopped'))
     this.stopping = false
   }
 
   private async start(): Promise<void> {
+    this.setState(this.hasStartedOnce ? 'restarting' : 'starting')
     const workerPath = this.config.resolveBinaryPath()
     if (!workerPath) {
+      this.enterFatal(this.config.missingBinaryMessage)
       throw new Error(this.config.missingBinaryMessage)
     }
 
@@ -451,7 +544,7 @@ class NativeWorkerManager {
         }
       })
 
-      await this.request('worker/ping', {}, 10_000)
+      await this.performHandshake(workerPath)
       await this.verifyRequiredMethods(workerPath)
       console.log('[NativeWorker] IPC connected', {
         pid: child.pid ?? null,
@@ -463,15 +556,55 @@ class NativeWorkerManager {
       this.hasStartedOnce = true
       this.restartAttempts = 0
       this.clearSupervisedRestart()
+      this.lastFrameReceivedAt = Date.now()
       this.startHeartbeat()
+      this.setState('ready', null)
+      this.flushReplayQueue()
       if (reconnected) {
         console.log('[NativeWorker] recovered after unexpected exit; re-initializing runtimes')
         this.lifecycle.emit('reconnected')
       }
     } catch (error) {
-      this.closeWorker(asError(error))
+      const failure = asError(error)
+      this.closeWorker(failure)
+      if (failure.name === 'WorkerProtocolMismatchError') {
+        this.enterFatal(failure.message)
+      }
+      throw failure
+    }
+  }
+
+  // Version gate: refuse to serve traffic through a worker whose IPC contract
+  // does not match this supervisor build. Failing loudly here beats the subtle
+  // field-level corruption a silently mismatched binary produces.
+  private async performHandshake(workerPath: string): Promise<void> {
+    let hello: NativeWorkerHelloResult
+    try {
+      hello = await this.request<NativeWorkerHelloResult>('worker/hello', {}, 10_000)
+    } catch (error) {
+      const message = asError(error).message
+      if (/unsupported method/i.test(message)) {
+        throw createProtocolMismatchError(
+          `Native worker at ${workerPath} predates the handshake protocol.`
+        )
+      }
       throw error
     }
+
+    if (hello?.protocolVersion !== WORKER_PROTOCOL_VERSION) {
+      throw createProtocolMismatchError(
+        `Native worker at ${workerPath} speaks protocol ` +
+          `${typeof hello?.protocolVersion === 'number' ? `v${hello.protocolVersion}` : '(unreported)'}, ` +
+          `supervisor expects v${WORKER_PROTOCOL_VERSION}.`
+      )
+    }
+
+    logNativeWorkerDebug('handshake ok', {
+      workerPath,
+      pid: hello.pid ?? null,
+      protocolVersion: hello.protocolVersion,
+      appVersion: hello.appVersion ?? null
+    })
   }
 
   private async verifyRequiredMethods(workerPath: string): Promise<void> {
@@ -570,6 +703,7 @@ class NativeWorkerManager {
   }
 
   private handleResponseFrame(payload: Buffer): void {
+    this.lastFrameReceivedAt = Date.now()
     const routeStartedAt = performance.now()
     const route = readNativeMessagePackRoute(payload)
     if (
@@ -716,11 +850,34 @@ class NativeWorkerManager {
     }
 
     for (const pending of this.pending.values()) {
-      if (pending.timer) clearTimeout(pending.timer)
+      if (pending.timer) {
+        clearTimeout(pending.timer)
+        pending.timer = undefined
+      }
       pending.removeAbortListener?.()
-      pending.reject(error)
+      pending.removeAbortListener = undefined
+      // Read-only requests survive one restart: park them for replay on the
+      // fresh worker instead of failing the caller for a crash it can't act on.
+      if (
+        pending.replayable &&
+        !pending.replayed &&
+        !this.stopping &&
+        !this.autoRestartDisabled &&
+        !nativeWorkerShutdownLatched
+      ) {
+        pending.replayed = true
+        this.replayQueue.push(pending)
+      } else {
+        pending.reject(error)
+      }
     }
     this.pending.clear()
+
+    if (this.replayQueue.length > 0) {
+      console.log('[NativeWorker] parked idempotent requests for replay', {
+        count: this.replayQueue.length
+      })
+    }
 
     if (!this.stopping) {
       // Runs owned by the dead process are lost; let listeners fail them so the
@@ -728,7 +885,31 @@ class NativeWorkerManager {
       this.lifecycle.emit('disconnected')
     }
     if (!this.stopping && !this.autoRestartDisabled) {
+      this.setState('restarting', error.message)
       this.scheduleSupervisedRestart()
+    } else if (this.state !== 'fatal') {
+      this.setState('stopped', error.message)
+    }
+  }
+
+  private flushReplayQueue(): void {
+    if (this.replayQueue.length === 0) return
+    const queued = this.replayQueue.splice(0)
+    console.log('[NativeWorker] replaying idempotent requests', { count: queued.length })
+    for (const pending of queued) {
+      if (pending.signal?.aborted) {
+        pending.reject(createAbortError(pending.method))
+        continue
+      }
+      this.dispatchPending(pending)
+    }
+  }
+
+  private failReplayQueue(error: Error): void {
+    if (this.replayQueue.length === 0) return
+    const queued = this.replayQueue.splice(0)
+    for (const pending of queued) {
+      pending.reject(error)
     }
   }
 
@@ -740,6 +921,16 @@ class NativeWorkerManager {
   private scheduleSupervisedRestart(): void {
     if (nativeWorkerShutdownLatched) return
     if (this.autoRestartDisabled || this.stopping || this.restartTimer) return
+    if (this.restartAttempts >= NATIVE_WORKER_RESTART_FATAL_ATTEMPTS) {
+      console.error(
+        `[NativeWorker] giving up supervised restarts after ${this.restartAttempts} failed attempts`
+      )
+      this.enterFatal(
+        `Native worker failed to restart after ${this.restartAttempts} attempts` +
+          (this.lastError ? `: ${this.lastError}` : '')
+      )
+      return
+    }
 
     const backoff = Math.min(
       NATIVE_WORKER_RESTART_MAX_MS,
@@ -791,11 +982,16 @@ class NativeWorkerManager {
 
   private async runHeartbeat(): Promise<void> {
     if (!this.isRunning || this.stopping || this.autoRestartDisabled) return
-    // In-flight requests are their own liveness proof; probing while busy only
-    // risks a false positive that would recycle a healthy worker mid-run.
+    // A busy pipe proves liveness through its response/event frames — but a
+    // wedged worker with stuck in-flight requests emits none, so probe once the
+    // pipe has been silent for a full interval. worker/ping bypasses dispatch
+    // slots worker-side, so saturation cannot fake a death.
     if (this.pending.size > 0) {
-      this.heartbeatMisses = 0
-      return
+      const silentMs = Date.now() - this.lastFrameReceivedAt
+      if (silentMs < this.config.heartbeatIntervalMs) {
+        this.heartbeatMisses = 0
+        return
+      }
     }
 
     try {
@@ -948,6 +1144,12 @@ function createFrame(payload: Uint8Array): Buffer {
 function createAbortError(method: string): Error {
   const error = new Error(`Native worker request aborted: ${method}`)
   error.name = 'AbortError'
+  return error
+}
+
+function createProtocolMismatchError(detail: string): Error {
+  const error = new Error(`${detail} Run \`npm run native:publish\` and restart OpenCowork.`)
+  error.name = 'WorkerProtocolMismatchError'
   return error
 }
 

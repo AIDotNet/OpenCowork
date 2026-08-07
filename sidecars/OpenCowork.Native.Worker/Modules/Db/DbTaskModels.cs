@@ -49,6 +49,68 @@ internal sealed class TaskRow
     public long UpdatedAt { get; set; }
 }
 
+// TaskRow + joined session context for the cross-session task board.
+internal sealed class TaskBoardRow
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("session_id")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("plan_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? PlanId { get; set; }
+
+    [JsonPropertyName("subject")]
+    public string Subject { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
+
+    [JsonPropertyName("active_form")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? ActiveForm { get; set; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "pending";
+
+    [JsonPropertyName("owner")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Owner { get; set; }
+
+    [JsonPropertyName("blocks")]
+    public string Blocks { get; set; } = "[]";
+
+    [JsonPropertyName("blocked_by")]
+    public string BlockedBy { get; set; } = "[]";
+
+    [JsonPropertyName("metadata")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Metadata { get; set; }
+
+    [JsonPropertyName("sort_order")]
+    public int SortOrder { get; set; }
+
+    [JsonPropertyName("created_at")]
+    public long CreatedAt { get; set; }
+
+    [JsonPropertyName("updated_at")]
+    public long UpdatedAt { get; set; }
+
+    [JsonPropertyName("session_title")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? SessionTitle { get; set; }
+
+    [JsonPropertyName("session_mode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? SessionMode { get; set; }
+
+    [JsonPropertyName("session_working_folder")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? SessionWorkingFolder { get; set; }
+}
+
 internal sealed record TaskFindResult(
     bool Success,
     TaskRow? Task,

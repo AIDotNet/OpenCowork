@@ -69,9 +69,7 @@ interface InlineChangeSummary {
   deleted: number | null
 }
 
-function buildProgress(
-  items: Array<{ status: 'pending' | 'in_progress' | 'completed' }>
-): ProgressSummary {
+function buildProgress(items: Array<{ status: TaskItem['status'] }>): ProgressSummary {
   const total = items.length
   const completed = items.filter((item) => item.status === 'completed').length
   return {

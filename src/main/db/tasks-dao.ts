@@ -17,6 +17,12 @@ export interface TaskRow {
   updated_at: number
 }
 
+export interface TaskBoardRow extends TaskRow {
+  session_title: string | null
+  session_mode: string | null
+  session_working_folder: string | null
+}
+
 interface TaskFindResult {
   success: boolean
   task?: TaskRow | null
@@ -39,6 +45,10 @@ async function requestMutation(method: string, params: object): Promise<TaskMuta
 
 export function listTasksBySession(sessionId: string): Promise<TaskRow[]> {
   return getNativeWorker().request<TaskRow[]>('db/tasks-list-by-session', { sessionId }, 120_000)
+}
+
+export function listAllTasks(): Promise<TaskBoardRow[]> {
+  return getNativeWorker().request<TaskBoardRow[]>('db/tasks-list-all', {}, 120_000)
 }
 
 export async function getTask(id: string): Promise<TaskRow | undefined> {

@@ -127,7 +127,7 @@ internal static class AgentRuntimeTaskExecutor
 
         var updated = task;
         var changedFields = new List<string>();
-        if (newStatus is "pending" or "in_progress" or "completed")
+        if (newStatus is "pending" or "in_progress" or "blocked" or "in_review" or "completed")
         {
             updated.Status = newStatus;
             changedFields.Add("status");

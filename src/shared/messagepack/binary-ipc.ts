@@ -67,6 +67,7 @@ export const DB_PLANS_UPDATE_MSGPACK_CHANNEL = 'db:plans:update:msgpack'
 export const DB_PLANS_DELETE_MSGPACK_CHANNEL = 'db:plans:delete:msgpack'
 
 export const DB_TASKS_LIST_BY_SESSION_MSGPACK_CHANNEL = 'db:tasks:list-by-session:msgpack'
+export const DB_TASKS_LIST_ALL_MSGPACK_CHANNEL = 'db:tasks:list-all:msgpack'
 export const DB_TASKS_GET_MSGPACK_CHANNEL = 'db:tasks:get:msgpack'
 export const DB_TASKS_CREATE_MSGPACK_CHANNEL = 'db:tasks:create:msgpack'
 export const DB_TASKS_UPDATE_MSGPACK_CHANNEL = 'db:tasks:update:msgpack'

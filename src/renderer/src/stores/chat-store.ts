@@ -1394,6 +1394,12 @@ interface ChatStore {
   loadProjectSessions: (projectId: string) => Promise<void>
   loadMoreProjectSessions: (projectId: string) => Promise<void>
   loadMoreChatSessions: () => Promise<void>
+  /**
+   * Fetches and merges a session (and its project) into the store when it
+   * belongs to a project never loaded in this window (e.g. deep links from
+   * outside the sidebar tree). No-op if the session is already resident.
+   */
+  ensureSessionLoaded: (sessionId: string) => Promise<boolean>
   ensureSessionWindow: (sessionId: string, force?: boolean) => Promise<boolean>
   loadRecentSessionMessages: (sessionId: string, force?: boolean, limit?: number) => Promise<void>
   loadOlderSessionMessages: (sessionId: string, limit?: number) => Promise<number>
@@ -4279,6 +4285,55 @@ export const useChatStore = create<ChatStore>()(
       const session = get().sessions.find((s) => s.id === sessionId)
       if (!session) return []
       return loadRequestContextMessages(session, null)
+    },
+
+    ensureSessionLoaded: async (sessionId) => {
+      if (getSessionByIdFromState(get(), sessionId)) return true
+      try {
+        const result = await invokeMessagePackBinary<{ session?: SessionRow | null } | null>(
+          DB_SESSIONS_GET_MSGPACK_CHANNEL,
+          { id: sessionId, includeMessages: false }
+        )
+        const row = result?.session
+        if (!row) return false
+
+        let project: Project | undefined
+        if (row.project_id) {
+          project = get().projects.find((item) => item.id === row.project_id)
+          if (!project) {
+            const projectRow = await invokeMessagePackBinary<ProjectRow | null>(
+              DB_PROJECTS_GET_MSGPACK_CHANNEL,
+              row.project_id
+            )
+            if (projectRow) project = rowToProject(projectRow)
+          }
+        }
+
+        set((state) => {
+          if (project && !state.projects.some((item) => item.id === project!.id)) {
+            state.projects.push(project!)
+          }
+          const session = rowToSession(row, [])
+          if (project) {
+            session.workingFolder = project.workingFolder
+            session.sshConnectionId = project.sshConnectionId
+          }
+          if (session.messageCount === 0) {
+            session.messagesLoaded = true
+            session.loadedRangeStart = 0
+            session.loadedRangeEnd = 0
+            session.lastKnownMessageCount = 0
+          }
+          const existing = dedupeSessionsById(state, session.id)
+          if (existing) mergeSessionSummary(existing, session, { preserveLoadedMessages: true })
+          else state.sessions.push(session)
+          syncSessionsById(state)
+        })
+        return true
+      } catch (error) {
+        console.error('[ChatStore] Failed to ensure session loaded:', sessionId, error)
+        return false
+      }
     },
 
     loadProjectSessions: async (projectId) => {

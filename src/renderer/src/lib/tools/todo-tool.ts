@@ -30,7 +30,8 @@ const taskCreateHandler: ToolHandler = {
         },
         metadata: {
           type: 'object',
-          description: 'Arbitrary metadata to attach to the task'
+          description:
+            'Arbitrary metadata to attach to the task. Recognized keys shown on the task board: "priority" ("urgent"|"high"|"medium"|"low"), "tags" (string[]), "dueAt" (unix ms timestamp).'
         }
       },
       required: ['title']
@@ -85,8 +86,9 @@ const taskUpdateHandler: ToolHandler = {
         },
         status: {
           type: 'string',
-          enum: ['pending', 'in_progress', 'completed', 'deleted'],
-          description: 'New status for the task'
+          enum: ['pending', 'in_progress', 'blocked', 'in_review', 'completed', 'deleted'],
+          description:
+            'New status for the task. Use "blocked" when progress is stuck on an obstacle, "in_review" when work is done and awaiting user confirmation.'
         },
         addBlocks: {
           type: 'array',
@@ -101,7 +103,8 @@ const taskUpdateHandler: ToolHandler = {
         owner: { type: 'string', description: 'New owner for the task' },
         metadata: {
           type: 'object',
-          description: 'Metadata keys to merge into the task. Set a key to null to delete it.'
+          description:
+            'Metadata keys to merge into the task. Set a key to null to delete it. Recognized keys shown on the task board: "priority" ("urgent"|"high"|"medium"|"low"), "tags" (string[]), "dueAt" (unix ms timestamp).'
         }
       },
       required: ['taskId']

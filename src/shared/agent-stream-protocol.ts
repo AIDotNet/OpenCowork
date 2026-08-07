@@ -3,7 +3,10 @@
 
 // ---- Protocol version ----
 
-export const AGENT_STREAM_PROTOCOL_VERSION = 1
+// Sourced from the generated worker contract so the TS and C# ends of the
+// envelope version can never drift (see src/shared/worker-contracts/model.ts).
+export { AGENT_STREAM_PROTOCOL_VERSION } from './worker-contracts/generated/contracts'
+import { AGENT_STREAM_PROTOCOL_VERSION } from './worker-contracts/generated/contracts'
 
 // ---- Wire envelope ----
 

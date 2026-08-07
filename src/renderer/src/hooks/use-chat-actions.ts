@@ -216,6 +216,7 @@ import {
   runSidecarContextCompression,
   streamSidecarProviderTurn
 } from '@renderer/lib/ipc/agent-bridge'
+import { getNativeWorkerState } from '@renderer/lib/ipc/native-worker-state'
 import {
   buildSidecarAgentRunRequest,
   isNativeSidecarProviderConfig,
@@ -3733,14 +3734,36 @@ function createSidecarEventStream(options: {
       const startFirstProgressTimer = (): void => {
         clearFirstProgressTimer()
         firstProgressTimer = setTimeout(() => {
-          const error = new Error(
-            `Sidecar run started but produced no progress within ${Math.round(
-              SIDECAR_FIRST_PROGRESS_TIMEOUT_MS / 1000
-            )}s`
-          )
+          // The deadline only measures a READY worker's silence. While it is
+          // still starting or being supervision-restarted, re-arm instead of
+          // failing: cold boots legitimately spend 10-30s loading skills/index.
+          const workerState = getNativeWorkerState()
+          if (workerState.state === 'starting' || workerState.state === 'restarting') {
+            console.log('[ChatActions] first-progress deadline deferred; worker not ready yet', {
+              sessionId,
+              runId,
+              workerState: workerState.state,
+              logLabel
+            })
+            startFirstProgressTimer()
+            return
+          }
+          const error =
+            workerState.state === 'fatal'
+              ? new Error(
+                  `Local runtime is unavailable (native worker fatal): ${
+                    workerState.lastError ?? 'unknown error'
+                  }`
+                )
+              : new Error(
+                  `Sidecar run started but produced no progress within ${Math.round(
+                    SIDECAR_FIRST_PROGRESS_TIMEOUT_MS / 1000
+                  )}s`
+                )
           console.warn('[ChatActions] Sidecar run stalled before first progress event', {
             sessionId,
             runId,
+            workerState: workerState.state,
             logLabel
           })
           if (runId) {

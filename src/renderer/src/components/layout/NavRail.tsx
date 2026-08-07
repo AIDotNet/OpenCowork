@@ -7,6 +7,7 @@ import {
   Monitor,
   Settings,
   Sparkles,
+  SquareKanban,
   Wand2,
   Waypoints
 } from 'lucide-react'
@@ -22,6 +23,7 @@ import packageJson from '../../../../../package.json'
 
 const navItems: { value: NavItem | 'ssh'; icon: React.ReactNode; labelKey: string }[] = [
   { value: 'chat', icon: <MessageSquare className="size-5" />, labelKey: 'navRail.conversations' },
+  { value: 'taskboard', icon: <SquareKanban className="size-5" />, labelKey: 'navRail.taskBoard' },
   { value: 'tasks', icon: <CalendarDays className="size-5" />, labelKey: 'navRail.tasks' },
   { value: 'resources', icon: <FolderOpen className="size-5" />, labelKey: 'navRail.resources' },
   { value: 'skills', icon: <Wand2 className="size-5" />, labelKey: 'navRail.skills' },
@@ -45,12 +47,17 @@ export function NavRail(): React.JSX.Element {
   const drawPageOpen = useUIStore((s) => s.drawPageOpen)
   const translatePageOpen = useUIStore((s) => s.translatePageOpen)
   const tasksPageOpen = useUIStore((s) => s.tasksPageOpen)
+  const taskBoardPageOpen = useUIStore((s) => s.taskBoardPageOpen)
   const codeGraphPageOpen = useUIStore((s) => s.codeGraphPageOpen)
   const settingsPageOpen = useUIStore((s) => s.settingsPageOpen)
 
   const handleNavClick = (item: NavItem | 'ssh'): void => {
     if (item === 'tasks') {
       useUIStore.getState().openTasksPage()
+      return
+    }
+    if (item === 'taskboard') {
+      useUIStore.getState().openTaskBoardPage()
       return
     }
     if (item === 'skills') {
@@ -95,6 +102,7 @@ export function NavRail(): React.JSX.Element {
     if (ui.drawPageOpen) ui.closeDrawPage()
     if (ui.translatePageOpen) ui.closeTranslatePage()
     if (ui.tasksPageOpen) ui.closeTasksPage()
+    if (ui.taskBoardPageOpen) ui.closeTaskBoardPage()
     if (ui.codeGraphPageOpen) ui.closeCodeGraphPage()
     if (activeNavItem === item && leftSidebarOpen) {
       ui.toggleLeftSidebar()
@@ -114,6 +122,7 @@ export function NavRail(): React.JSX.Element {
         {navItems.map((item, index) => {
           const active =
             (item.value === 'tasks' && tasksPageOpen) ||
+            (item.value === 'taskboard' && taskBoardPageOpen) ||
             (item.value === 'resources' && resourcesPageOpen) ||
             (item.value === 'skills' && skillsPageOpen) ||
             (item.value === 'souls' && soulsPageOpen) ||
@@ -123,6 +132,7 @@ export function NavRail(): React.JSX.Element {
             (item.value === 'translate' && translatePageOpen) ||
             (![
               'tasks',
+              'taskboard',
               'resources',
               'skills',
               'souls',

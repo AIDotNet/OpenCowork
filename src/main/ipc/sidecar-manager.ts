@@ -1065,6 +1065,13 @@ export function registerSidecarHandlers(): void {
     safeSendMessagePackToAllWindows('sidecar:lifecycle', { state: 'reconnected' })
   })
 
+  // Fine-grained supervisor state (starting/ready/restarting/fatal) so the
+  // renderer can gate first-progress timeouts and show precise recovery UI
+  // instead of a generic "runtime unavailable" card.
+  getNativeWorker().onStateChange((snapshot) => {
+    safeSendMessagePackToAllWindows('sidecar:worker-state', snapshot)
+  })
+
   // When the worker dies mid-stream the renderer never receives a terminal
   // event and hangs on the run. Synthesize error + loop_end for each active run
   // so the UI fails gracefully; the supervisor respawns the worker underneath.
@@ -1695,6 +1702,12 @@ export function registerSidecarHandlers(): void {
       )
       return false
     }
+  })
+
+  // Pull-based snapshot for windows that mount after a state transition already
+  // fired (the push channel above only reaches live windows).
+  registerSidecarMessagePackHandler<unknown>('sidecar:worker-state', async () => {
+    return getNativeWorker().getStateSnapshot()
   })
 }
 

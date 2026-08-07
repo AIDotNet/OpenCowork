@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Dashboard",
+    "kanban": "Board",
+    "list": "List",
+    "gantt": "Timeline"
+  },
+  "columns": {
+    "pending": "To Do",
+    "in_progress": "In Progress",
+    "blocked": "Blocked",
+    "in_review": "For Review",
+    "completed": "Done"
+  },
+  "filters": {
+    "searchPlaceholder": "Search tasks…",
+    "allSessions": "All sessions",
+    "allPriorities": "All priorities",
+    "refresh": "Refresh"
+  },
+  "priority": {
+    "urgent": "Urgent",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
+    "none": "No priority"
+  },
+  "card": {
+    "blockedByCount": "{{count}} blocking",
+    "due": "Due {{date}}",
+    "running": "Agent running"
+  },
+  "column": {
+    "empty": "No tasks",
+    "confirmDone": "Confirm done"
+  },
+  "empty": {
+    "title": "No tasks yet",
+    "description": "Tasks created by agents across sessions will appear here. Ask an agent to plan complex work, or create tasks in a cowork session."
+  },
+  "detail": {
+    "title": "Task details",
+    "subject": "Title",
+    "description": "Description",
+    "descriptionPlaceholder": "No description",
+    "status": "Status",
+    "priority": "Priority",
+    "tags": "Tags",
+    "tagsPlaceholder": "tag1, tag2",
+    "dueAt": "Due date",
+    "noDue": "No due date",
+    "clearDue": "Clear",
+    "session": "Session",
+    "sessionLoadFailed": "Could not find that session",
+    "openSession": "Work on it in session",
+    "dependencies": "Dependencies",
+    "blocks": "Blocks",
+    "blockedBy": "Blocked by",
+    "createdAt": "Created",
+    "updatedAt": "Updated",
+    "delete": "Delete task",
+    "close": "Close",
+    "dispatchMessage": "Please continue working on the task: {{subject}}"
+  },
+  "list": {
+    "task": "Task",
+    "session": "Session",
+    "priority": "Priority",
+    "tags": "Tags",
+    "updated": "Updated",
+    "showCompleted": "Show completed"
+  },
+  "gantt": {
+    "noDated": "No tasks in this range",
+    "today": "Today"
+  },
+  "dashboard": {
+    "total": "Total tasks",
+    "activeSessions": "Sessions with tasks",
+    "blockedTasks": "Blocked tasks",
+    "completionRate": "Completion rate",
+    "byStatus": "Status distribution",
+    "trend": "Last 14 days",
+    "trendCreated": "Created",
+    "trendCompleted": "Completed",
+    "blockedList": "Currently blocked",
+    "noBlocked": "Nothing is blocked",
+    "recentSessions": "Sessions"
+  }
+}

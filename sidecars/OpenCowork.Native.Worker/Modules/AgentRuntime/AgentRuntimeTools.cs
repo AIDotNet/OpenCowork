@@ -3,7 +3,8 @@ using System.Text.Json;
 
 internal static class AgentRuntimeTools
 {
-    private const int StreamProtocolVersion = 1;
+    private const int StreamProtocolVersion =
+        OpenCowork.Contracts.Generated.WorkerContractConstants.AgentStreamProtocolVersion;
     private const int RuntimeProtocolVersion = 2;
     private const string CoreManifestHash =
         "cba1df437a6c37e73b0c151ebbcfb1045ebef6a232652f52a077ecaf7eab778a";

@@ -550,6 +550,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const drawPageOpen = useUIStore((state) => state.drawPageOpen)
   const translatePageOpen = useUIStore((state) => state.translatePageOpen)
   const tasksPageOpen = useUIStore((state) => state.tasksPageOpen)
+  const taskBoardPageOpen = useUIStore((state) => state.taskBoardPageOpen)
   const leftSidebarWidth = useUIStore((state) => state.leftSidebarWidth)
   const setLeftSidebarWidth = useUIStore((state) => state.setLeftSidebarWidth)
   const toggleLeftSidebar = useUIStore((state) => state.toggleLeftSidebar)
@@ -1347,6 +1348,13 @@ export function WorkspaceSidebar(): React.JSX.Element {
       icon: <CalendarDays className="size-4 shrink-0" />,
       active: tasksPageOpen,
       onClick: () => useUIStore.getState().openTasksPage()
+    },
+    {
+      key: 'taskboard',
+      label: t('sidebar.taskBoardLabel', { defaultValue: 'Task Board' }),
+      icon: <SquareKanban className="size-4 shrink-0" />,
+      active: taskBoardPageOpen,
+      onClick: () => useUIStore.getState().openTaskBoardPage()
     }
   ]
 

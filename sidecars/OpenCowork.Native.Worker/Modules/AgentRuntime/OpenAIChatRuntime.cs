@@ -1165,11 +1165,18 @@ internal static class OpenAIChatRuntime
         bool nativeTool,
         AgentRuntimePermissionPolicy permissionPolicy)
     {
-        // forceApproval is an explicit per-run escalation and beats the whitelist;
-        // the deny branch in ExecuteSingleToolCallAsync beats both.
+        // forceApproval is an explicit per-run escalation and beats full access / the whitelist;
+        // the deny branch in ExecuteSingleToolCallAsync beats every approval-skip mode.
         if (JsonHelpers.GetBool(parameters, "forceApproval", false))
         {
             return true;
+        }
+        if (string.Equals(
+                JsonHelpers.GetString(parameters, "permissionMode"),
+                "fullAccess",
+                StringComparison.Ordinal))
+        {
+            return false;
         }
         if (!nativeTool)
         {

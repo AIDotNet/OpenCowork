@@ -68,6 +68,7 @@ import {
   DB_TASKS_DELETE_BY_SESSION_MSGPACK_CHANNEL,
   DB_TASKS_DELETE_MSGPACK_CHANNEL,
   DB_TASKS_GET_MSGPACK_CHANNEL,
+  DB_TASKS_LIST_ALL_MSGPACK_CHANNEL,
   DB_TASKS_LIST_BY_SESSION_MSGPACK_CHANNEL,
   DB_TASKS_UPDATE_MSGPACK_CHANNEL,
   USAGE_ACTIVITY_BY_MODEL_MSGPACK_CHANNEL,
@@ -929,6 +930,10 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
   ipcMain.handle(DB_TASKS_LIST_BY_SESSION_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
     const sessionId = decodeMessagePackPayload<string>(bytes)
     return encodeMessagePackPayload(await tasksDao.listTasksBySession(sessionId))
+  })
+
+  ipcMain.handle(DB_TASKS_LIST_ALL_MSGPACK_CHANNEL, async () => {
+    return encodeMessagePackPayload(await tasksDao.listAllTasks())
   })
 
   ipcMain.handle(DB_TASKS_GET_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {

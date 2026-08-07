@@ -34,6 +34,20 @@ function currentRid() {
   throw new Error(`Unsupported native worker platform: ${process.platform}/${process.arch}`)
 }
 
+// A stale generated contract silently desynchronizes the TS and C# ends of the
+// worker IPC — exactly the class of bug the generator exists to prevent.
+function ensureFreshWorkerContracts(projectDir) {
+  const result = spawnSync(
+    process.execPath,
+    [path.join(projectDir, 'scripts', 'generate-worker-contracts.mjs'), '--check'],
+    { stdio: 'inherit' }
+  )
+  if (result.status !== 0) {
+    console.error('[predev] worker contracts are stale — run `npm run contracts:gen` and retry.')
+    process.exit(1)
+  }
+}
+
 function latestSourceMtime(directory) {
   let latest = 0
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -237,6 +251,7 @@ async function ensurePortAvailable(port) {
 
 async function main() {
   const projectDir = process.cwd()
+  ensureFreshWorkerContracts(projectDir)
   if (process.argv.includes('--native-only')) {
     publishNativeWorker(projectDir)
     return

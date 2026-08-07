@@ -23,6 +23,8 @@ import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
 import { agentBridge } from '@renderer/lib/ipc/agent-bridge'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useChatStore } from '@renderer/stores/chat-store'
+import { useSettingsStore } from '@renderer/stores/settings-store'
+import { evaluateToolPermission } from '../../../../shared/permission-policy'
 import {
   appendRuntimeContentBlock,
   appendRuntimeThinkingDelta,
@@ -119,9 +121,25 @@ function applyReattachEvent(ctx: ReattachRunContext, event: AgentStreamEvent): b
       return false
 
     case 'tool_call_start':
-    case 'tool_call_approval_needed':
       useAgentStore.getState().addToolCall(toToolCallState(event.toolCall, sessionId), sessionId)
       return false
+
+    case 'tool_call_approval_needed': {
+      // A replayed approval event may belong to a run that started before a settings change or
+      // renderer reload. Match the live-stream path and keep auto-resolved approvals out of the
+      // pending UI so reattachment cannot briefly flash a confirmation card.
+      const settings = useSettingsStore.getState()
+      const agentStore = useAgentStore.getState()
+      const willAutoResolve =
+        settings.autoApprove ||
+        evaluateToolPermission(event.toolCall.name, event.toolCall.input, settings.permissionPolicy)
+          .decision !== 'ask' ||
+        agentStore.approvedToolNames.includes(event.toolCall.name)
+      if (!willAutoResolve) {
+        agentStore.addToolCall(toToolCallState(event.toolCall, sessionId), sessionId)
+      }
+      return false
+    }
 
     case 'tool_call_update':
     case 'tool_call_result':

@@ -38,6 +38,69 @@ internal static class DbTaskTools
         }
     }
 
+    // Cross-session listing for the task board; joins session context in one pass.
+    public static WorkerResponse ListAll(JsonElement parameters)
+    {
+        try
+        {
+            using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT t.id,
+                       t.session_id,
+                       t.plan_id,
+                       t.subject,
+                       t.description,
+                       t.active_form,
+                       t.status,
+                       t.owner,
+                       t.blocks,
+                       t.blocked_by,
+                       t.metadata,
+                       t.sort_order,
+                       t.created_at,
+                       t.updated_at,
+                       s.title,
+                       s.mode,
+                       s.working_folder
+                  FROM tasks t
+                  LEFT JOIN sessions s ON s.id = t.session_id
+                 ORDER BY t.sort_order ASC, t.created_at ASC
+                """;
+            using var reader = command.ExecuteReader();
+            var rows = new List<TaskBoardRow>();
+            while (reader.Read())
+            {
+                rows.Add(new TaskBoardRow
+                {
+                    Id = reader.GetString(0),
+                    SessionId = reader.GetString(1),
+                    PlanId = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    Subject = reader.GetString(3),
+                    Description = reader.GetString(4),
+                    ActiveForm = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    Status = reader.GetString(6),
+                    Owner = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    Blocks = reader.IsDBNull(8) ? "[]" : reader.GetString(8),
+                    BlockedBy = reader.IsDBNull(9) ? "[]" : reader.GetString(9),
+                    Metadata = reader.IsDBNull(10) ? null : reader.GetString(10),
+                    SortOrder = reader.GetInt32(11),
+                    CreatedAt = reader.GetInt64(12),
+                    UpdatedAt = reader.GetInt64(13),
+                    SessionTitle = reader.IsDBNull(14) ? null : reader.GetString(14),
+                    SessionMode = reader.IsDBNull(15) ? null : reader.GetString(15),
+                    SessionWorkingFolder = reader.IsDBNull(16) ? null : reader.GetString(16)
+                });
+            }
+
+            return WorkerResponse.Json(rows, WorkerJsonContext.Default.ListTaskBoardRow);
+        }
+        catch (Exception ex)
+        {
+            return WorkerResponse.Error(ex.Message);
+        }
+    }
+
     public static WorkerResponse Get(JsonElement parameters)
     {
         try

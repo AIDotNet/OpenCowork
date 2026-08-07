@@ -605,20 +605,25 @@ internal static class AgentRuntimeGeminiInteractionsProvider
             return;
         }
 
-        var input = arguments.ValueKind switch
-        {
-            JsonValueKind.Object => arguments.Clone(),
-            JsonValueKind.String => TryParseJsonObject(arguments.GetString() ?? string.Empty, out var parsed)
+        var rawArguments = arguments.ValueKind == JsonValueKind.String
+            ? arguments.GetString() ?? string.Empty
+            : arguments.GetRawText();
+        var parsedSuccessfully = arguments.ValueKind == JsonValueKind.Object ||
+            (arguments.ValueKind == JsonValueKind.String &&
+             TryParseJsonObject(rawArguments, out _));
+        var input = arguments.ValueKind == JsonValueKind.Object
+            ? arguments.Clone()
+            : TryParseJsonObject(rawArguments, out var parsed)
                 ? parsed
-                : AgentRuntimeProviderSupport.CreateEmptyObjectElement(),
-            _ => AgentRuntimeProviderSupport.CreateEmptyObjectElement()
-        };
+                : AgentRuntimeProviderSupport.CreateEmptyObjectElement();
 
         parseState.FirstTokenMs ??= ElapsedMs(startedAt);
         await EmitToolCallAsync(
             JsonHelpers.GetString(step, "id"),
             name,
             input,
+            rawArguments,
+            parsedSuccessfully ? null : "Expected a valid JSON object.",
             parseState,
             state,
             context);
@@ -635,16 +640,28 @@ internal static class AgentRuntimeGeminiInteractionsProvider
             return;
         }
 
-        var input = TryParseJsonObject(pending.Arguments.ToString(), out var parsed)
+        var rawArguments = pending.Arguments.ToString();
+        var parsedSuccessfully = TryParseJsonObject(rawArguments, out var parsed);
+        var input = parsedSuccessfully
             ? parsed
             : AgentRuntimeProviderSupport.CreateEmptyObjectElement();
-        await EmitToolCallAsync(pending.Id, name, input, parseState, state, context);
+        await EmitToolCallAsync(
+            pending.Id,
+            name,
+            input,
+            rawArguments,
+            parsedSuccessfully ? null : "Expected a valid JSON object.",
+            parseState,
+            state,
+            context);
     }
 
     private static async Task EmitToolCallAsync(
         string? id,
         string name,
         JsonElement input,
+        string? rawArguments,
+        string? parseError,
         InteractionsParseState parseState,
         AgentRuntimeTools.AgentRuntimeRunState state,
         WorkerRequestContext context)
@@ -658,7 +675,12 @@ internal static class AgentRuntimeGeminiInteractionsProvider
         var callId = string.IsNullOrWhiteSpace(id)
             ? $"gemini_{name}_{parseState.ToolCalls.Count + 1}"
             : id;
-        parseState.ToolCalls.Add(new AgentRuntimeNativeToolCall(callId, name, input));
+        parseState.ToolCalls.Add(new AgentRuntimeNativeToolCall(
+            callId,
+            name,
+            input,
+            RawArguments: rawArguments,
+            ParseError: parseError));
 
         await AgentRuntimeTools.EmitAsync(
             state,

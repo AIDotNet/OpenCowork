@@ -1753,6 +1753,7 @@ export async function* runCanvasAssistantTurn(
       tools,
       runId,
       sessionId: `graph-agent:${projectId}`,
+      projectId,
       workingFolder,
       maxIterations: 20,
       maxParallelTools: 1,

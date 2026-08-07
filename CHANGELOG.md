@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.9] - 2026-08-07
+
+### Added
+
+- Added Agent Runtime v2 capability negotiation with versioned tool manifests,
+ session and project context binding, and runtime feature discovery.
+- Added agent-definition schema v2 parsing with explicit tool allowlists,
+ bounded turn limits, and compatibility warnings for legacy definitions.
+- Added dependency-free verification for compact request-view pairing and
+ truncation behavior.
+
+### Changed
+
+- Hardened sidecar tool authorization with manifest validation, provider-visible
+ tool reconciliation, input-schema checks, and project-scoped extension tools.
+- Preserved raw provider tool arguments and rejected malformed or hook-mutated
+ tool input before execution with structured error results.
+- Changed context compression to use the generated summary as the complete
+ model-visible history by default, while pairing boundaries and summaries by
+ id and keeping their ordering stable.
+
+### Fixed
+
+- Fixed compact summaries being missed when message sorting moved them before
+ their associated compression boundary.
+- Added session and canvas project checks to prevent capability snapshots from
+ being reused with the wrong agent run context.
+
 ## [1.2.8] - 2026-08-06
 
 ### Added

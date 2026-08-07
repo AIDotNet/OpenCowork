@@ -7,7 +7,6 @@ using System.Text.RegularExpressions;
 
 internal static partial class AgentRuntimeContextCompression
 {
-    private const int PreserveRecentCount = 12;
     private const int MaxRetries = 2;
     private const int MaxConsecutiveFailures = 3;
     private const int SafeBoundaryScanLimit = 10;
@@ -20,8 +19,10 @@ internal static partial class AgentRuntimeContextCompression
     private const string ResponsesSessionScope = "context-compression";
     private const string SystemPrompt =
         "You compress long AI coding-agent conversations into durable working memory. " +
+        "Your summary becomes the ONLY context the agent keeps — everything not in it is lost. " +
         "Preserve exact user intent, constraints, decisions, files touched, errors, test results, " +
-        "open tasks, and any facts needed to continue safely. Omit filler and obsolete details. " +
+        "open tasks, in-progress work state, and any facts needed to continue safely. " +
+        "Omit filler and obsolete details. " +
         "Return only a concise Markdown summary, with no preface.";
 
     private static readonly JsonWriterOptions WriterOptions = new()
@@ -61,7 +62,7 @@ internal static partial class AgentRuntimeContextCompression
             var focusPrompt = JsonHelpers.GetString(parameters, "focusPrompt");
             var pinnedContext = JsonHelpers.GetString(parameters, "pinnedContext");
             var preTokens = Math.Max(0, JsonHelpers.GetInt(parameters, "preTokens", 0));
-            var preserveCount = Math.Max(0, JsonHelpers.GetInt(parameters, "preserveCount", PreserveRecentCount));
+            var preserveCount = Math.Max(0, JsonHelpers.GetInt(parameters, "preserveCount", 0));
             var trigger = JsonHelpers.GetString(parameters, "trigger") ?? "manual";
             var response = await CompressMessagesAsync(
                 messages,
@@ -88,15 +89,18 @@ internal static partial class AgentRuntimeContextCompression
         WorkerRequestContext context,
         string? focusPrompt,
         int preTokens,
-        int preserveCount = PreserveRecentCount,
+        int preserveCount = 0,
         string trigger = "manual",
         string? pinnedContext = null)
     {
         var originalCount = messages.Count;
         var normalizedTrigger = trigger == "auto" ? "auto" : "manual";
         var minMessagesToCompress = normalizedTrigger == "manual" ? 1 : 2;
+        // Zero-preserve semantics: the summary replaces the entire prior context.
+        // FindSafeBoundary below still walks back only to avoid splitting a
+        // tool_use/tool_result pair across the boundary.
         var effectivePreserveCount = Math.Min(
-            Math.Max(PreserveRecentCount, preserveCount),
+            Math.Max(0, preserveCount),
             Math.Max(0, originalCount - minMessagesToCompress));
 
         if (originalCount < effectivePreserveCount + minMessagesToCompress)
@@ -248,13 +252,17 @@ internal static partial class AgentRuntimeContextCompression
             preTokens,
             messagesToCompress.Count,
             messagesToPreserve,
-            out var summaryId);
+            out var summaryId,
+            out var boundaryCreatedAt);
         var summaryMessage = CreateSummaryMessage(
             summaryId,
             summary,
             messagesToCompress.Count,
             messagesToPreserve.Count > 0,
-            summarizerFailed: false);
+            summarizerFailed: false,
+            // Keep the summary strictly after the boundary so createdAt-based
+            // reordering can never flip the pair.
+            boundaryCreatedAt + 1);
 
         var compressedMessages = new List<JsonElement>(2 + messagesToPreserve.Count)
         {
@@ -703,11 +711,14 @@ internal static partial class AgentRuntimeContextCompression
         int preTokens,
         int messagesSummarized,
         IReadOnlyList<JsonElement> preservedMessages,
-        out string summaryId)
+        out string summaryId,
+        out long createdAt)
     {
         var generatedSummaryId = $"oc_{Guid.NewGuid():N}";
         summaryId = generatedSummaryId;
         var boundaryId = $"oc_{Guid.NewGuid():N}";
+        var boundaryCreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        createdAt = boundaryCreatedAt;
         var headId = preservedMessages.Count > 0 ? JsonHelpers.GetString(preservedMessages[0], "id") : null;
         var tailId = preservedMessages.Count > 0
             ? JsonHelpers.GetString(preservedMessages[^1], "id")
@@ -717,7 +728,7 @@ internal static partial class AgentRuntimeContextCompression
             writer.WriteString("id", boundaryId);
             writer.WriteString("role", "system");
             writer.WriteString("content", "Conversation compacted");
-            writer.WriteNumber("createdAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            writer.WriteNumber("createdAt", boundaryCreatedAt);
             writer.WritePropertyName("meta");
             writer.WriteStartObject();
             writer.WritePropertyName("compactBoundary");
@@ -725,6 +736,9 @@ internal static partial class AgentRuntimeContextCompression
             writer.WriteString("trigger", trigger);
             writer.WriteNumber("preTokens", preTokens);
             writer.WriteNumber("messagesSummarized", messagesSummarized);
+            // Pair the boundary with its summary by id so request-view building
+            // survives any later reordering of the two rows.
+            writer.WriteString("summaryId", generatedSummaryId);
             if (!string.IsNullOrWhiteSpace(headId) && !string.IsNullOrWhiteSpace(tailId))
             {
                 writer.WritePropertyName("preservedSegment");
@@ -744,7 +758,8 @@ internal static partial class AgentRuntimeContextCompression
         string summary,
         int messagesSummarized,
         bool recentMessagesPreserved,
-        bool summarizerFailed)
+        bool summarizerFailed,
+        long? createdAt = null)
     {
         return CreateObjectElement(writer =>
         {
@@ -756,7 +771,7 @@ internal static partial class AgentRuntimeContextCompression
                 $"The following summary covers {messagesSummarized} earlier messages. " +
                 "Continue from this summary plus any messages that appear after the compression point.\n\n" +
                 summary);
-            writer.WriteNumber("createdAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            writer.WriteNumber("createdAt", createdAt ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             writer.WritePropertyName("meta");
             writer.WriteStartObject();
             writer.WritePropertyName("compactSummary");

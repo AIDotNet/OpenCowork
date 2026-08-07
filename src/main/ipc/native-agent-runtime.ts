@@ -1,4 +1,5 @@
 import { getNativeWorker, type NativeWorkerRawEventFrame } from '../lib/native-worker'
+import type { RuntimeInitializeResultV2 } from '../../shared/agent-runtime-v2'
 
 type RawEventHandler = (frame: NativeWorkerRawEventFrame) => void
 type RequestHandler = (id: number | string, method: string, params: unknown) => Promise<unknown>
@@ -25,9 +26,14 @@ export class NativeAgentRuntimeManager {
   private unsubscribeReverseCancel: (() => void) | null = null
   private unsubscribeReconnect: (() => void) | null = null
   private activeRunIds = new Set<string>()
+  private initializeResult: RuntimeInitializeResultV2 | null = null
 
   get isRunning(): boolean {
     return this.running && getNativeWorker().isRunning
+  }
+
+  get runtimeCapabilities(): RuntimeInitializeResultV2 | null {
+    return this.initializeResult
   }
 
   setRawEventHandler(handler: RawEventHandler): void {
@@ -70,7 +76,8 @@ export class NativeAgentRuntimeManager {
   async start(): Promise<boolean> {
     await getNativeWorker().ensureStarted()
     this.installEventBridge()
-    await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
+    const result = await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
+    this.initializeResult = this.validateInitializeResult(result)
     this.running = true
     return true
   }
@@ -87,6 +94,7 @@ export class NativeAgentRuntimeManager {
         .catch(() => {})
     }
     this.activeRunIds.clear()
+    this.initializeResult = null
     this.running = false
     this.unsubscribeRawAgentStream?.()
     this.unsubscribeRawAgentStream = null
@@ -105,16 +113,34 @@ export class NativeAgentRuntimeManager {
     if (!this.running) return
 
     try {
-      await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
+      const result = await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
+      this.initializeResult = this.validateInitializeResult(result)
       console.log('[NativeAgentRuntime] re-initialized after worker restart')
     } catch (error) {
       this.running = false
+      this.initializeResult = null
       console.warn(
         `[NativeAgentRuntime] re-initialize after worker restart failed: ${
           error instanceof Error ? error.message : String(error)
         }`
       )
     }
+  }
+
+  private validateInitializeResult(result: unknown): RuntimeInitializeResultV2 {
+    if (!isRecord(result) || result.ok !== true) {
+      throw new Error('Native Agent Runtime initialize returned an invalid result')
+    }
+    if (result.protocolVersion !== 2) {
+      throw new Error(`Unsupported Native Agent Runtime protocol: ${String(result.protocolVersion)}`)
+    }
+    if (!isRecord(result.features)) {
+      throw new Error('Native Agent Runtime did not report feature capabilities')
+    }
+    if (result.features.capabilitySnapshot !== true || result.features.strictToolValidation !== true) {
+      throw new Error('Native Agent Runtime is missing required v2 safety features')
+    }
+    return result as unknown as RuntimeInitializeResultV2
   }
 
   async request(method: string, params?: unknown, timeoutMs = 30_000): Promise<unknown> {

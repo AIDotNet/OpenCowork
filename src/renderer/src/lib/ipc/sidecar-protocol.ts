@@ -9,7 +9,6 @@
 } from '../api/types'
 import type { ToolCallState } from '../agent/types'
 import type { CompressionConfig } from '../agent/context-compression'
-import { toolRegistry } from '../agent/tool-registry'
 import { resolveProviderUserAgent } from '../api/api-user-agent'
 import { summarizeToolInputForHistory } from '../tools/tool-input-sanitizer'
 import { clampMaxConcurrentSubAgents, useSettingsStore } from '@renderer/stores/settings-store'
@@ -18,6 +17,12 @@ import {
   toPermissionPolicySnapshot,
   type PermissionPolicySnapshot
 } from '../../../../shared/permission-policy'
+import {
+  AGENT_RUNTIME_PROTOCOL_VERSION,
+  createCapabilitySnapshotV2,
+  type CapabilitySnapshotV2,
+  type RuntimeRolloutMode
+} from '../../../../shared/agent-runtime-v2'
 
 export interface SidecarTextBlock {
   type: 'text'
@@ -213,6 +218,8 @@ export interface SidecarCanvasContext {
 }
 
 export interface SidecarAgentRunRequest {
+  runtimeProtocolVersion?: typeof AGENT_RUNTIME_PROTOCOL_VERSION
+  rolloutMode?: RuntimeRolloutMode
   messages: SidecarUnifiedMessage[]
   contextSource?: SidecarContextSource
   liveOverlayMessages?: SidecarUnifiedMessage[]
@@ -232,6 +239,9 @@ export interface SidecarAgentRunRequest {
   subAgentProvider?: SidecarProviderConfig
   runId?: string
   sessionId?: string
+  projectId?: string
+  sessionPromptMode?: string
+  capabilitySnapshot?: CapabilitySnapshotV2
   workingFolder?: string
   maxIterations: number
   forceApproval: boolean
@@ -598,6 +608,9 @@ export function buildSidecarAgentRunRequest(args: {
   tools: ToolDefinition[]
   runId?: string
   sessionId?: string
+  projectId?: string | null
+  sessionPromptMode?: string
+  rolloutMode?: RuntimeRolloutMode
   workingFolder?: string
   maxIterations: number
   forceApproval: boolean
@@ -642,16 +655,24 @@ export function buildSidecarAgentRunRequest(args: {
 
   const maxParallelTools = normalizeMaxParallelTools(args.maxParallelTools)
   const webSearch = mapSidecarWebSearchConfig(args.tools)
-  const parentToolNames = new Set(args.tools.map((tool) => tool.name))
-  const subAgentToolCatalog = toolRegistry
-    .getStableDefinitions()
-    .filter((tool) => !parentToolNames.has(tool.name))
-    .map(mapSidecarTool)
   // Global settings snapshot, applied to every run this module builds (incl. sub-agents,
   // which inherit the parent's parameters in the native worker).
   const settings = useSettingsStore.getState()
   const permissionPolicy = toPermissionPolicySnapshot(settings.permissionPolicy)
   const maxConcurrentSubAgents = clampMaxConcurrentSubAgents(settings.maxConcurrentSubAgents)
+  const capabilitySnapshot = createCapabilitySnapshotV2({
+    sessionId: args.sessionId ?? '',
+    projectId: args.projectId,
+    mode: args.sessionPromptMode ?? args.sessionMode ?? 'agent',
+    callerType: args.callerAgent ? 'system' : args.pluginId ? 'plugin' : 'root',
+    tools: args.tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema as Record<string, unknown>
+    })),
+    permissionPolicy,
+    settingsRevision: 'renderer-current'
+  })
   const imagePluginProvider = args.imagePluginProvider
     ? mapSidecarProvider(args.imagePluginProvider)
     : null
@@ -681,18 +702,22 @@ export function buildSidecarAgentRunRequest(args: {
   }
 
   return {
+    runtimeProtocolVersion: AGENT_RUNTIME_PROTOCOL_VERSION,
+    rolloutMode: args.rolloutMode ?? 'v2',
     messages,
     ...(args.contextSource ? { contextSource: args.contextSource } : {}),
     ...(liveOverlayMessages.length > 0 ? { liveOverlayMessages } : {}),
     provider,
     ...(compressionProvider ? { compressionProvider } : {}),
     tools: args.tools.map(mapSidecarTool),
-    ...(subAgentToolCatalog.length > 0 ? { subAgentToolCatalog } : {}),
+    capabilitySnapshot,
     ...(webSearch ? { webSearch } : {}),
     ...(imagePluginProvider ? { imagePluginProvider } : {}),
     ...(subAgentProvider ? { subAgentProvider } : {}),
     ...(args.runId ? { runId: args.runId } : {}),
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+    ...(args.projectId ? { projectId: args.projectId } : {}),
+    ...(args.sessionPromptMode ? { sessionPromptMode: args.sessionPromptMode } : {}),
     ...(args.workingFolder ? { workingFolder: args.workingFolder } : {}),
     ...(args.compression ? { compression: args.compression } : {}),
     maxIterations: args.maxIterations,

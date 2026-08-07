@@ -725,6 +725,120 @@ async function main() {
 
     await client.request('agent/cancel', { runId: 'windowing-run' }).catch(() => {})
 
+    // Sort-order normalization can move a compact summary before its boundary
+    // (same createdAt). The request view must still pair them by summaryId and
+    // keep the request compacted instead of falling back to the full history.
+    const flippedSessionId = 'session-flipped-compact'
+    await client.request('db/sessions-create', {
+      dbPath,
+      id: flippedSessionId,
+      title: 'Flipped compact smoke',
+      mode: 'chat',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    })
+    const flippedNow = Date.now()
+    await client.request('db/messages-add-batch', {
+      dbPath,
+      messages: [
+        ...Array.from({ length: 40 }, (_, index) => ({
+          id: `flip-${index}`,
+          sessionId: flippedSessionId,
+          role: index % 2 === 0 ? 'user' : 'assistant',
+          content: messageContent(`flip message ${index}`),
+          meta: null,
+          createdAt: flippedNow + index,
+          usage:
+            index === 39
+              ? JSON.stringify({ inputTokens: 900, outputTokens: 9, contextTokens: 900 })
+              : null,
+          sortOrder: index
+        })),
+        {
+          id: 'flip-summary',
+          sessionId: flippedSessionId,
+          role: 'user',
+          content: messageContent(
+            '[Context Memory Compressed Summary]\n\nSummary of flip messages 0 through 39.'
+          ),
+          meta: JSON.stringify({
+            compactSummary: { messagesSummarized: 40, recentMessagesPreserved: false }
+          }),
+          createdAt: flippedNow + 100,
+          usage: null,
+          sortOrder: 40
+        },
+        {
+          id: 'flip-boundary',
+          sessionId: flippedSessionId,
+          role: 'system',
+          content: messageContent('Conversation compacted'),
+          meta: JSON.stringify({
+            compactBoundary: {
+              trigger: 'manual',
+              preTokens: 900,
+              messagesSummarized: 40,
+              summaryId: 'flip-summary'
+            }
+          }),
+          createdAt: flippedNow + 100,
+          usage: null,
+          sortOrder: 41
+        },
+        {
+          id: 'flip-after',
+          sessionId: flippedSessionId,
+          role: 'user',
+          content: messageContent('flip follow-up after compaction'),
+          meta: null,
+          createdAt: flippedNow + 200,
+          usage: null,
+          sortOrder: 42
+        }
+      ]
+    })
+    const flippedDebugPromise = waitForRequestDebug(client, 'flipped-compact-run')
+    await client.request('agent/run', {
+      dbPath,
+      runId: 'flipped-compact-run',
+      sessionId: flippedSessionId,
+      messages: [],
+      contextSource: {
+        sessionId: flippedSessionId,
+        maxMessages: 60,
+        compressionMode: 'auto'
+      },
+      provider: {
+        type: 'openai-chat',
+        apiKey: 'test-key',
+        baseUrl: 'http://127.0.0.1:9/v1',
+        model: 'windowing-smoke-model'
+      },
+      tools: [],
+      maxIterations: 1,
+      forceApproval: false,
+      includeFullDebugBody: true
+    })
+    const flippedDebugInfo = await flippedDebugPromise
+    const flippedBody = parseDebugBody(flippedDebugInfo)
+    if (flippedBody) {
+      assert(
+        flippedBody.includes('Summary of flip messages 0 through 39'),
+        'flipped compact view omitted the summary'
+      )
+      assert(
+        flippedBody.includes('flip follow-up after compaction'),
+        'flipped compact view omitted the post-compaction tail'
+      )
+      assert(
+        !flippedBody.includes('flip message 5'),
+        'flipped compact view leaked pre-summary history'
+      )
+    } else {
+      console.warn('request_debug body unavailable; skipping flipped-compact assertions')
+    }
+    await client.request('agent/cancel', { runId: 'flipped-compact-run' }).catch(() => {})
+
     const clearedProjectless = await client.request('db/sessions-clear-project', {
       dbPath,
       projectId: null,

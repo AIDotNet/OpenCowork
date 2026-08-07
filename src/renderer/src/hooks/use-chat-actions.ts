@@ -197,6 +197,10 @@ import {
 import { ensureDefaultChatWorkingFolder } from '@renderer/lib/chat-working-folder'
 import { ensureRequestToolCatalogFresh } from '@renderer/lib/tools/dynamic-tool-catalog'
 import {
+  buildExtensionToolDefinitionsForProject,
+  replaceExtensionToolDefinitions
+} from '@renderer/lib/extensions/extension-tools'
+import {
   escapeGoalXmlText,
   goalStatusLabel,
   validateGoalObjective
@@ -3577,6 +3581,7 @@ async function canUseSidecarForAgentRun(args: {
   provider: ProviderConfig
   tools: ToolDefinition[]
   sessionId?: string
+  projectId?: string | null
   workingFolder?: string
   sshConnectionId?: string
   maxIterations: number
@@ -3597,6 +3602,8 @@ async function canUseSidecarForAgentRun(args: {
     provider: args.provider,
     tools: args.tools,
     sessionId: args.sessionId,
+    projectId: args.projectId,
+    sessionPromptMode: args.sessionMode,
     workingFolder: args.workingFolder,
     sshConnectionId: args.sshConnectionId,
     maxIterations: args.maxIterations,
@@ -4589,6 +4596,9 @@ export function useChatActions(): {
         sessionAbortControllers.set(sessionId, abortController)
 
         await ensureRequestToolCatalogFresh()
+        const scopedExtensionToolDefs = await buildExtensionToolDefinitionsForProject(
+          session?.projectId ?? null
+        )
 
         const mode = sessionMode
         const activeChannels = useChannelStore.getState().getActiveChannels()
@@ -4619,7 +4629,10 @@ export function useChatActions(): {
         }
         const chatMcpContext =
           mode === 'chat' ? resolveActiveMcpContext(session?.projectId ?? null) : null
-        const registeredToolDefs = toolRegistry.getStableDefinitions()
+        const registeredToolDefs = replaceExtensionToolDefinitions(
+          toolRegistry.getStableDefinitions(),
+          scopedExtensionToolDefs
+        )
         const baseChatModeToolDefs =
           mode === 'chat' &&
           !(providerResolution.modelConfig?.category === 'image' && source !== 'continue')
@@ -4772,7 +4785,10 @@ export function useChatActions(): {
             chatMcpContext ?? resolveActiveMcpContext(session?.projectId ?? null)
 
           // Filter out team tools when the feature is disabled. Capture after registration changes.
-          const allToolDefs = toolRegistry.getStableDefinitions()
+          const allToolDefs = replaceExtensionToolDefinitions(
+            toolRegistry.getStableDefinitions(),
+            scopedExtensionToolDefs
+          )
           const finalToolDefs = filterTeamToolDefinitions(allToolDefs, settings.teamToolsEnabled)
           let promptCandidateToolDefs = finalToolDefs
 
@@ -5172,6 +5188,8 @@ export function useChatActions(): {
               tools: effectiveToolDefs,
               runId: sidecarRunId,
               sessionId,
+              projectId: session?.projectId,
+              sessionPromptMode: sessionMode,
               workingFolder: sessionWorkingFolder,
               maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
               forceApproval: false,
@@ -5206,6 +5224,7 @@ export function useChatActions(): {
               provider: agentProviderConfig,
               tools: effectiveToolDefs,
               sessionId,
+              projectId: session?.projectId,
               workingFolder: sessionWorkingFolder,
               sshConnectionId: session?.sshConnectionId,
               maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
@@ -6756,6 +6775,8 @@ export function useChatActions(): {
         messages,
         provider: scopedConfig,
         focusPrompt: focusPrompt || undefined,
+        // Zero-preserve: the summary becomes the entire model-visible context.
+        preserveCount: 0,
         preTokens
       })
       if (result.summarizerFailed) {
@@ -7048,6 +7069,8 @@ async function runSimpleChat(
     provider: config,
     tools: [],
     sessionId,
+    projectId: chatStore.sessions.find((item) => item.id === sessionId)?.projectId,
+    sessionPromptMode: 'chat',
     maxIterations: 1,
     forceApproval: false,
     sessionMode: 'chat',

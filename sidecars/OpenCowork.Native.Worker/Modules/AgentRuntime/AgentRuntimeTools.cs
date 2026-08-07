@@ -3,8 +3,12 @@ using System.Text.Json;
 
 internal static class AgentRuntimeTools
 {
-    private const int ProtocolVersion = 1;
+    private const int StreamProtocolVersion = 1;
+    private const int RuntimeProtocolVersion = 2;
+    private const string CoreManifestHash =
+        "cba1df437a6c37e73b0c151ebbcfb1045ebef6a232652f52a077ecaf7eab778a";
     private const int MaxConcurrentRuns = 8;
+    private static readonly string WorkerInstanceId = Guid.NewGuid().ToString("N");
     private static readonly ConcurrentDictionary<string, AgentRuntimeRunState> ActiveRuns = new(StringComparer.Ordinal);
     private static readonly SemaphoreSlim RunSlots = new(MaxConcurrentRuns, MaxConcurrentRuns);
     private static long generatedRunId;
@@ -14,7 +18,7 @@ internal static class AgentRuntimeTools
         _ = parameters;
         WorkerLog.Info("agent runtime initialized runtime=native-aot");
         return WorkerResponse.Json(
-            new AgentRuntimeInitializeResult(true, "native-aot", "0.1"),
+            CreateInitializeResult(),
             WorkerJsonContext.Default.AgentRuntimeInitializeResult);
     }
 
@@ -39,7 +43,7 @@ internal static class AgentRuntimeTools
         AgentRuntimeSubAgentCancellationScope.CancelAll("shutdown");
         WorkerLog.Info("agent runtime shutdown");
         return WorkerResponse.Json(
-            new AgentRuntimeInitializeResult(true, "native-aot", "0.1"),
+            CreateInitializeResult(),
             WorkerJsonContext.Default.AgentRuntimeInitializeResult);
     }
 
@@ -89,6 +93,13 @@ internal static class AgentRuntimeTools
 
     public static Task<WorkerResponse> RunAsync(JsonElement parameters, WorkerRequestContext context)
     {
+        var capabilityError = AgentRuntimeCapabilityPolicy.ValidateRunRequest(parameters);
+        if (capabilityError is not null)
+        {
+            WorkerLog.Warn($"agent run rejected reason={FormatLogValue(capabilityError)}");
+            return Task.FromResult(WorkerResponse.Error(capabilityError));
+        }
+
         if (!RunSlots.Wait(0))
         {
             return Task.FromResult(WorkerResponse.Error(
@@ -319,7 +330,7 @@ internal static class AgentRuntimeTools
         }
 
         var envelope = new AgentRuntimeStreamEnvelope(
-            ProtocolVersion,
+            StreamProtocolVersion,
             state.RunId,
             state.SessionId,
             state.NextSeq(),
@@ -341,6 +352,31 @@ internal static class AgentRuntimeTools
                 $"agent stream emitted transport=msgpack runId={state.RunId} seq={envelope.Seq} " +
                 $"events={events.Length} bytes={messagePackEvent.Payload.Length}");
         }
+    }
+
+    private static AgentRuntimeInitializeResult CreateInitializeResult()
+    {
+        return new AgentRuntimeInitializeResult(
+            true,
+            "native-aot",
+            "0.2",
+            RuntimeProtocolVersion,
+            [2],
+            CoreManifestHash,
+            WorkerInstanceId,
+            new AgentRuntimeFeatureSet(
+                CapabilitySnapshot: true,
+                StrictToolValidation: true,
+                DurableEvents: false,
+                DurableInbox: false,
+                CheckpointRecovery: false,
+                ToolReconciliation: false,
+                LaneScheduler: false),
+            new AgentRuntimeCompatibility(
+                AcceptsV1RunRequest: true,
+                CanRecoverV2Run: false,
+                MinimumRendererVersion: "1.2.8",
+                MinimumMainVersion: "1.2.8"));
     }
 
     private static string NormalizeRunId(string? runId)

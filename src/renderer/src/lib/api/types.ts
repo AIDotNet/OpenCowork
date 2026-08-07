@@ -211,6 +211,8 @@ export interface CompactBoundaryMeta {
   trigger: 'auto' | 'manual'
   preTokens: number
   messagesSummarized: number
+  /** Id of the paired compactSummary message; survives row reordering. */
+  summaryId?: string
   preservedSegment?: CompactBoundarySegment
 }
 

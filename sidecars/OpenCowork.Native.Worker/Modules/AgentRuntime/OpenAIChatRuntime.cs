@@ -14,7 +14,6 @@ internal static class OpenAIChatRuntime
     private const double DefaultContextCompressionThreshold = 0.8;
     private const int DefaultContextCompressionReservedOutputTokens = 20_000;
     private const int ContextCompressionAutoBufferTokens = 13_000;
-    private const int ContextCompressionPreserveRecentMessages = 12;
     private const int ContextSourceHeadMessageLimit = 12;
     private const string PlanModeTurnContextText =
         "<turn-context>\n" +
@@ -138,7 +137,8 @@ internal static class OpenAIChatRuntime
                     try
                     {
                         var originalCount = wireConversation.Count;
-                        var preserveCount = GetCompressionPreserveCount(wireConversation);
+                        // Zero-preserve: the compression summary replaces the whole prior context.
+                        const int preserveCount = 0;
                         WorkerLog.Info(
                             $"agent context compression start runId={state.RunId} tokens={lastInputTokens} " +
                             $"messages={originalCount} preserveCount={preserveCount}");
@@ -540,13 +540,6 @@ internal static class OpenAIChatRuntime
             }
         }
         return 0;
-    }
-
-    private static int GetCompressionPreserveCount(IReadOnlyList<JsonElement> messages)
-    {
-        return Math.Min(
-            ContextCompressionPreserveRecentMessages,
-            Math.Max(0, messages.Count - 2));
     }
 
     private static bool IsCompactSummaryLikeMessage(JsonElement message)
@@ -1062,10 +1055,17 @@ internal static class OpenAIChatRuntime
                 ? $"call_{buffer.Index}_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"
                 : buffer.Id;
             var name = buffer.Name;
-            var input = TryParseJsonObject(buffer.Arguments.ToString(), out var parsedInput)
+            var rawArguments = buffer.Arguments.ToString();
+            var parsed = TryParseJsonObject(rawArguments, out var parsedInput);
+            var input = parsed
                 ? parsedInput
                 : CreateEmptyObjectElement();
-            completedToolCalls.Add(new AgentRuntimeNativeToolCall(id, name, input));
+            completedToolCalls.Add(new AgentRuntimeNativeToolCall(
+                id,
+                name,
+                input,
+                RawArguments: rawArguments,
+                ParseError: parsed ? null : "Expected a valid JSON object."));
         }
         toolBuffers.Clear();
     }
@@ -1190,6 +1190,46 @@ internal static class OpenAIChatRuntime
     {
         var hookContextTexts = new List<string>();
         var call = originalCall;
+        var authorization = AgentRuntimeCapabilityPolicy.Resolve(parameters, call.Name);
+        if (!authorization.Authorized || !authorization.Visible)
+        {
+            if (AgentRuntimeSubAgentExecutor.IsTaskTool(call.Name) &&
+                AgentRuntimeSubAgentExecutor.IsSubAgentRun(parameters))
+            {
+                state.RequestStop("error");
+            }
+            return await RejectToolCallBeforeExecutionAsync(
+                call,
+                authorization.ErrorCode ?? "tool_not_authorized",
+                authorization.ErrorMessage ?? $"Tool '{call.Name}' is not authorized.",
+                state,
+                context);
+        }
+        if (!string.IsNullOrWhiteSpace(call.ParseError))
+        {
+            WorkerLog.Warn(
+                $"agent tool arguments rejected runId={state.RunId} tool={call.Name} id={call.Id} " +
+                $"rawLength={call.RawArguments?.Length ?? 0}");
+            return await RejectToolCallBeforeExecutionAsync(
+                call,
+                "invalid_tool_arguments",
+                $"Tool '{call.Name}' arguments are not valid JSON: {call.ParseError}",
+                state,
+                context);
+        }
+        var validation = AgentRuntimeToolSchemaValidator.Validate(
+            authorization.InputSchema!.Value,
+            call.Input);
+        if (!validation.Valid)
+        {
+            return await RejectToolCallBeforeExecutionAsync(
+                call,
+                "invalid_tool_arguments",
+                $"Tool '{call.Name}' arguments failed validation at {validation.Path}: " +
+                    validation.Message,
+                state,
+                context);
+        }
         var nativeTool = AgentRuntimeNativeToolExecutor.CanExecute(call.Name, parameters);
         WorkerLog.Debug(
             $"agent tool dispatch runId={state.RunId} tool={call.Name} id={call.Id} " +
@@ -1207,6 +1247,19 @@ internal static class OpenAIChatRuntime
         if (preHook.UpdatedInput.HasValue && preHook.UpdatedInput.Value.ValueKind == JsonValueKind.Object)
         {
             call = call with { Input = preHook.UpdatedInput.Value.Clone() };
+            validation = AgentRuntimeToolSchemaValidator.Validate(
+                authorization.InputSchema!.Value,
+                call.Input);
+            if (!validation.Valid)
+            {
+                return await RejectToolCallBeforeExecutionAsync(
+                    call,
+                    "invalid_tool_arguments",
+                    $"PreToolUse produced invalid arguments at {validation.Path}: {validation.Message}",
+                    state,
+                    context,
+                    hookContextTexts);
+            }
             nativeTool = AgentRuntimeNativeToolExecutor.CanExecute(call.Name, parameters);
             requiresApproval = ComputeRequiresApproval(parameters, call, nativeTool, permissionPolicy);
         }
@@ -1407,6 +1460,44 @@ internal static class OpenAIChatRuntime
                 result.IsError ? true : null),
             hookContextTexts,
             nestedSubAgentTask || postHook.Blocked);
+    }
+
+    private static async Task<AgentRuntimeSingleToolExecutionResult> RejectToolCallBeforeExecutionAsync(
+        AgentRuntimeNativeToolCall call,
+        string code,
+        string message,
+        AgentRuntimeTools.AgentRuntimeRunState state,
+        WorkerRequestContext context,
+        List<string>? hookContextTexts = null)
+    {
+        var content = CreateStringElement($"{code}: {message}");
+        var rejectedAt = NowMs();
+        await AgentRuntimeTools.EmitAsync(
+            state,
+            context,
+            new AgentRuntimeStreamEvent(
+                "tool_use_generated",
+                ToolUseBlock: new AgentRuntimeToolUseBlock(
+                    call.Id,
+                    call.Name,
+                    call.Input,
+                    call.ExtraContent)),
+            new AgentRuntimeStreamEvent(
+                "tool_call_result",
+                ToolCall: new AgentRuntimeToolCallState(
+                    call.Id,
+                    call.Name,
+                    call.Input,
+                    "error",
+                    content,
+                    code,
+                    false,
+                    rejectedAt,
+                    rejectedAt)));
+        return new AgentRuntimeSingleToolExecutionResult(
+            new AgentRuntimeToolResult(call.Id, content, true),
+            hookContextTexts ?? [],
+            false);
     }
 
     private static void AppendHookContextText(List<string> target, AgentRuntimeHookResult hookResult)
@@ -3164,7 +3255,7 @@ internal static class OpenAIChatRuntime
             }
         }
 
-        var trailingStartIndex = summaryIndex >= 0 ? summaryIndex + 1 : boundaryIndex + 1;
+        var trailingStartIndex = Math.Max(boundaryIndex, summaryIndex) + 1;
         for (var index = Math.Max(0, trailingStartIndex); index < messages.Count; index++)
         {
             AppendCompactRequestMessage(compactMessages, seenIds, messages[index], boundaryId, summaryId);
@@ -3175,6 +3266,21 @@ internal static class OpenAIChatRuntime
 
     private static int FindCompactSummaryIndex(IReadOnlyList<JsonElement> messages, int boundaryIndex)
     {
+        // Prefer the id pairing recorded on the boundary so the pair survives
+        // sort-order normalization that may move the summary before the boundary.
+        var pairedSummaryId = GetBoundaryPairedSummaryId(messages[boundaryIndex]);
+        if (!string.IsNullOrEmpty(pairedSummaryId))
+        {
+            for (var index = 0; index < messages.Count; index++)
+            {
+                if (GetWireMessageId(messages[index]) == pairedSummaryId &&
+                    IsCompactSummaryLikeMessage(messages[index]))
+                {
+                    return index;
+                }
+            }
+        }
+
         for (var index = boundaryIndex + 1; index < messages.Count; index++)
         {
             if (IsCompactBoundaryMessage(messages[index]))
@@ -3187,6 +3293,30 @@ internal static class OpenAIChatRuntime
             }
         }
         return -1;
+    }
+
+    private static string? GetBoundaryPairedSummaryId(JsonElement boundary)
+    {
+        if (boundary.ValueKind != JsonValueKind.Object ||
+            !boundary.TryGetProperty("meta", out var meta) ||
+            meta.ValueKind != JsonValueKind.Object ||
+            !meta.TryGetProperty("compactBoundary", out var compactBoundary) ||
+            compactBoundary.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var summaryId = JsonHelpers.GetString(compactBoundary, "summaryId");
+        if (!string.IsNullOrEmpty(summaryId))
+        {
+            return summaryId;
+        }
+
+        // Legacy boundaries recorded the pairing on preservedSegment.anchorId.
+        return compactBoundary.TryGetProperty("preservedSegment", out var segment) &&
+            segment.ValueKind == JsonValueKind.Object
+            ? JsonHelpers.GetString(segment, "anchorId")
+            : null;
     }
 
     private static bool IsCompactArtifactMessage(JsonElement message)
@@ -3575,8 +3705,9 @@ internal static class OpenAIChatRuntime
             return false;
         }
 
-        var arguments = ReadString(function, "arguments");
-        var input = TryParseJsonObject(arguments ?? string.Empty, out var parsedInput)
+        var arguments = ReadString(function, "arguments") ?? string.Empty;
+        var parsed = TryParseJsonObject(arguments, out var parsedInput);
+        var input = parsed
             ? parsedInput
             : CreateEmptyObjectElement();
         toolCall = new AgentRuntimeNativeToolCall(
@@ -3584,7 +3715,9 @@ internal static class OpenAIChatRuntime
                 ? $"call_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"
                 : id,
             name,
-            input);
+            input,
+            RawArguments: arguments,
+            ParseError: parsed ? null : "Expected a valid JSON object.");
         return true;
     }
 

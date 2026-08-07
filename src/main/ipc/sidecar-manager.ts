@@ -64,6 +64,7 @@ import {
 } from './mcp-handlers'
 import { executeJsExtensionToolInMain } from './extension-js-runtime'
 import { cancelHookRuns, runHooks } from '../hooks/hooks-service'
+import { getSession } from '../db/sessions-dao'
 import {
   collectHookContextTexts,
   HOOK_COMPACT_TRIGGER,
@@ -96,6 +97,69 @@ const CHANNEL_SPECIFIC_PLUGIN_INVOKE_CHANNELS = new Set([
 ])
 
 type PendingRendererApprovalResponse = { approved: boolean; reason?: string }
+
+async function validateAgentRunCapabilityContext(params: unknown): Promise<void> {
+  if (!params || typeof params !== 'object' || Array.isArray(params)) return
+  const request = params as Record<string, unknown>
+  if (request.runtimeProtocolVersion !== 2) return
+  if (
+    !request.capabilitySnapshot ||
+    typeof request.capabilitySnapshot !== 'object' ||
+    Array.isArray(request.capabilitySnapshot)
+  ) {
+    throw new Error('manifest_mismatch: Runtime v2 requires a capabilitySnapshot')
+  }
+
+  const snapshot = request.capabilitySnapshot as Record<string, unknown>
+  const sessionId = typeof request.sessionId === 'string' ? request.sessionId.trim() : ''
+  const snapshotSessionId = typeof snapshot.sessionId === 'string' ? snapshot.sessionId.trim() : ''
+  if (sessionId !== snapshotSessionId) {
+    throw new Error('capability_context_mismatch: Snapshot sessionId does not match the run')
+  }
+
+  const requestProjectId = typeof request.projectId === 'string' ? request.projectId.trim() : ''
+  const snapshotProjectId = typeof snapshot.projectId === 'string' ? snapshot.projectId.trim() : ''
+  const canvasContext =
+    request.canvasContext &&
+    typeof request.canvasContext === 'object' &&
+    !Array.isArray(request.canvasContext)
+      ? (request.canvasContext as Record<string, unknown>)
+      : null
+  const canvasProjectId =
+    typeof canvasContext?.projectId === 'string' ? canvasContext.projectId.trim() : ''
+
+  if (sessionId.startsWith('graph-agent:')) {
+    if (!canvasProjectId || sessionId !== `graph-agent:${canvasProjectId}`) {
+      throw new Error(
+        `capability_context_mismatch: Canvas session ${sessionId} is not bound to a canvas project`
+      )
+    }
+    if (requestProjectId !== canvasProjectId || snapshotProjectId !== canvasProjectId) {
+      throw new Error(
+        `capability_context_mismatch: Canvas session ${sessionId} is not bound to the requested project`
+      )
+    }
+    return
+  }
+
+  // System probes without a session remain supported, but every session-bound run is verified
+  // against SQLite rather than the foreground Renderer project.
+  if (!sessionId) return
+  const session = await getSession(sessionId)
+  if (!session) {
+    throw new Error(`capability_context_mismatch: Unknown session ${sessionId}`)
+  }
+  const expectedProjectId = session.project_id?.trim() ?? ''
+  if (
+    requestProjectId !== expectedProjectId ||
+    snapshotProjectId !== expectedProjectId ||
+    (canvasProjectId && canvasProjectId !== expectedProjectId)
+  ) {
+    throw new Error(
+      `capability_context_mismatch: Session ${sessionId} is not bound to the requested project`
+    )
+  }
+}
 
 type PendingRendererApprovalRequest = {
   resolve: (value: PendingRendererApprovalResponse) => void
@@ -1377,6 +1441,7 @@ export function registerSidecarHandlers(): void {
     if (!ready) throw new Error('SIDECAR_UNAVAILABLE')
     const enrichedParams = await prepareGoalAwareAgentRunParams(params, manager)
     const hookAdjustedParams = await runSessionStartHook(enrichedParams)
+    await validateAgentRunCapabilityContext(hookAdjustedParams)
     // Defense in depth: guarantee the permission whitelist snapshot is present even for
     // run initiators that bypass buildSidecarAgentRunRequest. Renderer-provided policy wins.
     if (

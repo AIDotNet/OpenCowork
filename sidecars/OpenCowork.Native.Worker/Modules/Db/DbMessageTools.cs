@@ -1311,7 +1311,7 @@ internal static class DbMessageTools
         {
             command.Transaction = transaction;
             command.CommandText = """
-                SELECT id, role, created_at, sort_order
+                SELECT id, role, created_at, sort_order, meta
                   FROM messages
                  WHERE session_id = $sessionId
                  ORDER BY sort_order ASC, created_at ASC
@@ -1324,7 +1324,8 @@ internal static class DbMessageTools
                     reader.GetString(0),
                     reader.GetString(1),
                     reader.GetInt64(2),
-                    reader.GetInt32(3)));
+                    reader.GetInt32(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4)));
             }
         }
 
@@ -1335,6 +1336,7 @@ internal static class DbMessageTools
 
         var ordered = rows
             .OrderBy(row => row.CreatedAt)
+            .ThenBy(GetCompactArtifactOrderRank)
             .ThenBy(row => RoleOrder.GetValueOrDefault(row.Role, 10))
             .ThenBy(row => row.SortOrder)
             .ToList();
@@ -1357,8 +1359,22 @@ internal static class DbMessageTools
         }
     }
 
-    private static bool HasSortOrderAnomaly(IReadOnlyList<MessageOrderRow> rows)
+    // Boundary must sort before its summary; both are written within the same
+    // millisecond, so createdAt alone cannot order the pair.
+    private static int GetCompactArtifactOrderRank(MessageOrderRow row)
     {
+        if (row.Meta?.Contains("compactBoundary", StringComparison.Ordinal) == true)
+        {
+            return 0;
+        }
+        if (row.Meta?.Contains("compactSummary", StringComparison.Ordinal) == true)
+        {
+            return 1;
+        }
+        return 2;
+    }
+
+    private static bool HasSortOrderAnomaly(IReadOnlyList<MessageOrderRow> rows)    {
         if (rows.Count == 0)
         {
             return false;
@@ -1819,7 +1835,7 @@ internal static class DbMessageTools
             .Replace("_", "\\_", StringComparison.Ordinal);
     }
 
-    private sealed record MessageOrderRow(string Id, string Role, long CreatedAt, int SortOrder);
+    private sealed record MessageOrderRow(string Id, string Role, long CreatedAt, int SortOrder, string? Meta);
 
     private sealed record MessageContentRow(string Id, string Content);
 

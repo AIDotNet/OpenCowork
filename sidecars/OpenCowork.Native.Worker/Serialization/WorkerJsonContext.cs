@@ -11,6 +11,8 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(List<string>), TypeInfoPropertyName = "ListString")]
 [JsonSerializable(typeof(AgentRuntimeInitializeResult))]
+[JsonSerializable(typeof(AgentRuntimeFeatureSet))]
+[JsonSerializable(typeof(AgentRuntimeCompatibility))]
 [JsonSerializable(typeof(AgentRuntimeCapabilityResult))]
 [JsonSerializable(typeof(AgentRuntimeRunResult))]
 [JsonSerializable(typeof(AgentRuntimeCancelResult))]

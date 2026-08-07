@@ -10,7 +10,9 @@ internal sealed record AgentRuntimeNativeToolCall(
     string Id,
     string Name,
     JsonElement Input,
-    JsonElement? ExtraContent = null);
+    JsonElement? ExtraContent = null,
+    string? RawArguments = null,
+    string? ParseError = null);
 
 internal sealed record AgentRuntimeChatToolUse(
     string Id,

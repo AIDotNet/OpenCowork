@@ -2394,12 +2394,30 @@ function collectCompactPreservedMessages(
 
 function applyLatestCompactRequestView(messages: UnifiedMessage[]): UnifiedMessage[] {
   const activeCompact = resolveActiveCompactArtifacts(messages)
-  if (!activeCompact || activeCompact.boundaryIndex < 0) {
+  if (!activeCompact) {
     return messages.filter((message) => {
       if (isUiOnlyRequestMessage(message)) return false
       if (!isCompactArtifactMessage(message)) return true
       return false
     })
+  }
+
+  if (activeCompact.boundaryIndex < 0) {
+    const summaryMessage = messages[activeCompact.summaryIndex]
+    if (summaryMessage?.meta?.compactSummary?.summarizerFailed === true) {
+      return messages.filter(
+        (message) => !isUiOnlyRequestMessage(message) && !isCompactArtifactMessage(message)
+      )
+    }
+    // Orphan summary (boundary row lost). Never fall back to the full history —
+    // truncate at the summary so the request stays within the compacted view.
+    console.warn('[ChatStore] Compact boundary missing; truncating request at summary', {
+      summaryId: activeCompact.summaryId
+    })
+    const tail = messages
+      .slice(activeCompact.summaryIndex + 1)
+      .filter((message) => !isUiOnlyRequestMessage(message) && !isCompactArtifactMessage(message))
+    return summaryMessage ? [summaryMessage, ...tail] : tail
   }
 
   const activeSummary = activeCompact.summaryId
@@ -2436,10 +2454,9 @@ function applyLatestCompactRequestView(messages: UnifiedMessage[]): UnifiedMessa
     appendCompactRequestMessage(compactMessages, seenIds, message, activeCompact)
   }
 
-  const trailingStartIndex =
-    activeCompact.summaryIndex >= 0
-      ? activeCompact.summaryIndex + 1
-      : activeCompact.boundaryIndex + 1
+  // The summary may sort before the boundary after sort-order normalization;
+  // everything at or before either artifact is covered by the summary.
+  const trailingStartIndex = Math.max(activeCompact.summaryIndex, activeCompact.boundaryIndex) + 1
 
   for (const message of messages.slice(Math.max(0, trailingStartIndex))) {
     if (seenIds.has(message.id)) continue
@@ -4219,7 +4236,18 @@ export const useChatStore = create<ChatStore>()(
       messages = movePendingQuotedMessagesToRequestTail(messages)
       const initialShape = countToolReplayBlocks(messages)
       const preCompactSanitized = sanitizeToolBlocksForResend(messages)
+      const preCompactCount = preCompactSanitized.messages.length
       messages = applyLatestCompactRequestView(preCompactSanitized.messages)
+      if (messages.length !== preCompactCount) {
+        const activeCompact = resolveActiveCompactArtifacts(messages)
+        console.log('[ChatStore] Applied compact request view', {
+          sessionId,
+          before: preCompactCount,
+          after: messages.length,
+          boundaryId: activeCompact?.boundaryId ?? null,
+          summaryId: activeCompact?.summaryId ?? null
+        })
+      }
       const postCompactSanitized = sanitizeToolBlocksForResend(messages)
       messages = postCompactSanitized.messages
       if (preCompactSanitized.changed || postCompactSanitized.changed) {

@@ -255,7 +255,15 @@ internal static class AgentRuntimeGeminiProvider
                     PartialInput: partialInput));
         }
 
-        var call = new AgentRuntimeNativeToolCall(id, name, args);
+        var parseError = args.ValueKind == JsonValueKind.Object
+            ? null
+            : "Expected Tool args to be a JSON object.";
+        var call = new AgentRuntimeNativeToolCall(
+            id,
+            name,
+            args.ValueKind == JsonValueKind.Object ? args : AgentRuntimeProviderSupport.CreateEmptyObjectElement(),
+            RawArguments: argsJson,
+            ParseError: parseError);
         parseState.ToolCalls.Add(call);
     }
 

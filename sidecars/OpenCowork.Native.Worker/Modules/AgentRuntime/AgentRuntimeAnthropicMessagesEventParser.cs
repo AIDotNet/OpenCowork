@@ -181,10 +181,17 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         {
             return;
         }
-        var input = TryParseJsonObject(buffer.Arguments.ToString(), out var parsed)
+        var rawArguments = buffer.Arguments.ToString();
+        var parsedSuccessfully = TryParseJsonObject(rawArguments, out var parsed);
+        var input = parsedSuccessfully
             ? parsed
             : CreateEmptyObjectElement();
-        parseState.ToolCalls.Add(new AgentRuntimeNativeToolCall(buffer.Id, buffer.Name, input));
+        parseState.ToolCalls.Add(new AgentRuntimeNativeToolCall(
+            buffer.Id,
+            buffer.Name,
+            input,
+            RawArguments: rawArguments,
+            ParseError: parsedSuccessfully ? null : "Expected a valid JSON object."));
         parseState.ToolBuffers.Remove(index);
     }
 
@@ -193,10 +200,17 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         foreach (var item in parseState.ToolBuffers.ToArray())
         {
             var buffer = item.Value;
-            var input = TryParseJsonObject(buffer.Arguments.ToString(), out var parsed)
+            var rawArguments = buffer.Arguments.ToString();
+            var parsedSuccessfully = TryParseJsonObject(rawArguments, out var parsed);
+            var input = parsedSuccessfully
                 ? parsed
                 : CreateEmptyObjectElement();
-            parseState.ToolCalls.Add(new AgentRuntimeNativeToolCall(buffer.Id, buffer.Name, input));
+            parseState.ToolCalls.Add(new AgentRuntimeNativeToolCall(
+                buffer.Id,
+                buffer.Name,
+                input,
+                RawArguments: rawArguments,
+                ParseError: parsedSuccessfully ? null : "Expected a valid JSON object."));
             parseState.ToolBuffers.Remove(item.Key);
         }
     }

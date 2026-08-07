@@ -431,10 +431,17 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             return;
         }
 
-        var input = TryParseJsonObject(buffer.Arguments.ToString(), out var parsed)
+        var rawArguments = buffer.Arguments.ToString();
+        var parsedSuccessfully = TryParseJsonObject(rawArguments, out var parsed);
+        var input = parsedSuccessfully
             ? parsed
             : CreateEmptyObjectElement();
-        var call = new AgentRuntimeNativeToolCall(callId, buffer.Name, input);
+        var call = new AgentRuntimeNativeToolCall(
+            callId,
+            buffer.Name,
+            input,
+            RawArguments: rawArguments,
+            ParseError: parsedSuccessfully ? null : "Expected a valid JSON object.");
         if (!parseState.EmittedToolCallKeys.Add(BuildToolCallKey(call)))
         {
             return;
@@ -451,10 +458,17 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             {
                 continue;
             }
-            var input = TryParseJsonObject(buffer.Arguments.ToString(), out var parsed)
+            var rawArguments = buffer.Arguments.ToString();
+            var parsedSuccessfully = TryParseJsonObject(rawArguments, out var parsed);
+            var input = parsedSuccessfully
                 ? parsed
                 : CreateEmptyObjectElement();
-            var call = new AgentRuntimeNativeToolCall(buffer.CallId, buffer.Name, input);
+            var call = new AgentRuntimeNativeToolCall(
+                buffer.CallId,
+                buffer.Name,
+                input,
+                RawArguments: rawArguments,
+                ParseError: parsedSuccessfully ? null : "Expected a valid JSON object.");
             if (parseState.EmittedToolCallKeys.Add(BuildToolCallKey(call)))
             {
                 parseState.ToolCalls.Add(call);

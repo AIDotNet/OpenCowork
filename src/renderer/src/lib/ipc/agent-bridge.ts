@@ -25,6 +25,10 @@ import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-clien
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { toAgentEvent } from '@renderer/lib/agent/stream-event-adapter'
 import { toMessagePackChannel } from '../../../../shared/messagepack/binary-ipc'
+import type {
+  RuntimeInitializeResultV2,
+  RuntimeRolloutMode
+} from '../../../../shared/agent-runtime-v2'
 
 export interface AgentRuntimeRunSnapshot {
   runId: string
@@ -49,6 +53,22 @@ export interface AgentRuntimeStateSnapshot {
 class AgentBridgeClient {
   private initialized = false
   private initializePromise: Promise<boolean> | null = null
+  private initializeResult: RuntimeInitializeResultV2 | null = null
+
+  get runtimeCapabilities(): RuntimeInitializeResultV2 | null {
+    return this.initializeResult
+  }
+
+  get rolloutMode(): RuntimeRolloutMode {
+    if (
+      this.initializeResult?.protocolVersion === 2 &&
+      this.initializeResult.features.capabilitySnapshot &&
+      this.initializeResult.features.strictToolValidation
+    ) {
+      return 'v2'
+    }
+    return 'legacy'
+  }
 
   async initialize(): Promise<boolean> {
     if (this.initialized) return true
@@ -73,17 +93,31 @@ class AgentBridgeClient {
 
         // Explicit timeout: an omitted timeoutMs crosses MessagePack as nil/null,
         // which main-side default parameters do not catch.
-        await this.request(
+        const initializeResult = (await this.request(
           'initialize',
           {
             workingFolder: undefined
           },
           30_000
-        )
+        )) as Partial<RuntimeInitializeResultV2>
+        if (initializeResult.ok !== true) {
+          throw new Error('Native Agent Runtime initialize returned ok=false')
+        }
+        if (
+          initializeResult.protocolVersion !== 2 ||
+          initializeResult.features?.capabilitySnapshot !== true ||
+          initializeResult.features?.strictToolValidation !== true
+        ) {
+          console.warn('[AgentBridge] Native Agent Runtime v2 safety features unavailable')
+          this.initializeResult = null
+        } else {
+          this.initializeResult = initializeResult as RuntimeInitializeResultV2
+        }
         this.initialized = true
         return true
       } catch (err) {
         this.initialized = false
+        this.initializeResult = null
         console.error(`[AgentBridge] Initialize failed (attempt ${attempt}/${maxAttempts}):`, err)
 
         if (attempt < maxAttempts) {

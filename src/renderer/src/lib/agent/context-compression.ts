@@ -181,6 +181,27 @@ function findCompactSummaryIndexAfterBoundary(
   return -1
 }
 
+/**
+ * Pair a boundary with its summary. Prefer the explicit id recorded in the
+ * boundary meta (summaryId, or legacy preservedSegment.anchorId) so the pair
+ * survives sort-order normalization that may move the summary before the
+ * boundary. Fall back to positional pairing for artifacts without the id.
+ */
+function findCompactSummaryIndexForBoundary(
+  messages: UnifiedMessage[],
+  boundaryIndex: number
+): number {
+  const boundaryMeta = messages[boundaryIndex]?.meta?.compactBoundary
+  const summaryId = boundaryMeta?.summaryId ?? boundaryMeta?.preservedSegment?.anchorId
+  if (summaryId) {
+    const byId = messages.findIndex(
+      (message) => message.id === summaryId && isCompactSummaryLikeMessage(message)
+    )
+    if (byId >= 0) return byId
+  }
+  return findCompactSummaryIndexAfterBoundary(messages, boundaryIndex)
+}
+
 export function resolveActiveCompactArtifacts(
   messages: readonly UnifiedMessage[]
 ): ActiveCompactArtifacts | null {
@@ -192,7 +213,7 @@ export function resolveActiveCompactArtifacts(
     const boundary = items[boundaryIndex]
     if (!isCompactBoundaryMessage(boundary)) continue
 
-    const summaryIndex = findCompactSummaryIndexAfterBoundary(items, boundaryIndex)
+    const summaryIndex = findCompactSummaryIndexForBoundary(items, boundaryIndex)
     if (summaryIndex < 0) continue
 
     const summary = items[summaryIndex]

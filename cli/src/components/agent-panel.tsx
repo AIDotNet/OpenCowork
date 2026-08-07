@@ -19,7 +19,7 @@ export function AgentPanel({
 }: AgentPanelProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const queryRef = useRef('')
-  const queryTimerRef = useRef<NodeJS.Timeout>()
+  const queryTimerRef = useRef<NodeJS.Timeout | undefined>(undefined)
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()
     if (!normalized) return agents

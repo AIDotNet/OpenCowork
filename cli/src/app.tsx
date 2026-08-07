@@ -82,8 +82,8 @@ export function CliApp({
   const [planActionPending, setPlanActionPending] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [notice, setNotice] = useState<string>()
-  const abortControllerRef = useRef<AbortController>()
-  const noticeTimerRef = useRef<NodeJS.Timeout>()
+  const abortControllerRef = useRef<AbortController | undefined>(undefined)
+  const noticeTimerRef = useRef<NodeJS.Timeout | undefined>(undefined)
   const messageIdRef = useRef(0)
 
   const contentWidth = Math.max(36, columns)

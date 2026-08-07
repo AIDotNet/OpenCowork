@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +21,7 @@ const executable =
 const codeGraphExecutable =
   process.platform === 'win32' ? 'OpenCowork.CodeGraph.Worker.exe' : 'OpenCowork.CodeGraph.Worker'
 const workerRoot = join(packageRoot, 'native-worker')
+const bundledWorkerRoot = join(packageRoot, 'native-workers', rid)
 const archiveName = `OpenCowork-native-worker-${rid}.tgz`
 const releaseBaseUrl = (
   process.env.OPEN_COWORK_NATIVE_WORKER_BASE_URL?.trim() ||
@@ -31,11 +40,17 @@ function getCurrentRid() {
   throw new Error(`Unsupported platform: ${process.platform}/${process.arch}`)
 }
 
+function hasWorker(root) {
+  return (
+    existsSync(join(root, executable)) &&
+    existsSync(join(root, 'codegraph-worker', codeGraphExecutable))
+  )
+}
+
 function isInstalled() {
   const versionPath = join(workerRoot, '.version')
   return (
-    existsSync(join(workerRoot, executable)) &&
-    existsSync(join(workerRoot, 'codegraph-worker', codeGraphExecutable)) &&
+    hasWorker(workerRoot) &&
     existsSync(versionPath) &&
     readFileSync(versionPath, 'utf8').trim() === `${version}\n${rid}`
   )
@@ -70,6 +85,16 @@ async function install() {
     return
   }
 
+  if (hasWorker(bundledWorkerRoot)) {
+    rmSync(workerRoot, { force: true, recursive: true })
+    cpSync(bundledWorkerRoot, workerRoot, { recursive: true })
+    setWorkerPermissions()
+    writeFileSync(join(workerRoot, '.version'), `${version}\n${rid}\n`, 'utf8')
+    console.log(`Installed bundled OpenCowork Native Worker for ${rid}`)
+    printCoworkShortcut()
+    return
+  }
+
   mkdirSync(workerRoot, { recursive: true })
   const archivePath = join(workerRoot, `.${archiveName}.${process.pid}.download`)
   rmSync(archivePath, { force: true })
@@ -86,20 +111,21 @@ async function install() {
       throw new Error(`could not unpack Native Worker: ${(extraction.stderr || '').trim()}`)
     }
 
-    const workerPath = join(workerRoot, executable)
-    const codeGraphPath = join(workerRoot, 'codegraph-worker', codeGraphExecutable)
-    if (!existsSync(workerPath) || !existsSync(codeGraphPath)) {
+    if (!hasWorker(workerRoot)) {
       throw new Error('downloaded archive did not contain both Native Worker executables')
     }
-    if (process.platform !== 'win32') {
-      chmodSync(workerPath, 0o755)
-      chmodSync(codeGraphPath, 0o755)
-    }
+    setWorkerPermissions()
     writeFileSync(join(workerRoot, '.version'), `${version}\n${rid}\n`, 'utf8')
     printCoworkShortcut()
   } finally {
     rmSync(archivePath, { force: true })
   }
+}
+
+function setWorkerPermissions() {
+  if (process.platform === 'win32') return
+  chmodSync(join(workerRoot, executable), 0o755)
+  chmodSync(join(workerRoot, 'codegraph-worker', codeGraphExecutable), 0o755)
 }
 
 function printCoworkShortcut() {

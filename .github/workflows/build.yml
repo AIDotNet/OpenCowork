@@ -721,6 +721,31 @@ jobs:
         run: npm version ${{ needs.prepare.outputs.version }} --no-git-tag-version --allow-same-version
         working-directory: cli
 
+      - name: Bundle Native Workers in the CLI package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+        run: |
+          mkdir -p cli/native-worker-archives cli/native-workers
+          gh release download "${TAG_NAME}" \
+            --repo "${GH_REPO}" \
+            --pattern 'OpenCowork-native-worker-*.tgz' \
+            --dir cli/native-worker-archives
+
+          for rid in win-x64 win-arm64 linux-x64 linux-arm64 osx-x64 osx-arm64; do
+            archive="cli/native-worker-archives/OpenCowork-native-worker-${rid}.tgz"
+            if [ ! -f "$archive" ]; then
+              echo "Missing Native Worker archive: $archive"
+              exit 1
+            fi
+            mkdir -p "cli/native-workers/${rid}"
+            tar -xzf "$archive" -C "cli/native-workers/${rid}"
+          done
+
+          rm -rf cli/native-worker-archives
+
       - name: Publish CLI to npm
         working-directory: cli
         env:

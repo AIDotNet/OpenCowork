@@ -18,8 +18,8 @@ cowork
 
 `opencowork` 与 `cowork` 都可启动 CLI；推荐使用较短的 `cowork`。
 
-安装脚本会显示 OpenCowork 品牌化的安装面板，自动识别当前平台和 CPU 架构，从对应的
-GitHub Release 下载 Native Worker，并在校验文件可用时验证 SHA-256。支持 macOS
+安装包已内置各平台的 Native Worker。安装脚本会自动识别当前平台和 CPU 架构，并复制对应的
+Worker 到本地，无需在安装过程中从 GitHub Release 下载。支持 macOS
 (`osx-arm64` / `osx-x64`)、Windows (`win-arm64` / `win-x64`) 和 Linux
 (`linux-arm64` / `linux-x64`)。
 
@@ -45,7 +45,7 @@ cowork update
 npm install -g @aidotnet/opencowork@latest
 ```
 
-如果网络环境需要镜像，可以指定完整的 Worker 压缩包地址：
+当使用不含内置 Worker 的旧版包或内部构建时，可以指定 Worker 压缩包地址：
 
 ```bash
 OPEN_COWORK_NATIVE_WORKER_URL=https://mirror.example.com/OpenCowork-native-worker-linux-arm64.tgz \

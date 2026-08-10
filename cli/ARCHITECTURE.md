@@ -274,7 +274,7 @@ Important mappings:
 | `tool_call_start/update`               | Upsert the tool row                                                        |
 | `tool_call_result`                     | Complete/error row, show `⎿` summary, optionally derive Task state         |
 | `request_retry`                        | Warning with attempt, delay, and reason                                    |
-| `context_compression_start/compressed` | Context lifecycle notices                                                  |
+| `context_compression_start/compressed` | Bottom activity state plus one completed/failed transcript result          |
 | `web_search`                           | Searching/completed activity row                                           |
 | image events                           | Image-generation activity/result row                                       |
 | sub-agent events                       | Task/sub-agent activity row and completion summary                         |
@@ -402,14 +402,15 @@ the Worker.
       │   overlay   │ answer │     idle     │────────────┘
       └─────────────┘        └──────────────┘  submit
 
-idle overlays: command menu · shortcuts · model picker · agents panel · task panel
+idle overlays: command menu · shortcuts · rewind · model picker · configuration · agents
+panel · task panel
 ```
 
 Priority is deterministic:
 
 1. AskUser or Plan review/revision overlay.
 2. Permission/reverse-request overlay.
-3. Model picker or Agents panel.
+3. Model picker, Configuration, or Agents panel.
 4. Command completion or shortcut help.
 5. Normal editor input.
 
@@ -424,7 +425,11 @@ behind an approval overlay, but ordinary prompt submission stays disabled.
 - Static messages become real terminal scrollback and are not repainted by spinner frames.
 - Only the mutable suffix—streaming assistant, running tool, tasks, overlays, prompt, and
   status—is redrawn with cursor-relative ANSI operations.
-- `/clear` explicitly clears terminal scrollback and resets view state.
+- Status is a two-row projection: activity/model state first, then canonical context usage,
+  provider cache-read hit rate, and price-based cost for recorded usage. Metrics refresh on canonical
+  runtime transitions instead of re-reading shared configuration for every streamed token.
+- `/clear` clears terminal scrollback, resets view state, clears the runtime's canonical messages,
+  and clears the session's persisted message rows through Native Worker.
 - The prompt follows the transcript rather than being physically pinned to the terminal bottom.
 
 This static/mutable split is necessary. Merely omitting alternate-screen mode while rendering the
@@ -480,7 +485,11 @@ Implemented editing behavior:
 - Alt/Option-P model overlay.
 - Left Arrow on an empty prompt opens the searchable Native Worker agents panel.
 - Ctrl-O detail toggle and Ctrl-T task toggle.
-- Esc closes menus; Esc during a run cancels; double Esc clears or reports unavailable rewind.
+- Esc closes menus and cancels an active run. With an empty editor, double Esc opens Rewind; with a
+  non-empty draft it clears the draft into input history, matching Claude Code. Rewind starts on
+  `(current)`, lists up to 100 canonical user prompts with their turn distance, and opens a second
+  action layer containing only conversation restore, conversation plus tracked-change restore, and
+  cancel.
 - Ctrl-C cancels a run, clears non-empty input, then requires a second Ctrl-C to exit.
 - A visible `▏` cursor is rendered explicitly so non-color PTY recordings do not make text after
   an inverse-video cursor appear missing.
@@ -501,17 +510,57 @@ core local commands
   → deduplicated searchable command menu
 ```
 
-The current local handlers are `/clear` (also available as `/new`), `/help`, `/model`, `/permissions`, `/tasks`, `/plan`,
-`/codegraph`, `/effort`, `/status`, `/theme`, `/tui`, and `/exit`. Some are informational until their dedicated
-settings UI exists. Other Claude-like names remain visible as parity targets; selecting a known but
-unwired command yields a warning and never silently sends it to the model.
+The current local handlers are `/agents`, `/clear`, `/codegraph`, `/compact`, `/config`, `/context`,
+`/cost`, `/doctor`, `/effort`, `/exit`, `/help`, `/model`, `/new`, `/permissions`, `/plan`, `/status`,
+`/tasks`, and `/tui`. Only complete handlers appear in the command menu. Unknown slash commands are
+rejected locally; planned Claude-like names are documented below instead of being advertised as
+working actions.
 
 `/model` is backed by the same split provider store as the desktop app. It groups enabled chat
 models by authenticated provider/channel, marks the current session selection, accepts live text
 search over provider name, provider type, built-in ID, model name, and model ID, and refreshes the
-catalog on every open. A confirmed selection updates both `providerId` and `modelId` in the current
-session and persists the same active IDs to the shared provider-store index; sending only a display
-label is forbidden because model IDs may collide across providers.
+catalog on every open. Selecting a model opens a capability-driven second step before anything is
+persisted. That step mirrors the desktop model switcher controls for thinking/reasoning effort,
+Anthropic `budget_tokens` and cache TTL, priority service tier, built-in search, Responses WebSocket,
+and Responses image generation; it also exposes safe read-only protocol, context, output, and price
+metadata. Applying the second step updates both `providerId` and `modelId` in the current session,
+persists the same active IDs to the shared provider-store index, and writes model/settings changes to
+the same split store used by desktop. Sending only a display label is forbidden because model IDs may
+collide across providers.
+
+`/config` is a searchable terminal editor for the shared settings that materially affect this CLI
+host: active model, thinking, automatic context compression, compression threshold, dedicated
+compression model, provider timeout, native-tool concurrency, sub-agent concurrency, and CodeGraph
+surface. Updates go through Native Worker. New workers apply an atomic nested Zustand-store patch;
+older installed workers fall back to a whole-container-preserving `settings/get` + `settings/set`
+compatibility path. Provider credentials are never projected into React state.
+
+`/compact [focus]` calls `agent/compress-context` with the runtime's current canonical message list,
+the desktop-configured dedicated compression model when available, zero-preserve semantics, and an
+optional focus prompt. On success, the returned Worker messages replace the runtime history and are
+persisted through `db/messages-replace`. On summarizer failure, the original messages remain active.
+The CLI never generates or edits the summary itself.
+
+`/context` reports current canonical message count, measured/estimated context tokens, effective
+model context window, and the exact Native Worker compact trigger. `/cost` aggregates recorded usage
+and uses the active model's shared per-million-token prices when available. The persistent status
+projection computes cache hit rate as `cacheReadTokens / inputTokens`, excluding cache creation,
+and uses responsive long, compact, and narrow labels without replacing unknown pricing with a fake
+zero. `/doctor` runs the same read-only Worker transport probe as `--doctor` inside the interactive
+UI.
+
+Commands intentionally not advertised yet are `add-dir`, `background`, `branch`, `btw`, `diff`,
+`init`, `mcp`, `memory`, and `resume`. They require real Worker session-host,
+workspace, or terminal host-adapter contracts. Their implementation must not be simulated by hidden
+agent prompts or direct CLI tool execution.
+
+`/rewind` is implemented against canonical Worker messages and Worker-owned file-change snapshots.
+Every user message is a checkpoint. Conversation restoration creates a new session row and copies
+only the canonical prefix before the selected prompt, leaving the source session intact. Code
+restoration replays open local changes in reverse order through
+`agent-changes/rollback-local-change`, marks successful changes reverted in SQLite, and skips paths
+whose current hash no longer matches the tracked post-edit state. The UI explicitly states that
+external side effects are not reversible; it never represents arbitrary tool activity as restored.
 
 Every overlay needs:
 
@@ -526,11 +575,13 @@ Every overlay needs:
 Each CLI process owns a generated terminal session ID and creates the corresponding `sessions` row
 through `db/sessions-create` before the first `agent/run`. Every submitted turn gets a unique run ID.
 `captureFinalMessages: true` asks Native Worker to return canonical final messages on `loop_end`;
-the next turn sends that history back to the same worker runtime. Context compression results can
-replace the stored history without the terminal inventing its own summary.
+the CLI atomically replaces the session message rows through `db/messages-replace`, and the next
+turn sends that exact history back to the same worker runtime. Automatic and manual context
+compression results can replace the stored history without the terminal inventing its own summary.
 
-The CLI currently does not resume a prior desktop conversation, but the created row is visible to
-Electron and gives plans/tasks a valid foreign-key owner. Future session commands must use the
+`/new` creates a fresh generated Worker session ID without deleting the prior durable row. The CLI
+currently does not resume a prior desktop conversation, but created rows are visible to Electron
+and give plans/tasks a valid foreign-key owner. Future session commands must use the
 existing worker/SQLite APIs so Electron and CLI see the same history, titles, projects, tasks, goals,
 token usage, and checkpoints. Required behaviors:
 
@@ -538,7 +589,7 @@ token usage, and checkpoints. Required behaviors:
 - Atomic message append and run metadata.
 - Attach to a still-running session after terminal restart.
 - Durable outstanding approval snapshots.
-- Conversation branch and rewind/checkpoint semantics.
+- Cross-process rewind after resume and explicit named branch commands.
 - Per-session mode/model/permission prompt snapshots.
 
 ## 13. Terminal capabilities and accessibility
@@ -626,7 +677,8 @@ There is no repository test suite, so validation has four layers.
 Capture ANSI output and a normalized screen buffer for:
 
 - Empty welcome at width matrix.
-- Command menu, filtered menu, shortcut panel, model picker, and permission prompt.
+- Command menu, filtered menu, shortcut panel, rewind turn/action layers, model picker, and
+  permission prompt.
 - CJK/emoji input, paste burst, multiline input, history, stash, and undo.
 - Streaming assistant, thinking detail, running/success/error tools, retry, compression, tasks,
   sub-agents, image/web-search activity, cancel, and errors.
@@ -644,11 +696,16 @@ before release, in line with the repository runtime guidelines.
 
 | Area                                                         | Status                                                      |
 | ------------------------------------------------------------ | ----------------------------------------------------------- |
-| Responsive welcome/prompt/status                             | Implemented baseline                                        |
+| Responsive welcome/prompt/two-row runtime status             | Implemented                                                 |
 | Command menu and shortcut overlay                            | Implemented baseline                                        |
 | Unicode grapheme editor and common keybindings               | Implemented baseline                                        |
 | Permission/task overlays                                     | Implemented baseline                                        |
 | Searchable provider-grouped model overlay                    | Implemented from shared desktop store                       |
+| Shared searchable configuration overlay                      | Implemented for settings consumed by the CLI host           |
+| Manual/automatic compression and visible activity            | Implemented through Native Worker                           |
+| Canonical message persistence, clear, and new session        | Implemented through Native Worker DB routes                 |
+| Current-session turn rewind and tracked-change restore       | Implemented through Worker messages/change snapshots        |
+| Context, usage/cost, and interactive doctor commands         | Implemented                                                 |
 | Classic static scrollback renderer                           | Implemented baseline                                        |
 | Fullscreen alternate-screen lifecycle and message tail       | Implemented baseline                                        |
 | Native Worker framing, handshake, heartbeat, cancellation    | Implemented baseline                                        |
@@ -674,8 +731,9 @@ foundation, not a claim that every current Claude Code feature has already been 
    prompt, tool-manifest, permission, skills, MCP, and sub-agent catalog assembly behind it.
 3. Replace the bounded CLI snapshot builder with that single shared Capability Snapshot v2 builder.
 4. Add a host-adapter registry and only advertise tools whose reverse methods are available.
-5. Move session/message/project persistence behind worker routes; add resume/continue/branch.
-6. Add durable approvals, checkpoint/rewind, resume/continue/branch, and a shared host-adapter registry for the remaining UI-bound tools.
+5. Add resume/continue/branch on top of the existing Worker-backed session/message persistence.
+6. Add durable approvals, cross-process rewind-after-resume, and a shared host-adapter registry for
+   the remaining UI-bound tools and session commands.
 7. Add height-based fullscreen virtualization, scroll state, mouse, and selection behavior.
 8. Add terminal capability negotiation, sanitized markdown, images/links, accessibility, and
    non-interactive output.

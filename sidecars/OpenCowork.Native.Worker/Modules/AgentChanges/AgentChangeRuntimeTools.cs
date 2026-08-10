@@ -249,6 +249,29 @@ internal static class AgentChangeRuntimeTools
     {
         try
         {
+            if (IsSymbolicLink(change.FilePath))
+            {
+                return new AgentChangeRollbackResult(
+                    false,
+                    true,
+                    false,
+                    null,
+                    "Tracked path is a symbolic link; restore skipped to protect its target",
+                    null);
+            }
+
+            var currentStateError = ValidateCurrentStateMatchesAfter(change);
+            if (currentStateError is not null)
+            {
+                return new AgentChangeRollbackResult(
+                    false,
+                    true,
+                    false,
+                    null,
+                    currentStateError,
+                    null);
+            }
+
             if (change.Op == "create")
             {
                 if (File.Exists(change.FilePath))
@@ -279,6 +302,43 @@ internal static class AgentChangeRuntimeTools
         catch (Exception ex)
         {
             return new AgentChangeRollbackResult(false, true, false, null, ex.Message, null);
+        }
+    }
+
+    private static string? ValidateCurrentStateMatchesAfter(StoredTrackedFileChange change)
+    {
+        var exists = File.Exists(change.FilePath);
+        if (exists != change.After.Exists)
+        {
+            return exists
+                ? "File exists even though the tracked post-edit state did not"
+                : "File no longer exists; it may have been changed outside this session";
+        }
+        if (!exists || string.IsNullOrEmpty(change.After.Hash))
+        {
+            return null;
+        }
+
+        var currentText = TryReadLocalText(change.FilePath);
+        if (currentText is null)
+        {
+            return "Current file content could not be read safely";
+        }
+        return string.Equals(HashText(currentText), change.After.Hash, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : "Current file differs from the tracked post-edit state; restore skipped to preserve external changes";
+    }
+
+    private static bool IsSymbolicLink(string path)
+    {
+        try
+        {
+            return File.Exists(path) &&
+                (File.GetAttributes(path) & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint;
+        }
+        catch
+        {
+            return false;
         }
     }
 

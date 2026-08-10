@@ -56,6 +56,7 @@ export interface WorkerRunRequest extends JsonRecord {
   sessionId: string
   messages: WorkerMessage[]
   provider: JsonRecord
+  compressionProvider?: JsonRecord
   tools: WorkerToolDefinition[]
   workingFolder: string
   maxIterations: number
@@ -68,6 +69,28 @@ export interface WorkerRunRequest extends JsonRecord {
   sessionPromptMode: 'code'
   capabilitySnapshot: JsonRecord
 }
+
+export interface WorkerCompressionRequest extends JsonRecord {
+  focusPrompt?: string
+  messages: WorkerMessage[]
+  preTokens: number
+  preserveCount: 0
+  provider: JsonRecord
+  trigger: 'manual'
+}
+
+export interface WorkerCompressionSettings {
+  contextLength: number
+  enabled: boolean
+  reservedOutputBudget: number
+  threshold: number
+  triggerTokens: number
+}
+
+const DEFAULT_CONTEXT_COMPRESSION_LIMIT = 200_000
+const DEFAULT_CONTEXT_COMPRESSION_THRESHOLD = 0.8
+const DEFAULT_CONTEXT_COMPRESSION_RESERVED_OUTPUT_TOKENS = 20_000
+const CONTEXT_COMPRESSION_AUTO_BUFFER_TOKENS = 13_000
 
 const CORE_TOOL_DEFINITIONS: WorkerToolDefinition[] = [
   {
@@ -403,6 +426,51 @@ function numberValue(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
+function clampCompressionThreshold(value: unknown): number {
+  return Math.min(0.9, Math.max(0.3, numberValue(value, DEFAULT_CONTEXT_COMPRESSION_THRESHOLD)))
+}
+
+function resolveCompressionContextLength(model: JsonRecord): number {
+  const configured = Math.max(0, Math.floor(numberValue(model.contextLength, 0)))
+  if (configured <= DEFAULT_CONTEXT_COMPRESSION_LIMIT) return configured
+  return model.enableExtendedContextCompression === false
+    ? DEFAULT_CONTEXT_COMPRESSION_LIMIT
+    : configured
+}
+
+function resolveCompressionReservedOutputBudget(model: JsonRecord): number {
+  const maxOutputTokens = Math.max(
+    1,
+    Math.floor(
+      numberValue(model.maxOutputTokens, DEFAULT_CONTEXT_COMPRESSION_RESERVED_OUTPUT_TOKENS)
+    )
+  )
+  return Math.min(DEFAULT_CONTEXT_COMPRESSION_RESERVED_OUTPUT_TOKENS, maxOutputTokens)
+}
+
+export function resolveWorkerCompressionSettings(
+  configuration: OpenCoworkConfiguration,
+  model: JsonRecord
+): WorkerCompressionSettings {
+  const contextLength = resolveCompressionContextLength(model)
+  const threshold = clampCompressionThreshold(configuration.settings.contextCompressionThreshold)
+  const reservedOutputBudget = resolveCompressionReservedOutputBudget(model)
+  const effectiveWindow = Math.max(1, contextLength - reservedOutputBudget)
+  const ratioThreshold = Math.max(1, Math.floor(effectiveWindow * threshold))
+  const bufferedThreshold = effectiveWindow - CONTEXT_COMPRESSION_AUTO_BUFFER_TOKENS
+  const triggerTokens = Math.max(
+    1,
+    Math.min(ratioThreshold, bufferedThreshold > 0 ? bufferedThreshold : ratioThreshold)
+  )
+  return {
+    enabled: configuration.settings.contextCompressionEnabled !== false && contextLength > 0,
+    contextLength,
+    threshold,
+    reservedOutputBudget,
+    triggerTokens
+  }
+}
+
 function normalizeProviderType(value: string): string {
   return value
 }
@@ -464,7 +532,7 @@ function buildRequestOverrides(
   }
 }
 
-function resolveReasoningEffort(
+export function resolveReasoningEffort(
   settings: JsonRecord,
   providerId: string,
   modelId: string,
@@ -586,7 +654,10 @@ function buildProvider(
     cacheTtl: model.cacheTtl ?? provider.cacheTtl,
     requestOverrides: buildRequestOverrides(provider, model, modelId),
     instructionsPrompt: provider.instructionsPrompt,
-    serviceTier: model.serviceTier,
+    serviceTier:
+      stringValue(provider.builtinId) === 'codex-oauth' || settings.fastModeEnabled === true
+        ? model.serviceTier
+        : undefined,
     builtinSearchEnabled:
       model.supportsBuiltinSearch === true && model.enableBuiltinSearch === true,
     accountId: stringValue(oauth.accountId) || undefined,
@@ -597,7 +668,7 @@ function buildProvider(
     websocketMode:
       providerType === 'openai-responses'
         ? model.supportsWebsocket === true
-          ? stringValue(model.websocketMode) || stringValue(provider.websocketMode) || 'auto'
+          ? stringValue(model.websocketMode) || stringValue(provider.websocketMode) || 'disabled'
           : 'disabled'
         : undefined,
     userAgent: stringValue(provider.userAgent) || `OpenCowork-CLI/${options.appVersion}`
@@ -614,6 +685,25 @@ function buildProvider(
   }
 
   return { provider: stripUndefined(providerConfig), model, selection }
+}
+
+function buildConfiguredCompressionProvider(
+  configuration: OpenCoworkConfiguration,
+  options: WorkerSessionOptions
+): JsonRecord | undefined {
+  const binding = configuration.settings.contextCompressionModel
+  if (!isRecord(binding)) return undefined
+  const providerId = stringValue(binding.providerId)
+  const modelId = stringValue(binding.modelId)
+  if (!providerId || !modelId) return undefined
+
+  try {
+    return buildProvider(configuration, { ...options, providerId, model: modelId }).provider
+  } catch {
+    // Match the desktop behavior: a stale/disabled dedicated binding falls back to the
+    // current session provider instead of disabling context compression entirely.
+    return undefined
+  }
 }
 
 function resolveCopilotModelId(modelId: string): string {
@@ -696,13 +786,19 @@ export function buildWorkerRunRequest(
   const configuration = loadOpenCoworkConfiguration()
   const { settings } = configuration
   const { provider, model, selection } = buildProvider(configuration, options)
+  const compressionSettings = resolveWorkerCompressionSettings(configuration, model)
+  const compressionProvider = compressionSettings.enabled
+    ? buildConfiguredCompressionProvider(configuration, options)
+    : undefined
   provider.systemPrompt = buildSystemPrompt(options, settings)
   provider.sessionId = options.sessionId
   if (provider.type === 'openai-responses') provider.responsesSessionScope = 'agent-main'
 
   const tools = mergeToolDefinitions(extraTools)
 
-  const autoApprove = settings.autoApprove === true || options.permissionMode === 'auto'
+  // The terminal status must describe the effective Worker policy. A desktop-global
+  // autoApprove flag must not silently turn a CLI session displaying "manual" into fullAccess.
+  const autoApprove = options.permissionMode === 'auto'
   const permissionPolicy = isRecord(settings.permissionPolicy)
     ? settings.permissionPolicy
     : undefined
@@ -718,6 +814,7 @@ export function buildWorkerRunRequest(
     sessionId: options.sessionId,
     messages,
     provider,
+    ...(compressionProvider ? { compressionProvider } : {}),
     tools,
     capabilitySnapshot,
     workingFolder: options.cwd,
@@ -750,12 +847,13 @@ export function buildWorkerRunRequest(
     ...(options.planRevision ? { planRevision: options.planRevision } : {}),
     ...(options.planExecution ? { planExecution: options.planExecution } : {}),
     ...(permissionPolicy ? { permissionPolicy } : {}),
-    ...(settings.contextCompressionEnabled === true && numberValue(model.contextLength, 0) > 0
+    ...(compressionSettings.enabled
       ? {
           compression: {
             enabled: true,
-            contextLength: numberValue(model.contextLength, 0),
-            threshold: numberValue(settings.contextCompressionThreshold, 0.8)
+            contextLength: compressionSettings.contextLength,
+            threshold: compressionSettings.threshold,
+            reservedOutputBudget: compressionSettings.reservedOutputBudget
           }
         }
       : {})
@@ -764,5 +862,54 @@ export function buildWorkerRunRequest(
   return {
     request,
     modelLabel: selection?.modelName || stringValue(provider.model) || options.model
+  }
+}
+
+function findRecentContextTokens(messages: WorkerMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const usage = messages[index]?.usage
+    const contextTokens = isRecord(usage) ? numberValue(usage.contextTokens, 0) : 0
+    if (contextTokens > 0) return Math.floor(contextTokens)
+  }
+  return 0
+}
+
+export function buildWorkerCompressionRequest(
+  options: WorkerSessionOptions,
+  messages: WorkerMessage[],
+  focusPrompt?: string
+): { request: WorkerCompressionRequest; modelLabel: string } {
+  const configuration = loadOpenCoworkConfiguration()
+  const sessionProvider = buildProvider(configuration, options)
+  const provider =
+    buildConfiguredCompressionProvider(configuration, options) ?? sessionProvider.provider
+  const binding = configuration.settings.contextCompressionModel
+  const dedicatedResolution = isRecord(binding)
+    ? (() => {
+        try {
+          return resolveProviderModel(configuration, {
+            providerId: stringValue(binding.providerId),
+            modelId: stringValue(binding.modelId)
+          })
+        } catch {
+          return null
+        }
+      })()
+    : null
+  const normalizedFocus = focusPrompt?.trim()
+
+  return {
+    request: {
+      provider,
+      messages,
+      preserveCount: 0,
+      trigger: 'manual',
+      preTokens: findRecentContextTokens(messages),
+      ...(normalizedFocus ? { focusPrompt: normalizedFocus } : {})
+    },
+    modelLabel:
+      dedicatedResolution?.selection.modelName ??
+      sessionProvider.selection?.modelName ??
+      stringValue(provider.model)
   }
 }

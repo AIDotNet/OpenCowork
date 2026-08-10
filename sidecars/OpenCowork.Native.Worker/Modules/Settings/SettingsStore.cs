@@ -87,6 +87,37 @@ internal static class SettingsStore
         return ToResponse(Mutation(true, null));
     }
 
+    public static WorkerResponse PatchPersistedStore(JsonElement parameters)
+    {
+        var key = JsonHelpers.GetString(parameters, "key");
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return ToResponse(Mutation(false, "Missing settings key"));
+        }
+        if (!parameters.TryGetProperty("patch", out var patchElement) ||
+            patchElement.ValueKind != JsonValueKind.Object)
+        {
+            return ToResponse(Mutation(false, "Missing persisted-store patch"));
+        }
+
+        lock (Sync)
+        {
+            var root = ReadRoot();
+            var container = ReadPersistedStoreContainer(root[key]);
+            var state = container["state"] as JsonObject ?? [];
+            foreach (var property in patchElement.EnumerateObject())
+            {
+                state[property.Name] = CloneElement(property.Value);
+            }
+            container["state"] = state;
+            root[key] = container;
+            WriteRoot(root);
+        }
+
+        WorkerLog.Debug($"settings patch persisted store key={key}");
+        return ToResponse(Mutation(true, null));
+    }
+
     public static WorkerResponse Delete(JsonElement parameters)
     {
         var key = ReadKey(parameters);
@@ -148,6 +179,40 @@ internal static class SettingsStore
     private static JsonNode? CloneElement(JsonElement element)
     {
         return JsonNode.Parse(element.GetRawText());
+    }
+
+    private static JsonObject ReadPersistedStoreContainer(JsonNode? value)
+    {
+        JsonNode? parsed = value?.DeepClone();
+        if (parsed is JsonValue jsonValue && jsonValue.TryGetValue<string>(out var text))
+        {
+            try
+            {
+                parsed = JsonNode.Parse(text);
+            }
+            catch (JsonException)
+            {
+                parsed = null;
+            }
+        }
+
+        if (parsed is JsonObject container && container["state"] is JsonObject)
+        {
+            return container;
+        }
+        if (parsed is JsonObject legacyState)
+        {
+            return new JsonObject
+            {
+                ["state"] = legacyState,
+                ["version"] = 30
+            };
+        }
+        return new JsonObject
+        {
+            ["state"] = new JsonObject(),
+            ["version"] = 30
+        };
     }
 
     private static string? ReadKey(JsonElement parameters)

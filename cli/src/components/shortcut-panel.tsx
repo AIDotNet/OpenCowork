@@ -5,13 +5,13 @@ import { theme } from '../theme.js'
 
 const groups = [
   [
-    ['!', 'shell mode'],
     ['/', 'commands'],
-    ['@', 'file paths'],
-    ['/btw', 'side question']
+    ['/config', 'shared settings'],
+    ['/compact', 'compress context'],
+    ['/context', 'context usage']
   ],
   [
-    ['double esc', 'clear / rewind'],
+    ['esc esc', 'rewind conversation turns'],
     ['shift + tab', 'permission mode'],
     ['ctrl + o', 'verbose output'],
     ['ctrl + t', 'toggle tasks']
@@ -19,8 +19,8 @@ const groups = [
   [
     ['alt + p', 'switch model'],
     ['ctrl + s', 'stash prompt'],
-    ['ctrl + z', 'suspend'],
-    ['/keybindings', 'customize']
+    ['ctrl + c', 'cancel / exit'],
+    ['empty ←', 'inspect agents']
   ]
 ]
 

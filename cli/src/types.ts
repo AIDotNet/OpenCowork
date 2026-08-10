@@ -140,12 +140,149 @@ export interface ModelCatalog {
   totalModels: number
 }
 
+export interface ModelConfiguration {
+  builtinSearchEnabled: boolean
+  cacheTtl: '5m' | '1h'
+  contextLength?: number
+  fastModeEnabled: boolean
+  imageGenerationEnabled: boolean
+  inputPrice?: number
+  maxOutputTokens?: number
+  outputPrice?: number
+  providerType: string
+  reasoningEffort: string
+  reasoningEffortLevels: string[]
+  selection: ModelSelection
+  supportsBuiltinSearch: boolean
+  supportsCacheTtl: boolean
+  supportsFastMode: boolean
+  supportsImageGeneration: boolean
+  supportsResponsesWebsocket: boolean
+  supportsThinking: boolean
+  thinkingBudget?: number
+  thinkingBudgetMax?: number
+  thinkingBudgetMin?: number
+  thinkingEnabled: boolean
+  websocketMode: 'auto' | 'disabled'
+}
+
+export interface ModelConfigurationPatch {
+  builtinSearchEnabled?: boolean
+  cacheTtl?: '5m' | '1h'
+  fastModeEnabled?: boolean
+  imageGenerationEnabled?: boolean
+  reasoningEffort?: string
+  thinkingBudget?: number
+  thinkingEnabled?: boolean
+  websocketMode?: 'auto' | 'disabled'
+}
+
 export interface AgentOption {
   description: string
   maxTurns?: number
   model?: string
   name: string
   source: 'native' | 'user'
+}
+
+export type RuntimeActivityKind = 'working' | 'compressing'
+
+export interface ContextCompressionResult {
+  compressed: boolean
+  originalCount: number
+  newCount: number
+  messagesSummarized?: number
+  summarizerFailed?: boolean
+  error?: string
+}
+
+export interface ContextSnapshot {
+  compressionEnabled: boolean
+  contextLength: number
+  estimatedTokens: number
+  messageCount: number
+  threshold: number
+  triggerTokens: number
+}
+
+export type RewindAction =
+  | 'restore-code-and-conversation'
+  | 'restore-conversation'
+  | 'restore-code'
+  | 'summarize-from'
+  | 'summarize-up-to'
+
+export interface RewindCheckpoint {
+  changedFileCount: number
+  codeRestoreAvailable: boolean
+  createdAt: number
+  id: string
+  prompt: string
+  userIndex: number
+}
+
+export interface RewindResult {
+  action: RewindAction
+  checkpoint: RewindCheckpoint
+  conversationForked: boolean
+  failedFiles: string[]
+  newMessageCount: number
+  originalMessageCount: number
+  restoredFileCount: number
+  restoredPrompt?: string
+  summarized: boolean
+  transcript: Message[]
+}
+
+export interface UsageSnapshot {
+  billableInputTokens: number
+  cacheCreationTokens: number
+  cacheReadTokens: number
+  estimatedCostUsd: number | null
+  inputTokens: number
+  model: string
+  outputTokens: number
+  reasoningTokens: number
+  requestCount: number
+}
+
+export type ConfigSettingValue = boolean | number | string
+
+export interface ConfigChoice {
+  label: string
+  value: string
+}
+
+export interface ConfigEntry {
+  action?: 'model' | 'compressionModel'
+  category: 'Model' | 'Context' | 'Runtime' | 'Tools'
+  choices?: ConfigChoice[]
+  description: string
+  disabled?: boolean
+  format?: 'integer' | 'percentage' | 'seconds'
+  key: string
+  kind: 'action' | 'boolean' | 'enum' | 'number'
+  label: string
+  max?: number
+  min?: number
+  step?: number
+  value: ConfigSettingValue
+}
+
+export interface ConfigCatalog {
+  compressionModel: ModelSelection | null
+  entries: ConfigEntry[]
+}
+
+export interface RuntimeDoctorSnapshot {
+  agentProtocolVersion: number
+  configuredModel: string
+  executable: string
+  pid: number
+  protocolVersion: number
+  routeCount: number
+  runtime: string
+  runtimeVersion: string
 }
 
 /** UI projection events. The canonical AgentStreamEnvelope remains the worker wire contract. */
@@ -179,14 +316,45 @@ export type UiEvent =
   | { type: 'askUser.cancel'; requestId: string }
   | { type: 'plan.update'; action: 'enter' | 'exit' | 'sync'; plan: PlanSnapshot }
   | { type: 'tasks.update'; tasks: TaskItem[] }
+  | { type: 'runtime.activity'; activity: RuntimeActivityKind }
+  | { type: 'context-compression.start' }
+  | {
+      type: 'context-compression.done'
+      originalCount: number
+      newCount: number
+      messagesSummarized?: number
+      summarizerFailed?: boolean
+      error?: string
+    }
   | { type: 'system'; message: Extract<Message, { kind: 'system' }> }
   | { type: 'turn.done' }
 
 export interface AgentRuntime {
   send(prompt: string, signal: AbortSignal): AsyncIterable<UiEvent>
   getAgentCatalog(): AgentOption[]
+  getConfigCatalog?(): ConfigCatalog
+  getContextSnapshot?(): ContextSnapshot
   getModelCatalog(): ModelCatalog
+  getModelConfiguration?(selection: ModelSelection): ModelConfiguration
+  getUsageSnapshot?(): UsageSnapshot
   selectModel?(selection: ModelSelection): void
+  configureModel?(selection: ModelSelection, patch: ModelConfigurationPatch): Promise<void>
+  selectCompressionModel?(selection: ModelSelection | null): Promise<void>
+  updateConfig?(key: string, value: ConfigSettingValue): Promise<void>
+  compactContext?(
+    focusPrompt: string | undefined,
+    signal: AbortSignal
+  ): Promise<ContextCompressionResult>
+  listRewindCheckpoints?(): Promise<RewindCheckpoint[]>
+  rewind?(
+    checkpointId: string,
+    action: RewindAction,
+    instructions: string | undefined,
+    signal: AbortSignal
+  ): Promise<RewindResult>
+  clearContext?(): Promise<void>
+  newSession?(): Promise<void>
+  doctor?(): Promise<RuntimeDoctorSnapshot>
   configure?(config: Partial<RuntimeSessionConfig>): void
   respondToPermission?(requestId: string, decision: PermissionDecision): Promise<void>
   respondToAskUser?(requestId: string, payload: AskUserAnswerPayload): Promise<void>

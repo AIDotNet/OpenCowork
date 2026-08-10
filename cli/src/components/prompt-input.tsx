@@ -3,8 +3,10 @@ import { Box, Text, useInput } from 'ink'
 import { findCommands } from '../commands.js'
 import { graphemes, lineEnd, lineStart, nextWordEnd, previousWordStart } from '../lib/text.js'
 import { theme } from '../theme.js'
+import type { RewindAction, RewindCheckpoint, RewindResult } from '../types.js'
 import { CommandMenu } from './command-menu.js'
 import { Divider } from './divider.js'
+import { RewindPanel } from './rewind-panel.js'
 import { ShortcutPanel } from './shortcut-panel.js'
 
 interface EditorSnapshot {
@@ -13,9 +15,10 @@ interface EditorSnapshot {
 }
 
 // Classic mode intentionally moves completed messages into Ink's <Static> tree. Some Ink
-// versions remount the dynamic input subtree while committing static output, so the double-Ctrl-C
-// deadline must outlive a PromptInput component instance.
+// versions remount the dynamic input subtree while committing static output, so multi-press
+// deadlines must outlive a PromptInput component instance.
 let lastCtrlCAt = 0
+let lastEscapeAt = 0
 
 interface PromptInputProps {
   active: boolean
@@ -24,9 +27,16 @@ interface PromptInputProps {
   onAbort(): void
   onCycleMode(): void
   onExit(): void
+  onListRewindCheckpoints(): Promise<RewindCheckpoint[]>
   onNotice(message: string): void
   onOpenAgents(): void
   onOpenModel(): void
+  onRewind(
+    checkpointId: string,
+    action: RewindAction,
+    instructions: string | undefined,
+    signal: AbortSignal
+  ): Promise<RewindResult>
   onSubmit(value: string): void
   onToggleDetails(): void
   onToggleHelp(): void
@@ -42,9 +52,11 @@ export function PromptInput({
   onAbort,
   onCycleMode,
   onExit,
+  onListRewindCheckpoints,
   onNotice,
   onOpenAgents,
   onOpenModel,
+  onRewind,
   onSubmit,
   onToggleDetails,
   onToggleHelp,
@@ -60,17 +72,20 @@ export function PromptInput({
   })
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [menuSuppressed, setMenuSuppressed] = useState(false)
+  const [rewindOpen, setRewindOpen] = useState(false)
   const historyRef = useRef<string[]>([])
   const historyIndexRef = useRef<number | null>(null)
   const killRingRef = useRef<string[]>([])
   const stashRef = useRef<EditorSnapshot | null>(null)
   const undoRef = useRef<EditorSnapshot[]>([])
-  const lastEscapeRef = useRef(0)
   const characters = useMemo(() => graphemes(value), [value])
   const menuOpen = value.startsWith('/') && !value.includes(' ') && !menuSuppressed
   const commands = useMemo(() => (menuOpen ? findCommands(value) : []), [menuOpen, value])
 
   useEffect(() => setSelectedIndex(0), [value])
+  useEffect(() => {
+    if (!active) setRewindOpen(false)
+  }, [active])
 
   const mutate = (nextValue: string, nextCursor: number): void => {
     undoRef.current.push(editorRef.current)
@@ -104,6 +119,13 @@ export function PromptInput({
     if (killRingRef.current.length > 20) killRingRef.current.pop()
   }
 
+  const openRewind = (): void => {
+    lastEscapeAt = 0
+    if (showHelp) onToggleHelp()
+    onNotice('')
+    setRewindOpen(true)
+  }
+
   const submit = (submission: string): void => {
     const trimmed = submission.trim()
     if (!trimmed) return
@@ -114,6 +136,10 @@ export function PromptInput({
     setValue('')
     setCursor(0)
     setMenuSuppressed(false)
+    if (trimmed.toLowerCase() === '/rewind') {
+      openRewind()
+      return
+    }
     onSubmit(submission)
   }
 
@@ -137,6 +163,7 @@ export function PromptInput({
       const currentCursor = currentEditor.cursor
       const currentCharacters = graphemes(currentValue)
       const rawCtrlCCount = input.split('\u0003').length - 1
+      const rawEscapeCount = input.split('\u001b').length - 1
       if ((key.ctrl && input === 'c') || rawCtrlCCount > 0) {
         if (isRunning) {
           lastCtrlCAt = 0
@@ -159,9 +186,15 @@ export function PromptInput({
         return
       }
 
+      if (isRunning && key.escape) {
+        onAbort()
+        return
+      }
+
       // Keep the prompt focused so Ctrl-C can cancel the active Worker turn, but
       // do not let ordinary editing or submission race the in-flight run.
       if (isRunning) return
+      if (!key.escape) lastEscapeAt = 0
 
       if (key.ctrl && input === 'o') {
         onToggleDetails()
@@ -235,12 +268,12 @@ export function PromptInput({
       if (menuOpen && commands.length > 0) {
         if (key.upArrow) {
           setSelectedIndex((current) =>
-            current === 0 ? Math.min(7, commands.length - 1) : current - 1
+            current <= 0 ? Math.max(0, commands.length - 1) : current - 1
           )
           return
         }
         if (key.downArrow) {
-          setSelectedIndex((current) => (current + 1) % Math.min(8, commands.length))
+          setSelectedIndex((current) => (commands.length > 0 ? (current + 1) % commands.length : 0))
           return
         }
         if (key.tab || key.return) {
@@ -261,16 +294,22 @@ export function PromptInput({
       if (key.escape) {
         if (menuOpen) {
           setMenuSuppressed(true)
+          lastEscapeAt = 0
           return
         }
         const now = Date.now()
-        if (now - lastEscapeRef.current < 800) {
-          if (currentValue) mutate('', 0)
-          else onNotice('Rewind requires an active runtime checkpoint')
-          lastEscapeRef.current = 0
+        if (rawEscapeCount > 1 || now - lastEscapeAt < 3_000) {
+          lastEscapeAt = 0
+          if (currentValue) {
+            if (historyRef.current.at(-1) !== currentValue) historyRef.current.push(currentValue)
+            mutate('', 0)
+            onNotice('Prompt cleared · ↑ to restore')
+          } else {
+            openRewind()
+          }
         } else {
-          lastEscapeRef.current = now
-          if (isRunning) onAbort()
+          lastEscapeAt = now
+          onNotice(currentValue ? 'Press Esc again to clear' : 'Press Esc again to rewind')
         }
         return
       }
@@ -329,7 +368,7 @@ export function PromptInput({
         replaceRange(currentCursor, currentCursor, input)
       }
     },
-    { isActive: active }
+    { isActive: active && !rewindOpen }
   )
 
   const beforeCursor = characters.slice(0, cursor).join('')
@@ -354,10 +393,25 @@ export function PromptInput({
         </Text>
       </Box>
       <Divider width={width} />
-      {menuOpen ? (
+      {rewindOpen ? (
+        <RewindPanel
+          loadCheckpoints={onListRewindCheckpoints}
+          maxVisible={7}
+          onCancel={() => setRewindOpen(false)}
+          onComplete={(result) => {
+            if (result.restoredPrompt !== undefined) {
+              const nextCursor = graphemes(result.restoredPrompt).length
+              mutate(result.restoredPrompt, nextCursor)
+            }
+            setRewindOpen(false)
+          }}
+          onExecute={onRewind}
+          width={width}
+        />
+      ) : menuOpen ? (
         <CommandMenu commands={commands} selectedIndex={selectedIndex} width={width} />
       ) : null}
-      {showHelp ? <ShortcutPanel width={width} /> : null}
+      {showHelp && !rewindOpen ? <ShortcutPanel width={width} /> : null}
     </Box>
   )
 }

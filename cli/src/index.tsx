@@ -96,7 +96,6 @@ Interactive shortcuts:
     const workerRuntime = new OpenCoworkWorkerRuntime({
       appVersion: pkg.version,
       cwd: process.cwd(),
-      effort: 'high',
       model: options.model,
       permissionMode: options.permissionMode,
       providerId: options.provider,

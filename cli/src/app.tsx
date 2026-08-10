@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Box, Static, Text, useApp } from 'ink'
 import { AgentPanel } from './components/agent-panel.js'
 import { AskUserPrompt } from './components/ask-user-prompt.js'
+import { ConfigPanel } from './components/config-panel.js'
+import { ModelConfigPanel } from './components/model-config-panel.js'
 import { ModelPicker } from './components/model-picker.js'
 import { PlanPanel } from './components/plan-panel.js'
 import { PermissionPrompt } from './components/permission-prompt.js'
@@ -10,24 +12,33 @@ import { StatusLine } from './components/status-line.js'
 import { TaskList } from './components/task-list.js'
 import { Transcript } from './components/transcript.js'
 import { WelcomeCard } from './components/welcome-card.js'
-import { slashCommands } from './commands.js'
 import { useTerminalSize } from './hooks/use-terminal-size.js'
+import { formatTokenCount, formatUsdCost } from './lib/metrics.js'
 import { theme } from './theme.js'
 import type {
   AgentRuntime,
   AgentOption,
   AskUserRequest,
+  ConfigCatalog,
+  ConfigSettingValue,
+  ContextSnapshot,
   Message,
   ModelCatalog,
+  ModelConfiguration,
+  ModelConfigurationPatch,
   ModelSelection,
   PermissionDecision,
   PermissionMode,
   PermissionRequest,
   PlanApprovalMode,
   PlanSnapshot,
+  RewindAction,
+  RewindCheckpoint,
+  RewindResult,
   UiEvent,
   TaskItem,
-  TuiMode
+  TuiMode,
+  UsageSnapshot
 } from './types.js'
 
 interface CliAppProps {
@@ -40,7 +51,28 @@ interface CliAppProps {
 }
 
 const permissionModes: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'auto']
-const effortLevels = ['low', 'medium', 'high']
+const effortLevels = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+
+interface RuntimeMetrics {
+  context: ContextSnapshot | null
+  usage: UsageSnapshot | null
+}
+
+function readRuntimeMetrics(runtime: AgentRuntime): RuntimeMetrics {
+  let context: ContextSnapshot | null = null
+  let usage: UsageSnapshot | null = null
+  try {
+    context = runtime.getContextSnapshot?.() ?? null
+  } catch {
+    // Status metrics must never make the prompt unavailable when shared settings are being edited.
+  }
+  try {
+    usage = runtime.getUsageSnapshot?.() ?? null
+  } catch {
+    // A missing usage projection is rendered explicitly instead of failing the terminal UI.
+  }
+  return { context, usage }
+}
 
 function nowTimestamp(): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -70,25 +102,47 @@ export function CliApp({
     initialCatalogRef.current.active
   )
   const [permissionMode, setPermissionMode] = useState(initialPermissionMode)
-  const [effortIndex, setEffortIndex] = useState(2)
+  const [effort, setEffort] = useState(() => {
+    const active = initialCatalogRef.current?.active
+    if (!active || !runtime.getModelConfiguration) return 'medium'
+    try {
+      return runtime.getModelConfiguration(active).reasoningEffort
+    } catch {
+      return 'medium'
+    }
+  })
   const [showHelp, setShowHelp] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [showTasks, setShowTasks] = useState(false)
-  const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [modelPickerPurpose, setModelPickerPurpose] = useState<'session' | 'compression' | null>(
+    null
+  )
+  const [modelPickerReturnToConfig, setModelPickerReturnToConfig] = useState(false)
+  const [modelConfiguration, setModelConfiguration] = useState<ModelConfiguration | null>(null)
+  const [modelConfigurationReturnToConfig, setModelConfigurationReturnToConfig] = useState(false)
+  const [modelConfigurationSaving, setModelConfigurationSaving] = useState(false)
   const [agentPanelOpen, setAgentPanelOpen] = useState(false)
+  const [configOpen, setConfigOpen] = useState(false)
+  const [configCatalog, setConfigCatalog] = useState<ConfigCatalog | null>(null)
+  const [configSavingKey, setConfigSavingKey] = useState<string>()
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null)
   const [askUserRequest, setAskUserRequest] = useState<AskUserRequest | null>(null)
   const [plan, setPlan] = useState<PlanSnapshot | null>(null)
   const [planActionPending, setPlanActionPending] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
+  const [activity, setActivity] = useState<string>()
   const [notice, setNotice] = useState<string>()
+  const [transcriptEpoch, setTranscriptEpoch] = useState(0)
+  const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetrics>(() =>
+    readRuntimeMetrics(runtime)
+  )
   const abortControllerRef = useRef<AbortController | undefined>(undefined)
   const noticeTimerRef = useRef<NodeJS.Timeout | undefined>(undefined)
   const messageIdRef = useRef(0)
 
   const contentWidth = Math.max(36, columns)
   const fullscreen = tuiMode === 'fullscreen'
-  const maxVisibleMessages = Math.max(3, Math.floor((rows - 8) / (showDetails ? 4 : 2)))
+  const maxVisibleMessages = Math.max(3, Math.floor((rows - 9) / (showDetails ? 4 : 2)))
   const firstMutableMessage = messages.findIndex(
     (message) =>
       (message.kind === 'assistant' && message.streaming) ||
@@ -114,23 +168,56 @@ export function CliApp({
     noticeTimerRef.current = setTimeout(() => setNotice(undefined), 1_600)
   }
 
-  const openModelPicker = (): void => {
+  const refreshRuntimeMetrics = (): void => {
+    setRuntimeMetrics(readRuntimeMetrics(runtime))
+  }
+
+  const refreshConfigCatalog = (): ConfigCatalog | null => {
+    const catalog = runtime.getConfigCatalog?.() ?? null
+    setConfigCatalog(catalog)
+    return catalog
+  }
+
+  const openModelPicker = (
+    purpose: 'session' | 'compression' = 'session',
+    returnToConfig = false
+  ): void => {
     const catalog = runtime.getModelCatalog()
-    const currentAvailable = catalog.groups.some(
-      (group) =>
-        group.providerId === modelSelection?.providerId &&
-        group.models.some((option) => option.modelId === modelSelection.modelId)
-    )
-    const nextSelection = currentAvailable ? modelSelection : catalog.active
+    const configuredCompressionModel =
+      purpose === 'compression'
+        ? (runtime.getConfigCatalog?.().compressionModel ?? null)
+        : modelSelection
+    const currentAvailable = configuredCompressionModel
+      ? catalog.groups.some(
+          (group) =>
+            group.providerId === configuredCompressionModel.providerId &&
+            group.models.some((option) => option.modelId === configuredCompressionModel.modelId)
+        )
+      : purpose === 'compression'
+    const nextSelection = currentAvailable
+      ? configuredCompressionModel
+      : purpose === 'session'
+        ? catalog.active
+        : null
     setModelCatalog(catalog)
-    setModelSelection(nextSelection)
-    if (nextSelection && !currentAvailable) {
+    if (purpose === 'session') setModelSelection(nextSelection)
+    if (purpose === 'session' && nextSelection && !currentAvailable) {
       runtime.configure?.({
         model: nextSelection.modelId,
         providerId: nextSelection.providerId
       })
     }
-    setModelPickerOpen(true)
+    setModelPickerReturnToConfig(returnToConfig)
+    setModelPickerPurpose(purpose)
+  }
+
+  const openConfig = (): void => {
+    const catalog = refreshConfigCatalog()
+    if (!catalog || !runtime.updateConfig) {
+      showNotice('Configuration is unavailable in this runtime')
+      return
+    }
+    setConfigOpen(true)
   }
 
   const openAgentPanel = (): void => {
@@ -150,7 +237,35 @@ export function CliApp({
   }
 
   const applyRuntimeEvent = (event: UiEvent): void => {
+    if (event.type === 'turn.done') {
+      refreshRuntimeMetrics()
+      return
+    }
+
+    if (event.type === 'runtime.activity') {
+      setActivity(event.activity === 'compressing' ? 'Compressing context…' : 'Working…')
+      return
+    }
+
+    if (event.type === 'context-compression.start') {
+      setActivity('Compressing context…')
+      return
+    }
+
+    if (event.type === 'context-compression.done') {
+      setActivity('Working…')
+      appendSystem(
+        event.summarizerFailed
+          ? event.error ||
+              'Context compression failed; the Native Worker preserved the original history.'
+          : `Context compressed · ${event.originalCount} → ${event.newCount} messages${event.messagesSummarized === undefined ? '' : ` · ${event.messagesSummarized} summarized`}`,
+        event.summarizerFailed ? 'warning' : 'success'
+      )
+      return
+    }
+
     if (event.type === 'assistant.start') {
+      setActivity('Working…')
       setMessages((current) => [
         ...current,
         {
@@ -199,6 +314,7 @@ export function CliApp({
     }
 
     if (event.type === 'tool.start') {
+      setActivity('Working…')
       setMessages((current) => [
         ...current,
         {
@@ -282,6 +398,7 @@ export function CliApp({
     const controller = new AbortController()
     abortControllerRef.current = controller
     setIsRunning(true)
+    setActivity('Working…')
 
     try {
       for await (const event of runtime.send(prompt, controller.signal)) {
@@ -292,7 +409,213 @@ export function CliApp({
       appendSystem(error instanceof Error ? error.message : String(error), 'error')
     } finally {
       abortControllerRef.current = undefined
+      refreshRuntimeMetrics()
       setIsRunning(false)
+      setActivity(undefined)
+    }
+  }
+
+  const runCompact = async (focusPrompt?: string): Promise<void> => {
+    if (!runtime.compactContext) {
+      appendSystem('Manual context compression is unavailable in this runtime.', 'warning')
+      return
+    }
+    if (isRunning) {
+      showNotice('A Worker operation is already running')
+      return
+    }
+
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    setIsRunning(true)
+    setActivity('Compressing context…')
+    try {
+      const result = await runtime.compactContext(focusPrompt, controller.signal)
+      if (result.summarizerFailed) {
+        appendSystem(
+          result.error || 'Context compression failed; the original history was preserved.',
+          'error'
+        )
+      } else if (!result.compressed) {
+        appendSystem('No compressible context is available yet.', 'warning')
+      } else {
+        appendSystem(
+          `Context compressed · ${result.originalCount} → ${result.newCount} messages${result.messagesSummarized === undefined ? '' : ` · ${result.messagesSummarized} summarized`}`,
+          'success'
+        )
+      }
+    } catch (error) {
+      if (controller.signal.aborted) showNotice('Context compression interrupted')
+      else appendSystem(error instanceof Error ? error.message : String(error), 'error')
+    } finally {
+      abortControllerRef.current = undefined
+      refreshRuntimeMetrics()
+      setIsRunning(false)
+      setActivity(undefined)
+    }
+  }
+
+  const resetConversation = async (startNewSession: boolean): Promise<void> => {
+    const operation = startNewSession ? runtime.newSession : runtime.clearContext
+    if (!operation) {
+      appendSystem(
+        startNewSession
+          ? 'Starting a new Worker session is unavailable in this runtime.'
+          : 'Clearing canonical context is unavailable in this runtime.',
+        'warning'
+      )
+      return
+    }
+    setIsRunning(true)
+    setActivity(startNewSession ? 'Starting new session…' : 'Clearing context…')
+    try {
+      await operation.call(runtime)
+      if (!fullscreen) process.stdout.write('\u001B[2J\u001B[3J\u001B[H')
+      setMessages([])
+      if (startNewSession) setTasks([])
+      setPlan(null)
+      if (startNewSession) setShowTasks(false)
+      showNotice(startNewSession ? 'New Native Worker session ready' : 'Canonical context cleared')
+    } catch (error) {
+      appendSystem(error instanceof Error ? error.message : String(error), 'error')
+    } finally {
+      refreshRuntimeMetrics()
+      setIsRunning(false)
+      setActivity(undefined)
+    }
+  }
+
+  const runDoctor = async (): Promise<void> => {
+    if (!runtime.doctor) {
+      appendSystem('Native Worker diagnostics are unavailable in this runtime.', 'warning')
+      return
+    }
+    setIsRunning(true)
+    setActivity('Checking Native Worker…')
+    try {
+      const result = await runtime.doctor()
+      appendSystem(
+        [
+          `Native Worker ready · ${result.runtime} ${result.runtimeVersion}`,
+          `IPC v${result.protocolVersion} · Agent v${result.agentProtocolVersion} · ${result.routeCount} routes`,
+          `PID ${result.pid} · ${result.configuredModel}`,
+          result.executable
+        ].join('\n'),
+        'success'
+      )
+    } catch (error) {
+      appendSystem(error instanceof Error ? error.message : String(error), 'error')
+    } finally {
+      refreshRuntimeMetrics()
+      setIsRunning(false)
+      setActivity(undefined)
+    }
+  }
+
+  const updateConfigValue = (key: string, value: ConfigSettingValue): void => {
+    if (!runtime.updateConfig || configSavingKey) return
+    setConfigSavingKey(key)
+    void runtime
+      .updateConfig(key, value)
+      .then(() => {
+        refreshConfigCatalog()
+        refreshRuntimeMetrics()
+        showNotice('Configuration saved to OpenCowork')
+      })
+      .catch((error) =>
+        appendSystem(error instanceof Error ? error.message : String(error), 'error')
+      )
+      .finally(() => setConfigSavingKey(undefined))
+  }
+
+  const readContextSnapshot = (): ContextSnapshot | null => {
+    try {
+      return runtime.getContextSnapshot?.() ?? null
+    } catch {
+      return null
+    }
+  }
+
+  const listRewindCheckpoints = async (): Promise<RewindCheckpoint[]> => {
+    if (!runtime.listRewindCheckpoints) {
+      throw new Error('Rewind checkpoints are unavailable in this runtime.')
+    }
+    return runtime.listRewindCheckpoints()
+  }
+
+  const runRewind = async (
+    checkpointId: string,
+    action: RewindAction,
+    instructions: string | undefined,
+    signal: AbortSignal
+  ): Promise<RewindResult> => {
+    if (!runtime.rewind) throw new Error('Rewind is unavailable in this runtime.')
+    if (isRunning) throw new Error('Wait for the active Worker operation before rewinding.')
+
+    const changesConversation =
+      action === 'restore-code-and-conversation' ||
+      action === 'restore-conversation' ||
+      action === 'summarize-from' ||
+      action === 'summarize-up-to'
+    setIsRunning(true)
+    setActivity(
+      action === 'summarize-from' || action === 'summarize-up-to'
+        ? 'Summarizing conversation…'
+        : action === 'restore-code'
+          ? 'Restoring code…'
+          : action === 'restore-code-and-conversation'
+            ? 'Restoring code and conversation…'
+            : 'Restoring conversation…'
+    )
+
+    try {
+      const result = await runtime.rewind(checkpointId, action, instructions, signal)
+      if (changesConversation) {
+        if (!fullscreen) process.stdout.write('\u001B[2J\u001B[3J\u001B[H')
+        setTranscriptEpoch((current) => current + 1)
+        setMessages(() => {
+          if (!result.summarized) return result.transcript
+          const marker: Message = {
+            id: `rewind-summary-${Date.now()}`,
+            kind: 'system',
+            text:
+              result.action === 'summarize-from'
+                ? 'Summarized conversation from this checkpoint.'
+                : 'Summarized conversation up to this checkpoint.',
+            tone: 'success'
+          }
+          return [...result.transcript, marker]
+        })
+      }
+
+      if (result.conversationForked) {
+        setTasks([])
+        setPlan(null)
+        setShowTasks(false)
+      }
+      if (result.failedFiles.length > 0) {
+        appendSystem(
+          `Rewind completed with ${result.failedFiles.length} skipped file${result.failedFiles.length === 1 ? '' : 's'}:\n${result.failedFiles.join('\n')}`,
+          'warning'
+        )
+      } else if (result.action === 'restore-code') {
+        appendSystem(
+          `Restored ${result.restoredFileCount} tracked file${result.restoredFileCount === 1 ? '' : 's'}; conversation unchanged.`,
+          'success'
+        )
+      }
+
+      showNotice(
+        result.summarized
+          ? 'Conversation summarized'
+          : result.conversationForked
+            ? `Conversation forked${result.restoredFileCount > 0 ? ` · ${result.restoredFileCount} files restored` : ''}`
+            : `${result.restoredFileCount} tracked file${result.restoredFileCount === 1 ? '' : 's'} restored`
+      )
+      return result
+    } finally {
+      setIsRunning(false)
+      setActivity(undefined)
     }
   }
 
@@ -301,11 +624,7 @@ export function CliApp({
     const name = rawName?.toLowerCase()
 
     if (name === '/clear' || name === '/new') {
-      abortControllerRef.current?.abort()
-      if (!fullscreen) process.stdout.write('\u001B[2J\u001B[3J\u001B[H')
-      setMessages([])
-      setTasks([])
-      setShowTasks(false)
+      void resetConversation(name === '/new')
       return true
     }
     if (name === '/help') {
@@ -316,14 +635,71 @@ export function CliApp({
       openModelPicker()
       return true
     }
+    if (name === '/config') {
+      openConfig()
+      return true
+    }
+    if (name === '/compact') {
+      void runCompact(args.join(' ') || undefined)
+      return true
+    }
     if (name === '/agents') {
       openAgentPanel()
       return true
     }
     if (name === '/permissions') {
-      appendSystem(
-        `${permissionMode} permission mode is active. Native Worker approval requests appear here automatically.`
-      )
+      const requested = args[0] as PermissionMode | undefined
+      if (requested && permissionModes.includes(requested)) {
+        setPermissionMode(requested)
+        runtime.configure?.({ permissionMode: requested })
+        appendSystem(`Permission mode set to ${requested}.`, 'success')
+      } else if (requested) {
+        appendSystem('Usage: /permissions manual|acceptEdits|plan|auto', 'warning')
+      } else {
+        appendSystem(
+          `${permissionMode} permission mode is active. Use /permissions manual|acceptEdits|plan|auto to change it.`
+        )
+      }
+      return true
+    }
+    if (name === '/context') {
+      const snapshot = readContextSnapshot()
+      if (!snapshot) {
+        appendSystem('Context statistics are unavailable in this runtime.', 'warning')
+      } else {
+        const usage =
+          snapshot.contextLength > 0
+            ? `${formatTokenCount(snapshot.estimatedTokens)} / ${formatTokenCount(snapshot.contextLength)}`
+            : `${formatTokenCount(snapshot.estimatedTokens)} tokens`
+        const ratio =
+          snapshot.contextLength > 0
+            ? ` · ${Math.round((snapshot.estimatedTokens / snapshot.contextLength) * 100)}%`
+            : ''
+        appendSystem(
+          `Context · ${usage}${ratio}\n${snapshot.messageCount} canonical messages · auto-compact ${snapshot.compressionEnabled ? `at ${formatTokenCount(snapshot.triggerTokens)}` : 'off'}`,
+          'success'
+        )
+      }
+      return true
+    }
+    if (name === '/cost') {
+      const usage = runtime.getUsageSnapshot?.()
+      if (!usage) {
+        appendSystem('Usage statistics are unavailable in this runtime.', 'warning')
+      } else {
+        const cost =
+          usage.estimatedCostUsd === null
+            ? 'pricing unavailable'
+            : formatUsdCost(usage.estimatedCostUsd)
+        appendSystem(
+          `Usage · ${usage.requestCount} requests · ${formatTokenCount(usage.inputTokens)} input · ${formatTokenCount(usage.outputTokens)} output\nBillable input ${formatTokenCount(usage.billableInputTokens)} · cache read ${formatTokenCount(usage.cacheReadTokens)} · reasoning ${formatTokenCount(usage.reasoningTokens)}\nEstimated cost ${cost} · ${usage.model}`,
+          'success'
+        )
+      }
+      return true
+    }
+    if (name === '/doctor') {
+      void runDoctor()
       return true
     }
     if (name === '/tasks') {
@@ -357,13 +733,27 @@ export function CliApp({
     }
     if (name === '/effort') {
       const requested = args[0]
-      const requestedIndex = requested ? effortLevels.indexOf(requested) : -1
-      setEffortIndex((current) =>
-        requestedIndex >= 0 ? requestedIndex : (current + 1) % effortLevels.length
-      )
-      const nextIndex =
-        requestedIndex >= 0 ? requestedIndex : (effortIndex + 1) % effortLevels.length
-      runtime.configure?.({ effort: effortLevels[nextIndex] ?? 'high' })
+      let availableLevels = effortLevels
+      if (modelSelection && runtime.getModelConfiguration) {
+        try {
+          const configured = runtime.getModelConfiguration(modelSelection).reasoningEffortLevels
+          if (configured.length > 0) availableLevels = configured
+        } catch {
+          // Keep the generic effort list if the provider store changes while the CLI is open.
+        }
+      }
+      const requestedIndex = requested ? availableLevels.indexOf(requested) : -1
+      if (requested && requestedIndex < 0) {
+        appendSystem(`Usage: /effort ${availableLevels.join('|')}`, 'warning')
+        return true
+      }
+      const currentIndex = Math.max(0, availableLevels.indexOf(effort))
+      const nextEffort =
+        availableLevels[
+          requestedIndex >= 0 ? requestedIndex : (currentIndex + 1) % availableLevels.length
+        ] ?? 'medium'
+      setEffort(nextEffort)
+      runtime.configure?.({ effort: nextEffort })
       return true
     }
     if (name === '/status') {
@@ -371,17 +761,17 @@ export function CliApp({
         ? `${modelSelection.providerName} / ${modelSelection.modelName}`
         : 'No configured model'
       appendSystem(
-        `${modelStatus} · ${effortLevels[effortIndex]} effort · ${permissionMode} permissions · ${tuiMode} renderer`,
+        `${modelStatus} · ${effort} effort · ${permissionMode} permissions · ${tuiMode} renderer`,
         'success'
       )
       return true
     }
-    if (name === '/theme') {
-      appendSystem('Theme tokens are active: adaptive dark terminal palette.', 'success')
-      return true
-    }
     if (name === '/tui') {
       const target = args[0]
+      if (target && target !== 'classic' && target !== 'fullscreen') {
+        appendSystem('Usage: /tui classic|fullscreen', 'warning')
+        return true
+      }
       appendSystem(
         target && target !== tuiMode
           ? `Restart with --tui ${target} to switch renderers without losing shell state.`
@@ -401,14 +791,9 @@ export function CliApp({
     setShowHelp(false)
     if (submission.trimStart().startsWith('/')) {
       if (handleCommand(submission)) return
-      const commandName = submission.trim().split(/\s+/u)[0]?.toLowerCase()
-      if (slashCommands.some((command) => command.name === commandName)) {
-        appendSystem(
-          `${commandName} is present in the UI parity registry but is not wired yet.`,
-          'warning'
-        )
-        return
-      }
+      const commandName = submission.trim().split(/\s+/u)[0] ?? submission.trim()
+      appendSystem(`Unknown CLI command: ${commandName}`, 'warning')
+      return
     }
     void runPrompt(submission)
   }
@@ -493,17 +878,129 @@ export function CliApp({
     })
   }
 
+  const closeModelPicker = (): void => {
+    setModelPickerPurpose(null)
+    if (modelPickerReturnToConfig) setConfigOpen(true)
+    setModelPickerReturnToConfig(false)
+  }
+
+  const persistSelectedModel = (selection: ModelSelection): void => {
+    if (runtime.selectModel) {
+      runtime.selectModel(selection)
+    } else {
+      runtime.configure?.({ model: selection.modelId, providerId: selection.providerId })
+    }
+    setModelSelection(selection)
+    setModelCatalog(runtime.getModelCatalog())
+    refreshConfigCatalog()
+    refreshRuntimeMetrics()
+  }
+
+  const beginModelConfiguration = (selection: ModelSelection): void => {
+    if (!runtime.getModelConfiguration) {
+      try {
+        persistSelectedModel(selection)
+        closeModelPicker()
+        showNotice(`Model switched to ${selection.providerName} / ${selection.modelName}`)
+      } catch (error) {
+        appendSystem(
+          `Failed to persist model selection: ${error instanceof Error ? error.message : String(error)}`,
+          'error'
+        )
+      }
+      return
+    }
+
+    try {
+      const configuration = runtime.getModelConfiguration(selection)
+      setModelConfiguration(configuration)
+      setModelConfigurationReturnToConfig(modelPickerReturnToConfig)
+      setModelPickerReturnToConfig(false)
+      setModelPickerPurpose(null)
+    } catch (error) {
+      appendSystem(error instanceof Error ? error.message : String(error), 'error')
+    }
+  }
+
+  const cancelModelConfiguration = (): void => {
+    const returnToConfig = modelConfigurationReturnToConfig
+    setModelConfiguration(null)
+    setModelConfigurationReturnToConfig(false)
+    setModelPickerReturnToConfig(returnToConfig)
+    setModelPickerPurpose('session')
+  }
+
+  const applyModelConfiguration = (patch: ModelConfigurationPatch): void => {
+    const configuration = modelConfiguration
+    if (!configuration || modelConfigurationSaving) return
+    setModelConfigurationSaving(true)
+    const save = runtime.configureModel
+      ? runtime.configureModel(configuration.selection, patch)
+      : Promise.resolve()
+    void save
+      .then(() => {
+        persistSelectedModel(configuration.selection)
+        setEffort(patch.reasoningEffort ?? configuration.reasoningEffort)
+        runtime.configure?.({ effort: patch.reasoningEffort ?? configuration.reasoningEffort })
+        setModelConfiguration(null)
+        if (modelConfigurationReturnToConfig) setConfigOpen(true)
+        setModelConfigurationReturnToConfig(false)
+        showNotice(
+          `Model switched to ${configuration.selection.providerName} / ${configuration.selection.modelName} · configuration saved`
+        )
+      })
+      .catch((error) =>
+        appendSystem(
+          `Failed to save model configuration: ${error instanceof Error ? error.message : String(error)}`,
+          'error'
+        )
+      )
+      .finally(() => setModelConfigurationSaving(false))
+  }
+
+  const saveCompressionModel = (selection: ModelSelection | null): void => {
+    if (!runtime.selectCompressionModel) {
+      closeModelPicker()
+      appendSystem('Compression model selection is unavailable in this runtime.', 'warning')
+      return
+    }
+    setModelPickerPurpose(null)
+    if (modelPickerReturnToConfig) setConfigOpen(true)
+    setModelPickerReturnToConfig(false)
+    setConfigSavingKey('contextCompressionModel')
+    void runtime
+      .selectCompressionModel(selection)
+      .then(() => {
+        refreshConfigCatalog()
+        showNotice(
+          selection
+            ? `Compression model set to ${selection.providerName} / ${selection.modelName}`
+            : 'Compression model follows the current session model'
+        )
+      })
+      .catch((error) =>
+        appendSystem(error instanceof Error ? error.message : String(error), 'error')
+      )
+      .finally(() => setConfigSavingKey(undefined))
+  }
+
   const planOverlay = Boolean(
     plan && (plan.status === 'drafting' || plan.status === 'awaiting_review')
   )
   const inputActive =
-    !askUserRequest && !planOverlay && !permissionRequest && !modelPickerOpen && !agentPanelOpen
+    !askUserRequest &&
+    !planOverlay &&
+    !permissionRequest &&
+    !modelConfiguration &&
+    !modelPickerPurpose &&
+    !agentPanelOpen &&
+    !configOpen
   const hasTranscript = messages.length > 0
 
   return (
     <>
       {!fullscreen && committedMessages.length > 0 ? (
-        <Static items={committedMessages}>
+        <Static items={committedMessages} key={transcriptEpoch}>
           {(message) => (
             <Transcript
               key={message.id}
@@ -538,8 +1035,10 @@ export function CliApp({
           !askUserRequest &&
           !planOverlay &&
           !permissionRequest &&
-          !modelPickerOpen &&
-          !agentPanelOpen ? (
+          !modelConfiguration &&
+          !modelPickerPurpose &&
+          !agentPanelOpen &&
+          !configOpen ? (
             <TaskList tasks={tasks} width={contentWidth} />
           ) : null}
 
@@ -554,7 +1053,7 @@ export function CliApp({
           ) : planOverlay && plan ? (
             <PlanPanel
               isRunning={isRunning || planActionPending}
-              maxVisibleLines={Math.max(5, Math.min(16, rows - 13))}
+              maxVisibleLines={Math.max(5, Math.min(16, rows - 14))}
               onAbort={() => {
                 abortControllerRef.current?.abort()
                 showNotice('Interrupted')
@@ -571,40 +1070,68 @@ export function CliApp({
               request={permissionRequest}
               width={contentWidth}
             />
-          ) : modelPickerOpen ? (
+          ) : modelConfiguration ? (
+            <ModelConfigPanel
+              configuration={modelConfiguration}
+              maxVisible={Math.max(6, Math.min(12, rows - 13))}
+              onApply={applyModelConfiguration}
+              onCancel={cancelModelConfiguration}
+              saving={modelConfigurationSaving}
+              width={contentWidth}
+            />
+          ) : modelPickerPurpose ? (
             <ModelPicker
               catalog={modelCatalog}
-              current={modelSelection}
-              maxVisible={Math.max(4, Math.min(12, rows - 11))}
-              onCancel={() => setModelPickerOpen(false)}
+              current={
+                modelPickerPurpose === 'compression'
+                  ? (configCatalog?.compressionModel ?? null)
+                  : modelSelection
+              }
+              heading={
+                modelPickerPurpose === 'compression'
+                  ? 'Select compression model'
+                  : 'Select model · Step 1 of 2'
+              }
+              maxVisible={Math.max(4, Math.min(12, rows - 12))}
+              onCancel={closeModelPicker}
               onSelect={(nextModel) => {
-                try {
-                  if (runtime.selectModel) {
-                    runtime.selectModel(nextModel)
-                  } else {
-                    runtime.configure?.({
-                      model: nextModel.modelId,
-                      providerId: nextModel.providerId
-                    })
-                  }
-                  setModelSelection(nextModel)
-                  setModelPickerOpen(false)
-                  showNotice(`Model switched to ${nextModel.providerName} / ${nextModel.modelName}`)
-                } catch (error) {
-                  appendSystem(
-                    `Failed to persist model selection: ${
-                      error instanceof Error ? error.message : String(error)
-                    }`,
-                    'error'
-                  )
+                if (modelPickerPurpose === 'compression') {
+                  saveCompressionModel(nextModel)
+                  return
                 }
+                beginModelConfiguration(nextModel)
               }}
+              onUseCurrent={
+                modelPickerPurpose === 'compression' ? () => saveCompressionModel(null) : undefined
+              }
+              summary={
+                modelPickerPurpose === 'compression'
+                  ? 'Use any enabled model from a connected provider, or follow the current session model'
+                  : undefined
+              }
+              width={contentWidth}
+            />
+          ) : configOpen && configCatalog ? (
+            <ConfigPanel
+              catalog={configCatalog}
+              maxVisible={Math.max(5, Math.min(11, rows - 13))}
+              onCancel={() => setConfigOpen(false)}
+              onChange={updateConfigValue}
+              onOpenCompressionModel={() => {
+                setConfigOpen(false)
+                openModelPicker('compression', true)
+              }}
+              onOpenModel={() => {
+                setConfigOpen(false)
+                openModelPicker('session', true)
+              }}
+              savingKey={configSavingKey}
               width={contentWidth}
             />
           ) : agentPanelOpen ? (
             <AgentPanel
               agents={agents}
-              maxVisible={Math.max(3, Math.min(8, rows - 10))}
+              maxVisible={Math.max(3, Math.min(8, rows - 11))}
               onCancel={() => setAgentPanelOpen(false)}
               width={contentWidth}
             />
@@ -619,9 +1146,11 @@ export function CliApp({
               }}
               onCycleMode={cyclePermissionMode}
               onExit={exit}
+              onListRewindCheckpoints={listRewindCheckpoints}
               onNotice={showNotice}
               onOpenAgents={openAgentPanel}
               onOpenModel={openModelPicker}
+              onRewind={runRewind}
               onSubmit={handleSubmit}
               onToggleDetails={() => setShowDetails((current) => !current)}
               onToggleHelp={() => setShowHelp((current) => !current)}
@@ -632,10 +1161,13 @@ export function CliApp({
           )}
 
           <StatusLine
-            effort={effortLevels[effortIndex] ?? 'high'}
+            activity={activity}
+            context={runtimeMetrics.context}
+            effort={effort}
             model={modelSelection?.modelName ?? 'No model'}
             mode={permissionMode}
             notice={notice}
+            usage={runtimeMetrics.usage}
             width={contentWidth}
           />
           {fullscreen ? <Text color={theme.dim}> </Text> : null}

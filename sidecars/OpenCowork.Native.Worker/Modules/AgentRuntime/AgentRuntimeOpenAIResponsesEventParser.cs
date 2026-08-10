@@ -31,7 +31,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                     MarkFirstToken(parseState, startedAt);
                     parseState.AssistantText.Append(delta);
                     parseState.EstimatedOutputTokens += EstimateTokenCount(delta);
-                    await AgentRuntimeTools.EmitAsync(
+                    await EmitProjectedEventAsync(
+                        parseState,
                         state,
                         context,
                         new AgentRuntimeStreamEvent("text_delta", Text: delta));
@@ -44,7 +45,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                 {
                     MarkFirstToken(parseState, startedAt);
                     parseState.EmittedThinkingDelta = true;
-                    await AgentRuntimeTools.EmitAsync(
+                    await EmitProjectedEventAsync(
+                        parseState,
                         state,
                         context,
                         new AgentRuntimeStreamEvent("thinking_delta", Thinking: thinking));
@@ -107,6 +109,11 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             case "response.failed":
             case "error":
                 await TryEmitTerminalImageErrorAsync(root, parseState, state, context, startedAt);
+                if (IsWebSocketTransportUnavailableEvent(root))
+                {
+                    throw new ResponsesWebSocketUnavailableException(
+                        $"OpenAI Responses WebSocket transport unavailable: {root.GetRawText()}");
+                }
                 throw new InvalidOperationException($"OpenAI Responses stream error: {root.GetRawText()}");
         }
 
@@ -166,7 +173,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             parseState.ToolBuffers[callId] = new ResponsesToolBuffer(callId, name);
         }
 
-        await AgentRuntimeTools.EmitAsync(
+        await EmitProjectedEventAsync(
+            parseState,
             state,
             context,
             new AgentRuntimeStreamEvent(
@@ -201,7 +209,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             buffer.ArgumentStream,
             out var partialInput))
         {
-            await AgentRuntimeTools.EmitAsync(
+            await EmitProjectedEventAsync(
+                parseState,
                 state,
                 context,
                 new AgentRuntimeStreamEvent(
@@ -277,7 +286,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         WorkerLog.Debug(
             $"responses web_search {status} id={id ?? string.Empty} query='{query}' " +
             $"sources={(sources?.GetArrayLength() ?? 0)}");
-        await AgentRuntimeTools.EmitAsync(
+        await EmitProjectedEventAsync(
+            parseState,
             state,
             context,
             new AgentRuntimeStreamEvent(
@@ -488,7 +498,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         {
             return;
         }
-        _ = AgentRuntimeTools.EmitAsync(
+        _ = EmitProjectedEventAsync(
+            parseState,
             state,
             context,
             new AgentRuntimeStreamEvent(
@@ -515,12 +526,78 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         }
         parseState.EmittedThinkingDelta = true;
         MarkFirstToken(parseState, startedAt);
-        _ = AgentRuntimeTools.EmitAsync(
+        _ = EmitProjectedEventAsync(
+            parseState,
             state,
             context,
             new AgentRuntimeStreamEvent("thinking_delta", Thinking: thinking));
     }
 
+    private static bool IsWebSocketTransportUnavailableEvent(JsonElement payload)
+    {
+        if (IsWebSocketTransportUnavailableError(payload))
+        {
+            return true;
+        }
+        if (payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty("error", out var error) &&
+            IsWebSocketTransportUnavailableError(error))
+        {
+            return true;
+        }
+        return payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty("response", out var response) &&
+            response.ValueKind == JsonValueKind.Object &&
+            response.TryGetProperty("error", out var responseError) &&
+            IsWebSocketTransportUnavailableError(responseError);
+    }
+
+    private static bool IsWebSocketTransportUnavailableError(JsonElement error)
+    {
+        if (error.ValueKind == JsonValueKind.String)
+        {
+            return IsWebSocketTransportUnavailableText(error.GetString());
+        }
+        if (error.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var code = JsonHelpers.GetString(error, "code");
+        if (!string.IsNullOrWhiteSpace(code) &&
+            code.Contains("websocket", StringComparison.OrdinalIgnoreCase) &&
+            (code.Contains("unavailable", StringComparison.OrdinalIgnoreCase) ||
+                code.Contains("unsupported", StringComparison.OrdinalIgnoreCase) ||
+                code.Contains("upgrade", StringComparison.OrdinalIgnoreCase) ||
+                code.Contains("handshake", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return IsWebSocketTransportUnavailableText(JsonHelpers.GetString(error, "message"));
+    }
+
+    private static bool IsWebSocketTransportUnavailableText(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return false;
+        }
+
+        if (message.Contains("status code '101' was expected", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("status code \"101\" was expected", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return message.Contains("websocket", StringComparison.OrdinalIgnoreCase) &&
+            (message.Contains("handshake", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("upgrade", StringComparison.OrdinalIgnoreCase)) &&
+            (message.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("unsupported", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("unavailable", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("404", StringComparison.OrdinalIgnoreCase));
+    }
 
     private static AgentRuntimeTokenUsage ReadResponsesUsage(JsonElement usage)
     {

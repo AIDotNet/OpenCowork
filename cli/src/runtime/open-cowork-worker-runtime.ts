@@ -5,26 +5,43 @@ import type {
   AskUserAnswerPayload,
   AskUserRequest,
   CodeGraphStatus,
+  ConfigCatalog,
+  ConfigEntry,
+  ConfigSettingValue,
+  ContextCompressionResult,
+  ContextSnapshot,
+  Message,
   ModelCatalog,
+  ModelConfiguration,
+  ModelConfigurationPatch,
   ModelSelection,
   PermissionDecision,
   PermissionMode,
   PlanApprovalMode,
   PlanSnapshot,
   PlanStatus,
+  RewindAction,
+  RewindCheckpoint,
+  RewindResult,
   RuntimeSessionConfig,
   TaskItem,
-  UiEvent
+  UiEvent,
+  UsageSnapshot
 } from '../types.js'
 import { NativeWorkerClient, type NativeWorkerProbe } from './native-worker-client.js'
 import {
   loadAgentCatalog,
   loadModelCatalog,
   loadOpenCoworkConfiguration,
-  persistModelSelection
+  persistModelConfiguration,
+  persistModelSelection,
+  resolveProviderModel
 } from './provider-catalog.js'
 import {
+  buildWorkerCompressionRequest,
   buildWorkerRunRequest,
+  resolveReasoningEffort,
+  resolveWorkerCompressionSettings,
   type WorkerMessage,
   type WorkerToolDefinition,
   type WorkerSessionOptions
@@ -49,6 +66,48 @@ type PendingReverseRequest = {
 type PendingPlanContext = {
   planExecution?: { filePath?: string }
   planRevision?: { title: string; filePath?: string; feedback: string }
+}
+
+type StoredFileSnapshot = {
+  exists: boolean
+  fullText?: string
+  hash: string | null
+  size: number
+  text?: string
+}
+
+type StoredTrackedFileChange = {
+  after: StoredFileSnapshot
+  before: StoredFileSnapshot
+  createdAt: number
+  filePath: string
+  id: string
+  op: 'create' | 'modify'
+  revertedAt?: number
+  runId: string
+  status: 'open' | 'reverted'
+  transport: 'local' | 'ssh'
+}
+
+type StoredRunChangeSet = {
+  changes: StoredTrackedFileChange[]
+  createdAt: number
+  runId: string
+  status: 'open' | 'reverted'
+}
+
+type AgentChangeRollbackResult = {
+  error?: string | null
+  handled: boolean
+  reason?: string | null
+  reverted: boolean
+  revertedAt?: number | null
+  success: boolean
+}
+
+type RewindCheckpointRecord = {
+  checkpoint: Omit<RewindCheckpoint, 'changedFileCount' | 'codeRestoreAvailable'>
+  prefix: WorkerMessage[]
 }
 
 export interface OpenCoworkWorkerRuntimeOptions {
@@ -266,9 +325,142 @@ function normalizeMessages(value: unknown): WorkerMessage[] | null {
   return messages
 }
 
+function toRewindTranscript(messages: WorkerMessage[], model: string): Message[] {
+  const transcript: Message[] = []
+  for (const message of messages) {
+    const text = flattenContent(message.content).trim()
+    if (!text) continue
+    if (message.role === 'user') {
+      transcript.push({ id: message.id, kind: 'user', text })
+    } else if (message.role === 'assistant') {
+      transcript.push({ id: message.id, kind: 'assistant', model, text })
+    } else {
+      transcript.push({
+        id: message.id,
+        kind: 'system',
+        text: message.role === 'tool' ? `Tool result · ${text}` : text,
+        tone: 'muted'
+      })
+    }
+  }
+  return transcript
+}
+
+function normalizeCompressionResult(value: unknown): ContextCompressionResult | null {
+  if (!isRecord(value)) return null
+  const originalCount = numberValue(value.originalCount)
+  const newCount = numberValue(value.newCount)
+  if (originalCount === null || newCount === null) return null
+  const messagesSummarized = numberValue(value.messagesSummarized)
+  return {
+    compressed: value.compressed === true,
+    originalCount,
+    newCount,
+    ...(messagesSummarized === null ? {} : { messagesSummarized }),
+    ...(typeof value.summarizerFailed === 'boolean'
+      ? { summarizerFailed: value.summarizerFailed }
+      : {}),
+    ...(stringValue(value.error) ? { error: stringValue(value.error) } : {})
+  }
+}
+
+function normalizeFileSnapshot(value: unknown): StoredFileSnapshot | null {
+  if (!isRecord(value)) return null
+  const size = numberValue(value.size)
+  if (typeof value.exists !== 'boolean' || size === null) return null
+  return {
+    exists: value.exists,
+    hash: typeof value.hash === 'string' ? value.hash : null,
+    size,
+    ...(typeof value.text === 'string' ? { text: value.text } : {}),
+    ...(typeof value.fullText === 'string' ? { fullText: value.fullText } : {})
+  }
+}
+
+function normalizeStoredRunChangeSets(value: unknown): StoredRunChangeSet[] {
+  const rawSets = Array.isArray(value)
+    ? value
+    : isRecord(value) && Array.isArray(value.changeSets)
+      ? value.changeSets
+      : []
+  const sets: StoredRunChangeSet[] = []
+  for (const rawSet of rawSets) {
+    if (!isRecord(rawSet)) continue
+    const runId = stringValue(rawSet.runId)
+    if (!runId) continue
+    const changes: StoredTrackedFileChange[] = []
+    for (const rawChange of Array.isArray(rawSet.changes) ? rawSet.changes : []) {
+      if (!isRecord(rawChange)) continue
+      const before = normalizeFileSnapshot(rawChange.before)
+      const after = normalizeFileSnapshot(rawChange.after)
+      const id = stringValue(rawChange.id)
+      const filePath = stringValue(rawChange.filePath)
+      if (!before || !after || !id || !filePath) continue
+      changes.push({
+        after,
+        before,
+        createdAt: numberValue(rawChange.createdAt) ?? numberValue(rawSet.createdAt) ?? 0,
+        filePath,
+        id,
+        op: rawChange.op === 'create' ? 'create' : 'modify',
+        ...(numberValue(rawChange.revertedAt) === null
+          ? {}
+          : { revertedAt: numberValue(rawChange.revertedAt) ?? undefined }),
+        runId: stringValue(rawChange.runId) || runId,
+        status: rawChange.status === 'reverted' ? 'reverted' : 'open',
+        transport: rawChange.transport === 'ssh' ? 'ssh' : 'local'
+      })
+    }
+    sets.push({
+      changes,
+      createdAt: numberValue(rawSet.createdAt) ?? 0,
+      runId,
+      status: rawSet.status === 'reverted' ? 'reverted' : 'open'
+    })
+  }
+  return sets
+}
+
+function parsePersistedStore(value: unknown): { container: JsonRecord; state: JsonRecord } {
+  let parsed = value
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed) as unknown
+    } catch {
+      parsed = null
+    }
+  }
+  if (!isRecord(parsed)) return { container: { version: 30 }, state: {} }
+  if (isRecord(parsed.state)) return { container: parsed, state: parsed.state }
+  return { container: { version: 30 }, state: parsed }
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+const MIN_ANTHROPIC_THINKING_BUDGET = 1_024
+const DEFAULT_ANTHROPIC_THINKING_BUDGET = 10_000
+
+function readAnthropicThinkingBudget(model: JsonRecord): number | null {
+  const config = isRecord(model.thinkingConfig) ? model.thinkingConfig : null
+  const body = config && isRecord(config.bodyParams) ? config.bodyParams : null
+  const thinking = body && isRecord(body.thinking) ? body.thinking : null
+  const budget = thinking ? Number(thinking.budget_tokens) : NaN
+  return Number.isFinite(budget) && budget > 0 ? Math.floor(budget) : null
+}
+
+function messageSerializedSize(message: WorkerMessage): number {
+  try {
+    return JSON.stringify(message.content).length
+  } catch {
+    return flattenContent(message.content).length
+  }
+}
+
 export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private readonly client: NativeWorkerClient
-  private readonly sessionId = `cli-session-${randomUUID()}`
+  private sessionId = `cli-session-${randomUUID()}`
   private readonly subscriptions: Array<() => void> = []
   private readonly pendingReverse = new Map<string, PendingReverseRequest>()
   private readonly sessionAllowedTools = new Set<string>()
@@ -289,14 +481,36 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private pendingPlanContext: PendingPlanContext = {}
   private activeCodeGraphToolNames = new Set<string>()
   private activeSignal: AbortSignal | null = null
+  private historyPersistence: Promise<void> | null = null
+  private rewindTranscript: WorkerMessage[] = []
+  private rewindCheckpointRecords: RewindCheckpointRecord[] = []
+  private rewindChangeSessionIds: string[] = []
+  private activeCheckpointId: string | null = null
 
   constructor(private readonly options: OpenCoworkWorkerRuntimeOptions) {
     const catalog = loadModelCatalog({
       providerId: options.providerId,
       modelId: options.model
     })
+    let initialEffort = options.effort
+    if (!initialEffort && catalog.active) {
+      const configuration = loadOpenCoworkConfiguration()
+      const resolution = resolveProviderModel(configuration, {
+        providerId: catalog.active.providerId,
+        modelId: catalog.active.modelId
+      })
+      if (resolution) {
+        initialEffort = resolveReasoningEffort(
+          configuration.settings,
+          catalog.active.providerId,
+          catalog.active.modelId,
+          '',
+          resolution.model
+        )
+      }
+    }
     this.config = {
-      effort: options.effort ?? 'high',
+      effort: initialEffort ?? 'medium',
       model: catalog.active?.modelId ?? options.model ?? '',
       providerId: catalog.active?.providerId ?? options.providerId ?? '',
       permissionMode: options.permissionMode
@@ -370,6 +584,94 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     }
   }
 
+  async configureModel(selection: ModelSelection, patch: ModelConfigurationPatch): Promise<void> {
+    const configuration = loadOpenCoworkConfiguration()
+    const resolution = resolveProviderModel(configuration, {
+      providerId: selection.providerId,
+      modelId: selection.modelId
+    })
+    if (!resolution) throw new Error('The selected provider/model is no longer available.')
+
+    const { model, provider } = resolution
+    const providerType = stringValue(model.type) || stringValue(provider.type)
+    const modelPatch: JsonRecord = {}
+    const settingsPatch: JsonRecord = {}
+
+    if (typeof patch.thinkingEnabled === 'boolean') {
+      settingsPatch.thinkingEnabled = patch.thinkingEnabled
+    }
+    if (typeof patch.fastModeEnabled === 'boolean') {
+      settingsPatch.fastModeEnabled = patch.fastModeEnabled
+    }
+    if (patch.reasoningEffort) {
+      const thinkingConfig = isRecord(model.thinkingConfig) ? model.thinkingConfig : null
+      const levels =
+        thinkingConfig && Array.isArray(thinkingConfig.reasoningEffortLevels)
+          ? thinkingConfig.reasoningEffortLevels.filter(
+              (level): level is string => typeof level === 'string'
+            )
+          : []
+      if (levels.length > 0 && !levels.includes(patch.reasoningEffort)) {
+        throw new Error(
+          `Reasoning effort “${patch.reasoningEffort}” is not supported by ${selection.modelName}.`
+        )
+      }
+      const reasoningEffortByModel = isRecord(configuration.settings.reasoningEffortByModel)
+        ? configuration.settings.reasoningEffortByModel
+        : {}
+      settingsPatch.reasoningEffort = patch.reasoningEffort
+      settingsPatch.reasoningEffortByModel = {
+        ...reasoningEffortByModel,
+        [`${selection.providerId}:${selection.modelId}`]: patch.reasoningEffort
+      }
+    }
+    if (typeof patch.builtinSearchEnabled === 'boolean') {
+      modelPatch.enableBuiltinSearch = patch.builtinSearchEnabled
+    }
+    if (patch.websocketMode) {
+      modelPatch.websocketMode = patch.websocketMode
+    }
+    if (typeof patch.imageGenerationEnabled === 'boolean') {
+      modelPatch.responsesImageGeneration = {
+        ...(isRecord(model.responsesImageGeneration) ? model.responsesImageGeneration : {}),
+        enabled: patch.imageGenerationEnabled
+      }
+    }
+    if (patch.cacheTtl) {
+      modelPatch.cacheTtl = patch.cacheTtl
+    }
+    if (typeof patch.thinkingBudget === 'number' && providerType === 'anthropic') {
+      const maxOutputTokens = numberValue(model.maxOutputTokens) ?? 64_000
+      const budget = Math.round(
+        clampNumber(
+          patch.thinkingBudget,
+          MIN_ANTHROPIC_THINKING_BUDGET,
+          Math.max(MIN_ANTHROPIC_THINKING_BUDGET, maxOutputTokens - 1)
+        )
+      )
+      const thinkingConfig = isRecord(model.thinkingConfig) ? model.thinkingConfig : {}
+      const bodyParams = isRecord(thinkingConfig.bodyParams) ? thinkingConfig.bodyParams : {}
+      const thinking = isRecord(bodyParams.thinking) ? bodyParams.thinking : {}
+      modelPatch.thinkingConfig = {
+        ...thinkingConfig,
+        bodyParams: {
+          ...bodyParams,
+          thinking: { ...thinking, type: 'enabled', budget_tokens: budget }
+        }
+      }
+    }
+
+    if (Object.keys(modelPatch).length > 0) {
+      persistModelConfiguration(selection, modelPatch)
+    }
+    if (Object.keys(settingsPatch).length > 0) {
+      await this.updatePersistedSettings(settingsPatch)
+    }
+    if (patch.reasoningEffort) {
+      this.config = { ...this.config, effort: patch.reasoningEffort }
+    }
+  }
+
   getModelCatalog(): ModelCatalog {
     return loadModelCatalog({
       providerId: this.config.providerId,
@@ -377,8 +679,392 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     })
   }
 
+  getModelConfiguration(selection: ModelSelection): ModelConfiguration {
+    const configuration = loadOpenCoworkConfiguration()
+    const resolution = resolveProviderModel(configuration, {
+      providerId: selection.providerId,
+      modelId: selection.modelId
+    })
+    if (!resolution) throw new Error('The selected provider/model is no longer available.')
+
+    const { model, provider } = resolution
+    const providerType = stringValue(model.type) || stringValue(provider.type) || 'unknown'
+    const thinkingConfig = isRecord(model.thinkingConfig) ? model.thinkingConfig : null
+    const reasoningEffortLevels =
+      thinkingConfig && Array.isArray(thinkingConfig.reasoningEffortLevels)
+        ? thinkingConfig.reasoningEffortLevels.filter(
+            (level): level is string => typeof level === 'string' && level.length > 0
+          )
+        : []
+    const requestedEffort =
+      this.config.providerId === selection.providerId && this.config.model === selection.modelId
+        ? this.config.effort
+        : ''
+    const reasoningEffort = resolveReasoningEffort(
+      configuration.settings,
+      selection.providerId,
+      selection.modelId,
+      requestedEffort,
+      model
+    )
+    const supportsThinking = model.supportsThinking === true
+    const maxOutputTokens = numberValue(model.maxOutputTokens)
+    const supportsThinkingBudget =
+      providerType === 'anthropic' && supportsThinking && Boolean(thinkingConfig)
+    const thinkingBudgetMax = supportsThinkingBudget
+      ? Math.max(MIN_ANTHROPIC_THINKING_BUDGET, Math.floor((maxOutputTokens ?? 64_000) - 1))
+      : undefined
+    const supportsResponsesWebsocket =
+      providerType === 'openai-responses' && model.supportsWebsocket === true
+    const modelWebsocketMode =
+      stringValue(model.websocketMode) || stringValue(provider.websocketMode)
+    const responsesImageGeneration = isRecord(model.responsesImageGeneration)
+      ? model.responsesImageGeneration
+      : null
+    const cacheTtlValue = stringValue(model.cacheTtl) || stringValue(provider.cacheTtl)
+    const contextLength = numberValue(model.contextLength)
+    const inputPrice = numberValue(model.inputPrice)
+    const outputPrice = numberValue(model.outputPrice)
+
+    return {
+      builtinSearchEnabled:
+        (providerType === 'anthropic' || providerType === 'openai-responses') &&
+        model.supportsBuiltinSearch === true &&
+        model.enableBuiltinSearch === true,
+      cacheTtl: cacheTtlValue === '1h' ? '1h' : '5m',
+      ...(contextLength && contextLength > 0 ? { contextLength } : {}),
+      fastModeEnabled: configuration.settings.fastModeEnabled === true,
+      imageGenerationEnabled:
+        model.supportsImageGeneration === true && responsesImageGeneration?.enabled !== false,
+      ...(inputPrice !== null ? { inputPrice } : {}),
+      ...(maxOutputTokens && maxOutputTokens > 0 ? { maxOutputTokens } : {}),
+      ...(outputPrice !== null ? { outputPrice } : {}),
+      providerType,
+      reasoningEffort,
+      reasoningEffortLevels,
+      selection: resolution.selection,
+      supportsBuiltinSearch:
+        (providerType === 'anthropic' || providerType === 'openai-responses') &&
+        model.supportsBuiltinSearch === true,
+      supportsCacheTtl: providerType === 'anthropic',
+      supportsFastMode: model.serviceTier === 'priority',
+      supportsImageGeneration:
+        providerType === 'openai-responses' && model.supportsImageGeneration === true,
+      supportsResponsesWebsocket,
+      supportsThinking,
+      ...(supportsThinkingBudget
+        ? {
+            thinkingBudget: Math.min(
+              thinkingBudgetMax ?? DEFAULT_ANTHROPIC_THINKING_BUDGET,
+              Math.max(
+                MIN_ANTHROPIC_THINKING_BUDGET,
+                readAnthropicThinkingBudget(model) ?? DEFAULT_ANTHROPIC_THINKING_BUDGET
+              )
+            ),
+            thinkingBudgetMax,
+            thinkingBudgetMin: MIN_ANTHROPIC_THINKING_BUDGET
+          }
+        : {}),
+      thinkingEnabled: configuration.settings.thinkingEnabled === true && supportsThinking,
+      websocketMode:
+        supportsResponsesWebsocket && modelWebsocketMode === 'auto' ? 'auto' : 'disabled'
+    }
+  }
+
   getAgentCatalog(): AgentOption[] {
     return loadAgentCatalog()
+  }
+
+  getConfigCatalog(): ConfigCatalog {
+    const configuration = loadOpenCoworkConfiguration()
+    const { settings } = configuration
+    const modelCatalog = this.getModelCatalog()
+    const binding = isRecord(settings.contextCompressionModel)
+      ? settings.contextCompressionModel
+      : null
+    const compressionModelOption = binding
+      ? modelCatalog.groups
+          .flatMap((group) => group.models)
+          .find(
+            (option) =>
+              option.providerId === stringValue(binding.providerId) &&
+              option.modelId === stringValue(binding.modelId)
+          )
+      : undefined
+    const compressionModel = compressionModelOption
+      ? {
+          providerId: compressionModelOption.providerId,
+          providerName: compressionModelOption.providerName,
+          modelId: compressionModelOption.modelId,
+          modelName: compressionModelOption.modelName
+        }
+      : null
+    const codeGraphEnabled = settings.codegraphEnabled === true
+    const entries: ConfigEntry[] = [
+      {
+        action: 'model',
+        category: 'Model',
+        description: 'Switch among enabled models from every connected OpenCowork provider.',
+        key: 'activeModel',
+        kind: 'action',
+        label: 'Active model',
+        value: modelCatalog.active
+          ? `${modelCatalog.active.providerName} / ${modelCatalog.active.modelName}`
+          : 'Not configured'
+      },
+      {
+        category: 'Model',
+        description:
+          'Include the model reasoning/thinking mode when the selected model supports it.',
+        key: 'thinkingEnabled',
+        kind: 'boolean',
+        label: 'Thinking',
+        value: settings.thinkingEnabled === true
+      },
+      {
+        action: 'compressionModel',
+        category: 'Context',
+        description:
+          'Choose a dedicated summarizer, or use the current session model. Credentials remain in the shared provider store.',
+        key: 'contextCompressionModel',
+        kind: 'action',
+        label: 'Compression model',
+        value: compressionModel
+          ? `${compressionModel.providerName} / ${compressionModel.modelName}`
+          : 'Current session model'
+      },
+      {
+        category: 'Context',
+        description:
+          'Allow the Native Worker to summarize canonical history before the model context fills.',
+        key: 'contextCompressionEnabled',
+        kind: 'boolean',
+        label: 'Auto-compact',
+        value: settings.contextCompressionEnabled !== false
+      },
+      {
+        category: 'Context',
+        description:
+          'Start automatic compression at this share of the effective model context window.',
+        format: 'percentage',
+        key: 'contextCompressionThreshold',
+        kind: 'number',
+        label: 'Compact threshold',
+        max: 0.9,
+        min: 0.3,
+        step: 0.05,
+        value: clampNumber(numberValue(settings.contextCompressionThreshold) ?? 0.8, 0.3, 0.9)
+      },
+      {
+        category: 'Runtime',
+        description: 'Maximum native tool calls the Worker may execute concurrently.',
+        format: 'integer',
+        key: 'maxParallelToolCalls',
+        kind: 'number',
+        label: 'Parallel tool calls',
+        max: 16,
+        min: 1,
+        step: 1,
+        value: clampNumber(numberValue(settings.maxParallelToolCalls) ?? 4, 1, 16)
+      },
+      {
+        category: 'Runtime',
+        description: 'Maximum Native Worker sub-agents allowed to run concurrently.',
+        format: 'integer',
+        key: 'maxConcurrentSubAgents',
+        kind: 'number',
+        label: 'Concurrent sub-agents',
+        max: 16,
+        min: 1,
+        step: 1,
+        value: clampNumber(numberValue(settings.maxConcurrentSubAgents) ?? 4, 1, 16)
+      },
+      {
+        category: 'Runtime',
+        description: 'Provider response-header timeout. Set to 0 to wait indefinitely.',
+        format: 'seconds',
+        key: 'apiRequestTimeoutSeconds',
+        kind: 'number',
+        label: 'Provider timeout',
+        max: 3_600,
+        min: 0,
+        step: 10,
+        value: clampNumber(numberValue(settings.apiRequestTimeoutSeconds) ?? 100, 0, 3_600)
+      },
+      {
+        category: 'Tools',
+        description: 'Expose the indexed CodeGraph query surface to the Native Worker agent.',
+        key: 'codegraphEnabled',
+        kind: 'boolean',
+        label: 'CodeGraph',
+        value: codeGraphEnabled
+      },
+      {
+        category: 'Tools',
+        description:
+          'Expose every Worker CodeGraph tool instead of the default codegraph_explore entry point.',
+        disabled: !codeGraphEnabled,
+        key: 'codegraphFullToolSurface',
+        kind: 'boolean',
+        label: 'Full CodeGraph tools',
+        value: settings.codegraphFullToolSurface === true
+      }
+    ]
+
+    return { compressionModel, entries }
+  }
+
+  getContextSnapshot(): ContextSnapshot {
+    const configuration = loadOpenCoworkConfiguration()
+    let model: JsonRecord = {}
+    try {
+      model =
+        resolveProviderModel(configuration, {
+          providerId: this.config.providerId,
+          modelId: this.config.model
+        })?.model ?? {}
+    } catch {
+      model = {}
+    }
+    const compression = resolveWorkerCompressionSettings(configuration, model)
+    let measuredTokens = 0
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const usage = this.messages[index]?.usage
+      const contextTokens = isRecord(usage) ? numberValue(usage.contextTokens) : null
+      if (contextTokens && contextTokens > 0) {
+        measuredTokens = contextTokens
+        break
+      }
+    }
+    const estimatedTokens =
+      measuredTokens ||
+      Math.ceil(
+        this.messages.reduce((total, message) => total + messageSerializedSize(message), 0) / 4
+      )
+    return {
+      compressionEnabled: compression.enabled,
+      contextLength: compression.contextLength,
+      estimatedTokens,
+      messageCount: this.messages.length,
+      threshold: compression.threshold,
+      triggerTokens: compression.triggerTokens
+    }
+  }
+
+  getUsageSnapshot(): UsageSnapshot {
+    let inputTokens = 0
+    let outputTokens = 0
+    let billableInputTokens = 0
+    let cacheCreationTokens = 0
+    let cacheReadTokens = 0
+    let reasoningTokens = 0
+    let requestCount = 0
+    for (const message of this.messages) {
+      const usage = message.usage
+      if (!isRecord(usage)) continue
+      const input = Math.max(0, numberValue(usage.inputTokens) ?? 0)
+      const output = Math.max(0, numberValue(usage.outputTokens) ?? 0)
+      const cacheRead = Math.max(0, numberValue(usage.cacheReadTokens) ?? 0)
+      const directCacheCreation = Math.max(0, numberValue(usage.cacheCreationTokens) ?? 0)
+      const detailedCacheCreation =
+        Math.max(0, numberValue(usage.cacheCreation5mTokens) ?? 0) +
+        Math.max(0, numberValue(usage.cacheCreation1hTokens) ?? 0)
+      const cacheCreation = Math.max(directCacheCreation, detailedCacheCreation)
+      inputTokens += input
+      outputTokens += output
+      cacheReadTokens += cacheRead
+      cacheCreationTokens += cacheCreation
+      reasoningTokens += Math.max(0, numberValue(usage.reasoningTokens) ?? 0)
+      billableInputTokens += Math.max(
+        0,
+        numberValue(usage.billableInputTokens) ?? input - cacheRead - cacheCreation
+      )
+      requestCount += 1
+    }
+
+    const configuration = loadOpenCoworkConfiguration()
+    let model: JsonRecord | null = null
+    let modelLabel = this.activeModelLabel
+    try {
+      const resolution = resolveProviderModel(configuration, {
+        providerId: this.config.providerId,
+        modelId: this.config.model
+      })
+      model = resolution?.model ?? null
+      modelLabel = resolution?.selection.modelName ?? modelLabel
+    } catch {
+      model = null
+    }
+    const inputPrice = model ? numberValue(model.inputPrice) : null
+    const outputPrice = model ? numberValue(model.outputPrice) : null
+    const cacheCreationPrice =
+      (model ? numberValue(model.cacheCreationPrice) : null) ??
+      (inputPrice === null ? null : inputPrice * 1.25)
+    const cacheReadPrice =
+      (model ? numberValue(model.cacheHitPrice) : null) ??
+      (inputPrice === null ? null : inputPrice * 0.1)
+    const costs = [
+      inputPrice === null ? null : (billableInputTokens * inputPrice) / 1_000_000,
+      outputPrice === null ? null : (outputTokens * outputPrice) / 1_000_000,
+      cacheCreationPrice === null ? null : (cacheCreationTokens * cacheCreationPrice) / 1_000_000,
+      cacheReadPrice === null ? null : (cacheReadTokens * cacheReadPrice) / 1_000_000
+    ]
+    const estimatedCostUsd = costs.every((cost) => cost === null)
+      ? null
+      : costs.reduce<number>((total, cost) => total + (cost ?? 0), 0)
+
+    return {
+      billableInputTokens,
+      cacheCreationTokens,
+      cacheReadTokens,
+      estimatedCostUsd,
+      inputTokens,
+      model: modelLabel,
+      outputTokens,
+      reasoningTokens,
+      requestCount
+    }
+  }
+
+  async updateConfig(key: string, value: ConfigSettingValue): Promise<void> {
+    const normalized: ConfigSettingValue = (() => {
+      if (key === 'contextCompressionThreshold') {
+        return clampNumber(Number(value), 0.3, 0.9)
+      }
+      if (key === 'maxParallelToolCalls' || key === 'maxConcurrentSubAgents') {
+        return Math.round(clampNumber(Number(value), 1, 16))
+      }
+      if (key === 'apiRequestTimeoutSeconds') {
+        return Math.round(clampNumber(Number(value), 0, 3_600))
+      }
+      if (
+        key === 'thinkingEnabled' ||
+        key === 'contextCompressionEnabled' ||
+        key === 'codegraphEnabled' ||
+        key === 'codegraphFullToolSurface'
+      ) {
+        return value === true
+      }
+      throw new Error(`Unsupported OpenCowork CLI setting: ${key}`)
+    })()
+    await this.updatePersistedSettings({ [key]: normalized })
+  }
+
+  async selectCompressionModel(selection: ModelSelection | null): Promise<void> {
+    if (selection) {
+      const catalog = this.getModelCatalog()
+      const available = catalog.groups.some(
+        (group) =>
+          group.providerId === selection.providerId &&
+          group.models.some((model) => model.modelId === selection.modelId)
+      )
+      if (!available) throw new Error('The selected compression model is no longer available.')
+    }
+    await this.updatePersistedSettings({
+      contextCompressionModel: selection
+        ? { providerId: selection.providerId, modelId: selection.modelId }
+        : null
+    })
   }
 
   async *send(prompt: string, signal: AbortSignal): AsyncIterable<UiEvent> {
@@ -394,12 +1080,32 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     this.subAgentReports = new Map()
     this.subAgentThinking = new Map()
     this.queue.length = 0
-    this.messages.push({
+    this.historyPersistence = null
+    this.ensureRewindHistory()
+    const userMessage: WorkerMessage = {
       id: `user-${randomUUID()}`,
       role: 'user',
       content: prompt,
       createdAt: Date.now()
+    }
+    const checkpointPrefix = [...this.rewindTranscript]
+    const previousUserCount = this.rewindCheckpointRecords.reduce(
+      (highest, record) => Math.max(highest, record.checkpoint.userIndex + 1),
+      0
+    )
+    this.rewindCheckpointRecords.push({
+      checkpoint: {
+        createdAt: userMessage.createdAt,
+        id: userMessage.id,
+        prompt,
+        userIndex: previousUserCount
+      },
+      prefix: checkpointPrefix
     })
+    if (this.rewindCheckpointRecords.length > 100) this.rewindCheckpointRecords.shift()
+    this.activeCheckpointId = userMessage.id
+    this.rewindTranscript = [...checkpointPrefix, userMessage]
+    this.messages.push(userMessage)
 
     const handleAbort = (): void => {
       void this.client.request('agent/cancel', { runId }, 10_000).catch((error) => {
@@ -442,6 +1148,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
           this.notify = resolveWait
         })
       }
+      if (this.historyPersistence) await this.historyPersistence
     } finally {
       signal.removeEventListener('abort', handleAbort)
       for (const [id, request] of this.pendingReverse) {
@@ -462,7 +1169,177 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       this.assistantId = null
       this.activeSignal = null
       this.notify = null
+      this.historyPersistence = null
+      this.activeCheckpointId = null
     }
+  }
+
+  async compactContext(
+    focusPrompt: string | undefined,
+    signal: AbortSignal
+  ): Promise<ContextCompressionResult> {
+    if (this.activeRunId) throw new Error('Wait for the active Worker turn before compacting.')
+    if (this.messages.length === 0) {
+      return { compressed: false, originalCount: 0, newCount: 0 }
+    }
+
+    await this.ensureSession()
+    const { request } = buildWorkerCompressionRequest(
+      this.createSessionOptions(`cli-compact-${randomUUID()}`),
+      this.messages,
+      focusPrompt
+    )
+    const response = await this.client.request<unknown>(
+      'agent/compress-context',
+      request,
+      6 * 60_000,
+      signal
+    )
+    if (!isRecord(response)) throw new Error('Native Worker returned an invalid compact response.')
+    const result = normalizeCompressionResult(response.result)
+    const compressedMessages = normalizeMessages(response.messages)
+    if (!result || !compressedMessages) {
+      throw new Error('Native Worker returned an incomplete compact response.')
+    }
+    if (!result.compressed) return result
+
+    await this.persistCanonicalMessages(compressedMessages)
+    this.messages = compressedMessages
+    return result
+  }
+
+  async listRewindCheckpoints(): Promise<RewindCheckpoint[]> {
+    if (this.activeRunId) throw new Error('Wait for the active Worker turn before rewinding.')
+    if (this.messages.length === 0) return []
+
+    this.ensureRewindHistory()
+    const changeSets = await this.loadRewindChangeSets()
+    const openLocalChanges = changeSets
+      .flatMap((changeSet) => changeSet.changes)
+      .filter((change) => change.status === 'open' && change.transport === 'local')
+    return this.rewindCheckpointRecords.map((record) => {
+      const checkpoint = record.checkpoint
+      const changedFiles = new Set(
+        openLocalChanges
+          .filter((change) => change.createdAt >= checkpoint.createdAt)
+          .map((change) => change.filePath)
+      )
+      return {
+        changedFileCount: changedFiles.size,
+        codeRestoreAvailable: changedFiles.size > 0,
+        ...checkpoint
+      }
+    })
+  }
+
+  async rewind(
+    checkpointId: string,
+    action: RewindAction,
+    instructions: string | undefined,
+    signal: AbortSignal
+  ): Promise<RewindResult> {
+    if (this.activeRunId) throw new Error('Wait for the active Worker turn before rewinding.')
+    signal.throwIfAborted()
+
+    const checkpoints = await this.listRewindCheckpoints()
+    const checkpoint = checkpoints.find((entry) => entry.id === checkpointId)
+    if (!checkpoint) throw new Error('The selected rewind checkpoint is no longer available.')
+    const checkpointRecordIndex = this.rewindCheckpointRecords.findIndex(
+      (record) => record.checkpoint.id === checkpointId
+    )
+    const checkpointRecord = this.rewindCheckpointRecords[checkpointRecordIndex]
+    if (!checkpointRecord) throw new Error('The selected rewind checkpoint is no longer available.')
+    const messageIndex = checkpointRecord.prefix.length
+    const rewindMessages = this.rewindTranscript
+    if (rewindMessages[messageIndex]?.id !== checkpointId) {
+      throw new Error('The selected rewind checkpoint no longer matches conversation history.')
+    }
+
+    const originalMessageCount = this.messages.length
+    let conversationForked = false
+    let restoredFileCount = 0
+    let failedFiles: string[] = []
+    let restoredPrompt: string | undefined
+    let summarized = false
+
+    if (action === 'restore-code-and-conversation' || action === 'restore-code') {
+      if (!checkpoint.codeRestoreAvailable) {
+        throw new Error('No tracked code changes are available at this checkpoint.')
+      }
+      const restoration = await this.restoreTrackedCode(checkpoint.createdAt, signal)
+      restoredFileCount = restoration.restoredFileCount
+      failedFiles = restoration.failedFiles
+    }
+
+    if (action === 'restore-code-and-conversation' || action === 'restore-conversation') {
+      await this.forkConversation(checkpointRecord.prefix, checkpointRecordIndex)
+      conversationForked = true
+      restoredPrompt = checkpoint.prompt
+    } else if (action === 'summarize-from') {
+      const prefix = rewindMessages.slice(0, messageIndex)
+      const segment = rewindMessages.slice(messageIndex)
+      const compression = await this.compressRewindSegment(segment, instructions, signal)
+      this.messages = [...prefix, ...compression.messages]
+      await this.persistCanonicalMessages(this.messages)
+      restoredPrompt = checkpoint.prompt
+      summarized = true
+    } else if (action === 'summarize-up-to') {
+      const prefix = rewindMessages.slice(0, messageIndex)
+      if (prefix.length === 0) {
+        throw new Error('There is no earlier conversation to summarize at this checkpoint.')
+      }
+      const suffix = rewindMessages.slice(messageIndex)
+      const compression = await this.compressRewindSegment(prefix, instructions, signal)
+      this.messages = [...compression.messages, ...suffix]
+      await this.persistCanonicalMessages(this.messages)
+      summarized = true
+    }
+
+    return {
+      action,
+      checkpoint,
+      conversationForked,
+      failedFiles,
+      newMessageCount: this.messages.length,
+      originalMessageCount,
+      restoredFileCount,
+      ...(restoredPrompt === undefined ? {} : { restoredPrompt }),
+      summarized,
+      transcript: toRewindTranscript(this.messages, this.activeModelLabel)
+    }
+  }
+
+  async clearContext(): Promise<void> {
+    if (this.activeRunId)
+      throw new Error('Wait for the active Worker turn before clearing context.')
+    if (this.sessionCreation) {
+      await this.sessionCreation
+      const result = await this.client.request<JsonRecord>(
+        'db/session-reset-conversation',
+        { sessionId: this.sessionId },
+        30_000
+      )
+      this.assertMutationSucceeded(result, 'Failed to clear the CLI conversation')
+    }
+    this.messages = []
+    this.rewindTranscript = []
+    this.rewindCheckpointRecords = []
+    this.rewindChangeSessionIds = []
+    this.pendingPlanContext = {}
+  }
+
+  async newSession(): Promise<void> {
+    if (this.activeRunId)
+      throw new Error('Wait for the active Worker turn before starting a session.')
+    this.sessionId = `cli-session-${randomUUID()}`
+    this.sessionCreation = null
+    this.messages = []
+    this.rewindTranscript = []
+    this.rewindCheckpointRecords = []
+    this.rewindChangeSessionIds = []
+    this.pendingPlanContext = {}
+    this.sessionAllowedTools.clear()
+    await this.ensureSession()
   }
 
   async respondToPermission(requestId: string, decision: PermissionDecision): Promise<void> {
@@ -581,6 +1458,239 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     }
   }
 
+  private async updatePersistedSettings(patch: JsonRecord): Promise<void> {
+    try {
+      const patched = await this.client.request<JsonRecord>(
+        'settings/patch-persisted-store',
+        { key: 'opencowork-settings', patch },
+        30_000
+      )
+      this.assertMutationSucceeded(patched, 'Failed to update shared OpenCowork settings')
+      return
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!/unknown|route|method|handler|not found|unsupported/iu.test(message)) throw error
+      // Installed workers predating the atomic nested-patch route still expose get/set.
+      // Preserve their entire Zustand container as a compatibility fallback.
+    }
+
+    const stored = await this.client.request<unknown>(
+      'settings/get',
+      { key: 'opencowork-settings' },
+      30_000
+    )
+    const { container, state } = parsePersistedStore(stored)
+    const value = { ...container, state: { ...state, ...patch } }
+    const result = await this.client.request<JsonRecord>(
+      'settings/set',
+      { key: 'opencowork-settings', value },
+      30_000
+    )
+    this.assertMutationSucceeded(result, 'Failed to update shared OpenCowork settings')
+  }
+
+  private async loadTrackedChangeSets(sessionId: string): Promise<StoredRunChangeSet[]> {
+    if (!this.sessionCreation) return []
+    await this.sessionCreation
+    try {
+      const response = await this.client.request<unknown>(
+        'agent-changes/list-session-hydrated',
+        { sessionId },
+        60_000
+      )
+      if (isRecord(response) && response.success === false) {
+        throw new Error(stringValue(response.error) || 'Failed to load tracked file changes')
+      }
+      return normalizeStoredRunChangeSets(response)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!/unknown|route|method|handler|not found|unsupported/iu.test(message)) throw error
+      const response = await this.client.request<unknown>(
+        'db/agent-changes-list-session',
+        { sessionId },
+        60_000
+      )
+      return normalizeStoredRunChangeSets(response)
+    }
+  }
+
+  private async loadRewindChangeSets(): Promise<StoredRunChangeSet[]> {
+    const sessionIds = [...new Set([this.sessionId, ...this.rewindChangeSessionIds])]
+    const loaded = await Promise.all(
+      sessionIds.map((sessionId) => this.loadTrackedChangeSets(sessionId))
+    )
+    const byRunId = new Map<string, StoredRunChangeSet>()
+    for (const changeSet of loaded.flat()) byRunId.set(changeSet.runId, changeSet)
+    return [...byRunId.values()]
+  }
+
+  private async restoreTrackedCode(
+    checkpointCreatedAt: number,
+    signal: AbortSignal
+  ): Promise<{ failedFiles: string[]; restoredFileCount: number }> {
+    const changeSets = await this.loadRewindChangeSets()
+    const targets = changeSets
+      .flatMap((changeSet) => changeSet.changes)
+      .filter(
+        (change) =>
+          change.status === 'open' &&
+          change.transport === 'local' &&
+          change.createdAt >= checkpointCreatedAt
+      )
+      .map((change, ordinal) => ({ change, ordinal }))
+      .sort(
+        (left, right) =>
+          right.change.createdAt - left.change.createdAt || right.ordinal - left.ordinal
+      )
+    const restoredPaths = new Set<string>()
+    const blockedPaths = new Set<string>()
+    const failedFiles: string[] = []
+
+    for (const { change } of targets) {
+      signal.throwIfAborted()
+      if (blockedPaths.has(change.filePath)) continue
+      try {
+        const response = await this.client.request<AgentChangeRollbackResult>(
+          'agent-changes/rollback-local-change',
+          { change },
+          60_000,
+          signal
+        )
+        if (!response.success || !response.handled || !response.reverted) {
+          const reason = response.reason || response.error || 'restore was declined by the Worker'
+          failedFiles.push(`${change.filePath}: ${reason}`)
+          blockedPaths.add(change.filePath)
+          continue
+        }
+        const marked = await this.client.request<JsonRecord>(
+          'db/agent-changes-mark-reverted',
+          {
+            runId: change.runId,
+            changeId: change.id,
+            revertedAt: response.revertedAt ?? Date.now()
+          },
+          30_000,
+          signal
+        )
+        this.assertMutationSucceeded(marked, `Failed to finalize restore for ${change.filePath}`)
+        restoredPaths.add(change.filePath)
+      } catch (error) {
+        if (signal.aborted) throw error
+        failedFiles.push(
+          `${change.filePath}: ${error instanceof Error ? error.message : String(error)}`
+        )
+        blockedPaths.add(change.filePath)
+      }
+    }
+
+    return { failedFiles, restoredFileCount: restoredPaths.size }
+  }
+
+  private async compressRewindSegment(
+    messages: WorkerMessage[],
+    instructions: string | undefined,
+    signal: AbortSignal
+  ): Promise<{ messages: WorkerMessage[]; result: ContextCompressionResult }> {
+    if (messages.length === 0) throw new Error('There is no conversation to summarize here.')
+    const { request } = buildWorkerCompressionRequest(
+      this.createSessionOptions(`cli-rewind-summary-${randomUUID()}`),
+      messages,
+      instructions?.trim() || undefined
+    )
+    const response = await this.client.request<unknown>(
+      'agent/compress-context',
+      request,
+      6 * 60_000,
+      signal
+    )
+    if (!isRecord(response)) throw new Error('Native Worker returned an invalid summary response.')
+    const result = normalizeCompressionResult(response.result)
+    const compressedMessages = normalizeMessages(response.messages)
+    if (!result || !compressedMessages) {
+      throw new Error('Native Worker returned an incomplete summary response.')
+    }
+    if (result.summarizerFailed) {
+      throw new Error(result.error || 'Native Worker could not summarize this conversation range.')
+    }
+    if (!result.compressed) throw new Error('This conversation range is too short to summarize.')
+    return { messages: compressedMessages, result }
+  }
+
+  private ensureRewindHistory(): void {
+    if (this.rewindTranscript.length > 0 || this.rewindCheckpointRecords.length > 0) return
+    this.rewindTranscript = [...this.messages]
+    let userIndex = 0
+    for (let index = 0; index < this.messages.length; index += 1) {
+      const message = this.messages[index]
+      if (!message || message.role !== 'user') continue
+      this.rewindCheckpointRecords.push({
+        checkpoint: {
+          createdAt: message.createdAt,
+          id: message.id,
+          prompt: flattenContent(message.content),
+          userIndex
+        },
+        prefix: this.messages.slice(0, index)
+      })
+      userIndex += 1
+    }
+    if (this.rewindCheckpointRecords.length > 100) {
+      this.rewindCheckpointRecords = this.rewindCheckpointRecords.slice(-100)
+    }
+  }
+
+  private async forkConversation(
+    messages: WorkerMessage[],
+    checkpointRecordIndex: number
+  ): Promise<void> {
+    const retainedCheckpoints = this.rewindCheckpointRecords.slice(0, checkpointRecordIndex)
+    const sourceSessionId = this.sessionId
+    this.sessionId = `cli-session-${randomUUID()}`
+    this.sessionCreation = null
+    this.messages = [...messages]
+    this.rewindTranscript = [...messages]
+    this.rewindCheckpointRecords = retainedCheckpoints
+    this.rewindChangeSessionIds = [...new Set([sourceSessionId, ...this.rewindChangeSessionIds])]
+    this.activeCheckpointId = null
+    this.pendingPlanContext = {}
+    this.sessionAllowedTools.clear()
+    await this.ensureSession()
+    await this.persistCanonicalMessages(this.messages)
+  }
+
+  private async persistCanonicalMessages(messages: WorkerMessage[]): Promise<void> {
+    await this.ensureSession()
+    const result = await this.client.request<JsonRecord>(
+      'db/messages-replace',
+      {
+        sessionId: this.sessionId,
+        messages: messages.map((message, sortOrder) => ({
+          id: message.id,
+          role: message.role,
+          content: JSON.stringify(message.content),
+          meta: message.meta ? JSON.stringify(message.meta) : null,
+          createdAt: message.createdAt,
+          usage: message.usage ? JSON.stringify(message.usage) : null,
+          sortOrder
+        }))
+      },
+      60_000
+    )
+    this.assertMutationSucceeded(result, 'Failed to persist canonical CLI conversation history')
+    const sessionResult = await this.client.request<JsonRecord>(
+      'db/sessions-update',
+      { id: this.sessionId, patch: { updatedAt: Date.now() } },
+      30_000
+    )
+    this.assertMutationSucceeded(sessionResult, 'Failed to update the CLI session timestamp')
+  }
+
+  private assertMutationSucceeded(result: unknown, fallback: string): void {
+    if (isRecord(result) && result.success === false) {
+      throw new Error(stringValue(result.error) || fallback)
+    }
+  }
+
   private async ensureSession(): Promise<void> {
     if (this.sessionCreation) return this.sessionCreation
     const sessionInput: JsonRecord = {
@@ -676,6 +1786,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     const type = stringValue(event.type)
     if (type === 'iteration_start') {
       this.assistantId = null
+      this.push({ type: 'runtime.activity', activity: 'working' })
       return
     }
     if (type === 'text_delta') {
@@ -725,14 +1836,21 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       return
     }
     if (type === 'context_compression_start') {
-      this.pushSystem('Compressing conversation context…')
+      this.push({ type: 'context-compression.start' })
       return
     }
     if (type === 'context_compressed') {
-      this.pushSystem(
-        `Context compressed · ${numberValue(event.originalCount) ?? 0} → ${numberValue(event.newCount) ?? 0} messages`,
-        'success'
-      )
+      const messagesSummarized = numberValue(event.keptMessageCount)
+      this.push({
+        type: 'context-compression.done',
+        originalCount: numberValue(event.originalCount) ?? 0,
+        newCount: numberValue(event.newCount) ?? 0,
+        ...(messagesSummarized === null ? {} : { messagesSummarized }),
+        ...(typeof event.summarizerFailed === 'boolean'
+          ? { summarizerFailed: event.summarizerFailed }
+          : {}),
+        ...(stringValue(event.message) ? { error: stringValue(event.message) } : {})
+      })
       return
     }
     if (type === 'web_search') {
@@ -882,7 +2000,22 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     if (type === 'loop_end') {
       if (this.assistantId) this.push({ type: 'assistant.done', id: this.assistantId })
       const finalMessages = normalizeMessages(event.messages)
-      if (finalMessages) this.messages = finalMessages
+      if (finalMessages) {
+        const checkpointRecord = this.rewindCheckpointRecords.find(
+          (record) => record.checkpoint.id === this.activeCheckpointId
+        )
+        const checkpointIndex = finalMessages.findIndex(
+          (message) => message.id === this.activeCheckpointId
+        )
+        if (checkpointRecord && checkpointIndex >= 0) {
+          this.rewindTranscript = [
+            ...checkpointRecord.prefix,
+            ...finalMessages.slice(checkpointIndex)
+          ]
+        }
+        this.messages = finalMessages
+        this.historyPersistence = this.persistCanonicalMessages(finalMessages)
+      }
       const reason = stringValue(event.reason)
       if (reason === 'max_iterations')
         this.pushSystem('Maximum agent iterations reached', 'warning')

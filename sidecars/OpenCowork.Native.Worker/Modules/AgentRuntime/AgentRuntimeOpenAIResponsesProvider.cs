@@ -112,7 +112,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         {
             UnavailableWebSocketUrls.TryAdd(websocketUrl, 0);
             WorkerLog.Warn(
-                "responses websocket transport failed before any event; falling back to HTTP SSE " +
+                "responses websocket transport failed before projected output; falling back to HTTP SSE " +
                 $"url={websocketUrl} error={ex.GetType().Name}: {ex.Message}");
             body = BuildRequestBody(
                 parameters,
@@ -245,9 +245,10 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         ResponsesParseState parseState,
         AgentRuntimeTools.AgentRuntimeRunState state)
     {
-        // Only retry over HTTP when the WebSocket produced no events at all:
-        // once deltas have streamed to the UI a silent re-run would duplicate them.
-        if (state.IsCancellationRequested || parseState.ReceivedAnyMessage)
+        // WebSocket control/error frames are not user-visible output. They may still prove that
+        // the route is unavailable, so replay over HTTP remains safe until an event has actually
+        // been projected to the UI or tool runtime.
+        if (state.IsCancellationRequested || parseState.ProjectedAnyOutput)
         {
             return false;
         }

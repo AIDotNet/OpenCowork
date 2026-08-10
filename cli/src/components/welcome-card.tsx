@@ -1,4 +1,3 @@
-import path from 'node:path'
 import React from 'react'
 import { Box, Text } from 'ink'
 import stringWidth from 'string-width'
@@ -53,7 +52,6 @@ export function WelcomeCard({ cwd, model, version, width }: WelcomeCardProps): R
   const rightWidth = wide ? cardWidth - 3 - leftWidth : 0
   const rightContentWidth = Math.max(1, rightWidth - 2)
   const shortCwd = fitText(cwd, Math.max(12, leftWidth - 4))
-  const project = path.basename(cwd) || cwd
   const wordmarkRows = COWORK_WORDMARK.map((line, row) => (
     <Text bold color={theme.primary} key={`logo-${row}`}>
       {line}
@@ -81,23 +79,23 @@ export function WelcomeCard({ cwd, model, version, width }: WelcomeCardProps): R
       {fitText('Tips for getting started', rightContentWidth)}
     </Text>,
     <Text color={theme.muted} key="tip-init">
-      {fitText('Run /init to create an AGENTS.md', rightContentWidth)}
+      {fitText('Run /config to review settings', rightContentWidth)}
     </Text>,
     <Text color={theme.border} key="right-divider">
       {'─'.repeat(rightContentWidth)}
     </Text>,
     <Text bold key="recent-title">
-      Recent activity
+      Native Worker
     </Text>,
     <Text color={theme.muted} key="recent-value">
-      {fitText(`No recent sessions in ${project}`, rightContentWidth)}
+      {fitText('Canonical history persists to SQLite', rightContentWidth)}
     </Text>,
     null,
     <Text color={theme.dim} key="tip-command">
       {fitText('Type / for commands', rightContentWidth)}
     </Text>,
     <Text color={theme.dim} key="tip-files">
-      {fitText('Type @ to mention files', rightContentWidth)}
+      {fitText('Use ? for shortcuts', rightContentWidth)}
     </Text>,
     null
   ]

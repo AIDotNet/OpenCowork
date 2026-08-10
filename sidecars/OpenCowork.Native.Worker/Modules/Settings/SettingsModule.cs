@@ -8,6 +8,7 @@ internal sealed class SettingsModule : IWorkerModule
         context.Register("settings/write", SettingsStore.Write);
         context.Register("settings/get", SettingsStore.Get);
         context.Register("settings/set", SettingsStore.Set);
+        context.Register("settings/patch-persisted-store", SettingsStore.PatchPersistedStore);
         context.Register("settings/delete", SettingsStore.Delete);
     }
 }

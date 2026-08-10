@@ -15,8 +15,20 @@ export function CommandMenu({
   selectedIndex,
   width
 }: CommandMenuProps): React.JSX.Element {
-  const visible = commands.slice(0, 8)
+  const visibleCount = 8
+  const safeSelectedIndex = Math.max(0, Math.min(selectedIndex, commands.length - 1))
+  const windowStart = Math.max(
+    0,
+    Math.min(safeSelectedIndex - Math.floor(visibleCount / 2), commands.length - visibleCount)
+  )
+  const visible = commands.slice(windowStart, windowStart + visibleCount)
   const nameWidth = Math.min(30, Math.max(16, Math.floor(width * 0.34)))
+  const aboveCount = windowStart
+  const belowCount = commands.length - windowStart - visible.length
+  const overflowStatus = [
+    aboveCount > 0 ? `↑ ${aboveCount} above` : '',
+    belowCount > 0 ? `↓ ${belowCount} more` : ''
+  ].filter(Boolean)
 
   if (visible.length === 0) {
     return (
@@ -29,7 +41,8 @@ export function CommandMenu({
   return (
     <Box flexDirection="column" width={width}>
       {visible.map((command, index) => {
-        const selected = index === selectedIndex
+        const absoluteIndex = windowStart + index
+        const selected = absoluteIndex === safeSelectedIndex
         const line = `${padText(command.name, nameWidth)}${fitText(
           command.description,
           Math.max(8, width - nameWidth - 2)
@@ -47,9 +60,9 @@ export function CommandMenu({
           </Box>
         )
       })}
-      {commands.length > visible.length ? (
+      {overflowStatus.length > 0 ? (
         <Box paddingLeft={2}>
-          <Text color={theme.dim}>↓ {commands.length - visible.length} more</Text>
+          <Text color={theme.dim}>{overflowStatus.join(' · ')}</Text>
         </Box>
       ) : null}
     </Box>

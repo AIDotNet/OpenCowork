@@ -190,12 +190,32 @@ internal static class OpenAIChatRuntime
                             WorkerLog.Warn(
                                 $"agent context compression preserved original context after summarizer failure " +
                                 $"runId={state.RunId} error={compressed.Result.Error}");
+                            await AgentRuntimeTools.EmitAsync(
+                                state,
+                                context,
+                                new AgentRuntimeStreamEvent(
+                                    "context_compressed",
+                                    Message: compressed.Result.Error,
+                                    OriginalCount: originalCount,
+                                    NewCount: originalCount,
+                                    KeptMessageCount: 0,
+                                    SummarizerFailed: true));
                         }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         WorkerLog.Warn(
                             $"agent context compression failed runId={state.RunId} error={ex.GetType().Name}: {ex.Message}");
+                        await AgentRuntimeTools.EmitAsync(
+                            state,
+                            context,
+                            new AgentRuntimeStreamEvent(
+                                "context_compressed",
+                                Message: ex.Message,
+                                OriginalCount: wireConversation.Count,
+                                NewCount: wireConversation.Count,
+                                KeptMessageCount: 0,
+                                SummarizerFailed: true));
                     }
                 }
             }

@@ -7,11 +7,17 @@ import type { ModelCatalog, ModelOption, ModelSelection } from '../types.js'
 interface ModelPickerProps {
   catalog: ModelCatalog
   current: ModelSelection | null
+  heading?: string
   maxVisible: number
   onCancel(): void
   onSelect(model: ModelSelection): void
+  onUseCurrent?(): void
+  summary?: string
+  useCurrentLabel?: string
   width: number
 }
+
+type PickerRow = { kind: 'current'; label: string } | { kind: 'model'; option: ModelOption }
 
 function matches(option: ModelOption, query: string): boolean {
   const normalized = query.trim().toLocaleLowerCase()
@@ -43,21 +49,38 @@ function authLabel(mode: ModelOption['authMode']): string {
 export function ModelPicker({
   catalog,
   current,
+  heading = 'Select model',
   maxVisible,
   onCancel,
   onSelect,
+  onUseCurrent,
+  summary,
+  useCurrentLabel = 'Use current session model',
   width
 }: ModelPickerProps): React.JSX.Element {
   const [query, setQuery] = useState('')
-  const options = useMemo(
-    () =>
-      catalog.groups.flatMap((group) => group.models).filter((option) => matches(option, query)),
-    [catalog.groups, query]
-  )
+  const options = useMemo<PickerRow[]>(() => {
+    const rows: PickerRow[] = catalog.groups
+      .flatMap((group) => group.models)
+      .filter((option) => matches(option, query))
+      .map((option) => ({ kind: 'model', option }))
+    if (
+      onUseCurrent &&
+      (!query.trim() ||
+        useCurrentLabel.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+    ) {
+      rows.unshift({ kind: 'current', label: useCurrentLabel })
+    }
+    return rows
+  }, [catalog.groups, onUseCurrent, query, useCurrentLabel])
   const initialIndex = Math.max(
     0,
     options.findIndex(
-      (option) => option.providerId === current?.providerId && option.modelId === current.modelId
+      (row) =>
+        (row.kind === 'current' && !current) ||
+        (row.kind === 'model' &&
+          row.option.providerId === current?.providerId &&
+          row.option.modelId === current.modelId)
     )
   )
   const [selectedIndex, setSelectedIndex] = useState(initialIndex)
@@ -81,7 +104,8 @@ export function ModelPicker({
     }
     if (key.return) {
       const selected = options[selectedIndex]
-      if (selected) onSelect(toSelection(selected))
+      if (selected?.kind === 'current') onUseCurrent?.()
+      if (selected?.kind === 'model') onSelect(toSelection(selected.option))
       return
     }
     if (key.ctrl && input === 'u') {
@@ -110,11 +134,12 @@ export function ModelPicker({
 
   return (
     <Box flexDirection="column" marginTop={1} paddingLeft={2} width={width}>
-      <Text bold>Select model</Text>
+      <Text bold>{heading}</Text>
       <Text color={theme.muted}>
-        {catalog.totalModels > 0
-          ? `${catalog.totalModels} enabled models from ${catalog.groups.length} connected providers`
-          : 'No connected provider has an enabled chat model.'}
+        {summary ??
+          (catalog.totalModels > 0
+            ? `${catalog.totalModels} enabled models from ${catalog.groups.length} connected providers`
+            : 'No connected provider has an enabled chat model.')}
       </Text>
       <Box marginTop={1}>
         <Text color={theme.dim}>Search </Text>
@@ -136,10 +161,24 @@ export function ModelPicker({
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={1}>
-          {visibleOptions.map((option, visibleIndex) => {
+          {visibleOptions.map((row, visibleIndex) => {
             const absoluteIndex = windowStart + visibleIndex
             const selected = absoluteIndex === selectedIndex
-            const previous = options[absoluteIndex - 1]
+            if (row.kind === 'current') {
+              return (
+                <Box key="model-picker-current" marginBottom={1}>
+                  <Text color={selected ? theme.primary : theme.dim}>{selected ? '❯' : ' '} </Text>
+                  <Text bold={selected} color={!current ? theme.primary : undefined}>
+                    {fitText(row.label, Math.max(12, width - 20))}
+                  </Text>
+                  {!current ? <Text color={theme.success}> current</Text> : null}
+                </Box>
+              )
+            }
+
+            const option = row.option
+            const previousRow = options[absoluteIndex - 1]
+            const previous = previousRow?.kind === 'model' ? previousRow.option : undefined
             const showProvider =
               visibleIndex === 0 || !previous || previous.providerId !== option.providerId
             const isCurrent =

@@ -419,6 +419,81 @@ export function persistModelSelection(selection: {
   return resolved.selection
 }
 
+/**
+ * Persist model-level controls in the same split provider store used by the desktop renderer.
+ * The patch is intentionally shallow: callers build complete nested values for fields such as
+ * responsesImageGeneration or thinkingConfig, while provider credentials remain untouched.
+ */
+export function persistModelConfiguration(
+  selection: { providerId: string; modelId: string },
+  patch: JsonRecord
+): ModelSelection {
+  let configuration = loadOpenCoworkConfiguration()
+  let resolved = resolveProviderModel(configuration, selection)
+  if (!resolved) throw new Error('The selected provider/model is no longer available.')
+
+  const providerDirectory = join(configuration.dataDirectory, PROVIDER_DIRECTORY_NAME)
+  const indexPath = join(providerDirectory, PROVIDER_INDEX_FILE_NAME)
+  const rawIndex = readJson(indexPath)
+  const persistedIndex = isRecord(rawIndex) ? rawIndex : null
+  const providers = Array.isArray(configuration.providerStore.providers)
+    ? configuration.providerStore.providers.filter(isRecord)
+    : []
+
+  // Materialize legacy stores before writing a model file, without changing the active model.
+  if (!persistedIndex) {
+    for (const provider of providers) {
+      const providerId = stringValue(provider.id).trim()
+      if (!providerId) continue
+      writeJsonAtomically(
+        join(
+          providerDirectory,
+          `${PROVIDER_FILE_PREFIX}${encodeURIComponent(providerId)}${PROVIDER_FILE_SUFFIX}`
+        ),
+        provider
+      )
+    }
+    const activeProviderId = stringValue(configuration.providerStore.activeProviderId)
+    const activeModelId = stringValue(configuration.providerStore.activeModelId)
+    const metadata = { ...configuration.providerStore }
+    delete metadata.providers
+    writeJsonAtomically(indexPath, {
+      formatVersion: PROVIDER_STORE_FORMAT_VERSION,
+      providerIds: providers
+        .map((provider) => stringValue(provider.id).trim())
+        .filter((providerId): providerId is string => providerId.length > 0),
+      state: {
+        ...metadata,
+        ...(activeProviderId ? { activeProviderId } : {}),
+        ...(activeModelId ? { activeModelId } : {})
+      },
+      version: 0
+    })
+    configuration = loadOpenCoworkConfiguration()
+    resolved = resolveProviderModel(configuration, selection)
+    if (!resolved) throw new Error('The selected provider/model is no longer available.')
+  }
+
+  const providerId = resolved.selection.providerId
+  const nextModels = (
+    Array.isArray(resolved.provider.models) ? resolved.provider.models.filter(isRecord) : []
+  ).map((model) =>
+    stringValue(model.id) === resolved.selection.modelId ? { ...model, ...patch } : model
+  )
+  if (!nextModels.some((model) => stringValue(model.id) === resolved.selection.modelId)) {
+    throw new Error('The selected model is no longer present in its provider definition.')
+  }
+
+  writeJsonAtomically(
+    join(
+      providerDirectory,
+      `${PROVIDER_FILE_PREFIX}${encodeURIComponent(providerId)}${PROVIDER_FILE_SUFFIX}`
+    ),
+    { ...resolved.provider, models: nextModels }
+  )
+  return resolved.selection
+}
+
 export function resolveProviderModel(
   configuration: OpenCoworkConfiguration,
   requested: RequestedSelection

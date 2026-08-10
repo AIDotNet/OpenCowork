@@ -5,38 +5,52 @@ export interface SlashCommand {
   local?: boolean
 }
 
-// This is the stable UI-facing subset. Runtime and plugin commands are merged into this
-// registry later, so the command menu does not need to know where a command came from.
+// Only commands with a complete CLI host implementation belong in this registry. Planned
+// session-host commands live in ARCHITECTURE.md until their Worker contracts exist, preventing
+// the command menu from advertising actions that would fall through to a warning or hidden prompt.
 export const slashCommands: SlashCommand[] = [
-  { name: '/add-dir', description: 'Add a new working directory', completion: '/add-dir ' },
   { name: '/agents', description: 'Inspect configured Native Worker agents', local: true },
-  { name: '/background', description: 'Send this session to the background' },
-  { name: '/branch', description: 'Create a branch of the current conversation' },
-  { name: '/btw', description: 'Ask a side question without interrupting the main task' },
-  { name: '/clear', description: 'Start a new session with empty context', local: true },
+  { name: '/clear', description: 'Clear canonical context in this session', local: true },
   { name: '/codegraph', description: 'Show CodeGraph availability and index status', local: true },
-  { name: '/compact', description: 'Compact the conversation to free context space' },
-  { name: '/config', description: 'Open configuration' },
-  { name: '/context', description: 'Visualize current context usage' },
-  { name: '/cost', description: 'Show token usage and estimated cost' },
-  { name: '/diff', description: 'Review changes made in this session' },
-  { name: '/doctor', description: 'Diagnose installation and configuration' },
+  {
+    name: '/compact',
+    description: 'Compact canonical context in the Native Worker',
+    completion: '/compact ',
+    local: true
+  },
+  { name: '/config', description: 'Open shared OpenCowork configuration', local: true },
+  {
+    name: '/context',
+    description: 'Show canonical context usage and compact trigger',
+    local: true
+  },
+  { name: '/cost', description: 'Show token usage and estimated model cost', local: true },
+  { name: '/doctor', description: 'Diagnose Native Worker and configuration', local: true },
   { name: '/effort', description: 'Set reasoning effort for this session', local: true },
   { name: '/exit', description: 'Exit OpenCowork', local: true },
   { name: '/help', description: 'Show interactive shortcuts', local: true },
-  { name: '/init', description: 'Create a starter AGENTS.md for this project' },
-  { name: '/mcp', description: 'Manage MCP servers' },
-  { name: '/memory', description: 'Edit project and user memory files' },
   { name: '/model', description: 'Switch the active model', local: true },
-  { name: '/new', description: 'Start a new session with empty context', local: true },
-  { name: '/permissions', description: 'View or update permission rules', local: true },
+  { name: '/new', description: 'Start a new Native Worker session', local: true },
+  {
+    name: '/permissions',
+    description: 'View or set the session permission mode',
+    completion: '/permissions ',
+    local: true
+  },
   { name: '/plan', description: 'Enter plan mode', local: true },
-  { name: '/resume', description: 'Resume a previous conversation' },
-  { name: '/rewind', description: 'Restore code or conversation to a checkpoint' },
+  {
+    name: '/rewind',
+    description: 'Restore a previous conversation turn and optional tracked changes',
+    local: true
+  },
   { name: '/status', description: 'Show session, model, and runtime status', local: true },
-  { name: '/tasks', description: 'Show background tasks and agents', local: true },
-  { name: '/theme', description: 'Change the terminal color theme', local: true },
-  { name: '/tui', description: 'Show or switch the terminal renderer', local: true }
+  { name: '/tasks', description: 'Toggle the current session task list', local: true },
+  {
+    name: '/tui',
+    description: 'Show renderer status or restart syntax',
+    completion: '/tui ',
+    local: true
+  }
 ]
 
 export function findCommands(input: string): SlashCommand[] {

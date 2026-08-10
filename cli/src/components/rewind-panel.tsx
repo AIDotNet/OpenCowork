@@ -78,7 +78,7 @@ export function RewindPanel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [reloadRevision, setReloadRevision] = useState(0)
-  const abortControllerRef = useRef<AbortController>()
+  const abortControllerRef = useRef<AbortController | undefined>(undefined)
   const loadCheckpointsRef = useRef(loadCheckpoints)
   loadCheckpointsRef.current = loadCheckpoints
   const contentWidth = Math.max(24, width - 4)

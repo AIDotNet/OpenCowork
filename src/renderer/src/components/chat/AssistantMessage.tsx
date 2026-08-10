@@ -2182,6 +2182,24 @@ export function AssistantMessage({
     const intermediate = items.slice(0, items.length - 1)
     const blockTypeAt = (index: number): ContentBlock['type'] | undefined =>
       normalizedContent[index]?.type
+    // Interactive cards and other force-visible tool results are user-facing output,
+    // not process detail. Keep them outside the completed-turn collapse.
+    const hasForceVisibleOutput = intermediate.some((item) => {
+      if (item.kind === 'tool-run') {
+        const run = toolExecutionOutline.runById.get(item.runId)
+        return !!run?.forceVisibleItemIds.some(
+          (toolUseId) => toolExecutionOutline.itemByToolUseId.get(toolUseId)?.visibility === 'force'
+        )
+      }
+      if (item.kind !== 'block') return false
+      const block = normalizedContent[item.index]
+      return (
+        block?.type === 'tool_use' &&
+        toolExecutionOutline.itemByToolUseId.get(block.id)?.visibility === 'force'
+      )
+    })
+    if (hasForceVisibleOutput) return null
+
     // Images are the deliverable, not process detail — a turn that produced one stays open.
     const producedVisualOutput = intermediate.some((item) => {
       if (item.kind === 'tool-run') {

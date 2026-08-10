@@ -358,6 +358,10 @@ export function buildToolExecutionOutline({
     items.push(item)
     itemByToolUseId.set(block.id, item)
 
+    // Force-visible results are user-facing output, not collapsible process detail.
+    // Isolate them so adjacent ordinary tools cannot pull them into a collapsed run.
+    if (visibility === 'force') closePendingRun()
+
     if (!pendingRun) {
       pendingRun = {
         startBlockIndex: blockIndex,
@@ -376,6 +380,7 @@ export function buildToolExecutionOutline({
 
     if (
       isSubAgentTask ||
+      visibility === 'force' ||
       boundaryAfterToolUseIds?.has(block.id) ||
       boundaryAfterBlockIndices?.has(blockIndex)
     ) {

@@ -19,8 +19,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Fixed forced-visible tool results being collapsed in the desktop chat UI.
-- Fixed markdown preview and chat thinking-block rendering edge cases around expandable content height and release-note/changelog viewers.
+- Fixed markdown local-path links (`file://` and Windows drive-letter paths) being stripped by `react-markdown`, so chat answers, thinking blocks, previews, changelog, and release notes can open those targets again.
 
 ## [1.3.1] - 2026-08-10
 

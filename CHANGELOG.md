@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.2] - 2026-08-10
+
+### Added
+
+- Added CLI clipboard image paste via `Ctrl+V` for vision-capable models (PNG/JPEG/GIF/WebP, 20 MB each, up to 10 images), with macOS pasteboard, Windows STA Clipboard, and Linux `wl-paste`/`xclip` backends sending structured `image/base64` content blocks to Native Worker.
+- Added a model-aware `/effort` panel that only offers reasoning-effort levels supported by the active model, and surfaces thinking support in the CLI status line.
+- Added Native Worker and sidecar diagnostics snapshots (startup phase, last exit, stderr tail, active runs, last initialize error) and attach them to desktop chat runtime failures for easier troubleshooting.
+- Added ordered assistant content segments in the CLI so thinking and answer text keep the real stream order instead of collapsing thinking to the end of the reply.
+
+### Changed
+
+- Expanded OpenAI Chat Completions reasoning extraction in Native Worker through a shared `ReadReasoningText` path that accepts multiple provider aliases and nested text shapes without duplicating or stringifying opaque payloads.
+- Improved CLI transcript and status projection: provider retries update a single bottom activity row, collapsed thinking shows duration with `ctrl+o` expand, context/cache metrics avoid noisy sub-1% rounding, and terminal resize/`Ctrl+L` fully redraw the frame.
+- Hardened main-process Native Worker lifecycle tracking with richer session diagnostics and clearer initialization failure capture in `NativeAgentRuntimeManager`.
+
+### Fixed
+
+- Fixed forced-visible tool results being collapsed in the desktop chat UI.
+- Fixed markdown preview and chat thinking-block rendering edge cases around expandable content height and release-note/changelog viewers.
+
 ## [1.3.1] - 2026-08-10
 
 ### Added

@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-08-10
+
+### Added
+
+- Added the \`/rewind\` command and Rewind panel: every user message becomes a checkpoint, with conversation restore that copies only the canonical prefix into a new session row, plus code restore that replays tracked local changes in reverse order through Native Worker and skips paths whose current hash no longer matches the tracked post-edit state.
+- Added the \`/config\` command with a searchable terminal editor for the shared settings that affect the CLI host (active model, thinking, automatic context compression and threshold, dedicated compression model, provider timeout, tool and sub-agent concurrency, CodeGraph surface); updates go through Native Worker, with a compatibility path for older installed workers.
+- Added the \`/compact [focus]\` command that compresses canonical context through \`agent/compress-context\`, replacing and persisting the Worker message history on success while keeping the original messages on summarizer failure.
+- Added the \`/context\`, \`/cost\`, and \`/doctor\` commands for canonical context usage and compact trigger reporting, recorded usage cost aggregation with shared per-million-token prices, and the same read-only Worker transport probe as \`--doctor\`.
+- Extended the model picker with a capability-driven second step mirroring the desktop model switcher: reasoning effort, Anthropic \`budget_tokens\` and cache TTL, priority service tier, built-in search, Responses WebSocket, and image generation, plus read-only protocol, context, output, and price metadata.
+- Added a persistent two-row status projection with canonical context usage, cache read hit rate, and price-based cost, refreshed on canonical runtime transitions.
+- Added \`settings/patch-persisted-store\` to Native Worker for atomic nested persisted-store patches.
+
+### Changed
+
+- Restricted the command registry to commands with a complete CLI host implementation; unadvertised names (\`add-dir\`, \`background\`, \`branch\`, \`diff\`, \`init\`, \`mcp\`, \`memory\`, \`resume\`, \`theme\`) are rejected locally instead of appearing in the menu.
+- Made \`/clear\` clear the runtime's canonical messages and the session's persisted message rows through Native Worker.
+- Persist model selection to the shared provider-store index and write model/settings changes to the same split store used by the desktop app.
+
+### Fixed
+
+- Hardened tracked-change rollback in Native Worker: symbolic-link paths are skipped to protect their targets, and the current file state is validated against the tracked post-edit hash so external modifications are never overwritten.
+- Detected OpenAI Responses WebSocket transport-unavailable errors and surfaced them as explicit exceptions instead of silent stream failure.
+
 ## [1.2.12] - 2026-08-08
 
 ### Fixed

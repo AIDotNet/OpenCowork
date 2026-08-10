@@ -881,8 +881,7 @@ internal static class OpenAIChatRuntime
         var choiceValue = choice.Value;
         if (choiceValue.TryGetProperty("delta", out var delta))
         {
-            var reasoning = ReadString(delta, "reasoning_content") ??
-                ReadString(delta, "reasoning");
+            var reasoning = ReadReasoningText(delta);
             if (!string.IsNullOrEmpty(reasoning))
             {
                 markFirstTokenMs(ElapsedMs(startedAt));
@@ -967,8 +966,7 @@ internal static class OpenAIChatRuntime
         if (choiceValue.TryGetProperty("message", out var message) &&
             message.ValueKind == JsonValueKind.Object)
         {
-            var reasoning = ReadString(message, "reasoning_content") ??
-                ReadString(message, "reasoning");
+            var reasoning = ReadReasoningText(message);
             if (!string.IsNullOrEmpty(reasoning))
             {
                 markFirstTokenMs(ElapsedMs(startedAt));
@@ -3707,6 +3705,98 @@ internal static class OpenAIChatRuntime
         }
 
         return builder.Length > 0 ? builder.ToString() : null;
+    }
+
+    private static string? ReadReasoningText(JsonElement message)
+    {
+        if (message.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        // OpenAI-compatible providers expose reasoning under several aliases and
+        // shapes. Prefer the first populated alias so a provider that mirrors the
+        // same trace into multiple compatibility fields is not rendered twice.
+        foreach (var propertyName in new[]
+        {
+            "reasoning_content",
+            "reasoning",
+            "reasoning_details",
+            "thinking"
+        })
+        {
+            if (!message.TryGetProperty(propertyName, out var value))
+            {
+                continue;
+            }
+
+            var text = ReadReasoningValue(value, 0);
+            if (!string.IsNullOrEmpty(text))
+            {
+                return text;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ReadReasoningValue(JsonElement value, int depth)
+    {
+        if (depth > 6)
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            return value.GetString();
+        }
+
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            var builder = new StringBuilder();
+            foreach (var item in value.EnumerateArray())
+            {
+                var text = ReadReasoningValue(item, depth + 1);
+                if (!string.IsNullOrEmpty(text))
+                {
+                    builder.Append(text);
+                }
+            }
+            return builder.Length > 0 ? builder.ToString() : null;
+        }
+
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        // Only extract known textual fields. In particular, do not stringify
+        // encrypted reasoning, signatures, provider metadata, or opaque payloads.
+        foreach (var propertyName in new[]
+        {
+            "text",
+            "reasoning_content",
+            "reasoning",
+            "summary_text",
+            "summary",
+            "content",
+            "thinking"
+        })
+        {
+            if (!value.TryGetProperty(propertyName, out var child))
+            {
+                continue;
+            }
+
+            var text = ReadReasoningValue(child, depth + 1);
+            if (!string.IsNullOrEmpty(text))
+            {
+                return text;
+            }
+        }
+
+        return null;
     }
 
     private static bool TryCreateCompletedToolCall(

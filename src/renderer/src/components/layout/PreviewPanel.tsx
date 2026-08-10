@@ -40,6 +40,7 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import {
   createMarkdownComponents,
+  markdownUrlTransform,
   MARKDOWN_REHYPE_PLUGINS,
   MARKDOWN_REMARK_PLUGINS
 } from '@renderer/lib/preview/viewers/markdown-components'
@@ -671,6 +672,7 @@ export function PreviewPanel({
               <ReactMarkdown
                 remarkPlugins={MARKDOWN_REMARK_PLUGINS}
                 rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+                urlTransform={markdownUrlTransform}
                 components={createMarkdownComponents()}
               >
                 {activeTab.markdownContent || ''}

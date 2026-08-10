@@ -11,6 +11,13 @@ type NativeReverseRequest = {
   params?: unknown
 }
 
+export type NativeAgentRuntimeDiagnostics = {
+  running: boolean
+  initialized: boolean
+  activeRunIds: string[]
+  lastInitializeError: string | null
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
@@ -27,6 +34,7 @@ export class NativeAgentRuntimeManager {
   private unsubscribeReconnect: (() => void) | null = null
   private activeRunIds = new Set<string>()
   private initializeResult: RuntimeInitializeResultV2 | null = null
+  private lastInitializeError: string | null = null
 
   get isRunning(): boolean {
     return this.running && getNativeWorker().isRunning
@@ -34,6 +42,15 @@ export class NativeAgentRuntimeManager {
 
   get runtimeCapabilities(): RuntimeInitializeResultV2 | null {
     return this.initializeResult
+  }
+
+  getDiagnosticsSnapshot(): NativeAgentRuntimeDiagnostics {
+    return {
+      running: this.isRunning,
+      initialized: this.initializeResult !== null,
+      activeRunIds: Array.from(this.activeRunIds),
+      lastInitializeError: this.lastInitializeError
+    }
   }
 
   setRawEventHandler(handler: RawEventHandler): void {
@@ -74,12 +91,20 @@ export class NativeAgentRuntimeManager {
   }
 
   async start(): Promise<boolean> {
-    await getNativeWorker().ensureStarted()
-    this.installEventBridge()
-    const result = await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
-    this.initializeResult = this.validateInitializeResult(result)
-    this.running = true
-    return true
+    try {
+      await getNativeWorker().ensureStarted()
+      this.installEventBridge()
+      const result = await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
+      this.initializeResult = this.validateInitializeResult(result)
+      this.lastInitializeError = null
+      this.running = true
+      return true
+    } catch (error) {
+      this.running = false
+      this.initializeResult = null
+      this.lastInitializeError = error instanceof Error ? error.message : String(error)
+      throw error
+    }
   }
 
   async ensureStarted(): Promise<boolean> {
@@ -95,6 +120,7 @@ export class NativeAgentRuntimeManager {
     }
     this.activeRunIds.clear()
     this.initializeResult = null
+    this.lastInitializeError = null
     this.running = false
     this.unsubscribeRawAgentStream?.()
     this.unsubscribeRawAgentStream = null
@@ -115,10 +141,12 @@ export class NativeAgentRuntimeManager {
     try {
       const result = await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
       this.initializeResult = this.validateInitializeResult(result)
+      this.lastInitializeError = null
       console.log('[NativeAgentRuntime] re-initialized after worker restart')
     } catch (error) {
       this.running = false
       this.initializeResult = null
+      this.lastInitializeError = error instanceof Error ? error.message : String(error)
       console.warn(
         `[NativeAgentRuntime] re-initialize after worker restart failed: ${
           error instanceof Error ? error.message : String(error)
@@ -132,12 +160,17 @@ export class NativeAgentRuntimeManager {
       throw new Error('Native Agent Runtime initialize returned an invalid result')
     }
     if (result.protocolVersion !== 2) {
-      throw new Error(`Unsupported Native Agent Runtime protocol: ${String(result.protocolVersion)}`)
+      throw new Error(
+        `Unsupported Native Agent Runtime protocol: ${String(result.protocolVersion)}`
+      )
     }
     if (!isRecord(result.features)) {
       throw new Error('Native Agent Runtime did not report feature capabilities')
     }
-    if (result.features.capabilitySnapshot !== true || result.features.strictToolValidation !== true) {
+    if (
+      result.features.capabilitySnapshot !== true ||
+      result.features.strictToolValidation !== true
+    ) {
       throw new Error('Native Agent Runtime is missing required v2 safety features')
     }
     return result as unknown as RuntimeInitializeResultV2

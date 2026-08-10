@@ -7,7 +7,7 @@ import * as net from 'net'
 import * as path from 'path'
 import { decode, encode } from '@msgpack/msgpack'
 import { readNativeMessagePackRoute, type NativeMessagePackRoute } from './messagepack-route-reader'
-import { writeCrashLog } from '../crash-logger'
+import { getCrashLogDir, writeCrashLog } from '../crash-logger'
 import {
   WORKER_PROTOCOL_VERSION,
   type WorkerHelloResult
@@ -178,12 +178,55 @@ type NativeWorkerHelloResult = Partial<WorkerHelloResult>
 
 export type NativeWorkerState = 'stopped' | 'starting' | 'ready' | 'restarting' | 'fatal'
 
+export type NativeWorkerStartupPhase =
+  | 'idle'
+  | 'resolving-binary'
+  | 'spawning'
+  | 'connecting-ipc'
+  | 'handshaking'
+  | 'verifying-routes'
+  | 'ready'
+  | 'restart-backoff'
+  | 'stopping'
+  | 'fatal'
+
 export type NativeWorkerStateSnapshot = {
   id: 'native' | 'codegraph'
   state: NativeWorkerState
+  phase: NativeWorkerStartupPhase
   pid: number | null
   restartAttempts: number
   lastError: string | null
+  workerPath: string | null
+  lastStartAttemptAt: number | null
+  readyAt: number | null
+}
+
+export type NativeWorkerDiagnosticsSnapshot = NativeWorkerStateSnapshot & {
+  transport: 'named-pipe' | 'unix-domain-socket'
+  endpoint: string | null
+  lastFrameReceivedAt: number | null
+  lastAgentStreamAt: number | null
+  lastAgentStreamRunId: string | null
+  stderrTail: string[]
+  pendingRequests: Array<{ method: string; elapsedMs: number }>
+  lastExit: {
+    code: number | null
+    signal: NodeJS.Signals | null
+    at: number
+  } | null
+  lastDisconnect: {
+    at: number
+    error: string
+    pendingRequests: Array<{ method: string; elapsedMs: number }>
+  } | null
+  binaryCandidates: Array<{
+    path: string
+    exists: boolean
+    ready: boolean
+    missingDependencies: string[]
+  }>
+  logDirectory: string
 }
 
 type NativeWorkerEventFrame = {
@@ -221,8 +264,16 @@ class NativeWorkerManager {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private heartbeatMisses = 0
   private lastFrameReceivedAt = 0
+  private lastAgentStreamAt = 0
+  private lastAgentStreamRunId: string | null = null
   private state: NativeWorkerState = 'stopped'
+  private phase: NativeWorkerStartupPhase = 'idle'
   private lastError: string | null = null
+  private workerPath: string | null = null
+  private lastStartAttemptAt = 0
+  private readyAt = 0
+  private lastExit: NativeWorkerDiagnosticsSnapshot['lastExit'] = null
+  private lastDisconnect: NativeWorkerDiagnosticsSnapshot['lastDisconnect'] = null
   private lifecycle = new EventEmitter()
   private stderrTail: string[] = []
 
@@ -310,17 +361,53 @@ class NativeWorkerManager {
     return {
       id: this.config.id,
       state: this.state,
+      phase: this.phase,
       pid: this.processId,
       restartAttempts: this.restartAttempts,
-      lastError: this.lastError
+      lastError: this.lastError,
+      workerPath: this.workerPath,
+      lastStartAttemptAt: this.lastStartAttemptAt || null,
+      readyAt: this.readyAt || null
     }
   }
 
-  private setState(next: NativeWorkerState, errorMessage?: string | null): void {
-    if (errorMessage !== undefined) this.lastError = errorMessage
-    if (this.state === next) return
-    this.state = next
+  getDiagnosticsSnapshot(): NativeWorkerDiagnosticsSnapshot {
+    const now = Date.now()
+    return {
+      ...this.getStateSnapshot(),
+      transport: process.platform === 'win32' ? 'named-pipe' : 'unix-domain-socket',
+      endpoint: this.endpoint,
+      lastFrameReceivedAt: this.lastFrameReceivedAt || null,
+      lastAgentStreamAt: this.lastAgentStreamAt || null,
+      lastAgentStreamRunId: this.lastAgentStreamRunId,
+      stderrTail: [...this.stderrTail],
+      pendingRequests: Array.from(this.pending.values()).map((pending) => ({
+        method: pending.method,
+        elapsedMs: Math.max(0, now - pending.startedAt)
+      })),
+      lastExit: this.lastExit,
+      lastDisconnect: this.lastDisconnect,
+      binaryCandidates: this.config.id === 'native' ? getNativeWorkerCandidateDiagnostics() : [],
+      logDirectory: getCrashLogDir()
+    }
+  }
+
+  private publishState(): void {
     this.lifecycle.emit('state', this.getStateSnapshot())
+  }
+
+  private setState(next: NativeWorkerState, errorMessage?: string | null): void {
+    const nextError = errorMessage === undefined ? this.lastError : errorMessage
+    if (this.state === next && this.lastError === nextError) return
+    this.state = next
+    this.lastError = nextError
+    this.publishState()
+  }
+
+  private setPhase(next: NativeWorkerStartupPhase): void {
+    if (this.phase === next) return
+    this.phase = next
+    this.publishState()
   }
 
   // Unrecoverable without user action (stale binary, protocol mismatch, restart
@@ -329,6 +416,7 @@ class NativeWorkerManager {
     this.autoRestartDisabled = true
     this.clearSupervisedRestart()
     this.failReplayQueue(new Error(message))
+    this.setPhase('fatal')
     this.setState('fatal', message)
   }
 
@@ -447,20 +535,31 @@ class NativeWorkerManager {
   async stop(): Promise<void> {
     this.autoRestartDisabled = true
     this.stopping = true
+    this.setPhase('stopping')
     this.clearSupervisedRestart()
     this.stopHeartbeat()
     this.failReplayQueue(new Error('Native worker stopped'))
     this.closeWorker(new Error('Native worker stopped'))
     this.stopping = false
+    this.setPhase('idle')
   }
 
   private async start(): Promise<void> {
+    this.lastStartAttemptAt = Date.now()
+    this.readyAt = 0
+    this.setPhase('resolving-binary')
     this.setState(this.hasStartedOnce ? 'restarting' : 'starting')
     const workerPath = this.config.resolveBinaryPath()
     if (!workerPath) {
-      this.enterFatal(this.config.missingBinaryMessage)
-      throw new Error(this.config.missingBinaryMessage)
+      const resolutionDetails =
+        this.config.id === 'native' ? formatNativeWorkerCandidateFailure() : ''
+      const message = [this.config.missingBinaryMessage, resolutionDetails]
+        .filter(Boolean)
+        .join(' ')
+      this.enterFatal(message)
+      throw new Error(message)
     }
+    this.workerPath = workerPath
 
     this.config.sweepStaleEndpoints()
     const endpoint = this.config.createEndpoint()
@@ -473,6 +572,7 @@ class NativeWorkerManager {
       slowRequestMs: getNativeWorkerSlowRequestMs()
     })
 
+    this.setPhase('spawning')
     const child = spawn(workerPath, ['--ipc', endpoint], {
       cwd: path.dirname(workerPath),
       env: childEnv,
@@ -507,6 +607,7 @@ class NativeWorkerManager {
       this.closeWorker(error)
     })
     child.on('exit', (code, signal) => {
+      this.lastExit = { code, signal, at: Date.now() }
       const stale = this.child !== child
       // The worker's own diagnostics go to stderr, which is invisible in a
       // packaged app (no console). Persist the exit code + stderr tail so a
@@ -533,6 +634,7 @@ class NativeWorkerManager {
     })
 
     try {
+      this.setPhase('connecting-ipc')
       this.socket = await connectNativeWorker(endpoint, child)
       this.socket.on('data', (chunk) => this.handleSocketData(chunk))
       this.socket.on('error', (error) => {
@@ -544,7 +646,9 @@ class NativeWorkerManager {
         }
       })
 
+      this.setPhase('handshaking')
       await this.performHandshake(workerPath)
+      this.setPhase('verifying-routes')
       await this.verifyRequiredMethods(workerPath)
       console.log('[NativeWorker] IPC connected', {
         pid: child.pid ?? null,
@@ -558,6 +662,8 @@ class NativeWorkerManager {
       this.clearSupervisedRestart()
       this.lastFrameReceivedAt = Date.now()
       this.startHeartbeat()
+      this.readyAt = Date.now()
+      this.setPhase('ready')
       this.setState('ready', null)
       this.flushReplayQueue()
       if (reconnected) {
@@ -566,6 +672,13 @@ class NativeWorkerManager {
       }
     } catch (error) {
       const failure = asError(error)
+      writeCrashLog('native_worker_start_failed', {
+        phase: this.phase,
+        workerPath: this.workerPath,
+        endpoint: this.endpoint,
+        error: failure,
+        stderrTail: this.stderrTail.slice(-NATIVE_WORKER_STDERR_TAIL_LINES)
+      })
       this.closeWorker(failure)
       if (failure.name === 'WorkerProtocolMismatchError') {
         this.enterFatal(failure.message)
@@ -711,6 +824,8 @@ class NativeWorkerManager {
       typeof route.runId === 'string' &&
       typeof route.sessionId === 'string'
     ) {
+      this.lastAgentStreamAt = Date.now()
+      this.lastAgentStreamRunId = route.runId
       logMessagePackTrace('raw agent stream route', {
         runId: route.runId,
         sessionId: route.sessionId,
@@ -807,6 +922,19 @@ class NativeWorkerManager {
     const child = this.child
     const socket = this.socket
     const endpoint = this.endpoint
+    const hadWorkerActivity = Boolean(child || socket || this.pending.size > 0)
+
+    if (!this.stopping && hadWorkerActivity) {
+      const disconnectedAt = Date.now()
+      this.lastDisconnect = {
+        at: disconnectedAt,
+        error: error.message,
+        pendingRequests: Array.from(this.pending.values()).map((pending) => ({
+          method: pending.method,
+          elapsedMs: Math.max(0, disconnectedAt - pending.startedAt)
+        }))
+      }
+    }
 
     this.child = null
     this.socket = null
@@ -879,16 +1007,19 @@ class NativeWorkerManager {
       })
     }
 
-    if (!this.stopping) {
-      // Runs owned by the dead process are lost; let listeners fail them so the
-      // UI recovers instead of hanging on a stream that will never resume.
-      this.lifecycle.emit('disconnected')
-    }
-    if (!this.stopping && !this.autoRestartDisabled) {
+    const shouldRestart = !this.stopping && !this.autoRestartDisabled
+    if (shouldRestart) {
+      this.setPhase('restart-backoff')
       this.setState('restarting', error.message)
       this.scheduleSupervisedRestart()
     } else if (this.state !== 'fatal') {
+      this.setPhase(this.stopping ? 'stopping' : 'idle')
       this.setState('stopped', error.message)
+    }
+    if (!this.stopping) {
+      // Runs owned by the dead process are lost; publish the updated failure
+      // state first so disconnect listeners can capture an accurate snapshot.
+      this.lifecycle.emit('disconnected')
     }
   }
 
@@ -937,6 +1068,7 @@ class NativeWorkerManager {
       NATIVE_WORKER_RESTART_BASE_MS * 2 ** this.restartAttempts
     )
     const wait = Math.round(backoff + backoff * 0.25 * Math.random())
+    this.setPhase('restart-backoff')
     this.restartAttempts += 1
     if (this.restartAttempts <= 5) {
       console.warn(
@@ -1364,8 +1496,16 @@ export function resolveNativeWorkerPath(): string | null {
     return overridePath
   }
 
-  const executableName =
-    process.platform === 'win32' ? 'OpenCowork.Native.Worker.exe' : 'OpenCowork.Native.Worker'
+  const candidates = getNativeWorkerCandidatePaths().filter(
+    (candidate) => candidate !== overridePath
+  )
+  return app.isPackaged
+    ? (candidates.find(isNativeWorkerCandidateReady) ?? null)
+    : findNewestNativeWorkerCandidate(candidates)
+}
+
+function getNativeWorkerCandidatePaths(): string[] {
+  const executableName = getNativeWorkerExecutableName()
   const releaseNativePath = path.join(
     process.cwd(),
     'sidecars',
@@ -1389,7 +1529,7 @@ export function resolveNativeWorkerPath(): string | null {
     executableName
   )
   const resourceWorkerPath = path.join(process.cwd(), 'resources', 'native-worker', executableName)
-  const candidates = app.isPackaged
+  const packagedOrDevelopmentCandidates = app.isPackaged
     ? [
         path.join(process.resourcesPath, 'native-worker', executableName),
         path.join(process.resourcesPath, 'resources', 'native-worker', executableName),
@@ -1402,10 +1542,47 @@ export function resolveNativeWorkerPath(): string | null {
         )
       ]
     : [resourceWorkerPath, releaseNativePath, releasePublishPath]
+  const overridePath = process.env.OPEN_COWORK_NATIVE_WORKER_PATH?.trim()
 
-  return app.isPackaged
-    ? (candidates.find(isNativeWorkerCandidateReady) ?? null)
-    : findNewestNativeWorkerCandidate(candidates)
+  return overridePath
+    ? [overridePath, ...packagedOrDevelopmentCandidates.filter((item) => item !== overridePath)]
+    : packagedOrDevelopmentCandidates
+}
+
+function getNativeWorkerExecutableName(): string {
+  return process.platform === 'win32' ? 'OpenCowork.Native.Worker.exe' : 'OpenCowork.Native.Worker'
+}
+
+function getNativeWorkerCandidateDiagnostics(): NativeWorkerDiagnosticsSnapshot['binaryCandidates'] {
+  const dependencyNames = getSqliteNativeLibraryNames()
+  return getNativeWorkerCandidatePaths().map((candidate) => {
+    const exists = fs.existsSync(candidate)
+    const candidateDir = path.dirname(candidate)
+    const dependencyPresent = dependencyNames.some(
+      (name) =>
+        fs.existsSync(path.join(candidateDir, name)) ||
+        fs.existsSync(path.join(candidateDir, 'runtimes', getCurrentRid(), 'native', name))
+    )
+    return {
+      path: candidate,
+      exists,
+      ready: exists && dependencyPresent,
+      missingDependencies: dependencyPresent ? [] : dependencyNames
+    }
+  })
+}
+
+function formatNativeWorkerCandidateFailure(): string {
+  const checked = getNativeWorkerCandidateDiagnostics()
+    .map((candidate) => {
+      if (!candidate.exists) return `${candidate.path} (executable missing)`
+      if (candidate.missingDependencies.length > 0) {
+        return `${candidate.path} (missing ${candidate.missingDependencies.join(' or ')})`
+      }
+      return `${candidate.path} (not usable)`
+    })
+    .join('; ')
+  return checked ? `Checked worker candidates: ${checked}. Logs: ${getCrashLogDir()}.` : ''
 }
 
 function getCurrentRid(): string {

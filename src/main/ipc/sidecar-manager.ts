@@ -1,6 +1,7 @@
 import { ipcMain, BrowserWindow, dialog, app, type IpcMainInvokeEvent } from 'electron'
 import { existsSync, rmSync, statSync } from 'fs'
 import { tmpdir } from 'os'
+import { randomUUID } from 'crypto'
 import * as path from 'path'
 import { join } from 'path'
 import { safePostMessageToWindow, safeSendMessagePackToAllWindows } from '../window-ipc'
@@ -830,7 +831,46 @@ export function registerSidecarHandlers(): void {
   const goalRuntimeObservationChains = new Map<string, Promise<void>>()
   // Runs currently streaming from the worker, tracked so a mid-flight worker
   // crash can be turned into a terminal error the renderer can recover from.
-  const activeRunSessions = new Map<string, { sessionId: string; lastSeq: number }>()
+  const activeRunSessions = new Map<
+    string,
+    {
+      sessionId: string
+      lastSeq: number
+      dispatchedAt: number
+      acceptedAt: number | null
+      lastEventAt: number | null
+    }
+  >()
+
+  type ActiveRunSession = NonNullable<ReturnType<typeof activeRunSessions.get>>
+
+  const buildSidecarDiagnostics = (
+    runId?: string,
+    sessionId?: string,
+    trackedRunOverride?: ActiveRunSession
+  ): Record<string, unknown> => {
+    const worker = getNativeWorker().getDiagnosticsSnapshot()
+    const trackedRun = trackedRunOverride ?? (runId ? activeRunSessions.get(runId) : undefined)
+    const journalFrames = runId ? getRuntimeRegistry().getFramesSince(runId, -1).length : 0
+    return {
+      capturedAt: Date.now(),
+      worker,
+      agentRuntime: getNativeAgentRuntimeManager().getDiagnosticsSnapshot(),
+      stream: {
+        runId: runId ?? null,
+        sessionId: sessionId ?? trackedRun?.sessionId ?? null,
+        tracked: Boolean(trackedRun),
+        dispatchedAt: trackedRun?.dispatchedAt ?? null,
+        accepted: trackedRun?.acceptedAt !== null && trackedRun?.acceptedAt !== undefined,
+        acceptedAt: trackedRun?.acceptedAt ?? null,
+        lastEventAt: trackedRun?.lastEventAt ?? null,
+        lastSeq: trackedRun?.lastSeq ?? null,
+        journalFrames,
+        mappedRunWindowId: runId ? (runWindowIds.get(runId) ?? null) : null,
+        mappedSessionWindowId: sessionId ? (sessionWindowIds.get(sessionId) ?? null) : null
+      }
+    }
+  }
 
   // Expose outstanding approvals to the runtime registry so agent:runtime-state
   // can report them and agent:attach-run can re-post them to a re-mounted window.
@@ -999,12 +1039,14 @@ export function registerSidecarHandlers(): void {
       if (frame.hasTerminalEvent === true) {
         activeRunSessions.delete(frame.runId)
       } else {
+        const trackedRun = activeRunSessions.get(frame.runId)
+        const receivedAt = Date.now()
         activeRunSessions.set(frame.runId, {
           sessionId: frame.sessionId,
-          lastSeq:
-            typeof frame.seq === 'number'
-              ? frame.seq
-              : (activeRunSessions.get(frame.runId)?.lastSeq ?? 0)
+          lastSeq: typeof frame.seq === 'number' ? frame.seq : (trackedRun?.lastSeq ?? 0),
+          dispatchedAt: trackedRun?.dispatchedAt ?? receivedAt,
+          acceptedAt: trackedRun?.acceptedAt ?? receivedAt,
+          lastEventAt: receivedAt
         })
       }
     }
@@ -1079,6 +1121,12 @@ export function registerSidecarHandlers(): void {
     if (activeRunSessions.size === 0) return
     flushAllStreamBatches()
     const runs = Array.from(activeRunSessions.entries())
+    const diagnosticsByRun = new Map(
+      runs.map(([runId, info]) => [
+        runId,
+        JSON.stringify(buildSidecarDiagnostics(runId, info.sessionId, info), null, 2)
+      ])
+    )
     activeRunSessions.clear()
 
     for (const [runId, info] of runs) {
@@ -1100,7 +1148,8 @@ export function registerSidecarHandlers(): void {
           {
             type: 'error',
             message: 'Native worker disconnected; the local runtime was recycled.',
-            errorType: 'sidecar_unavailable'
+            errorType: 'sidecar_unavailable',
+            details: diagnosticsByRun.get(runId)
           },
           { type: 'loop_end', reason: 'error' }
         ]
@@ -1380,6 +1429,11 @@ export function registerSidecarHandlers(): void {
     return { running: manager.isRunning }
   })
 
+  registerSidecarMessagePackHandler<{ runId?: string; sessionId?: string }>(
+    'sidecar:diagnostics',
+    (_event, params) => buildSidecarDiagnostics(params?.runId, params?.sessionId)
+  )
+
   registerSidecarMessagePackHandler<undefined>('sidecar:start', async () => {
     return { ok: await manager.ensureStarted() }
   })
@@ -1462,6 +1516,26 @@ export function registerSidecarHandlers(): void {
         ;(hookAdjustedParams as Record<string, unknown>).permissionPolicy = permissionPolicy
       }
     }
+    const runRecord = normalizeRendererRequestRecord(hookAdjustedParams)
+    let requestedRunId = readNonEmptyString(runRecord.runId)
+    const requestedSessionId = readNonEmptyString(runRecord.sessionId)
+    if (!requestedRunId && requestedSessionId) {
+      requestedRunId = randomUUID()
+      runRecord.runId = requestedRunId
+    }
+    if (requestedRunId && requestedSessionId) {
+      // Track the accepted intent before dispatch. The worker can crash after it
+      // accepts agent/run but before loop_start reaches main; without this entry
+      // disconnect recovery has no run to terminate and the renderer waits for
+      // its generic first-progress timeout.
+      activeRunSessions.set(requestedRunId, {
+        sessionId: requestedSessionId,
+        lastSeq: 0,
+        dispatchedAt: Date.now(),
+        acceptedAt: null,
+        lastEventAt: null
+      })
+    }
     try {
       const result = (await manager.request('agent/run', hookAdjustedParams, 60_000)) as {
         started: boolean
@@ -1474,9 +1548,39 @@ export function registerSidecarHandlers(): void {
         sessionWindowIds,
         result.runId
       )
+      if (requestedRunId && result.runId !== requestedRunId) {
+        const pretracked = activeRunSessions.get(requestedRunId)
+        const streamedRun = activeRunSessions.get(result.runId)
+        activeRunSessions.delete(requestedRunId)
+        const resultRun = getRuntimeRegistry()
+          .getRunSnapshots()
+          .find((run) => run.runId === result.runId)
+        if (pretracked && streamedRun) {
+          activeRunSessions.set(result.runId, {
+            ...pretracked,
+            ...streamedRun,
+            dispatchedAt: pretracked.dispatchedAt,
+            acceptedAt: streamedRun.acceptedAt ?? pretracked.acceptedAt ?? Date.now()
+          })
+        } else if (pretracked && !resultRun) {
+          activeRunSessions.set(result.runId, {
+            ...pretracked,
+            acceptedAt: Date.now()
+          })
+        }
+      } else if (requestedRunId) {
+        const trackedRun = activeRunSessions.get(requestedRunId)
+        if (trackedRun) {
+          activeRunSessions.set(requestedRunId, {
+            ...trackedRun,
+            acceptedAt: trackedRun.acceptedAt ?? Date.now()
+          })
+        }
+      }
       console.log('[Sidecar] agent:run request accepted')
       return result
     } catch (error) {
+      if (requestedRunId) activeRunSessions.delete(requestedRunId)
       console.warn(
         `[Sidecar] agent:run failed: ${error instanceof Error ? error.message : String(error)}`
       )

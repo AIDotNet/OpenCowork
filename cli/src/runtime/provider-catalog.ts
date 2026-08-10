@@ -250,6 +250,15 @@ function describeModel(model: JsonRecord): string {
   return capabilities.length > 0 ? capabilities.join(' · ') : stringValue(model.id)
 }
 
+export function modelSupportsVision(model: JsonRecord, providerType: string): boolean {
+  const requestType = stringValue(model.type) || providerType
+  return Boolean(
+    model.supportsVision === true ||
+    stringValue(model.category) === 'image' ||
+    requestType === 'openai-images'
+  )
+}
+
 function toModelGroup(provider: JsonRecord): ModelGroup | null {
   const providerId = stringValue(provider.id)
   if (!providerId) return null
@@ -267,7 +276,8 @@ function toModelGroup(provider: JsonRecord): ModelGroup | null {
       authMode,
       modelId,
       modelName: stringValue(model.name) || modelId,
-      description: describeModel(model)
+      description: describeModel(model),
+      supportsVision: modelSupportsVision(model, providerType)
     }
   })
   if (models.length === 0) return null

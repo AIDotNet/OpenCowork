@@ -14,6 +14,9 @@ interface StatusLineProps {
   model: string
   mode: PermissionMode
   notice?: string
+  supportsEffort: boolean
+  supportsThinking: boolean
+  thinkingEnabled: boolean
   usage: UsageSnapshot | null
   width: number
 }
@@ -25,7 +28,13 @@ interface MetricLine {
 
 function contextPercentage(context: ContextSnapshot | null): number | null {
   if (!context || context.contextLength <= 0) return null
-  return Math.max(0, Math.round((context.estimatedTokens / context.contextLength) * 100))
+  return Math.max(0, (context.estimatedTokens / context.contextLength) * 100)
+}
+
+function formatPercentage(value: number | null): string {
+  if (value === null) return '—'
+  if (value > 0 && value < 1) return '<1%'
+  return `${Math.round(value)}%`
 }
 
 function cacheHitPercentage(usage: UsageSnapshot | null): number | null {
@@ -46,34 +55,45 @@ function selectMetricLine(
   usage: UsageSnapshot | null,
   width: number
 ): MetricLine {
-  const contextPercent = contextPercentage(context)
+  const contextPercent = formatPercentage(contextPercentage(context))
   const contextRatio = context
     ? context.contextLength > 0
-      ? `${formatTokenCount(context.estimatedTokens)} / ${formatTokenCount(context.contextLength)} · ${contextPercent}%`
+      ? `${formatTokenCount(context.estimatedTokens)} / ${formatTokenCount(context.contextLength)} · ${contextPercent}`
       : formatTokenCount(context.estimatedTokens)
     : '—'
   const compactContextRatio = context
     ? context.contextLength > 0
-      ? `${formatTokenCount(context.estimatedTokens)}/${formatTokenCount(context.contextLength)} · ${contextPercent}%`
+      ? `${formatTokenCount(context.estimatedTokens)}/${formatTokenCount(context.contextLength)} · ${contextPercent}`
       : formatTokenCount(context.estimatedTokens)
     : '—'
   const contextSummary = context
-    ? contextPercent === null
+    ? context.contextLength <= 0
       ? formatTokenCount(context.estimatedTokens)
-      : `${contextPercent}%`
+      : contextPercent
     : '—'
   const cachePercent = cacheHitPercentage(usage)
   const cache = cachePercent === null ? '—' : `${cachePercent}%`
   const cost = usage?.estimatedCostUsd == null ? '—' : formatUsdCost(usage.estimatedCostUsd)
+  const input = usage ? formatTokenCount(usage.inputTokens) : '—'
+  const output = usage ? formatTokenCount(usage.outputTokens) : '—'
+  const thinking = usage?.reasoningTokens ? formatTokenCount(usage.reasoningTokens) : null
+  const wideTokens = [`${input} in`, `${output} out`, ...(thinking ? [`${thinking} think`] : [])]
+  const compactTokens = [`In ${input}`, `Out ${output}`, ...(thinking ? [`Think ${thinking}`] : [])]
+  const tinyTokens = [`I${input}`, `O${output}`, ...(thinking ? [`T${thinking}`] : [])]
   const candidates = [
-    joinMetricLine(`Context ${contextRatio}`, [`Cache ${cache}`, `Cost ${cost}`], '  '),
-    joinMetricLine(`Ctx ${compactContextRatio}`, [`Cache ${cache}`, `Cost ${cost}`], ' · '),
     joinMetricLine(
-      `Ctx ${contextSummary}`,
-      [`Cache ${cache}`, cost === '—' ? 'Cost —' : cost],
-      ' · '
+      `Context ${contextRatio}`,
+      [`Tokens ${wideTokens.join(' · ')}`, `Cache ${cache}`, `Cost ${cost}`],
+      '   '
     ),
-    joinMetricLine(`Ctx ${contextSummary}`, [`Hit ${cache}`, cost], ' · ')
+    joinMetricLine(
+      `Ctx ${compactContextRatio}`,
+      [compactTokens.join(' · '), `Hit ${cache} · ${cost}`],
+      ' │ '
+    ),
+    joinMetricLine(`Ctx ${contextSummary}`, [...compactTokens, cost], ' · '),
+    joinMetricLine(`Ctx ${contextSummary}`, compactTokens, ' · '),
+    joinMetricLine(`C${contextSummary}`, tinyTokens, ' ')
   ]
 
   return (
@@ -89,16 +109,20 @@ export function StatusLine({
   model,
   mode,
   notice,
+  supportsEffort,
+  supportsThinking,
+  thinkingEnabled,
   usage,
   width
 }: StatusLineProps): React.JSX.Element {
   const left =
     notice ?? activity ?? (width >= 58 ? '? for shortcuts · ← for agents' : '? shortcuts')
   const contentWidth = Math.max(12, width - 4)
-  const right = fitText(
-    `${model} · ${permissionModeLabels[mode]} · ${effort}`,
-    Math.max(12, Math.floor(contentWidth * 0.62))
-  )
+  const thinkingStatus = supportsThinking ? `think ${thinkingEnabled ? 'on' : 'off'}` : null
+  const statusParts = [permissionModeLabels[mode], thinkingStatus, supportsEffort ? effort : null]
+    .filter(Boolean)
+    .join(' · ')
+  const right = fitText(`${model} · ${statusParts}`, Math.max(12, Math.floor(contentWidth * 0.62)))
   const leftWidth = Math.max(6, contentWidth - stringWidth(right) - 3)
   const metrics = selectMetricLine(context, usage, contentWidth)
   const metricText = metrics.context + metrics.remainder
@@ -115,7 +139,13 @@ export function StatusLine({
         {activity && !notice ? (
           <Box width={leftWidth}>
             <Spinner />
-            <Text color={activity.startsWith('Compressing') ? theme.warning : theme.muted}>
+            <Text
+              color={
+                activity.startsWith('Compressing') || activity.startsWith('Retry')
+                  ? theme.warning
+                  : theme.muted
+              }
+            >
               {' '}
               {fitText(left, Math.max(1, leftWidth - 2))}
             </Text>

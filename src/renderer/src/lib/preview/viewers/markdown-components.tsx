@@ -1,6 +1,6 @@
 import 'katex/contrib/mhchem'
 import { lazy, Suspense } from 'react'
-import type { Components } from 'react-markdown'
+import { defaultUrlTransform, type Components } from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -70,6 +70,26 @@ function stripLocalPathDecorators(value: string): string {
   return normalized
 }
 
+function decodePathEncoding(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+/**
+ * react-markdown rejects drive-letter and file:// URLs as unknown schemes. Keep only the local
+ * path forms that our click handler understands; every other URL still uses its safe default.
+ */
+export function markdownUrlTransform(value: string): string {
+  const decoded = decodePathEncoding(value.trim())
+  if (FILE_URL_RE.test(decoded) || WINDOWS_ABSOLUTE_PATH_RE.test(decoded)) {
+    return value
+  }
+  return defaultUrlTransform(value)
+}
+
 function getLocalPathTarget(value: string): { line?: number; column?: number } {
   const raw = value.trim()
   const parenMatch = PAREN_LINE_RE.exec(raw)
@@ -125,8 +145,9 @@ export function isLikelyLocalFilePath(value: string): boolean {
   if (!raw || raw.startsWith('#') || HTTP_URL_RE.test(raw)) return false
   if (FILE_URL_RE.test(raw)) return true
 
-  const normalized = stripLocalPathDecorators(raw)
+  const normalized = decodePathEncoding(stripLocalPathDecorators(raw))
   if (!normalized) return false
+  if (FILE_URL_RE.test(normalized)) return true
   if (OTHER_SCHEME_RE.test(normalized) && !WINDOWS_ABSOLUTE_PATH_RE.test(normalized)) return false
 
   if (
@@ -149,12 +170,13 @@ export function isLikelyLocalFilePath(value: string): boolean {
 export function resolveLocalFilePath(value: string, filePath?: string): string | null {
   if (!isLikelyLocalFilePath(value)) return null
 
-  let target = FILE_URL_RE.test(value) ? decodeFileUrlPath(value) : stripLocalPathDecorators(value)
-  try {
-    target = decodeURIComponent(target)
-  } catch {
-    // ignore decode failures and keep original target
-  }
+  const stripped = stripLocalPathDecorators(value)
+  const decoded = decodePathEncoding(stripped)
+  const target = FILE_URL_RE.test(stripped)
+    ? decodeFileUrlPath(stripped)
+    : FILE_URL_RE.test(decoded)
+      ? decodeFileUrlPath(decoded)
+      : decoded
 
   if (
     WINDOWS_ABSOLUTE_PATH_RE.test(target) ||
@@ -256,11 +278,15 @@ export function createMarkdownComponents(filePath?: string): Components {
       return (
         <a
           {...props}
-          href={link || href}
+          href={link || undefined}
           className="text-primary underline underline-offset-2 hover:text-primary/80 break-all"
           title={link || href}
           onClick={(event) => {
-            const handled = link ? openMarkdownHref(link, filePath) : false
+            if (!link) {
+              event.preventDefault()
+              return
+            }
+            const handled = openMarkdownHref(link, filePath)
             if (handled) event.preventDefault()
           }}
         >

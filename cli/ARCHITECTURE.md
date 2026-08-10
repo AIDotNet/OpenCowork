@@ -114,6 +114,8 @@ cli/
 │   │   └── worker-session.ts              shared-config → worker run-request adapter
 │   ├── terminal/terminal-screen.ts       title and alternate-screen lifecycle
 │   ├── hooks/use-terminal-size.ts        resize subscription
+│   ├── lib/assistant-content.ts          ordered thinking/text segment reducer
+│   ├── lib/clipboard-image.ts            bounded platform clipboard image reader
 │   ├── lib/text.ts                       Unicode width/grapheme/editor helpers
 │   └── components/                       welcome, prompt, transcript, menus, overlays
 ├── ARCHITECTURE.md
@@ -264,26 +266,34 @@ AgentStreamEnvelope
 
 Important mappings:
 
-| Worker event                           | Terminal projection                                                        |
-| -------------------------------------- | -------------------------------------------------------------------------- |
-| `iteration_start`                      | Start a new potential assistant segment                                    |
-| `thinking_delta`                       | Hidden-by-default thinking detail on the active assistant message          |
-| `text_delta`                           | Stream text into the current assistant segment                             |
-| `message_end`                          | Commit the assistant segment                                               |
-| `tool_use_generated`                   | Create a running tool row with summarized input                            |
-| `tool_call_start/update`               | Upsert the tool row                                                        |
-| `tool_call_result`                     | Complete/error row, show `⎿` summary, optionally derive Task state         |
-| `request_retry`                        | Warning with attempt, delay, and reason                                    |
-| `context_compression_start/compressed` | Bottom activity state plus one completed/failed transcript result          |
-| `web_search`                           | Searching/completed activity row                                           |
-| image events                           | Image-generation activity/result row                                       |
-| sub-agent events                       | Task/sub-agent activity row and completion summary                         |
-| `error`                                | Error notice; wait for terminal `loop_end` when available                  |
-| `loop_end`                             | Replace canonical history when included; release input and finish the turn |
+| Worker event                           | Terminal projection                                                         |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| `iteration_start`                      | Start a new potential assistant segment                                     |
+| `thinking_delta`                       | Append/coalesce an ordered Thinking segment on the active assistant message |
+| `text_delta`                           | Append/coalesce an ordered text segment on the active assistant message     |
+| `message_end`                          | Commit the assistant segment and attach reported reasoning-token usage      |
+| `tool_use_generated`                   | Create a running tool row with summarized input                             |
+| `tool_call_start/update`               | Upsert the tool row                                                         |
+| `tool_call_result`                     | Complete/error row, show `⎿` summary, optionally derive Task state          |
+| `request_retry`                        | Replace one bottom retry activity line; never append transcript messages    |
+| `context_compression_start/compressed` | Bottom activity state plus one completed/failed transcript result           |
+| `web_search`                           | Searching/completed activity row                                            |
+| image events                           | Image-generation activity/result row                                        |
+| sub-agent events                       | Task/sub-agent activity row and completion summary                          |
+| `error`                                | Error notice; wait for terminal `loop_end` when available                   |
+| `loop_end`                             | Replace canonical history when included; release input and finish the turn  |
 
 An envelope with a duplicate/old sequence is ignored. A forward gap is rendered as a warning and
 processing continues, because freezing the terminal would be worse than displaying potentially
 incomplete detail. Run and session IDs are always filtered before projection.
+
+Assistant projection preserves content-block order rather than storing Thinking as message-level
+metadata. Adjacent deltas of the same kind coalesce, while every `thinking → text` or
+`text → thinking` transition closes the previous segment and appends the next one. The transcript
+therefore renders Thinking exactly where the Worker emitted it. Active reasoning uses the spinner;
+completed reasoning folds to a Claude Code-style `Thought for Ns (ctrl+o to expand)` row, and Ctrl+O
+expands its gray italic trace in place. If usage reports reasoning tokens without an exposed trace,
+the explicit no-trace marker is placed before the first text segment instead of below the answer.
 
 ## 7. Reverse requests and permissions
 
@@ -491,12 +501,20 @@ Implemented editing behavior:
   action layer containing only conversation restore, conversation plus tracked-change restore, and
   cancel.
 - Ctrl-C cancels a run, clears non-empty input, then requires a second Ctrl-C to exit.
+- Ctrl-V reads a bounded system-clipboard image only when the active shared model advertises
+  Vision input. PNG/JPEG/GIF/WebP attachments remain outside editor text, survive model overlays,
+  and are sent to Native Worker as canonical structured image blocks. Unsupported models are
+  rejected before clipboard contents are read; switching to a non-Vision model never silently
+  sends or discards already attached images.
+- Ctrl-L and coalesced terminal resize events share one redraw contract: reset Ink's mutable frame,
+  clear the visible terminal, remount the width-sensitive Static projection, and reserve the final
+  terminal column to avoid auto-wrap artifacts.
 - A visible `▏` cursor is rendered explicitly so non-color PTY recordings do not make text after
   an inverse-video cursor appear missing.
 
 Target editor work includes bracketed-paste mode, terminal Kitty keyboard protocol negotiation,
 selection-aware editing, configurable keybindings, `@` path completion, `!` shell mode, shell
-history search, attachment/image paste, and durable prompt history.
+history search, file attachments, and durable prompt history.
 
 ## 11. Commands and overlays
 
@@ -527,6 +545,18 @@ metadata. Applying the second step updates both `providerId` and `modelId` in th
 persists the same active IDs to the shared provider-store index, and writes model/settings changes to
 the same split store used by desktop. Sending only a display label is forbidden because model IDs may
 collide across providers.
+
+Thinking resolution is model-aware. An explicit `${providerId}:${modelId}` override has highest
+priority, followed by the legacy shared enabled flag and then a model preset that declares default
+thinking body parameters or a non-`none` default reasoning effort. This keeps preset-on models on by
+default while preserving a user's explicit per-model Off choice across later sessions.
+
+`/effort` is capability-gated by the selected model's `reasoningEffortLevels`; the CLI never invents
+generic levels for a model that only exposes a Thinking toggle. With no argument it opens a compact
+keyboard slider, a declared level applies directly and enables Thinking, and `auto` removes the
+provider/model-specific override so the preset default is resolved again. Normal selected levels
+are persisted through the same shared settings path used by the desktop app and are forwarded by the
+Native Worker on subsequent turns; Claude-compatible `max` remains scoped to the current CLI session.
 
 `/config` is a searchable terminal editor for the shared settings that materially affect this CLI
 host: active model, thinking, automatic context compression, compression threshold, dedicated
@@ -715,6 +745,9 @@ before release, in line with the repository runtime guidelines.
 | Native core code, Task sub-agents, and persistent Task tools | Implemented v2 catalog                                      |
 | Capability Snapshot v2 native-core bootstrap                 | Implemented; dynamic shared builder still pending           |
 | AskUser/Plan/CodeGraph host adapters                         | Implemented through Worker reverse requests                 |
+| Vision-gated clipboard images and structured Worker input    | Implemented on macOS, Windows, Wayland, and X11             |
+| Coalesced resize/Ctrl-L full redraw                          | Implemented                                                 |
+| Single-line dynamic provider retry state                     | Implemented                                                 |
 | Team/browser/desktop/MCP/extension host adapters             | Not yet                                                     |
 | Desktop/CLI durable shared sessions and resume               | Not yet                                                     |
 | Height-based fullscreen virtualization and mouse             | Not yet                                                     |
@@ -735,7 +768,7 @@ foundation, not a claim that every current Claude Code feature has already been 
 6. Add durable approvals, cross-process rewind-after-resume, and a shared host-adapter registry for
    the remaining UI-bound tools and session commands.
 7. Add height-based fullscreen virtualization, scroll state, mouse, and selection behavior.
-8. Add terminal capability negotiation, sanitized markdown, images/links, accessibility, and
+8. Add terminal capability negotiation, sanitized markdown, generated images/links, accessibility, and
    non-interactive output.
 9. Build PTY golden tests and deterministic Native Worker integration fixtures.
 10. Package platform-specific worker binaries and add update/doctor/repair flows.

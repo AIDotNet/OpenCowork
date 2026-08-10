@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog'
 import { Button } from '../ui/button'
 import {
   createMarkdownComponents,
+  markdownUrlTransform,
   MARKDOWN_REHYPE_PLUGINS,
   MARKDOWN_REMARK_PLUGINS
 } from '../../lib/preview/viewers/markdown-components'
@@ -125,6 +126,7 @@ export function ChangelogDialog({ open, onOpenChange }: ChangelogDialogProps): R
             <ReactMarkdown
               remarkPlugins={MARKDOWN_REMARK_PLUGINS}
               rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+              urlTransform={markdownUrlTransform}
               components={createMarkdownComponents()}
             >
               {displayContent}

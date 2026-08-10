@@ -2,17 +2,44 @@ export type TuiMode = 'classic' | 'fullscreen'
 
 export type PermissionMode = 'manual' | 'acceptEdits' | 'plan' | 'auto'
 
+export type SupportedImageMediaType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+
+export interface PromptImageAttachment {
+  id: string
+  name: string
+  mediaType: SupportedImageMediaType
+  data: string
+  size: number
+}
+
+export type PromptImageSummary = Omit<PromptImageAttachment, 'data'>
+
+export type AssistantContentSegment =
+  | {
+      kind: 'text'
+      text: string
+    }
+  | {
+      completedAt?: number
+      kind: 'thinking'
+      startedAt: number
+      text: string
+      traceAvailable: boolean
+    }
+
 export type Message =
   | {
       id: string
       kind: 'user'
       text: string
+      images?: PromptImageSummary[]
     }
   | {
       id: string
       kind: 'assistant'
       text: string
-      thinking?: string
+      segments?: AssistantContentSegment[]
+      reasoningTokens?: number
       streaming?: boolean
       model?: string
       timestamp?: string
@@ -116,6 +143,7 @@ export interface ModelOption {
   modelId: string
   modelName: string
   description: string
+  supportsVision: boolean
 }
 
 export interface ModelGroup {
@@ -144,6 +172,7 @@ export interface ModelConfiguration {
   builtinSearchEnabled: boolean
   cacheTtl: '5m' | '1h'
   contextLength?: number
+  defaultReasoningEffort: string
   fastModeEnabled: boolean
   imageGenerationEnabled: boolean
   inputPrice?: number
@@ -151,6 +180,7 @@ export interface ModelConfiguration {
   outputPrice?: number
   providerType: string
   reasoningEffort: string
+  reasoningEffortCustomized: boolean
   reasoningEffortLevels: string[]
   selection: ModelSelection
   supportsBuiltinSearch: boolean
@@ -159,6 +189,7 @@ export interface ModelConfiguration {
   supportsImageGeneration: boolean
   supportsResponsesWebsocket: boolean
   supportsThinking: boolean
+  supportsVision: boolean
   thinkingBudget?: number
   thinkingBudgetMax?: number
   thinkingBudgetMin?: number
@@ -171,7 +202,7 @@ export interface ModelConfigurationPatch {
   cacheTtl?: '5m' | '1h'
   fastModeEnabled?: boolean
   imageGenerationEnabled?: boolean
-  reasoningEffort?: string
+  reasoningEffort?: string | null
   thinkingBudget?: number
   thinkingEnabled?: boolean
   websocketMode?: 'auto' | 'disabled'
@@ -229,6 +260,7 @@ export interface RewindResult {
   newMessageCount: number
   originalMessageCount: number
   restoredFileCount: number
+  restoredImages?: PromptImageAttachment[]
   restoredPrompt?: string
   summarized: boolean
   transcript: Message[]
@@ -290,7 +322,7 @@ export type UiEvent =
   | { type: 'assistant.start'; id: string; model?: string }
   | { type: 'assistant.delta'; id: string; text: string }
   | { type: 'assistant.thinking'; id: string; thinking: string }
-  | { type: 'assistant.done'; id: string }
+  | { type: 'assistant.done'; id: string; reasoningTokens?: number }
   | {
       type: 'tool.start'
       id: string
@@ -317,6 +349,14 @@ export type UiEvent =
   | { type: 'plan.update'; action: 'enter' | 'exit' | 'sync'; plan: PlanSnapshot }
   | { type: 'tasks.update'; tasks: TaskItem[] }
   | { type: 'runtime.activity'; activity: RuntimeActivityKind }
+  | {
+      type: 'runtime.retry'
+      attempt: number
+      maxAttempts: number
+      delayMs: number
+      reason?: string
+      statusCode?: number
+    }
   | { type: 'context-compression.start' }
   | {
       type: 'context-compression.done'
@@ -330,7 +370,11 @@ export type UiEvent =
   | { type: 'turn.done' }
 
 export interface AgentRuntime {
-  send(prompt: string, signal: AbortSignal): AsyncIterable<UiEvent>
+  send(
+    prompt: string,
+    signal: AbortSignal,
+    images?: PromptImageAttachment[]
+  ): AsyncIterable<UiEvent>
   getAgentCatalog(): AgentOption[]
   getConfigCatalog?(): ConfigCatalog
   getContextSnapshot?(): ContextSnapshot

@@ -1166,7 +1166,8 @@ function isSidecarUnavailableRuntimeError(
 
 function resolveRuntimeErrorContent(
   errorMessage: string,
-  errorType?: string
+  errorType?: string,
+  diagnosticDetails?: string
 ): {
   message: string
   errorType?: string
@@ -1175,14 +1176,18 @@ function resolveRuntimeErrorContent(
 } {
   const normalizedMessage = normalizeContinuationErrorMessage(errorMessage)
   if (isSidecarUnavailableRuntimeError(normalizedMessage, errorType)) {
+    const fallbackMessage = i18n.t('assistantMessage.agentError.sidecarUnavailableMessage', {
+      ns: 'chat',
+      defaultValue:
+        'The local agent runtime is temporarily unavailable. OpenCowork tried to restart it; retry this message. If it keeps happening in development, run `npm run native:publish` and restart OpenCowork.'
+    })
     return {
-      message: i18n.t('assistantMessage.agentError.sidecarUnavailableMessage', {
-        ns: 'chat',
-        defaultValue:
-          'The local agent runtime is temporarily unavailable. OpenCowork tried to restart it; retry this message. If it keeps happening in development, run `npm run native:publish` and restart OpenCowork.'
-      }),
+      // When structured diagnostics are available, keep the concrete failure
+      // summary visible on the card; the standard localized guidance is already
+      // rendered immediately above it. Generic callers still get the guidance.
+      message: diagnosticDetails ? normalizedMessage : fallbackMessage,
       errorType: 'sidecar_unavailable',
-      details: normalizedMessage,
+      details: [normalizedMessage, diagnosticDetails].filter(Boolean).join('\n\n'),
       toastTitle: i18n.t('assistantMessage.agentError.titleRuntimeUnavailable', {
         ns: 'chat',
         defaultValue: 'Local runtime unavailable'
@@ -1193,6 +1198,7 @@ function resolveRuntimeErrorContent(
   return {
     message: normalizedMessage,
     ...(errorType ? { errorType } : {}),
+    ...(diagnosticDetails ? { details: diagnosticDetails } : {}),
     toastTitle: i18n.t('assistantMessage.agentError.titleRuntime', {
       ns: 'chat',
       defaultValue: 'Runtime error'
@@ -1218,6 +1224,17 @@ function readRuntimeErrorType(error: unknown, fallback?: string): string | undef
     const record = error as Record<string, unknown>
     if (typeof record.type === 'string' && record.type.trim()) {
       return record.type
+    }
+  }
+  return undefined
+}
+
+function readRuntimeErrorDetails(error: unknown, fallback?: string): string | undefined {
+  if (fallback) return fallback
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>
+    if (typeof record.details === 'string' && record.details.trim()) {
+      return record.details
     }
   }
   return undefined
@@ -3686,42 +3703,37 @@ function createSidecarEventStream(options: {
       const startFirstProgressTimer = (): void => {
         clearFirstProgressTimer()
         firstProgressTimer = setTimeout(() => {
-          // The deadline only measures a READY worker's silence. While it is
-          // still starting or being supervision-restarted, re-arm instead of
-          // failing: cold boots legitimately spend 10-30s loading skills/index.
-          const workerState = getNativeWorkerState()
-          if (workerState.state === 'starting' || workerState.state === 'restarting') {
-            console.log('[ChatActions] first-progress deadline deferred; worker not ready yet', {
+          void (async () => {
+            const workerState = getNativeWorkerState()
+            if (finished || pendingFailure) return
+
+            // The timer starts only after agent/run has returned. A run cannot
+            // survive a worker restart, so restarting is a failure condition,
+            // not a reason to postpone the deadline again.
+            const baseMessage =
+              workerState.state === 'fatal'
+                ? `Native Worker failed permanently: ${workerState.lastError ?? 'unknown error'}`
+                : `Native Worker accepted agent run ${runId || '(unassigned)'} but no stream event reached the renderer within ${Math.round(
+                    SIDECAR_FIRST_PROGRESS_TIMEOUT_MS / 1000
+                  )}s`
+            const error = await agentBridge.createDiagnosticError(baseMessage, {
+              runId: runId || undefined,
+              sessionId
+            })
+            if (finished || pendingFailure) return
+            console.warn('[ChatActions] Sidecar run stalled before first progress event', {
               sessionId,
               runId,
               workerState: workerState.state,
-              logLabel
+              workerPhase: workerState.phase,
+              logLabel,
+              diagnostics: error.details
             })
-            startFirstProgressTimer()
-            return
-          }
-          const error =
-            workerState.state === 'fatal'
-              ? new Error(
-                  `Local runtime is unavailable (native worker fatal): ${
-                    workerState.lastError ?? 'unknown error'
-                  }`
-                )
-              : new Error(
-                  `Sidecar run started but produced no progress within ${Math.round(
-                    SIDECAR_FIRST_PROGRESS_TIMEOUT_MS / 1000
-                  )}s`
-                )
-          console.warn('[ChatActions] Sidecar run stalled before first progress event', {
-            sessionId,
-            runId,
-            workerState: workerState.state,
-            logLabel
-          })
-          if (runId) {
-            void agentBridge.cancelAgent(runId).catch(() => {})
-          }
-          fail(error)
+            if (runId) {
+              void agentBridge.cancelAgent(runId).catch(() => {})
+            }
+            fail(error)
+          })()
         }, SIDECAR_FIRST_PROGRESS_TIMEOUT_MS)
       }
 
@@ -3812,6 +3824,19 @@ function createSidecarEventStream(options: {
         if (pendingFailure) {
           throw pendingFailure
         }
+      } catch (error) {
+        const message = readRuntimeErrorMessage(error)
+        const errorType = readRuntimeErrorType(error)
+        if (
+          !readRuntimeErrorDetails(error) &&
+          isSidecarUnavailableRuntimeError(message, errorType)
+        ) {
+          throw await agentBridge.createDiagnosticError(message, {
+            runId: runId || undefined,
+            sessionId
+          })
+        }
+        throw error
       } finally {
         clearFirstProgressTimer()
         signal?.removeEventListener('abort', onAbort)
@@ -5243,7 +5268,10 @@ export function useChatActions(): {
 
             const initialized = await agentBridge.initialize()
             if (!initialized) {
-              throw new Error('Sidecar unavailable')
+              throw await agentBridge.createDiagnosticError(
+                'Native Worker did not complete Agent Runtime initialization',
+                { sessionId }
+              )
             }
 
             const loop: AsyncIterable<AgentEvent> = createSidecarEventStream({
@@ -6219,7 +6247,8 @@ export function useChatActions(): {
                   streamDeltaBuffer.flushNow()
                   const errorContent = resolveRuntimeErrorContent(
                     event.error.message,
-                    event.errorType
+                    event.errorType,
+                    event.details
                   )
                   console.error('[Agent Loop Error]', event.error)
                   if (shouldSuppressTransientRuntimeError(errorContent.message)) {
@@ -6259,7 +6288,9 @@ export function useChatActions(): {
             console.error('[Agent Loop Exception]', err)
             if (!abortController.signal.aborted) {
               const errorContent = resolveRuntimeErrorContent(
-                err instanceof Error ? err.message : String(err)
+                readRuntimeErrorMessage(err),
+                readRuntimeErrorType(err),
+                readRuntimeErrorDetails(err)
               )
               console.error('[Agent Loop Exception]', err)
               if (!shouldSuppressTransientRuntimeError(errorContent.message)) {
@@ -7112,7 +7143,10 @@ async function runSimpleChat(
     if (useSidecar) {
       const initialized = await agentBridge.initialize()
       if (!initialized) {
-        throw new Error('Sidecar unavailable')
+        throw await agentBridge.createDiagnosticError(
+          'Native Worker did not complete Agent Runtime initialization',
+          { sessionId }
+        )
       }
       stream = createSidecarEventStream({
         sessionId,
@@ -7348,7 +7382,8 @@ async function runSimpleChat(
           streamDeltaBuffer.flushNow()
           const errorContent = resolveRuntimeErrorContent(
             readRuntimeErrorMessage(event.error),
-            readRuntimeErrorType(event.error, 'errorType' in event ? event.errorType : undefined)
+            readRuntimeErrorType(event.error, 'errorType' in event ? event.errorType : undefined),
+            readRuntimeErrorDetails(event.error, 'details' in event ? event.details : undefined)
           )
           console.error('[Chat Error]', event.error)
           if (shouldSuppressTransientRuntimeError(errorContent.message)) {
@@ -7381,7 +7416,9 @@ async function runSimpleChat(
     streamDeltaBuffer.flushNow()
     if (!signal.aborted) {
       const errorContent = resolveRuntimeErrorContent(
-        err instanceof Error ? err.message : String(err)
+        readRuntimeErrorMessage(err),
+        readRuntimeErrorType(err),
+        readRuntimeErrorDetails(err)
       )
       console.error('[Chat Exception]', err)
       if (!shouldSuppressTransientRuntimeError(errorContent.message)) {

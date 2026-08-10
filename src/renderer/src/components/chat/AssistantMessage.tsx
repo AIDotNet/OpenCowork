@@ -126,6 +126,7 @@ import { useStreamingMarkdownBlocks } from '@renderer/hooks/use-streaming-markdo
 import {
   MARKDOWN_REHYPE_PLUGINS,
   MARKDOWN_REMARK_PLUGINS,
+  markdownUrlTransform,
   openMarkdownHref,
   resolveLocalFilePath,
   openLocalFilePath
@@ -1320,9 +1321,12 @@ const MARKDOWN_COMPONENTS: Components = {
   hr: ({ ...props }) => <hr className="my-3 border-border/50" {...props} />,
   a: ({ href, children }) => (
     <a
-      href={href}
+      href={href || undefined}
       onClick={(e) => {
-        if (!href) return
+        if (!href) {
+          e.preventDefault()
+          return
+        }
         const handled = openMarkdownHref(href)
         if (handled) e.preventDefault()
       }}
@@ -1418,6 +1422,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
       <Markdown
         remarkPlugins={MARKDOWN_REMARK_PLUGINS}
         rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+        urlTransform={markdownUrlTransform}
         components={MARKDOWN_COMPONENTS}
       >
         {text}

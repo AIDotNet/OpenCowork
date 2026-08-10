@@ -2,25 +2,45 @@ import { ipcClient } from './ipc-client'
 
 // Mirrors NativeWorkerStateSnapshot in src/main/lib/native-worker.ts.
 export type NativeWorkerState = 'stopped' | 'starting' | 'ready' | 'restarting' | 'fatal'
+export type NativeWorkerStartupPhase =
+  | 'idle'
+  | 'resolving-binary'
+  | 'spawning'
+  | 'connecting-ipc'
+  | 'handshaking'
+  | 'verifying-routes'
+  | 'ready'
+  | 'restart-backoff'
+  | 'stopping'
+  | 'fatal'
 
 export type NativeWorkerStateSnapshot = {
   id: 'native' | 'codegraph'
   state: NativeWorkerState
+  phase: NativeWorkerStartupPhase
   pid: number | null
   restartAttempts: number
   lastError: string | null
+  workerPath: string | null
+  lastStartAttemptAt: number | null
+  readyAt: number | null
 }
 
 type Listener = (snapshot: NativeWorkerStateSnapshot) => void
 
-// Before the first push/pull resolves, assume ready: the worker is eagerly
-// started at boot and pessimistic gating would delay first-turn timeouts.
+// The Worker is required and eagerly started. Until the pull/push snapshot
+// proves readiness, retain a starting state so a first turn never mistakes an
+// unresolved boot for a healthy runtime.
 let current: NativeWorkerStateSnapshot = {
   id: 'native',
-  state: 'ready',
+  state: 'starting',
+  phase: 'resolving-binary',
   pid: null,
   restartAttempts: 0,
-  lastError: null
+  lastError: null,
+  workerPath: null,
+  lastStartAttemptAt: null,
+  readyAt: null
 }
 const listeners = new Set<Listener>()
 let installed = false
@@ -33,9 +53,19 @@ function applySnapshot(snapshot: unknown): void {
   current = {
     id: 'native',
     state: record.state as NativeWorkerState,
+    phase:
+      typeof record.phase === 'string'
+        ? (record.phase as NativeWorkerStartupPhase)
+        : record.state === 'ready'
+          ? 'ready'
+          : 'idle',
     pid: typeof record.pid === 'number' ? record.pid : null,
     restartAttempts: typeof record.restartAttempts === 'number' ? record.restartAttempts : 0,
-    lastError: typeof record.lastError === 'string' ? record.lastError : null
+    lastError: typeof record.lastError === 'string' ? record.lastError : null,
+    workerPath: typeof record.workerPath === 'string' ? record.workerPath : null,
+    lastStartAttemptAt:
+      typeof record.lastStartAttemptAt === 'number' ? record.lastStartAttemptAt : null,
+    readyAt: typeof record.readyAt === 'number' ? record.readyAt : null
   }
   for (const listener of listeners) {
     try {

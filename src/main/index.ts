@@ -83,6 +83,7 @@ import { registerSyncHandlers } from './ipc/sync-handlers'
 import { registerHooksHandlers } from './ipc/hooks-handlers'
 import { initializeHookRuntimeSettings } from './hooks/hooks-service'
 import { registerSidecarHandlers, getSidecarManager } from './ipc/sidecar-manager'
+import { getNativeAgentRuntimeManager } from './ipc/native-agent-runtime'
 import { registerDrawAgentWorkspaceHandlers } from './ipc/draw-agent-workspace-handlers'
 import {
   getNativeWorker,
@@ -1404,13 +1405,15 @@ if (gotSingleInstanceLock) {
     )
     setNativeWorkerStartupBarrier(shellEnvironmentReady)
 
-    const settingsStartup = runLoggedStartupStepAsync(
-      'native_worker_settings_startup',
-      async () => {
-        await getNativeWorker().ensureStarted()
+    const nativeWorkerTransportStartup = runLoggedStartupStepAsync(
+      'native_worker_transport_startup',
+      () => getNativeWorker().ensureStarted()
+    )
+    const settingsStartup = nativeWorkerTransportStartup.then(() =>
+      runLoggedStartupStepAsync('native_worker_settings_startup', async () => {
         await initializeSettingsCache()
         initializeHookRuntimeSettings()
-      }
+      })
     )
     void settingsStartup
       .then(() => console.log('[NativeWorker] settings startup ready'))
@@ -1608,6 +1611,105 @@ if (gotSingleInstanceLock) {
       }
     )
 
+    // Native Worker is required infrastructure, not an optional lazy feature.
+    // Do not expose the application window until process launch, IPC handshake,
+    // route validation, and Agent Runtime initialization have all completed (or
+    // failed with a captured diagnostic). A transient launch failure gets two
+    // immediate retries in addition to the manager's supervised restart loop.
+    let requiredWorkerStartupError: Error | null = null
+    try {
+      await nativeWorkerTransportStartup
+    } catch (error) {
+      requiredWorkerStartupError = error instanceof Error ? error : new Error(String(error))
+    }
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const ready = await runLoggedStartupStepAsync(
+          `sidecar_required_startup_attempt_${attempt}`,
+          () => getSidecarManager().ensureStarted()
+        )
+        if (!ready) throw new Error('Native Agent Runtime initialize returned ready=false')
+        requiredWorkerStartupError = null
+        break
+      } catch (error) {
+        requiredWorkerStartupError = error instanceof Error ? error : new Error(String(error))
+        if (getNativeWorker().getStateSnapshot().state === 'fatal' || attempt === 3) break
+        await new Promise<void>((resolveDelay) => setTimeout(resolveDelay, attempt * 250))
+      }
+    }
+
+    if (!requiredWorkerStartupError) {
+      await initializeSettingsCache()
+      initializeHookRuntimeSettings()
+    }
+
+    if (requiredWorkerStartupError) {
+      const diagnostics = getNativeWorker().getDiagnosticsSnapshot()
+      const agentRuntimeDiagnostics = getNativeAgentRuntimeManager().getDiagnosticsSnapshot()
+      writeCrashLog('native_worker_required_startup_failed', {
+        error: requiredWorkerStartupError,
+        diagnostics,
+        agentRuntime: agentRuntimeDiagnostics
+      })
+      console.error('[NativeWorker] required startup failed', {
+        worker: diagnostics,
+        agentRuntime: agentRuntimeDiagnostics
+      })
+      dialog.showErrorBox(
+        'OpenCowork Native Worker failed to start',
+        [
+          requiredWorkerStartupError.message,
+          '',
+          `Phase: ${diagnostics.phase}`,
+          `State: ${diagnostics.state}`,
+          `Worker: ${diagnostics.workerPath ?? '(not resolved)'}`,
+          `PID: ${diagnostics.pid ?? '(not started)'}`,
+          `Restart attempts: ${diagnostics.restartAttempts}`,
+          `Transport: ${diagnostics.transport}`,
+          `Endpoint: ${diagnostics.endpoint ?? '(not connected)'}`,
+          diagnostics.lastDisconnect
+            ? `Last disconnect: ${diagnostics.lastDisconnect.error} (${new Date(
+                diagnostics.lastDisconnect.at
+              ).toISOString()})`
+            : 'Last disconnect: (none)',
+          diagnostics.lastDisconnect?.pendingRequests.length
+            ? `RPCs pending at disconnect: ${diagnostics.lastDisconnect.pendingRequests
+                .map((request) => `${request.method} (${request.elapsedMs}ms)`)
+                .join(', ')}`
+            : 'RPCs pending at disconnect: (none)',
+          diagnostics.lastExit
+            ? `Last exit: code=${diagnostics.lastExit.code ?? 'null'}, signal=${
+                diagnostics.lastExit.signal ?? 'null'
+              }, at=${new Date(diagnostics.lastExit.at).toISOString()}`
+            : 'Last exit: (none)',
+          `Agent Runtime running: ${agentRuntimeDiagnostics.running}`,
+          `Agent Runtime initialized: ${agentRuntimeDiagnostics.initialized}`,
+          `Agent Runtime initialize error: ${
+            agentRuntimeDiagnostics.lastInitializeError ?? '(none)'
+          }`,
+          diagnostics.stderrTail.length > 0
+            ? `Worker stderr:\n${diagnostics.stderrTail.slice(-12).join('\n')}`
+            : 'Worker stderr: (empty)',
+          diagnostics.binaryCandidates.length > 0
+            ? `Worker candidates:\n${diagnostics.binaryCandidates
+                .map(
+                  (candidate) =>
+                    `- ${candidate.path}: ${
+                      candidate.ready
+                        ? 'ready'
+                        : candidate.exists
+                          ? `missing ${candidate.missingDependencies.join(' or ')}`
+                          : 'executable missing'
+                    }`
+                )
+                .join('\n')}`
+            : 'Worker candidates: (none)',
+          `Detailed log directory: ${diagnostics.logDirectory}`
+        ].join('\n')
+      )
+    }
+
     setMacDockIcon()
     runLoggedStartupStep('create_main_window', createWindow)
     scheduleUsageEventsStartupCleanup()
@@ -1623,17 +1725,6 @@ if (gotSingleInstanceLock) {
       .then(() => startChannelServices())
       .catch((error) => {
         console.warn('[Channels] Startup failed:', error)
-      })
-    void runLoggedStartupStepAsync('sidecar_global_startup', () =>
-      getSidecarManager().ensureStarted()
-    )
-      .then((sidecarReady) => {
-        console.log(`[Sidecar] global startup ${sidecarReady ? 'ready' : 'unavailable'}`)
-      })
-      .catch((error) => {
-        console.warn(
-          `[Sidecar] global startup failed: ${error instanceof Error ? error.message : String(error)}`
-        )
       })
     void databaseReady
       .then(() => runLoggedStartupStepAsync('load_persisted_jobs', loadPersistedJobs))

@@ -20,6 +20,11 @@ export class TerminalScreen {
     process.stdout.write(CLEAR_SCREEN)
   }
 
+  redraw(): void {
+    if (!this.active) return
+    process.stdout.write(CLEAR_SCREEN)
+  }
+
   exit(): void {
     if (!this.active) return
     this.active = false

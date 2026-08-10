@@ -50,10 +50,44 @@ export interface AgentRuntimeStateSnapshot {
   approvals: AgentRuntimeApprovalSnapshot[]
 }
 
+export interface SidecarDiagnosticsSnapshot {
+  capturedAt?: number
+  worker?: {
+    state?: string
+    phase?: string
+    pid?: number | null
+    workerPath?: string | null
+    restartAttempts?: number
+    lastError?: string | null
+    lastAgentStreamAt?: number | null
+    lastAgentStreamRunId?: string | null
+    stderrTail?: string[]
+    logDirectory?: string
+    lastDisconnect?: {
+      at?: number
+      error?: string
+      pendingRequests?: Array<{ method?: string; elapsedMs?: number }>
+    } | null
+  }
+  agentRuntime?: {
+    running?: boolean
+    initialized?: boolean
+    activeRunIds?: string[]
+    lastInitializeError?: string | null
+  }
+  stream?: Record<string, unknown>
+}
+
+export type SidecarDiagnosticError = Error & {
+  type: 'sidecar_unavailable'
+  details: string
+}
+
 class AgentBridgeClient {
   private initialized = false
   private initializePromise: Promise<boolean> | null = null
   private initializeResult: RuntimeInitializeResultV2 | null = null
+  private lastInitializationError: Error | null = null
 
   get runtimeCapabilities(): RuntimeInitializeResultV2 | null {
     return this.initializeResult
@@ -114,10 +148,12 @@ class AgentBridgeClient {
           this.initializeResult = initializeResult as RuntimeInitializeResultV2
         }
         this.initialized = true
+        this.lastInitializationError = null
         return true
       } catch (err) {
         this.initialized = false
         this.initializeResult = null
+        this.lastInitializationError = err instanceof Error ? err : new Error(String(err))
         console.error(`[AgentBridge] Initialize failed (attempt ${attempt}/${maxAttempts}):`, err)
 
         if (attempt < maxAttempts) {
@@ -152,6 +188,49 @@ class AgentBridgeClient {
       running: boolean
     }
     return result.running
+  }
+
+  async getDiagnostics(args?: {
+    runId?: string
+    sessionId?: string
+  }): Promise<SidecarDiagnosticsSnapshot> {
+    return (await ipcClient.invoke('sidecar:diagnostics', args ?? {})) as SidecarDiagnosticsSnapshot
+  }
+
+  async createDiagnosticError(
+    message: string,
+    args?: { runId?: string; sessionId?: string }
+  ): Promise<SidecarDiagnosticError> {
+    let diagnostics: SidecarDiagnosticsSnapshot | { diagnosticsError: string }
+    try {
+      diagnostics = await this.getDiagnostics(args)
+    } catch (error) {
+      diagnostics = {
+        diagnosticsError: error instanceof Error ? error.message : String(error)
+      }
+    }
+
+    const worker = 'worker' in diagnostics ? diagnostics.worker : undefined
+    const initializationMessage = this.lastInitializationError?.message
+    const summary = [
+      worker?.state ? `state=${worker.state}` : '',
+      worker?.phase ? `phase=${worker.phase}` : '',
+      typeof worker?.pid === 'number' ? `pid=${worker.pid}` : '',
+      typeof worker?.restartAttempts === 'number'
+        ? `restartAttempts=${worker.restartAttempts}`
+        : '',
+      worker?.workerPath ? `worker=${worker.workerPath}` : '',
+      worker?.lastError ? `error=${worker.lastError}` : '',
+      worker?.lastDisconnect?.error ? `disconnect=${worker.lastDisconnect.error}` : '',
+      initializationMessage ? `initialize=${initializationMessage}` : ''
+    ]
+      .filter(Boolean)
+      .join(', ')
+
+    return Object.assign(new Error(summary ? `${message} (${summary})` : message), {
+      type: 'sidecar_unavailable' as const,
+      details: JSON.stringify(diagnostics, null, 2)
+    })
   }
 
   async runAgent(params: unknown): Promise<{ started: boolean; runId: string }> {
@@ -239,6 +318,7 @@ class AgentBridgeClient {
     this.initializePromise = null
     await ipcClient.invoke('sidecar:stop')
     this.initialized = false
+    this.lastInitializationError = null
   }
 
   // The main process replaces the worker process transparently (supervised

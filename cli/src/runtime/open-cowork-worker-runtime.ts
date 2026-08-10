@@ -20,6 +20,7 @@ import type {
   PlanApprovalMode,
   PlanSnapshot,
   PlanStatus,
+  PromptImageAttachment,
   RewindAction,
   RewindCheckpoint,
   RewindResult,
@@ -28,6 +29,7 @@ import type {
   UiEvent,
   UsageSnapshot
 } from '../types.js'
+import { MAX_IMAGE_SIZE, MAX_PROMPT_IMAGES } from '../lib/clipboard-image.js'
 import { NativeWorkerClient, type NativeWorkerProbe } from './native-worker-client.js'
 import {
   loadAgentCatalog,
@@ -35,12 +37,14 @@ import {
   loadOpenCoworkConfiguration,
   persistModelConfiguration,
   persistModelSelection,
+  modelSupportsVision,
   resolveProviderModel
 } from './provider-catalog.js'
 import {
   buildWorkerCompressionRequest,
   buildWorkerRunRequest,
   resolveReasoningEffort,
+  resolveThinkingEnabled,
   resolveWorkerCompressionSettings,
   type WorkerMessage,
   type WorkerToolDefinition,
@@ -107,6 +111,7 @@ type AgentChangeRollbackResult = {
 
 type RewindCheckpointRecord = {
   checkpoint: Omit<RewindCheckpoint, 'changedFileCount' | 'codeRestoreAvailable'>
+  images: PromptImageAttachment[]
   prefix: WorkerMessage[]
 }
 
@@ -325,13 +330,70 @@ function normalizeMessages(value: unknown): WorkerMessage[] | null {
   return messages
 }
 
+function imageExtension(mediaType: string): string {
+  if (mediaType === 'image/jpeg') return 'jpg'
+  if (mediaType === 'image/gif') return 'gif'
+  if (mediaType === 'image/webp') return 'webp'
+  return 'png'
+}
+
+function extractWorkerUserSubmission(
+  content: unknown,
+  idPrefix: string
+): { images: PromptImageAttachment[]; text: string } {
+  if (typeof content === 'string') return { images: [], text: content }
+  if (!Array.isArray(content)) return { images: [], text: flattenContent(content) }
+  const text: string[] = []
+  const images: PromptImageAttachment[] = []
+  for (const item of content) {
+    if (!isRecord(item)) continue
+    if (item.type === 'text' && typeof item.text === 'string') {
+      text.push(item.text)
+      continue
+    }
+    if (item.type !== 'image' || !isRecord(item.source)) continue
+    const mediaType = stringValue(item.source.mediaType)
+    const data = stringValue(item.source.data)
+    if (item.source.type !== 'base64' || !supportedImageMediaTypes.has(mediaType) || !data) {
+      continue
+    }
+    const index = images.length + 1
+    images.push({
+      id: `${idPrefix}-image-${index}`,
+      name: `image-${index}.${imageExtension(mediaType)}`,
+      mediaType: mediaType as PromptImageAttachment['mediaType'],
+      data,
+      size: Buffer.byteLength(data, 'base64')
+    })
+  }
+  return { images, text: text.join('\n').trim() }
+}
+
 function toRewindTranscript(messages: WorkerMessage[], model: string): Message[] {
   const transcript: Message[] = []
   for (const message of messages) {
-    const text = flattenContent(message.content).trim()
+    const userSubmission =
+      message.role === 'user'
+        ? extractWorkerUserSubmission(message.content, message.id)
+        : { images: [], text: flattenContent(message.content).trim() }
+    const { images, text } = userSubmission
     if (!text) continue
     if (message.role === 'user') {
-      transcript.push({ id: message.id, kind: 'user', text })
+      transcript.push({
+        id: message.id,
+        kind: 'user',
+        text,
+        ...(images.length > 0
+          ? {
+              images: images.map(({ id, mediaType, name, size }) => ({
+                id,
+                mediaType,
+                name,
+                size
+              }))
+            }
+          : {})
+      })
     } else if (message.role === 'assistant') {
       transcript.push({ id: message.id, kind: 'assistant', model, text })
     } else {
@@ -455,6 +517,40 @@ function messageSerializedSize(message: WorkerMessage): number {
     return JSON.stringify(message.content).length
   } catch {
     return flattenContent(message.content).length
+  }
+}
+
+const supportedImageMediaTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+
+export function buildWorkerUserContent(prompt: string, images: PromptImageAttachment[]): unknown {
+  if (images.length === 0) return prompt
+  return [
+    { type: 'text', text: prompt },
+    ...images.map((image) => ({
+      type: 'image',
+      source: {
+        type: 'base64',
+        mediaType: image.mediaType,
+        data: image.data
+      }
+    }))
+  ]
+}
+
+function validatePromptImages(images: PromptImageAttachment[]): void {
+  if (images.length > MAX_PROMPT_IMAGES) {
+    throw new Error(`A prompt can include up to ${MAX_PROMPT_IMAGES} images.`)
+  }
+  for (const image of images) {
+    if (!supportedImageMediaTypes.has(image.mediaType)) {
+      throw new Error(`Unsupported image type: ${image.mediaType}.`)
+    }
+    if (!image.data || image.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(image.data)) {
+      throw new Error(`Image “${image.name}” does not contain valid base64 data.`)
+    }
+    if (Buffer.byteLength(image.data, 'base64') > MAX_IMAGE_SIZE) {
+      throw new Error(`Image “${image.name}” exceeds the 20 MB limit.`)
+    }
   }
 }
 
@@ -599,11 +695,18 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
 
     if (typeof patch.thinkingEnabled === 'boolean') {
       settingsPatch.thinkingEnabled = patch.thinkingEnabled
+      const thinkingEnabledByModel = isRecord(configuration.settings.thinkingEnabledByModel)
+        ? configuration.settings.thinkingEnabledByModel
+        : {}
+      settingsPatch.thinkingEnabledByModel = {
+        ...thinkingEnabledByModel,
+        [`${selection.providerId}:${selection.modelId}`]: patch.thinkingEnabled
+      }
     }
     if (typeof patch.fastModeEnabled === 'boolean') {
       settingsPatch.fastModeEnabled = patch.fastModeEnabled
     }
-    if (patch.reasoningEffort) {
+    if (patch.reasoningEffort !== undefined) {
       const thinkingConfig = isRecord(model.thinkingConfig) ? model.thinkingConfig : null
       const levels =
         thinkingConfig && Array.isArray(thinkingConfig.reasoningEffortLevels)
@@ -611,18 +714,30 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
               (level): level is string => typeof level === 'string'
             )
           : []
-      if (levels.length > 0 && !levels.includes(patch.reasoningEffort)) {
+      if (
+        typeof patch.reasoningEffort === 'string' &&
+        (levels.length === 0 || !levels.includes(patch.reasoningEffort))
+      ) {
         throw new Error(
-          `Reasoning effort “${patch.reasoningEffort}” is not supported by ${selection.modelName}.`
+          levels.length === 0
+            ? `${selection.modelName} does not expose reasoning effort levels.`
+            : `Reasoning effort “${patch.reasoningEffort}” is not supported by ${selection.modelName}.`
         )
       }
       const reasoningEffortByModel = isRecord(configuration.settings.reasoningEffortByModel)
         ? configuration.settings.reasoningEffortByModel
         : {}
-      settingsPatch.reasoningEffort = patch.reasoningEffort
-      settingsPatch.reasoningEffortByModel = {
-        ...reasoningEffortByModel,
-        [`${selection.providerId}:${selection.modelId}`]: patch.reasoningEffort
+      const effortKey = `${selection.providerId}:${selection.modelId}`
+      if (patch.reasoningEffort === null) {
+        const nextReasoningEffortByModel = { ...reasoningEffortByModel }
+        delete nextReasoningEffortByModel[effortKey]
+        settingsPatch.reasoningEffortByModel = nextReasoningEffortByModel
+      } else {
+        settingsPatch.reasoningEffort = patch.reasoningEffort
+        settingsPatch.reasoningEffortByModel = {
+          ...reasoningEffortByModel,
+          [effortKey]: patch.reasoningEffort
+        }
       }
     }
     if (typeof patch.builtinSearchEnabled === 'boolean') {
@@ -667,8 +782,20 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     if (Object.keys(settingsPatch).length > 0) {
       await this.updatePersistedSettings(settingsPatch)
     }
-    if (patch.reasoningEffort) {
+    if (typeof patch.reasoningEffort === 'string') {
       this.config = { ...this.config, effort: patch.reasoningEffort }
+    } else if (patch.reasoningEffort === null) {
+      const refreshed = loadOpenCoworkConfiguration()
+      this.config = {
+        ...this.config,
+        effort: resolveReasoningEffort(
+          refreshed.settings,
+          selection.providerId,
+          selection.modelId,
+          '',
+          model
+        )
+      }
     }
   }
 
@@ -696,6 +823,22 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
             (level): level is string => typeof level === 'string' && level.length > 0
           )
         : []
+    const effortKey = `${selection.providerId}:${selection.modelId}`
+    const reasoningEffortByModel = isRecord(configuration.settings.reasoningEffortByModel)
+      ? configuration.settings.reasoningEffortByModel
+      : {}
+    const savedReasoningEffort = stringValue(reasoningEffortByModel[effortKey])
+    const reasoningEffortCustomized = Boolean(
+      savedReasoningEffort &&
+      (reasoningEffortLevels.length === 0 || reasoningEffortLevels.includes(savedReasoningEffort))
+    )
+    const defaultReasoningEffort = resolveReasoningEffort(
+      { ...configuration.settings, reasoningEffortByModel: {} },
+      selection.providerId,
+      selection.modelId,
+      '',
+      model
+    )
     const requestedEffort =
       this.config.providerId === selection.providerId && this.config.model === selection.modelId
         ? this.config.effort
@@ -733,6 +876,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         model.enableBuiltinSearch === true,
       cacheTtl: cacheTtlValue === '1h' ? '1h' : '5m',
       ...(contextLength && contextLength > 0 ? { contextLength } : {}),
+      defaultReasoningEffort,
       fastModeEnabled: configuration.settings.fastModeEnabled === true,
       imageGenerationEnabled:
         model.supportsImageGeneration === true && responsesImageGeneration?.enabled !== false,
@@ -741,6 +885,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       ...(outputPrice !== null ? { outputPrice } : {}),
       providerType,
       reasoningEffort,
+      reasoningEffortCustomized,
       reasoningEffortLevels,
       selection: resolution.selection,
       supportsBuiltinSearch:
@@ -752,6 +897,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         providerType === 'openai-responses' && model.supportsImageGeneration === true,
       supportsResponsesWebsocket,
       supportsThinking,
+      supportsVision: modelSupportsVision(model, providerType),
       ...(supportsThinkingBudget
         ? {
             thinkingBudget: Math.min(
@@ -765,7 +911,12 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
             thinkingBudgetMin: MIN_ANTHROPIC_THINKING_BUDGET
           }
         : {}),
-      thinkingEnabled: configuration.settings.thinkingEnabled === true && supportsThinking,
+      thinkingEnabled: resolveThinkingEnabled(
+        configuration.settings,
+        selection.providerId,
+        selection.modelId,
+        model
+      ),
       websocketMode:
         supportsResponsesWebsocket && modelWebsocketMode === 'auto' ? 'auto' : 'disabled'
     }
@@ -800,6 +951,22 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         }
       : null
     const codeGraphEnabled = settings.codegraphEnabled === true
+    const activeModelResolution = modelCatalog.active
+      ? resolveProviderModel(configuration, {
+          providerId: modelCatalog.active.providerId,
+          modelId: modelCatalog.active.modelId
+        })
+      : null
+    const activeThinkingSupported = activeModelResolution?.model.supportsThinking === true
+    const activeThinkingEnabled =
+      modelCatalog.active && activeModelResolution
+        ? resolveThinkingEnabled(
+            settings,
+            modelCatalog.active.providerId,
+            modelCatalog.active.modelId,
+            activeModelResolution.model
+          )
+        : settings.thinkingEnabled === true
     const entries: ConfigEntry[] = [
       {
         action: 'model',
@@ -816,10 +983,11 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         category: 'Model',
         description:
           'Include the model reasoning/thinking mode when the selected model supports it.',
+        disabled: !activeThinkingSupported,
         key: 'thinkingEnabled',
         kind: 'boolean',
         label: 'Thinking',
-        value: settings.thinkingEnabled === true
+        value: activeThinkingEnabled
       },
       {
         action: 'compressionModel',
@@ -1047,6 +1215,21 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       }
       throw new Error(`Unsupported OpenCowork CLI setting: ${key}`)
     })()
+    if (key === 'thinkingEnabled') {
+      const configuration = loadOpenCoworkConfiguration()
+      const overrides = isRecord(configuration.settings.thinkingEnabledByModel)
+        ? configuration.settings.thinkingEnabledByModel
+        : {}
+      const modelKey =
+        this.config.providerId && this.config.model
+          ? `${this.config.providerId}:${this.config.model}`
+          : ''
+      await this.updatePersistedSettings({
+        thinkingEnabled: normalized,
+        ...(modelKey ? { thinkingEnabledByModel: { ...overrides, [modelKey]: normalized } } : {})
+      })
+      return
+    }
     await this.updatePersistedSettings({ [key]: normalized })
   }
 
@@ -1067,8 +1250,28 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     })
   }
 
-  async *send(prompt: string, signal: AbortSignal): AsyncIterable<UiEvent> {
+  async *send(
+    prompt: string,
+    signal: AbortSignal,
+    images: PromptImageAttachment[] = []
+  ): AsyncIterable<UiEvent> {
     if (this.activeRunId) throw new Error('An OpenCowork worker turn is already active')
+    validatePromptImages(images)
+    if (images.length > 0) {
+      const configuration = loadOpenCoworkConfiguration()
+      const resolution = resolveProviderModel(configuration, {
+        providerId: this.config.providerId,
+        modelId: this.config.model
+      })
+      const providerType = resolution
+        ? stringValue(resolution.model.type) || stringValue(resolution.provider.type)
+        : ''
+      if (!resolution || !modelSupportsVision(resolution.model, providerType)) {
+        throw new Error(
+          'The current model does not support image input. Choose a vision-capable model with Alt-P.'
+        )
+      }
+    }
 
     const runId = `cli-run-${randomUUID()}`
     this.activeRunId = runId
@@ -1085,7 +1288,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     const userMessage: WorkerMessage = {
       id: `user-${randomUUID()}`,
       role: 'user',
-      content: prompt,
+      content: buildWorkerUserContent(prompt, images),
       createdAt: Date.now()
     }
     const checkpointPrefix = [...this.rewindTranscript]
@@ -1100,6 +1303,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         prompt,
         userIndex: previousUserCount
       },
+      images: images.map((image) => ({ ...image })),
       prefix: checkpointPrefix
     })
     if (this.rewindCheckpointRecords.length > 100) this.rewindCheckpointRecords.shift()
@@ -1259,6 +1463,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     let conversationForked = false
     let restoredFileCount = 0
     let failedFiles: string[] = []
+    let restoredImages: PromptImageAttachment[] | undefined
     let restoredPrompt: string | undefined
     let summarized = false
 
@@ -1274,6 +1479,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     if (action === 'restore-code-and-conversation' || action === 'restore-conversation') {
       await this.forkConversation(checkpointRecord.prefix, checkpointRecordIndex)
       conversationForked = true
+      restoredImages = checkpointRecord.images.map((image) => ({ ...image }))
       restoredPrompt = checkpoint.prompt
     } else if (action === 'summarize-from') {
       const prefix = rewindMessages.slice(0, messageIndex)
@@ -1281,6 +1487,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       const compression = await this.compressRewindSegment(segment, instructions, signal)
       this.messages = [...prefix, ...compression.messages]
       await this.persistCanonicalMessages(this.messages)
+      restoredImages = checkpointRecord.images.map((image) => ({ ...image }))
       restoredPrompt = checkpoint.prompt
       summarized = true
     } else if (action === 'summarize-up-to') {
@@ -1303,6 +1510,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       newMessageCount: this.messages.length,
       originalMessageCount,
       restoredFileCount,
+      ...(restoredImages === undefined ? {} : { restoredImages }),
       ...(restoredPrompt === undefined ? {} : { restoredPrompt }),
       summarized,
       transcript: toRewindTranscript(this.messages, this.activeModelLabel)
@@ -1623,13 +1831,15 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     for (let index = 0; index < this.messages.length; index += 1) {
       const message = this.messages[index]
       if (!message || message.role !== 'user') continue
+      const submission = extractWorkerUserSubmission(message.content, message.id)
       this.rewindCheckpointRecords.push({
         checkpoint: {
           createdAt: message.createdAt,
           id: message.id,
-          prompt: flattenContent(message.content),
+          prompt: submission.text,
           userIndex
         },
+        images: submission.images,
         prefix: this.messages.slice(0, index)
       })
       userIndex += 1
@@ -1800,7 +2010,17 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       return
     }
     if (type === 'message_end') {
-      if (this.assistantId) this.push({ type: 'assistant.done', id: this.assistantId })
+      if (this.assistantId) {
+        const usage = isRecord(event.usage) ? event.usage : null
+        const reasoningTokens = numberValue(usage?.reasoningTokens)
+        this.push({
+          type: 'assistant.done',
+          id: this.assistantId,
+          ...(reasoningTokens !== null && reasoningTokens > 0
+            ? { reasoningTokens: Math.round(reasoningTokens) }
+            : {})
+        })
+      }
       return
     }
     if (type === 'tool_use_generated' && isRecord(event.toolUseBlock)) {
@@ -1829,10 +2049,17 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     if (type === 'request_retry') {
       const attempt = numberValue(event.attempt) ?? 0
       const maxAttempts = numberValue(event.maxAttempts) ?? 0
-      this.pushSystem(
-        `Provider request retry ${attempt}/${maxAttempts} in ${numberValue(event.delayMs) ?? 0} ms${event.reason ? ` · ${stringValue(event.reason)}` : ''}`,
-        'warning'
-      )
+      const delayMs = numberValue(event.delayMs) ?? 0
+      const statusCode = numberValue(event.statusCode)
+      const reason = compact(stringValue(event.reason), 140)
+      this.push({
+        type: 'runtime.retry',
+        attempt,
+        maxAttempts,
+        delayMs,
+        ...(reason ? { reason } : {}),
+        ...(statusCode === null ? {} : { statusCode })
+      })
       return
     }
     if (type === 'context_compression_start') {

@@ -85,7 +85,7 @@ program
 Interactive shortcuts:
   /          Open commands             ?          Toggle shortcuts
   Shift+Tab  Cycle permission mode     Alt+P      Switch model
-  Ctrl+O     Toggle tool details       Ctrl+T     Toggle task list
+  Ctrl+O     Toggle reasoning/details  Ctrl+T     Toggle task list
   Ctrl+C ×2  Exit                      Ctrl+L     Redraw
 `
   )
@@ -148,11 +148,17 @@ Interactive shortcuts:
     screen.enter()
 
     try {
+      const instanceRef: { current?: ReturnType<typeof render> } = {}
+      const requestRedraw = (): void => {
+        instanceRef.current?.clear()
+        screen.redraw()
+      }
       const instance = render(
         <CliApp
           cwd={process.cwd()}
           initialPermissionMode={options.permissionMode}
           initialPrompt={prompt ?? ''}
+          onRequestRedraw={requestRedraw}
           runtime={workerRuntime}
           tuiMode={options.tui}
           version={pkg.version}
@@ -162,6 +168,7 @@ Interactive shortcuts:
           patchConsole: false
         }
       )
+      instanceRef.current = instance
 
       await instance.waitUntilExit()
     } finally {

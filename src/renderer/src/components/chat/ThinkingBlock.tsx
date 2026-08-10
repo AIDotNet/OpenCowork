@@ -15,6 +15,7 @@ import {
   openMarkdownHref,
   resolveLocalFilePath,
   openLocalFilePath,
+  markdownUrlTransform,
   MARKDOWN_REHYPE_PLUGINS,
   MARKDOWN_REMARK_PLUGINS
 } from '@renderer/lib/preview/viewers/markdown-components'
@@ -146,14 +147,18 @@ export const ThinkingBlock = memo(function ThinkingBlock({
                   <Markdown
                     remarkPlugins={MARKDOWN_REMARK_PLUGINS}
                     rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+                    urlTransform={markdownUrlTransform}
                     components={{
                       a: ({ href, children, ...props }) => (
                         <a
                           {...props}
-                          href={href}
+                          href={href || undefined}
                           className="text-primary underline underline-offset-2 hover:text-primary/80 break-all"
                           onClick={(event) => {
-                            if (!href) return
+                            if (!href) {
+                              event.preventDefault()
+                              return
+                            }
                             const handled = openMarkdownHref(href)
                             if (handled) event.preventDefault()
                           }}

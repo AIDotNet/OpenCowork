@@ -551,11 +551,40 @@ export function resolveReasoningEffort(
     requested,
     byModel,
     stringValue(thinking?.defaultReasoningEffort),
+    stringValue(settings.reasoningEffort),
     'medium'
   ]) {
     if (candidate && (levels.length === 0 || levels.includes(candidate))) return candidate
   }
   return 'medium'
+}
+
+function modelDefaultsToThinking(model: JsonRecord): boolean {
+  if (model.supportsThinking !== true) return false
+  const thinking = isRecord(model.thinkingConfig) ? model.thinkingConfig : null
+  if (!thinking) return false
+  const bodyParams = isRecord(thinking.bodyParams) ? thinking.bodyParams : null
+  const defaultEffort = stringValue(thinking.defaultReasoningEffort)
+  return Boolean(
+    (bodyParams && Object.keys(bodyParams).length > 0) ||
+    (defaultEffort && defaultEffort !== 'none')
+  )
+}
+
+export function resolveThinkingEnabled(
+  settings: JsonRecord,
+  providerId: string,
+  modelId: string,
+  model: JsonRecord
+): boolean {
+  if (model.supportsThinking !== true || !isRecord(model.thinkingConfig)) return false
+  const overrides = isRecord(settings.thinkingEnabledByModel)
+    ? settings.thinkingEnabledByModel
+    : null
+  const override = overrides?.[`${providerId}:${modelId}`]
+  if (typeof override === 'boolean') return override
+  if (settings.thinkingEnabled === true) return true
+  return modelDefaultsToThinking(model)
 }
 
 function buildProvider(
@@ -645,7 +674,7 @@ function buildProvider(
     requestTimeoutSeconds: numberValue(settings.apiRequestTimeoutSeconds, 100),
     maxTokens: Number.isFinite(maxTokens) ? maxTokens : numberValue(settings.maxTokens, 32_000),
     temperature: numberValue(settings.temperature, 0.7),
-    thinkingEnabled: settings.thinkingEnabled === true && Boolean(thinkingConfig),
+    thinkingEnabled: resolveThinkingEnabled(settings, providerId, configuredModelId, model),
     thinkingConfig,
     reasoningEffort: resolveReasoningEffort(settings, providerId, modelId, options.effort, model),
     responseSummary: model.responseSummary,

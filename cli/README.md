@@ -101,6 +101,12 @@ mode、内置搜索、Responses WebSocket、图片生成和 cache TTL，并显�
 limit 与 token price。确认第二步后才会把模型选择和配置写回桌面端同一份 provider/settings
 store；凭据仍由桌面端 Settings → Models 管理，不会复制到 CLI 配置。
 
+模型目录同时读取桌面端的 Vision 能力标记。支持图片输入的当前模型可以用 `Ctrl+V` 从系统
+剪贴板附加 PNG/JPEG/GIF/WebP 图片；单张上限 20 MB、单次最多 10 张。macOS 使用系统
+pasteboard，Windows 使用 STA Clipboard，Linux 使用 `wl-paste` 或 `xclip`。不支持 Vision 的
+模型会在读取剪贴板前明确阻止，并提示通过 `Alt/Option+P` 切换模型。图片以结构化
+`image/base64` content block 发送给 Native Worker，不会拼入普通 prompt 文本。
+
 `/config` 提供可搜索的共享配置界面，可修改 CLI 实际消费的桌面端设置，包括 thinking、
 自动上下文压缩、压缩阈值、专用压缩模型、请求超时、工具/子 Agent 并发以及 CodeGraph。
 设置通过 Native Worker 写回同一份 Zustand 持久化数据；模型凭据不会进入终端组件状态。
@@ -132,7 +138,11 @@ cowork [prompt]
 - Agent Runtime protocol v2 与 Capability Snapshot v2 安全门。
 - `agent/run`、`agent/cancel`、`agent/reverse-response`。
 - canonical `AgentStreamEnvelope` 到 terminal UI state 的投影。
-- assistant/thinking/tool/retry/compression/error/loop-end 等主要事件。
+- assistant/thinking/tool/retry/compression/error/loop-end 等主要事件；连续 provider retry
+  只更新底部唯一的 `Retry attempt/max` activity 行，不会反复追加 transcript 消息。
+- Thinking 与正文按 Worker delta 的真实顺序保存为独立 segment；生成时显示 `Thinking…`，
+  完成后在原位置折叠为 `Thought for Ns (ctrl+o to expand)`，展开正文为灰色斜体，不会再统一
+  移到回答末尾。渠道只返回 reasoning token 时，无 trace 标记会放在正文之前。
 - 发送后立即显示 `Working…` Spinner；自动或手动压缩期间切换为
   `Compressing context…`，完成或失败后恢复正常运行状态。
 - 底部状态区持续显示 canonical context 占用、provider cache read 命中率和按共享模型价格
@@ -171,9 +181,12 @@ MCP、Browser、Desktop、Extension、Team UI 等仍需要各自的终端 host a
 - 空输入时 `←` 或 `/agents`：打开 Native Worker sub-agent 搜索面板。
 - `Shift+Tab`：切换权限模式。
 - `Alt/Option+P`：模型选择。
-- `Ctrl+O`：工具/思考详情。
+- `Ctrl+O`：工具/思考详情；推理正文默认折叠，渠道只返回推理 token 时会明确标记 trace 未公开。
 - `Ctrl+T`：任务面板。
 - `Ctrl+S`：stash/restore prompt。
+- `Ctrl+V`：从系统剪贴板附加图片；仅当前模型支持 Vision 时可用。空 prompt 上按
+  `Backspace` 删除最后一张待发送图片。
+- `Ctrl+L`：清除旧 frame 并按当前终端宽度完整重绘；resize 自动走相同的重绘路径。
 - `Ctrl+A/E/K/U/W/Y/_`：常见 Emacs 编辑操作。
 - `Alt+B/F`：按单词移动。
 - `Shift+Enter` 或 `\` + Enter：多行输入。

@@ -13,11 +13,12 @@ const groups = [
   [
     ['esc esc', 'rewind conversation turns'],
     ['shift + tab', 'permission mode'],
-    ['ctrl + o', 'verbose output'],
+    ['ctrl + o', 'expand thinking / tools'],
     ['ctrl + t', 'toggle tasks']
   ],
   [
     ['alt + p', 'switch model'],
+    ['ctrl + v', 'paste clipboard image'],
     ['ctrl + s', 'stash prompt'],
     ['ctrl + c', 'cancel / exit'],
     ['empty ←', 'inspect agents']

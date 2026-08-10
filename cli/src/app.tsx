@@ -3,6 +3,7 @@ import { Box, Static, Text, useApp } from 'ink'
 import { AgentPanel } from './components/agent-panel.js'
 import { AskUserPrompt } from './components/ask-user-prompt.js'
 import { ConfigPanel } from './components/config-panel.js'
+import { EffortPanel } from './components/effort-panel.js'
 import { ModelConfigPanel } from './components/model-config-panel.js'
 import { ModelPicker } from './components/model-picker.js'
 import { PlanPanel } from './components/plan-panel.js'
@@ -13,6 +14,7 @@ import { TaskList } from './components/task-list.js'
 import { Transcript } from './components/transcript.js'
 import { WelcomeCard } from './components/welcome-card.js'
 import { useTerminalSize } from './hooks/use-terminal-size.js'
+import { appendAssistantSegment, finalizeAssistantSegments } from './lib/assistant-content.js'
 import { formatTokenCount, formatUsdCost } from './lib/metrics.js'
 import { theme } from './theme.js'
 import type {
@@ -32,6 +34,7 @@ import type {
   PermissionRequest,
   PlanApprovalMode,
   PlanSnapshot,
+  PromptImageAttachment,
   RewindAction,
   RewindCheckpoint,
   RewindResult,
@@ -45,14 +48,13 @@ interface CliAppProps {
   cwd: string
   initialPermissionMode: PermissionMode
   initialPrompt: string
+  onRequestRedraw(): void
   runtime: AgentRuntime
   tuiMode: TuiMode
   version: string
 }
 
 const permissionModes: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'auto']
-const effortLevels = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
-
 interface RuntimeMetrics {
   context: ContextSnapshot | null
   usage: UsageSnapshot | null
@@ -86,15 +88,17 @@ export function CliApp({
   cwd,
   initialPermissionMode,
   initialPrompt,
+  onRequestRedraw,
   runtime,
   tuiMode,
   version
 }: CliAppProps): React.JSX.Element {
   const { exit } = useApp()
-  const { columns, rows } = useTerminalSize()
+  const { columns, revision: terminalRevision, rows } = useTerminalSize()
   const initialCatalogRef = useRef<ModelCatalog | null>(null)
   initialCatalogRef.current ??= runtime.getModelCatalog()
   const [messages, setMessages] = useState<Message[]>([])
+  const [promptImages, setPromptImages] = useState<PromptImageAttachment[]>([])
   const [tasks, setTasks] = useState<TaskItem[]>([])
   const [agents, setAgents] = useState<AgentOption[]>(() => runtime.getAgentCatalog())
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(initialCatalogRef.current)
@@ -102,15 +106,31 @@ export function CliApp({
     initialCatalogRef.current.active
   )
   const [permissionMode, setPermissionMode] = useState(initialPermissionMode)
-  const [effort, setEffort] = useState(() => {
+  const initialModelConfigurationRef = useRef<ModelConfiguration | null | undefined>(undefined)
+  if (initialModelConfigurationRef.current === undefined) {
     const active = initialCatalogRef.current?.active
-    if (!active || !runtime.getModelConfiguration) return 'medium'
-    try {
-      return runtime.getModelConfiguration(active).reasoningEffort
-    } catch {
-      return 'medium'
+    if (!active || !runtime.getModelConfiguration) {
+      initialModelConfigurationRef.current = null
+    } else {
+      try {
+        initialModelConfigurationRef.current = runtime.getModelConfiguration(active)
+      } catch {
+        initialModelConfigurationRef.current = null
+      }
     }
-  })
+  }
+  const [effort, setEffort] = useState(
+    initialModelConfigurationRef.current?.reasoningEffort ?? 'medium'
+  )
+  const [availableEffortLevels, setAvailableEffortLevels] = useState(
+    initialModelConfigurationRef.current?.reasoningEffortLevels ?? []
+  )
+  const [supportsThinking, setSupportsThinking] = useState(
+    initialModelConfigurationRef.current?.supportsThinking ?? false
+  )
+  const [thinkingEnabled, setThinkingEnabled] = useState(
+    initialModelConfigurationRef.current?.thinkingEnabled ?? false
+  )
   const [showHelp, setShowHelp] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [showTasks, setShowTasks] = useState(false)
@@ -121,6 +141,8 @@ export function CliApp({
   const [modelConfiguration, setModelConfiguration] = useState<ModelConfiguration | null>(null)
   const [modelConfigurationReturnToConfig, setModelConfigurationReturnToConfig] = useState(false)
   const [modelConfigurationSaving, setModelConfigurationSaving] = useState(false)
+  const [effortConfiguration, setEffortConfiguration] = useState<ModelConfiguration | null>(null)
+  const [effortSaving, setEffortSaving] = useState(false)
   const [agentPanelOpen, setAgentPanelOpen] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const [configCatalog, setConfigCatalog] = useState<ConfigCatalog | null>(null)
@@ -139,9 +161,20 @@ export function CliApp({
   const abortControllerRef = useRef<AbortController | undefined>(undefined)
   const noticeTimerRef = useRef<NodeJS.Timeout | undefined>(undefined)
   const messageIdRef = useRef(0)
+  const terminalRevisionRef = useRef(terminalRevision)
 
-  const contentWidth = Math.max(36, columns)
+  const contentWidth = Math.max(35, columns - 1)
   const fullscreen = tuiMode === 'fullscreen'
+  const selectedModelOption = modelSelection
+    ? modelCatalog.groups
+        .flatMap((group) => group.models)
+        .find(
+          (option) =>
+            option.providerId === modelSelection.providerId &&
+            option.modelId === modelSelection.modelId
+        )
+    : undefined
+  const supportsVision = selectedModelOption?.supportsVision === true
   const maxVisibleMessages = Math.max(3, Math.floor((rows - 9) / (showDetails ? 4 : 2)))
   const firstMutableMessage = messages.findIndex(
     (message) =>
@@ -162,6 +195,23 @@ export function CliApp({
     }
   }, [])
 
+  useEffect(() => {
+    if (terminalRevisionRef.current === terminalRevision) return
+    terminalRevisionRef.current = terminalRevision
+    onRequestRedraw()
+    setTranscriptEpoch((current) => current + 1)
+  }, [onRequestRedraw, terminalRevision])
+
+  const redraw = (): void => {
+    onRequestRedraw()
+    setTranscriptEpoch((current) => current + 1)
+  }
+
+  const toggleDetails = (): void => {
+    setShowDetails((current) => !current)
+    redraw()
+  }
+
   const showNotice = (message: string): void => {
     setNotice(message)
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
@@ -176,6 +226,31 @@ export function CliApp({
     const catalog = runtime.getConfigCatalog?.() ?? null
     setConfigCatalog(catalog)
     return catalog
+  }
+
+  const refreshSelectedModelConfiguration = (
+    selection: ModelSelection | null = modelSelection
+  ): ModelConfiguration | null => {
+    if (!selection || !runtime.getModelConfiguration) {
+      setAvailableEffortLevels([])
+      setSupportsThinking(false)
+      setThinkingEnabled(false)
+      return null
+    }
+
+    try {
+      const configuration = runtime.getModelConfiguration(selection)
+      setEffort(configuration.reasoningEffort)
+      setAvailableEffortLevels(configuration.reasoningEffortLevels)
+      setSupportsThinking(configuration.supportsThinking)
+      setThinkingEnabled(configuration.supportsThinking && configuration.thinkingEnabled)
+      return configuration
+    } catch {
+      setAvailableEffortLevels([])
+      setSupportsThinking(false)
+      setThinkingEnabled(false)
+      return null
+    }
   }
 
   const openModelPicker = (
@@ -247,6 +322,17 @@ export function CliApp({
       return
     }
 
+    if (event.type === 'runtime.retry') {
+      const delay =
+        event.delayMs >= 1_000
+          ? `${(event.delayMs / 1_000).toFixed(event.delayMs % 1_000 === 0 ? 0 : 1)}s`
+          : `${event.delayMs}ms`
+      setActivity(
+        `Retry ${event.attempt}/${event.maxAttempts}${event.statusCode ? ` · HTTP ${event.statusCode}` : ''} · in ${delay}${event.reason ? ` · ${event.reason}` : ''}`
+      )
+      return
+    }
+
     if (event.type === 'context-compression.start') {
       setActivity('Compressing context…')
       return
@@ -272,6 +358,7 @@ export function CliApp({
           id: event.id,
           kind: 'assistant',
           model: event.model,
+          segments: [],
           streaming: true,
           text: '',
           timestamp: nowTimestamp()
@@ -284,7 +371,11 @@ export function CliApp({
       setMessages((current) =>
         current.map((message) =>
           message.id === event.id && message.kind === 'assistant'
-            ? { ...message, text: message.text + event.text }
+            ? {
+                ...message,
+                segments: appendAssistantSegment(message.segments, 'text', event.text, Date.now()),
+                text: message.text + event.text
+              }
             : message
         )
       )
@@ -295,7 +386,15 @@ export function CliApp({
       setMessages((current) =>
         current.map((message) =>
           message.id === event.id && message.kind === 'assistant'
-            ? { ...message, thinking: (message.thinking ?? '') + event.thinking }
+            ? {
+                ...message,
+                segments: appendAssistantSegment(
+                  message.segments,
+                  'thinking',
+                  event.thinking,
+                  Date.now()
+                )
+              }
             : message
         )
       )
@@ -306,7 +405,18 @@ export function CliApp({
       setMessages((current) =>
         current.map((message) =>
           message.id === event.id && message.kind === 'assistant'
-            ? { ...message, streaming: false }
+            ? {
+                ...message,
+                ...(event.reasoningTokens === undefined
+                  ? {}
+                  : { reasoningTokens: event.reasoningTokens }),
+                segments: finalizeAssistantSegments(
+                  message.segments,
+                  event.reasoningTokens ?? message.reasoningTokens,
+                  Date.now()
+                ),
+                streaming: false
+              }
             : message
         )
       )
@@ -388,20 +498,41 @@ export function CliApp({
     if (event.type === 'system') setMessages((current) => [...current, event.message])
   }
 
-  const runPrompt = async (prompt: string): Promise<void> => {
+  const runPrompt = async (prompt: string, images: PromptImageAttachment[] = []): Promise<void> => {
     if (isRunning) {
       showNotice('A turn is already running · Esc to interrupt')
       return
     }
+    if (images.length > 0 && !supportsVision) {
+      showNotice('Current model does not support image input · choose a vision model with Alt-P')
+      return
+    }
 
-    setMessages((current) => [...current, { id: `user-${Date.now()}`, kind: 'user', text: prompt }])
+    setMessages((current) => [
+      ...current,
+      {
+        id: `user-${Date.now()}`,
+        kind: 'user',
+        text: prompt,
+        ...(images.length > 0
+          ? {
+              images: images.map((image) => ({
+                id: image.id,
+                name: image.name,
+                mediaType: image.mediaType,
+                size: image.size
+              }))
+            }
+          : {})
+      }
+    ])
     const controller = new AbortController()
     abortControllerRef.current = controller
     setIsRunning(true)
     setActivity('Working…')
 
     try {
-      for await (const event of runtime.send(prompt, controller.signal)) {
+      for await (const event of runtime.send(prompt, controller.signal, images)) {
         if (controller.signal.aborted) break
         applyRuntimeEvent(event)
       }
@@ -520,6 +651,7 @@ export function CliApp({
       .then(() => {
         refreshConfigCatalog()
         refreshRuntimeMetrics()
+        if (key === 'thinkingEnabled') refreshSelectedModelConfiguration()
         showNotice('Configuration saved to OpenCowork')
       })
       .catch((error) =>
@@ -617,6 +749,73 @@ export function CliApp({
       setIsRunning(false)
       setActivity(undefined)
     }
+  }
+
+  const readEffortConfiguration = (): ModelConfiguration | null => {
+    if (!modelSelection || !runtime.getModelConfiguration || !runtime.configureModel) {
+      appendSystem('Reasoning effort is unavailable until a model is configured.', 'warning')
+      return null
+    }
+
+    try {
+      const configuration = runtime.getModelConfiguration(modelSelection)
+      if (configuration.reasoningEffortLevels.length === 0) {
+        appendSystem(
+          configuration.supportsThinking
+            ? `${configuration.selection.modelName} supports a Thinking on/off control but does not expose adjustable effort levels. Use /config or /model to change Thinking.`
+            : `${configuration.selection.modelName} does not support reasoning effort.`,
+          'warning'
+        )
+        return null
+      }
+      return configuration
+    } catch (error) {
+      appendSystem(error instanceof Error ? error.message : String(error), 'error')
+      return null
+    }
+  }
+
+  const saveReasoningEffort = (
+    configuration: ModelConfiguration,
+    nextEffort: string | null
+  ): void => {
+    if (!runtime.configureModel || effortSaving) return
+    setEffortSaving(true)
+    const sessionOnly = nextEffort === 'max'
+    const patch: ModelConfigurationPatch =
+      nextEffort === null
+        ? { reasoningEffort: null }
+        : sessionOnly
+          ? configuration.supportsThinking && !configuration.thinkingEnabled
+            ? { thinkingEnabled: true }
+            : {}
+          : {
+              reasoningEffort: nextEffort,
+              ...(configuration.supportsThinking ? { thinkingEnabled: true } : {})
+            }
+
+    void runtime
+      .configureModel(configuration.selection, patch)
+      .then(() => {
+        if (sessionOnly) runtime.configure?.({ effort: nextEffort })
+        const refreshed = refreshSelectedModelConfiguration(configuration.selection)
+        const resolvedEffort = refreshed?.reasoningEffort ?? nextEffort ?? 'medium'
+        runtime.configure?.({ effort: resolvedEffort })
+        setEffortConfiguration(null)
+        refreshConfigCatalog()
+        showNotice(
+          nextEffort === null
+            ? `Effort auto · ${resolvedEffort} model default`
+            : `Effort set to ${resolvedEffort}${sessionOnly ? ' · current session' : ''}${configuration.supportsThinking ? ' · Thinking on' : ''}`
+        )
+      })
+      .catch((error) =>
+        appendSystem(
+          `Failed to update reasoning effort: ${error instanceof Error ? error.message : String(error)}`,
+          'error'
+        )
+      )
+      .finally(() => setEffortSaving(false))
   }
 
   const handleCommand = (submission: string): boolean => {
@@ -732,36 +931,43 @@ export function CliApp({
       return true
     }
     if (name === '/effort') {
-      const requested = args[0]
-      let availableLevels = effortLevels
-      if (modelSelection && runtime.getModelConfiguration) {
-        try {
-          const configured = runtime.getModelConfiguration(modelSelection).reasoningEffortLevels
-          if (configured.length > 0) availableLevels = configured
-        } catch {
-          // Keep the generic effort list if the provider store changes while the CLI is open.
-        }
-      }
-      const requestedIndex = requested ? availableLevels.indexOf(requested) : -1
-      if (requested && requestedIndex < 0) {
-        appendSystem(`Usage: /effort ${availableLevels.join('|')}`, 'warning')
+      if (args.length > 1) {
+        appendSystem('Usage: /effort [auto|level]', 'warning')
         return true
       }
-      const currentIndex = Math.max(0, availableLevels.indexOf(effort))
-      const nextEffort =
-        availableLevels[
-          requestedIndex >= 0 ? requestedIndex : (currentIndex + 1) % availableLevels.length
-        ] ?? 'medium'
-      setEffort(nextEffort)
-      runtime.configure?.({ effort: nextEffort })
+      const configuration = readEffortConfiguration()
+      if (!configuration) return true
+      const requested = args[0]?.toLocaleLowerCase()
+      if (!requested) {
+        setEffortConfiguration(configuration)
+        return true
+      }
+      if (requested !== 'auto' && !configuration.reasoningEffortLevels.includes(requested)) {
+        appendSystem(
+          `Usage: /effort auto|${configuration.reasoningEffortLevels.join('|')}`,
+          'warning'
+        )
+        return true
+      }
+      saveReasoningEffort(configuration, requested === 'auto' ? null : requested)
       return true
     }
     if (name === '/status') {
       const modelStatus = modelSelection
         ? `${modelSelection.providerName} / ${modelSelection.modelName}`
         : 'No configured model'
+      const thinkingStatus = supportsThinking ? `thinking ${thinkingEnabled ? 'on' : 'off'}` : null
+      const effortStatus = availableEffortLevels.length > 0 ? `${effort} effort` : null
       appendSystem(
-        `${modelStatus} · ${effort} effort · ${permissionMode} permissions · ${tuiMode} renderer`,
+        [
+          modelStatus,
+          thinkingStatus,
+          effortStatus,
+          `${permissionMode} permissions`,
+          `${tuiMode} renderer`
+        ]
+          .filter(Boolean)
+          .join(' · '),
         'success'
       )
       return true
@@ -787,15 +993,19 @@ export function CliApp({
     return false
   }
 
-  const handleSubmit = (submission: string): void => {
+  const handleSubmit = (submission: string, images: PromptImageAttachment[]): void => {
     setShowHelp(false)
     if (submission.trimStart().startsWith('/')) {
+      if (images.length > 0) {
+        showNotice('Remove attached images before running a CLI command')
+        return
+      }
       if (handleCommand(submission)) return
       const commandName = submission.trim().split(/\s+/u)[0] ?? submission.trim()
       appendSystem(`Unknown CLI command: ${commandName}`, 'warning')
       return
     }
-    void runPrompt(submission)
+    void runPrompt(submission, images)
   }
 
   const handlePermissionDecision = (decision: PermissionDecision): void => {
@@ -892,6 +1102,8 @@ export function CliApp({
     }
     setModelSelection(selection)
     setModelCatalog(runtime.getModelCatalog())
+    const configuration = refreshSelectedModelConfiguration(selection)
+    if (configuration) runtime.configure?.({ effort: configuration.reasoningEffort })
     refreshConfigCatalog()
     refreshRuntimeMetrics()
   }
@@ -941,6 +1153,10 @@ export function CliApp({
       .then(() => {
         persistSelectedModel(configuration.selection)
         setEffort(patch.reasoningEffort ?? configuration.reasoningEffort)
+        setSupportsThinking(configuration.supportsThinking)
+        setThinkingEnabled(
+          configuration.supportsThinking && (patch.thinkingEnabled ?? configuration.thinkingEnabled)
+        )
         runtime.configure?.({ effort: patch.reasoningEffort ?? configuration.reasoningEffort })
         setModelConfiguration(null)
         if (modelConfigurationReturnToConfig) setConfigOpen(true)
@@ -991,6 +1207,7 @@ export function CliApp({
     !askUserRequest &&
     !planOverlay &&
     !permissionRequest &&
+    !effortConfiguration &&
     !modelConfiguration &&
     !modelPickerPurpose &&
     !agentPanelOpen &&
@@ -1035,6 +1252,7 @@ export function CliApp({
           !askUserRequest &&
           !planOverlay &&
           !permissionRequest &&
+          !effortConfiguration &&
           !modelConfiguration &&
           !modelPickerPurpose &&
           !agentPanelOpen &&
@@ -1068,6 +1286,14 @@ export function CliApp({
             <PermissionPrompt
               onDecision={handlePermissionDecision}
               request={permissionRequest}
+              width={contentWidth}
+            />
+          ) : effortConfiguration ? (
+            <EffortPanel
+              configuration={effortConfiguration}
+              onApply={(nextEffort) => saveReasoningEffort(effortConfiguration, nextEffort)}
+              onCancel={() => setEffortConfiguration(null)}
+              saving={effortSaving}
               width={contentWidth}
             />
           ) : modelConfiguration ? (
@@ -1138,6 +1364,7 @@ export function CliApp({
           ) : (
             <PromptInput
               active={inputActive}
+              images={promptImages}
               initialValue={initialPrompt}
               isRunning={isRunning}
               onAbort={() => {
@@ -1150,12 +1377,15 @@ export function CliApp({
               onNotice={showNotice}
               onOpenAgents={openAgentPanel}
               onOpenModel={openModelPicker}
+              onRedraw={redraw}
+              onImagesChange={setPromptImages}
               onRewind={runRewind}
               onSubmit={handleSubmit}
-              onToggleDetails={() => setShowDetails((current) => !current)}
+              onToggleDetails={toggleDetails}
               onToggleHelp={() => setShowHelp((current) => !current)}
               onToggleTasks={() => setShowTasks((current) => !current)}
               showHelp={showHelp}
+              supportsVision={supportsVision}
               width={contentWidth}
             />
           )}
@@ -1167,6 +1397,9 @@ export function CliApp({
             model={modelSelection?.modelName ?? 'No model'}
             mode={permissionMode}
             notice={notice}
+            supportsEffort={availableEffortLevels.length > 0}
+            supportsThinking={supportsThinking}
+            thinkingEnabled={thinkingEnabled}
             usage={runtimeMetrics.usage}
             width={contentWidth}
           />

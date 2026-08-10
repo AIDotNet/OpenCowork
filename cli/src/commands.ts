@@ -26,7 +26,11 @@ export const slashCommands: SlashCommand[] = [
   },
   { name: '/cost', description: 'Show token usage and estimated model cost', local: true },
   { name: '/doctor', description: 'Diagnose Native Worker and configuration', local: true },
-  { name: '/effort', description: 'Set reasoning effort for this session', local: true },
+  {
+    name: '/effort',
+    description: 'Choose reasoning effort supported by the active model',
+    local: true
+  },
   { name: '/exit', description: 'Exit OpenCowork', local: true },
   { name: '/help', description: 'Show interactive shortcuts', local: true },
   { name: '/model', description: 'Switch the active model', local: true },

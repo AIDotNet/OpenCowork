@@ -73,6 +73,7 @@ const MESSAGEPACK_INVOKE_CHANNELS = new Set<string>([
   'sidecar:start',
   'sidecar:stop',
   'sidecar:recycle',
+  'sidecar:diagnostics',
   'sidecar:request',
   'sidecar:can-handle',
   'sidecar:worker-state',

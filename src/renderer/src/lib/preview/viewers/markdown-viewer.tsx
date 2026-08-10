@@ -4,6 +4,7 @@ import { CodeEditor } from '@renderer/components/editor/CodeEditor'
 import type { ViewerProps } from '../viewer-registry'
 import {
   createMarkdownComponents,
+  markdownUrlTransform,
   MARKDOWN_REHYPE_PLUGINS,
   MARKDOWN_REMARK_PLUGINS
 } from './markdown-components'
@@ -38,6 +39,7 @@ export function MarkdownViewer({
         <ReactMarkdown
           remarkPlugins={MARKDOWN_REMARK_PLUGINS}
           rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+          urlTransform={markdownUrlTransform}
           components={createMarkdownComponents(filePath)}
         >
           {content}

@@ -1,4 +1,4 @@
-export type TuiMode = 'classic' | 'fullscreen'
+﻿export type TuiMode = 'classic' | 'fullscreen'
 
 export type PermissionMode = 'manual' | 'acceptEdits' | 'plan' | 'auto'
 
@@ -492,6 +492,7 @@ export type UiEvent =
 
 export interface AgentRuntime {
   send(submission: PromptSubmission, signal: AbortSignal): AsyncIterable<UiEvent>
+  appendToActiveRun?(submission: PromptSubmission): Promise<void>
   getAgentCatalog(): AgentOption[]
   getConfigCatalog?(): ConfigCatalog
   getContextSnapshot?(): ContextSnapshot

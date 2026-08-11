@@ -90,37 +90,40 @@ export function useStreamingRenderPool(
 
   useEffect(() => {
     if (!isStreaming) return
+    if (rafRef.current !== null) return
+    if (renderedLengthRef.current >= targetLengthRef.current) return
 
     lastFlushAtRef.current = 0
 
     const tick = (now: number): void => {
       const lastFlushAt = lastFlushAtRef.current
       const elapsedMs = lastFlushAt > 0 ? now - lastFlushAt : config.frameIntervalMs
+      const targetLength = targetLengthRef.current
+      const currentLength = renderedLengthRef.current
+      const poolSize = Math.max(0, targetLength - currentLength)
+
+      if (poolSize === 0) {
+        // Do not keep a 60fps loop alive while an agent is waiting on tools or the network.
+        // The next upstream delta re-runs this effect and starts a new drain cycle.
+        rafRef.current = null
+        return
+      }
 
       if (elapsedMs >= config.frameIntervalMs) {
         lastFlushAtRef.current = now
-        const targetLength = targetLengthRef.current
-        const currentLength = renderedLengthRef.current
-        const poolSize = Math.max(0, targetLength - currentLength)
+        const measureStart = performance.now()
+        const step = getCatchupStep(poolSize, elapsedMs, config)
+        const nextLength = Math.min(targetLength, currentLength + step)
 
-        if (poolSize > 0) {
-          const measureStart = performance.now()
-          const step = getCatchupStep(poolSize, elapsedMs, config)
-          const nextLength = Math.min(targetLength, currentLength + step)
-
-          renderedLengthRef.current = nextLength
-          committedLengthRef.current = nextLength
-          setRenderedLength(nextLength)
-          recordStreamingRenderPoolFlush(performance.now() - measureStart, {
-            poolSize,
-            step,
-            renderedLength: nextLength,
-            targetLength
-          })
-        } else if (committedLengthRef.current !== currentLength) {
-          committedLengthRef.current = currentLength
-          setRenderedLength(currentLength)
-        }
+        renderedLengthRef.current = nextLength
+        committedLengthRef.current = nextLength
+        setRenderedLength(nextLength)
+        recordStreamingRenderPoolFlush(performance.now() - measureStart, {
+          poolSize,
+          step,
+          renderedLength: nextLength,
+          targetLength
+        })
       }
 
       rafRef.current = window.requestAnimationFrame(tick)
@@ -133,7 +136,7 @@ export function useStreamingRenderPool(
         rafRef.current = null
       }
     }
-  }, [config, isStreaming])
+  }, [config, fullText.length, isStreaming])
 
   const safeRenderedLength = Math.min(renderedLength, fullText.length)
   const poolSize = Math.max(0, fullText.length - safeRenderedLength)

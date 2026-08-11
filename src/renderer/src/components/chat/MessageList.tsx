@@ -1277,16 +1277,16 @@ function AssistantReplyRail({
               initial={animationsEnabled ? { opacity: 0, x: -4 } : false}
               animate={{ opacity: 1, x: 0 }}
               exit={animationsEnabled ? { opacity: 0, x: -4 } : undefined}
-              transition={
-                animationsEnabled ? { duration: 0.12, ease: 'easeOut' } : { duration: 0 }
-              }
+              transition={animationsEnabled ? { duration: 0.12, ease: 'easeOut' } : { duration: 0 }}
             >
               <div className="overflow-hidden rounded-xl border border-border/70 bg-popover/95 px-3 py-2.5 text-popover-foreground shadow-xl backdrop-blur-xl">
                 <div className="flex items-center gap-2">
                   <span
                     className={cn(
                       'h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/70',
-                      previewItem.kind === 'streaming' && animationsEnabled && 'animate-pulse bg-primary'
+                      previewItem.kind === 'streaming' &&
+                        animationsEnabled &&
+                        'animate-pulse bg-primary'
                     )}
                   />
                   <div className="min-w-0 flex-1 line-clamp-1 text-[12px] font-semibold leading-5">
@@ -2039,8 +2039,12 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     (behavior: ScrollBehavior = 'auto') => {
       const ref = listRef.current
       if (!ref || rows.length === 0) return
-      markProgrammaticScroll()
       const bottomOffset = Math.max(0, ref.scrollHeight - ref.clientHeight)
+      // ResizeObserver, virtual measurements, and the streaming poll can all request a
+      // bottom sync. Avoid writing the same offset back to the DOM: that work can feed a
+      // scroll/measurement loop when a long live row is still changing height.
+      if (Math.abs(ref.scrollTop - bottomOffset) <= BOTTOM_SCROLL_CORRECTION_EPSILON) return
+      markProgrammaticScroll()
       if (behavior === 'auto') {
         ref.scrollTop = bottomOffset
         return
@@ -2828,11 +2832,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
         : t(hint.titleKey)
     const suggestedPrompts =
       mode === 'chat'
-        ? [
-            t('messageList.explainAsync'),
-            t('messageList.compareRest'),
-            t('messageList.writeRegex')
-          ]
+        ? [t('messageList.explainAsync'), t('messageList.compareRest'), t('messageList.writeRegex')]
         : activeWorkingFolder
           ? [
               t('messageList.summarizeProject'),

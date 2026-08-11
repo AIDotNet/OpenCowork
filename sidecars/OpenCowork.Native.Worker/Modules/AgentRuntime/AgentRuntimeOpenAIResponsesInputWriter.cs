@@ -1140,7 +1140,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
     {
         if (tool.TryGetProperty("inputSchema", out var schema))
         {
-            schema.WriteTo(writer);
+            AgentRuntimeProviderSupport.WriteProviderCompatibleToolSchema(writer, schema);
             return;
         }
         writer.WriteStartObject();

@@ -149,6 +149,175 @@ internal static class AgentRuntimeProviderSupport
         return JsonSerializer.SerializeToElement(value, WorkerJsonContext.Default.String);
     }
 
+    // Tool arguments are validated locally against the full runtime schema before execution.
+    // Provider function-schema dialects are narrower and inconsistent around propertyNames,
+    // so omit that keyword only from the model-facing declaration while retaining its local
+    // validation semantics. The traversal is schema-aware so a real parameter named
+    // "propertyNames" inside a properties map is preserved.
+    public static void WriteProviderCompatibleToolSchema(
+        Utf8JsonWriter writer,
+        JsonElement schema,
+        Func<string, bool>? isUnsupportedKeyword = null,
+        bool ensureObjectShape = false)
+    {
+        WriteProviderCompatibleSchemaNode(
+            writer,
+            schema,
+            isUnsupportedKeyword,
+            ensureObjectShape);
+    }
+
+    private static void WriteProviderCompatibleSchemaNode(
+        Utf8JsonWriter writer,
+        JsonElement schema,
+        Func<string, bool>? isUnsupportedKeyword,
+        bool ensureObjectShape)
+    {
+        if (schema.ValueKind != JsonValueKind.Object)
+        {
+            if (ensureObjectShape)
+            {
+                WriteEmptyObjectSchema(writer);
+            }
+            else
+            {
+                schema.WriteTo(writer);
+            }
+            return;
+        }
+
+        writer.WriteStartObject();
+        var wroteType = false;
+        var wroteProperties = false;
+        foreach (var property in schema.EnumerateObject())
+        {
+            if (property.NameEquals("propertyNames") ||
+                isUnsupportedKeyword?.Invoke(property.Name) == true)
+            {
+                continue;
+            }
+
+            if (property.NameEquals("type"))
+            {
+                wroteType = true;
+            }
+            else if (property.NameEquals("properties"))
+            {
+                wroteProperties = true;
+            }
+
+            writer.WritePropertyName(property.Name);
+            WriteProviderCompatibleSchemaKeywordValue(
+                writer,
+                property.Name,
+                property.Value,
+                isUnsupportedKeyword);
+        }
+
+        if (ensureObjectShape && !wroteType)
+        {
+            writer.WriteString("type", "object");
+        }
+        if (ensureObjectShape && !wroteProperties)
+        {
+            writer.WriteStartObject("properties");
+            writer.WriteEndObject();
+        }
+        writer.WriteEndObject();
+    }
+
+    private static void WriteProviderCompatibleSchemaKeywordValue(
+        Utf8JsonWriter writer,
+        string keyword,
+        JsonElement value,
+        Func<string, bool>? isUnsupportedKeyword)
+    {
+        switch (keyword)
+        {
+            case "properties":
+            case "$defs":
+            case "definitions":
+                WriteProviderCompatibleSchemaMap(writer, value, isUnsupportedKeyword);
+                return;
+            case "additionalProperties":
+            case "items":
+            case "not":
+            case "if":
+            case "then":
+            case "else":
+                WriteProviderCompatibleSchemaNode(
+                    writer,
+                    value,
+                    isUnsupportedKeyword,
+                    ensureObjectShape: false);
+                return;
+            case "oneOf":
+            case "anyOf":
+            case "allOf":
+                WriteProviderCompatibleSchemaArray(writer, value, isUnsupportedKeyword);
+                return;
+            default:
+                value.WriteTo(writer);
+                return;
+        }
+    }
+
+    private static void WriteProviderCompatibleSchemaMap(
+        Utf8JsonWriter writer,
+        JsonElement map,
+        Func<string, bool>? isUnsupportedKeyword)
+    {
+        if (map.ValueKind != JsonValueKind.Object)
+        {
+            map.WriteTo(writer);
+            return;
+        }
+
+        writer.WriteStartObject();
+        foreach (var property in map.EnumerateObject())
+        {
+            writer.WritePropertyName(property.Name);
+            WriteProviderCompatibleSchemaNode(
+                writer,
+                property.Value,
+                isUnsupportedKeyword,
+                ensureObjectShape: false);
+        }
+        writer.WriteEndObject();
+    }
+
+    private static void WriteProviderCompatibleSchemaArray(
+        Utf8JsonWriter writer,
+        JsonElement schemas,
+        Func<string, bool>? isUnsupportedKeyword)
+    {
+        if (schemas.ValueKind != JsonValueKind.Array)
+        {
+            schemas.WriteTo(writer);
+            return;
+        }
+
+        writer.WriteStartArray();
+        foreach (var schema in schemas.EnumerateArray())
+        {
+            WriteProviderCompatibleSchemaNode(
+                writer,
+                schema,
+                isUnsupportedKeyword,
+                ensureObjectShape: false);
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteEmptyObjectSchema(Utf8JsonWriter writer)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("type", "object");
+        writer.WriteStartObject("properties");
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+    }
+
     public static JsonElement CreateImageBlockElement(string imageBase64, string? outputFormat)
     {
         var mediaType = GetResponsesImageGenerationMediaType(outputFormat) ??

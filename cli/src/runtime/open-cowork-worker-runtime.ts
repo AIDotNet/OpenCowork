@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+﻿import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { isAbsolute, relative, resolve } from 'node:path'
 import type {
@@ -98,6 +98,12 @@ type PendingTitleRun = {
   lastSequence: number
   resolve(value: string): void
   text: string
+}
+
+type ActiveRunReadyWaiter = {
+  reject(error: Error): void
+  resolve(): void
+  runId: string
 }
 
 type StoredFileSnapshot = {

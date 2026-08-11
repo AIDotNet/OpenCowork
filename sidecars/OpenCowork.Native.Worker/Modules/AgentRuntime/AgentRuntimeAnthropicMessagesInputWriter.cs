@@ -637,7 +637,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
     {
         if (schema.ValueKind != JsonValueKind.Object || !HasTopLevelSchemaCombinator(schema))
         {
-            schema.WriteTo(writer);
+            AgentRuntimeProviderSupport.WriteProviderCompatibleToolSchema(writer, schema);
             return;
         }
 
@@ -685,7 +685,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         foreach (var name in propertyOrder)
         {
             writer.WritePropertyName(name);
-            properties[name].WriteTo(writer);
+            AgentRuntimeProviderSupport.WriteProviderCompatibleToolSchema(writer, properties[name]);
         }
         writer.WriteEndObject();
         if (required.Count > 0)

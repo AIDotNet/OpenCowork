@@ -1410,6 +1410,11 @@ const MARKDOWN_COMPONENTS: Components = {
   code: MarkdownCode
 }
 
+// A single assistant turn is one virtual-list row. Keep its live DOM and markdown work bounded
+// while tools/models produce a very large response; the completed turn still renders in full.
+const MAX_LIVE_MARKDOWN_BLOCKS = 48
+const MAX_LIVE_MARKDOWN_TAIL_CHARS = 24_000
+
 const MarkdownContent = React.memo(function MarkdownContent({
   text,
   isStreaming = false
@@ -1438,6 +1443,7 @@ function StreamingMarkdownContent({
   text: string
   isStreaming: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation('chat')
   const liveOutputAnimationStyle = useSettingsStore((s) => s.liveOutputAnimationStyle)
   const renderPool = useStreamingRenderPool(text, isStreaming, liveOutputAnimationStyle)
   // Settled blocks keep stable strings so the memoized MarkdownContent skips
@@ -1449,6 +1455,14 @@ function StreamingMarkdownContent({
   }
 
   if (isStreaming) {
+    const hiddenSettledBlocks = Math.max(0, blocks.settled.length - MAX_LIVE_MARKDOWN_BLOCKS)
+    const visibleSettledBlocks =
+      hiddenSettledBlocks > 0 ? blocks.settled.slice(-MAX_LIVE_MARKDOWN_BLOCKS) : blocks.settled
+    const usePlainTextTail = blocks.tail.length > MAX_LIVE_MARKDOWN_TAIL_CHARS
+    const visibleTail = usePlainTextTail
+      ? blocks.tail.slice(-MAX_LIVE_MARKDOWN_TAIL_CHARS)
+      : blocks.tail
+
     return (
       <div
         className="contents"
@@ -1456,10 +1470,24 @@ function StreamingMarkdownContent({
         data-rendered-length={renderPool.renderedLength}
         data-target-length={renderPool.targetLength}
       >
-        {blocks.settled.map((block, index) => (
-          <MarkdownContent key={index} text={block} isStreaming={false} />
+        {hiddenSettledBlocks > 0 ? (
+          <div className="mb-3 text-xs text-muted-foreground">
+            {t('messageList.liveOutputCollapsed', {
+              defaultValue:
+                'Earlier live output is temporarily collapsed to keep the conversation responsive.'
+            })}
+          </div>
+        ) : null}
+        {visibleSettledBlocks.map((block, index) => (
+          <MarkdownContent key={hiddenSettledBlocks + index} text={block} isStreaming={false} />
         ))}
-        {blocks.tail.trim() ? <MarkdownContent text={blocks.tail} isStreaming={false} /> : null}
+        {visibleTail.trim() ? (
+          usePlainTextTail ? (
+            <div className="whitespace-pre-wrap break-words leading-relaxed">{visibleTail}</div>
+          ) : (
+            <MarkdownContent text={visibleTail} isStreaming={false} />
+          )
+        ) : null}
       </div>
     )
   }

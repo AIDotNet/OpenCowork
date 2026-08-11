@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
@@ -2459,7 +2459,7 @@ internal static class OpenAIChatRuntime
             writer.WritePropertyName("parameters");
             if (tool.TryGetProperty("inputSchema", out var schema))
             {
-                schema.WriteTo(writer);
+                AgentRuntimeProviderSupport.WriteProviderCompatibleToolSchema(writer, schema);
             }
             else
             {

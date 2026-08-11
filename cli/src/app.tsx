@@ -1383,6 +1383,11 @@ export function CliApp({
   const cyclePermissionMode = (): void => {
     const index = permissionModes.indexOf(permissionMode)
     const next = permissionModes[(index + 1) % permissionModes.length] ?? 'manual'
+    if (permissionMode === 'plan' && next !== 'plan' && isRunning) {
+      // Leaving Plan mode while a planning turn is running must also stop the active
+      // Worker turn; otherwise a Bash tool can continue running behind the prompt.
+      abortControllerRef.current?.abort()
+    }
     setPermissionMode(next)
     runtime.configure?.({ permissionMode: next })
     showNotice(permissionModeNotice(next))

@@ -16,8 +16,8 @@ internal static class AgentRuntimeToolSchemaValidator
         "default", "definitions", "deprecated", "description", "else", "enum", "examples",
         "exclusiveMaximum", "exclusiveMinimum", "format", "items", "maxItems", "maxLength",
         "maxProperties", "maximum", "minItems", "minLength", "minProperties", "minimum",
-        "multipleOf", "not", "oneOf", "pattern", "properties", "readOnly", "required", "then",
-        "title", "type", "uniqueItems", "writeOnly", "if"
+        "multipleOf", "not", "oneOf", "pattern", "properties", "propertyNames", "readOnly",
+        "required", "then", "title", "type", "uniqueItems", "writeOnly", "if"
     };
     private static readonly HashSet<string> SupportedTypes = new(StringComparer.Ordinal)
     {
@@ -121,6 +121,11 @@ internal static class AgentRuntimeToolSchemaValidator
             {
                 ValidateSchemaNode(root, additional, $"{path}.additionalProperties", depth + 1, refs);
             }
+        }
+
+        if (schema.TryGetProperty("propertyNames", out var propertyNames))
+        {
+            ValidateSchemaNode(root, propertyNames, $"{path}.propertyNames", depth + 1, refs);
         }
 
         if (schema.TryGetProperty("items", out var items))
@@ -295,6 +300,21 @@ internal static class AgentRuntimeToolSchemaValidator
 
             foreach (var property in value.EnumerateObject())
             {
+                if (schema.TryGetProperty("propertyNames", out var propertyNames))
+                {
+                    var propertyNameValue = JsonSerializer.SerializeToElement(
+                        property.Name,
+                        WorkerJsonContext.Default.String);
+                    var failure = ValidateValue(
+                        root,
+                        propertyNames,
+                        propertyNameValue,
+                        PropertyPath(path, property.Name),
+                        depth + 1,
+                        refs);
+                    if (failure is not null) return failure;
+                }
+
                 if (properties.ValueKind == JsonValueKind.Object &&
                     properties.TryGetProperty(property.Name, out var propertySchema))
                 {

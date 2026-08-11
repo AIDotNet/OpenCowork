@@ -352,19 +352,20 @@ const chineseResources = {
       autoShort: '⏵⏵ 自动开启 · shift+tab',
       hints: '? 查看快捷键 · ← 查看 Agent',
       shortHints: '? 快捷键',
-      think: '思考',
-      on: '开',
-      off: '关',
+      // Keep runtime controls and activity states consistent with their terminal terminology.
+      think: 'think',
+      on: 'on',
+      off: 'off',
       noModel: '无模型'
     },
     spinner: {
-      calculating: '计算中',
-      considering: '思考中',
-      crafting: '组织中',
-      processing: '处理中',
-      stewing: '酝酿中',
-      thinking: '思考中',
-      working: '工作中'
+      calculating: 'Calculating',
+      considering: 'Considering',
+      crafting: 'Crafting',
+      processing: 'Processing',
+      stewing: 'Stewing',
+      thinking: 'Thinking',
+      working: 'Working'
     },
     metrics: {
       tokens: 'Token',

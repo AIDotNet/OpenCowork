@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -560,77 +560,11 @@ internal static class AgentRuntimeGeminiProvider
 
     private static void WriteSanitizedSchema(Utf8JsonWriter writer, JsonElement schema)
     {
-        if (schema.ValueKind == JsonValueKind.Object)
-        {
-            writer.WriteStartObject();
-            var wroteType = false;
-            var wroteProperties = false;
-            foreach (var property in schema.EnumerateObject())
-            {
-                if (IsUnsupportedSchemaKeyword(property.Name))
-                {
-                    continue;
-                }
-                if (property.NameEquals("type"))
-                {
-                    wroteType = true;
-                }
-                if (property.NameEquals("properties"))
-                {
-                    wroteProperties = true;
-                }
-                writer.WritePropertyName(property.Name);
-                WriteSanitizedSchemaValue(writer, property.Value);
-            }
-            if (!wroteType)
-            {
-                writer.WriteString("type", "object");
-            }
-            if (!wroteProperties)
-            {
-                writer.WriteStartObject("properties");
-                writer.WriteEndObject();
-            }
-            writer.WriteEndObject();
-            return;
-        }
-
-        writer.WriteStartObject();
-        writer.WriteString("type", "object");
-        writer.WriteStartObject("properties");
-        writer.WriteEndObject();
-        writer.WriteEndObject();
-    }
-
-    private static void WriteSanitizedSchemaValue(Utf8JsonWriter writer, JsonElement value)
-    {
-        switch (value.ValueKind)
-        {
-            case JsonValueKind.Object:
-                writer.WriteStartObject();
-                foreach (var property in value.EnumerateObject())
-                {
-                    if (IsUnsupportedSchemaKeyword(property.Name))
-                    {
-                        continue;
-                    }
-                    writer.WritePropertyName(property.Name);
-                    WriteSanitizedSchemaValue(writer, property.Value);
-                }
-                writer.WriteEndObject();
-                break;
-            case JsonValueKind.Array:
-                writer.WriteStartArray();
-                foreach (var item in value.EnumerateArray())
-                {
-                    WriteSanitizedSchemaValue(writer, item);
-                }
-                writer.WriteEndArray();
-                break;
-            default:
-                value.WriteTo(writer);
-                break;
-        }
+        AgentRuntimeProviderSupport.WriteProviderCompatibleToolSchema(
+            writer,
+            schema,
+            IsUnsupportedSchemaKeyword,
+            ensureObjectShape: true);
     }
 
     private static bool IsUnsupportedSchemaKeyword(string name)

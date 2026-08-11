@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+import { t } from '../i18n.js'
 import { fitText, hasTerminalInputControl } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { ResumeResult, ResumeSessionSummary } from '../types.js'
@@ -171,25 +172,37 @@ export function ResumePanel({
 
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1} width={width}>
-      <Text bold>Resume session</Text>
+      <Text bold>{t('cli.panels.resume', 'Resume session')}</Text>
       <Text color={theme.muted}>
-        {fitText('Restore a completed CLI conversation from this workspace', contentWidth)}
+        {fitText(
+          t('cli.resume.description', 'Restore a completed CLI conversation from this workspace'),
+          contentWidth
+        )}
       </Text>
       <Box marginTop={1}>
-        <Text color={theme.dim}>Search </Text>
+        <Text color={theme.dim}>{t('cli.common.search', 'Search')} </Text>
         <Text color={query ? theme.text : theme.primary}>{queryText}</Text>
       </Box>
 
       <Box flexDirection="column" marginTop={1}>
-        {loading ? <Text color={theme.muted}>Loading resumable sessions…</Text> : null}
+        {loading ? (
+          <Text color={theme.muted}>
+            {t('cli.panels.loadingSessions', 'Loading resumable sessions…')}
+          </Text>
+        ) : null}
         {!loading && sessions.length === 0 ? (
           <Text color={theme.muted}>
-            No completed OpenCowork CLI sessions are available for this workspace.
+            {t(
+              'cli.resume.noSessions',
+              'No completed OpenCowork CLI sessions are available for this workspace.'
+            )}
           </Text>
         ) : null}
         {!loading && sessions.length > 0 && matches.length === 0 ? (
           <Text color={theme.muted}>
-            No sessions match “{fitText(query, Math.max(8, contentWidth - 20))}”.
+            {t('cli.resume.noMatches', 'No sessions match “{{query}}”.', {
+              query: fitText(query, Math.max(8, contentWidth - 20))
+            })}
           </Text>
         ) : null}
         {!loading
@@ -202,7 +215,10 @@ export function ResumePanel({
                   : session.modelId
                 : 'model unavailable'
               const metadata = `${formatRelativeTime(session.updatedAt)} · ${messageLabel(session.messageCount)} · ${model}`
-              const sessionLabel = `${session.title} · ${session.id.slice(-8)}`
+              const sessionLabel =
+                session.title === 'OpenCowork CLI'
+                  ? `${session.title} · ${session.id.slice(-8)}`
+                  : session.title
               return (
                 <Box flexDirection="column" key={session.id}>
                   <Text bold={selected} color={selected ? theme.primary : undefined}>
@@ -223,8 +239,8 @@ export function ResumePanel({
           {error
             ? `${fitText(error, Math.max(8, contentWidth - 10))} · R retry`
             : busy
-              ? 'Resuming session… · Esc interrupt'
-              : `${matches.length > visibleSessions.length ? `${windowStart + 1}–${windowStart + visibleSessions.length} of ${matches.length} · ` : ''}Type to search · ↑↓ navigate · Enter resume · Esc cancel`}
+              ? t('cli.resume.resuming', 'Resuming session… · Esc interrupt')
+              : `${matches.length > visibleSessions.length ? `${windowStart + 1}–${windowStart + visibleSessions.length} of ${matches.length} · ` : ''}${t('cli.resume.footer', 'Type to search · ↑↓ navigate · Enter resume · Esc cancel')}`}
         </Text>
       </Box>
     </Box>

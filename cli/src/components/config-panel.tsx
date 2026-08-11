@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+import { t } from '../i18n.js'
 import { fitText, hasTerminalInputControl } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { ConfigCatalog, ConfigEntry, ConfigSettingValue } from '../types.js'
@@ -26,7 +27,8 @@ function matches(entry: ConfigEntry, query: string): boolean {
 }
 
 function formatValue(entry: ConfigEntry): string {
-  if (entry.kind === 'boolean') return entry.value === true ? 'on' : 'off'
+  if (entry.kind === 'boolean')
+    return entry.value === true ? t('cli.common.on', 'on') : t('cli.common.off', 'off')
   if (entry.kind === 'enum') {
     return (
       entry.choices?.find((choice) => choice.value === entry.value)?.label ?? String(entry.value)
@@ -35,7 +37,9 @@ function formatValue(entry: ConfigEntry): string {
   if (entry.kind === 'number') {
     const numeric = Number(entry.value)
     if (entry.format === 'percentage') return `${Math.round(numeric * 100)}%`
-    if (entry.format === 'seconds') return numeric === 0 ? 'no timeout' : `${numeric}s`
+    if (entry.format === 'seconds') {
+      return numeric === 0 ? t('cli.config.noTimeout', 'no timeout') : `${numeric}s`
+    }
     return String(Math.round(numeric))
   }
   return String(entry.value)
@@ -149,19 +153,24 @@ export function ConfigPanel({
 
   return (
     <Box flexDirection="column" marginTop={1} paddingLeft={2} width={width}>
-      <Text bold>Configuration</Text>
+      <Text bold>{t('cli.panels.configuration', 'Configuration')}</Text>
       <Text color={theme.muted}>
-        Shared with OpenCowork desktop · provider credentials stay in the private provider store
+        {t(
+          'cli.config.sharedDescription',
+          'Shared with OpenCowork desktop · provider credentials stay in the private provider store'
+        )}
       </Text>
       <Box marginTop={1}>
-        <Text color={theme.dim}>Search </Text>
+        <Text color={theme.dim}>{t('cli.common.search', 'Search')} </Text>
         <Text color={query ? theme.text : theme.primary}>{queryText}</Text>
       </Box>
 
       <Box flexDirection="column" marginTop={1}>
         {visible.length === 0 ? (
           <Text color={theme.muted}>
-            No settings match “{fitText(query, Math.max(8, width - 22))}”.
+            {t('cli.config.noMatches', 'No settings match “{{query}}”.', {
+              query: fitText(query, Math.max(8, width - 22))
+            })}
           </Text>
         ) : (
           visible.map((entry, visibleIndex) => {
@@ -182,7 +191,7 @@ export function ConfigPanel({
                 {isSaving ? (
                   <Box>
                     <Spinner />
-                    <Text color={theme.muted}> saving</Text>
+                    <Text color={theme.muted}> {t('cli.common.saving', 'saving')}</Text>
                   </Box>
                 ) : (
                   <Text
@@ -212,14 +221,17 @@ export function ConfigPanel({
         <Text color={selected?.disabled ? theme.warning : theme.muted}>
           {fitText(
             selected?.disabled
-              ? 'Enable CodeGraph before exposing its full tool surface.'
-              : (selected?.description ?? 'No setting selected.'),
+              ? t(
+                  'cli.config.enableCodeGraph',
+                  'Enable CodeGraph before exposing its full tool surface.'
+                )
+              : (selected?.description ?? t('cli.config.noSelection', 'No setting selected.')),
             contentWidth
           )}
         </Text>
         <Text color={theme.dim}>
           {fitText(
-            `${filtered.length > visible.length ? `${windowStart + 1}–${windowStart + visible.length} of ${filtered.length} · ` : ''}Type to search · ↑↓ navigate · ←→ change · Enter select · Esc close`,
+            `${filtered.length > visible.length ? `${windowStart + 1}–${windowStart + visible.length} of ${filtered.length} · ` : ''}${t('cli.config.footer', 'Type to search · ↑↓ navigate · ←→ change · Enter select · Esc close')}`,
             contentWidth
           )}
         </Text>

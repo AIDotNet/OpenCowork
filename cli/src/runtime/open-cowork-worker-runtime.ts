@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { isAbsolute, relative, resolve } from 'node:path'
 import type {
   AgentOption,
@@ -59,9 +60,11 @@ import {
   resolveProviderModel
 } from './provider-catalog.js'
 import { loadProviderSetupCatalog, persistProviderSetup } from './provider-setup.js'
+import { parseSessionTitle, SESSION_TITLE_SYSTEM_PROMPT } from './session-title.js'
 import {
   buildWorkerCompressionRequest,
   buildWorkerRunRequest,
+  buildWorkerTitleRequest,
   resolveReasoningEffort,
   resolveThinkingEnabled,
   resolveWorkerCompressionSettings,
@@ -89,6 +92,12 @@ type PendingReverseRequest = {
 type PendingPlanContext = {
   planExecution?: { filePath?: string }
   planRevision?: { title: string; filePath?: string; feedback: string }
+}
+
+type PendingTitleRun = {
+  lastSequence: number
+  resolve(value: string): void
+  text: string
 }
 
 type StoredFileSnapshot = {
@@ -172,6 +181,8 @@ type StoredMessageRow = {
 
 const RESUME_SESSION_PAGE_SIZE = 200
 const MAX_RESUME_SESSION_PAGES = 50
+const PROVIDER_RESPONSE_ID_META_KEY = '__cliProviderResponseId'
+const MESSAGE_SOURCE_META_KEY = '__cliMessageSource'
 
 export interface OpenCoworkWorkerRuntimeOptions {
   appVersion: string
@@ -203,6 +214,15 @@ function stringArrayValue(value: unknown): string[] {
 
 function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function canonicalPath(value: string): string {
+  const resolved = resolve(value)
+  try {
+    return realpathSync.native(resolved)
+  } catch {
+    return resolved
+  }
 }
 
 function normalizeEnvelope(value: unknown): StreamEnvelope | null {
@@ -494,13 +514,20 @@ function normalizeStoredMessages(value: unknown, sessionId: string): WorkerMessa
     ) {
       throw new Error(`Stored message ${row.id} has unsupported role ${row.role || '(empty)'}.`)
     }
-    const meta = row.meta ? parseStoredJson(row.meta, 'meta', row.id) : undefined
+    const parsedMeta = row.meta ? parseStoredJson(row.meta, 'meta', row.id) : undefined
     const usage = row.usage ? parseStoredJson(row.usage, 'usage', row.id) : undefined
-    if (meta !== undefined && !isRecord(meta)) {
+    if (parsedMeta !== undefined && !isRecord(parsedMeta)) {
       throw new Error(`Stored message ${row.id} has invalid meta data.`)
     }
     if (usage !== undefined && !isRecord(usage)) {
       throw new Error(`Stored message ${row.id} has invalid usage data.`)
+    }
+    const meta = parsedMeta ? { ...parsedMeta } : undefined
+    const providerResponseId = stringValue(meta?.[PROVIDER_RESPONSE_ID_META_KEY])
+    const source = meta?.[MESSAGE_SOURCE_META_KEY]
+    if (meta) {
+      delete meta[PROVIDER_RESPONSE_ID_META_KEY]
+      delete meta[MESSAGE_SOURCE_META_KEY]
     }
     return {
       id: row.id,
@@ -508,9 +535,18 @@ function normalizeStoredMessages(value: unknown, sessionId: string): WorkerMessa
       content: parseStoredJson(row.content, 'content', row.id),
       createdAt: row.created_at,
       ...(usage ? { usage } : {}),
-      ...(meta ? { meta } : {})
+      ...(providerResponseId ? { providerResponseId } : {}),
+      ...(typeof source === 'string' || source === null ? { source } : {}),
+      ...(meta && Object.keys(meta).length > 0 ? { meta } : {})
     }
   })
+}
+
+function serializeStoredMessageMeta(message: WorkerMessage): string | null {
+  const meta: JsonRecord = message.meta ? { ...message.meta } : {}
+  if (message.providerResponseId) meta[PROVIDER_RESPONSE_ID_META_KEY] = message.providerResponseId
+  if (message.source !== undefined) meta[MESSAGE_SOURCE_META_KEY] = message.source
+  return Object.keys(meta).length > 0 ? JSON.stringify(meta) : null
 }
 
 function imageExtension(mediaType: string): string {
@@ -767,6 +803,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private sessionId = `cli-session-${randomUUID()}`
   private readonly subscriptions: Array<() => void> = []
   private readonly pendingReverse = new Map<string, PendingReverseRequest>()
+  private readonly pendingTitleRuns = new Map<string, PendingTitleRun>()
   private readonly sessionAllowedTools = new Set<string>()
   private readonly queue: UiEvent[] = []
   private messages: WorkerMessage[] = []
@@ -788,6 +825,8 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private activeCodeGraphToolNames = new Set<string>()
   private activeSignal: AbortSignal | null = null
   private historyPersistence: Promise<void> | null = null
+  private resumeOperation: Promise<ResumeResult> | null = null
+  private readonly titledSessionIds = new Set<string>()
   private rewindTranscript: WorkerMessage[] = []
   private rewindCheckpointRecords: RewindCheckpointRecord[] = []
   private rewindChangeSessionIds: string[] = []
@@ -855,14 +894,16 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
 
     // A session row is created lazily on the first turn. Once it exists, keep the
     // durable session metadata aligned with the shared provider-store selection so
-    // the desktop session list and the CLI describe the same model.
+    // the desktop session list and the CLI describe the same model. Capture the
+    // target ID because /new or /resume may switch sessions before this request runs.
     if (this.sessionCreation) {
+      const targetSessionId = this.sessionId
       void this.sessionCreation
         .then(async () => {
           const result = await this.client.request<JsonRecord>(
             'db/sessions-update',
             {
-              id: this.sessionId,
+              id: targetSessionId,
               patch: {
                 providerId: persistedSelection.providerId,
                 modelId: persistedSelection.modelId,
@@ -1608,6 +1649,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   async *send(submission: PromptSubmission, signal: AbortSignal): AsyncIterable<UiEvent> {
     const { images, references, text: prompt } = submission
     if (this.activeRunId) throw new Error('An OpenCowork worker turn is already active')
+    if (this.resumeOperation) throw new Error('Wait for the session resume operation to finish.')
     validatePromptImages(images)
     if (images.length > 0) {
       const configuration = loadOpenCoworkConfiguration()
@@ -1713,6 +1755,9 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         })
       }
       if (this.historyPersistence) await this.historyPersistence
+      if (this.messages.filter((message) => message.role === 'user').length === 1) {
+        void this.generateSessionTitle(this.sessionId, prompt)
+      }
     } finally {
       signal.removeEventListener('abort', handleAbort)
       for (const [id, request] of this.pendingReverse) {
@@ -1743,6 +1788,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     signal: AbortSignal
   ): Promise<ContextCompressionResult> {
     if (this.activeRunId) throw new Error('Wait for the active Worker turn before compacting.')
+    if (this.resumeOperation) throw new Error('Wait for the session resume operation to finish.')
     if (this.messages.length === 0) {
       return { compressed: false, originalCount: 0, newCount: 0 }
     }
@@ -1819,8 +1865,23 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     )
   }
 
-  async resumeSession(sessionId: string, signal?: AbortSignal): Promise<ResumeResult> {
-    if (this.activeRunId) throw new Error('Wait for the active Worker turn before resuming.')
+  resumeSession(sessionId: string, signal?: AbortSignal): Promise<ResumeResult> {
+    if (this.activeRunId) {
+      return Promise.reject(new Error('Wait for the active Worker turn before resuming.'))
+    }
+    if (this.resumeOperation) {
+      return Promise.reject(new Error('A session resume operation is already running.'))
+    }
+    const operation = this.loadResumeSession(sessionId, signal)
+    this.resumeOperation = operation
+    return operation.finally(() => {
+      if (this.resumeOperation === operation) this.resumeOperation = null
+    })
+  }
+
+  private async loadResumeSession(sessionId: string, signal?: AbortSignal): Promise<ResumeResult> {
+    signal?.throwIfAborted()
+    if (this.sessionCreation) await this.sessionCreation
     signal?.throwIfAborted()
     const normalizedId = sessionId.trim()
     if (!normalizedId) throw new Error('A session id is required to resume.')
@@ -1856,6 +1917,27 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       )
     }
 
+    // sessions-get and messages-list are separate legacy routes. Re-read the row
+    // before committing so a completed concurrent writer cannot leave us with a
+    // mixed metadata/history snapshot.
+    const verificationResponse = await this.client.request<unknown>(
+      'db/sessions-get',
+      { id: session.id },
+      30_000,
+      signal
+    )
+    const verifiedSession =
+      isRecord(verificationResponse) && verificationResponse.success === true
+        ? normalizeStoredSession(verificationResponse.session)
+        : null
+    if (
+      !verifiedSession ||
+      verifiedSession.updated_at !== session.updated_at ||
+      verifiedSession.message_count !== session.message_count
+    ) {
+      throw new Error('The selected session changed while it was loading. Reload and try again.')
+    }
+
     let modelSelection: ModelSelection | null = this.getModelCatalog().active
     let nextConfig = this.config
     let nextModelLabel = this.activeModelLabel
@@ -1889,6 +1971,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         'Session restored, but its original model metadata is incomplete; continuing with the current model.'
     }
 
+    signal?.throwIfAborted()
     this.sessionId = session.id
     this.sessionCreation = Promise.resolve()
     this.messages = messages
@@ -1896,6 +1979,16 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     this.activeModelLabel = nextModelLabel
     this.resetTransientSessionState()
     this.ensureRewindHistory()
+    if (this.isDefaultCliTitle(session.title)) {
+      const firstUserMessage = messages.find((message) => message.role === 'user')
+      if (firstUserMessage) {
+        const firstPrompt = extractWorkerUserSubmission(
+          firstUserMessage.content,
+          firstUserMessage.id
+        ).text
+        void this.generateSessionTitle(session.id, firstPrompt)
+      }
+    }
 
     return {
       modelSelection,
@@ -1907,6 +2000,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
 
   async listRewindCheckpoints(): Promise<RewindCheckpoint[]> {
     if (this.activeRunId) throw new Error('Wait for the active Worker turn before rewinding.')
+    if (this.resumeOperation) throw new Error('Wait for the session resume operation to finish.')
     if (this.messages.length === 0) return []
 
     this.ensureRewindHistory()
@@ -1936,6 +2030,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     signal: AbortSignal
   ): Promise<RewindResult> {
     if (this.activeRunId) throw new Error('Wait for the active Worker turn before rewinding.')
+    if (this.resumeOperation) throw new Error('Wait for the session resume operation to finish.')
     signal.throwIfAborted()
 
     const checkpoints = await this.listRewindCheckpoints()
@@ -2017,6 +2112,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   async clearContext(): Promise<void> {
     if (this.activeRunId)
       throw new Error('Wait for the active Worker turn before clearing context.')
+    if (this.resumeOperation) throw new Error('Wait for the session resume operation to finish.')
     if (this.sessionCreation) {
       await this.sessionCreation
       const result = await this.client.request<JsonRecord>(
@@ -2036,6 +2132,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   async newSession(): Promise<void> {
     if (this.activeRunId)
       throw new Error('Wait for the active Worker turn before starting a session.')
+    if (this.resumeOperation) throw new Error('Wait for the session resume operation to finish.')
     this.sessionId = `cli-session-${randomUUID()}`
     this.sessionCreation = null
     this.messages = []
@@ -2144,6 +2241,82 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     await this.client.stop()
   }
 
+  private async generateSessionTitle(sessionId: string, prompt: string): Promise<void> {
+    if (!prompt.trim() || this.titledSessionIds.has(sessionId)) return
+    this.titledSessionIds.add(sessionId)
+    const runId = `cli-title-${randomUUID()}`
+    const sessionOptions = {
+      ...this.createSessionOptions(runId),
+      sessionId: `cli-title-session-${randomUUID()}`
+    }
+    let timedOut = false
+    let timeout: NodeJS.Timeout | undefined
+
+    try {
+      const current = await this.client.request<unknown>(
+        'db/sessions-get',
+        { id: sessionId },
+        30_000
+      )
+      const session =
+        isRecord(current) && current.success === true
+          ? normalizeStoredSession(current.session)
+          : null
+      if (!session || !this.isDefaultCliTitle(session.title)) return
+
+      const textPromise = new Promise<string>((resolveTitle) => {
+        this.pendingTitleRuns.set(runId, { lastSequence: 0, resolve: resolveTitle, text: '' })
+      })
+      const request = buildWorkerTitleRequest(sessionOptions, prompt, SESSION_TITLE_SYSTEM_PROMPT)
+      const started = await this.client.request<{ started?: boolean; runId?: string }>(
+        'agent/run',
+        request,
+        30_000
+      )
+      if (!started.started || started.runId !== runId) return
+
+      const timeoutPromise = new Promise<string>((resolveTimeout) => {
+        timeout = setTimeout(() => {
+          timedOut = true
+          resolveTimeout('')
+        }, 15_000)
+      })
+      const generated = parseSessionTitle(await Promise.race([textPromise, timeoutPromise]))
+      if (!generated) return
+
+      const latest = await this.client.request<unknown>(
+        'db/sessions-get',
+        { id: sessionId },
+        30_000
+      )
+      const latestSession =
+        isRecord(latest) && latest.success === true ? normalizeStoredSession(latest.session) : null
+      if (!latestSession || !this.isDefaultCliTitle(latestSession.title)) return
+
+      const updated = await this.client.request<JsonRecord>(
+        'db/sessions-update',
+        {
+          id: sessionId,
+          patch: { title: generated.title, icon: generated.icon, updatedAt: Date.now() }
+        },
+        30_000
+      )
+      this.assertMutationSucceeded(updated, 'Failed to update the generated CLI session title')
+    } catch {
+      // Title generation is best-effort and must never fail or delay the conversational turn.
+    } finally {
+      if (timeout) clearTimeout(timeout)
+      this.pendingTitleRuns.delete(runId)
+      if (timedOut) {
+        void this.client.request('agent/cancel', { runId }, 10_000).catch(() => {})
+      }
+    }
+  }
+
+  private isDefaultCliTitle(title: string): boolean {
+    return !title.trim() || title === 'OpenCowork CLI'
+  }
+
   private isResumableSession(session: StoredSessionRow, allowCurrent = false): boolean {
     const workingFolder = session.working_folder?.trim()
     if (
@@ -2155,8 +2328,8 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     ) {
       return false
     }
-    const currentPath = resolve(this.options.cwd)
-    const sessionPath = resolve(workingFolder)
+    const currentPath = canonicalPath(this.options.cwd)
+    const sessionPath = canonicalPath(workingFolder)
     return process.platform === 'win32'
       ? sessionPath.toLocaleLowerCase() === currentPath.toLocaleLowerCase()
       : sessionPath === currentPath
@@ -2431,7 +2604,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
           id: message.id,
           role: message.role,
           content: JSON.stringify(message.content),
-          meta: message.meta ? JSON.stringify(message.meta) : null,
+          meta: serializeStoredMessageMeta(message),
           createdAt: message.createdAt,
           usage: message.usage ? JSON.stringify(message.usage) : null,
           sortOrder
@@ -2530,9 +2703,25 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
 
   private handleStream(value: unknown): void {
     const envelope = normalizeEnvelope(value)
-    if (!envelope || envelope.runId !== this.activeRunId || envelope.sessionId !== this.sessionId) {
+    if (!envelope) return
+    const pendingTitle = this.pendingTitleRuns.get(envelope.runId)
+    if (pendingTitle) {
+      if (envelope.seq <= pendingTitle.lastSequence) {
+        this.client.ackEvent(envelope.runId, envelope.seq)
+        return
+      }
+      if (envelope.seq !== pendingTitle.lastSequence + 1) return
+      pendingTitle.lastSequence = envelope.seq
+      for (const event of envelope.events) {
+        if (event.type === 'text_delta') pendingTitle.text += stringValue(event.text)
+        if (event.type === 'loop_end' || event.type === 'error') {
+          pendingTitle.resolve(event.type === 'error' ? '' : pendingTitle.text)
+        }
+      }
+      this.client.ackEvent(envelope.runId, envelope.seq)
       return
     }
+    if (envelope.runId !== this.activeRunId || envelope.sessionId !== this.sessionId) return
     if (envelope.seq <= this.lastSequence) {
       // Applying is idempotent by seq, but ACK delivery is not guaranteed. Re-ACK
       // a replayed envelope so the durable outbox window cannot remain pinned.

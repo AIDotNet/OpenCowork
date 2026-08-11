@@ -80,6 +80,27 @@ export interface WorkerCompressionRequest extends JsonRecord {
   trigger: 'manual'
 }
 
+export interface WorkerTitleRequest extends JsonRecord {
+  runtimeProtocolVersion: 2
+  rolloutMode: 'v2'
+  runId: string
+  sessionId: string
+  messages: WorkerMessage[]
+  provider: JsonRecord
+  tools: []
+  capabilitySnapshot: JsonRecord
+  workingFolder: string
+  maxIterations: 1
+  forceApproval: false
+  permissionMode: 'default'
+  maxParallelTools: 1
+  maxConcurrentSubAgents: 1
+  providerTurnOnly: true
+  captureFinalMessages: true
+  sessionMode: 'agent'
+  sessionPromptMode: 'code'
+}
+
 export interface WorkerCompressionSettings {
   contextLength: number
   enabled: boolean
@@ -806,6 +827,48 @@ function buildSystemPrompt(options: WorkerSessionOptions, settings: JsonRecord):
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+export function buildWorkerTitleRequest(
+  options: WorkerSessionOptions,
+  prompt: string,
+  systemPrompt: string
+): WorkerTitleRequest {
+  const configuration = loadOpenCoworkConfiguration()
+  const { provider } = buildProvider(configuration, options)
+  provider.systemPrompt = systemPrompt
+  provider.maxTokens = 100
+  provider.temperature = 0.3
+  provider.sessionId = options.sessionId
+  if (provider.type === 'openai-responses') provider.responsesSessionScope = 'generate-title'
+
+  return {
+    runtimeProtocolVersion: 2,
+    rolloutMode: 'v2',
+    runId: options.runId,
+    sessionId: options.sessionId,
+    messages: [
+      {
+        id: `title-user-${options.runId}`,
+        role: 'user',
+        content: prompt.slice(0, 500),
+        createdAt: Date.now()
+      }
+    ],
+    provider,
+    tools: [],
+    capabilitySnapshot: createCliCapabilitySnapshot({ sessionId: options.sessionId, tools: [] }),
+    workingFolder: options.cwd,
+    maxIterations: 1,
+    forceApproval: false,
+    permissionMode: 'default',
+    maxParallelTools: 1,
+    maxConcurrentSubAgents: 1,
+    providerTurnOnly: true,
+    captureFinalMessages: true,
+    sessionMode: 'agent',
+    sessionPromptMode: 'code'
+  }
 }
 
 export function buildWorkerRunRequest(

@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import stringWidth from 'string-width'
+import { t } from '../i18n.js'
 import { formatTokenCount, formatUsdCost } from '../lib/metrics.js'
 import { fitText } from '../lib/text.js'
 import { permissionModeLabels, theme } from '../theme.js'
@@ -30,19 +31,19 @@ interface MetricLine {
 function activeModeHint(mode: PermissionMode, width: number): string | null {
   const candidates: Partial<Record<PermissionMode, string[]>> = {
     acceptEdits: [
-      '⏵⏵ accept edits on (shift+tab to cycle) · ← for agents',
-      '⏵⏵ accept edits on · shift+tab to cycle',
-      '⏵⏵ accept edits · shift+tab'
+      t('cli.statusLine.acceptEditsWide', '⏵⏵ accept edits on (shift+tab to cycle) · ← for agents'),
+      t('cli.statusLine.acceptEditsMedium', '⏵⏵ accept edits on · shift+tab to cycle'),
+      t('cli.statusLine.acceptEditsShort', '⏵⏵ accept edits · shift+tab')
     ],
     plan: [
-      '⏸ plan mode on (shift+tab to cycle) · ← for agents',
-      '⏸ plan mode on · shift+tab to cycle',
-      '⏸ plan on · shift+tab'
+      t('cli.statusLine.planWide', '⏸ plan mode on (shift+tab to cycle) · ← for agents'),
+      t('cli.statusLine.planMedium', '⏸ plan mode on · shift+tab to cycle'),
+      t('cli.statusLine.planShort', '⏸ plan on · shift+tab')
     ],
     auto: [
-      '⏵⏵ auto mode on (shift+tab to cycle) · ← for agents',
-      '⏵⏵ auto mode on · shift+tab to cycle',
-      '⏵⏵ auto on · shift+tab'
+      t('cli.statusLine.autoWide', '⏵⏵ auto mode on (shift+tab to cycle) · ← for agents'),
+      t('cli.statusLine.autoMedium', '⏵⏵ auto mode on · shift+tab to cycle'),
+      t('cli.statusLine.autoShort', '⏵⏵ auto on · shift+tab')
     ]
   }
   const options = candidates[mode]
@@ -153,8 +154,14 @@ export function StatusLine({
   const left =
     notice ??
     activity ??
-    (hideIdleHint ? '' : width >= 58 ? '? for shortcuts · ← for agents' : '? shortcuts')
-  const thinkingStatus = supportsThinking ? `think ${thinkingEnabled ? 'on' : 'off'}` : null
+    (hideIdleHint
+      ? ''
+      : width >= 58
+        ? t('cli.statusLine.hints', '? for shortcuts · ← for agents')
+        : t('cli.statusLine.shortHints', '? shortcuts'))
+  const thinkingStatus = supportsThinking
+    ? `${t('cli.statusLine.think', 'think')} ${thinkingEnabled ? t('cli.statusLine.on', 'on') : t('cli.statusLine.off', 'off')}`
+    : null
   const statusParts = [permissionModeLabels[mode], thinkingStatus, supportsEffort ? effort : null]
     .filter(Boolean)
     .join(' · ')
@@ -184,7 +191,9 @@ export function StatusLine({
               <Spinner />
               <Text
                 color={
-                  activity.startsWith('Compressing') || activity.startsWith('Retry')
+                  activity.startsWith(
+                    t('cli.statuses.compressing', 'Compressing context…').split(' ')[0]!
+                  ) || activity.startsWith(t('cli.runtime.retry', 'Retry'))
                     ? theme.warning
                     : theme.muted
                 }

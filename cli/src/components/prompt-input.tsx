@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { findCommands } from '../commands.js'
+import { t } from '../i18n.js'
 import { MAX_PROMPT_IMAGES, readClipboardImage } from '../lib/clipboard-image.js'
 import {
   addPromptFileReference,
@@ -605,10 +606,10 @@ export function PromptInput({
           replaceRange(currentCursor - 1, currentCursor, '')
         } else if (currentCharacters.length === 0 && currentReferences.length > 0) {
           mutate('', 0, currentReferences.slice(0, -1))
-          onNotice('Removed last file reference')
+          onNotice(t('cli.prompt.removedFileReference', 'Removed last file reference'))
         } else if (currentCharacters.length === 0 && images.length > 0) {
           onImagesChange((current) => current.slice(0, -1))
-          onNotice('Removed last image')
+          onNotice(t('cli.prompt.removedImage', 'Removed last image'))
         }
         return
       }
@@ -660,10 +661,14 @@ export function PromptInput({
           <Text color={theme.muted}>
             {fitText(
               readingClipboard
-                ? `Images ${images.length} · Reading clipboard image…`
-                : `Images ${images.length} · ${images
+                ? t('cli.prompt.readingClipboard', 'Images {{count}} · Reading clipboard image…', {
+                    count: images.length
+                  })
+                : `${t('cli.prompt.images', 'Images {{count}}', { count: images.length })} · ${images
                     .map((image) => `${image.name} (${formatImageSize(image.size)})`)
-                    .join(' · ')} · Backspace on empty removes last`,
+                    .join(
+                      ' · '
+                    )} · ${t('cli.prompt.removeLastImage', 'Backspace on empty removes last')}`,
               Math.max(1, width - 4)
             )}
           </Text>

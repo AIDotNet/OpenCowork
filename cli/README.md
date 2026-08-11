@@ -65,7 +65,26 @@ OPEN_COWORK_NATIVE_WORKER_PATH=/absolute/path/OpenCowork.Native.Worker opencowor
 npm uninstall -g @aidotnet/opencowork
 ```
 
-全局 CLI 要求 Node.js ≥ 18；模型凭据和普通设置仍从 `~/.open-cowork/` 读取，与桌面端共享。
+全局 CLI 要求 Node.js ≥ 18；模型凭据、普通设置和界面语言仍从 `~/.open-cowork/` 读取，与桌面端共享。
+
+### 界面语言
+
+CLI 首次启动时会读取系统语言（`LC_ALL`、`LC_MESSAGES`、`LANG`、`LANGUAGE` 或 Node.js
+运行时的系统 locale）并选择对应界面语言。若桌面端已经保存了语言设置，则继续沿用共享设置。
+语言解析优先级为：
+
+```text
+--language/-l → OPEN_COWORK_LANGUAGE → ~/.open-cowork/settings.json → 系统语言 → en
+```
+
+当前 CLI 提供英文和简体中文翻译；其他桌面端支持的语言代码会安全回退到英文。可以在启动时
+指定语言，或在 shell 中设置默认语言：
+
+```bash
+cowork --language zh
+OPEN_COWORK_LANGUAGE=en cowork
+cowork --language zh --help
+```
 
 ## 开发
 
@@ -140,6 +159,7 @@ messages。CLI 只显示 `Compressing context…` activity 和结果，不自行
 
 ```text
 cowork [prompt]
+  --language, -l <language>
   config|configure
   update
   --doctor
@@ -176,9 +196,11 @@ cowork [prompt]
   工具（不含 `Task`），thinking/text/tool/report 进度投影到终端任务块。
 - `loop_end.messages` 会成为下一轮的 canonical conversation history，并通过 Worker
   `db/messages-replace` 持久化；`/clear` 清理当前 canonical context，`/new` 创建新的 Worker
-  session ID 而不删除旧 session。`/resume` 可搜索并恢复当前工作目录下由 CLI 创建的已完成
-  session：它通过 Worker DB routes 原子加载完整 canonical history，后续 turn 继续写入同一
-  session；旧 provider/model 不再可用时会保留当前模型并明确提示。
+  session ID 而不删除旧 session。首轮完成后 CLI 会通过 Native Worker 的 provider-only turn
+  为 session 生成简短标题，并用 `db/sessions-update` 写回；标题生成失败时保留安全默认标题。
+  `/resume` 可搜索并恢复当前工作目录下由 CLI 创建的已完成 session：它通过 Worker DB routes
+  加载并复核完整 canonical history，再一次性切换 CLI 内存状态；后续 turn 继续写入同一
+  session。旧 provider/model 不再可用时会保留当前模型并提示。
 - 与桌面端共用 provider/channel/model store；`/model` 支持渠道分组、实时刷新和搜索。
 - `AskUserQuestion` 由 Worker 发起 reverse request，CLI 提供多题、单选/多选、Other、备注和安全纯文本预览；答案以结构化 payload 返回，Worker 再继续原 turn。
 - `EnterPlanMode` / `ExitPlanMode` 由 Worker 创建、读取并持久化 `.plan/{planId}.md`；CLI 提供 drafting、review、滚动、批准和带反馈修订界面。批准后的实现仍由 Worker 执行。

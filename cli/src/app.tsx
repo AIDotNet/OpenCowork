@@ -17,6 +17,7 @@ import { Transcript } from './components/transcript.js'
 import { pickSpinnerVerb, TurnStatusLine } from './components/turn-status-line.js'
 import { WelcomeCard } from './components/welcome-card.js'
 import { useTerminalSize } from './hooks/use-terminal-size.js'
+import { t } from './i18n.js'
 import { appendAssistantSegment, finalizeAssistantSegments } from './lib/assistant-content.js'
 import { formatTokenCount, formatUsdCost } from './lib/metrics.js'
 import { theme } from './theme.js'
@@ -69,13 +70,19 @@ const permissionModes: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'aut
 function permissionModeNotice(mode: PermissionMode): string {
   switch (mode) {
     case 'acceptEdits':
-      return 'Accept edits mode on · Shift+Tab to cycle'
+      return t('cli.statuses.acceptEditsOn', 'Accept edits mode on · Shift+Tab to cycle')
     case 'plan':
-      return 'Plan mode on · implementation waits for your approval · Shift+Tab to cycle'
+      return t(
+        'cli.statuses.planOn',
+        'Plan mode on · implementation waits for your approval · Shift+Tab to cycle'
+      )
     case 'auto':
-      return 'Auto mode on · tools may run without confirmation · Shift+Tab to cycle'
+      return t(
+        'cli.statuses.autoOn',
+        'Auto mode on · tools may run without confirmation · Shift+Tab to cycle'
+      )
     default:
-      return 'Manual approval mode · Shift+Tab to cycle'
+      return t('cli.statuses.manualOn', 'Manual approval mode · Shift+Tab to cycle')
   }
 }
 
@@ -328,7 +335,9 @@ export function CliApp({
   const openConfig = (): void => {
     const catalog = refreshConfigCatalog()
     if (!catalog || !runtime.updateConfig) {
-      showNotice('Configuration is unavailable in this runtime')
+      showNotice(
+        t('cli.runtime.configurationUnavailable', 'Configuration is unavailable in this runtime')
+      )
       return
     }
     setConfigOpen(true)
@@ -336,7 +345,9 @@ export function CliApp({
 
   const openProviderSetup = (returnToConfig = false): void => {
     if (!runtime.getProviderSetupCatalog || !runtime.configureProvider) {
-      showNotice('Provider setup is unavailable in this runtime')
+      showNotice(
+        t('cli.runtime.providerSetupUnavailable', 'Provider setup is unavailable in this runtime')
+      )
       return
     }
     try {
@@ -356,18 +367,26 @@ export function CliApp({
 
   const saveProviderSetup = async (input: ProviderSetupInput): Promise<void> => {
     if (!runtime.configureProvider)
-      throw new Error('Provider setup is unavailable in this runtime.')
+      throw new Error(
+        t('cli.runtime.providerSetupUnavailable', 'Provider setup is unavailable in this runtime.')
+      )
     const selection = await runtime.configureProvider(input)
     const catalog = runtime.getModelCatalog()
     setModelCatalog(catalog)
     setModelSelection(selection)
-    refreshSelectedModelConfiguration(selection)
+    const configuration = refreshSelectedModelConfiguration(selection)
+    if (configuration) runtime.configure?.({ effort: configuration.reasoningEffort })
     refreshConfigCatalog()
     refreshRuntimeMetrics()
     setProviderSetupCatalog(null)
     if (providerSetupReturnToConfig) setConfigOpen(true)
     setProviderSetupReturnToConfig(false)
-    showNotice(`Provider ready · ${selection.providerName} / ${selection.modelName}`)
+    showNotice(
+      t('cli.runtime.providerReady', 'Provider ready · {{provider}} / {{model}}', {
+        provider: selection.providerName,
+        model: selection.modelName
+      })
+    )
   }
 
   const openAgentPanel = (): void => {
@@ -402,7 +421,11 @@ export function CliApp({
     }
 
     if (event.type === 'runtime.activity') {
-      setActivity(event.activity === 'compressing' ? 'Compressing context…' : 'Working…')
+      setActivity(
+        event.activity === 'compressing'
+          ? t('cli.statuses.compressing', 'Compressing context…')
+          : t('cli.statuses.working', 'Working…')
+      )
       if (event.activity === 'working') {
         setTurnStatus((current) => (current ? { ...current, phase: 'requesting' } : current))
       }
@@ -439,19 +462,19 @@ export function CliApp({
           ? `${(event.delayMs / 1_000).toFixed(event.delayMs % 1_000 === 0 ? 0 : 1)}s`
           : `${event.delayMs}ms`
       setActivity(
-        `Retry ${event.attempt}/${event.maxAttempts}${event.statusCode ? ` · HTTP ${event.statusCode}` : ''} · in ${delay}${event.reason ? ` · ${event.reason}` : ''}`
+        `${t('cli.runtime.retry', 'Retry')} ${event.attempt}/${event.maxAttempts}${event.statusCode ? ` · HTTP ${event.statusCode}` : ''} · ${t('cli.runtime.retryIn', 'in')} ${delay}${event.reason ? ` · ${event.reason}` : ''}`
       )
       setTurnStatus((current) => (current ? { ...current, phase: 'requesting' } : current))
       return
     }
 
     if (event.type === 'context-compression.start') {
-      setActivity('Compressing context…')
+      setActivity(t('cli.statuses.compressing', 'Compressing context…'))
       return
     }
 
     if (event.type === 'context-compression.done') {
-      setActivity('Working…')
+      setActivity(t('cli.statuses.working', 'Working…'))
       appendSystem(
         event.summarizerFailed
           ? event.error ||
@@ -463,7 +486,7 @@ export function CliApp({
     }
 
     if (event.type === 'assistant.start') {
-      setActivity('Working…')
+      setActivity(t('cli.statuses.working', 'Working…'))
       setTurnStatus((current) => (current ? { ...current, phase: 'responding' } : current))
       setMessages((current) => [
         ...current,
@@ -566,7 +589,7 @@ export function CliApp({
     }
 
     if (event.type === 'tool.start') {
-      setActivity('Working…')
+      setActivity(t('cli.statuses.working', 'Working…'))
       setTurnStatus((current) => (current ? { ...current, phase: 'tool-use' } : current))
       setMessages((current) => [
         ...current,
@@ -654,11 +677,16 @@ export function CliApp({
     references: PromptReference[] = []
   ): Promise<void> => {
     if (isRunning) {
-      showNotice('A turn is already running · Esc to interrupt')
+      showNotice(t('cli.runtime.turnRunning', 'A turn is already running · Esc to interrupt'))
       return
     }
     if (images.length > 0 && !supportsVision) {
-      showNotice('Current model does not support image input · choose a vision model with Alt-P')
+      showNotice(
+        t(
+          'cli.runtime.visionUnsupported',
+          'Current model does not support image input · choose a vision model with Alt-P'
+        )
+      )
       return
     }
 
@@ -699,7 +727,7 @@ export function CliApp({
     const controller = new AbortController()
     abortControllerRef.current = controller
     setIsRunning(true)
-    setActivity('Working…')
+    setActivity(t('cli.statuses.working', 'Working…'))
     setTurnStatus({
       activeResponseCharacters: 0,
       completedOutputTokens: 0,
@@ -728,18 +756,24 @@ export function CliApp({
 
   const runCompact = async (focusPrompt?: string): Promise<void> => {
     if (!runtime.compactContext) {
-      appendSystem('Manual context compression is unavailable in this runtime.', 'warning')
+      appendSystem(
+        t(
+          'cli.runtime.compactUnavailable',
+          'Manual context compression is unavailable in this runtime.'
+        ),
+        'warning'
+      )
       return
     }
     if (isRunning) {
-      showNotice('A Worker operation is already running')
+      showNotice(t('cli.runtime.workerRunning', 'A Worker operation is already running'))
       return
     }
 
     const controller = new AbortController()
     abortControllerRef.current = controller
     setIsRunning(true)
-    setActivity('Compressing context…')
+    setActivity(t('cli.statuses.compressing', 'Compressing context…'))
     try {
       const result = await runtime.compactContext(focusPrompt, controller.signal)
       if (result.summarizerFailed) {
@@ -756,8 +790,9 @@ export function CliApp({
         )
       }
     } catch (error) {
-      if (controller.signal.aborted) showNotice('Context compression interrupted')
-      else appendSystem(error instanceof Error ? error.message : String(error), 'error')
+      if (controller.signal.aborted) {
+        showNotice(t('cli.runtime.compactInterrupted', 'Context compression interrupted'))
+      } else appendSystem(error instanceof Error ? error.message : String(error), 'error')
     } finally {
       abortControllerRef.current = undefined
       refreshRuntimeMetrics()
@@ -778,7 +813,11 @@ export function CliApp({
       return
     }
     setIsRunning(true)
-    setActivity(startNewSession ? 'Starting new session…' : 'Clearing context…')
+    setActivity(
+      startNewSession
+        ? t('cli.runtime.startingSession', 'Starting new session…')
+        : t('cli.runtime.clearingContext', 'Clearing context…')
+    )
     try {
       await operation.call(runtime)
       if (!fullscreen) process.stdout.write('\u001B[2J\u001B[3J\u001B[H')
@@ -788,7 +827,11 @@ export function CliApp({
       if (startNewSession) setTasks([])
       setPlan(null)
       if (startNewSession) setShowTasks(false)
-      showNotice(startNewSession ? 'New Native Worker session ready' : 'Canonical context cleared')
+      showNotice(
+        startNewSession
+          ? t('cli.runtime.newSessionReady', 'New Native Worker session ready')
+          : t('cli.runtime.contextCleared', 'Canonical context cleared')
+      )
     } catch (error) {
       appendSystem(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -804,7 +847,7 @@ export function CliApp({
       return
     }
     setIsRunning(true)
-    setActivity('Checking Native Worker…')
+    setActivity(t('cli.runtime.checkingWorker', 'Checking Native Worker…'))
     try {
       const result = await runtime.doctor()
       appendSystem(
@@ -834,7 +877,7 @@ export function CliApp({
         refreshConfigCatalog()
         refreshRuntimeMetrics()
         if (key === 'thinkingEnabled') refreshSelectedModelConfiguration()
-        showNotice('Configuration saved to OpenCowork')
+        showNotice(t('cli.runtime.configurationSaved', 'Configuration saved to OpenCowork'))
       })
       .catch((error) =>
         appendSystem(error instanceof Error ? error.message : String(error), 'error')
@@ -870,7 +913,7 @@ export function CliApp({
     }
     if (isRunning) throw new Error('Wait for the active Worker operation before resuming.')
     setIsRunning(true)
-    setActivity('Resuming session…')
+    setActivity(t('cli.runtime.resumingSession', 'Resuming session…'))
     try {
       return await runtime.resumeSession(sessionId, signal)
     } finally {
@@ -919,12 +962,12 @@ export function CliApp({
     setIsRunning(true)
     setActivity(
       action === 'summarize-from' || action === 'summarize-up-to'
-        ? 'Summarizing conversation…'
+        ? t('cli.runtime.summarizingConversation', 'Summarizing conversation…')
         : action === 'restore-code'
-          ? 'Restoring code…'
+          ? t('cli.runtime.restoringCode', 'Restoring code…')
           : action === 'restore-code-and-conversation'
-            ? 'Restoring code and conversation…'
-            : 'Restoring conversation…'
+            ? t('cli.runtime.restoringCodeConversation', 'Restoring code and conversation…')
+            : t('cli.runtime.restoringConversation', 'Restoring conversation…')
     )
 
     try {
@@ -1499,7 +1542,7 @@ export function CliApp({
           {agentPanelOpen ? null : !hasTranscript ? (
             <WelcomeCard
               cwd={cwd}
-              model={modelSelection?.modelName ?? 'No model configured'}
+              model={modelSelection?.modelName ?? t('cli.welcome.noModel', 'No model configured')}
               version={version}
               width={contentWidth}
             />
@@ -1610,8 +1653,8 @@ export function CliApp({
               }
               heading={
                 modelPickerPurpose === 'compression'
-                  ? 'Select compression model'
-                  : 'Select model · Step 1 of 2'
+                  ? t('cli.model.selectCompression', 'Select compression model')
+                  : t('cli.model.selectStepOne', 'Select model · Step 1 of 2')
               }
               maxVisible={Math.max(4, Math.min(12, rows - 12))}
               onCancel={closeModelPicker}
@@ -1633,7 +1676,10 @@ export function CliApp({
               }
               summary={
                 modelPickerPurpose === 'compression'
-                  ? 'Use any enabled model from a connected provider, or follow the current session model'
+                  ? t(
+                      'cli.model.compressionSummary',
+                      'Use any enabled model from a connected provider, or follow the current session model'
+                    )
                   : undefined
               }
               width={contentWidth}
@@ -1697,12 +1743,15 @@ export function CliApp({
 
           <StatusLine
             activity={
-              turnStatus || (assistantThinking && activity === 'Working…') ? undefined : activity
+              turnStatus ||
+              (assistantThinking && activity === t('cli.statuses.working', 'Working…'))
+                ? undefined
+                : activity
             }
             context={runtimeMetrics.context}
             effort={effort}
             hideIdleHint={Boolean(turnStatus) || assistantThinking}
-            model={modelSelection?.modelName ?? 'No model'}
+            model={modelSelection?.modelName ?? t('cli.statusLine.noModel', 'No model')}
             mode={permissionMode}
             notice={notice}
             supportsEffort={availableEffortLevels.length > 0}

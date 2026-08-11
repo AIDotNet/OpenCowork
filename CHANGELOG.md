@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - Added CLI workspace-file references through `@` search, including a structured reference bar, prompt-history and rewind restoration, workspace-bound path validation, and bounded text-context injection.
 - Added a live CLI turn-status row for requesting, thinking, responding, and tool-use phases, showing elapsed time, transfer direction, token estimates, reasoning effort, and animated activity text.
 - Added compact CLI diffs for successful `Edit` tool calls, including file names, addition/deletion totals, contextual lines, and truncation for large replacements.
+- Added masked terminal provider setup through `cowork config`, `/provider`, and `/config`, with common quick presets, custom compatible endpoints, and atomic writes to the provider store shared with the desktop app.
 
 ### Changed
 

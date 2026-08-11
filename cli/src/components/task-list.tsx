@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text } from 'ink'
 import stringWidth from 'string-width'
+import { t } from '../i18n.js'
 import { fitText } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { TaskItem } from '../types.js'
@@ -29,11 +30,11 @@ function hiddenTaskSummary(tasks: TaskItem[]): string {
   const pending = tasks.filter((task) => task.status === 'pending').length
   const completed = tasks.filter((task) => task.status === 'completed').length
   const parts = [
-    inProgress > 0 ? `${inProgress} in progress` : '',
-    pending > 0 ? `${pending} pending` : '',
-    completed > 0 ? `${completed} completed` : ''
+    inProgress > 0 ? `${inProgress} ${t('cli.tasks.inProgress', 'in progress')}` : '',
+    pending > 0 ? `${pending} ${t('cli.tasks.pending', 'pending')}` : '',
+    completed > 0 ? `${completed} ${t('cli.tasks.completed', 'completed')}` : ''
   ].filter(Boolean)
-  return `… +${parts.join(', ')}`
+  return `${t('cli.tasks.more', '… +{{summary}}', { summary: parts.join(', ') })}`
 }
 
 function taskOwner(owner: string | null | undefined): string {
@@ -147,7 +148,10 @@ export function TaskList({
           {task.blockedBy && task.blockedBy.length > 0 ? (
             <Box marginLeft={2}>
               <Text color={theme.muted}>
-                {fitText(`❯ blocked by ${blockedByLabel(task.blockedBy)}`, Math.max(8, width - 4))}
+                {fitText(
+                  `❯ ${t('cli.tasks.blockedBy', 'blocked by')} ${blockedByLabel(task.blockedBy)}`,
+                  Math.max(8, width - 4)
+                )}
               </Text>
             </Box>
           ) : null}

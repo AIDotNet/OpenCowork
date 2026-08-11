@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+import { t } from '../i18n.js'
 import { fitText } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { ModelConfiguration, ModelConfigurationPatch } from '../types.js'
@@ -314,11 +315,11 @@ export function ModelConfigPanel({
   return (
     <Box flexDirection="column" marginTop={1} paddingLeft={2} width={width}>
       <Box>
-        <Text bold>Configure model · Step 2 of 2</Text>
+        <Text bold>{t('cli.panels.modelStep', 'Configure model · Step 2 of 2')}</Text>
         {saving ? (
           <Box marginLeft={2}>
             <Spinner />
-            <Text color={theme.muted}> saving</Text>
+            <Text color={theme.muted}> {t('cli.common.saving', 'saving')}</Text>
           </Box>
         ) : null}
       </Box>
@@ -351,13 +352,16 @@ export function ModelConfigPanel({
       </Box>
       <Box flexDirection="column" marginTop={1}>
         <Text color={theme.muted}>
-          {fitText(selected?.description ?? 'Choose a model configuration.', contentWidth)}
+          {fitText(
+            selected?.description ?? t('cli.modelConfig.choose', 'Choose a model configuration.'),
+            contentWidth
+          )}
         </Text>
         <Text color={theme.dim}>
           {fitText(
             saving
-              ? 'Saving model settings to OpenCowork…'
-              : `${entries.length > visible.length ? `${windowStart + 1}–${windowStart + visible.length} of ${entries.length} · ` : ''}↑↓ navigate · ←→ change · Space toggle · Enter apply · Esc back`,
+              ? t('cli.modelConfig.saving', 'Saving model settings to OpenCowork…')
+              : `${entries.length > visible.length ? `${windowStart + 1}–${windowStart + visible.length} of ${entries.length} · ` : ''}${t('cli.modelConfig.footer', '↑↓ navigate · ←→ change · Space toggle · Enter apply · Esc back')}`,
             contentWidth
           )}
         </Text>

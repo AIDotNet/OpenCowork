@@ -1,5 +1,6 @@
 import React from 'react'
 import { Box, Text } from 'ink'
+import { t } from '../i18n.js'
 import { formatTokenCount } from '../lib/metrics.js'
 import { fitText, padText, stripTerminalPreviewControls } from '../lib/text.js'
 import { theme } from '../theme.js'
@@ -24,9 +25,9 @@ function toneColor(tone: Extract<Message, { kind: 'system' }>['tone']): string {
 function formatThinkingDuration(
   segment: Extract<AssistantContentSegment, { kind: 'thinking' }>
 ): string {
-  if (segment.completedAt === undefined) return 'Thinking…'
+  if (segment.completedAt === undefined) return t('cli.statuses.thinking', 'Thinking…')
   const seconds = Math.max(1, Math.round((segment.completedAt - segment.startedAt) / 1_000))
-  return `Thought for ${seconds}s`
+  return t('cli.transcript.thoughtFor', 'Thought for {{seconds}}s', { seconds })
 }
 
 function thinkingLabel(
@@ -37,14 +38,14 @@ function thinkingLabel(
 ): string {
   if (!segment.traceAvailable) {
     const tokens = reasoningTokens && reasoningTokens > 0 ? formatTokenCount(reasoningTokens) : null
-    const full = `Thought${tokens ? ` · ${tokens} tokens` : ''} · trace not exposed`
-    const compact = `Thought${tokens ? ` · ${tokens}` : ''} · no trace`
+    const full = `${t('cli.transcript.thought', 'Thought')}${tokens ? ` · ${tokens} ${t('cli.metrics.tokens', 'tokens')}` : ''} · ${t('cli.transcript.traceNotExposed', 'trace not exposed')}`
+    const compact = `${t('cli.transcript.thought', 'Thought')}${tokens ? ` · ${tokens}` : ''} · ${t('cli.transcript.noTrace', 'no trace')}`
     return fitText(full.length <= width ? full : compact, width)
   }
 
   const completed = formatThinkingDuration(segment)
   if (segment.completedAt === undefined || showDetails) return fitText(completed, width)
-  const full = `${completed} (ctrl+o to expand)`
+  const full = `${completed} (${t('cli.transcript.expandDetails', 'ctrl+o to expand')})`
   const compact = `${completed.replace(' for ', ' ')} · ctrl+o`
   return fitText(full.length <= width ? full : compact, width)
 }
@@ -151,7 +152,7 @@ function TranscriptMessage({
               ✻
             </Text>
             <Text> </Text>
-            <ShimmerText text="Thinking…" />
+            <ShimmerText text={t('cli.statuses.thinking', 'Thinking…')} />
           </Box>
         ) : null}
         {segments.map((segment, index) => {
@@ -257,7 +258,7 @@ function TranscriptMessage({
               <Text bold color={theme.text}>
                 {' '}
                 {fitText(
-                  `Edited ${message.diff.path}`,
+                  t('cli.transcript.edited', 'Edited {{path}}', { path: message.diff.path }),
                   Math.max(
                     8,
                     width - 3 - `(+${message.diff.additions} -${message.diff.deletions})`.length

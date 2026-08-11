@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -144,9 +145,9 @@ export function loadOpenCoworkConfiguration(): OpenCoworkConfiguration {
  * Persist a complete provider-store state in the split format shared with the desktop app.
  *
  * Provider files are published before the index, making the index the atomic commit point. The
- * helper intentionally leaves unreferenced files alone: another OpenCowork process may have
- * created one while this CLI interaction was open, and the authoritative index keeps such files
- * from becoming visible until a later coordinated save decides how to reconcile them.
+ * helper intentionally leaves unreferenced files alone for recovery; the index remains
+ * authoritative. Callers reload the store immediately before applying their narrowly scoped edit
+ * so unrelated provider fields are carried into the new snapshot.
  */
 export function persistProviderStoreState(nextState: ProviderStoreState): ProviderStoreState {
   const { dataDirectory } = loadOpenCoworkConfiguration()
@@ -155,6 +156,9 @@ export function persistProviderStoreState(nextState: ProviderStoreState): Provid
   const rawIndex = readJson(indexPath)
   const persistedIndex = isRecord(rawIndex) ? rawIndex : null
   const providersById = new Map<string, JsonRecord>()
+
+  mkdirSync(providerDirectory, { recursive: true, mode: 0o700 })
+  if (process.platform !== 'win32') chmodSync(providerDirectory, 0o700)
 
   for (const value of Array.isArray(nextState.providers) ? nextState.providers : []) {
     if (!isRecord(value)) continue

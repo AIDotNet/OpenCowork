@@ -191,6 +191,17 @@ const customProviderOptions: ProviderSetupOption[] = [
   {
     baseUrl: '',
     defaultModelId: '',
+    description: 'Add a local OpenAI-compatible endpoint without authentication',
+    hasApiKey: false,
+    key: 'new:openai-chat-no-key',
+    name: 'Custom Local OpenAI',
+    providerType: 'openai-chat',
+    requiresApiKey: false,
+    source: 'custom'
+  },
+  {
+    baseUrl: '',
+    defaultModelId: '',
     description: 'Add an OpenAI Responses compatible endpoint',
     hasApiKey: false,
     key: 'new:openai-responses',
@@ -265,11 +276,8 @@ function toExistingOption(
   const authMode = stringValue(provider.authMode) || 'apiKey'
   if (!providerId || !isProviderProtocol(providerType) || authMode !== 'apiKey') return null
 
-  const model = resolveDefaultModel(
-    provider,
-    providerId === activeProviderId ? activeModelId : ''
-  )
-  const rawModelType = stringValue(model?.type)
+  const model = resolveDefaultModel(provider, providerId === activeProviderId ? activeModelId : '')
+  const rawModelType = stringValue(model?.type) || stringValue(quickPreset?.defaultModel.type)
   const modelType = isProviderProtocol(rawModelType) ? rawModelType : undefined
   const requiresApiKey = provider.requiresApiKey !== false
   const hasApiKey = Boolean(stringValue(provider.apiKey).trim())
@@ -316,7 +324,9 @@ export function loadProviderSetupCatalog(): ProviderSetupCatalog {
     : []
   const activeProviderId = stringValue(configuration.providerStore.activeProviderId)
   const activeModelId = stringValue(configuration.providerStore.activeModelId)
-  const presetByBuiltinId = new Map(quickProviderPresets.map((preset) => [preset.builtinId, preset]))
+  const presetByBuiltinId = new Map(
+    quickProviderPresets.map((preset) => [preset.builtinId, preset])
+  )
   const existingOptions = providers
     .map((provider) => {
       const preset = presetByBuiltinId.get(stringValue(provider.builtinId))
@@ -324,6 +334,9 @@ export function loadProviderSetupCatalog(): ProviderSetupCatalog {
     })
     .filter((option): option is ProviderSetupOption => Boolean(option))
   const existingKeys = new Set(existingOptions.map((option) => option.key))
+  const occupiedBuiltinIds = new Set(
+    providers.map((provider) => stringValue(provider.builtinId)).filter(Boolean)
+  )
   const presetOrder = new Map(
     quickProviderPresets.map((preset, index) => [`builtin:${preset.builtinId}`, index])
   )
@@ -336,7 +349,11 @@ export function loadProviderSetupCatalog(): ProviderSetupCatalog {
 
   const presetOptions = quickProviderPresets
     .map(toPresetOption)
-    .filter((option) => !existingKeys.has(option.key))
+    .filter(
+      (option) =>
+        !existingKeys.has(option.key) &&
+        (!option.builtinId || !occupiedBuiltinIds.has(option.builtinId))
+    )
   const configuredCount = existingOptions.filter(
     (option) => option.hasApiKey || !option.requiresApiKey
   ).length
@@ -344,7 +361,11 @@ export function loadProviderSetupCatalog(): ProviderSetupCatalog {
   return {
     configuredCount,
     dataDirectory: configuration.dataDirectory,
-    options: [...existingOptions, ...presetOptions, ...customProviderOptions.map((item) => ({ ...item }))]
+    options: [
+      ...existingOptions,
+      ...presetOptions,
+      ...customProviderOptions.map((item) => ({ ...item }))
+    ]
   }
 }
 
@@ -395,7 +416,9 @@ function createModel(
   const presetModel = quickPresetFor(option)?.defaultModel
   const matchesPreset = presetModel && stringValue(presetModel.id) === modelId
   const modelName =
-    stringValue(existingModel?.name) || (matchesPreset ? stringValue(presetModel.name) : '') || modelId
+    stringValue(existingModel?.name) ||
+    (matchesPreset ? stringValue(presetModel.name) : '') ||
+    modelId
   const modelType = option.modelType ?? option.providerType
   const nextModel: JsonRecord = existingModel
     ? { ...existingModel, enabled: true }
@@ -438,6 +461,8 @@ export function persistProviderSetup(input: ProviderSetupInput): ModelSelection 
   if (/\s/u.test(modelId)) throw new Error('Model ID must not contain whitespace.')
 
   const enteredApiKey = input.apiKey?.trim() ?? ''
+  if (enteredApiKey.length > 8_192) throw new Error('API key is too long.')
+  if (/\p{Cc}/u.test(enteredApiKey)) throw new Error('API key contains control characters.')
   const apiKey = enteredApiKey || stringValue(existingProvider?.apiKey).trim()
   if (option.requiresApiKey && !apiKey) {
     throw new Error('API key is required for this provider.')
@@ -477,4 +502,3 @@ export function persistProviderSetup(input: ProviderSetupInput): ModelSelection 
 
   return { providerId, providerName: name, modelId, modelName }
 }
-

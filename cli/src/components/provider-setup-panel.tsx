@@ -1,12 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+import { t } from '../i18n.js'
 import { fitText, graphemes, hasTerminalInputControl } from '../lib/text.js'
 import { theme } from '../theme.js'
-import type {
-  ProviderSetupCatalog,
-  ProviderSetupInput,
-  ProviderSetupOption
-} from '../types.js'
+import type { ProviderSetupCatalog, ProviderSetupInput, ProviderSetupOption } from '../types.js'
 import { Spinner } from './spinner.js'
 
 interface ProviderSetupPanelProps {
@@ -30,8 +27,8 @@ interface ProviderDraft {
 function matches(option: ProviderSetupOption, query: string): boolean {
   const normalized = query.trim().toLocaleLowerCase()
   if (!normalized) return true
-  return [option.name, option.description, option.providerType, option.builtinId ?? ''].some((value) =>
-    value.toLocaleLowerCase().includes(normalized)
+  return [option.name, option.description, option.providerType, option.builtinId ?? ''].some(
+    (value) => value.toLocaleLowerCase().includes(normalized)
   )
 }
 
@@ -44,18 +41,20 @@ function protocolLabel(option: ProviderSetupOption): string {
 }
 
 function optionStatus(option: ProviderSetupOption): string {
-  if (option.source === 'custom') return 'new custom provider'
-  if (option.source === 'preset') return 'quick preset'
-  if (!option.requiresApiKey) return 'configured · no key required'
-  return option.hasApiKey ? 'configured · key saved' : 'needs API key'
+  if (option.source === 'custom') return t('cli.provider.newCustom', 'new custom provider')
+  if (option.source === 'preset') return t('cli.provider.quickPreset', 'quick preset')
+  if (!option.requiresApiKey) return t('cli.provider.noKeyRequired', 'configured · no key required')
+  return option.hasApiKey
+    ? t('cli.provider.keySaved', 'configured · key saved')
+    : t('cli.provider.needsKey', 'needs API key')
 }
 
 function titleFor(step: SetupStep): string {
-  if (step === 'name') return 'Provider name'
-  if (step === 'endpoint') return 'Base URL'
-  if (step === 'apiKey') return 'API key'
-  if (step === 'model') return 'Model ID'
-  return 'Configure provider'
+  if (step === 'name') return t('cli.provider.name', 'Provider name')
+  if (step === 'endpoint') return t('cli.provider.baseUrl', 'Base URL')
+  if (step === 'apiKey') return t('cli.panels.apiKey', 'API key')
+  if (step === 'model') return t('cli.provider.modelId', 'Model ID')
+  return t('cli.provider.configure', 'Configure provider')
 }
 
 function editorLimit(step: SetupStep): number {
@@ -128,7 +127,10 @@ export function ProviderSetupPanel({
     setSelectedIndex((index) => Math.max(0, Math.min(index, filtered.length - 1)))
   }, [filtered.length])
 
-  const beginEditor = (nextStep: Exclude<SetupStep, 'provider' | 'review'>, value: string): void => {
+  const beginEditor = (
+    nextStep: Exclude<SetupStep, 'provider' | 'review'>,
+    value: string
+  ): void => {
     setStep(nextStep)
     setEditor(value)
     setEditorCursor(graphemes(value).length)
@@ -359,7 +361,9 @@ export function ProviderSetupPanel({
     if (key.backspace) {
       const characters = graphemes(editor)
       if (editorCursor <= 0) return
-      setEditor([...characters.slice(0, editorCursor - 1), ...characters.slice(editorCursor)].join(''))
+      setEditor(
+        [...characters.slice(0, editorCursor - 1), ...characters.slice(editorCursor)].join('')
+      )
       setEditorCursor(editorCursor - 1)
       setError(undefined)
       return
@@ -367,7 +371,9 @@ export function ProviderSetupPanel({
     if (key.delete) {
       const characters = graphemes(editor)
       if (editorCursor >= characters.length) return
-      setEditor([...characters.slice(0, editorCursor), ...characters.slice(editorCursor + 1)].join(''))
+      setEditor(
+        [...characters.slice(0, editorCursor), ...characters.slice(editorCursor + 1)].join('')
+      )
       setError(undefined)
       return
     }
@@ -379,7 +385,9 @@ export function ProviderSetupPanel({
         return
       }
       setEditor(
-        [...characters.slice(0, editorCursor), ...inserted, ...characters.slice(editorCursor)].join('')
+        [...characters.slice(0, editorCursor), ...inserted, ...characters.slice(editorCursor)].join(
+          ''
+        )
       )
       setEditorCursor(editorCursor + inserted.length)
       setError(undefined)
@@ -411,21 +419,27 @@ export function ProviderSetupPanel({
         {saving ? (
           <Box marginLeft={2}>
             <Spinner />
-            <Text color={theme.muted}> saving</Text>
+            <Text color={theme.muted}> {t('cli.common.saving', 'saving')}</Text>
           </Box>
         ) : null}
       </Box>
-      <Text color={theme.muted}>Shared with OpenCowork desktop · credentials are masked</Text>
+      <Text color={theme.muted}>
+        {t('cli.panels.sharedDesktop', 'Shared with OpenCowork desktop · credentials are masked')}
+      </Text>
 
       {step === 'provider' ? (
         <>
           <Box marginTop={1}>
-            <Text color={theme.dim}>Search </Text>
+            <Text color={theme.dim}>{t('cli.common.search', 'Search')} </Text>
             <Text color={query ? theme.text : theme.primary}>{query || ' '}▏</Text>
           </Box>
           <Box flexDirection="column" marginTop={1}>
             {visible.length === 0 ? (
-              <Text color={theme.muted}>No providers match “{fitText(query, contentWidth - 22)}”.</Text>
+              <Text color={theme.muted}>
+                {t('cli.provider.noMatches', 'No providers match “{{query}}”.', {
+                  query: fitText(query, contentWidth - 22)
+                })}
+              </Text>
             ) : (
               visible.map((candidate, visibleIndex) => {
                 const absoluteIndex = windowStart + visibleIndex
@@ -434,7 +448,7 @@ export function ProviderSetupPanel({
                   <Box flexDirection="column" key={candidate.key}>
                     <Box>
                       <Text color={selected ? theme.primary : theme.dim}>
-                        {selected ? '❯' : ' '} 
+                        {selected ? '❯' : ' '}
                       </Text>
                       <Text bold={selected} color={selected ? theme.text : undefined}>
                         {fitText(candidate.name, Math.max(12, contentWidth - 25))}
@@ -460,41 +474,47 @@ export function ProviderSetupPanel({
             {filtered.length > visible.length
               ? `${windowStart + 1}–${windowStart + visible.length} of ${filtered.length} · `
               : ''}
-            Type to search · ↑↓ navigate · Enter select · Esc cancel
+            {t(
+              'cli.provider.listFooter',
+              'Type to search · ↑↓ navigate · Enter select · Esc cancel'
+            )}
           </Text>
         </>
       ) : step === 'review' && draft && option ? (
         <Box flexDirection="column" marginTop={1}>
           <Box>
-            <Text color={theme.dim}>Provider  </Text>
+            <Text color={theme.dim}>{t('cli.panels.provider', 'Provider')} </Text>
             <Text>{fitText(draft.name, contentWidth - 12)}</Text>
           </Box>
           <Box>
-            <Text color={theme.dim}>Protocol  </Text>
+            <Text color={theme.dim}>{t('cli.panels.protocol', 'Protocol')} </Text>
             <Text>{protocolLabel(option)}</Text>
           </Box>
           <Box>
-            <Text color={theme.dim}>Endpoint  </Text>
+            <Text color={theme.dim}>{t('cli.panels.endpoint', 'Endpoint')} </Text>
             <Text>{fitText(draft.baseUrl, contentWidth - 12)}</Text>
           </Box>
           <Box>
-            <Text color={theme.dim}>Model     </Text>
+            <Text color={theme.dim}>{t('cli.model.model', 'Model')} </Text>
             <Text>{fitText(draft.modelId, contentWidth - 12)}</Text>
           </Box>
           <Box>
-            <Text color={theme.dim}>API key   </Text>
+            <Text color={theme.dim}>{t('cli.panels.apiKey', 'API key')} </Text>
             <Text color={option.requiresApiKey ? theme.success : theme.muted}>
               {option.requiresApiKey
                 ? draft.apiKey
                   ? '•••••••• (new)'
-                  : '•••••••• (saved)'
-                : 'not required'}
+                  : `•••••••• (${t('cli.provider.saved', 'saved')})`
+                : t('cli.provider.notRequired', 'not required')}
             </Text>
           </Box>
           <Box marginTop={1}>
             <Text color={theme.muted} wrap="wrap">
-              Saved under {fitText(catalog.dataDirectory, Math.max(12, contentWidth - 18))} with
-              private file permissions. Existing provider fields and other providers are preserved.
+              {t(
+                'cli.provider.savedUnder',
+                'Saved under {{directory}} with private file permissions. Existing provider fields and other providers are preserved.',
+                { directory: fitText(catalog.dataDirectory, Math.max(12, contentWidth - 18)) }
+              )}
             </Text>
           </Box>
           {error ? (
@@ -506,9 +526,10 @@ export function ProviderSetupPanel({
           ) : null}
           <Box marginTop={1}>
             <Text color={theme.dim}>
-              Enter save · M model · E endpoint
-              {option.requiresApiKey ? ' · K key' : ''}
-              {option.source === 'custom' ? ' · N name' : ''} · Esc back
+              {t('cli.provider.reviewFooter', 'Enter save · M model · E endpoint')}
+              {option.requiresApiKey ? ` · ${t('cli.provider.keyShortcut', 'K key')}` : ''}
+              {option.source === 'custom' ? ` · ${t('cli.provider.nameShortcut', 'N name')}` : ''}
+              {` · ${t('cli.common.back', 'Esc back')}`}
             </Text>
           </Box>
         </Box>
@@ -525,21 +546,32 @@ export function ProviderSetupPanel({
           </Box>
           <Text color={theme.muted}>
             {step === 'name'
-              ? 'A short label shown in model pickers.'
+              ? t('cli.provider.nameHint', 'A short label shown in model pickers.')
               : step === 'endpoint'
-                ? 'HTTP(S) API root, for example https://api.example.com/v1.'
+                ? t(
+                    'cli.provider.endpointHint',
+                    'HTTP(S) API root, for example https://api.example.com/v1.'
+                  )
                 : step === 'apiKey'
                   ? option.hasApiKey
-                    ? 'Leave empty to keep the saved key. Input is never echoed.'
-                    : 'Input is masked and saved only in the shared provider store.'
-                  : 'Exact model identifier sent to the provider.'}
+                    ? t(
+                        'cli.provider.keepKeyHint',
+                        'Leave empty to keep the saved key. Input is never echoed.'
+                      )
+                    : t(
+                        'cli.provider.keyHint',
+                        'Input is masked and saved only in the shared provider store.'
+                      )
+                  : t('cli.provider.modelHint', 'Exact model identifier sent to the provider.')}
           </Text>
           {error ? (
             <Text color={theme.error} wrap="wrap">
               {error}
             </Text>
           ) : null}
-          <Text color={theme.dim}>Enter continue · Esc back · Ctrl+U clear</Text>
+          <Text color={theme.dim}>
+            {t('cli.panels.enterContinue', 'Enter continue · Esc back · Ctrl+U clear')}
+          </Text>
         </Box>
       ) : null}
     </Box>

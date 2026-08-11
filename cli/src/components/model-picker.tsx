@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+import { t } from '../i18n.js'
 import { fitText, hasTerminalInputControl } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { ModelCatalog, ModelOption, ModelSelection } from '../types.js'
@@ -42,22 +43,22 @@ function toSelection(option: ModelOption): ModelSelection {
 }
 
 function authLabel(mode: ModelOption['authMode']): string {
-  if (mode === 'oauth') return 'OAuth'
-  if (mode === 'channel') return 'Connected channel'
-  return 'API key'
+  if (mode === 'oauth') return t('cli.model.oauth', 'OAuth')
+  if (mode === 'channel') return t('cli.model.connectedChannel', 'Connected channel')
+  return t('cli.model.apiKey', 'API key')
 }
 
 export function ModelPicker({
   catalog,
   current,
-  heading = 'Select model',
+  heading = t('cli.panels.modelPicker', 'Select model'),
   maxVisible,
   onCancel,
   onConfigureProvider,
   onSelect,
   onUseCurrent,
   summary,
-  useCurrentLabel = 'Use current session model',
+  useCurrentLabel = t('cli.model.useCurrent', 'Use current session model'),
   width
 }: ModelPickerProps): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -144,25 +145,39 @@ export function ModelPicker({
       <Text color={theme.muted}>
         {summary ??
           (catalog.totalModels > 0
-            ? `${catalog.totalModels} enabled models from ${catalog.groups.length} connected providers`
-            : 'No connected provider has an enabled chat model.')}
+            ? t(
+                'cli.model.enabledSummary',
+                '{{models}} enabled models from {{providers}} connected providers',
+                { models: catalog.totalModels, providers: catalog.groups.length }
+              )
+            : t(
+                'cli.model.noConnectedProvider',
+                'No connected provider has an enabled chat model.'
+              ))}
       </Text>
       <Box marginTop={1}>
-        <Text color={theme.dim}>Search </Text>
+        <Text color={theme.dim}>{t('cli.common.search', 'Search')} </Text>
         <Text color={query ? theme.text : theme.primary}>{queryText}</Text>
       </Box>
 
       {catalog.totalModels === 0 ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={theme.warning}>No enabled provider has a chat model.</Text>
+          <Text color={theme.warning}>
+            {t('cli.common.noModels', 'No enabled provider has a chat model.')}
+          </Text>
           <Text color={theme.muted}>
-            Run /provider or press Enter to configure one in this terminal.
+            {t(
+              'cli.model.configureProviderHint',
+              'Run /provider or press Enter to configure one in this terminal.'
+            )}
           </Text>
         </Box>
       ) : options.length === 0 ? (
         <Box marginTop={1}>
           <Text color={theme.muted}>
-            No models match “{fitText(query, Math.max(8, width - 22))}”.
+            {t('cli.model.noMatches', 'No models match “{{query}}”.', {
+              query: fitText(query, Math.max(8, width - 22))
+            })}
           </Text>
         </Box>
       ) : (
@@ -177,7 +192,9 @@ export function ModelPicker({
                   <Text bold={selected} color={!current ? theme.primary : undefined}>
                     {fitText(row.label, Math.max(12, width - 20))}
                   </Text>
-                  {!current ? <Text color={theme.success}> current</Text> : null}
+                  {!current ? (
+                    <Text color={theme.success}> {t('cli.common.current', 'current')}</Text>
+                  ) : null}
                 </Box>
               )
             }
@@ -214,7 +231,9 @@ export function ModelPicker({
                     {'  '}
                     {fitText(option.description, descriptionWidth)}
                   </Text>
-                  {isCurrent ? <Text color={theme.success}> current</Text> : null}
+                  {isCurrent ? (
+                    <Text color={theme.success}> {t('cli.common.current', 'current')}</Text>
+                  ) : null}
                 </Box>
               </React.Fragment>
             )
@@ -227,7 +246,7 @@ export function ModelPicker({
           {options.length > visibleOptions.length
             ? `${windowStart + 1}–${windowStart + visibleOptions.length} of ${options.length} · `
             : ''}
-          Type to search · ↑↓ navigate · Enter select · Esc cancel
+          {t('cli.model.footer', 'Type to search · ↑↓ navigate · Enter select · Esc cancel')}
         </Text>
       </Box>
     </Box>

@@ -10,13 +10,9 @@ import { useTerminalSize } from './hooks/use-terminal-size.js'
 import { OpenCoworkWorkerRuntime } from './runtime/open-cowork-worker-runtime.js'
 import { loadProviderSetupCatalog, persistProviderSetup } from './runtime/provider-setup.js'
 import { TerminalScreen } from './terminal/terminal-screen.js'
-import type {
-  ModelSelection,
-  PermissionMode,
-  ProviderSetupCatalog,
-  TuiMode
-} from './types.js'
+import type { ModelSelection, PermissionMode, ProviderSetupCatalog, TuiMode } from './types.js'
 import { offerUpdate, updateCli } from './update.js'
+import { initializeCliI18n, readLanguageArgument, t } from './i18n.js'
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url))
 
@@ -47,8 +43,13 @@ function loadPackageMetadata(): { version: string } {
 
 const pkg = loadPackageMetadata()
 
+// Resolve the language before constructing Commander. This keeps both normal help and
+// `--language <code> --help` localized on the very first process invocation.
+await initializeCliI18n(readLanguageArgument())
+
 interface CliOptions {
   doctor: boolean
+  language?: string
   model?: string
   permissionMode: PermissionMode
   provider?: string
@@ -57,6 +58,23 @@ interface CliOptions {
 }
 
 const program = new Command()
+
+program.configureHelp({
+  styleTitle: (title) => {
+    const titles: Record<string, string> = {
+      'Usage:': t('cli.help.usage', 'Usage:'),
+      'Arguments:': t('cli.help.arguments', 'Arguments:'),
+      'Options:': t('cli.help.options', 'Options:'),
+      'Commands:': t('cli.help.commandSection', 'Commands:'),
+      'Global Options:': t('cli.help.globalOptions', 'Global Options:')
+    }
+    return titles[title] ?? title
+  },
+  styleDescriptionText: (description) =>
+    description
+      .replace(/\bchoices:/gu, `${t('cli.help.choices', 'choices')}:`)
+      .replace(/\bdefault:/gu, `${t('cli.help.default', 'default')}:`)
+})
 
 function ProviderConfigCommand({
   catalog,
@@ -89,39 +107,66 @@ function ProviderConfigCommand({
 
 program
   .name('cowork')
-  .description('OpenCowork — an agentic coding assistant for your terminal')
-  .version(pkg.version, '-v, --version')
-  .argument('[prompt]', 'Initial prompt to place in the editor')
-  .option('--doctor', 'Check the Native Worker transport and shared provider configuration', false)
-  .option('--worker <path>', 'Override the OpenCowork.Native.Worker executable path')
-  .option('--provider <provider-id>', 'Select a configured OpenCowork provider for this session')
-  .option('--model <model-id>', 'Select an enabled model for this session')
+  .helpOption('-h, --help', t('cli.options.help', 'display help for command'))
+  .description(
+    t('cli.app.description', 'OpenCowork — an agentic coding assistant for your terminal')
+  )
+  .version(pkg.version, '-v, --version', t('cli.options.version', 'Show version number'))
+  .argument('[prompt]', t('cli.options.prompt', 'Initial prompt to place in the editor'))
+  .option(
+    '-l, --language <language>',
+    t('cli.options.language', 'Interface language (auto-detected when omitted)')
+  )
+  .option(
+    '--doctor',
+    t('cli.options.doctor', 'Check the Native Worker transport and shared provider configuration'),
+    false
+  )
+  .option(
+    '--worker <path>',
+    t('cli.options.worker', 'Override the OpenCowork.Native.Worker executable path')
+  )
+  .option(
+    '--provider <provider-id>',
+    t('cli.options.provider', 'Select a configured OpenCowork provider for this session')
+  )
+  .option('--model <model-id>', t('cli.options.model', 'Select an enabled model for this session'))
   .addOption(
-    new Option('--permission-mode <mode>', 'Initial permission mode')
+    new Option(
+      '--permission-mode <mode>',
+      t('cli.options.permissionMode', 'Initial permission mode')
+    )
       .choices(['manual', 'acceptEdits', 'plan', 'auto'])
       .default('manual')
   )
   .addOption(
-    new Option('--tui <renderer>', 'Terminal renderer')
+    new Option('--tui <renderer>', t('cli.options.tui', 'Terminal renderer'))
       .choices(['classic', 'fullscreen'])
       .default('classic')
   )
 
 program
   .command('update')
-  .description('Update OpenCowork CLI to the latest version')
+  .description(t('cli.commands.update', 'Update OpenCowork CLI to the latest version'))
   .action(async () => {
     if (await updateCli()) return
-    program.error('Update failed. Run: npm install -g @aidotnet/opencowork@latest')
+    program.error(
+      t('cli.errors.update', 'Update failed. Run: npm install -g @aidotnet/opencowork@latest')
+    )
   })
 
 program
   .command('config')
   .alias('configure')
-  .description('Quickly configure an AI provider in the terminal')
+  .description(t('cli.commands.config', 'Quickly configure an AI provider in the terminal'))
   .action(async () => {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
-      program.error('Provider setup requires a TTY. Run cowork config in an interactive terminal.')
+      program.error(
+        t(
+          'cli.errors.configTty',
+          'Provider setup requires a TTY. Run cowork config in an interactive terminal.'
+        )
+      )
     }
 
     const result: { selection?: ModelSelection } = {}
@@ -138,8 +183,14 @@ program
     await instance.waitUntilExit()
     if (result.selection) {
       process.stdout.write(
-        `Provider ready: ${result.selection.providerName} / ${result.selection.modelName}\n` +
-          'The same configuration is now available in OpenCowork desktop.\n'
+        `${t('cli.output.providerReady', 'Provider ready: {{provider}} / {{model}}', {
+          provider: result.selection.providerName,
+          model: result.selection.modelName
+        })}\n` +
+          `${t(
+            'cli.output.sharedConfiguration',
+            'The same configuration is now available in OpenCowork desktop.'
+          )}\n`
       )
     }
   })
@@ -147,13 +198,12 @@ program
 program
   .addHelpText(
     'after',
-    `
-Interactive shortcuts:
-  /          Open commands             ?          Toggle shortcuts
-  /provider  Configure provider        /model     Switch model
-  Shift+Tab  Cycle modes / Plan        Alt+P      Switch model
-  Ctrl+O     Toggle reasoning/details  Ctrl+T     Toggle task list
-  Ctrl+C ×2  Exit                      Ctrl+L     Redraw
+    `\n${t('cli.help.title', 'Interactive shortcuts:')}
+  /          ${t('cli.help.commands', 'Open commands')}             ?          ${t('cli.help.shortcuts', 'Toggle shortcuts')}
+  /provider  ${t('cli.help.provider', 'Configure provider')}        /model     ${t('cli.help.model', 'Switch model')}
+  Shift+Tab  ${t('cli.help.modes', 'Cycle modes / Plan')}        Alt+P      ${t('cli.help.model', 'Switch model')}
+  Ctrl+O     ${t('cli.help.details', 'Toggle reasoning/details')}  Ctrl+T     ${t('cli.help.tasks', 'Toggle task list')}
+  Ctrl+C ×2  ${t('cli.help.exit', 'Exit')}                      Ctrl+L     ${t('cli.help.redraw', 'Redraw')}
 `
   )
   .action(async (prompt: string | undefined, options: CliOptions) => {
@@ -172,13 +222,20 @@ Interactive shortcuts:
     if (options.provider && selectedModel?.providerId !== options.provider) {
       await workerRuntime.dispose()
       program.error(
-        `Provider “${options.provider}” is not enabled, authenticated, or configured with chat models.`
+        t(
+          'cli.errors.provider',
+          'Provider “{{provider}}” is not enabled, authenticated, or configured with chat models.',
+          { provider: options.provider }
+        )
       )
     }
     if (options.model && selectedModel?.modelId !== options.model) {
       await workerRuntime.dispose()
       program.error(
-        `Model “${options.model}” is not enabled${options.provider ? ` for provider “${options.provider}”` : ''}.`
+        t('cli.errors.model', 'Model “{{model}}” is not enabled{{providerSuffix}}.', {
+          model: options.model,
+          providerSuffix: options.provider ? ` for provider “${options.provider}”` : ''
+        })
       )
     }
 
@@ -187,15 +244,20 @@ Interactive shortcuts:
         const result = await workerRuntime.doctor()
         process.stdout.write(
           [
-            'OpenCowork CLI doctor',
-            `  Worker: ${result.executable}`,
-            `  PID: ${result.pid}`,
-            `  IPC protocol: v${result.protocolVersion}`,
-            `  Agent protocol: v${result.agentProtocolVersion}`,
-            `  Agent runtime: ${result.runtime} ${result.runtimeVersion}`,
-            `  Routes: ${result.routeCount}`,
-            `  Configured model: ${result.configuredModel}`,
-            '  Status: ready',
+            t('cli.output.doctorTitle', 'OpenCowork CLI doctor'),
+            `  ${t('cli.output.worker', 'Worker: {{value}}', { value: result.executable })}`,
+            `  ${t('cli.output.pid', 'PID: {{value}}', { value: result.pid })}`,
+            `  ${t('cli.output.ipcProtocol', 'IPC protocol: v{{value}}', { value: result.protocolVersion })}`,
+            `  ${t('cli.output.agentProtocol', 'Agent protocol: v{{value}}', { value: result.agentProtocolVersion })}`,
+            `  ${t('cli.output.agentRuntime', 'Agent runtime: {{runtime}} {{version}}', {
+              runtime: result.runtime,
+              version: result.runtimeVersion
+            })}`,
+            `  ${t('cli.output.routes', 'Routes: {{value}}', { value: result.routeCount })}`,
+            `  ${t('cli.output.configuredModel', 'Configured model: {{value}}', {
+              value: result.configuredModel
+            })}`,
+            `  ${t('cli.output.ready', 'Status: ready')}`,
             ''
           ].join('\n')
         )
@@ -207,7 +269,12 @@ Interactive shortcuts:
 
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       await workerRuntime.dispose()
-      program.error('Interactive mode requires a TTY. Run opencowork --help for options.')
+      program.error(
+        t(
+          'cli.errors.interactiveTty',
+          'Interactive mode requires a TTY. Run opencowork --help for options.'
+        )
+      )
     }
 
     const screen = new TerminalScreen(options.tui)

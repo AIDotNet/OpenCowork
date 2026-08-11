@@ -1,5 +1,6 @@
 import React from 'react'
 import { Box, Text } from 'ink'
+import { t } from '../i18n.js'
 import { fitText, padText } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { FileReferenceCandidate } from '../types.js'
@@ -31,7 +32,10 @@ export function FileReferenceMenu({
     return (
       <Box paddingLeft={2}>
         <Text color={error ? theme.error : theme.dim}>
-          {error ?? (loading ? 'Searching files…' : 'No matching files')}
+          {error ??
+            (loading
+              ? t('cli.files.searching', 'Searching files…')
+              : t('cli.files.noMatches', 'No matching files'))}
         </Text>
       </Box>
     )
@@ -65,14 +69,14 @@ export function FileReferenceMenu({
       })}
       {loading ? (
         <Box paddingLeft={2}>
-          <Text color={theme.dim}>Refreshing…</Text>
+          <Text color={theme.dim}>{t('cli.common.refreshing', 'Refreshing…')}</Text>
         </Box>
       ) : aboveCount > 0 || belowCount > 0 ? (
         <Box paddingLeft={2}>
           <Text color={theme.dim}>
             {[
-              aboveCount > 0 ? `↑ ${aboveCount} above` : '',
-              belowCount > 0 ? `↓ ${belowCount} more` : ''
+              aboveCount > 0 ? `↑ ${aboveCount} ${t('cli.common.above', 'above')}` : '',
+              belowCount > 0 ? `↓ ${belowCount} ${t('cli.common.more', 'more')}` : ''
             ]
               .filter(Boolean)
               .join(' · ')}

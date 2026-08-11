@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { SlashCommand } from '../commands.js'
+import { t } from '../i18n.js'
 import { fitText, padText } from '../lib/text.js'
 import { theme } from '../theme.js'
 
@@ -26,14 +27,14 @@ export function CommandMenu({
   const aboveCount = windowStart
   const belowCount = commands.length - windowStart - visible.length
   const overflowStatus = [
-    aboveCount > 0 ? `↑ ${aboveCount} above` : '',
-    belowCount > 0 ? `↓ ${belowCount} more` : ''
+    aboveCount > 0 ? `↑ ${aboveCount} ${t('cli.common.above', 'above')}` : '',
+    belowCount > 0 ? `↓ ${belowCount} ${t('cli.common.more', 'more')}` : ''
   ].filter(Boolean)
 
   if (visible.length === 0) {
     return (
       <Box paddingLeft={2}>
-        <Text color={theme.dim}>No matching commands</Text>
+        <Text color={theme.dim}>{t('cli.common.noCommands', 'No matching commands')}</Text>
       </Box>
     )
   }

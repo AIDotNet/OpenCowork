@@ -669,6 +669,11 @@ through `db/sessions-create` before the first `agent/run`. Every submitted turn 
 the CLI atomically replaces the session message rows through `db/messages-replace`, and the next
 turn sends that exact history back to the same worker runtime. Automatic and manual context
 compression results can replace the stored history without the terminal inventing its own summary.
+After the first completed turn, a best-effort auxiliary `agent/run` uses `providerTurnOnly: true`, no
+tools, a 100-token limit, and the desktop-compatible title prompt/parser to generate a concise title
+and Lucide icon. It runs under an isolated auxiliary session/lane, times out after 15 seconds, and
+updates the real row through `db/sessions-update` only while its title is still the CLI default.
+Failure never changes the conversation or blocks the next prompt.
 
 `/new` creates a fresh generated Worker session ID without deleting the prior durable row. `/resume`
 lists completed `cli-session-*` rows from the current working folder through `db/sessions-list-page`,

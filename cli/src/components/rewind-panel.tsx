@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+import { t } from '../i18n.js'
 import { fitText } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { RewindAction, RewindCheckpoint, RewindResult } from '../types.js'
@@ -221,7 +222,12 @@ export function RewindPanel({
 
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1} width={width}>
-        <Text bold>{fitText('Choose how to rewind to before this message:', contentWidth)}</Text>
+        <Text bold>
+          {fitText(
+            t('cli.rewind.choose', 'Choose how to rewind to before this message:'),
+            contentWidth
+          )}
+        </Text>
         <Box marginTop={1}>
           <Text color={theme.dim}>│ </Text>
           <Text>{fitText(normalizePrompt(selectedCheckpoint.prompt), contentWidth - 2)}</Text>
@@ -252,8 +258,11 @@ export function RewindPanel({
             {error
               ? fitText(error, contentWidth)
               : busy
-                ? 'Working… · Esc interrupt'
-                : '↑↓/jk navigate · Enter select · 1-3 quick select · Esc back'}
+                ? t('cli.rewind.working', 'Working… · Esc interrupt')
+                : t(
+                    'cli.rewind.confirmFooter',
+                    '↑↓/jk navigate · Enter select · 1-3 quick select · Esc back'
+                  )}
           </Text>
         </Box>
       </Box>
@@ -274,14 +283,21 @@ export function RewindPanel({
 
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1} width={width}>
-      <Text bold>Rewind</Text>
+      <Text bold>{t('cli.panels.rewind', 'Rewind')}</Text>
       <Text color={theme.muted}>
-        {fitText('Select a previous conversation turn to restore', contentWidth)}
+        {fitText(
+          t('cli.rewind.description', 'Select a previous conversation turn to restore'),
+          contentWidth
+        )}
       </Text>
       <Box flexDirection="column" marginTop={1}>
-        {loading ? <Text color={theme.muted}>Loading conversation checkpoints…</Text> : null}
+        {loading ? (
+          <Text color={theme.muted}>
+            {t('cli.panels.loadingCheckpoints', 'Loading conversation checkpoints…')}
+          </Text>
+        ) : null}
         {!loading && checkpoints.length === 0 ? (
-          <Text color={theme.muted}>No messages to rewind.</Text>
+          <Text color={theme.muted}>{t('cli.common.noMessages', 'No messages to rewind.')}</Text>
         ) : null}
         {!loading
           ? visibleCheckpoints.map((checkpoint, visibleIndex) => {
@@ -316,7 +332,7 @@ export function RewindPanel({
         <Text color={error ? theme.error : theme.dim}>
           {error
             ? `${fitText(error, Math.max(8, contentWidth - 10))} · R retry`
-            : '↑↓/jk choose turn · Enter continue · Esc cancel'}
+            : t('cli.rewind.footer', '↑↓/jk choose turn · Enter continue · Esc cancel')}
         </Text>
       </Box>
     </Box>

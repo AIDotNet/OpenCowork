@@ -1,13 +1,22 @@
 import React, { useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+import { t } from '../i18n.js'
 import { fitText } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { PermissionDecision, PermissionRequest } from '../types.js'
 
-const options: Array<{ decision: PermissionDecision; label: string }> = [
-  { decision: 'allow_once', label: 'Yes' },
-  { decision: 'allow_session', label: "Yes, and don't ask again this session" },
-  { decision: 'deny', label: 'No, and tell OpenCowork what to do differently' }
+const options: Array<{ decision: PermissionDecision; key: string; defaultLabel: string }> = [
+  { decision: 'allow_once', key: 'cli.permission.yes', defaultLabel: 'Yes' },
+  {
+    decision: 'allow_session',
+    key: 'cli.permission.yesSession',
+    defaultLabel: "Yes, and don't ask again this session"
+  },
+  {
+    decision: 'deny',
+    key: 'cli.permission.noChange',
+    defaultLabel: 'No, and tell OpenCowork what to do differently'
+  }
 ]
 
 interface PermissionPromptProps {
@@ -44,11 +53,12 @@ export function PermissionPrompt({
   return (
     <Box flexDirection="column" marginTop={1} paddingLeft={2} width={width}>
       <Text bold color={theme.warning}>
-        Permission required
+        {t('cli.panels.permission', 'Permission required')}
       </Text>
       <Box marginTop={1}>
         <Text>
-          OpenCowork wants to use <Text bold>{request.tool}</Text>:
+          {t('cli.permission.wantsToUse', 'OpenCowork wants to use')}{' '}
+          <Text bold>{request.tool}</Text>:{t('cli.permission.colon', ':')}
         </Text>
       </Box>
       <Box marginLeft={2} marginTop={1}>
@@ -71,14 +81,16 @@ export function PermissionPrompt({
             <Box key={option.decision}>
               <Text color={selected ? theme.primary : theme.dim}>{selected ? '❯' : ' '} </Text>
               <Text bold={selected}>
-                {index + 1}. {option.label}
+                {index + 1}. {t(option.key, option.defaultLabel)}
               </Text>
             </Box>
           )
         })}
       </Box>
       <Box marginTop={1}>
-        <Text color={theme.dim}>Enter to confirm · Esc to cancel</Text>
+        <Text color={theme.dim}>
+          {t('cli.permission.confirm', 'Enter to confirm · Esc to cancel')}
+        </Text>
       </Box>
     </Box>
   )

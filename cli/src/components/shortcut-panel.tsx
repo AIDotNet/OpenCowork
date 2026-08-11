@@ -1,28 +1,30 @@
 import React from 'react'
 import { Box, Text } from 'ink'
+import { t } from '../i18n.js'
 import { fitText, padText } from '../lib/text.js'
 import { theme } from '../theme.js'
 
 const groups = [
   [
-    ['/', 'commands'],
-    ['@', 'reference workspace files'],
-    ['/config', 'shared settings'],
-    ['/compact', 'compress context'],
-    ['/context', 'context usage']
+    ['/', 'cli.shortcuts.commands', 'commands'],
+    ['@', 'cli.shortcuts.files', 'reference workspace files'],
+    ['/provider', 'cli.shortcuts.provider', 'configure provider'],
+    ['/config', 'cli.shortcuts.config', 'shared settings'],
+    ['/compact', 'cli.shortcuts.compact', 'compress context'],
+    ['/context', 'cli.shortcuts.context', 'context usage']
   ],
   [
-    ['esc esc', 'rewind conversation turns'],
-    ['shift + tab', 'cycle modes · enter / leave Plan'],
-    ['ctrl + o', 'expand thinking / tools'],
-    ['ctrl + t', 'toggle tasks']
+    ['esc esc', 'cli.shortcuts.rewind', 'rewind conversation turns'],
+    ['shift + tab', 'cli.shortcuts.modes', 'cycle modes · enter / leave Plan'],
+    ['ctrl + o', 'cli.shortcuts.details', 'expand thinking / tools'],
+    ['ctrl + t', 'cli.shortcuts.tasks', 'toggle tasks']
   ],
   [
-    ['alt + p', 'switch model'],
-    ['ctrl + v', 'paste clipboard image'],
-    ['ctrl + s', 'stash prompt'],
-    ['ctrl + c', 'cancel / exit'],
-    ['empty ←', 'inspect agents']
+    ['alt + p', 'cli.shortcuts.model', 'switch model'],
+    ['ctrl + v', 'cli.shortcuts.image', 'paste clipboard image'],
+    ['ctrl + s', 'cli.shortcuts.stash', 'stash prompt'],
+    ['ctrl + c', 'cli.shortcuts.cancel', 'cancel / exit'],
+    ['empty ←', 'cli.shortcuts.agents', 'inspect agents']
   ]
 ]
 
@@ -32,10 +34,10 @@ function ShortcutGroup({ group, width }: { group: string[][]; width: number }): 
 
   return (
     <Box flexDirection="column" width={width}>
-      {group.map(([key, description]) => (
+      {group.map(([key, descriptionKey, defaultDescription]) => (
         <Text key={key} color={theme.muted}>
           <Text color={theme.text}>{padText(key ?? '', keyWidth)}</Text>{' '}
-          {fitText(description ?? '', descriptionWidth)}
+          {fitText(t(descriptionKey ?? '', defaultDescription ?? ''), descriptionWidth)}
         </Text>
       ))}
     </Box>

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+import { t } from '../i18n.js'
 import { fitText, graphemes, hasTerminalInputControl, wrapText } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { PlanApprovalMode, PlanSnapshot } from '../types.js'
@@ -21,17 +22,17 @@ type PanelMode = 'review' | 'feedback'
 function statusLabel(status: PlanSnapshot['status']): string {
   switch (status) {
     case 'awaiting_review':
-      return 'Awaiting review'
+      return t('cli.plan.awaitingReview', 'Awaiting review')
     case 'implementing':
-      return 'Implementing'
+      return t('cli.plan.implementing', 'Implementing')
     case 'completed':
-      return 'Completed'
+      return t('cli.plan.completed', 'Completed')
     case 'rejected':
-      return 'Revision requested'
+      return t('cli.plan.revisionRequested', 'Revision requested')
     case 'approved':
-      return 'Approved'
+      return t('cli.plan.approved', 'Approved')
     default:
-      return 'Drafting'
+      return t('cli.plan.drafting', 'Drafting')
   }
 }
 
@@ -63,16 +64,16 @@ export function PlanPanel({
   const reviewOptions = useMemo(
     () => [
       {
-        label: 'Yes, auto-accept edits',
+        label: t('cli.plan.autoAccept', 'Yes, auto-accept edits'),
         action: 'approve' as const,
         approval: 'acceptEdits' as const
       },
       {
-        label: 'Yes, manually approve edits',
+        label: t('cli.plan.manualApprove', 'Yes, manually approve edits'),
         action: 'approve' as const,
         approval: 'manual' as const
       },
-      { label: 'No, keep planning', action: 'revise' as const }
+      { label: t('cli.plan.keepPlanning', 'No, keep planning'), action: 'revise' as const }
     ],
     []
   )
@@ -102,7 +103,9 @@ export function PlanPanel({
     }
     if (key.ctrl && input === 'g') {
       onNotice(
-        plan.filePath ? `Plan file: ${plan.filePath}` : 'The plan is stored in the Worker session.'
+        plan.filePath
+          ? t('cli.plan.file', 'Plan file: {{path}}', { path: plan.filePath })
+          : t('cli.plan.storedInWorker', 'The plan is stored in the Worker session.')
       )
       return
     }
@@ -115,7 +118,7 @@ export function PlanPanel({
       if (key.return) {
         const value = feedback.trim()
         if (!value) {
-          onNotice('Add feedback so the Worker can revise the plan')
+          onNotice(t('cli.plan.addFeedback', 'Add feedback so the Worker can revise the plan'))
           return
         }
         onRevise(value)
@@ -176,7 +179,12 @@ export function PlanPanel({
       return
     }
     if (key.escape) {
-      onNotice('Plan review stays open until you approve or provide feedback')
+      onNotice(
+        t(
+          'cli.plan.reviewStaysOpen',
+          'Plan review stays open until you approve or provide feedback'
+        )
+      )
       return
     }
     if (key.return && canReview) {
@@ -199,14 +207,14 @@ export function PlanPanel({
     >
       <Box justifyContent="space-between">
         <Text bold color={statusColor(plan.status)}>
-          PLAN MODE
+          {t('cli.plan.mode', 'PLAN MODE')}
         </Text>
         <Text color={statusColor(plan.status)}>● {statusLabel(plan.status)}</Text>
       </Box>
       <Text color={theme.muted}>
         {width >= 64
-          ? 'Planning first · implementation waits for your approval'
-          : 'Planning · approval required'}
+          ? t('cli.plan.planningFirst', 'Planning first · implementation waits for your approval')
+          : t('cli.plan.approvalRequired', 'Planning · approval required')}
       </Text>
       <Box marginTop={1}>
         <Text bold color={theme.text}>
@@ -215,14 +223,14 @@ export function PlanPanel({
       </Box>
       {plan.filePath ? (
         <Text color={theme.dim} wrap="truncate-end">
-          Plan file: {plan.filePath}
+          {t('cli.plan.file', 'Plan file: {{path}}', { path: plan.filePath })}
         </Text>
       ) : null}
 
       {plan.status === 'drafting' || isRunning ? (
         <Box marginTop={1}>
           <Text color={theme.warning}>
-            The Native Worker is researching and drafting this plan…
+            {t('cli.plan.researching', 'The Native Worker is researching and drafting this plan…')}
           </Text>
         </Box>
       ) : null}
@@ -230,7 +238,7 @@ export function PlanPanel({
       {plan.content ? (
         <Box flexDirection="column" marginTop={1}>
           <Text bold color={theme.accent}>
-            Plan
+            {t('cli.panels.plan', 'Plan')}
           </Text>
           <Box flexDirection="column" height={Math.max(4, maxVisibleLines)} overflow="hidden">
             {visibleLines.map((line, index) => (
@@ -250,13 +258,17 @@ export function PlanPanel({
 
       {mode === 'feedback' ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={theme.warning}>What should change?</Text>
+          <Text color={theme.warning}>{t('cli.plan.whatChange', 'What should change?')}</Text>
           <Text color={theme.primary}>{feedback || ' '}▏</Text>
-          <Text color={theme.dim}>Enter to request a revision · Esc to go back</Text>
+          <Text color={theme.dim}>
+            {t('cli.plan.feedbackFooter', 'Enter to request a revision · Esc to go back')}
+          </Text>
         </Box>
       ) : plan.status === 'awaiting_review' ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={theme.dim}>Choose how OpenCowork should continue</Text>
+          <Text color={theme.dim}>
+            {t('cli.plan.chooseContinue', 'Choose how OpenCowork should continue')}
+          </Text>
           {reviewOptions.map((option, index) => {
             const selected = selectedIndex === index
             return (
@@ -281,15 +293,18 @@ export function PlanPanel({
           <Text color={theme.dim}>
             {plan.status === 'awaiting_review'
               ? width >= 48
-                ? '↑↓ choose · Enter confirm · Ctrl-G show file · Ctrl-C interrupt'
-                : '↑↓ choose · Enter confirm'
+                ? t(
+                    'cli.plan.reviewFooterWide',
+                    '↑↓ choose · Enter confirm · Ctrl-G show file · Ctrl-C interrupt'
+                  )
+                : t('cli.plan.reviewFooterShort', '↑↓ choose · Enter confirm')
               : width >= 48
-                ? 'Ctrl-G show plan file · Ctrl-C interrupt'
-                : 'Ctrl-C interrupt'}
+                ? t('cli.plan.draftFooter', 'Ctrl-G show plan file · Ctrl-C interrupt')
+                : t('cli.plan.interrupt', 'Ctrl-C interrupt')}
           </Text>
         )}
         <Text bold color={theme.accent}>
-          Shift+Tab cycle · exit Plan
+          {t('cli.plan.cycle', 'Shift+Tab cycle · exit Plan')}
         </Text>
       </Box>
     </Box>

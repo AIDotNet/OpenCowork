@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+import { t } from '../i18n.js'
 import {
   fitText,
   graphemes,
@@ -323,7 +324,13 @@ export function AskUserPrompt({
     }
   })
 
-  if (!question) return <Text color={theme.error}>Unable to render the user questions.</Text>
+  if (!question) {
+    return (
+      <Text color={theme.error}>
+        {t('cli.askUser.unableToRender', 'Unable to render the user questions.')}
+      </Text>
+    )
+  }
 
   const displayedPreview = preview || (mode === 'other' ? editor : '')
   const contentHeight = Math.max(6, Math.min(14, Math.floor((process.stdout.rows || 24) * 0.42)))
@@ -341,10 +348,13 @@ export function AskUserPrompt({
     >
       <Box justifyContent="space-between">
         <Text bold color={theme.primary}>
-          OpenCowork needs your input
+          {t('cli.askUser.title', 'OpenCowork needs your input')}
         </Text>
         <Text color={theme.dim}>
-          Question {questionIndex + 1} of {request.questions.length}
+          {t('cli.askUser.questionCount', 'Question {{current}} of {{total}}', {
+            current: questionIndex + 1,
+            total: request.questions.length
+          })}
         </Text>
       </Box>
       <Box marginTop={1}>
@@ -363,15 +373,19 @@ export function AskUserPrompt({
       {mode === 'other' || mode === 'notes' ? (
         <Box flexDirection="column" marginTop={1}>
           <Text color={theme.muted}>
-            {mode === 'notes' ? 'Add a note (optional)' : 'Your answer'}
+            {mode === 'notes'
+              ? t('cli.askUser.noteOptional', 'Add a note (optional)')
+              : t('cli.askUser.yourAnswer', 'Your answer')}
           </Text>
           <Text color={theme.primary}>{editor || ' '}▏</Text>
-          <Text color={theme.dim}>Enter to save · Esc to return</Text>
+          <Text color={theme.dim}>
+            {t('cli.askUser.saveReturn', 'Enter to save · Esc to return')}
+          </Text>
         </Box>
       ) : mode === 'submit' ? (
         <Box flexDirection="column" marginTop={1}>
           <Text bold color={theme.success}>
-            Ready to submit
+            {t('cli.askUser.ready', 'Ready to submit')}
           </Text>
           {request.questions.map((item, index) => (
             <Box key={`${item.header}-${index}`} marginTop={index === 0 ? 1 : 0}>
@@ -381,7 +395,9 @@ export function AskUserPrompt({
               </Text>
             </Box>
           ))}
-          <Text color={theme.dim}>Enter to submit · ← to review the last answer</Text>
+          <Text color={theme.dim}>
+            {t('cli.askUser.submitFooter', 'Enter to submit · ← to review the last answer')}
+          </Text>
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={1}>
@@ -413,13 +429,15 @@ export function AskUserPrompt({
           })}
           {displayedPreview ? (
             <Box flexDirection="column" marginTop={1}>
-              <Text color={theme.accent}>Preview</Text>
+              <Text color={theme.accent}>{t('cli.askUser.preview', 'Preview')}</Text>
               {previewLines.slice(0, contentHeight).map((line, index) => (
                 <Text key={`${line}-${index}`} color={theme.code}>
                   {line || ' '}
                 </Text>
               ))}
-              {previewLines.length > contentHeight ? <Text color={theme.dim}>… more</Text> : null}
+              {previewLines.length > contentHeight ? (
+                <Text color={theme.dim}>… {t('cli.common.more', 'more')}</Text>
+              ) : null}
             </Box>
           ) : null}
         </Box>
@@ -428,12 +446,18 @@ export function AskUserPrompt({
       <Box marginTop={1}>
         <Text color={theme.dim}>
           {mode === 'other' || mode === 'notes'
-            ? 'Text entry'
+            ? t('cli.askUser.textEntry', 'Text entry')
             : mode === 'submit'
-              ? 'Enter submit · ← review'
+              ? t('cli.askUser.submitHint', 'Enter submit · ← review')
               : question.multiSelect
-                ? '↑↓ move · Space select · Enter confirm · N note · ←→ questions · Ctrl-C cancel'
-                : '↑↓ move · Enter select · N note · ←→ questions · Ctrl-C cancel'}
+                ? t(
+                    'cli.askUser.multiHint',
+                    '↑↓ move · Space select · Enter confirm · N note · ←→ questions · Ctrl-C cancel'
+                  )
+                : t(
+                    'cli.askUser.singleHint',
+                    '↑↓ move · Enter select · N note · ←→ questions · Ctrl-C cancel'
+                  )}
         </Text>
       </Box>
     </Box>

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import stringWidth from 'string-width'
+import { t } from '../i18n.js'
 import { fitText } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { ModelConfiguration } from '../types.js'
@@ -21,15 +22,22 @@ interface EffortOption {
 }
 
 function effortDescription(level: string): string {
-  if (level === 'none') return 'Disable provider reasoning effort for the next turns.'
-  if (level === 'minimal') return 'Use the smallest available reasoning allocation.'
-  if (level === 'low') return 'Prefer faster, lower-cost responses for straightforward work.'
-  if (level === 'medium') return 'Use moderate reasoning for routine multi-step work.'
-  if (level === 'high') return 'Spend more reasoning on complex implementation and verification.'
-  if (level === 'xhigh') return 'Use extended reasoning for difficult or ambiguous work.'
-  if (level === 'max') return 'Use the highest reasoning level for the current session only.'
-  if (level === 'ultra') return 'Use this provider’s ultra reasoning level.'
-  return `Use the model-provided ${level} reasoning level.`
+  if (level === 'none')
+    return t('cli.effort.none', 'Disable provider reasoning effort for the next turns.')
+  if (level === 'minimal')
+    return t('cli.effort.minimal', 'Use the smallest available reasoning allocation.')
+  if (level === 'low')
+    return t('cli.effort.low', 'Prefer faster, lower-cost responses for straightforward work.')
+  if (level === 'medium')
+    return t('cli.effort.medium', 'Use moderate reasoning for routine multi-step work.')
+  if (level === 'high')
+    return t('cli.effort.high', 'Spend more reasoning on complex implementation and verification.')
+  if (level === 'xhigh')
+    return t('cli.effort.xhigh', 'Use extended reasoning for difficult or ambiguous work.')
+  if (level === 'max')
+    return t('cli.effort.max', 'Use the highest reasoning level for the current session only.')
+  if (level === 'ultra') return t('cli.effort.ultra', 'Use this provider’s ultra reasoning level.')
+  return t('cli.effort.other', 'Use the model-provided {{level}} reasoning level.', { level })
 }
 
 function sliderWidth(options: EffortOption[], selectedIndex: number): number {
@@ -73,8 +81,10 @@ export function EffortPanel({
   const options = useMemo<EffortOption[]>(
     () => [
       {
-        description: `Follow this model’s default (${configuration.defaultReasoningEffort}).`,
-        label: 'Auto',
+        description: t('cli.effort.followDefault', 'Follow this model’s default ({{level}}).', {
+          level: configuration.defaultReasoningEffort
+        }),
+        label: t('cli.common.auto', 'Auto'),
         value: null
       },
       ...configuration.reasoningEffortLevels.map((level) => ({
@@ -121,11 +131,11 @@ export function EffortPanel({
   return (
     <Box flexDirection="column" marginTop={1} paddingLeft={2} width={width}>
       <Box>
-        <Text bold>Reasoning effort</Text>
+        <Text bold>{t('cli.panels.effort', 'Reasoning effort')}</Text>
         {saving ? (
           <Box marginLeft={2}>
             <Spinner />
-            <Text color={theme.muted}> saving</Text>
+            <Text color={theme.muted}> {t('cli.common.saving', 'saving')}</Text>
           </Box>
         ) : null}
       </Box>
@@ -159,8 +169,8 @@ export function EffortPanel({
         <Text color={theme.dim}>
           {fitText(
             saving
-              ? 'Saving model effort to OpenCowork…'
-              : '←→ or ↑↓ adjust · Enter apply · Esc cancel',
+              ? t('cli.effort.saving', 'Saving model effort to OpenCowork…')
+              : t('cli.effort.footer', '←→ or ↑↓ adjust · Enter apply · Esc cancel'),
             contentWidth
           )}
         </Text>

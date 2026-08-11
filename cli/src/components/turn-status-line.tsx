@@ -1,21 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Box, Text } from 'ink'
 import stringWidth from 'string-width'
+import { t } from '../i18n.js'
 import { formatTokenCount } from '../lib/metrics.js'
 import { fitText } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { TurnStatusSnapshot } from '../types.js'
 import { ShimmerText } from './shimmer-text.js'
-
-const SPINNER_VERBS = [
-  'Calculating',
-  'Considering',
-  'Crafting',
-  'Processing',
-  'Stewing',
-  'Thinking',
-  'Working'
-] as const
 
 const TOKEN_ANIMATION_INTERVAL_MS = 60
 const ELAPSED_WIDTH_SAMPLE = '999m 59s'
@@ -33,7 +24,16 @@ interface MetadataLayout {
 }
 
 export function pickSpinnerVerb(): string {
-  return SPINNER_VERBS[Math.floor(Math.random() * SPINNER_VERBS.length)] ?? 'Thinking'
+  const verbs = [
+    t('cli.spinner.calculating', 'Calculating'),
+    t('cli.spinner.considering', 'Considering'),
+    t('cli.spinner.crafting', 'Crafting'),
+    t('cli.spinner.processing', 'Processing'),
+    t('cli.spinner.stewing', 'Stewing'),
+    t('cli.spinner.thinking', 'Thinking'),
+    t('cli.spinner.working', 'Working')
+  ]
+  return verbs[Math.floor(Math.random() * verbs.length)] ?? t('cli.spinner.thinking', 'Thinking')
 }
 
 function formatElapsed(startedAt: number, now: number): string {
@@ -101,10 +101,13 @@ function selectMetadata(
 ): MetadataLayout {
   const elapsed = formatElapsed(status.startedAt, now)
   const direction = status.phase === 'requesting' ? '↑' : '↓'
-  const transfer = `${direction} ${formatTokenCount(animatedTokens)} tokens`
-  const reservedTransfer = `${direction} ${TOKEN_WIDTH_SAMPLE} tokens`
+  const tokensLabel = t('cli.metrics.tokens', 'tokens')
+  const transfer = `${direction} ${formatTokenCount(animatedTokens)} ${tokensLabel}`
+  const reservedTransfer = `${direction} ${TOKEN_WIDTH_SAMPLE} ${tokensLabel}`
   const thinking =
-    status.phase === 'thinking' && supportsEffort ? ` · thinking with ${effort} effort` : ''
+    status.phase === 'thinking' && supportsEffort
+      ? ` · ${t('cli.metrics.thinkingWith', 'thinking with')} ${effort} ${t('cli.metrics.effort', 'effort')}`
+      : ''
   const candidates = [
     {
       reserved: `(${ELAPSED_WIDTH_SAMPLE} · ${reservedTransfer}${thinking})`,

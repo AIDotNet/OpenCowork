@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import stringWidth from 'string-width'
+import { t } from '../i18n.js'
 import { fitText } from '../lib/text.js'
 import { theme } from '../theme.js'
 
@@ -47,6 +48,8 @@ function Cell({
 
 export function WelcomeCard({ cwd, model, version, width }: WelcomeCardProps): React.JSX.Element {
   const cardWidth = Math.max(36, width)
+  const noModel = t('cli.welcome.noModel', 'No model configured')
+  const modelConfigured = model !== noModel
   const wide = cardWidth >= 72
   const leftWidth = wide ? Math.floor((cardWidth - 3) * 0.62) : cardWidth - 2
   const rightWidth = wide ? cardWidth - 3 - leftWidth : 0
@@ -61,13 +64,13 @@ export function WelcomeCard({ cwd, model, version, width }: WelcomeCardProps): R
   const leftRows: React.ReactNode[] = [
     null,
     <Text bold key="welcome">
-      Welcome back!
+      {t('cli.welcome.title', 'Welcome back!')}
     </Text>,
     null,
     ...wordmarkRows,
     null,
     <Text color={theme.muted} key="model">
-      {fitText(`${model} · OpenCowork Agent`, leftWidth - 4)}
+      {fitText(`${model} · ${t('cli.welcome.agent', 'OpenCowork Agent')}`, leftWidth - 4)}
     </Text>,
     <Text color={theme.dim} key="cwd">
       {shortCwd}
@@ -76,26 +79,31 @@ export function WelcomeCard({ cwd, model, version, width }: WelcomeCardProps): R
 
   const rightRows: React.ReactNode[] = [
     <Text bold key="tips-title">
-      {fitText('Tips for getting started', rightContentWidth)}
+      {fitText(t('cli.welcome.tips', 'Tips for getting started'), rightContentWidth)}
     </Text>,
     <Text color={theme.muted} key="tip-init">
-      {fitText('Run /config to review settings', rightContentWidth)}
+      {fitText(
+        modelConfigured
+          ? t('cli.welcome.reviewSettings', 'Run /config to review settings')
+          : t('cli.welcome.configureModel', 'Run /provider to configure a model'),
+        rightContentWidth
+      )}
     </Text>,
     <Text color={theme.border} key="right-divider">
       {'─'.repeat(rightContentWidth)}
     </Text>,
     <Text bold key="recent-title">
-      Native Worker
+      {t('cli.welcome.nativeWorker', 'Native Worker')}
     </Text>,
     <Text color={theme.muted} key="recent-value">
-      {fitText('Canonical history persists to SQLite', rightContentWidth)}
+      {fitText(t('cli.welcome.history', 'Canonical history persists to SQLite'), rightContentWidth)}
     </Text>,
     null,
     <Text color={theme.dim} key="tip-command">
-      {fitText('Type / for commands', rightContentWidth)}
+      {fitText(t('cli.welcome.commands', 'Type / for commands'), rightContentWidth)}
     </Text>,
     <Text color={theme.dim} key="tip-files">
-      {fitText('Use ? for shortcuts', rightContentWidth)}
+      {fitText(t('cli.welcome.shortcuts', 'Use ? for shortcuts'), rightContentWidth)}
     </Text>,
     null
   ]

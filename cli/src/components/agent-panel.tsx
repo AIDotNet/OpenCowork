@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+import { t } from '../i18n.js'
 import { fitText, hasTerminalInputControl } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { AgentOption } from '../types.js'
@@ -87,18 +88,24 @@ export function AgentPanel({
 
   return (
     <Box flexDirection="column" marginTop={1} paddingLeft={2} width={width}>
-      <Text bold>Agents</Text>
+      <Text bold>{t('cli.panels.agents', 'Agents')}</Text>
       <Text color={theme.muted}>
-        {agents.length} Native Worker sub-agents · Task delegates work without a second runtime
+        {t(
+          'cli.panels.nativeAgents',
+          '{{count}} Native Worker sub-agents · Task delegates work without a second runtime',
+          { count: agents.length }
+        )}
       </Text>
       <Box marginTop={1}>
-        <Text color={theme.dim}>Search </Text>
+        <Text color={theme.dim}>{t('cli.common.search', 'Search')} </Text>
         <Text color={query ? theme.text : theme.primary}>{queryText}</Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
         {visible.length === 0 ? (
           <Text color={theme.muted}>
-            No agents match “{fitText(query, Math.max(8, width - 20))}”.
+            {t('cli.common.noAgents', 'No agents match “{{query}}”.', {
+              query: fitText(query, Math.max(8, width - 20))
+            })}
           </Text>
         ) : (
           visible.map((agent, visibleIndex) => {
@@ -127,7 +134,10 @@ export function AgentPanel({
       <Box marginTop={1}>
         <Text color={theme.dim}>
           {fitText(
-            'Type to search · ↑↓ inspect · Enter/Esc close · configure in ~/.open-cowork/agents',
+            t(
+              'cli.panels.searchAgents',
+              'Type to search · ↑↓ inspect · Enter/Esc close · configure in ~/.open-cowork/agents'
+            ),
             Math.max(12, width - 4)
           )}
         </Text>

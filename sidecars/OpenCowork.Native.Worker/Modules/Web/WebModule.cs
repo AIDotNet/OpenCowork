@@ -4,7 +4,7 @@ internal sealed class WebModule : IWorkerModule
 
     public void Register(WorkerModuleContext context)
     {
-        context.Register("web/search", WebRuntime.SearchAsync);
-        context.Register("web/fetch", WebRuntime.FetchAsync);
+        context.RegisterJob("web/search", WebRuntime.SearchAsync);
+        context.RegisterJob("web/fetch", WebRuntime.FetchAsync);
     }
 }

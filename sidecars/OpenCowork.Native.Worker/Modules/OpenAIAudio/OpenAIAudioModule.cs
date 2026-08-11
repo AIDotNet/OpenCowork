@@ -4,7 +4,7 @@ internal sealed class OpenAIAudioModule : IWorkerModule
 
     public void Register(WorkerModuleContext context)
     {
-        context.Register("openai-audio/transcribe", OpenAIAudioTools.TranscribeAsync);
-        context.Register("openai-audio/speech", OpenAIAudioTools.SpeechAsync);
+        context.RegisterJob("openai-audio/transcribe", OpenAIAudioTools.TranscribeAsync);
+        context.RegisterJob("openai-audio/speech", OpenAIAudioTools.SpeechAsync);
     }
 }

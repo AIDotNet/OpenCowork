@@ -92,25 +92,16 @@ internal static class AgentRuntimeTools
             WorkerJsonContext.Default.AgentRuntimeCapabilityResult);
     }
 
-    public static Task<WorkerResponse> RunAsync(JsonElement parameters, WorkerRequestContext context)
+    public static async Task<WorkerResponse> ExecuteJobAsync(
+        JsonElement parameters,
+        WorkerRequestContext context)
     {
-        var capabilityError = AgentRuntimeCapabilityPolicy.ValidateRunRequest(parameters);
-        if (capabilityError is not null)
-        {
-            WorkerLog.Warn($"agent run rejected reason={FormatLogValue(capabilityError)}");
-            return Task.FromResult(WorkerResponse.Error(capabilityError));
-        }
-
-        if (!RunSlots.Wait(0))
-        {
-            return Task.FromResult(WorkerResponse.Error(
-                $"Agent run quota exceeded ({MaxConcurrentRuns} concurrent runs)."));
-        }
+        await RunSlots.WaitAsync(context.CancellationToken);
 
         var runId = NormalizeRunId(JsonHelpers.GetString(parameters, "runId"));
         var sessionId = JsonHelpers.GetString(parameters, "sessionId")?.Trim() ?? string.Empty;
         var initialMessageCount = CountArray(parameters, "messages");
-        var state = new AgentRuntimeRunState(runId, sessionId);
+        var state = new AgentRuntimeRunState(runId, sessionId, context.CancellationToken);
         try
         {
             state.ReplaceParameters(parameters.Clone());
@@ -126,21 +117,17 @@ internal static class AgentRuntimeTools
         {
             RunSlots.Release();
             state.Dispose();
-            return Task.FromResult(WorkerResponse.Error($"Agent run already exists: {runId}"));
+            throw new InvalidOperationException($"Agent run already exists: {runId}");
         }
 
         WorkerLog.Info(
             $"agent run accepted runtime=native-aot runId={runId} sessionId={FormatLogValue(sessionId)} " +
             $"messages={initialMessageCount}");
 
-        var backgroundContext = context.ForBackgroundOperation();
-        _ = Task.Run(
-            async () => await ExecuteRunAsync(state, backgroundContext),
-            CancellationToken.None);
-
-        return Task.FromResult(WorkerResponse.Json(
+        await ExecuteRunAsync(state, context);
+        return WorkerResponse.Json(
             new AgentRuntimeRunResult(true, runId),
-            WorkerJsonContext.Default.AgentRuntimeRunResult));
+            WorkerJsonContext.Default.AgentRuntimeRunResult);
     }
 
     public static WorkerResponse Cancel(JsonElement parameters)
@@ -153,10 +140,13 @@ internal static class AgentRuntimeTools
                 WorkerJsonContext.Default.AgentRuntimeCancelResult);
         }
 
+        var durableState = RuntimeJobCoordinator.Cancel(runId);
         if (!ActiveRuns.TryGetValue(runId, out var state))
         {
             return WorkerResponse.Json(
-                new AgentRuntimeCancelResult(false, runId),
+                new AgentRuntimeCancelResult(
+                    durableState is "cancelled" or "cancelling",
+                    runId),
                 WorkerJsonContext.Default.AgentRuntimeCancelResult);
         }
 
@@ -177,14 +167,31 @@ internal static class AgentRuntimeTools
                 WorkerJsonContext.Default.AgentRuntimeStopResult);
         }
 
+        long? commandSeq = null;
+        try
+        {
+            commandSeq = RuntimeJobCoordinator.AppendCommand(runId, "request_stop", parameters);
+        }
+        catch (InvalidOperationException)
+        {
+            // Preserve the historical false result for unknown or terminal runs.
+        }
+
         if (!ActiveRuns.TryGetValue(runId, out var state))
         {
+            var queued = RuntimeJobCoordinator.Get(runId)?.State == "queued";
             return WorkerResponse.Json(
-                new AgentRuntimeStopResult(false, runId),
+                new AgentRuntimeStopResult(queued, runId),
                 WorkerJsonContext.Default.AgentRuntimeStopResult);
         }
 
-        state.RequestStop("user");
+        // The startup path and this live path can observe the same command while
+        // a Job transitions queued -> running. Claim before applying so exactly
+        // one of them mutates the run state.
+        if (!commandSeq.HasValue || RuntimeJobCoordinator.TryConsumeCommand(runId, commandSeq.Value))
+        {
+            state.RequestStop("user");
+        }
         WorkerLog.Info($"agent run stop requested runId={runId}");
         return WorkerResponse.Json(
             new AgentRuntimeStopResult(true, runId),
@@ -214,14 +221,31 @@ internal static class AgentRuntimeTools
                 WorkerJsonContext.Default.AgentRuntimeAppendMessagesResult);
         }
 
+        var requestedCount = CountArray(parameters, "messages");
+        long? commandSeq = null;
+        try
+        {
+            commandSeq = RuntimeJobCoordinator.AppendCommand(runId, "append_messages", parameters);
+        }
+        catch (InvalidOperationException)
+        {
+            // Unknown/terminal runs retain the existing appended=false contract.
+        }
+
         if (!ActiveRuns.TryGetValue(runId, out var state))
         {
+            var queued = RuntimeJobCoordinator.Get(runId)?.State == "queued";
             return WorkerResponse.Json(
-                new AgentRuntimeAppendMessagesResult(false, runId, 0),
+                new AgentRuntimeAppendMessagesResult(queued && requestedCount > 0, runId,
+                    queued ? requestedCount : 0),
                 WorkerJsonContext.Default.AgentRuntimeAppendMessagesResult);
         }
 
-        var count = state.EnqueueMessages(parameters);
+        var count = requestedCount;
+        if (!commandSeq.HasValue || RuntimeJobCoordinator.TryConsumeCommand(runId, commandSeq.Value))
+        {
+            count = state.EnqueueMessages(parameters);
+        }
         WorkerLog.Debug($"agent run append messages runId={runId} count={count}");
         return WorkerResponse.Json(
             new AgentRuntimeAppendMessagesResult(count > 0, runId, count),
@@ -246,6 +270,14 @@ internal static class AgentRuntimeTools
         using var operation = WorkerMemory.TrackOperation("agent-run");
         try
         {
+            var capabilityError = AgentRuntimeCapabilityPolicy.ValidateRunRequest(state.Parameters);
+            if (capabilityError is not null)
+            {
+                WorkerLog.Warn($"agent run rejected reason={FormatLogValue(capabilityError)}");
+                throw new InvalidOperationException(capabilityError);
+            }
+
+            ApplyQueuedCommands(state);
             await EmitAsync(state, context, new AgentRuntimeStreamEvent("loop_start"));
 
             if (state.IsCancellationRequested)
@@ -287,6 +319,7 @@ internal static class AgentRuntimeTools
                 state,
                 context,
                 "error");
+            throw;
         }
         finally
         {
@@ -346,11 +379,17 @@ internal static class AgentRuntimeTools
         }
 
         var messagePackEvent = AgentStreamMessagePackEmitter.Encode(envelope);
-        await context.EmitMessagePackEventAsync(messagePackEvent);
+        var terminal = events.Any(static streamEvent =>
+            streamEvent.Type is "loop_end" or "error");
+        RuntimeJobCoordinator.PersistEvent(
+            state.RunId,
+            envelope.Seq,
+            messagePackEvent.Payload,
+            terminal);
         if (AgentStreamMessagePackEmitter.TraceEnabled)
         {
             WorkerLog.Debug(
-                $"agent stream emitted transport=msgpack runId={state.RunId} seq={envelope.Seq} " +
+                $"agent stream committed transport=durable-outbox runId={state.RunId} seq={envelope.Seq} " +
                 $"events={events.Length} bytes={messagePackEvent.Payload.Length}");
         }
     }
@@ -368,14 +407,14 @@ internal static class AgentRuntimeTools
             new AgentRuntimeFeatureSet(
                 CapabilitySnapshot: true,
                 StrictToolValidation: true,
-                DurableEvents: false,
-                DurableInbox: false,
+                DurableEvents: true,
+                DurableInbox: true,
                 CheckpointRecovery: false,
                 ToolReconciliation: false,
-                LaneScheduler: false),
+                LaneScheduler: true),
             new AgentRuntimeCompatibility(
-                AcceptsV1RunRequest: true,
-                CanRecoverV2Run: false,
+                AcceptsV1RunRequest: false,
+                CanRecoverV2Run: true,
                 MinimumRendererVersion: "1.2.8",
                 MinimumMainVersion: "1.2.8"));
     }
@@ -404,6 +443,31 @@ internal static class AgentRuntimeTools
         return property.GetArrayLength();
     }
 
+    private static void ApplyQueuedCommands(AgentRuntimeRunState state)
+    {
+        foreach (var command in RuntimeJobCoordinator.ReadPendingCommands(state.RunId))
+        {
+            using var payload = JsonDocument.Parse(command.PayloadJson);
+            if (!RuntimeJobCoordinator.TryConsumeCommand(command.CommandId))
+            {
+                continue;
+            }
+
+            switch (command.Kind)
+            {
+                case "append_messages":
+                    state.EnqueueMessages(payload.RootElement);
+                    break;
+                case "request_stop":
+                    state.RequestStop("queued_command");
+                    break;
+                case "cancel":
+                    state.Cancel("queued_command");
+                    break;
+            }
+        }
+    }
+
     private static string FormatLogValue(string? value)
     {
         return string.IsNullOrEmpty(value) ? "<empty>" : value;
@@ -418,12 +482,21 @@ internal static class AgentRuntimeTools
         private int queuedMessageCount;
         private int stopRequested;
         private bool messageQueueClosed;
+        private readonly CancellationTokenRegistration externalCancellationRegistration;
 
-        public AgentRuntimeRunState(string runId, string sessionId)
+        public AgentRuntimeRunState(
+            string runId,
+            string sessionId,
+            CancellationToken externalCancellationToken = default)
         {
             RunId = runId;
             SessionId = sessionId;
             StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            externalCancellationRegistration = externalCancellationToken.CanBeCanceled
+                ? externalCancellationToken.Register(
+                    static value => ((AgentRuntimeRunState)value!).Cancel("job"),
+                    this)
+                : default;
         }
 
         public string RunId { get; }
@@ -568,6 +641,7 @@ internal static class AgentRuntimeTools
             // but a leaked lease pins a process-wide sub-agent concurrency slot forever.
             SubAgentConcurrencyLease?.Dispose();
             SubAgentConcurrencyLease = null;
+            externalCancellationRegistration.Dispose();
             cancellation.Dispose();
         }
     }

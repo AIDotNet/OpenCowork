@@ -70,6 +70,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             throw await AgentRuntimeProviderHttpException.CreateAsync(
                 "Anthropic Messages",
                 response,
+                provider,
                 state.CancellationToken);
         }
 
@@ -78,7 +79,11 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         var dataBuilder = new StringBuilder();
         string? eventName = null;
         string? line;
-        while ((line = await reader.ReadLineAsync(state.CancellationToken)) is not null)
+        while ((line = await AgentRuntimeRequestTimeout.ReadLineAsync(
+            reader,
+            provider,
+            "Anthropic Messages",
+            state.CancellationToken)) is not null)
         {
             if (line.Length == 0)
             {

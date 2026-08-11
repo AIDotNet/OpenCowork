@@ -117,6 +117,7 @@ export interface SidecarProviderConfig {
   useSystemProxy?: boolean
   allowInsecureTls?: boolean
   requestTimeoutSeconds?: number
+  streamIdleTimeoutSeconds?: number
   thinkingEnabled?: boolean
   thinkingConfig?: ProviderConfig['thinkingConfig']
   reasoningEffort?: string
@@ -532,6 +533,9 @@ function mapSidecarProvider(provider: ProviderConfig): SidecarProviderConfig {
       : {}),
     ...(provider.requestTimeoutSeconds !== undefined
       ? { requestTimeoutSeconds: provider.requestTimeoutSeconds }
+      : {}),
+    ...(provider.streamIdleTimeoutSeconds !== undefined
+      ? { streamIdleTimeoutSeconds: provider.streamIdleTimeoutSeconds }
       : {}),
     ...(provider.thinkingEnabled !== undefined
       ? { thinkingEnabled: provider.thinkingEnabled }

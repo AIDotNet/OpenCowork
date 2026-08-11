@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Static, Text, useApp } from 'ink'
 import { AgentPanel } from './components/agent-panel.js'
 import { AskUserPrompt } from './components/ask-user-prompt.js'
@@ -12,6 +12,7 @@ import { PromptInput } from './components/prompt-input.js'
 import { StatusLine } from './components/status-line.js'
 import { TaskList } from './components/task-list.js'
 import { Transcript } from './components/transcript.js'
+import { pickSpinnerVerb, TurnStatusLine } from './components/turn-status-line.js'
 import { WelcomeCard } from './components/welcome-card.js'
 import { useTerminalSize } from './hooks/use-terminal-size.js'
 import { appendAssistantSegment, finalizeAssistantSegments } from './lib/assistant-content.js'
@@ -24,6 +25,7 @@ import type {
   ConfigCatalog,
   ConfigSettingValue,
   ContextSnapshot,
+  FileReferenceCandidate,
   Message,
   ModelCatalog,
   ModelConfiguration,
@@ -35,12 +37,14 @@ import type {
   PlanApprovalMode,
   PlanSnapshot,
   PromptImageAttachment,
+  PromptReference,
   RewindAction,
   RewindCheckpoint,
   RewindResult,
   UiEvent,
   TaskItem,
   TuiMode,
+  TurnStatusSnapshot,
   UsageSnapshot
 } from './types.js'
 
@@ -84,6 +88,13 @@ function nowTimestamp(): string {
   }).format(new Date())
 }
 
+function isActiveThinkingMessage(message: Message): boolean {
+  if (message.kind !== 'assistant' || !message.streaming) return false
+  const segments = message.segments ?? []
+  if (segments.length === 0) return !message.text
+  return segments.at(-1)?.kind === 'thinking'
+}
+
 export function CliApp({
   cwd,
   initialPermissionMode,
@@ -99,6 +110,7 @@ export function CliApp({
   initialCatalogRef.current ??= runtime.getModelCatalog()
   const [messages, setMessages] = useState<Message[]>([])
   const [promptImages, setPromptImages] = useState<PromptImageAttachment[]>([])
+  const [promptReferences, setPromptReferences] = useState<PromptReference[]>([])
   const [tasks, setTasks] = useState<TaskItem[]>([])
   const [agents, setAgents] = useState<AgentOption[]>(() => runtime.getAgentCatalog())
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(initialCatalogRef.current)
@@ -153,6 +165,7 @@ export function CliApp({
   const [planActionPending, setPlanActionPending] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [activity, setActivity] = useState<string>()
+  const [turnStatus, setTurnStatus] = useState<TurnStatusSnapshot | null>(null)
   const [notice, setNotice] = useState<string>()
   const [transcriptEpoch, setTranscriptEpoch] = useState(0)
   const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetrics>(() =>
@@ -187,6 +200,7 @@ export function CliApp({
   const dynamicMessages = fullscreen
     ? messages.slice(-maxVisibleMessages)
     : messages.slice(firstMutableMessage < 0 ? messages.length : firstMutableMessage)
+  const assistantThinking = dynamicMessages.some(isActiveThinkingMessage)
 
   useEffect(() => {
     return () => {
@@ -300,6 +314,14 @@ export function CliApp({
     setAgentPanelOpen(true)
   }
 
+  const searchFiles = useCallback(
+    async (query: string, signal: AbortSignal): Promise<FileReferenceCandidate[]> => {
+      if (!runtime.searchFiles) return []
+      return runtime.searchFiles(query, signal)
+    },
+    [runtime]
+  )
+
   const appendSystem = (
     text: string,
     tone: Extract<Message, { kind: 'system' }>['tone'] = 'muted'
@@ -314,11 +336,39 @@ export function CliApp({
   const applyRuntimeEvent = (event: UiEvent): void => {
     if (event.type === 'turn.done') {
       refreshRuntimeMetrics()
+      setTurnStatus(null)
       return
     }
 
     if (event.type === 'runtime.activity') {
       setActivity(event.activity === 'compressing' ? 'Compressing context…' : 'Working…')
+      if (event.activity === 'working') {
+        setTurnStatus((current) => (current ? { ...current, phase: 'requesting' } : current))
+      }
+      return
+    }
+
+    if (event.type === 'runtime.usage') {
+      refreshRuntimeMetrics()
+      setTurnStatus((current) => {
+        if (!current) return current
+        const estimatedOutputTokens = Math.round(current.activeResponseCharacters / 4)
+        const outputTokens =
+          event.outputTokens !== undefined && event.outputTokens > 0
+            ? event.outputTokens
+            : estimatedOutputTokens
+        const reportedRequestTokens = event.contextTokens ?? event.inputTokens
+        return {
+          ...current,
+          activeResponseCharacters: 0,
+          completedOutputTokens: current.completedOutputTokens + outputTokens,
+          phase: current.phase === 'requesting' ? 'responding' : current.phase,
+          requestTokens:
+            reportedRequestTokens !== undefined && reportedRequestTokens > 0
+              ? reportedRequestTokens
+              : current.requestTokens
+        }
+      })
       return
     }
 
@@ -330,6 +380,7 @@ export function CliApp({
       setActivity(
         `Retry ${event.attempt}/${event.maxAttempts}${event.statusCode ? ` · HTTP ${event.statusCode}` : ''} · in ${delay}${event.reason ? ` · ${event.reason}` : ''}`
       )
+      setTurnStatus((current) => (current ? { ...current, phase: 'requesting' } : current))
       return
     }
 
@@ -352,6 +403,7 @@ export function CliApp({
 
     if (event.type === 'assistant.start') {
       setActivity('Working…')
+      setTurnStatus((current) => (current ? { ...current, phase: 'responding' } : current))
       setMessages((current) => [
         ...current,
         {
@@ -368,6 +420,15 @@ export function CliApp({
     }
 
     if (event.type === 'assistant.delta') {
+      setTurnStatus((current) =>
+        current
+          ? {
+              ...current,
+              activeResponseCharacters: current.activeResponseCharacters + event.text.length,
+              phase: 'responding'
+            }
+          : current
+      )
       setMessages((current) =>
         current.map((message) =>
           message.id === event.id && message.kind === 'assistant'
@@ -383,6 +444,15 @@ export function CliApp({
     }
 
     if (event.type === 'assistant.thinking') {
+      setTurnStatus((current) =>
+        current
+          ? {
+              ...current,
+              activeResponseCharacters: current.activeResponseCharacters + event.thinking.length,
+              phase: 'thinking'
+            }
+          : current
+      )
       setMessages((current) =>
         current.map((message) =>
           message.id === event.id && message.kind === 'assistant'
@@ -402,6 +472,15 @@ export function CliApp({
     }
 
     if (event.type === 'assistant.done') {
+      setTurnStatus((current) => {
+        if (!current || current.activeResponseCharacters <= 0) return current
+        return {
+          ...current,
+          activeResponseCharacters: 0,
+          completedOutputTokens:
+            current.completedOutputTokens + Math.round(current.activeResponseCharacters / 4)
+        }
+      })
       setMessages((current) =>
         current.map((message) =>
           message.id === event.id && message.kind === 'assistant'
@@ -425,6 +504,7 @@ export function CliApp({
 
     if (event.type === 'tool.start') {
       setActivity('Working…')
+      setTurnStatus((current) => (current ? { ...current, phase: 'tool-use' } : current))
       setMessages((current) => [
         ...current,
         {
@@ -442,7 +522,13 @@ export function CliApp({
       setMessages((current) =>
         current.map((message) =>
           message.id === event.id && message.kind === 'tool'
-            ? { ...message, status: event.status, summary: event.summary }
+            ? {
+                ...message,
+                status: event.status,
+                summary: event.summary,
+                ...(event.title ? { title: event.title } : {}),
+                ...(event.diff ? { diff: event.diff } : {})
+              }
             : message
         )
       )
@@ -498,7 +584,11 @@ export function CliApp({
     if (event.type === 'system') setMessages((current) => [...current, event.message])
   }
 
-  const runPrompt = async (prompt: string, images: PromptImageAttachment[] = []): Promise<void> => {
+  const runPrompt = async (
+    prompt: string,
+    images: PromptImageAttachment[] = [],
+    references: PromptReference[] = []
+  ): Promise<void> => {
     if (isRunning) {
       showNotice('A turn is already running · Esc to interrupt')
       return
@@ -506,6 +596,19 @@ export function CliApp({
     if (images.length > 0 && !supportsVision) {
       showNotice('Current model does not support image input · choose a vision model with Alt-P')
       return
+    }
+
+    const startedAt = Date.now()
+    let requestTokens = Math.max(1, Math.ceil(prompt.length / 4))
+    const submission = { text: prompt, images, references }
+    try {
+      requestTokens = Math.max(
+        1,
+        runtime.estimateRequestTokens?.(submission) ??
+          (runtime.getContextSnapshot?.().estimatedTokens ?? 0) + requestTokens
+      )
+    } catch {
+      // The live transfer indicator remains available even if optional context metrics fail.
     }
 
     setMessages((current) => [
@@ -523,6 +626,9 @@ export function CliApp({
                 size: image.size
               }))
             }
+          : {}),
+        ...(references.length > 0
+          ? { references: references.map((reference) => ({ ...reference })) }
           : {})
       }
     ])
@@ -530,9 +636,18 @@ export function CliApp({
     abortControllerRef.current = controller
     setIsRunning(true)
     setActivity('Working…')
+    setTurnStatus({
+      activeResponseCharacters: 0,
+      completedOutputTokens: 0,
+      id: `turn-${startedAt}`,
+      phase: 'requesting',
+      requestTokens,
+      startedAt,
+      verb: pickSpinnerVerb()
+    })
 
     try {
-      for await (const event of runtime.send(prompt, controller.signal, images)) {
+      for await (const event of runtime.send(submission, controller.signal)) {
         if (controller.signal.aborted) break
         applyRuntimeEvent(event)
       }
@@ -543,6 +658,7 @@ export function CliApp({
       refreshRuntimeMetrics()
       setIsRunning(false)
       setActivity(undefined)
+      setTurnStatus(null)
     }
   }
 
@@ -603,6 +719,8 @@ export function CliApp({
       await operation.call(runtime)
       if (!fullscreen) process.stdout.write('\u001B[2J\u001B[3J\u001B[H')
       setMessages([])
+      setPromptImages([])
+      setPromptReferences([])
       if (startNewSession) setTasks([])
       setPlan(null)
       if (startNewSession) setShowTasks(false)
@@ -993,11 +1111,15 @@ export function CliApp({
     return false
   }
 
-  const handleSubmit = (submission: string, images: PromptImageAttachment[]): void => {
+  const handleSubmit = (
+    submission: string,
+    images: PromptImageAttachment[],
+    references: PromptReference[]
+  ): void => {
     setShowHelp(false)
     if (submission.trimStart().startsWith('/')) {
-      if (images.length > 0) {
-        showNotice('Remove attached images before running a CLI command')
+      if (images.length > 0 || references.length > 0) {
+        showNotice('Remove attached images and references before running a CLI command')
         return
       }
       if (handleCommand(submission)) return
@@ -1005,7 +1127,7 @@ export function CliApp({
       appendSystem(`Unknown CLI command: ${commandName}`, 'warning')
       return
     }
-    void runPrompt(submission, images)
+    void runPrompt(submission, images, references)
   }
 
   const handlePermissionDecision = (decision: PermissionDecision): void => {
@@ -1243,11 +1365,25 @@ export function CliApp({
               width={contentWidth}
             />
           ) : dynamicMessages.length > 0 ? (
-            <Transcript messages={dynamicMessages} showDetails={showDetails} width={contentWidth} />
+            <Transcript
+              hideStreamingStatus={Boolean(turnStatus)}
+              messages={dynamicMessages}
+              showDetails={showDetails}
+              width={contentWidth}
+            />
           ) : null}
         </Box>
 
         <Box flexDirection="column" flexShrink={0}>
+          {turnStatus ? (
+            <TurnStatusLine
+              effort={effort}
+              status={turnStatus}
+              supportsEffort={availableEffortLevels.length > 0}
+              width={contentWidth}
+            />
+          ) : null}
+
           {showTasks &&
           !askUserRequest &&
           !planOverlay &&
@@ -1379,21 +1515,27 @@ export function CliApp({
               onOpenModel={openModelPicker}
               onRedraw={redraw}
               onImagesChange={setPromptImages}
+              onReferencesChange={setPromptReferences}
               onRewind={runRewind}
+              onSearchFiles={searchFiles}
               onSubmit={handleSubmit}
               onToggleDetails={toggleDetails}
               onToggleHelp={() => setShowHelp((current) => !current)}
               onToggleTasks={() => setShowTasks((current) => !current)}
               showHelp={showHelp}
               supportsVision={supportsVision}
+              references={promptReferences}
               width={contentWidth}
             />
           )}
 
           <StatusLine
-            activity={activity}
+            activity={
+              turnStatus || (assistantThinking && activity === 'Working…') ? undefined : activity
+            }
             context={runtimeMetrics.context}
             effort={effort}
+            hideIdleHint={Boolean(turnStatus) || assistantThinking}
             model={modelSelection?.modelName ?? 'No model'}
             mode={permissionMode}
             notice={notice}

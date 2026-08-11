@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { decode, encode } from '@msgpack/msgpack'
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
@@ -30,26 +31,42 @@ function createFrame(payload) {
 }
 
 class WorkerClient {
-  constructor(endpoint, child, dbPath) {
-    this.endpoint = endpoint
+  constructor(controlEndpoint, eventEndpoint, child, dbPath) {
+    this.controlEndpoint = controlEndpoint
+    this.eventEndpoint = eventEndpoint
     this.child = child
     this.dbPath = dbPath
     this.socket = null
+    this.eventSocket = null
     this.buffer = Buffer.alloc(0)
     this.nextId = 1
     this.pending = new Map()
   }
 
   async connect() {
+    const [socket, eventSocket] = await Promise.all([
+      this.connectEndpoint(this.controlEndpoint),
+      this.connectEndpoint(this.eventEndpoint)
+    ])
+    this.socket = socket
+    this.eventSocket = eventSocket
+    socket.on('data', (chunk) => this.onData(chunk))
+    // This verification has no event assertions, but connecting the required
+    // endpoint exercises the same dual-IPC boot contract as production.
+    eventSocket.on('error', () => {})
+  }
+
+  async connectEndpoint(endpoint) {
     for (let attempt = 0; attempt < 300; attempt += 1) {
       try {
-        this.socket = await new Promise((resolve, reject) => {
-          const socket = net.createConnection(this.endpoint)
+        return await new Promise((resolve, reject) => {
+          const socket = net.createConnection(endpoint)
           socket.once('connect', () => resolve(socket))
-          socket.once('error', reject)
+          socket.once('error', (error) => {
+            socket.destroy()
+            reject(error)
+          })
         })
-        this.socket.on('data', (chunk) => this.onData(chunk))
-        return
       } catch {
         if (this.child.exitCode !== null) {
           throw new Error(`Native worker exited with code ${this.child.exitCode}`)
@@ -93,6 +110,7 @@ class WorkerClient {
 
   close() {
     this.socket?.destroy()
+    this.eventSocket?.destroy()
   }
 }
 
@@ -126,7 +144,15 @@ async function main() {
   const indexOnlyDbPath = indexOnlyDbFlag >= 0 ? process.argv[indexOnlyDbFlag + 1] : null
   const tempHome = await mkdtemp(path.join(os.tmpdir(), 'open-cowork-agent-history-'))
   const dataDir = path.join(tempHome, '.open-cowork')
-  const endpoint = path.join(tempHome, 'worker.sock')
+  const endpointSuffix = `${process.pid}-${randomUUID()}`
+  const controlEndpoint =
+    process.platform === 'win32'
+      ? `\\\\.\\pipe\\open-cowork-history-control-${endpointSuffix}`
+      : path.join(tempHome, 'control.sock')
+  const eventEndpoint =
+    process.platform === 'win32'
+      ? `\\\\.\\pipe\\open-cowork-history-event-${endpointSuffix}`
+      : path.join(tempHome, 'events.sock')
   const settingsPath = path.join(dataDir, 'settings.json')
   const dbPath = indexOnlyDbPath ? path.resolve(indexOnlyDbPath) : path.join(dataDir, 'data.db')
   const first = historyEntry('call-first', 'session-a', 100, 'first')
@@ -176,23 +202,30 @@ async function main() {
     await writeFile(settingsPath, JSON.stringify(settingsFixture, null, 2))
 
     const workerCommand = workerPath.endsWith('.dll') ? 'dotnet' : workerPath
-    const workerArgs = workerPath.endsWith('.dll')
-      ? [workerPath, '--ipc', endpoint]
-      : ['--ipc', endpoint]
+    const endpointArgs = [
+      '--control-ipc',
+      controlEndpoint,
+      '--event-ipc',
+      eventEndpoint,
+      '--host-id',
+      `verify-history-${endpointSuffix}`
+    ]
+    const workerArgs = workerPath.endsWith('.dll') ? [workerPath, ...endpointArgs] : endpointArgs
     child = spawn(workerCommand, workerArgs, {
       cwd: repoRoot,
       env: {
         ...process.env,
         HOME: tempHome,
         USERPROFILE: tempHome,
-        OPEN_COWORK_NATIVE_SETTINGS_PATH: settingsPath
+        OPEN_COWORK_NATIVE_SETTINGS_PATH: settingsPath,
+        OPEN_COWORK_RUNTIME_DB_PATH: path.join(dataDir, 'runtime-jobs.db')
       },
       stdio: ['ignore', 'ignore', 'pipe']
     })
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString('utf8')
     })
-    client = new WorkerClient(endpoint, child, dbPath)
+    client = new WorkerClient(controlEndpoint, eventEndpoint, child, dbPath)
     await client.connect()
 
     if (indexOnlyDbPath) {

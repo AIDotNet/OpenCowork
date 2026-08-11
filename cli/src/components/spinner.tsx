@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { Text } from 'ink'
+import { Box, Text } from 'ink'
 import { theme } from '../theme.js'
 
-const frames = ['·', '✢', '✳', '✶', '✻', '✽']
+// Every frame must occupy exactly one terminal cell. The previous star sequence mixed
+// one- and two-cell glyphs, which made adjacent labels such as Thinking and Working jump.
+const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
 export function Spinner(): React.JSX.Element {
   const [frame, setFrame] = useState(0)
@@ -13,8 +15,10 @@ export function Spinner(): React.JSX.Element {
   }, [])
 
   return (
-    <Text bold color={theme.primary}>
-      {frames[frame]}
-    </Text>
+    <Box width={1}>
+      <Text bold color={theme.primary}>
+        {frames[frame]}
+      </Text>
+    </Box>
   )
 }

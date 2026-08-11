@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Text.Json;
 
 internal sealed class AgentRuntimeProviderHttpException : InvalidOperationException
 {
@@ -21,9 +22,14 @@ internal sealed class AgentRuntimeProviderHttpException : InvalidOperationExcept
     public static async Task<AgentRuntimeProviderHttpException> CreateAsync(
         string providerName,
         HttpResponseMessage response,
+        JsonElement provider,
         CancellationToken cancellationToken)
     {
-        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        var responseBody = await AgentRuntimeRequestTimeout.ReadErrorBodyAsync(
+            response.Content,
+            provider,
+            providerName,
+            cancellationToken);
         return new AgentRuntimeProviderHttpException(
             providerName,
             response.StatusCode,

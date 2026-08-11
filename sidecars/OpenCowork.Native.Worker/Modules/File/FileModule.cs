@@ -5,10 +5,10 @@ internal sealed class FileModule : IWorkerModule
     public void Register(WorkerModuleContext context)
     {
         context.Register("fs/read-file", FileTools.ReadFileAsync);
-        context.Register("fs/read-document", FileDocumentTools.ReadDocumentAsync);
-        context.Register("fs/read-file-binary", FileTools.ReadBinaryFileAsync);
+        context.RegisterJob("fs/read-document", FileDocumentTools.ReadDocumentAsync, lanePolicy: "project");
+        context.RegisterJob("fs/read-file-binary", FileTools.ReadBinaryFileAsync, lanePolicy: "project");
         context.Register("fs/write-file", FileTools.WriteFileAsync);
-        context.Register("fs/write-file-binary", FileTools.WriteBinaryFileAsync);
+        context.RegisterJob("fs/write-file-binary", FileTools.WriteBinaryFileAsync, lanePolicy: "project");
         context.Register("fs/stat-path", FileTools.StatPath);
         context.Register("fs/mkdir", FileTools.MakeDirectory);
         context.Register("fs/delete", FileTools.DeletePath);
@@ -17,6 +17,6 @@ internal sealed class FileModule : IWorkerModule
         context.Register("fs/list-dir", FileTools.ListDirectory);
         context.Register("fs/glob", FileTools.Glob);
         context.Register("fs/search-files", FileTools.SearchFiles);
-        context.Register("fs/grep", FileTools.GrepAsync);
+        context.RegisterJob("fs/grep", FileTools.GrepAsync, lanePolicy: "project");
     }
 }

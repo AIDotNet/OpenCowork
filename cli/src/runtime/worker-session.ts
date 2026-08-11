@@ -55,6 +55,7 @@ export interface WorkerRunRequest extends JsonRecord {
   runId: string
   sessionId: string
   messages: WorkerMessage[]
+  requestContextTexts?: string[]
   provider: JsonRecord
   compressionProvider?: JsonRecord
   tools: WorkerToolDefinition[]
@@ -810,7 +811,8 @@ function buildSystemPrompt(options: WorkerSessionOptions, settings: JsonRecord):
 export function buildWorkerRunRequest(
   options: WorkerSessionOptions,
   messages: WorkerMessage[],
-  extraTools: WorkerToolDefinition[] = []
+  extraTools: WorkerToolDefinition[] = [],
+  requestContextTexts: string[] = []
 ): { request: WorkerRunRequest; modelLabel: string } {
   const configuration = loadOpenCoworkConfiguration()
   const { settings } = configuration
@@ -842,6 +844,7 @@ export function buildWorkerRunRequest(
     runId: options.runId,
     sessionId: options.sessionId,
     messages,
+    ...(requestContextTexts.length > 0 ? { requestContextTexts } : {}),
     provider,
     ...(compressionProvider ? { compressionProvider } : {}),
     tools,

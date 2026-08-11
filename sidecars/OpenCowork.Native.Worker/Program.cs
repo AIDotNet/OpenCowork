@@ -34,6 +34,8 @@ internal static class Program
             CodeGraphNativeLibraryResolver.Install();
 
             var endpoint = WorkerEndpoint.Parse(args);
+            RuntimeJobCoordinator.Configure(endpoint);
+            Environment.SetEnvironmentVariable("OPEN_COWORK_RUNTIME_JOBS", "1");
             await WorkerHost.CreateDefault(endpoint).RunAsync();
             return 0;
         }

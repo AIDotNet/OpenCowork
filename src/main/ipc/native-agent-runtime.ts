@@ -32,6 +32,7 @@ export class NativeAgentRuntimeManager {
   private unsubscribeReverseRequest: (() => void) | null = null
   private unsubscribeReverseCancel: (() => void) | null = null
   private unsubscribeReconnect: (() => void) | null = null
+  private unsubscribeEventReconnect: (() => void) | null = null
   private activeRunIds = new Set<string>()
   private initializeResult: RuntimeInitializeResultV2 | null = null
   private lastInitializeError: string | null = null
@@ -96,6 +97,8 @@ export class NativeAgentRuntimeManager {
       this.installEventBridge()
       const result = await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
       this.initializeResult = this.validateInitializeResult(result)
+      await this.subscribeEvents()
+      await this.refreshActiveRuns()
       this.lastInitializeError = null
       this.running = true
       return true
@@ -130,6 +133,8 @@ export class NativeAgentRuntimeManager {
     this.unsubscribeReverseCancel = null
     this.unsubscribeReconnect?.()
     this.unsubscribeReconnect = null
+    this.unsubscribeEventReconnect?.()
+    this.unsubscribeEventReconnect = null
   }
 
   // The supervisor may respawn a fresh worker underneath us. The new process is
@@ -141,6 +146,8 @@ export class NativeAgentRuntimeManager {
     try {
       const result = await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
       this.initializeResult = this.validateInitializeResult(result)
+      await this.subscribeEvents()
+      await this.refreshActiveRuns()
       this.lastInitializeError = null
       console.log('[NativeAgentRuntime] re-initialized after worker restart')
     } catch (error) {
@@ -244,6 +251,40 @@ export class NativeAgentRuntimeManager {
       this.unsubscribeReconnect = getNativeWorker().onReconnect(() => {
         void this.handleWorkerReconnected()
       })
+    }
+
+    if (!this.unsubscribeEventReconnect) {
+      this.unsubscribeEventReconnect = getNativeWorker().onEventReconnect(() => {
+        void this.subscribeEvents().catch((error) => {
+          console.warn(
+            `[NativeAgentRuntime] durable event replay failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          )
+        })
+      })
+    }
+  }
+
+  private async subscribeEvents(): Promise<void> {
+    await getNativeWorker().request(
+      'events/subscribe',
+      { consumerId: 'desktop', limit: 4096 },
+      30_000
+    )
+  }
+
+  private async refreshActiveRuns(): Promise<void> {
+    const result = await getNativeWorker().request<{
+      jobs?: Array<{ method?: string; runId?: string; jobId?: string; state?: string }>
+    }>('jobs/list', { limit: 1000 }, 30_000)
+    this.activeRunIds.clear()
+    for (const job of result.jobs ?? []) {
+      if (job.method !== 'agent/run' || (job.state !== 'queued' && job.state !== 'running')) {
+        continue
+      }
+      const runId = job.runId || job.jobId
+      if (runId) this.activeRunIds.add(runId)
     }
   }
 

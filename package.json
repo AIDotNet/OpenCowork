@@ -35,6 +35,7 @@
     "verify:compact-request-view": "node ./scripts/verify-compact-request-view.mjs",
     "contracts:gen": "node ./scripts/generate-worker-contracts.mjs",
     "contracts:check": "node ./scripts/generate-worker-contracts.mjs --check",
+    "verify:native-worker-jobs": "node ./scripts/verify-native-worker-jobs.mjs",
     "native:publish": "node ./scripts/publish-native-worker.mjs",
     "codegraph:publish": "npm run native:publish",
     "codegraph:grammars:validate": "node ./scripts/validate-codegraph-grammars.mjs",

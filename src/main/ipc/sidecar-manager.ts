@@ -839,6 +839,7 @@ export function registerSidecarHandlers(): void {
       dispatchedAt: number
       acceptedAt: number | null
       lastEventAt: number | null
+      jobState: 'queued' | 'running'
     }
   >()
 
@@ -864,6 +865,7 @@ export function registerSidecarHandlers(): void {
         accepted: trackedRun?.acceptedAt !== null && trackedRun?.acceptedAt !== undefined,
         acceptedAt: trackedRun?.acceptedAt ?? null,
         lastEventAt: trackedRun?.lastEventAt ?? null,
+        jobState: trackedRun?.jobState ?? null,
         lastSeq: trackedRun?.lastSeq ?? null,
         journalFrames,
         mappedRunWindowId: runId ? (runWindowIds.get(runId) ?? null) : null,
@@ -1046,7 +1048,8 @@ export function registerSidecarHandlers(): void {
           lastSeq: typeof frame.seq === 'number' ? frame.seq : (trackedRun?.lastSeq ?? 0),
           dispatchedAt: trackedRun?.dispatchedAt ?? receivedAt,
           acceptedAt: trackedRun?.acceptedAt ?? receivedAt,
-          lastEventAt: receivedAt
+          lastEventAt: receivedAt,
+          jobState: 'running'
         })
       }
     }
@@ -1114,52 +1117,82 @@ export function registerSidecarHandlers(): void {
     safeSendMessagePackToAllWindows('sidecar:worker-state', snapshot)
   })
 
-  // When the worker dies mid-stream the renderer never receives a terminal
-  // event and hangs on the run. Synthesize error + loop_end for each active run
-  // so the UI fails gracefully; the supervisor respawns the worker underneath.
+  const failInterruptedRun = (
+    runId: string,
+    info: ActiveRunSession,
+    errorType = 'worker_interrupted',
+    message = 'Native worker stopped while this Job was running.'
+  ): void => {
+    activeRunSessions.delete(runId)
+    const targetWindow = resolveRendererTargetWindow(
+      { runId, sessionId: info.sessionId },
+      runWindowIds,
+      sessionWindowIds,
+      { allowFallback: false }
+    )
+    runWindowIds.delete(runId)
+    if (!targetWindow) return
+
+    const bytes = encodeAgentStreamEnvelope({
+      v: AGENT_STREAM_PROTOCOL_VERSION,
+      runId,
+      sessionId: info.sessionId,
+      seq: info.lastSeq + 1,
+      events: [
+        {
+          type: 'error',
+          message,
+          errorType,
+          details: JSON.stringify(buildSidecarDiagnostics(runId, info.sessionId, info), null, 2)
+        },
+        { type: 'loop_end', reason: 'error' }
+      ]
+    })
+    sendAgentStreamBytes(targetWindow, bytes, {
+      source: 'worker-disconnect',
+      runId,
+      sessionId: info.sessionId
+    })
+  }
+
+  // Running Jobs are not restarted after a crash (model cost and side effects may
+  // already have happened). Queued Jobs remain in SQLite and are deliberately kept
+  // attached so the replacement worker can consume them.
   manager.onDisconnect(() => {
     if (activeRunSessions.size === 0) return
     flushAllStreamBatches()
-    const runs = Array.from(activeRunSessions.entries())
-    const diagnosticsByRun = new Map(
-      runs.map(([runId, info]) => [
-        runId,
-        JSON.stringify(buildSidecarDiagnostics(runId, info.sessionId, info), null, 2)
-      ])
-    )
-    activeRunSessions.clear()
-
-    for (const [runId, info] of runs) {
-      const targetWindow = resolveRendererTargetWindow(
-        { runId, sessionId: info.sessionId },
-        runWindowIds,
-        sessionWindowIds,
-        { allowFallback: false }
-      )
-      runWindowIds.delete(runId)
-      if (!targetWindow) continue
-
-      const bytes = encodeAgentStreamEnvelope({
-        v: AGENT_STREAM_PROTOCOL_VERSION,
-        runId,
-        sessionId: info.sessionId,
-        seq: info.lastSeq + 1,
-        events: [
-          {
-            type: 'error',
-            message: 'Native worker disconnected; the local runtime was recycled.',
-            errorType: 'sidecar_unavailable',
-            details: diagnosticsByRun.get(runId)
-          },
-          { type: 'loop_end', reason: 'error' }
-        ]
-      })
-      sendAgentStreamBytes(targetWindow, bytes, {
-        source: 'worker-disconnect',
-        runId,
-        sessionId: info.sessionId
-      })
+    for (const [runId, info] of Array.from(activeRunSessions.entries())) {
+      if (info.jobState === 'running') failInterruptedRun(runId, info)
     }
+  })
+
+  manager.onReconnect(() => {
+    void Promise.all(
+      Array.from(activeRunSessions.entries()).map(async ([runId, info]) => {
+        try {
+          const status = (await getNativeWorker().request(
+            'jobs/status',
+            { jobId: runId },
+            10_000
+          )) as { state?: string; errorCode?: string; error?: string }
+          if (status.state === 'running') {
+            activeRunSessions.set(runId, { ...info, jobState: 'running' })
+          } else if (status.state === 'failed' || status.state === 'cancelled') {
+            failInterruptedRun(
+              runId,
+              info,
+              status.errorCode ?? status.state,
+              status.error ?? `Background Job ${status.state}.`
+            )
+          }
+        } catch (error) {
+          console.warn('[Sidecar] failed to audit queued Job after worker reconnect', {
+            runId,
+            error: error instanceof Error ? error.message : String(error)
+          })
+        }
+      })
+    )
   })
 
   manager.setRequestHandler(async (_id, method, params) => {
@@ -1533,13 +1566,15 @@ export function registerSidecarHandlers(): void {
         lastSeq: 0,
         dispatchedAt: Date.now(),
         acceptedAt: null,
-        lastEventAt: null
+        lastEventAt: null,
+        jobState: 'queued'
       })
     }
     try {
       const result = (await manager.request('agent/run', hookAdjustedParams, 60_000)) as {
         started: boolean
         runId: string
+        state?: string
       }
       rememberRendererOrigin(
         event,
@@ -1565,7 +1600,8 @@ export function registerSidecarHandlers(): void {
         } else if (pretracked && !resultRun) {
           activeRunSessions.set(result.runId, {
             ...pretracked,
-            acceptedAt: Date.now()
+            acceptedAt: Date.now(),
+            jobState: result.state === 'running' ? 'running' : 'queued'
           })
         }
       } else if (requestedRunId) {
@@ -1573,7 +1609,8 @@ export function registerSidecarHandlers(): void {
         if (trackedRun) {
           activeRunSessions.set(requestedRunId, {
             ...trackedRun,
-            acceptedAt: trackedRun.acceptedAt ?? Date.now()
+            acceptedAt: trackedRun.acceptedAt ?? Date.now(),
+            jobState: result.state === 'running' ? 'running' : trackedRun.jobState
           })
         }
       }
@@ -1601,6 +1638,27 @@ export function registerSidecarHandlers(): void {
     }
     return result
   })
+
+  registerMessagePackInvokeHandler<{ runId?: string; throughSeq?: number }>(
+    'agent:event-ack',
+    async (_event, params) => {
+      const runId = readNonEmptyString(params?.runId)
+      const throughSeq = params?.throughSeq
+      if (
+        !runId ||
+        typeof throughSeq !== 'number' ||
+        !Number.isFinite(throughSeq) ||
+        throughSeq <= 0
+      ) {
+        return { acked: false }
+      }
+      return await getNativeWorker().request(
+        'events/ack',
+        { consumerId: 'desktop', jobId: runId, throughSeq },
+        10_000
+      )
+    }
+  )
 
   // Snapshot of in-flight runtime state for a (re)mounting window. Lets a
   // renderer that reloaded mid-run (Vite HMR) or a freshly-opened detached

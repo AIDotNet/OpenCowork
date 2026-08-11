@@ -27,6 +27,8 @@ internal static class WorkerModuleCatalog
         new TerminalModule(),
         // CodeGraph (source-merged engine): codegraph/* methods. Handlers gate on
         // per-project state; registration never blocks boot (not in the required set).
-        new CodeGraphModule()
+        new CodeGraphModule(),
+        // Bind the durable scheduler only after every Job route has registered.
+        new RuntimeJobModule()
     ];
 }

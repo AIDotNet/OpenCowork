@@ -4,8 +4,8 @@ internal sealed class OpenAIVideoModule : IWorkerModule
 
     public void Register(WorkerModuleContext context)
     {
-        context.Register("openai-video/generate", OpenAIVideoTools.GenerateAsync);
+        context.RegisterJob("openai-video/generate", OpenAIVideoTools.GenerateAsync);
         context.Register("openai-video/status", OpenAIVideoTools.StatusAsync);
-        context.Register("openai-video/download", OpenAIVideoTools.DownloadAsync);
+        context.RegisterJob("openai-video/download", OpenAIVideoTools.DownloadAsync);
     }
 }

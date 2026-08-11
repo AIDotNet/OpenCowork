@@ -17,7 +17,7 @@
 
 export const constants = {
   /** Bump on incompatible frame/dispatch contract changes (worker/hello gate). */
-  WORKER_PROTOCOL_VERSION: 1,
+  WORKER_PROTOCOL_VERSION: 2,
   /** Version tag embedded in every agent/stream MessagePack envelope. */
   AGENT_STREAM_PROTOCOL_VERSION: 1
 } as const
@@ -39,6 +39,14 @@ export interface WorkerHelloResult {
 
 export interface WorkerRoutesResult {
   methods: string[]
+  routes: WorkerRouteDescriptor[]
+}
+
+export interface WorkerRouteDescriptor {
+  method: string
+  executionMode: string
+  resultMode: string
+  lanePolicy: string | null
 }
 
 export interface SystemMemorySnapshot {

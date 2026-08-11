@@ -43,12 +43,21 @@ const MAX_FRAME_BYTES = 256 * 1024 * 1024
 const IDEMPOTENT_METHOD_PATTERN = new RegExp(
   '^(?:' +
     'worker/(?:ping|hello|routes|memory)|' +
+    'jobs/(?:submit|status|result|list)|' +
+    'events/(?:subscribe|ack|replay)|' +
     'settings/(?:read|get)|' +
     'file/read|' +
     'db/[a-z0-9-]+(?:-list|-get|-status|-index|-find|-search)(?:-[a-z0-9-]+)?' +
     ')$'
 )
 const REQUIRED_NATIVE_WORKER_METHODS = [
+  'jobs/submit',
+  'jobs/status',
+  'jobs/result',
+  'jobs/cancel',
+  'events/subscribe',
+  'events/ack',
+  'events/replay',
   'settings/read',
   'settings/get',
   'settings/set',
@@ -205,6 +214,8 @@ export type NativeWorkerStateSnapshot = {
 export type NativeWorkerDiagnosticsSnapshot = NativeWorkerStateSnapshot & {
   transport: 'named-pipe' | 'unix-domain-socket'
   endpoint: string | null
+  eventEndpoint: string | null
+  eventConnected: boolean
   lastFrameReceivedAt: number | null
   lastAgentStreamAt: number | null
   lastAgentStreamRunId: string | null
@@ -236,6 +247,33 @@ type NativeWorkerEventFrame = {
 
 type NativeWorkerRoutesResult = {
   methods?: unknown
+  routes?: unknown
+}
+
+type NativeWorkerRouteDescriptor = {
+  method: string
+  executionMode: string
+  resultMode: string
+  lanePolicy?: string | null
+}
+
+type NativeJobSubmission = {
+  accepted?: boolean
+  duplicate?: boolean
+  jobId?: string
+  runId?: string
+  state?: string
+  error?: string
+  errorCode?: string
+}
+
+type NativeJobStatus = {
+  found?: boolean
+  jobId?: string
+  state?: string
+  result?: unknown
+  error?: string
+  errorCode?: string
 }
 
 export type NativeWorkerRawEventFrame = NativeMessagePackRoute & {
@@ -246,7 +284,9 @@ export type NativeWorkerRawEventFrame = NativeMessagePackRoute & {
 class NativeWorkerManager {
   private child: ChildProcess | null = null
   private socket: net.Socket | null = null
+  private eventSocket: net.Socket | null = null
   private endpoint: string | null = null
+  private eventEndpoint: string | null = null
   private events = new EventEmitter()
   private rawEvents = new EventEmitter()
   private pending = new Map<number, PendingRequest>()
@@ -254,6 +294,10 @@ class NativeWorkerManager {
   private readChunks: Buffer[] = []
   private readBufferedBytes = 0
   private pendingFrameLength = -1
+  private eventReadChunks: Buffer[] = []
+  private eventReadBufferedBytes = 0
+  private eventPendingFrameLength = -1
+  private eventReconnectTimer: ReturnType<typeof setTimeout> | null = null
   private nextId = 1
   private startPromise: Promise<void> | null = null
   private stopping = false
@@ -276,6 +320,7 @@ class NativeWorkerManager {
   private lastDisconnect: NativeWorkerDiagnosticsSnapshot['lastDisconnect'] = null
   private lifecycle = new EventEmitter()
   private stderrTail: string[] = []
+  private jobRoutes = new Map<string, NativeWorkerRouteDescriptor>()
 
   constructor(private config: NativeWorkerConfig = NATIVE_CONFIG) {
     // powerMonitor is only usable once the app is ready; the manager may be
@@ -350,6 +395,13 @@ class NativeWorkerManager {
     }
   }
 
+  onEventReconnect(listener: () => void): () => void {
+    this.lifecycle.on('event-reconnected', listener)
+    return () => {
+      this.lifecycle.off('event-reconnected', listener)
+    }
+  }
+
   onStateChange(listener: (snapshot: NativeWorkerStateSnapshot) => void): () => void {
     this.lifecycle.on('state', listener)
     return () => {
@@ -377,6 +429,8 @@ class NativeWorkerManager {
       ...this.getStateSnapshot(),
       transport: process.platform === 'win32' ? 'named-pipe' : 'unix-domain-socket',
       endpoint: this.endpoint,
+      eventEndpoint: this.eventEndpoint,
+      eventConnected: Boolean(this.eventSocket && !this.eventSocket.destroyed),
       lastFrameReceivedAt: this.lastFrameReceivedAt || null,
       lastAgentStreamAt: this.lastAgentStreamAt || null,
       lastAgentStreamRunId: this.lastAgentStreamRunId,
@@ -447,6 +501,11 @@ class NativeWorkerManager {
       throw new Error('Native worker is not running')
     }
 
+    const jobRoute = this.jobRoutes.get(method)
+    if (jobRoute) {
+      return await this.requestViaJob<T>(method, params ?? {}, jobRoute, timeoutMs, signal)
+    }
+
     return await new Promise<T>((resolve, reject) => {
       const pending: PendingRequest = {
         method,
@@ -462,6 +521,108 @@ class NativeWorkerManager {
       }
       this.dispatchPending(pending)
     })
+  }
+
+  private async requestViaJob<T>(
+    method: string,
+    params: unknown,
+    route: NativeWorkerRouteDescriptor,
+    timeoutMs: number | null | undefined,
+    signal?: AbortSignal
+  ): Promise<T> {
+    const source = isRecord(params) ? params : {}
+    const requestedRunId =
+      method === 'agent/run' && typeof source.runId === 'string' && source.runId.trim()
+        ? source.runId.trim()
+        : method === 'agent/run'
+          ? randomUUID()
+          : null
+    const jobId = requestedRunId ?? randomUUID()
+    const jobParams = requestedRunId ? { ...source, runId: requestedRunId } : params
+    let submission: NativeJobSubmission
+    try {
+      submission = await this.request<NativeJobSubmission>(
+        'jobs/submit',
+        {
+          method,
+          params: jobParams,
+          jobId,
+          idempotencyKey: jobId
+        },
+        30_000,
+        signal
+      )
+    } catch (error) {
+      // The SQLite commit can win a race with local AbortSignal delivery. We know
+      // the deterministic Job id even when the submit response was cancelled, so
+      // make a best-effort cancellation instead of leaving an orphaned Job.
+      if (signal?.aborted) {
+        await this.request('jobs/cancel', { jobId }, 10_000).catch(() => {})
+      }
+      throw error
+    }
+    if (submission.accepted !== true || typeof submission.jobId !== 'string') {
+      throw new Error(
+        submission.error ||
+          `${submission.errorCode ?? 'queue_unavailable'}: Worker did not commit the Job`
+      )
+    }
+
+    if (signal?.aborted) {
+      await this.request('jobs/cancel', { jobId: submission.jobId }, 10_000).catch(() => {})
+      throw createAbortError(method)
+    }
+
+    if (route.resultMode === 'accepted') {
+      return {
+        started: true,
+        runId: submission.runId || requestedRunId || submission.jobId,
+        jobId: submission.jobId,
+        state: submission.state || 'queued',
+        duplicate: submission.duplicate === true
+      } as unknown as T
+    }
+
+    const effectiveTimeoutMs =
+      timeoutMs === NATIVE_WORKER_NO_TIMEOUT
+        ? null
+        : typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+          ? timeoutMs
+          : DEFAULT_NATIVE_WORKER_TIMEOUT_MS
+    const deadline = effectiveTimeoutMs === null ? null : Date.now() + effectiveTimeoutMs
+    let pollDelayMs = 100
+    try {
+      while (true) {
+        if (signal?.aborted) throw createAbortError(method)
+        if (deadline !== null && Date.now() >= deadline) {
+          throw new Error(
+            `Background Job wait timed out: ${method} (jobId=${submission.jobId}); ` +
+              'the Job remains queued/running and can be queried with jobs/result.'
+          )
+        }
+
+        const status = await this.request<NativeJobStatus>(
+          'jobs/result',
+          { jobId: submission.jobId },
+          10_000,
+          signal
+        )
+        if (status.state === 'succeeded') return status.result as T
+        if (status.state === 'failed' || status.state === 'cancelled') {
+          throw new Error(
+            `${status.errorCode ?? status.state}: ${status.error ?? `Background Job ${status.state}`}`
+          )
+        }
+        await waitForNativeJobPoll(signal, pollDelayMs)
+        pollDelayMs = Math.min(1_000, Math.ceil(pollDelayMs * 1.5))
+      }
+    } catch (error) {
+      if (signal?.aborted) {
+        await this.request('jobs/cancel', { jobId: submission.jobId }, 10_000).catch(() => {})
+        throw createAbortError(method)
+      }
+      throw error
+    }
   }
 
   // Encodes and writes one request onto the CURRENT socket. Called for fresh
@@ -563,7 +724,9 @@ class NativeWorkerManager {
 
     this.config.sweepStaleEndpoints()
     const endpoint = this.config.createEndpoint()
+    const eventEndpoint = this.config.createEndpoint()
     cleanupNativeWorkerEndpoint(endpoint)
+    cleanupNativeWorkerEndpoint(eventEndpoint)
     const childEnv = this.config.createEnv()
     console.log('[NativeWorker] starting', {
       workerPath,
@@ -573,15 +736,21 @@ class NativeWorkerManager {
     })
 
     this.setPhase('spawning')
-    const child = spawn(workerPath, ['--ipc', endpoint], {
-      cwd: path.dirname(workerPath),
-      env: childEnv,
-      stdio: ['ignore', 'ignore', 'pipe'],
-      windowsHide: true
-    })
+    const hostId = this.config.id === 'native' ? 'desktop' : 'desktop-codegraph'
+    const child = spawn(
+      workerPath,
+      ['--control-ipc', endpoint, '--event-ipc', eventEndpoint, '--host-id', hostId],
+      {
+        cwd: path.dirname(workerPath),
+        env: childEnv,
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true
+      }
+    )
 
     this.child = child
     this.endpoint = endpoint
+    this.eventEndpoint = eventEndpoint
     this.stderrTail = []
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8').trim()
@@ -646,6 +815,9 @@ class NativeWorkerManager {
         }
       })
 
+      this.eventSocket = await connectNativeWorker(eventEndpoint, child)
+      this.installEventSocket(this.eventSocket)
+
       this.setPhase('handshaking')
       await this.performHandshake(workerPath)
       this.setPhase('verifying-routes')
@@ -653,7 +825,8 @@ class NativeWorkerManager {
       console.log('[NativeWorker] IPC connected', {
         pid: child.pid ?? null,
         workerPath,
-        transport: process.platform === 'win32' ? 'named-pipe' : 'unix-domain-socket'
+        transport: process.platform === 'win32' ? 'named-pipe' : 'unix-domain-socket',
+        eventTransport: 'connected'
       })
 
       const reconnected = this.hasStartedOnce
@@ -721,10 +894,6 @@ class NativeWorkerManager {
   }
 
   private async verifyRequiredMethods(workerPath: string): Promise<void> {
-    // An empty gate (the CodeGraph worker) never blocks boot: skip the route
-    // probe entirely so a lazy sidecar starts on first use without a boot check.
-    if (this.config.requiredMethods.length === 0) return
-
     let routes: NativeWorkerRoutesResult
     try {
       routes = await this.request<NativeWorkerRoutesResult>('worker/routes', {}, 10_000)
@@ -743,6 +912,24 @@ class NativeWorkerManager {
         ? routes.methods.filter((method): method is string => typeof method === 'string')
         : []
     )
+    this.jobRoutes.clear()
+    if (Array.isArray(routes.routes)) {
+      for (const value of routes.routes) {
+        if (
+          isRecord(value) &&
+          typeof value.method === 'string' &&
+          value.executionMode === 'job' &&
+          typeof value.resultMode === 'string'
+        ) {
+          this.jobRoutes.set(value.method, {
+            method: value.method,
+            executionMode: value.executionMode,
+            resultMode: value.resultMode,
+            lanePolicy: typeof value.lanePolicy === 'string' ? value.lanePolicy : null
+          })
+        }
+      }
+    }
     const missing = this.config.requiredMethods.filter((method) => !methods.has(method))
     if (missing.length > 0) {
       throw new Error(
@@ -757,6 +944,76 @@ class NativeWorkerManager {
       workerPath,
       methodCount: methods.size
     })
+  }
+
+  private installEventSocket(socket: net.Socket): void {
+    socket.on('data', (chunk) => this.handleEventSocketData(chunk))
+    socket.on('error', (error) => {
+      if (this.eventSocket === socket && !this.stopping) this.resetEventConnection(error)
+    })
+    socket.on('close', () => {
+      if (this.eventSocket === socket && !this.stopping) {
+        this.resetEventConnection(new Error('Native worker Event IPC closed'))
+      }
+    })
+  }
+
+  private resetEventConnection(error: Error): void {
+    const socket = this.eventSocket
+    if (!socket) return
+    this.eventSocket = null
+    socket.removeAllListeners()
+    socket.destroy()
+    this.eventReadChunks = []
+    this.eventReadBufferedBytes = 0
+    this.eventPendingFrameLength = -1
+    console.warn('[NativeWorker] Event IPC disconnected; jobs remain healthy', {
+      error: error.message
+    })
+    this.scheduleEventReconnect()
+  }
+
+  private scheduleEventReconnect(): void {
+    if (
+      this.eventReconnectTimer ||
+      this.stopping ||
+      !this.child ||
+      !this.eventEndpoint ||
+      !this.isRunning
+    ) {
+      return
+    }
+
+    this.eventReconnectTimer = setTimeout(() => {
+      this.eventReconnectTimer = null
+      void this.reconnectEventSocket()
+    }, 250)
+    this.eventReconnectTimer.unref?.()
+  }
+
+  private async reconnectEventSocket(): Promise<void> {
+    const child = this.child
+    const endpoint = this.eventEndpoint
+    if (!child || !endpoint || this.stopping || !this.isRunning || this.eventSocket) return
+
+    try {
+      const socket = await connectNativeWorker(endpoint, child)
+      if (this.child !== child || this.stopping || !this.isRunning) {
+        socket.destroy()
+        return
+      }
+      this.eventSocket = socket
+      this.installEventSocket(socket)
+      console.log('[NativeWorker] Event IPC reconnected')
+      this.lifecycle.emit('event-reconnected')
+    } catch (error) {
+      if (this.child === child && !this.stopping && this.isRunning) {
+        console.warn('[NativeWorker] Event IPC reconnect failed', {
+          error: asError(error).message
+        })
+        this.scheduleEventReconnect()
+      }
+    }
   }
 
   // Chunks are queued as-is and only joined once a full frame has arrived;
@@ -781,8 +1038,57 @@ class NativeWorkerManager {
       if (this.readBufferedBytes < this.pendingFrameLength) return
       const payload = this.consumeBufferedBytes(this.pendingFrameLength)
       this.pendingFrameLength = -1
-      this.handleResponseFrame(payload)
+      this.handleResponseFrame(payload, 'control')
     }
+  }
+
+  private handleEventSocketData(chunk: Buffer): void {
+    this.eventReadChunks.push(chunk)
+    this.eventReadBufferedBytes += chunk.length
+
+    while (true) {
+      if (this.eventPendingFrameLength < 0) {
+        if (this.eventReadBufferedBytes < FRAME_HEADER_BYTES) return
+        const header = this.consumeEventBufferedBytes(FRAME_HEADER_BYTES)
+        const length = header.readUInt32BE(0)
+        if (length <= 0 || length > MAX_FRAME_BYTES) {
+          this.resetEventConnection(
+            new Error(`Invalid native worker Event IPC frame length: ${length}`)
+          )
+          return
+        }
+        this.eventPendingFrameLength = length
+      }
+      if (this.eventReadBufferedBytes < this.eventPendingFrameLength) return
+      const payload = this.consumeEventBufferedBytes(this.eventPendingFrameLength)
+      this.eventPendingFrameLength = -1
+      this.handleResponseFrame(payload, 'event')
+    }
+  }
+
+  private consumeEventBufferedBytes(count: number): Buffer {
+    const first = this.eventReadChunks[0]
+    if (first && first.length >= count) {
+      const output = first.subarray(0, count)
+      if (first.length === count) this.eventReadChunks.shift()
+      else this.eventReadChunks[0] = first.subarray(count)
+      this.eventReadBufferedBytes -= count
+      return output
+    }
+
+    const output = Buffer.allocUnsafe(count)
+    let offset = 0
+    while (offset < count) {
+      const current = this.eventReadChunks[0]
+      if (!current) throw new Error('Native worker Event IPC frame buffer underflow')
+      const length = Math.min(current.length, count - offset)
+      current.copy(output, offset, 0, length)
+      if (length === current.length) this.eventReadChunks.shift()
+      else this.eventReadChunks[0] = current.subarray(length)
+      offset += length
+    }
+    this.eventReadBufferedBytes -= count
+    return output
   }
 
   private consumeBufferedBytes(count: number): Buffer {
@@ -815,8 +1121,8 @@ class NativeWorkerManager {
     return out
   }
 
-  private handleResponseFrame(payload: Buffer): void {
-    this.lastFrameReceivedAt = Date.now()
+  private handleResponseFrame(payload: Buffer, source: 'control' | 'event'): void {
+    if (source === 'control') this.lastFrameReceivedAt = Date.now()
     const routeStartedAt = performance.now()
     const route = readNativeMessagePackRoute(payload)
     if (
@@ -921,7 +1227,9 @@ class NativeWorkerManager {
     this.stopHeartbeat()
     const child = this.child
     const socket = this.socket
+    const eventSocket = this.eventSocket
     const endpoint = this.endpoint
+    const eventEndpoint = this.eventEndpoint
     const hadWorkerActivity = Boolean(child || socket || this.pending.size > 0)
 
     if (!this.stopping && hadWorkerActivity) {
@@ -938,7 +1246,9 @@ class NativeWorkerManager {
 
     this.child = null
     this.socket = null
+    this.eventSocket = null
     this.endpoint = null
+    this.eventEndpoint = null
     this.readChunks = []
     this.readBufferedBytes = 0
     this.pendingFrameLength = -1
@@ -954,6 +1264,15 @@ class NativeWorkerManager {
 
     socket?.removeAllListeners()
     socket?.destroy()
+    eventSocket?.removeAllListeners()
+    eventSocket?.destroy()
+    if (this.eventReconnectTimer) {
+      clearTimeout(this.eventReconnectTimer)
+      this.eventReconnectTimer = null
+    }
+    this.eventReadChunks = []
+    this.eventReadBufferedBytes = 0
+    this.eventPendingFrameLength = -1
     if (child && !child.killed && child.exitCode === null) {
       child.kill()
       // SIGTERM is advisory: a worker wedged in native code (the usual reason a
@@ -975,6 +1294,9 @@ class NativeWorkerManager {
     }
     if (endpoint) {
       cleanupNativeWorkerEndpoint(endpoint)
+    }
+    if (eventEndpoint) {
+      cleanupNativeWorkerEndpoint(eventEndpoint)
     }
 
     for (const pending of this.pending.values()) {
@@ -1271,6 +1593,26 @@ function createFrame(payload: Uint8Array): Buffer {
     FRAME_HEADER_BYTES
   )
   return frame
+}
+
+function waitForNativeJobPoll(signal: AbortSignal | undefined, delayMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createAbortError('jobs/result'))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, delayMs)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      reject(createAbortError('jobs/result'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+  })
 }
 
 function createAbortError(method: string): Error {

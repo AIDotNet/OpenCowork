@@ -12,7 +12,9 @@ export const theme = {
   selectedBackground: '#D7BA7D',
   code: '#C3E88D',
   added: '#73C991',
-  removed: '#E06C75'
+  addedBackground: '#17382B',
+  removed: '#E06C75',
+  removedBackground: '#3A2227'
 } as const
 
 export const permissionModeLabels: Record<string, string> = {

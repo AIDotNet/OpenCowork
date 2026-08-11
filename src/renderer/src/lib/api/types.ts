@@ -746,6 +746,7 @@ export interface ProviderConfig {
    * 0 waits indefinitely. Sourced from the global apiRequestTimeoutSeconds setting.
    */
   requestTimeoutSeconds?: number
+  streamIdleTimeoutSeconds?: number
   /** Whether thinking mode is enabled for this request */
   thinkingEnabled?: boolean
   /** Thinking configuration from the active model */

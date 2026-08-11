@@ -726,6 +726,7 @@ internal static class OpenAIChatRuntime
             throw await AgentRuntimeProviderHttpException.CreateAsync(
                 "OpenAI-compatible chat",
                 response,
+                provider,
                 state.CancellationToken);
         }
 
@@ -735,7 +736,11 @@ internal static class OpenAIChatRuntime
         var rawResponseBuilder = new StringBuilder();
         var sawSsePayload = false;
         string? line;
-        while ((line = await reader.ReadLineAsync(state.CancellationToken)) is not null)
+        while ((line = await AgentRuntimeRequestTimeout.ReadLineAsync(
+            reader,
+            provider,
+            "OpenAI-compatible chat",
+            state.CancellationToken)) is not null)
         {
             if (state.CancellationToken.IsCancellationRequested)
             {

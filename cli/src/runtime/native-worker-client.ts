@@ -12,7 +12,7 @@ const MAX_FRAME_BYTES = 256 * 1024 * 1024
 const CONNECT_TIMEOUT_MS = 10_000
 const REQUEST_TIMEOUT_MS = 60_000
 const HEARTBEAT_INTERVAL_MS = 15_000
-const WORKER_PROTOCOL_VERSION = 1
+const WORKER_PROTOCOL_VERSION = 2
 
 type PendingRequest = {
   method: string
@@ -32,6 +32,29 @@ type WorkerEventFrame = {
   event?: string
   params?: unknown
   [key: string]: unknown
+}
+
+type WorkerRouteDescriptor = {
+  method: string
+  executionMode: string
+  resultMode: string
+}
+
+type JobSubmission = {
+  accepted?: boolean
+  duplicate?: boolean
+  jobId?: string
+  runId?: string
+  state?: string
+  error?: string
+  errorCode?: string
+}
+
+type JobStatus = {
+  state?: string
+  result?: unknown
+  error?: string
+  errorCode?: string
 }
 
 export type WorkerEventListener = (params: unknown, raw: Record<string, unknown>) => void
@@ -63,6 +86,26 @@ function createAbortError(method: string): Error {
   const error = new Error(`Native worker request aborted: ${method}`)
   error.name = 'AbortError'
   return error
+}
+
+function waitForJobPoll(signal: AbortSignal | undefined, delayMs: number): Promise<void> {
+  return new Promise((resolveWait, rejectWait) => {
+    if (signal?.aborted) {
+      rejectWait(createAbortError('jobs/result'))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', handleAbort)
+      resolveWait()
+    }, delayMs)
+    const handleAbort = (): void => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', handleAbort)
+      rejectWait(createAbortError('jobs/result'))
+    }
+    signal?.addEventListener('abort', handleAbort, { once: true })
+    if (signal?.aborted) handleAbort()
+  })
 }
 
 function createFrame(payload: Uint8Array): Buffer {
@@ -184,12 +227,19 @@ async function connectToEndpoint(endpoint: string, child: ChildProcess): Promise
 export class NativeWorkerClient {
   private child: ChildProcess | null = null
   private socket: Socket | null = null
+  private eventSocket: Socket | null = null
   private endpoint: string | null = null
+  private eventEndpoint: string | null = null
+  private readonly hostId = `cli-${randomUUID().replaceAll('-', '')}`
   private executable: string | null = null
   private startPromise: Promise<void> | null = null
   private readChunks: Buffer[] = []
   private readBufferedBytes = 0
   private pendingFrameLength = -1
+  private eventReadChunks: Buffer[] = []
+  private eventReadBufferedBytes = 0
+  private eventPendingFrameLength = -1
+  private eventReconnect: ReturnType<typeof setTimeout> | null = null
   private nextId = 1
   private pending = new Map<number, PendingRequest>()
   private events = new EventEmitter()
@@ -197,6 +247,7 @@ export class NativeWorkerClient {
   private heartbeat: ReturnType<typeof setInterval> | null = null
   private runtimeInfo: Record<string, unknown> = {}
   private routeCount = 0
+  private jobRoutes = new Map<string, WorkerRouteDescriptor>()
 
   constructor(private readonly options: NativeWorkerClientOptions) {}
 
@@ -213,6 +264,13 @@ export class NativeWorkerClient {
   on(eventName: string, listener: WorkerEventListener): () => void {
     this.events.on(eventName, listener)
     return () => this.events.off(eventName, listener)
+  }
+
+  ackEvent(jobId: string, throughSeq: number): void {
+    if (!this.isRunning || !jobId || throughSeq <= 0) return
+    void this.request('events/ack', { consumerId: this.hostId, jobId, throughSeq }, 10_000).catch(
+      () => {}
+    )
   }
 
   async ensureStarted(): Promise<void> {
@@ -236,6 +294,11 @@ export class NativeWorkerClient {
     if (signal?.aborted) throw createAbortError(method)
     const socket = this.socket
     if (!socket || !this.isRunning) throw new Error('Native worker is not running')
+
+    const jobRoute = this.jobRoutes.get(method)
+    if (jobRoute) {
+      return await this.requestViaJob<T>(method, params, jobRoute, timeoutMs, signal)
+    }
 
     return await new Promise<T>((resolveRequest, rejectRequest) => {
       const id = this.nextId
@@ -278,6 +341,94 @@ export class NativeWorkerClient {
     })
   }
 
+  private async requestViaJob<T>(
+    method: string,
+    params: unknown,
+    route: WorkerRouteDescriptor,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<T> {
+    const source = isRecord(params) ? params : {}
+    const runId =
+      method === 'agent/run' && typeof source.runId === 'string' && source.runId.trim()
+        ? source.runId.trim()
+        : method === 'agent/run'
+          ? randomUUID()
+          : null
+    const jobId = runId ?? randomUUID()
+    let submission: JobSubmission
+    try {
+      submission = await this.request<JobSubmission>(
+        'jobs/submit',
+        {
+          method,
+          params: runId ? { ...source, runId } : params,
+          jobId,
+          idempotencyKey: jobId
+        },
+        30_000,
+        signal
+      )
+    } catch (error) {
+      if (signal?.aborted) {
+        await this.request('jobs/cancel', { jobId }, 10_000).catch(() => {})
+      }
+      throw error
+    }
+    if (submission.accepted !== true || typeof submission.jobId !== 'string') {
+      throw new Error(
+        submission.error || `${submission.errorCode ?? 'queue_unavailable'}: Job was not committed`
+      )
+    }
+    if (signal?.aborted) {
+      await this.request('jobs/cancel', { jobId: submission.jobId }, 10_000).catch(() => {})
+      throw createAbortError(method)
+    }
+    if (route.resultMode === 'accepted') {
+      return {
+        started: true,
+        runId: submission.runId || runId || submission.jobId,
+        jobId: submission.jobId,
+        state: submission.state || 'queued',
+        duplicate: submission.duplicate === true
+      } as unknown as T
+    }
+
+    const deadline = Date.now() + timeoutMs
+    let pollDelayMs = 100
+    try {
+      while (true) {
+        if (signal?.aborted) throw createAbortError(method)
+        if (Date.now() >= deadline) {
+          throw new Error(
+            `Background Job wait timed out: ${method} (jobId=${submission.jobId}); ` +
+              'the Job continues in the worker.'
+          )
+        }
+        const status = await this.request<JobStatus>(
+          'jobs/result',
+          { jobId: submission.jobId },
+          10_000,
+          signal
+        )
+        if (status.state === 'succeeded') return status.result as T
+        if (status.state === 'failed' || status.state === 'cancelled') {
+          throw new Error(
+            `${status.errorCode ?? status.state}: ${status.error ?? `Background Job ${status.state}`}`
+          )
+        }
+        await waitForJobPoll(signal, pollDelayMs)
+        pollDelayMs = Math.min(1_000, Math.ceil(pollDelayMs * 1.5))
+      }
+    } catch (error) {
+      if (signal?.aborted) {
+        await this.request('jobs/cancel', { jobId: submission.jobId }, 10_000).catch(() => {})
+        throw createAbortError(method)
+      }
+      throw error
+    }
+  }
+
   async probe(): Promise<NativeWorkerProbe> {
     await this.ensureStarted()
     return {
@@ -298,16 +449,25 @@ export class NativeWorkerClient {
     if (this.heartbeat) clearInterval(this.heartbeat)
     this.heartbeat = null
     const socket = this.socket
+    const eventSocket = this.eventSocket
     const child = this.child
     const endpoint = this.endpoint
+    const eventEndpoint = this.eventEndpoint
     this.socket = null
+    this.eventSocket = null
     this.child = null
     this.endpoint = null
+    this.eventEndpoint = null
     this.executable = null
     socket?.removeAllListeners()
     socket?.destroy()
+    eventSocket?.removeAllListeners()
+    eventSocket?.destroy()
+    if (this.eventReconnect) clearTimeout(this.eventReconnect)
+    this.eventReconnect = null
     if (child && child.exitCode === null && !child.killed) child.kill()
     if (endpoint && process.platform !== 'win32') rmSync(endpoint, { force: true })
+    if (eventEndpoint && process.platform !== 'win32') rmSync(eventEndpoint, { force: true })
     this.failPending(new Error('Native worker stopped'))
   }
 
@@ -321,20 +481,27 @@ export class NativeWorkerClient {
     }
 
     const endpoint = createEndpoint()
+    const eventEndpoint = createEndpoint()
     if (process.platform !== 'win32') rmSync(endpoint, { force: true })
-    const child = spawn(workerPath, ['--ipc', endpoint], {
-      cwd: dirname(workerPath),
-      env: {
-        ...process.env,
-        OPEN_COWORK_APP_VERSION: this.options.appVersion,
-        OPEN_COWORK_NATIVE_SLOW_MS: process.env.OPEN_COWORK_NATIVE_SLOW_MS ?? '750'
-      },
-      stdio: ['ignore', 'ignore', 'pipe'],
-      windowsHide: true
-    })
+    if (process.platform !== 'win32') rmSync(eventEndpoint, { force: true })
+    const child = spawn(
+      workerPath,
+      ['--control-ipc', endpoint, '--event-ipc', eventEndpoint, '--host-id', this.hostId],
+      {
+        cwd: dirname(workerPath),
+        env: {
+          ...process.env,
+          OPEN_COWORK_APP_VERSION: this.options.appVersion,
+          OPEN_COWORK_NATIVE_SLOW_MS: process.env.OPEN_COWORK_NATIVE_SLOW_MS ?? '750'
+        },
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true
+      }
+    )
 
     this.child = child
     this.endpoint = endpoint
+    this.eventEndpoint = eventEndpoint
     this.executable = workerPath
     this.stderrTail = []
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -364,6 +531,10 @@ export class NativeWorkerClient {
         if (this.socket === socket) this.handleDisconnect(new Error('Native worker IPC closed'))
       })
 
+      const eventSocket = await connectToEndpoint(eventEndpoint, child)
+      this.eventSocket = eventSocket
+      this.installEventSocket(eventSocket)
+
       const hello = await this.request<Record<string, unknown>>('worker/hello', {}, 10_000)
       if (hello.protocolVersion !== WORKER_PROTOCOL_VERSION) {
         throw new Error(
@@ -371,15 +542,40 @@ export class NativeWorkerClient {
             `received ${String(hello.protocolVersion)}`
         )
       }
-      const routes = await this.request<{ methods?: unknown }>('worker/routes', {}, 10_000)
+      const routes = await this.request<{ methods?: unknown; routes?: unknown }>(
+        'worker/routes',
+        {},
+        10_000
+      )
       const methods = Array.isArray(routes.methods)
         ? routes.methods.filter((item): item is string => typeof item === 'string')
         : []
+      this.jobRoutes.clear()
+      if (Array.isArray(routes.routes)) {
+        for (const route of routes.routes) {
+          if (
+            isRecord(route) &&
+            typeof route.method === 'string' &&
+            route.executionMode === 'job' &&
+            typeof route.resultMode === 'string'
+          ) {
+            this.jobRoutes.set(route.method, {
+              method: route.method,
+              executionMode: route.executionMode,
+              resultMode: route.resultMode
+            })
+          }
+        }
+      }
       for (const required of [
         'initialize',
         'agent/run',
         'agent/cancel',
-        'agent/reverse-response'
+        'agent/reverse-response',
+        'jobs/submit',
+        'jobs/result',
+        'events/subscribe',
+        'events/ack'
       ]) {
         if (!methods.includes(required)) {
           throw new Error(`Native worker is missing required route: ${required}`)
@@ -406,6 +602,7 @@ export class NativeWorkerClient {
           'OpenCowork Native Worker is missing the Agent Runtime v2 capability-snapshot contract.'
         )
       }
+      await this.request('events/subscribe', { consumerId: this.hostId, limit: 4096 }, 30_000)
       this.startHeartbeat()
     } catch (error) {
       await this.stop()
@@ -425,7 +622,7 @@ export class NativeWorkerClient {
   private sendCancellation(id: number): void {
     if (!this.socket || !this.isRunning) return
     try {
-      this.socket.write(createFrame(encode({ cancel: id })))
+      this.socket.write(createFrame(encode({ method: 'worker/cancel', params: { requestId: id } })))
     } catch {
       // The original request is already rejected locally.
     }
@@ -449,8 +646,102 @@ export class NativeWorkerClient {
       if (this.readBufferedBytes < this.pendingFrameLength) return
       const payload = this.consumeBytes(this.pendingFrameLength)
       this.pendingFrameLength = -1
-      this.handleFrame(payload)
+      this.handleFrame(payload, 'control')
     }
+  }
+
+  private installEventSocket(socket: Socket): void {
+    socket.on('data', (chunk) => this.handleEventSocketData(chunk))
+    socket.on('error', () => this.resetEventSocket(socket))
+    socket.on('close', () => this.resetEventSocket(socket))
+  }
+
+  private resetEventSocket(socket: Socket): void {
+    if (this.eventSocket !== socket) return
+    this.eventSocket = null
+    socket.removeAllListeners()
+    socket.destroy()
+    this.eventReadChunks = []
+    this.eventReadBufferedBytes = 0
+    this.eventPendingFrameLength = -1
+    this.scheduleEventReconnect()
+  }
+
+  private scheduleEventReconnect(): void {
+    if (this.eventReconnect || !this.child || !this.eventEndpoint || !this.isRunning) return
+    this.eventReconnect = setTimeout(() => {
+      this.eventReconnect = null
+      void this.reconnectEventSocket()
+    }, 250)
+    this.eventReconnect.unref?.()
+  }
+
+  private async reconnectEventSocket(): Promise<void> {
+    const child = this.child
+    const endpoint = this.eventEndpoint
+    if (!child || !endpoint || !this.isRunning || this.eventSocket) return
+    try {
+      const socket = await connectToEndpoint(endpoint, child)
+      if (this.child !== child || !this.isRunning) {
+        socket.destroy()
+        return
+      }
+      this.eventSocket = socket
+      this.installEventSocket(socket)
+      void this.request('events/replay', { consumerId: this.hostId, limit: 4096 }, 30_000).catch(
+        () => {}
+      )
+      this.events.emit('worker/event-reconnected', {}, { event: 'worker/event-reconnected' })
+    } catch {
+      if (this.child === child && this.isRunning) this.scheduleEventReconnect()
+    }
+  }
+
+  private handleEventSocketData(chunk: Buffer): void {
+    this.eventReadChunks.push(chunk)
+    this.eventReadBufferedBytes += chunk.length
+
+    while (true) {
+      if (this.eventPendingFrameLength < 0) {
+        if (this.eventReadBufferedBytes < FRAME_HEADER_BYTES) return
+        const header = this.consumeEventBytes(FRAME_HEADER_BYTES)
+        const length = header.readUInt32BE(0)
+        if (length <= 0 || length > MAX_FRAME_BYTES) {
+          if (this.eventSocket) this.resetEventSocket(this.eventSocket)
+          return
+        }
+        this.eventPendingFrameLength = length
+      }
+      if (this.eventReadBufferedBytes < this.eventPendingFrameLength) return
+      const payload = this.consumeEventBytes(this.eventPendingFrameLength)
+      this.eventPendingFrameLength = -1
+      this.handleFrame(payload, 'event')
+    }
+  }
+
+  private consumeEventBytes(count: number): Buffer {
+    const first = this.eventReadChunks[0]
+    if (first && first.length >= count) {
+      const output = first.subarray(0, count)
+      if (first.length === count) this.eventReadChunks.shift()
+      else this.eventReadChunks[0] = first.subarray(count)
+      this.eventReadBufferedBytes -= count
+      return output
+    }
+
+    const output = Buffer.allocUnsafe(count)
+    let offset = 0
+    while (offset < count) {
+      const current = this.eventReadChunks[0]
+      if (!current) throw new Error('Native worker Event IPC frame buffer underflow')
+      const length = Math.min(current.length, count - offset)
+      current.copy(output, offset, 0, length)
+      if (length === current.length) this.eventReadChunks.shift()
+      else this.eventReadChunks[0] = current.subarray(length)
+      offset += length
+    }
+    this.eventReadBufferedBytes -= count
+    return output
   }
 
   private consumeBytes(count: number): Buffer {
@@ -478,14 +769,20 @@ export class NativeWorkerClient {
     return output
   }
 
-  private handleFrame(payload: Buffer): void {
+  private handleFrame(payload: Buffer, source: 'control' | 'event'): void {
     let decoded: unknown
     try {
       decoded = decode(payload)
     } catch (error) {
-      this.handleDisconnect(
-        new Error(`Invalid worker MessagePack frame: ${asError(error).message}`)
+      const failure = new Error(
+        `Invalid worker ${source === 'event' ? 'Event IPC' : 'Control IPC'} ` +
+          `MessagePack frame: ${asError(error).message}`
       )
+      if (source === 'event' && this.eventSocket) {
+        this.resetEventSocket(this.eventSocket)
+      } else {
+        this.handleDisconnect(failure)
+      }
       return
     }
     if (!isRecord(decoded)) return
@@ -532,11 +829,15 @@ export class NativeWorkerClient {
   private handleDisconnect(error: unknown): void {
     if (!this.child && !this.socket) return
     const socket = this.socket
+    const eventSocket = this.eventSocket
     const child = this.child
     const endpoint = this.endpoint
+    const eventEndpoint = this.eventEndpoint
     this.socket = null
+    this.eventSocket = null
     this.child = null
     this.endpoint = null
+    this.eventEndpoint = null
     this.readChunks = []
     this.readBufferedBytes = 0
     this.pendingFrameLength = -1
@@ -544,8 +845,16 @@ export class NativeWorkerClient {
     this.heartbeat = null
     socket?.removeAllListeners()
     socket?.destroy()
+    eventSocket?.removeAllListeners()
+    eventSocket?.destroy()
+    if (this.eventReconnect) clearTimeout(this.eventReconnect)
+    this.eventReconnect = null
+    this.eventReadChunks = []
+    this.eventReadBufferedBytes = 0
+    this.eventPendingFrameLength = -1
     if (child && child.exitCode === null && !child.killed) child.kill()
     if (endpoint && process.platform !== 'win32') rmSync(endpoint, { force: true })
+    if (eventEndpoint && process.platform !== 'win32') rmSync(eventEndpoint, { force: true })
     const failure = asError(error)
     this.failPending(failure)
     this.events.emit('worker/disconnected', failure, { event: 'worker/disconnected' })

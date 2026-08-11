@@ -6,6 +6,7 @@ import { theme } from '../theme.js'
 const groups = [
   [
     ['/', 'commands'],
+    ['@', 'reference workspace files'],
     ['/config', 'shared settings'],
     ['/compact', 'compress context'],
     ['/context', 'context usage']

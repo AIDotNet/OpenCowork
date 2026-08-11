@@ -4,7 +4,7 @@ internal sealed class ShellModule : IWorkerModule
 
     public void Register(WorkerModuleContext context)
     {
-        context.Register("shell/exec", ShellTools.ExecAsync);
+        context.RegisterJob("shell/exec", ShellTools.ExecAsync, lanePolicy: "project");
         context.Register("shell/abort", ShellTools.Abort);
     }
 }

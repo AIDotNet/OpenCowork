@@ -7,7 +7,7 @@ namespace OpenCowork.Contracts.Generated;
 public static class WorkerContractConstants
 {
     /// <summary>Bump on incompatible frame/dispatch contract changes (worker/hello gate).</summary>
-    public const int WorkerProtocolVersion = 1;
+    public const int WorkerProtocolVersion = 2;
     /// <summary>Version tag embedded in every agent/stream MessagePack envelope.</summary>
     public const int AgentStreamProtocolVersion = 1;
 }
@@ -16,7 +16,9 @@ public sealed record StatusResult(bool Ok, int Pid);
 
 public sealed record WorkerHelloResult(bool Ok, int Pid, int ProtocolVersion, string? AppVersion);
 
-public sealed record WorkerRoutesResult(string[] Methods);
+public sealed record WorkerRoutesResult(string[] Methods, WorkerRouteDescriptor[] Routes);
+
+public sealed record WorkerRouteDescriptor(string Method, string ExecutionMode, string ResultMode, string? LanePolicy);
 
 public sealed record SystemMemorySnapshot(bool Success, int Pid, long ManagedBytes, long HeapBytes, long FragmentedBytes, long WorkingSetBytes, string? Error);
 
@@ -28,5 +30,6 @@ public sealed record SystemMemorySnapshot(bool Success, int Pid, long ManagedByt
 [JsonSerializable(typeof(StatusResult))]
 [JsonSerializable(typeof(WorkerHelloResult))]
 [JsonSerializable(typeof(WorkerRoutesResult))]
+[JsonSerializable(typeof(WorkerRouteDescriptor))]
 [JsonSerializable(typeof(SystemMemorySnapshot))]
 public sealed partial class GeneratedContractsJsonContext : JsonSerializerContext;

@@ -14,6 +14,30 @@ export interface PromptImageAttachment {
 
 export type PromptImageSummary = Omit<PromptImageAttachment, 'data'>
 
+export interface FileReferenceCandidate {
+  name: string
+  path: string
+}
+
+export interface PromptFileReference {
+  id: string
+  kind: 'file'
+  name: string
+  path: string
+  isWorkspaceFile: boolean
+}
+
+/** References are structured separately from editor text so future message/shell sources can share it. */
+export type PromptReference = PromptFileReference
+
+export type PromptReferenceSummary = PromptReference
+
+export interface PromptSubmission {
+  text: string
+  images: PromptImageAttachment[]
+  references: PromptReference[]
+}
+
 export type AssistantContentSegment =
   | {
       kind: 'text'
@@ -27,12 +51,26 @@ export type AssistantContentSegment =
       traceAvailable: boolean
     }
 
+export interface ToolDiffLine {
+  kind: 'context' | 'removed' | 'added' | 'meta'
+  text: string
+}
+
+export interface ToolDiff {
+  additions: number
+  deletions: number
+  lines: ToolDiffLine[]
+  path: string
+  replaceAll: boolean
+}
+
 export type Message =
   | {
       id: string
       kind: 'user'
       text: string
       images?: PromptImageSummary[]
+      references?: PromptReferenceSummary[]
     }
   | {
       id: string
@@ -51,6 +89,7 @@ export type Message =
       detail?: string
       status: 'running' | 'success' | 'error'
       summary?: string
+      diff?: ToolDiff
     }
   | {
       id: string
@@ -262,6 +301,7 @@ export interface RewindResult {
   restoredFileCount: number
   restoredImages?: PromptImageAttachment[]
   restoredPrompt?: string
+  restoredReferences?: PromptReference[]
   summarized: boolean
   transcript: Message[]
 }
@@ -276,6 +316,18 @@ export interface UsageSnapshot {
   outputTokens: number
   reasoningTokens: number
   requestCount: number
+}
+
+export type TurnStatusPhase = 'requesting' | 'thinking' | 'responding' | 'tool-use'
+
+export interface TurnStatusSnapshot {
+  activeResponseCharacters: number
+  completedOutputTokens: number
+  id: string
+  phase: TurnStatusPhase
+  requestTokens: number
+  startedAt: number
+  verb: string
 }
 
 export type ConfigSettingValue = boolean | number | string
@@ -333,7 +385,9 @@ export type UiEvent =
       type: 'tool.done'
       id: string
       status: 'success' | 'error'
+      diff?: ToolDiff
       summary?: string
+      title?: string
     }
   | {
       type: 'tool.update'
@@ -349,6 +403,12 @@ export type UiEvent =
   | { type: 'plan.update'; action: 'enter' | 'exit' | 'sync'; plan: PlanSnapshot }
   | { type: 'tasks.update'; tasks: TaskItem[] }
   | { type: 'runtime.activity'; activity: RuntimeActivityKind }
+  | {
+      type: 'runtime.usage'
+      contextTokens?: number
+      inputTokens?: number
+      outputTokens?: number
+    }
   | {
       type: 'runtime.retry'
       attempt: number
@@ -370,16 +430,14 @@ export type UiEvent =
   | { type: 'turn.done' }
 
 export interface AgentRuntime {
-  send(
-    prompt: string,
-    signal: AbortSignal,
-    images?: PromptImageAttachment[]
-  ): AsyncIterable<UiEvent>
+  send(submission: PromptSubmission, signal: AbortSignal): AsyncIterable<UiEvent>
   getAgentCatalog(): AgentOption[]
   getConfigCatalog?(): ConfigCatalog
   getContextSnapshot?(): ContextSnapshot
   getModelCatalog(): ModelCatalog
   getModelConfiguration?(selection: ModelSelection): ModelConfiguration
+  estimateRequestTokens?(submission: PromptSubmission): number
+  searchFiles?(query: string, signal?: AbortSignal): Promise<FileReferenceCandidate[]>
   getUsageSnapshot?(): UsageSnapshot
   selectModel?(selection: ModelSelection): void
   configureModel?(selection: ModelSelection, patch: ModelConfigurationPatch): Promise<void>

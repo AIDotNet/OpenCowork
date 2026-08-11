@@ -1,12 +1,14 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { formatTokenCount } from '../lib/metrics.js'
-import { fitText } from '../lib/text.js'
+import { fitText, padText, stripTerminalPreviewControls } from '../lib/text.js'
 import { theme } from '../theme.js'
-import type { AssistantContentSegment, Message } from '../types.js'
+import type { AssistantContentSegment, Message, ToolDiff, ToolDiffLine } from '../types.js'
+import { ShimmerText } from './shimmer-text.js'
 import { Spinner } from './spinner.js'
 
 interface TranscriptProps {
+  hideStreamingStatus?: boolean
   messages: Message[]
   showDetails: boolean
   width: number
@@ -47,11 +49,49 @@ function thinkingLabel(
   return fitText(full.length <= width ? full : compact, width)
 }
 
+function diffRow(line: ToolDiffLine, width: number): string {
+  const prefix = line.kind === 'removed' ? '- ' : line.kind === 'added' ? '+ ' : '  '
+  const safeText = stripTerminalPreviewControls(line.text).replace(/\t/gu, '  ')
+  return padText(`${prefix}${fitText(safeText, Math.max(1, width - 2))}`, width)
+}
+
+function ToolDiffBlock({ diff, width }: { diff: ToolDiff; width: number }): React.JSX.Element {
+  const rowWidth = Math.max(8, width - 2)
+  return (
+    <Box flexDirection="column" marginLeft={2} width={rowWidth}>
+      {diff.lines.map((line, index) => {
+        const row = diffRow(line, rowWidth)
+        if (line.kind === 'removed') {
+          return (
+            <Text backgroundColor={theme.removedBackground} color={theme.removed} key={index}>
+              {row}
+            </Text>
+          )
+        }
+        if (line.kind === 'added') {
+          return (
+            <Text backgroundColor={theme.addedBackground} color={theme.added} key={index}>
+              {row}
+            </Text>
+          )
+        }
+        return (
+          <Text color={line.kind === 'meta' ? theme.muted : theme.dim} key={index}>
+            {row}
+          </Text>
+        )
+      })}
+    </Box>
+  )
+}
+
 function TranscriptMessage({
+  hideStreamingStatus,
   message,
   showDetails,
   width
 }: {
+  hideStreamingStatus: boolean
   message: Message
   showDetails: boolean
   width: number
@@ -63,7 +103,7 @@ function TranscriptMessage({
           <Text bold color={theme.primary}>
             ❯{' '}
           </Text>
-          <Text bold wrap="wrap">
+          <Text bold color={theme.text} wrap="wrap">
             {message.text}
           </Text>
         </Box>
@@ -75,6 +115,17 @@ function TranscriptMessage({
                 message.images
                   .map((image) => `${image.name} (${formatImageSize(image.size)})`)
                   .join(' · '),
+                Math.max(8, width - 4)
+              )}
+            </Text>
+          </Box>
+        ) : null}
+        {message.references && message.references.length > 0 ? (
+          <Box marginLeft={2}>
+            <Text color={theme.muted}>
+              ↳{' '}
+              {fitText(
+                message.references.map((reference) => `@${reference.path}`).join(' · '),
                 Math.max(8, width - 4)
               )}
             </Text>
@@ -94,37 +145,59 @@ function TranscriptMessage({
 
     return (
       <Box flexDirection="column" marginTop={1}>
-        {segments.length === 0 && message.streaming ? (
+        {segments.length === 0 && message.streaming && !hideStreamingStatus ? (
           <Box>
-            <Spinner />
-            <Text color={theme.muted} italic>
-              {' '}
-              Thinking…
+            <Text bold color={theme.primary}>
+              ✻
             </Text>
+            <Text> </Text>
+            <ShimmerText text="Thinking…" />
           </Box>
         ) : null}
         {segments.map((segment, index) => {
           const active = message.streaming && index === segments.length - 1
           if (segment.kind === 'thinking') {
+            if (active && hideStreamingStatus) {
+              return showDetails && segment.traceAvailable && segment.text.trim() ? (
+                <Box marginLeft={2} key={`${message.id}-thinking-${index}`}>
+                  <Text color={theme.dim} italic wrap="wrap">
+                    {segment.text.trim()}
+                  </Text>
+                </Box>
+              ) : null
+            }
             return (
               <Box flexDirection="column" key={`${message.id}-thinking-${index}`}>
                 <Box>
                   {active ? (
-                    <Spinner />
+                    <Text bold color={theme.primary}>
+                      ✻
+                    </Text>
                   ) : (
                     <Text bold color={theme.primary}>
                       ✻
                     </Text>
                   )}
-                  <Text color={theme.muted} italic>
-                    {' '}
-                    {thinkingLabel(
-                      segment,
-                      message.reasoningTokens,
-                      showDetails,
-                      Math.max(8, width - 2)
-                    )}
-                  </Text>
+                  <Text> </Text>
+                  {active ? (
+                    <ShimmerText
+                      text={thinkingLabel(
+                        segment,
+                        message.reasoningTokens,
+                        showDetails,
+                        Math.max(8, width - 2)
+                      )}
+                    />
+                  ) : (
+                    <Text color={theme.muted} italic>
+                      {thinkingLabel(
+                        segment,
+                        message.reasoningTokens,
+                        showDetails,
+                        Math.max(8, width - 2)
+                      )}
+                    </Text>
+                  )}
                 </Box>
                 {showDetails && segment.traceAvailable && segment.text.trim() ? (
                   <Box marginLeft={2}>
@@ -139,14 +212,14 @@ function TranscriptMessage({
 
           return (
             <Box key={`${message.id}-text-${index}`}>
-              {active ? (
+              {active && !hideStreamingStatus ? (
                 <Spinner />
               ) : (
                 <Text bold color={theme.primary}>
                   ●
                 </Text>
               )}
-              <Text> {segment.text}</Text>
+              <Text color={theme.text}> {segment.text}</Text>
             </Box>
           )
         })}
@@ -179,7 +252,29 @@ function TranscriptMessage({
               {message.status === 'error' ? '●' : '●'}
             </Text>
           )}
-          <Text bold> {fitText(message.title, Math.max(10, width - 4))}</Text>
+          {message.diff ? (
+            <>
+              <Text bold color={theme.text}>
+                {' '}
+                {fitText(
+                  `Edited ${message.diff.path}`,
+                  Math.max(
+                    8,
+                    width - 3 - `(+${message.diff.additions} -${message.diff.deletions})`.length
+                  )
+                )}{' '}
+              </Text>
+              <Text color={theme.muted}>(</Text>
+              <Text color={theme.added}>+{message.diff.additions}</Text>
+              <Text color={theme.removed}> -{message.diff.deletions}</Text>
+              <Text color={theme.muted}>)</Text>
+            </>
+          ) : (
+            <Text bold color={theme.text}>
+              {' '}
+              {fitText(message.title, Math.max(10, width - 4))}
+            </Text>
+          )}
         </Box>
         {message.summary ? (
           <Box marginLeft={2}>
@@ -195,6 +290,7 @@ function TranscriptMessage({
             </Text>
           </Box>
         ) : null}
+        {message.diff ? <ToolDiffBlock diff={message.diff} width={width} /> : null}
       </Box>
     )
   }
@@ -211,12 +307,18 @@ function formatImageSize(size: number): string {
   return `${Math.max(1, Math.round(size / 1024))} KB`
 }
 
-export function Transcript({ messages, showDetails, width }: TranscriptProps): React.JSX.Element {
+export function Transcript({
+  hideStreamingStatus = false,
+  messages,
+  showDetails,
+  width
+}: TranscriptProps): React.JSX.Element {
   return (
     <Box flexDirection="column" width={width}>
       {messages.map((message) => (
         <TranscriptMessage
           key={message.id}
+          hideStreamingStatus={hideStreamingStatus}
           message={message}
           showDetails={showDetails}
           width={width}

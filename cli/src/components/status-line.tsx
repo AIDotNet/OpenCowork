@@ -11,6 +11,7 @@ interface StatusLineProps {
   activity?: string
   context: ContextSnapshot | null
   effort: string
+  hideIdleHint?: boolean
   model: string
   mode: PermissionMode
   notice?: string
@@ -106,6 +107,7 @@ export function StatusLine({
   activity,
   context,
   effort,
+  hideIdleHint = false,
   model,
   mode,
   notice,
@@ -116,7 +118,9 @@ export function StatusLine({
   width
 }: StatusLineProps): React.JSX.Element {
   const left =
-    notice ?? activity ?? (width >= 58 ? '? for shortcuts · ← for agents' : '? shortcuts')
+    notice ??
+    activity ??
+    (hideIdleHint ? '' : width >= 58 ? '? for shortcuts · ← for agents' : '? shortcuts')
   const contentWidth = Math.max(12, width - 4)
   const thinkingStatus = supportsThinking ? `think ${thinkingEnabled ? 'on' : 'off'}` : null
   const statusParts = [permissionModeLabels[mode], thinkingStatus, supportsEffort ? effort : null]

@@ -4,6 +4,6 @@ internal sealed class OpenAIImagesModule : IWorkerModule
 
     public void Register(WorkerModuleContext context)
     {
-        context.Register("openai-images/generate", OpenAIImagesTools.GenerateAsync);
+        context.RegisterJob("openai-images/generate", OpenAIImagesTools.GenerateAsync);
     }
 }

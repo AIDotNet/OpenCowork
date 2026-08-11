@@ -22,17 +22,58 @@ of the agent runtime.
 
 ```
 Program.Main
+  -> WorkerEndpoint.Parse(--control-ipc, --event-ipc, --host-id)
+  -> RuntimeJobCoordinator.Configure()
   -> WorkerHost.CreateDefault()
   -> WorkerHostBuilder.UseDefaultModules()
   -> WorkerModuleCatalog.Default
   -> IWorkerModule.Register(WorkerModuleContext)
   -> LocalIpcWorkerServer.RunAsync()
-  -> WorkerDispatcher.DispatchAsync()
+     -> Control IPC: WorkerDispatcher.DispatchAsync()
+     -> Event IPC: LocalIpcWorkerEventServer.RunAsync()
+     -> RuntimeJobCoordinator: SQLite inbox -> bounded scheduler -> result/outbox
 ```
 
-Node starts this process with `--ipc <endpoint>`. On Unix-like systems the endpoint is a Unix
-domain socket path; on Windows it is a named pipe path. Requests and responses are length-prefixed
-MessagePack frames so heavy DB/file/git payloads do not flow through stdout/stderr.
+Node starts this process with:
+
+```text
+OpenCowork.Native.Worker \
+  --control-ipc <control-endpoint> \
+  --event-ipc <event-endpoint> \
+  --host-id <stable-client-id>
+```
+
+On Unix-like systems each endpoint is a distinct Unix-domain socket path; on Windows each is a
+distinct named pipe path. Both transports use length-prefixed MessagePack frames. Protocol v2
+separates request/response, heartbeat, cancellation, and reverse RPC on Control IPC from one-way
+progress/stream output on Event IPC. A slow or blocked event consumer can therefore reconnect
+without blocking `worker/ping` or causing the worker supervisor to recycle a healthy process.
+
+## Background Jobs
+
+Long-running routes register through `WorkerModuleContext.RegisterJob(...)`. The host commits a
+`jobs/submit` request to the SQLite `runtime_jobs` inbox before acknowledging it, then executes it
+from a bounded scheduler. This keeps the submitting Control RPC short even when a provider, shell,
+file, Git, media, sync, or CodeGraph operation takes minutes. Protocol v2 rejects direct invocation
+of a Job route, so clients cannot accidentally move slow execution back onto a Control request.
+
+- Jobs in the same session lane execute FIFO and serially; the scheduler samples one queue head per
+  lane so a deep backlog cannot starve independent lanes, which execute with bounded concurrency.
+- A client timeout stops only that client's wait. It does not stop the committed Job. Explicit
+  cancellation uses `jobs/cancel`.
+- On restart, `queued` Jobs for the same host resume. Jobs that were `running` or `cancelling` are
+  failed with `worker_interrupted` because checkpoint/tool reconciliation is not yet available.
+- Agent stream envelopes are written to `runtime_event_batches` before Event IPC publication.
+  Clients replay with `events/subscribe` / `events/replay` and advance durable cursors with
+  `events/ack` only after applying an envelope.
+- Event IPC uses a count-and-byte-bounded in-memory wake queue and a write deadline. Dropped or
+  disconnected Agent stream wakes are recovered from the durable outbox and never inherit Control
+  IPC health.
+
+Provider transports retain a 100-second response-header deadline and default to a 120-second
+stream-idle deadline for SSE/WebSocket reads and stalled non-success response bodies. Set
+`streamIdleTimeoutSeconds` on a provider request, or
+`OPEN_COWORK_AGENT_STREAM_IDLE_TIMEOUT_SECONDS` globally; zero disables these body/idle deadlines.
 
 ## Module Rules
 
@@ -41,6 +82,8 @@ MessagePack frames so heavy DB/file/git payloads do not flow through stdout/stde
 - Modules register methods through `WorkerModuleContext`, not directly from `Program.cs`.
 - Duplicate module names and duplicate method names fail at startup.
 - Business code returns `WorkerResponse`; only `Runtime/` serializes it for the IPC transport.
+- Routes that may wait on network, process, or large I/O must use `RegisterJob(...)`; keep health,
+  status, cancellation, command, and short metadata routes inline.
 - New business areas should get their own folder under `Modules/`.
 - Keep DTOs near their owning module unless they are shared by multiple modules.
 - Add every serialized response type to `WorkerJsonContext` so Native AOT does not need reflection.
@@ -53,5 +96,6 @@ For a new backend-heavy area:
 2. Keep endpoint DTOs/models in `Modules/<Area>/<Area>Models.cs`.
 3. Keep implementation in focused files such as `<Area>QueryTools.cs`, `<Area>WriterTools.cs`, or
    `<Area>MaintenanceTools.cs`.
-4. Add the module to `WorkerModuleCatalog.Default`.
-5. Add every JSON result model to `Serialization/WorkerJsonContext.cs`.
+4. Register slow work with `RegisterJob(...)` and choose a stable session/project lane input.
+5. Add the module to `WorkerModuleCatalog.Default`.
+6. Add every JSON result model to `Serialization/WorkerJsonContext.cs`.

@@ -44,6 +44,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             throw await AgentRuntimeProviderHttpException.CreateAsync(
                 "OpenAI Responses",
                 response,
+                provider,
                 state.CancellationToken);
         }
 
@@ -52,7 +53,11 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         var dataBuilder = new StringBuilder();
         string? eventName = null;
         string? line;
-        while ((line = await reader.ReadLineAsync(state.CancellationToken)) is not null)
+        while ((line = await AgentRuntimeRequestTimeout.ReadLineAsync(
+            reader,
+            provider,
+            "OpenAI Responses",
+            state.CancellationToken)) is not null)
         {
             if (line.Length == 0)
             {
@@ -132,12 +137,16 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             WebSocketReceiveResult result;
             do
             {
-                var receiveToken = parseState.ReceivedAnyMessage
-                    ? state.CancellationToken
-                    : firstMessageCts.Token;
                 try
                 {
-                    result = await socket.ReceiveAsync(buffer, receiveToken);
+                    result = parseState.ReceivedAnyMessage
+                        ? await AgentRuntimeRequestTimeout.ReceiveWebSocketAsync(
+                            socket,
+                            buffer,
+                            provider,
+                            "OpenAI Responses",
+                            state.CancellationToken)
+                        : await socket.ReceiveAsync(buffer, firstMessageCts.Token);
                 }
                 catch (OperationCanceledException ex) when (
                     !state.IsCancellationRequested &&

@@ -65,13 +65,14 @@ and colors. It must never present itself as Anthropic or Claude Code.
 ┌──────────────────────────── OpenCowork CLI ────────────────────────────┐
 │ keyboard decoder · editor · overlays · transcript · terminal renderer │
 │                 WorkerEventProjector (wire → UI state)                │
-└───────────────────────────────┬────────────────────────────────────────┘
-                                │ length-prefixed MessagePack
-                                │ request / response / event
-┌───────────────────────────────▼────────────────────────────────────────┐
+└──────────────────────┬────────────────────────┬────────────────────────┘
+                       │ Control IPC            │ Event IPC
+                       │ request / response     │ stream / progress
+                       │ heartbeat / reverse RPC│ replayable envelopes
+┌──────────────────────▼────────────────────────▼────────────────────────┐
 │                    OpenCowork.Native.Worker                            │
 │ provider calls · agent loop · tools · permissions · MCP · skills      │
-│ sub-agents · compression · hooks · DB · filesystem/process execution  │
+│ SQLite Job inbox/outbox · bounded scheduler · DB · process execution  │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -146,12 +147,18 @@ That packaging work is not part of the current source-tree prototype.
 
 ### 4.2 Endpoint and framing
 
-- macOS/Linux: a unique Unix-domain socket under `/tmp`.
-- Windows: a unique named pipe.
-- Worker launch: `OpenCowork.Native.Worker --ipc <endpoint>`.
+- macOS/Linux: two unique Unix-domain sockets under `/tmp`.
+- Windows: two unique named pipes.
+- Worker launch:
+  `OpenCowork.Native.Worker --control-ipc <control> --event-ipc <event> --host-id <client>`.
 - Every frame begins with a four-byte unsigned big-endian payload length.
 - The payload is MessagePack.
 - The maximum accepted payload is 256 MiB, matching the desktop supervisor.
+
+Control and Event are independent byte streams and therefore have independent frame buffers and
+failure handling. Control carries request/response, heartbeat, cancellation, and reverse RPC.
+Event carries one-way progress and `agent/stream`; an Event disconnect is reconnected independently
+and does not mark the worker unhealthy.
 
 Request and response shapes:
 
@@ -177,13 +184,24 @@ type AgentStreamEnvelope = {
 Startup gates on:
 
 1. `worker/hello` protocol version.
-2. `worker/routes` containing `initialize`, `agent/run`, `agent/cancel`, and
+2. `worker/routes` containing route descriptors, including each route's inline/Job execution and
+   direct/result/accepted result modes.
+3. Required Agent routes such as `initialize`, `agent/run`, `agent/cancel`, and
    `agent/reverse-response`.
-3. `initialize` returning the native Agent Runtime identity and compatibility data.
+4. `events/subscribe` replaying any durable Agent envelopes not yet acknowledged by this client.
+5. `initialize` returning the native Agent Runtime identity and compatibility data.
 
 A 15-second heartbeat checks `worker/ping`. The client cancels timed-out or aborted request IDs,
-captures a bounded stderr tail, cleans up only its exact socket path, and terminates its child on
-exit. A worker crash fails the current terminal turn; a later turn may start a fresh worker.
+captures a bounded stderr tail, cleans up only its exact socket paths, and terminates its child on
+exit. Event IPC has its own reconnect loop; after reconnect it requests durable replay.
+
+Routes described as Jobs are submitted through `jobs/submit`. Acceptance means the inbox row has
+committed to SQLite, not that execution has completed. `agent/run` returns its accepted run/job ID
+immediately; other Job routes use short `jobs/result` polls for compatibility. A foreground wait
+timeout leaves the Job queued/running, while an AbortSignal explicitly invokes `jobs/cancel`.
+Within one host, queued Jobs survive a worker restart; an in-flight Job becomes
+`failed(worker_interrupted)` because this version cannot safely replay partially executed tools.
+Agent stream envelopes are acknowledged only after the projector applies them.
 
 The desktop manager currently has more elaborate supervised restart/replay behavior. Long term,
 framing, resolution, heartbeat, crash logging, and restart policy should be extracted from

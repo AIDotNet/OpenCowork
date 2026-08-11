@@ -24,6 +24,7 @@ internal static class DbSchemaMigrator
         CreateHookTables(connection);
         CreateUsageTables(connection);
         CreateSyncTables(connection);
+        CreateRuntimeJobTables(connection);
         ApplyAdditiveMigrations(connection);
         BackfillUsageActivity(connection);
         var elapsedMs = (long)Math.Round(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
@@ -734,6 +735,87 @@ internal static class DbSchemaMigrator
 
             CREATE INDEX IF NOT EXISTS idx_sync_tombstones_provider
               ON sync_tombstones(provider_id, domain, deleted_at);
+            """);
+    }
+
+    internal static void CreateRuntimeJobTables(SqliteConnection connection)
+    {
+        Execute(connection, """
+            CREATE TABLE IF NOT EXISTS runtime_jobs (
+              job_id TEXT PRIMARY KEY,
+              host_id TEXT NOT NULL,
+              idempotency_key TEXT NOT NULL,
+              method TEXT NOT NULL,
+              params_json TEXT NOT NULL,
+              session_id TEXT,
+              run_id TEXT,
+              lane_key TEXT NOT NULL,
+              state TEXT NOT NULL CHECK(
+                state IN ('queued', 'running', 'succeeded', 'failed', 'cancelling', 'cancelled')
+              ),
+              owner_instance_id TEXT,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              started_at INTEGER,
+              finished_at INTEGER,
+              result_json TEXT,
+              error_code TEXT,
+              error_message TEXT,
+              UNIQUE(host_id, idempotency_key)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_runtime_jobs_host_queue
+              ON runtime_jobs(host_id, state, created_at, job_id);
+            CREATE INDEX IF NOT EXISTS idx_runtime_jobs_lane
+              ON runtime_jobs(host_id, lane_key, state, created_at);
+            CREATE INDEX IF NOT EXISTS idx_runtime_jobs_finished
+              ON runtime_jobs(state, finished_at);
+
+            CREATE TABLE IF NOT EXISTS runtime_job_commands (
+              command_id INTEGER PRIMARY KEY AUTOINCREMENT,
+              job_id TEXT NOT NULL,
+              seq INTEGER NOT NULL,
+              kind TEXT NOT NULL,
+              payload_json TEXT NOT NULL,
+              created_at INTEGER NOT NULL,
+              consumed_at INTEGER,
+              UNIQUE(job_id, seq),
+              FOREIGN KEY (job_id) REFERENCES runtime_jobs(job_id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_runtime_job_commands_pending
+              ON runtime_job_commands(job_id, consumed_at, seq);
+
+            CREATE TABLE IF NOT EXISTS runtime_event_batches (
+              job_id TEXT NOT NULL,
+              seq INTEGER NOT NULL,
+              payload BLOB NOT NULL,
+              byte_length INTEGER NOT NULL,
+              terminal INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL,
+              PRIMARY KEY (job_id, seq),
+              FOREIGN KEY (job_id) REFERENCES runtime_jobs(job_id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_runtime_event_batches_retention
+              ON runtime_event_batches(terminal, created_at);
+
+            CREATE TABLE IF NOT EXISTS runtime_event_cursors (
+              consumer_id TEXT NOT NULL,
+              job_id TEXT NOT NULL,
+              through_seq INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL,
+              PRIMARY KEY (consumer_id, job_id),
+              FOREIGN KEY (job_id) REFERENCES runtime_jobs(job_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS runtime_host_leases (
+              host_id TEXT PRIMARY KEY,
+              worker_instance_id TEXT NOT NULL,
+              acquired_at INTEGER NOT NULL,
+              renewed_at INTEGER NOT NULL,
+              expires_at INTEGER NOT NULL
+            );
             """);
     }
 

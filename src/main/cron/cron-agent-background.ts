@@ -279,6 +279,7 @@ interface ProviderConfig {
   useSystemProxy?: boolean
   allowInsecureTls?: boolean
   requestTimeoutSeconds?: number
+  streamIdleTimeoutSeconds?: number
   responseSummary?: 'auto' | 'concise' | 'detailed'
   enablePromptCache?: boolean
   enableSystemPromptCache?: boolean
@@ -866,6 +867,7 @@ type NativeAgentStreamEvent = {
 
 type NativeAgentStreamEnvelope = {
   runId?: string
+  seq?: number
   events?: NativeAgentStreamEvent[]
 }
 
@@ -1014,6 +1016,7 @@ async function* runNativeAgentLoop(args: {
 
   const queue: InteractiveAgentEvent[] = []
   let nativeRunId = args.runId
+  let lastSequence = 0
   let finished = false
   let notify: (() => void) | null = null
 
@@ -1034,6 +1037,12 @@ async function* runNativeAgentLoop(args: {
     wake()
   }
 
+  const acknowledge = (runId: string, throughSeq: number): void => {
+    void manager
+      .request('events/ack', { consumerId: 'desktop', jobId: runId, throughSeq }, 10_000)
+      .catch(() => {})
+  }
+
   const unsubscribe = manager.addRawEventListener((frame) => {
     if (frame.runId !== nativeRunId) return
 
@@ -1048,9 +1057,33 @@ async function* runNativeAgentLoop(args: {
       return
     }
 
-    if (!envelope.runId || envelope.runId !== nativeRunId || !Array.isArray(envelope.events)) return
+    if (
+      !envelope.runId ||
+      envelope.runId !== nativeRunId ||
+      typeof envelope.seq !== 'number' ||
+      !Array.isArray(envelope.events)
+    ) {
+      return
+    }
+    if (envelope.seq <= lastSequence) {
+      acknowledge(envelope.runId, envelope.seq)
+      return
+    }
+    if (envelope.seq !== lastSequence + 1) {
+      console.warn(
+        `[CronAgent] Native stream sequence gap: expected ${lastSequence + 1}, ` +
+          `received ${envelope.seq}`
+      )
+      return
+    }
+    lastSequence = envelope.seq
     for (const event of envelope.events) {
       dispatch(event)
+    }
+    if (envelope.seq > 0) {
+      // Cron consumes the durable stream in Main and has no Renderer ACK path.
+      // Advance the desktop cursor only after the whole envelope is projected.
+      acknowledge(envelope.runId, envelope.seq)
     }
   })
 

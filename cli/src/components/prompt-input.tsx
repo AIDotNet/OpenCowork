@@ -3,6 +3,12 @@ import { Box, Text, useInput } from 'ink'
 import { findCommands } from '../commands.js'
 import { MAX_PROMPT_IMAGES, readClipboardImage } from '../lib/clipboard-image.js'
 import {
+  addPromptFileReference,
+  createFileReferenceMarkdown,
+  findFileReferenceMention,
+  MAX_PROMPT_FILE_REFERENCES
+} from '../lib/file-references.js'
+import {
   fitText,
   graphemes,
   lineEnd,
@@ -12,18 +18,28 @@ import {
 } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type {
+  FileReferenceCandidate,
   PromptImageAttachment,
+  PromptReference,
   RewindAction,
   RewindCheckpoint,
   RewindResult
 } from '../types.js'
 import { CommandMenu } from './command-menu.js'
 import { Divider } from './divider.js'
+import { FileReferenceMenu } from './file-reference-menu.js'
+import { ReferenceBar } from './reference-bar.js'
 import { RewindPanel } from './rewind-panel.js'
 import { ShortcutPanel } from './shortcut-panel.js'
 
 interface EditorSnapshot {
   cursor: number
+  references: PromptReference[]
+  value: string
+}
+
+interface PromptHistoryEntry {
+  references: PromptReference[]
   value: string
 }
 
@@ -52,18 +68,21 @@ interface PromptInputProps {
   onOpenModel(): void
   onRedraw(): void
   onImagesChange: React.Dispatch<React.SetStateAction<PromptImageAttachment[]>>
+  onReferencesChange(references: PromptReference[]): void
   onRewind(
     checkpointId: string,
     action: RewindAction,
     instructions: string | undefined,
     signal: AbortSignal
   ): Promise<RewindResult>
-  onSubmit(value: string, images: PromptImageAttachment[]): void
+  onSearchFiles(query: string, signal: AbortSignal): Promise<FileReferenceCandidate[]>
+  onSubmit(value: string, images: PromptImageAttachment[], references: PromptReference[]): void
   onToggleDetails(): void
   onToggleHelp(): void
   onToggleTasks(): void
   showHelp: boolean
   supportsVision: boolean
+  references: PromptReference[]
   width: number
 }
 
@@ -81,32 +100,42 @@ export function PromptInput({
   onOpenModel,
   onRedraw,
   onImagesChange,
+  onReferencesChange,
   onRewind,
+  onSearchFiles,
   onSubmit,
   onToggleDetails,
   onToggleHelp,
   onToggleTasks,
   showHelp,
   supportsVision,
+  references: initialReferences,
   width
 }: PromptInputProps): React.JSX.Element {
-  const [value, setValue] = useState(initialValue)
-  const [cursor, setCursor] = useState(graphemes(initialValue).length)
-  const editorRef = useRef<EditorSnapshot>({
+  const initialEditor: EditorSnapshot = {
     value: initialValue,
-    cursor: graphemes(initialValue).length
-  })
+    cursor: graphemes(initialValue).length,
+    references: initialReferences
+  }
+  const [editor, setEditor] = useState<EditorSnapshot>(initialEditor)
+  const editorRef = useRef<EditorSnapshot>(initialEditor)
+  const { value, cursor, references } = editor
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [menuSuppressed, setMenuSuppressed] = useState(false)
   const [rewindOpen, setRewindOpen] = useState(false)
   const [readingClipboard, setReadingClipboard] = useState(false)
-  const historyRef = useRef<string[]>([])
+  const [fileSearchResults, setFileSearchResults] = useState<FileReferenceCandidate[]>([])
+  const [fileSearchLoading, setFileSearchLoading] = useState(false)
+  const [fileSearchError, setFileSearchError] = useState<string>()
+  const historyRef = useRef<PromptHistoryEntry[]>([])
   const historyIndexRef = useRef<number | null>(null)
   const killRingRef = useRef<string[]>([])
   const stashRef = useRef<EditorSnapshot | null>(null)
   const undoRef = useRef<EditorSnapshot[]>([])
   const characters = useMemo(() => graphemes(value), [value])
   const menuOpen = value.startsWith('/') && !value.includes(' ') && !menuSuppressed
+  const activeFileMention = useMemo(() => findFileReferenceMention(value, cursor), [cursor, value])
+  const fileMenuOpen = Boolean(activeFileMention) && !menuSuppressed
   const commands = useMemo(() => (menuOpen ? findCommands(value) : []), [menuOpen, value])
 
   useEffect(() => setSelectedIndex(0), [value])
@@ -114,17 +143,62 @@ export function PromptInput({
     if (!active) setRewindOpen(false)
   }, [active])
 
-  const mutate = (nextValue: string, nextCursor: number): void => {
+  useEffect(() => {
+    if (!active || !fileMenuOpen || !activeFileMention) {
+      setFileSearchResults([])
+      setFileSearchLoading(false)
+      setFileSearchError(undefined)
+      return
+    }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      setFileSearchLoading(true)
+      setFileSearchError(undefined)
+      void onSearchFiles(activeFileMention.query, controller.signal)
+        .then((results) => {
+          if (controller.signal.aborted) return
+          setFileSearchResults(results)
+          setSelectedIndex(0)
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return
+          setFileSearchResults([])
+          setFileSearchError(error instanceof Error ? error.message : String(error))
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setFileSearchLoading(false)
+        })
+    }, 120)
+
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [active, activeFileMention, fileMenuOpen, onSearchFiles])
+
+  const mutate = (
+    nextValue: string,
+    nextCursor: number,
+    nextReferences: PromptReference[] = editorRef.current.references
+  ): void => {
     undoRef.current.push(editorRef.current)
     if (undoRef.current.length > 100) undoRef.current.shift()
-    editorRef.current = { value: nextValue, cursor: nextCursor }
-    setValue(nextValue)
-    setCursor(nextCursor)
+    const previousReferences = editorRef.current.references
+    const nextEditor = { value: nextValue, cursor: nextCursor, references: nextReferences }
+    editorRef.current = nextEditor
+    setEditor(nextEditor)
+    if (nextReferences !== previousReferences) onReferencesChange(nextReferences)
     setMenuSuppressed(false)
     historyIndexRef.current = null
   }
 
-  const replaceRange = (start: number, end: number, replacement: string): void => {
+  const replaceRange = (
+    start: number,
+    end: number,
+    replacement: string,
+    nextReferences: PromptReference[] = editorRef.current.references
+  ): void => {
     const currentCharacters = graphemes(editorRef.current.value)
     const replacementCharacters = graphemes(replacement)
     const next = [
@@ -132,12 +206,13 @@ export function PromptInput({
       ...replacementCharacters,
       ...currentCharacters.slice(end)
     ]
-    mutate(next.join(''), start + replacementCharacters.length)
+    mutate(next.join(''), start + replacementCharacters.length, nextReferences)
   }
 
   const moveCursor = (nextCursor: number): void => {
-    editorRef.current = { ...editorRef.current, cursor: nextCursor }
-    setCursor(nextCursor)
+    const nextEditor = { ...editorRef.current, cursor: nextCursor }
+    editorRef.current = nextEditor
+    setEditor(nextEditor)
   }
 
   const rememberKill = (text: string): void => {
@@ -155,29 +230,50 @@ export function PromptInput({
 
   const submit = (submission: string): void => {
     const trimmed = submission.trim()
-    if (!trimmed && images.length === 0) return
-    if (images.length > 0 && trimmed.startsWith('/')) {
-      onNotice('Remove attached images before running a CLI command')
+    if (!trimmed && images.length === 0 && references.length === 0) return
+    if ((images.length > 0 || references.length > 0) && trimmed.startsWith('/')) {
+      onNotice('Remove attached images and references before running a CLI command')
       return
     }
     if (images.length > 0 && !supportsVision) {
       onNotice('Current model does not support image input · choose a vision model with Alt-P')
       return
     }
-    if (trimmed && historyRef.current.at(-1) !== submission) historyRef.current.push(submission)
+    const previousHistory = historyRef.current.at(-1)
+    const referenceSignature = references.map((reference) => reference.path).join('\n')
+    const previousSignature = previousHistory?.references
+      .map((reference) => reference.path)
+      .join('\n')
+    if (
+      (trimmed || references.length > 0) &&
+      (previousHistory?.value !== submission || previousSignature !== referenceSignature)
+    ) {
+      historyRef.current.push({ value: submission, references: [...references] })
+    }
     historyIndexRef.current = null
     undoRef.current = []
-    editorRef.current = { value: '', cursor: 0 }
-    setValue('')
-    setCursor(0)
+    const nextEditor: EditorSnapshot = { value: '', cursor: 0, references: [] }
+    editorRef.current = nextEditor
+    setEditor(nextEditor)
     setMenuSuppressed(false)
     const submittedImages = images
+    const submittedReferences = references
     onImagesChange([])
+    onReferencesChange([])
     if (trimmed.toLowerCase() === '/rewind') {
       openRewind()
       return
     }
-    onSubmit(trimmed || 'Analyze the attached image.', submittedImages)
+    onSubmit(
+      trimmed ||
+        (submittedImages.length > 0 && submittedReferences.length > 0
+          ? 'Analyze the referenced files and attached images.'
+          : submittedReferences.length > 0
+            ? 'Analyze the referenced files.'
+            : 'Analyze the attached image.'),
+      submittedImages,
+      submittedReferences
+    )
   }
 
   const pasteClipboardImage = (): void => {
@@ -216,11 +312,35 @@ export function PromptInput({
     let next = current === null ? historyRef.current.length - 1 : current + direction
     next = Math.max(0, Math.min(historyRef.current.length - 1, next))
     historyIndexRef.current = next
-    const historicalValue = historyRef.current[next] ?? ''
-    editorRef.current = { value: historicalValue, cursor: graphemes(historicalValue).length }
-    setValue(historicalValue)
-    setCursor(graphemes(historicalValue).length)
+    const historical = historyRef.current[next]
+    if (!historical) return
+    const nextEditor: EditorSnapshot = {
+      value: historical.value,
+      cursor: graphemes(historical.value).length,
+      references: [...historical.references]
+    }
+    editorRef.current = nextEditor
+    setEditor(nextEditor)
+    onReferencesChange(nextEditor.references)
     setMenuSuppressed(true)
+  }
+
+  const insertFileReference = (candidate: FileReferenceCandidate): void => {
+    const currentEditor = editorRef.current
+    const mention = findFileReferenceMention(currentEditor.value, currentEditor.cursor)
+    if (!mention) return
+    const added = addPromptFileReference(currentEditor.references, candidate)
+    if (!added.reference) {
+      onNotice(`A prompt can include up to ${MAX_PROMPT_FILE_REFERENCES} file references`)
+      return
+    }
+
+    const currentCharacters = graphemes(currentEditor.value)
+    const nextCharacter = currentCharacters[mention.end]
+    const suffix = nextCharacter === undefined || /\s/u.test(nextCharacter) ? '' : ' '
+    const referenceText = createFileReferenceMarkdown(added.reference.path, added.reference.name)
+    replaceRange(mention.start, mention.end, `${referenceText}${suffix}`, added.references)
+    onNotice(`Referenced ${added.reference.path}`)
   }
 
   useInput(
@@ -228,6 +348,7 @@ export function PromptInput({
       const currentEditor = editorRef.current
       const currentValue = currentEditor.value
       const currentCursor = currentEditor.cursor
+      const currentReferences = currentEditor.references
       const currentCharacters = graphemes(currentValue)
       const rawCtrlCCount = input.split('\u0003').length - 1
       const rawEscapeCount = input.split('\u001b').length - 1
@@ -237,9 +358,9 @@ export function PromptInput({
           onAbort()
           return
         }
-        if (currentValue || images.length > 0) {
+        if (currentValue || images.length > 0 || currentReferences.length > 0) {
           lastCtrlCAt = 0
-          if (currentValue) mutate('', 0)
+          if (currentValue || currentReferences.length > 0) mutate('', 0, [])
           onImagesChange([])
           return
         }
@@ -284,13 +405,13 @@ export function PromptInput({
       }
 
       if (key.ctrl && input === 's') {
-        if (currentValue) {
+        if (currentValue || currentReferences.length > 0) {
           stashRef.current = currentEditor
-          mutate('', 0)
+          mutate('', 0, [])
           onNotice('Prompt stashed · Ctrl-S to restore')
         } else if (stashRef.current) {
           const stash = stashRef.current
-          mutate(stash.value, stash.cursor)
+          mutate(stash.value, stash.cursor, stash.references)
           stashRef.current = null
         }
         return
@@ -329,8 +450,8 @@ export function PromptInput({
         const previous = undoRef.current.pop()
         if (previous) {
           editorRef.current = previous
-          setValue(previous.value)
-          setCursor(previous.cursor)
+          setEditor(previous)
+          onReferencesChange(previous.references)
         }
         return
       }
@@ -342,6 +463,28 @@ export function PromptInput({
       if (key.meta && input.toLowerCase() === 'p') {
         onOpenModel()
         return
+      }
+
+      if (fileMenuOpen) {
+        if (key.upArrow) {
+          setSelectedIndex((current) =>
+            fileSearchResults.length === 0
+              ? 0
+              : (current - 1 + fileSearchResults.length) % fileSearchResults.length
+          )
+          return
+        }
+        if (key.downArrow) {
+          setSelectedIndex((current) =>
+            fileSearchResults.length === 0 ? 0 : (current + 1) % fileSearchResults.length
+          )
+          return
+        }
+        if (key.tab || (key.return && fileSearchResults.length > 0)) {
+          const selected = fileSearchResults[selectedIndex]
+          if (selected) insertFileReference(selected)
+          return
+        }
       }
 
       if (menuOpen && commands.length > 0) {
@@ -371,7 +514,7 @@ export function PromptInput({
       }
 
       if (key.escape) {
-        if (menuOpen) {
+        if (menuOpen || fileMenuOpen) {
           setMenuSuppressed(true)
           lastEscapeAt = 0
           return
@@ -379,20 +522,34 @@ export function PromptInput({
         const now = Date.now()
         if (rawEscapeCount > 1 || now - lastEscapeAt < 3_000) {
           lastEscapeAt = 0
-          if (currentValue || images.length > 0) {
-            if (currentValue && historyRef.current.at(-1) !== currentValue) {
-              historyRef.current.push(currentValue)
+          if (currentValue || images.length > 0 || currentReferences.length > 0) {
+            const previousHistory = historyRef.current.at(-1)
+            if (
+              currentValue &&
+              (previousHistory?.value !== currentValue ||
+                previousHistory.references !== currentReferences)
+            ) {
+              historyRef.current.push({
+                value: currentValue,
+                references: [...currentReferences]
+              })
             }
-            mutate('', 0)
+            mutate('', 0, [])
             onImagesChange([])
-            onNotice(currentValue ? 'Prompt cleared · ↑ to restore' : 'Image attachments cleared')
+            onNotice(
+              currentValue
+                ? 'Prompt cleared · ↑ to restore'
+                : currentReferences.length > 0
+                  ? 'File references cleared'
+                  : 'Image attachments cleared'
+            )
           } else {
             openRewind()
           }
         } else {
           lastEscapeAt = now
           onNotice(
-            currentValue || images.length > 0
+            currentValue || images.length > 0 || currentReferences.length > 0
               ? 'Press Esc again to clear'
               : 'Press Esc again to rewind'
           )
@@ -400,13 +557,22 @@ export function PromptInput({
         return
       }
 
-      if (input === '?' && currentValue.length === 0) {
+      if (
+        input === '?' &&
+        currentValue.length === 0 &&
+        images.length === 0 &&
+        currentReferences.length === 0
+      ) {
         onToggleHelp()
         return
       }
 
       if (key.leftArrow) {
-        if (currentCharacters.length === 0 && images.length === 0) {
+        if (
+          currentCharacters.length === 0 &&
+          images.length === 0 &&
+          currentReferences.length === 0
+        ) {
           onOpenAgents()
           return
         }
@@ -436,6 +602,9 @@ export function PromptInput({
       if (key.backspace || key.delete) {
         if (currentCursor > 0) {
           replaceRange(currentCursor - 1, currentCursor, '')
+        } else if (currentCharacters.length === 0 && currentReferences.length > 0) {
+          mutate('', 0, currentReferences.slice(0, -1))
+          onNotice('Removed last file reference')
         } else if (currentCharacters.length === 0 && images.length > 0) {
           onImagesChange((current) => current.slice(0, -1))
           onNotice('Removed last image')
@@ -469,15 +638,17 @@ export function PromptInput({
   return (
     <Box flexDirection="column" width={width}>
       <Divider width={width} />
-      <Box minHeight={1}>
+      <Box flexWrap="wrap" minHeight={1}>
         <Text bold color={value.startsWith('!') ? theme.warning : theme.primary}>
           ❯{' '}
         </Text>
-        <Text wrap="wrap">
+        <Text color={theme.text} wrap="wrap">
           {beforeCursor}
-          <Text bold color={theme.primary}>
-            ▏
-          </Text>
+        </Text>
+        <Text bold color={theme.primary}>
+          ▏
+        </Text>
+        <Text color={theme.text} wrap="wrap">
           {cursorCharacter === '\n' ? '' : cursorCharacter}
           {cursorCharacter === '\n' ? '\n' : ''}
           {afterCursor}
@@ -497,6 +668,7 @@ export function PromptInput({
           </Text>
         </Box>
       ) : null}
+      <ReferenceBar references={references} width={width} />
       <Divider width={width} />
       {rewindOpen ? (
         <RewindPanel
@@ -506,12 +678,21 @@ export function PromptInput({
           onComplete={(result) => {
             if (result.restoredPrompt !== undefined) {
               onImagesChange(result.restoredImages ?? [])
+              const restoredReferences = result.restoredReferences ?? []
               const nextCursor = graphemes(result.restoredPrompt).length
-              mutate(result.restoredPrompt, nextCursor)
+              mutate(result.restoredPrompt, nextCursor, restoredReferences)
             }
             setRewindOpen(false)
           }}
           onExecute={onRewind}
+          width={width}
+        />
+      ) : fileMenuOpen ? (
+        <FileReferenceMenu
+          error={fileSearchError}
+          loading={fileSearchLoading}
+          results={fileSearchResults}
+          selectedIndex={selectedIndex}
           width={width}
         />
       ) : menuOpen ? (

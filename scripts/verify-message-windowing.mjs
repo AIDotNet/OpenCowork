@@ -49,17 +49,36 @@ function createFrame(payload) {
 }
 
 class NativeWorkerClient {
-  constructor(endpoint, child) {
-    this.endpoint = endpoint
+  constructor(controlEndpoint, eventEndpoint, consumerId, child) {
+    this.controlEndpoint = controlEndpoint
+    this.eventEndpoint = eventEndpoint
+    this.consumerId = consumerId
     this.child = child
     this.socket = null
+    this.eventSocket = null
     this.readBuffer = Buffer.alloc(0)
+    this.eventReadBuffer = Buffer.alloc(0)
     this.nextId = 1
     this.pending = new Map()
     this.eventListeners = new Map()
   }
 
   async connect() {
+    const [socket, eventSocket] = await Promise.all([
+      this.connectEndpoint(this.controlEndpoint),
+      this.connectEndpoint(this.eventEndpoint)
+    ])
+    this.socket = socket
+    this.eventSocket = eventSocket
+    socket.on('data', (chunk) => this.handleControlData(chunk))
+    socket.on('error', (error) => this.rejectAll(error))
+    socket.on('close', () => this.rejectAll(new Error('Native worker control socket closed')))
+    eventSocket.on('data', (chunk) => this.handleEventData(chunk))
+    // Event IPC has a separate health fate. Its failure must not reject Control RPCs.
+    eventSocket.on('error', () => {})
+  }
+
+  async connectEndpoint(endpoint) {
     const deadline = Date.now() + 60_000
     let lastError = null
     while (Date.now() < deadline) {
@@ -67,15 +86,14 @@ class NativeWorkerClient {
         throw new Error(`Native worker exited before connect: ${this.child.exitCode}`)
       }
       try {
-        this.socket = await new Promise((resolve, reject) => {
-          const socket = net.createConnection(this.endpoint)
+        return await new Promise((resolve, reject) => {
+          const socket = net.createConnection(endpoint)
           socket.once('connect', () => resolve(socket))
-          socket.once('error', reject)
+          socket.once('error', (error) => {
+            socket.destroy()
+            reject(error)
+          })
         })
-        this.socket.on('data', (chunk) => this.handleData(chunk))
-        this.socket.on('error', (error) => this.rejectAll(error))
-        this.socket.on('close', () => this.rejectAll(new Error('Native worker socket closed')))
-        return
       } catch (error) {
         lastError = error
         await new Promise((resolve) => setTimeout(resolve, 80))
@@ -112,7 +130,19 @@ class NativeWorkerClient {
     })
   }
 
-  handleData(chunk) {
+  async submitAgentRun(params) {
+    const runId = params.runId
+    const submission = await this.request('jobs/submit', {
+      method: 'agent/run',
+      params,
+      jobId: runId,
+      idempotencyKey: runId
+    })
+    assert(submission.accepted, `agent/run was not durably accepted: ${JSON.stringify(submission)}`)
+    return submission
+  }
+
+  handleControlData(chunk) {
     this.readBuffer = Buffer.concat([this.readBuffer, chunk])
     while (this.readBuffer.length >= frameHeaderBytes) {
       const length = this.readBuffer.readUInt32BE(0)
@@ -124,11 +154,11 @@ class NativeWorkerClient {
       if (this.readBuffer.length < frameLength) return
       const payload = this.readBuffer.subarray(frameHeaderBytes, frameLength)
       this.readBuffer = this.readBuffer.subarray(frameLength)
-      this.handleFrame(payload)
+      this.handleControlFrame(payload)
     }
   }
 
-  handleFrame(payload) {
+  handleControlFrame(payload) {
     const decoded = decode(payload)
     if (!decoded || typeof decoded !== 'object') return
     if (decoded.event) {
@@ -144,6 +174,36 @@ class NativeWorkerClient {
       pending.reject(new Error(String(decoded.error)))
     } else {
       pending.resolve(decoded.result)
+    }
+  }
+
+  handleEventData(chunk) {
+    this.eventReadBuffer = Buffer.concat([this.eventReadBuffer, chunk])
+    while (this.eventReadBuffer.length >= frameHeaderBytes) {
+      const length = this.eventReadBuffer.readUInt32BE(0)
+      if (length <= 0 || length > maxFrameBytes) {
+        this.eventSocket?.destroy(new Error(`Invalid Event IPC frame length: ${length}`))
+        return
+      }
+      const frameLength = frameHeaderBytes + length
+      if (this.eventReadBuffer.length < frameLength) return
+      const payload = this.eventReadBuffer.subarray(frameHeaderBytes, frameLength)
+      this.eventReadBuffer = this.eventReadBuffer.subarray(frameLength)
+      const decoded = decode(payload)
+      if (decoded && typeof decoded === 'object' && typeof decoded.event === 'string') {
+        this.emit(decoded.event, decoded)
+        if (
+          decoded.event === 'agent/stream' &&
+          typeof decoded.runId === 'string' &&
+          typeof decoded.seq === 'number'
+        ) {
+          void this.request('events/ack', {
+            consumerId: this.consumerId,
+            jobId: decoded.runId,
+            throughSeq: decoded.seq
+          }).catch(() => {})
+        }
+      }
     }
   }
 
@@ -165,30 +225,58 @@ class NativeWorkerClient {
 
   close() {
     this.socket?.destroy()
+    this.eventSocket?.destroy()
     this.rejectAll(new Error('Native worker closed'))
   }
 }
 
 async function startWorker(tempDir) {
-  const endpoint =
+  const suffix = `${process.pid}-${randomUUID()}`
+  const controlEndpoint =
     process.platform === 'win32'
-      ? `\\\\.\\pipe\\open-cowork-verify-${process.pid}-${randomUUID()}`
-      : path.join(tempDir, `ocw-${process.pid}.sock`)
-  const child = spawn('dotnet', ['run', '--project', workerProject, '--', '--ipc', endpoint], {
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      OPEN_COWORK_NATIVE_DEBUG_BODY_PREVIEW_CHARS: '200000'
-    },
-    stdio: ['ignore', 'ignore', 'pipe']
-  })
+      ? `\\\\.\\pipe\\open-cowork-window-control-${suffix}`
+      : path.join(tempDir, 'control.sock')
+  const eventEndpoint =
+    process.platform === 'win32'
+      ? `\\\\.\\pipe\\open-cowork-window-event-${suffix}`
+      : path.join(tempDir, 'events.sock')
+  const hostId = `verify-windowing-${suffix}`
+  const consumerId = `verify-windowing-${process.pid}`
+  const child = spawn(
+    'dotnet',
+    [
+      'run',
+      '--project',
+      workerProject,
+      '--',
+      '--control-ipc',
+      controlEndpoint,
+      '--event-ipc',
+      eventEndpoint,
+      '--host-id',
+      hostId
+    ],
+    {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        OPEN_COWORK_NATIVE_DEBUG_BODY_PREVIEW_CHARS: '200000',
+        OPEN_COWORK_RUNTIME_DB_PATH: path.join(tempDir, 'runtime-jobs.db')
+      },
+      stdio: ['ignore', 'ignore', 'pipe']
+    }
+  )
   child.stderr?.on('data', (chunk) => {
     const text = chunk.toString('utf8').trim()
     if (text) console.warn(`[native-worker] ${text}`)
   })
-  const client = new NativeWorkerClient(endpoint, child)
+  const client = new NativeWorkerClient(controlEndpoint, eventEndpoint, consumerId, child)
   await client.connect()
   await client.request('worker/ping')
+  await client.request('events/subscribe', {
+    consumerId,
+    limit: 4096
+  })
   return { client, child }
 }
 
@@ -549,7 +637,7 @@ async function main() {
     )
 
     const headTailDebugPromise = waitForRequestDebug(client, 'head-tail-run')
-    await client.request('agent/run', {
+    await client.submitAgentRun({
       dbPath,
       runId: 'head-tail-run',
       sessionId,
@@ -582,7 +670,7 @@ async function main() {
     await client.request('agent/cancel', { runId: 'head-tail-run' }).catch(() => {})
 
     const directDebugPromise = waitForRequestDebug(client, 'direct-bounded-run')
-    await client.request('agent/run', {
+    await client.submitAgentRun({
       dbPath,
       runId: 'direct-bounded-run',
       sessionId,
@@ -676,7 +764,7 @@ async function main() {
     )
 
     const debugPromise = waitForRequestDebug(client, 'windowing-run')
-    await client.request('agent/run', {
+    await client.submitAgentRun({
       dbPath,
       runId: 'windowing-run',
       sessionId,
@@ -798,7 +886,7 @@ async function main() {
       ]
     })
     const flippedDebugPromise = waitForRequestDebug(client, 'flipped-compact-run')
-    await client.request('agent/run', {
+    await client.submitAgentRun({
       dbPath,
       runId: 'flipped-compact-run',
       sessionId: flippedSessionId,

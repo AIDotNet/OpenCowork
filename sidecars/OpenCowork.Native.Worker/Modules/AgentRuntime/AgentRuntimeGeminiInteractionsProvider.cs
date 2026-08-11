@@ -76,6 +76,7 @@ internal static class AgentRuntimeGeminiInteractionsProvider
             throw await AgentRuntimeProviderHttpException.CreateAsync(
                 "Gemini Interactions",
                 response,
+                provider,
                 state.CancellationToken);
         }
 
@@ -83,7 +84,11 @@ internal static class AgentRuntimeGeminiInteractionsProvider
         using var reader = new StreamReader(responseStream, Encoding.UTF8);
         var dataBuilder = new StringBuilder();
         string? line;
-        while ((line = await reader.ReadLineAsync(state.CancellationToken)) is not null)
+        while ((line = await AgentRuntimeRequestTimeout.ReadLineAsync(
+            reader,
+            provider,
+            "Gemini Interactions",
+            state.CancellationToken)) is not null)
         {
             if (line.Length == 0)
             {

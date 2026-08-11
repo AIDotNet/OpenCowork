@@ -203,7 +203,13 @@ internal static partial class AgentRuntimeContextCompression
             compressionProvider,
             BuildSummarizerPrompt(serializedMessages, focusPrompt));
         var runId = $"native-compress-{Guid.NewGuid():N}";
-        using var state = new AgentRuntimeTools.AgentRuntimeRunState(runId, string.Empty);
+        using var state = new AgentRuntimeTools.AgentRuntimeRunState(runId, string.Empty)
+        {
+            // Compression consumes provider deltas privately and returns one final
+            // result. Publishing its synthetic run would both leak summarizer output
+            // into the UI and violate the durable outbox FK (runId is not a Job id).
+            SuppressTransportEvents = true
+        };
         state.ReplaceParameters(requestParameters);
         using var cancelRegistration = linked.Token.Register(() => state.Cancel("context-compression"));
 

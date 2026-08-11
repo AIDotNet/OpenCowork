@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { t } from '../i18n.js'
 import { fitText, hasTerminalInputControl } from '../lib/text.js'
@@ -60,7 +60,7 @@ export function ResumePanel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [reloadRevision, setReloadRevision] = useState(0)
-  const abortControllerRef = useRef<AbortController>()
+  const abortControllerRef = useRef<AbortController | undefined>(undefined)
   const loadSessionsRef = useRef(loadSessions)
   loadSessionsRef.current = loadSessions
   const contentWidth = Math.max(24, width - 4)

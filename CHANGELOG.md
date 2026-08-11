@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.4] - 2026-08-11
+
+### Added
+
+- Added a full CLI Markdown renderer with headings, lists, tables, block quotes, links, task items, terminal-safe wrapping, and syntax-highlighted code blocks.
+
+### Changed
+
+- Improved desktop streaming responsiveness by bounding live Markdown rendering, avoiding redundant scroll corrections, and stopping idle typewriter animation frames.
+- Unified provider-facing tool-schema sanitization across Gemini request paths while preserving local validation semantics for unsupported provider keywords.
+- Improved CLI runtime coordination and Plan-mode transitions, including cancellation of an active Worker turn when leaving Plan mode.
+
+### Fixed
+
+- Hardened Anthropic and OpenAI tool-call payload generation and validation for provider-specific schema and argument shapes.
+
 ## [1.3.3] - 2026-08-11
 
 ### Added

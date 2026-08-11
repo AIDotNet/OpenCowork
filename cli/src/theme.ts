@@ -11,6 +11,7 @@ export const theme = {
   selectedText: '#171412',
   selectedBackground: '#D7BA7D',
   code: '#C3E88D',
+  inlineCodeBackground: '#282521',
   added: '#73C991',
   addedBackground: '#17382B',
   removed: '#E06C75',

@@ -27,6 +27,37 @@ interface MetricLine {
   remainder: string
 }
 
+function activeModeHint(mode: PermissionMode, width: number): string | null {
+  const candidates: Partial<Record<PermissionMode, string[]>> = {
+    acceptEdits: [
+      '⏵⏵ accept edits on (shift+tab to cycle) · ← for agents',
+      '⏵⏵ accept edits on · shift+tab to cycle',
+      '⏵⏵ accept edits · shift+tab'
+    ],
+    plan: [
+      '⏸ plan mode on (shift+tab to cycle) · ← for agents',
+      '⏸ plan mode on · shift+tab to cycle',
+      '⏸ plan on · shift+tab'
+    ],
+    auto: [
+      '⏵⏵ auto mode on (shift+tab to cycle) · ← for agents',
+      '⏵⏵ auto mode on · shift+tab to cycle',
+      '⏵⏵ auto on · shift+tab'
+    ]
+  }
+  const options = candidates[mode]
+  if (!options) return null
+  return (
+    options.find((candidate) => stringWidth(candidate) <= width) ?? fitText(options.at(-1)!, width)
+  )
+}
+
+function activeModeColor(mode: PermissionMode): string {
+  if (mode === 'plan') return theme.accent
+  if (mode === 'auto') return theme.warning
+  return theme.primary
+}
+
 function contextPercentage(context: ContextSnapshot | null): number | null {
   if (!context || context.contextLength <= 0) return null
   return Math.max(0, (context.estimatedTokens / context.contextLength) * 100)
@@ -117,11 +148,12 @@ export function StatusLine({
   usage,
   width
 }: StatusLineProps): React.JSX.Element {
+  const contentWidth = Math.max(12, width - 4)
+  const modeHint = !notice && !activity && !hideIdleHint ? activeModeHint(mode, contentWidth) : null
   const left =
     notice ??
     activity ??
     (hideIdleHint ? '' : width >= 58 ? '? for shortcuts · ← for agents' : '? shortcuts')
-  const contentWidth = Math.max(12, width - 4)
   const thinkingStatus = supportsThinking ? `think ${thinkingEnabled ? 'on' : 'off'}` : null
   const statusParts = [permissionModeLabels[mode], thinkingStatus, supportsEffort ? effort : null]
     .filter(Boolean)
@@ -139,28 +171,36 @@ export function StatusLine({
 
   return (
     <Box flexDirection="column" width={width}>
-      <Box justifyContent="space-between" paddingX={2} width={width}>
-        {activity && !notice ? (
-          <Box width={leftWidth}>
-            <Spinner />
-            <Text
-              color={
-                activity.startsWith('Compressing') || activity.startsWith('Retry')
-                  ? theme.warning
-                  : theme.muted
-              }
-            >
-              {' '}
-              {fitText(left, Math.max(1, leftWidth - 2))}
-            </Text>
-          </Box>
-        ) : (
-          <Text color={notice ? theme.warning : theme.dim}>{fitText(left, leftWidth)}</Text>
-        )}
-        <Text color={theme.muted}>
-          <Text color={mode === 'plan' ? theme.accent : theme.primary}>●</Text> {right}
-        </Text>
-      </Box>
+      {modeHint ? (
+        <Box paddingX={2} width={width}>
+          <Text bold color={activeModeColor(mode)}>
+            {modeHint}
+          </Text>
+        </Box>
+      ) : (
+        <Box justifyContent="space-between" paddingX={2} width={width}>
+          {activity && !notice ? (
+            <Box width={leftWidth}>
+              <Spinner />
+              <Text
+                color={
+                  activity.startsWith('Compressing') || activity.startsWith('Retry')
+                    ? theme.warning
+                    : theme.muted
+                }
+              >
+                {' '}
+                {fitText(left, Math.max(1, leftWidth - 2))}
+              </Text>
+            </Box>
+          ) : (
+            <Text color={notice ? theme.warning : theme.dim}>{fitText(left, leftWidth)}</Text>
+          )}
+          <Text color={theme.muted}>
+            <Text color={mode === 'plan' ? theme.accent : theme.primary}>●</Text> {right}
+          </Text>
+        </Box>
+      )}
       <Box paddingX={2} width={width}>
         {metricsFit ? (
           <Text color={theme.dim}>

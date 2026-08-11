@@ -480,6 +480,7 @@ export function PromptInput({
           )
           return
         }
+        if ((key.tab || key.return) && fileSearchLoading) return
         if (key.tab || (key.return && fileSearchResults.length > 0)) {
           const selected = fileSearchResults[selectedIndex]
           if (selected) insertFileReference(selected)

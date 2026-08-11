@@ -140,6 +140,56 @@ export function loadOpenCoworkConfiguration(): OpenCoworkConfiguration {
   }
 }
 
+/**
+ * Persist a complete provider-store state in the split format shared with the desktop app.
+ *
+ * Provider files are published before the index, making the index the atomic commit point. The
+ * helper intentionally leaves unreferenced files alone: another OpenCowork process may have
+ * created one while this CLI interaction was open, and the authoritative index keeps such files
+ * from becoming visible until a later coordinated save decides how to reconcile them.
+ */
+export function persistProviderStoreState(nextState: ProviderStoreState): ProviderStoreState {
+  const { dataDirectory } = loadOpenCoworkConfiguration()
+  const providerDirectory = join(dataDirectory, PROVIDER_DIRECTORY_NAME)
+  const indexPath = join(providerDirectory, PROVIDER_INDEX_FILE_NAME)
+  const rawIndex = readJson(indexPath)
+  const persistedIndex = isRecord(rawIndex) ? rawIndex : null
+  const providersById = new Map<string, JsonRecord>()
+
+  for (const value of Array.isArray(nextState.providers) ? nextState.providers : []) {
+    if (!isRecord(value)) continue
+    const providerId = stringValue(value.id).trim()
+    if (!providerId) continue
+    providersById.set(providerId, { ...value, id: providerId })
+  }
+
+  const providers = Array.from(providersById.values())
+  for (const provider of providers) {
+    const providerId = stringValue(provider.id)
+    writeJsonAtomically(
+      join(
+        providerDirectory,
+        `${PROVIDER_FILE_PREFIX}${encodeURIComponent(providerId)}${PROVIDER_FILE_SUFFIX}`
+      ),
+      provider
+    )
+  }
+
+  const metadata = { ...nextState }
+  delete metadata.providers
+  writeJsonAtomically(indexPath, {
+    formatVersion:
+      typeof persistedIndex?.formatVersion === 'number'
+        ? persistedIndex.formatVersion
+        : PROVIDER_STORE_FORMAT_VERSION,
+    providerIds: providers.map((provider) => stringValue(provider.id)),
+    state: metadata,
+    version: typeof persistedIndex?.version === 'number' ? persistedIndex.version : 0
+  })
+
+  return { ...metadata, providers }
+}
+
 function frontmatterValue(frontmatter: string, key: string): string {
   const match = frontmatter.match(new RegExp(`^${key}:\\s*(.+)$`, 'mu'))
   const value = match?.[1]?.trim() ?? ''

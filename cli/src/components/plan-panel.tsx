@@ -11,6 +11,7 @@ interface PlanPanelProps {
   isRunning: boolean
   onAbort(): void
   onApprove(mode: PlanApprovalMode): void
+  onCycleMode(): void
   onNotice(message: string): void
   onRevise(feedback: string): void
 }
@@ -49,6 +50,7 @@ export function PlanPanel({
   isRunning,
   onAbort,
   onApprove,
+  onCycleMode,
   onNotice,
   onRevise
 }: PlanPanelProps): React.JSX.Element {
@@ -90,6 +92,10 @@ export function PlanPanel({
   }, [plan.id, plan.status])
 
   useInput((input, key) => {
+    if (key.tab && key.shift) {
+      onCycleMode()
+      return
+    }
     if (key.ctrl && input === 'c') {
       onAbort()
       return
@@ -192,11 +198,16 @@ export function PlanPanel({
       width={width}
     >
       <Box justifyContent="space-between">
-        <Text bold color={theme.primary}>
-          Plan review
+        <Text bold color={statusColor(plan.status)}>
+          PLAN MODE
         </Text>
         <Text color={statusColor(plan.status)}>● {statusLabel(plan.status)}</Text>
       </Box>
+      <Text color={theme.muted}>
+        {width >= 64
+          ? 'Planning first · implementation waits for your approval'
+          : 'Planning · approval required'}
+      </Text>
       <Box marginTop={1}>
         <Text bold color={theme.text}>
           {fitText(plan.title, Math.max(18, width - 32))}
@@ -218,7 +229,9 @@ export function PlanPanel({
 
       {plan.content ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={theme.dim}>Plan content</Text>
+          <Text bold color={theme.accent}>
+            Plan
+          </Text>
           <Box flexDirection="column" height={Math.max(4, maxVisibleLines)} overflow="hidden">
             {visibleLines.map((line, index) => (
               <Text key={`${offset + index}-${line}`} color={theme.text}>
@@ -248,9 +261,14 @@ export function PlanPanel({
             const selected = selectedIndex === index
             return (
               <Box key={option.label}>
-                <Text color={selected ? theme.primary : theme.dim}>{selected ? '❯' : ' '} </Text>
-                <Text bold={selected} color={selected ? theme.text : theme.muted}>
+                <Text
+                  backgroundColor={selected ? theme.selectedBackground : undefined}
+                  bold={selected}
+                  color={selected ? theme.selectedText : theme.muted}
+                >
+                  {selected ? '❯ ' : '  '}
                   {option.label}
+                  {selected ? ' ' : ''}
                 </Text>
               </Box>
             )
@@ -258,13 +276,20 @@ export function PlanPanel({
         </Box>
       ) : null}
 
-      <Box marginTop={1}>
-        <Text color={theme.dim}>
-          {mode === 'feedback'
-            ? 'Text entry'
-            : plan.status === 'awaiting_review'
-              ? '↑↓ choose · Enter confirm · Ctrl-G show file · Ctrl-C interrupt'
-              : 'Ctrl-G show plan file · Ctrl-C interrupt'}
+      <Box flexDirection="column" marginTop={1}>
+        {mode === 'feedback' ? null : (
+          <Text color={theme.dim}>
+            {plan.status === 'awaiting_review'
+              ? width >= 48
+                ? '↑↓ choose · Enter confirm · Ctrl-G show file · Ctrl-C interrupt'
+                : '↑↓ choose · Enter confirm'
+              : width >= 48
+                ? 'Ctrl-G show plan file · Ctrl-C interrupt'
+                : 'Ctrl-C interrupt'}
+          </Text>
+        )}
+        <Text bold color={theme.accent}>
+          Shift+Tab cycle · exit Plan
         </Text>
       </Box>
     </Box>

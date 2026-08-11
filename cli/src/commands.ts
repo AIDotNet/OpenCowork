@@ -41,12 +41,14 @@ export const slashCommands: SlashCommand[] = [
     completion: '/permissions ',
     local: true
   },
-  { name: '/plan', description: 'Enter plan mode', local: true },
+  { name: '/plan', description: 'Enter, leave, or toggle plan mode', local: true },
+  { name: '/provider', description: 'Quickly configure an AI provider', local: true },
   {
     name: '/rewind',
     description: 'Restore a previous conversation turn and optional tracked changes',
     local: true
   },
+  { name: '/resume', description: 'Resume a completed CLI session', local: true },
   { name: '/status', description: 'Show session, model, and runtime status', local: true },
   { name: '/tasks', description: 'Toggle the current session task list', local: true },
   {

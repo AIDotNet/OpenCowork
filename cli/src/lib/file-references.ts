@@ -23,6 +23,38 @@ function referenceKey(value: string): string {
   return process.platform === 'win32' ? normalized.toLocaleLowerCase() : normalized
 }
 
+const SENSITIVE_FILE_NAMES = new Set([
+  '.git-credentials',
+  '.netrc',
+  '.npmrc',
+  '.pypirc',
+  '_netrc',
+  'application_default_credentials.json',
+  'credentials',
+  'credentials.json',
+  'credentials.yaml',
+  'credentials.yml',
+  'secrets.json',
+  'secrets.yaml',
+  'secrets.yml',
+  'tokens.json'
+])
+
+/** Files likely to contain credentials are never offered for automatic context injection. */
+export function isSensitiveFileReferencePath(value: string): boolean {
+  const normalized = normalizePath(value).toLocaleLowerCase()
+  const fileName = basename(normalized).toLocaleLowerCase()
+  if (!fileName) return false
+
+  if (fileName === '.env' || fileName.startsWith('.env.')) {
+    return !/\.(?:dist|example|sample|template)$/u.test(fileName)
+  }
+  if (SENSITIVE_FILE_NAMES.has(fileName)) return true
+  if (/^id_(?:dsa|ecdsa|ed25519|rsa)(?:\.pub)?$/u.test(fileName)) return true
+  if (/\.(?:jks|key|keystore|p12|pem|pfx)$/u.test(fileName)) return true
+  return normalized.endsWith('/.docker/config.json')
+}
+
 function escapeMarkdownLabel(value: string): string {
   return value.replace(/[\\[\]]/gu, (character) => `\\${character}`).replace(/\r?\n/gu, ' ')
 }

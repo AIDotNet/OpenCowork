@@ -603,8 +603,8 @@ function buildProvider(
     const legacyType = normalizeProviderType(stringValue(settings.provider) || 'anthropic')
     if (!legacyKey && legacyType !== 'openai-chat') {
       throw new Error(
-        'No OpenCowork AI provider is configured. Configure a provider in the desktop app first; ' +
-          'the CLI intentionally shares ~/.open-cowork instead of maintaining separate credentials.'
+        'No OpenCowork AI provider is configured. Run /provider or cowork config; the CLI writes ' +
+          'credentials to the same ~/.open-cowork provider store used by the desktop app.'
       )
     }
     const legacyModel = options.model || stringValue(settings.model)

@@ -3,11 +3,19 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Command, Option } from 'commander'
-import { render } from 'ink'
+import { render, useApp } from 'ink'
 import { CliApp } from './app.js'
+import { ProviderSetupPanel } from './components/provider-setup-panel.js'
+import { useTerminalSize } from './hooks/use-terminal-size.js'
 import { OpenCoworkWorkerRuntime } from './runtime/open-cowork-worker-runtime.js'
+import { loadProviderSetupCatalog, persistProviderSetup } from './runtime/provider-setup.js'
 import { TerminalScreen } from './terminal/terminal-screen.js'
-import type { PermissionMode, TuiMode } from './types.js'
+import type {
+  ModelSelection,
+  PermissionMode,
+  ProviderSetupCatalog,
+  TuiMode
+} from './types.js'
 import { offerUpdate, updateCli } from './update.js'
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url))
@@ -50,6 +58,35 @@ interface CliOptions {
 
 const program = new Command()
 
+function ProviderConfigCommand({
+  catalog,
+  onCancel,
+  onConfigured
+}: {
+  catalog: ProviderSetupCatalog
+  onCancel(): void
+  onConfigured(selection: ModelSelection): void
+}): React.JSX.Element {
+  const { exit } = useApp()
+  const { columns, rows } = useTerminalSize()
+  return (
+    <ProviderSetupPanel
+      catalog={catalog}
+      maxVisible={Math.max(4, Math.min(12, rows - 12))}
+      onCancel={() => {
+        onCancel()
+        exit()
+      }}
+      onSave={async (input) => {
+        const selection = persistProviderSetup(input)
+        onConfigured(selection)
+        exit()
+      }}
+      width={Math.max(35, columns - 1)}
+    />
+  )
+}
+
 program
   .name('cowork')
   .description('OpenCowork — an agentic coding assistant for your terminal')
@@ -79,12 +116,42 @@ program
   })
 
 program
+  .command('config')
+  .alias('configure')
+  .description('Quickly configure an AI provider in the terminal')
+  .action(async () => {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      program.error('Provider setup requires a TTY. Run cowork config in an interactive terminal.')
+    }
+
+    const result: { selection?: ModelSelection } = {}
+    const instance = render(
+      <ProviderConfigCommand
+        catalog={loadProviderSetupCatalog()}
+        onCancel={() => undefined}
+        onConfigured={(configured) => {
+          result.selection = configured
+        }}
+      />,
+      { exitOnCtrlC: false, patchConsole: false }
+    )
+    await instance.waitUntilExit()
+    if (result.selection) {
+      process.stdout.write(
+        `Provider ready: ${result.selection.providerName} / ${result.selection.modelName}\n` +
+          'The same configuration is now available in OpenCowork desktop.\n'
+      )
+    }
+  })
+
+program
   .addHelpText(
     'after',
     `
 Interactive shortcuts:
   /          Open commands             ?          Toggle shortcuts
-  Shift+Tab  Cycle permission mode     Alt+P      Switch model
+  /provider  Configure provider        /model     Switch model
+  Shift+Tab  Cycle modes / Plan        Alt+P      Switch model
   Ctrl+O     Toggle reasoning/details  Ctrl+T     Toggle task list
   Ctrl+C ×2  Exit                      Ctrl+L     Redraw
 `

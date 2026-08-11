@@ -13,7 +13,7 @@ const groups = [
   ],
   [
     ['esc esc', 'rewind conversation turns'],
-    ['shift + tab', 'permission mode'],
+    ['shift + tab', 'cycle modes · enter / leave Plan'],
     ['ctrl + o', 'expand thinking / tools'],
     ['ctrl + t', 'toggle tasks']
   ],

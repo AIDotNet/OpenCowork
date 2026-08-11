@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.3] - 2026-08-11
+
+### Added
+
+- Added an SQLite-backed Native Worker Job runtime with idempotent submission, status/result queries, cancellation and command APIs, bounded concurrency, lane-aware scheduling, and durable event storage.
+- Added separate Control and Event IPC transports for the desktop app and CLI, with independent Event reconnection plus acknowledgement and replay of unconsumed agent-stream envelopes.
+- Added CLI workspace-file references through `@` search, including a structured reference bar, prompt-history and rewind restoration, workspace-bound path validation, and bounded text-context injection.
+- Added a live CLI turn-status row for requesting, thinking, responding, and tool-use phases, showing elapsed time, transfer direction, token estimates, reasoning effort, and animated activity text.
+- Added compact CLI diffs for successful `Edit` tool calls, including file names, addition/deletion totals, contextual lines, and truncation for large replacements.
+
+### Changed
+
+- Bumped the Native Worker protocol to version 2 and extended route discovery with execution mode, result mode, and lane-policy descriptors so hosts can dispatch eligible methods through the durable Job runtime.
+- Changed Job wait semantics so a foreground timeout leaves committed work queued or running for later status checks, while an explicit abort issues a best-effort cancellation even when it races Job submission.
+- Made queued Jobs survive Worker restarts, marked interrupted in-flight work with an explicit failure state, and propagated cancellation through Agent providers and tool execution.
+- Expanded Native Worker verification around durable Jobs, split IPC, message windowing, and sub-agent history persistence.
+
 ## [1.3.2] - 2026-08-10
 
 ### Added

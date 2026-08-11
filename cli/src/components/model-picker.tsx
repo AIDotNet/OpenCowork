@@ -10,6 +10,7 @@ interface ModelPickerProps {
   heading?: string
   maxVisible: number
   onCancel(): void
+  onConfigureProvider?(): void
   onSelect(model: ModelSelection): void
   onUseCurrent?(): void
   summary?: string
@@ -52,6 +53,7 @@ export function ModelPicker({
   heading = 'Select model',
   maxVisible,
   onCancel,
+  onConfigureProvider,
   onSelect,
   onUseCurrent,
   summary,
@@ -103,6 +105,10 @@ export function ModelPicker({
       return
     }
     if (key.return) {
+      if (catalog.totalModels === 0 && onConfigureProvider) {
+        onConfigureProvider()
+        return
+      }
       const selected = options[selectedIndex]
       if (selected?.kind === 'current') onUseCurrent?.()
       if (selected?.kind === 'model') onSelect(toSelection(selected.option))
@@ -148,9 +154,9 @@ export function ModelPicker({
 
       {catalog.totalModels === 0 ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={theme.warning}>Configure a provider in OpenCowork Settings → Models.</Text>
+          <Text color={theme.warning}>No enabled provider has a chat model.</Text>
           <Text color={theme.muted}>
-            The CLI reads the same provider store and never copies credentials.
+            Run /provider or press Enter to configure one in this terminal.
           </Text>
         </Box>
       ) : options.length === 0 ? (

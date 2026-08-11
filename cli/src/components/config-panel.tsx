@@ -12,6 +12,7 @@ interface ConfigPanelProps {
   onChange(key: string, value: ConfigSettingValue): void
   onOpenCompressionModel(): void
   onOpenModel(): void
+  onOpenProvider(): void
   savingKey?: string
   width: number
 }
@@ -68,6 +69,7 @@ export function ConfigPanel({
   onChange,
   onOpenCompressionModel,
   onOpenModel,
+  onOpenProvider,
   savingKey,
   width
 }: ConfigPanelProps): React.JSX.Element {
@@ -87,6 +89,7 @@ export function ConfigPanel({
     if (entry.kind === 'action') {
       if (entry.action === 'model') onOpenModel()
       if (entry.action === 'compressionModel') onOpenCompressionModel()
+      if (entry.action === 'provider') onOpenProvider()
       return
     }
     const value = nextValue(entry, direction)
@@ -148,7 +151,7 @@ export function ConfigPanel({
     <Box flexDirection="column" marginTop={1} paddingLeft={2} width={width}>
       <Text bold>Configuration</Text>
       <Text color={theme.muted}>
-        Shared with OpenCowork desktop · provider credentials remain in Models
+        Shared with OpenCowork desktop · provider credentials stay in the private provider store
       </Text>
       <Box marginTop={1}>
         <Text color={theme.dim}>Search </Text>

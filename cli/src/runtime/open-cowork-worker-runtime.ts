@@ -25,9 +25,13 @@ import type {
   PromptImageAttachment,
   PromptReference,
   PromptSubmission,
+  ProviderSetupCatalog,
+  ProviderSetupInput,
   RewindAction,
   RewindCheckpoint,
   RewindResult,
+  ResumeResult,
+  ResumeSessionSummary,
   RuntimeSessionConfig,
   TaskItem,
   ToolDiff,
@@ -39,6 +43,7 @@ import {
   MAX_FILE_REFERENCE_CONTEXT_CHARS,
   MAX_FILE_REFERENCE_LINES,
   MAX_FILE_REFERENCE_RESULTS,
+  isSensitiveFileReferencePath,
   normalizePromptReferences
 } from '../lib/file-references.js'
 import { stripTerminalPreviewControls } from '../lib/text.js'
@@ -53,6 +58,7 @@ import {
   modelSupportsVision,
   resolveProviderModel
 } from './provider-catalog.js'
+import { loadProviderSetupCatalog, persistProviderSetup } from './provider-setup.js'
 import {
   buildWorkerCompressionRequest,
   buildWorkerRunRequest,
@@ -129,6 +135,44 @@ type RewindCheckpointRecord = {
   references: PromptReference[]
 }
 
+type StoredSessionRow = {
+  created_at: number
+  id: string
+  message_count?: number
+  mode: string
+  model_id?: string | null
+  provider_id?: string | null
+  title: string
+  updated_at: number
+  working_folder?: string | null
+}
+
+type StoredSessionListCursor = {
+  id: string
+  pinned: number
+  updatedAt: number
+}
+
+type StoredSessionListPage = {
+  hasMore: boolean
+  nextCursor?: StoredSessionListCursor | null
+  rows: unknown[]
+}
+
+type StoredMessageRow = {
+  content: string
+  created_at: number
+  id: string
+  meta?: string | null
+  role: string
+  session_id: string
+  sort_order: number
+  usage?: string | null
+}
+
+const RESUME_SESSION_PAGE_SIZE = 200
+const MAX_RESUME_SESSION_PAGES = 50
+
 export interface OpenCoworkWorkerRuntimeOptions {
   appVersion: string
   cwd: string
@@ -149,6 +193,12 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    : []
 }
 
 function numberValue(value: unknown): number | null {
@@ -316,15 +366,25 @@ function findTasks(value: unknown): TaskItem[] | null {
   const candidates = [parsed.tasks, isRecord(parsed.result) ? parsed.result.tasks : undefined]
   for (const candidate of candidates) {
     if (!Array.isArray(candidate)) continue
-    const tasks = candidate.filter(isRecord).map((task) => ({
-      id: stringValue(task.id) || stringValue(task.taskId) || randomUUID(),
-      label:
-        stringValue(task.subject) ||
-        stringValue(task.title) ||
-        stringValue(task.description) ||
-        'Untitled task',
-      status: normalizeTaskStatus(task.status)
-    }))
+    const tasks = candidate.filter(isRecord).map((task) => {
+      const activeForm = stringValue(task.activeForm) || stringValue(task.active_form)
+      const owner = stringValue(task.owner)
+      const blockedBy = stringArrayValue(
+        task.blockedBy ?? task.blocked_by ?? task.dependsOn ?? task.depends_on
+      )
+      return {
+        ...(activeForm ? { activeForm } : {}),
+        ...(blockedBy.length > 0 ? { blockedBy } : {}),
+        id: stringValue(task.id) || stringValue(task.taskId) || randomUUID(),
+        label:
+          stringValue(task.subject) ||
+          stringValue(task.title) ||
+          stringValue(task.description) ||
+          'Untitled task',
+        ...(owner ? { owner } : {}),
+        status: normalizeTaskStatus(task.status)
+      }
+    })
     return tasks
   }
   return null
@@ -353,6 +413,104 @@ function normalizeMessages(value: unknown): WorkerMessage[] | null {
     })
   }
   return messages
+}
+
+function normalizeStoredSession(value: unknown): StoredSessionRow | null {
+  if (!isRecord(value)) return null
+  const createdAt = numberValue(value.created_at)
+  const updatedAt = numberValue(value.updated_at)
+  const messageCount = numberValue(value.message_count)
+  const id = stringValue(value.id)
+  if (!id || createdAt === null || updatedAt === null || messageCount === null) return null
+  return {
+    created_at: createdAt,
+    id,
+    message_count: Math.max(0, Math.round(messageCount)),
+    mode: stringValue(value.mode),
+    ...(typeof value.model_id === 'string' || value.model_id === null
+      ? { model_id: value.model_id }
+      : {}),
+    ...(typeof value.provider_id === 'string' || value.provider_id === null
+      ? { provider_id: value.provider_id }
+      : {}),
+    title: stringValue(value.title) || 'OpenCowork CLI',
+    updated_at: updatedAt,
+    ...(typeof value.working_folder === 'string' || value.working_folder === null
+      ? { working_folder: value.working_folder }
+      : {})
+  }
+}
+
+function parseStoredJson(value: string, field: string, messageId: string): unknown {
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    throw new Error(`Stored message ${messageId} has invalid ${field} JSON.`)
+  }
+}
+
+function normalizeStoredMessages(value: unknown, sessionId: string): WorkerMessage[] {
+  if (!Array.isArray(value)) throw new Error('Native Worker returned an invalid message history.')
+  const rows: StoredMessageRow[] = value.map((item) => {
+    if (!isRecord(item)) throw new Error('Native Worker returned an invalid stored message row.')
+    const createdAt = numberValue(item.created_at)
+    const sortOrder = numberValue(item.sort_order)
+    const id = stringValue(item.id)
+    const rowSessionId = stringValue(item.session_id)
+    const content = item.content
+    if (
+      !id ||
+      rowSessionId !== sessionId ||
+      typeof content !== 'string' ||
+      createdAt === null ||
+      sortOrder === null
+    ) {
+      throw new Error('Native Worker returned an incomplete stored message row.')
+    }
+    return {
+      content,
+      created_at: createdAt,
+      id,
+      ...(typeof item.meta === 'string' || item.meta === null ? { meta: item.meta } : {}),
+      role: stringValue(item.role),
+      session_id: rowSessionId,
+      sort_order: sortOrder,
+      ...(typeof item.usage === 'string' || item.usage === null ? { usage: item.usage } : {})
+    }
+  })
+  rows.sort(
+    (left, right) => left.sort_order - right.sort_order || left.created_at - right.created_at
+  )
+
+  const ids = new Set<string>()
+  return rows.map((row) => {
+    if (ids.has(row.id)) throw new Error(`Stored session contains duplicate message id ${row.id}.`)
+    ids.add(row.id)
+    if (
+      row.role !== 'system' &&
+      row.role !== 'user' &&
+      row.role !== 'assistant' &&
+      row.role !== 'tool'
+    ) {
+      throw new Error(`Stored message ${row.id} has unsupported role ${row.role || '(empty)'}.`)
+    }
+    const meta = row.meta ? parseStoredJson(row.meta, 'meta', row.id) : undefined
+    const usage = row.usage ? parseStoredJson(row.usage, 'usage', row.id) : undefined
+    if (meta !== undefined && !isRecord(meta)) {
+      throw new Error(`Stored message ${row.id} has invalid meta data.`)
+    }
+    if (usage !== undefined && !isRecord(usage)) {
+      throw new Error(`Stored message ${row.id} has invalid usage data.`)
+    }
+    return {
+      id: row.id,
+      role: row.role,
+      content: parseStoredJson(row.content, 'content', row.id),
+      createdAt: row.created_at,
+      ...(usage ? { usage } : {}),
+      ...(meta ? { meta } : {})
+    }
+  })
 }
 
 function imageExtension(mediaType: string): string {
@@ -978,6 +1136,16 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     return loadAgentCatalog()
   }
 
+  getProviderSetupCatalog(): ProviderSetupCatalog {
+    return loadProviderSetupCatalog()
+  }
+
+  configureProvider(input: ProviderSetupInput): Promise<ModelSelection> {
+    const selection = persistProviderSetup(input)
+    this.selectModel(selection)
+    return Promise.resolve(selection)
+  }
+
   getConfigCatalog(): ConfigCatalog {
     const configuration = loadOpenCoworkConfiguration()
     const { settings } = configuration
@@ -1019,7 +1187,21 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
             activeModelResolution.model
           )
         : settings.thinkingEnabled === true
+    const providerSetupCatalog = loadProviderSetupCatalog()
     const entries: ConfigEntry[] = [
+      {
+        action: 'provider',
+        category: 'Model',
+        description:
+          'Add or update an API-key provider directly in the terminal. Credentials are written to the shared OpenCowork provider store.',
+        key: 'providers',
+        kind: 'action',
+        label: 'Providers',
+        value:
+          providerSetupCatalog.configuredCount > 0
+            ? `${providerSetupCatalog.configuredCount} configured`
+            : 'Set up now'
+      },
       {
         action: 'model',
         category: 'Model',
@@ -1330,7 +1512,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         path: stringValue(item.path),
         name: stringValue(item.name)
       }))
-      .filter((item) => item.path)
+      .filter((item) => item.path && !isSensitiveFileReferencePath(item.path))
       .slice(0, MAX_FILE_REFERENCE_RESULTS)
   }
 
@@ -1342,6 +1524,12 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     const workspace = resolve(this.options.cwd)
     const reads = await Promise.all(
       references.map(async (reference) => {
+        if (isSensitiveFileReferencePath(reference.path)) {
+          return {
+            reference,
+            error: 'Sensitive files are referenced by path only and are never read automatically.'
+          }
+        }
         const absolutePath = isAbsolute(reference.path)
           ? resolve(reference.path)
           : resolve(workspace, reference.path)
@@ -1584,6 +1772,139 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     return result
   }
 
+  async listResumableSessions(signal?: AbortSignal): Promise<ResumeSessionSummary[]> {
+    if (this.activeRunId) throw new Error('Wait for the active Worker turn before resuming.')
+    const sessions: ResumeSessionSummary[] = []
+    let cursor: StoredSessionListCursor | null = null
+
+    for (let pageIndex = 0; pageIndex < MAX_RESUME_SESSION_PAGES; pageIndex += 1) {
+      signal?.throwIfAborted()
+      const response = await this.client.request<unknown>(
+        'db/sessions-list-page',
+        {
+          limit: RESUME_SESSION_PAGE_SIZE,
+          includePinned: false,
+          ...(cursor ? { cursor } : {})
+        },
+        30_000,
+        signal
+      )
+      if (!isRecord(response) || !Array.isArray(response.rows)) {
+        throw new Error('Native Worker returned an invalid resumable session list.')
+      }
+      const page = response as StoredSessionListPage
+      for (const value of page.rows) {
+        const session = normalizeStoredSession(value)
+        if (!session || !this.isResumableSession(session)) continue
+        sessions.push(this.toResumeSessionSummary(session))
+      }
+      if (page.hasMore !== true) break
+      if (!isRecord(page.nextCursor)) {
+        throw new Error('Native Worker omitted the next resumable session cursor.')
+      }
+      const updatedAt = numberValue(page.nextCursor.updatedAt)
+      const pinned = numberValue(page.nextCursor.pinned)
+      const id = stringValue(page.nextCursor.id)
+      if (!id || updatedAt === null || pinned === null) {
+        throw new Error('Native Worker returned an invalid resumable session cursor.')
+      }
+      cursor = { id, pinned, updatedAt }
+      if (pageIndex === MAX_RESUME_SESSION_PAGES - 1) {
+        throw new Error('Too many stored sessions to build a complete resume list.')
+      }
+    }
+
+    return sessions.sort(
+      (left, right) => right.updatedAt - left.updatedAt || right.id.localeCompare(left.id)
+    )
+  }
+
+  async resumeSession(sessionId: string, signal?: AbortSignal): Promise<ResumeResult> {
+    if (this.activeRunId) throw new Error('Wait for the active Worker turn before resuming.')
+    signal?.throwIfAborted()
+    const normalizedId = sessionId.trim()
+    if (!normalizedId) throw new Error('A session id is required to resume.')
+
+    const sessionResponse = await this.client.request<unknown>(
+      'db/sessions-get',
+      { id: normalizedId },
+      30_000,
+      signal
+    )
+    if (!isRecord(sessionResponse) || sessionResponse.success !== true) {
+      throw new Error(
+        (isRecord(sessionResponse) && stringValue(sessionResponse.error)) ||
+          'The selected session no longer exists.'
+      )
+    }
+    const session = normalizeStoredSession(sessionResponse.session)
+    if (!session || !this.isResumableSession(session, true)) {
+      throw new Error('The selected session is not resumable from this CLI workspace.')
+    }
+
+    const storedMessages = await this.client.request<unknown>(
+      'db/messages-list',
+      { sessionId: session.id },
+      60_000,
+      signal
+    )
+    signal?.throwIfAborted()
+    const messages = normalizeStoredMessages(storedMessages, session.id)
+    if (messages.length !== session.message_count || messages.length === 0) {
+      throw new Error(
+        `The stored session history is incomplete (expected ${session.message_count}, received ${messages.length}).`
+      )
+    }
+
+    let modelSelection: ModelSelection | null = this.getModelCatalog().active
+    let nextConfig = this.config
+    let nextModelLabel = this.activeModelLabel
+    let warning: string | undefined
+    const providerId = session.provider_id?.trim()
+    const modelId = session.model_id?.trim()
+    if (providerId && modelId) {
+      try {
+        const configuration = loadOpenCoworkConfiguration()
+        const resolution = resolveProviderModel(configuration, { providerId, modelId })
+        if (!resolution) throw new Error('The original model is unavailable.')
+        modelSelection = resolution.selection
+        nextConfig = {
+          ...this.config,
+          effort: resolveReasoningEffort(
+            configuration.settings,
+            resolution.selection.providerId,
+            resolution.selection.modelId,
+            '',
+            resolution.model
+          ),
+          model: resolution.selection.modelId,
+          providerId: resolution.selection.providerId
+        }
+        nextModelLabel = resolution.selection.modelName
+      } catch {
+        warning = `Session restored, but its original model ${providerId}/${modelId} is unavailable; continuing with the current model.`
+      }
+    } else if (providerId || modelId) {
+      warning =
+        'Session restored, but its original model metadata is incomplete; continuing with the current model.'
+    }
+
+    this.sessionId = session.id
+    this.sessionCreation = Promise.resolve()
+    this.messages = messages
+    this.config = nextConfig
+    this.activeModelLabel = nextModelLabel
+    this.resetTransientSessionState()
+    this.ensureRewindHistory()
+
+    return {
+      modelSelection,
+      session: this.toResumeSessionSummary(session),
+      transcript: toRewindTranscript(messages, nextModelLabel),
+      ...(warning ? { warning } : {})
+    }
+  }
+
   async listRewindCheckpoints(): Promise<RewindCheckpoint[]> {
     if (this.activeRunId) throw new Error('Wait for the active Worker turn before rewinding.')
     if (this.messages.length === 0) return []
@@ -1821,6 +2142,61 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     }
     for (const unsubscribe of this.subscriptions.splice(0)) unsubscribe()
     await this.client.stop()
+  }
+
+  private isResumableSession(session: StoredSessionRow, allowCurrent = false): boolean {
+    const workingFolder = session.working_folder?.trim()
+    if (
+      !session.id.startsWith('cli-session-') ||
+      session.mode !== 'code' ||
+      !workingFolder ||
+      (session.message_count ?? 0) <= 0 ||
+      (!allowCurrent && session.id === this.sessionId)
+    ) {
+      return false
+    }
+    const currentPath = resolve(this.options.cwd)
+    const sessionPath = resolve(workingFolder)
+    return process.platform === 'win32'
+      ? sessionPath.toLocaleLowerCase() === currentPath.toLocaleLowerCase()
+      : sessionPath === currentPath
+  }
+
+  private toResumeSessionSummary(session: StoredSessionRow): ResumeSessionSummary {
+    return {
+      createdAt: session.created_at,
+      id: session.id,
+      messageCount: session.message_count ?? 0,
+      ...(session.model_id ? { modelId: session.model_id } : {}),
+      ...(session.provider_id ? { providerId: session.provider_id } : {}),
+      title: session.title,
+      updatedAt: session.updated_at,
+      workingFolder: session.working_folder ?? this.options.cwd
+    }
+  }
+
+  private resetTransientSessionState(): void {
+    this.activeRunUsages = []
+    this.lastSequence = 0
+    this.finished = false
+    this.assistantId = null
+    this.assistantIndex = 0
+    this.startedTools = new Set()
+    this.toolDiffs = new Map()
+    this.subAgentReports = new Map()
+    this.subAgentThinking = new Map()
+    this.queue.length = 0
+    this.notify = null
+    this.activeSignal = null
+    this.historyPersistence = null
+    this.rewindTranscript = []
+    this.rewindCheckpointRecords = []
+    this.rewindChangeSessionIds = []
+    this.activeCheckpointId = null
+    this.pendingPlanContext = {}
+    this.sessionAllowedTools.clear()
+    this.activeCodeGraphToolNames.clear()
+    this.pendingReverse.clear()
   }
 
   private createSessionOptions(runId: string): WorkerSessionOptions {
@@ -2181,7 +2557,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private projectEvent(event: JsonRecord): void {
     const type = stringValue(event.type)
     if (type === 'iteration_start') {
-      this.assistantId = null
+      this.finishAssistant()
       this.push({ type: 'runtime.activity', activity: 'working' })
       return
     }
@@ -2218,16 +2594,12 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
           })
         }
       }
-      if (this.assistantId) {
-        const reasoningTokens = numberValue(usage?.reasoningTokens)
-        this.push({
-          type: 'assistant.done',
-          id: this.assistantId,
-          ...(reasoningTokens !== null && reasoningTokens > 0
-            ? { reasoningTokens: Math.round(reasoningTokens) }
-            : {})
-        })
-      }
+      const reasoningTokens = numberValue(usage?.reasoningTokens)
+      this.finishAssistant(
+        reasoningTokens !== null && reasoningTokens > 0
+          ? { reasoningTokens: Math.round(reasoningTokens) }
+          : undefined
+      )
       return
     }
     if (type === 'tool_use_generated' && isRecord(event.toolUseBlock)) {
@@ -2298,14 +2670,11 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     }
     if (type === 'web_search') {
       const id = stringValue(event.webSearchId) || `web-search-${this.activeRunId}`
-      if (!this.startedTools.has(id)) {
-        this.startedTools.add(id)
-        this.push({
-          type: 'tool.start',
-          id,
-          title: `WebSearch(${compact(stringValue(event.content), 90)})`
-        })
-      }
+      this.pushToolStart({
+        type: 'tool.start',
+        id,
+        title: `WebSearch(${compact(stringValue(event.content), 90)})`
+      })
       if (event.status === 'completed') {
         const sources = Array.isArray(event.webSearchSources) ? event.webSearchSources.length : 0
         this.push({
@@ -2319,18 +2688,12 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     }
     if (type === 'image_generation_started') {
       const id = `image-${this.activeRunId}`
-      if (!this.startedTools.has(id)) {
-        this.startedTools.add(id)
-        this.push({ type: 'tool.start', id, title: 'ImageGenerate' })
-      }
+      this.pushToolStart({ type: 'tool.start', id, title: 'ImageGenerate' })
       return
     }
     if (type === 'image_generated' || type === 'image_error') {
       const id = `image-${this.activeRunId}`
-      if (!this.startedTools.has(id)) {
-        this.startedTools.add(id)
-        this.push({ type: 'tool.start', id, title: 'ImageGenerate' })
-      }
+      this.pushToolStart({ type: 'tool.start', id, title: 'ImageGenerate' })
       this.push({
         type: 'tool.done',
         id,
@@ -2348,15 +2711,13 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       type === 'sub_agent_start'
     ) {
       const id = stringValue(event.toolUseId) || `sub-agent-${randomUUID()}`
-      if (!this.startedTools.has(id)) {
-        this.startedTools.add(id)
-        this.push({
-          type: 'tool.start',
-          id,
-          title: `Task(${stringValue(event.subAgentName) || 'sub-agent'})`,
-          detail: formatJson(event.input)
-        })
-      } else {
+      const started = this.pushToolStart({
+        type: 'tool.start',
+        id,
+        title: `Task(${stringValue(event.subAgentName) || 'sub-agent'})`,
+        detail: formatJson(event.input)
+      })
+      if (!started) {
         const state =
           type === 'sub_agent_queued'
             ? 'Queued'
@@ -2441,7 +2802,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       return
     }
     if (type === 'loop_end') {
-      if (this.assistantId) this.push({ type: 'assistant.done', id: this.assistantId })
+      this.finishAssistant()
       const finalMessages = normalizeMessages(event.messages)
       if (finalMessages) {
         const checkpointRecord = this.rewindCheckpointRecords.find(
@@ -2472,6 +2833,23 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     }
   }
 
+  private finishAssistant(
+    metadata: Omit<Extract<UiEvent, { type: 'assistant.done' }>, 'type' | 'id'> = {}
+  ): void {
+    if (!this.assistantId) return
+    const id = this.assistantId
+    this.assistantId = null
+    this.push({ type: 'assistant.done', id, ...metadata })
+  }
+
+  private pushToolStart(event: Extract<UiEvent, { type: 'tool.start' }>): boolean {
+    if (!event.id || this.startedTools.has(event.id)) return false
+    this.finishAssistant({ preserveResponseCharacters: true })
+    this.startedTools.add(event.id)
+    this.push(event)
+    return true
+  }
+
   private startTool(tool: JsonRecord): void {
     const id = stringValue(tool.id)
     const name = stringValue(tool.name) || 'Tool'
@@ -2479,9 +2857,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     if (!id) return
     const diff = buildEditDiff(name, input)
     if (diff) this.toolDiffs.set(id, diff)
-    if (this.startedTools.has(id)) return
-    this.startedTools.add(id)
-    this.push({
+    this.pushToolStart({
       type: 'tool.start',
       id,
       title: formatToolTitle(name, input),

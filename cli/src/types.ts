@@ -99,8 +99,11 @@ export type Message =
     }
 
 export interface TaskItem {
+  activeForm?: string
+  blockedBy?: string[]
   id: string
   label: string
+  owner?: string | null
   status: 'pending' | 'in_progress' | 'completed'
 }
 
@@ -207,6 +210,41 @@ export interface ModelCatalog {
   totalModels: number
 }
 
+export type ProviderSetupProtocol =
+  | 'anthropic'
+  | 'gemini-interactions'
+  | 'openai-chat'
+  | 'openai-responses'
+
+export interface ProviderSetupOption {
+  baseUrl: string
+  builtinId?: string
+  defaultModelId: string
+  description: string
+  hasApiKey: boolean
+  key: string
+  modelType?: ProviderSetupProtocol
+  name: string
+  providerId?: string
+  providerType: ProviderSetupProtocol
+  requiresApiKey: boolean
+  source: 'existing' | 'preset' | 'custom'
+}
+
+export interface ProviderSetupCatalog {
+  configuredCount: number
+  dataDirectory: string
+  options: ProviderSetupOption[]
+}
+
+export interface ProviderSetupInput {
+  apiKey?: string
+  baseUrl: string
+  modelId: string
+  name: string
+  optionKey: string
+}
+
 export interface ModelConfiguration {
   builtinSearchEnabled: boolean
   cacheTtl: '5m' | '1h'
@@ -306,6 +344,24 @@ export interface RewindResult {
   transcript: Message[]
 }
 
+export interface ResumeSessionSummary {
+  createdAt: number
+  id: string
+  messageCount: number
+  modelId?: string
+  providerId?: string
+  title: string
+  updatedAt: number
+  workingFolder: string
+}
+
+export interface ResumeResult {
+  modelSelection: ModelSelection | null
+  session: ResumeSessionSummary
+  transcript: Message[]
+  warning?: string
+}
+
 export interface UsageSnapshot {
   billableInputTokens: number
   cacheCreationTokens: number
@@ -338,7 +394,7 @@ export interface ConfigChoice {
 }
 
 export interface ConfigEntry {
-  action?: 'model' | 'compressionModel'
+  action?: 'model' | 'compressionModel' | 'provider'
   category: 'Model' | 'Context' | 'Runtime' | 'Tools'
   choices?: ConfigChoice[]
   description: string
@@ -374,7 +430,12 @@ export type UiEvent =
   | { type: 'assistant.start'; id: string; model?: string }
   | { type: 'assistant.delta'; id: string; text: string }
   | { type: 'assistant.thinking'; id: string; thinking: string }
-  | { type: 'assistant.done'; id: string; reasoningTokens?: number }
+  | {
+      type: 'assistant.done'
+      id: string
+      preserveResponseCharacters?: boolean
+      reasoningTokens?: number
+    }
   | {
       type: 'tool.start'
       id: string
@@ -436,10 +497,12 @@ export interface AgentRuntime {
   getContextSnapshot?(): ContextSnapshot
   getModelCatalog(): ModelCatalog
   getModelConfiguration?(selection: ModelSelection): ModelConfiguration
+  getProviderSetupCatalog?(): ProviderSetupCatalog
   estimateRequestTokens?(submission: PromptSubmission): number
   searchFiles?(query: string, signal?: AbortSignal): Promise<FileReferenceCandidate[]>
   getUsageSnapshot?(): UsageSnapshot
   selectModel?(selection: ModelSelection): void
+  configureProvider?(input: ProviderSetupInput): Promise<ModelSelection>
   configureModel?(selection: ModelSelection, patch: ModelConfigurationPatch): Promise<void>
   selectCompressionModel?(selection: ModelSelection | null): Promise<void>
   updateConfig?(key: string, value: ConfigSettingValue): Promise<void>
@@ -454,6 +517,8 @@ export interface AgentRuntime {
     instructions: string | undefined,
     signal: AbortSignal
   ): Promise<RewindResult>
+  listResumableSessions?(signal?: AbortSignal): Promise<ResumeSessionSummary[]>
+  resumeSession?(sessionId: string, signal?: AbortSignal): Promise<ResumeResult>
   clearContext?(): Promise<void>
   newSession?(): Promise<void>
   doctor?(): Promise<RuntimeDoctorSnapshot>

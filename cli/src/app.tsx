@@ -9,6 +9,8 @@ import { ModelPicker } from './components/model-picker.js'
 import { PlanPanel } from './components/plan-panel.js'
 import { PermissionPrompt } from './components/permission-prompt.js'
 import { PromptInput } from './components/prompt-input.js'
+import { ProviderSetupPanel } from './components/provider-setup-panel.js'
+import { ResumePanel } from './components/resume-panel.js'
 import { StatusLine } from './components/status-line.js'
 import { TaskList } from './components/task-list.js'
 import { Transcript } from './components/transcript.js'
@@ -38,9 +40,13 @@ import type {
   PlanSnapshot,
   PromptImageAttachment,
   PromptReference,
+  ProviderSetupCatalog,
+  ProviderSetupInput,
   RewindAction,
   RewindCheckpoint,
   RewindResult,
+  ResumeResult,
+  ResumeSessionSummary,
   UiEvent,
   TaskItem,
   TuiMode,
@@ -59,6 +65,20 @@ interface CliAppProps {
 }
 
 const permissionModes: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'auto']
+
+function permissionModeNotice(mode: PermissionMode): string {
+  switch (mode) {
+    case 'acceptEdits':
+      return 'Accept edits mode on · Shift+Tab to cycle'
+    case 'plan':
+      return 'Plan mode on · implementation waits for your approval · Shift+Tab to cycle'
+    case 'auto':
+      return 'Auto mode on · tools may run without confirmation · Shift+Tab to cycle'
+    default:
+      return 'Manual approval mode · Shift+Tab to cycle'
+  }
+}
+
 interface RuntimeMetrics {
   context: ContextSnapshot | null
   usage: UsageSnapshot | null
@@ -156,6 +176,11 @@ export function CliApp({
   const [effortConfiguration, setEffortConfiguration] = useState<ModelConfiguration | null>(null)
   const [effortSaving, setEffortSaving] = useState(false)
   const [agentPanelOpen, setAgentPanelOpen] = useState(false)
+  const [resumeOpen, setResumeOpen] = useState(false)
+  const [providerSetupCatalog, setProviderSetupCatalog] = useState<ProviderSetupCatalog | null>(
+    null
+  )
+  const [providerSetupReturnToConfig, setProviderSetupReturnToConfig] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const [configCatalog, setConfigCatalog] = useState<ConfigCatalog | null>(null)
   const [configSavingKey, setConfigSavingKey] = useState<string>()
@@ -307,6 +332,42 @@ export function CliApp({
       return
     }
     setConfigOpen(true)
+  }
+
+  const openProviderSetup = (returnToConfig = false): void => {
+    if (!runtime.getProviderSetupCatalog || !runtime.configureProvider) {
+      showNotice('Provider setup is unavailable in this runtime')
+      return
+    }
+    try {
+      setProviderSetupCatalog(runtime.getProviderSetupCatalog())
+      setProviderSetupReturnToConfig(returnToConfig)
+      setConfigOpen(false)
+    } catch (error) {
+      appendSystem(error instanceof Error ? error.message : String(error), 'error')
+    }
+  }
+
+  const closeProviderSetup = (): void => {
+    setProviderSetupCatalog(null)
+    if (providerSetupReturnToConfig) setConfigOpen(true)
+    setProviderSetupReturnToConfig(false)
+  }
+
+  const saveProviderSetup = async (input: ProviderSetupInput): Promise<void> => {
+    if (!runtime.configureProvider)
+      throw new Error('Provider setup is unavailable in this runtime.')
+    const selection = await runtime.configureProvider(input)
+    const catalog = runtime.getModelCatalog()
+    setModelCatalog(catalog)
+    setModelSelection(selection)
+    refreshSelectedModelConfiguration(selection)
+    refreshConfigCatalog()
+    refreshRuntimeMetrics()
+    setProviderSetupCatalog(null)
+    if (providerSetupReturnToConfig) setConfigOpen(true)
+    setProviderSetupReturnToConfig(false)
+    showNotice(`Provider ready · ${selection.providerName} / ${selection.modelName}`)
   }
 
   const openAgentPanel = (): void => {
@@ -472,15 +533,17 @@ export function CliApp({
     }
 
     if (event.type === 'assistant.done') {
-      setTurnStatus((current) => {
-        if (!current || current.activeResponseCharacters <= 0) return current
-        return {
-          ...current,
-          activeResponseCharacters: 0,
-          completedOutputTokens:
-            current.completedOutputTokens + Math.round(current.activeResponseCharacters / 4)
-        }
-      })
+      if (!event.preserveResponseCharacters) {
+        setTurnStatus((current) => {
+          if (!current || current.activeResponseCharacters <= 0) return current
+          return {
+            ...current,
+            activeResponseCharacters: 0,
+            completedOutputTokens:
+              current.completedOutputTokens + Math.round(current.activeResponseCharacters / 4)
+          }
+        })
+      }
       setMessages((current) =>
         current.map((message) =>
           message.id === event.id && message.kind === 'assistant'
@@ -578,6 +641,7 @@ export function CliApp({
 
     if (event.type === 'tasks.update') {
       setTasks(event.tasks)
+      setShowTasks(event.tasks.length > 0)
       return
     }
 
@@ -793,6 +857,51 @@ export function CliApp({
     return runtime.listRewindCheckpoints()
   }
 
+  const listResumableSessions = async (signal: AbortSignal): Promise<ResumeSessionSummary[]> => {
+    if (!runtime.listResumableSessions) {
+      throw new Error('Durable session resume is unavailable in this runtime.')
+    }
+    return runtime.listResumableSessions(signal)
+  }
+
+  const runResume = async (sessionId: string, signal: AbortSignal): Promise<ResumeResult> => {
+    if (!runtime.resumeSession) {
+      throw new Error('Durable session resume is unavailable in this runtime.')
+    }
+    if (isRunning) throw new Error('Wait for the active Worker operation before resuming.')
+    setIsRunning(true)
+    setActivity('Resuming session…')
+    try {
+      return await runtime.resumeSession(sessionId, signal)
+    } finally {
+      setIsRunning(false)
+      setActivity(undefined)
+    }
+  }
+
+  const completeResume = (result: ResumeResult): void => {
+    if (!fullscreen) process.stdout.write('[2J[3J[H')
+    setMessages(result.transcript)
+    setPromptImages([])
+    setPromptReferences([])
+    setTasks([])
+    setPlan(null)
+    setShowTasks(false)
+    setPermissionRequest(null)
+    setAskUserRequest(null)
+    setTurnStatus(null)
+    setResumeOpen(false)
+    setTranscriptEpoch((current) => current + 1)
+    const catalog = runtime.getModelCatalog()
+    setModelCatalog(catalog)
+    setModelSelection(result.modelSelection)
+    refreshSelectedModelConfiguration(result.modelSelection)
+    refreshConfigCatalog()
+    refreshRuntimeMetrics()
+    if (result.warning) appendSystem(result.warning, 'warning')
+    showNotice(`Resumed session · ${result.session.messageCount} canonical messages`)
+  }
+
   const runRewind = async (
     checkpointId: string,
     action: RewindAction,
@@ -948,8 +1057,28 @@ export function CliApp({
       setShowHelp((current) => !current)
       return true
     }
+    if (name === '/resume') {
+      if (args.length > 0) {
+        appendSystem('Usage: /resume', 'warning')
+      } else if (isRunning) {
+        showNotice('Wait for the active Worker operation before resuming')
+      } else if (!runtime.listResumableSessions || !runtime.resumeSession) {
+        appendSystem('Durable session resume is unavailable in this runtime.', 'warning')
+      } else {
+        setResumeOpen(true)
+      }
+      return true
+    }
     if (name === '/model') {
       openModelPicker()
+      return true
+    }
+    if (name === '/provider') {
+      if (args.length > 0) {
+        appendSystem('Usage: /provider', 'warning')
+      } else {
+        openProviderSetup()
+      }
       return true
     }
     if (name === '/config') {
@@ -1024,9 +1153,16 @@ export function CliApp({
       return true
     }
     if (name === '/plan') {
-      setPermissionMode('plan')
-      runtime.configure?.({ permissionMode: 'plan' })
-      showNotice('Plan mode enabled')
+      const action = args[0]?.toLocaleLowerCase()
+      if (action && !['on', 'off', 'toggle'].includes(action)) {
+        appendSystem('Usage: /plan [on|off|toggle]', 'warning')
+        return true
+      }
+      const nextMode: PermissionMode =
+        action === 'off' || (action === 'toggle' && permissionMode === 'plan') ? 'manual' : 'plan'
+      setPermissionMode(nextMode)
+      runtime.configure?.({ permissionMode: nextMode })
+      showNotice(permissionModeNotice(nextMode))
       return true
     }
     if (name === '/codegraph') {
@@ -1202,12 +1338,11 @@ export function CliApp({
   }
 
   const cyclePermissionMode = (): void => {
-    setPermissionMode((current) => {
-      const index = permissionModes.indexOf(current)
-      const next = permissionModes[(index + 1) % permissionModes.length] ?? 'manual'
-      runtime.configure?.({ permissionMode: next })
-      return next
-    })
+    const index = permissionModes.indexOf(permissionMode)
+    const next = permissionModes[(index + 1) % permissionModes.length] ?? 'manual'
+    setPermissionMode(next)
+    runtime.configure?.({ permissionMode: next })
+    showNotice(permissionModeNotice(next))
   }
 
   const closeModelPicker = (): void => {
@@ -1323,7 +1458,9 @@ export function CliApp({
   }
 
   const planOverlay = Boolean(
-    plan && (plan.status === 'drafting' || plan.status === 'awaiting_review')
+    permissionMode === 'plan' &&
+    plan &&
+    (plan.status === 'drafting' || plan.status === 'awaiting_review')
   )
   const inputActive =
     !askUserRequest &&
@@ -1332,6 +1469,8 @@ export function CliApp({
     !effortConfiguration &&
     !modelConfiguration &&
     !modelPickerPurpose &&
+    !providerSetupCatalog &&
+    !resumeOpen &&
     !agentPanelOpen &&
     !configOpen
   const hasTranscript = messages.length > 0
@@ -1391,9 +1530,11 @@ export function CliApp({
           !effortConfiguration &&
           !modelConfiguration &&
           !modelPickerPurpose &&
+          !providerSetupCatalog &&
+          !resumeOpen &&
           !agentPanelOpen &&
           !configOpen ? (
-            <TaskList tasks={tasks} width={contentWidth} />
+            <TaskList rows={rows} tasks={tasks} width={contentWidth} />
           ) : null}
 
           {askUserRequest ? (
@@ -1413,6 +1554,7 @@ export function CliApp({
                 showNotice('Interrupted')
               }}
               onApprove={handlePlanApprove}
+              onCycleMode={cyclePermissionMode}
               onNotice={showNotice}
               onRevise={handlePlanRevise}
               plan={plan}
@@ -1422,6 +1564,23 @@ export function CliApp({
             <PermissionPrompt
               onDecision={handlePermissionDecision}
               request={permissionRequest}
+              width={contentWidth}
+            />
+          ) : resumeOpen ? (
+            <ResumePanel
+              loadSessions={listResumableSessions}
+              maxVisible={Math.max(3, Math.min(10, rows - 13))}
+              onCancel={() => setResumeOpen(false)}
+              onComplete={completeResume}
+              onResume={runResume}
+              width={contentWidth}
+            />
+          ) : providerSetupCatalog ? (
+            <ProviderSetupPanel
+              catalog={providerSetupCatalog}
+              maxVisible={Math.max(4, Math.min(10, rows - 13))}
+              onCancel={closeProviderSetup}
+              onSave={saveProviderSetup}
               width={contentWidth}
             />
           ) : effortConfiguration ? (
@@ -1456,6 +1615,12 @@ export function CliApp({
               }
               maxVisible={Math.max(4, Math.min(12, rows - 12))}
               onCancel={closeModelPicker}
+              onConfigureProvider={() => {
+                const returnToConfig = modelPickerReturnToConfig
+                setModelPickerPurpose(null)
+                setModelPickerReturnToConfig(false)
+                openProviderSetup(returnToConfig)
+              }}
               onSelect={(nextModel) => {
                 if (modelPickerPurpose === 'compression') {
                   saveCompressionModel(nextModel)
@@ -1487,6 +1652,7 @@ export function CliApp({
                 setConfigOpen(false)
                 openModelPicker('session', true)
               }}
+              onOpenProvider={() => openProviderSetup(true)}
               savingKey={configSavingKey}
               width={contentWidth}
             />

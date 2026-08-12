@@ -510,8 +510,13 @@ const chineseResources = {
       nameShortcut: 'N 名称',
       nameHint: '模型选择器中显示的简短名称。',
       endpointHint: 'HTTP(S) API 根地址，例如 https://api.example.com/v1。',
-      keepKeyHint: '留空以保留已保存的 Key。输入内容不会回显。',
-      keyHint: '输入会被掩码，并只保存到共享 Provider 存储。',
+      keepKeyHint: '留空以保留已保存的 Key。输入显示为 • · Ctrl+V 粘贴。',
+      keyHint: '显示为 • · Ctrl+V 粘贴 · 仅保存到共享 Provider 存储。',
+      keyPlaceholder: '粘贴或输入 API Key',
+      keyChars: '已输入 {{count}} 个字符 · 显示为 •',
+      keyFooter: 'Enter 继续 · Esc 返回 · Ctrl+V 粘贴 · Ctrl+U 清空',
+      readingClipboard: '正在读取剪贴板…',
+      clipboardEmpty: '剪贴板为空。',
       modelHint: '发送给 Provider 的准确模型标识符。'
     },
     resume: {

@@ -1,8 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { t } from '../i18n.js'
+import { readClipboardText } from '../lib/clipboard-text.js'
 import { openExternalUrl } from '../lib/open-url.js'
+import { consumeBracketedPaste, sanitizePastedText } from '../lib/paste.js'
 import { fitText, graphemes, hasTerminalInputControl } from '../lib/text.js'
+import { containsMouseSequence } from '../terminal/mouse.js'
 import { theme } from '../theme.js'
 import type { ProviderSetupCatalog, ProviderSetupInput, ProviderSetupOption } from '../types.js'
 import { Spinner } from './spinner.js'
@@ -109,16 +112,29 @@ function draftValue(draft: ProviderDraft, step: SetupStep): string {
 
 function EditorValue({
   cursor,
+  placeholder,
   secret,
   value,
   width
 }: {
   cursor: number
+  placeholder?: string
   secret: boolean
   value: string
   width: number
 }): React.JSX.Element {
   const source = graphemes(value)
+  if (source.length === 0 && placeholder) {
+    return (
+      <Box>
+        <Text backgroundColor={theme.primary} color={theme.selectedText}>
+          {' '}
+        </Text>
+        <Text color={theme.dim}>{fitText(placeholder, Math.max(8, width - 2))}</Text>
+      </Box>
+    )
+  }
+
   const display = secret ? source.map(() => '•') : source
   const available = Math.max(8, width - 2)
   const start = Math.max(0, Math.min(cursor - available + 1, display.length - available))
@@ -165,6 +181,10 @@ export function ProviderSetupPanel({
   const [linkNotice, setLinkNotice] = useState<LinkNotice | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
+  const [pasteNotice, setPasteNotice] = useState<string>()
+  const pasteBufferRef = useRef<string | null>(null)
+  const editorRef = useRef({ cursor: 0, value: '' })
+  editorRef.current = { cursor: editorCursor, value: editor }
   const filtered = useMemo(
     () => catalog.options.filter((option) => matches(option, query)),
     [catalog.options, query]
@@ -184,6 +204,14 @@ export function ProviderSetupPanel({
     setEditor(value)
     setEditorCursor(graphemes(value).length)
     setError(undefined)
+    setPasteNotice(
+      nextStep === 'apiKey' && value
+        ? t('cli.provider.keyChars', '{{count}} characters · shown as •', {
+            count: graphemes(value).length
+          })
+        : undefined
+    )
+    pasteBufferRef.current = null
   }
 
   const goToStep = (nextStep: SetupStep, nextDraft: ProviderDraft): void => {
@@ -257,8 +285,57 @@ export function ProviderSetupPanel({
   const leaveDraft = (): void => {
     setDraft(null)
     setLinkNotice(null)
+    setPasteNotice(undefined)
     setStep(guided ? 'welcome' : 'provider')
     setError(undefined)
+  }
+
+  const insertEditorText = (text: string, replaceAll = false): boolean => {
+    const cleaned = sanitizePastedText(text).replace(/\n/gu, '')
+    if (!cleaned && !replaceAll) return false
+
+    const current = editorRef.current
+    const characters = replaceAll ? [] : graphemes(current.value)
+    const cursor = replaceAll ? 0 : current.cursor
+    const inserted = graphemes(cleaned)
+    if (characters.length + inserted.length > editorLimit(step)) {
+      setError(`${titleFor(step)} is too long.`)
+      return false
+    }
+    const next = [
+      ...characters.slice(0, cursor),
+      ...inserted,
+      ...characters.slice(cursor)
+    ].join('')
+    setEditor(next)
+    setEditorCursor(cursor + inserted.length)
+    setError(undefined)
+    if (step === 'apiKey') {
+      setPasteNotice(
+        next
+          ? t('cli.provider.keyChars', '{{count}} characters · shown as •', {
+              count: graphemes(next).length
+            })
+          : undefined
+      )
+    }
+    return Boolean(cleaned)
+  }
+
+  const pasteClipboardIntoEditor = (): void => {
+    const replaceAll = step === 'apiKey'
+    setPasteNotice(t('cli.provider.readingClipboard', 'Reading clipboard…'))
+    void readClipboardText().then((result) => {
+      if (result.status === 'text') {
+        insertEditorText(result.text, replaceAll)
+        return
+      }
+      if (result.status === 'empty') {
+        setPasteNotice(t('cli.provider.clipboardEmpty', 'Clipboard is empty.'))
+        return
+      }
+      setPasteNotice(result.message)
+    })
   }
 
   const backFromEditor = (): void => {
@@ -270,6 +347,8 @@ export function ProviderSetupPanel({
       setReturnToReview(false)
       setStep('review')
       setError(undefined)
+      setPasteNotice(undefined)
+      pasteBufferRef.current = null
       return
     }
     const previous = stepIndex > 0 ? sequence[stepIndex - 1] : undefined
@@ -384,8 +463,25 @@ export function ProviderSetupPanel({
       backFromEditor()
       return
     }
+
+    const pasteResult = consumeBracketedPaste(input, pasteBufferRef.current)
+    if (pasteResult.kind === 'buffer') {
+      pasteBufferRef.current = pasteResult.next
+      return
+    }
+    if (pasteResult.kind === 'complete') {
+      pasteBufferRef.current = null
+      if (pasteResult.text) insertEditorText(pasteResult.text, step === 'apiKey')
+      return
+    }
+    if (containsMouseSequence(input)) return
+
     if (key.return) {
       finishEditor()
+      return
+    }
+    if ((key.ctrl && input === 'v') || input === '\u0016') {
+      pasteClipboardIntoEditor()
       return
     }
     if (key.ctrl && input === 'o') {
@@ -412,41 +508,52 @@ export function ProviderSetupPanel({
       setEditor('')
       setEditorCursor(0)
       setError(undefined)
+      setPasteNotice(undefined)
       return
     }
     if (key.backspace) {
       const characters = graphemes(editor)
       if (editorCursor <= 0) return
-      setEditor(
-        [...characters.slice(0, editorCursor - 1), ...characters.slice(editorCursor)].join('')
-      )
+      const next = [
+        ...characters.slice(0, editorCursor - 1),
+        ...characters.slice(editorCursor)
+      ].join('')
+      setEditor(next)
       setEditorCursor(editorCursor - 1)
       setError(undefined)
+      if (step === 'apiKey') {
+        setPasteNotice(
+          next
+            ? t('cli.provider.keyChars', '{{count}} characters · shown as •', {
+                count: graphemes(next).length
+              })
+            : undefined
+        )
+      }
       return
     }
     if (key.delete) {
       const characters = graphemes(editor)
       if (editorCursor >= characters.length) return
-      setEditor(
-        [...characters.slice(0, editorCursor), ...characters.slice(editorCursor + 1)].join('')
-      )
+      const next = [
+        ...characters.slice(0, editorCursor),
+        ...characters.slice(editorCursor + 1)
+      ].join('')
+      setEditor(next)
       setError(undefined)
+      if (step === 'apiKey') {
+        setPasteNotice(
+          next
+            ? t('cli.provider.keyChars', '{{count}} characters · shown as •', {
+                count: graphemes(next).length
+              })
+            : undefined
+        )
+      }
       return
     }
     if (!key.ctrl && !key.meta && input && !hasTerminalInputControl(input)) {
-      const characters = graphemes(editor)
-      const inserted = graphemes(input)
-      if (characters.length + inserted.length > editorLimit(step)) {
-        setError(`${titleFor(step)} is too long.`)
-        return
-      }
-      setEditor(
-        [...characters.slice(0, editorCursor), ...inserted, ...characters.slice(editorCursor)].join(
-          ''
-        )
-      )
-      setEditorCursor(editorCursor + inserted.length)
-      setError(undefined)
+      insertEditorText(input)
     }
   })
 
@@ -671,6 +778,11 @@ export function ProviderSetupPanel({
           <Box marginTop={1}>
             <EditorValue
               cursor={editorCursor}
+              placeholder={
+                step === 'apiKey'
+                  ? t('cli.provider.keyPlaceholder', 'Paste or type your API key')
+                  : undefined
+              }
               secret={step === 'apiKey'}
               value={editor}
               width={contentWidth}
@@ -688,14 +800,19 @@ export function ProviderSetupPanel({
                   ? option.hasApiKey
                     ? t(
                         'cli.provider.keepKeyHint',
-                        'Leave empty to keep the saved key. Input is never echoed.'
+                        'Leave empty to keep the saved key. Typing shows as • · Ctrl+V pastes.'
                       )
                     : t(
                         'cli.provider.keyHint',
-                        'Input is masked and saved only in the shared provider store.'
+                        'Shown as • · Ctrl+V paste · saved only in the shared provider store.'
                       )
                   : t('cli.provider.modelHint', 'Exact model identifier sent to the provider.')}
           </Text>
+          {pasteNotice ? (
+            <Text color={theme.success} wrap="wrap">
+              {pasteNotice}
+            </Text>
+          ) : null}
           {step === 'apiKey' && option.apiKeyUrl ? (
             <Box flexDirection="column">
               <Box>
@@ -720,7 +837,12 @@ export function ProviderSetupPanel({
             </Text>
           ) : null}
           <Text color={theme.dim}>
-            {t('cli.panels.enterContinue', 'Enter continue · Esc back · Ctrl+U clear')}
+            {step === 'apiKey'
+              ? t(
+                  'cli.provider.keyFooter',
+                  'Enter continue · Esc back · Ctrl+V paste · Ctrl+U clear'
+                )
+              : t('cli.panels.enterContinue', 'Enter continue · Esc back · Ctrl+U clear')}
             {step === 'apiKey' && option.apiKeyUrl
               ? ` · ${t('cli.provider.openKeyPage', 'Ctrl+O open page')}`
               : ''}

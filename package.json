@@ -75,6 +75,7 @@
     "ast-types": "0.16.1",
     "better-sqlite3": "^12.6.2",
     "class-variance-authority": "^0.7.1",
+    "cli-highlight": "^2.1.11",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "commander": "^13.1.0",

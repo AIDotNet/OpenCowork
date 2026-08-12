@@ -115,6 +115,18 @@ jobs:
       - name: Sync version to package.json
         run: npm version ${{ needs.prepare.outputs.version }} --no-git-tag-version --allow-same-version
 
+      - name: Check generated contracts
+        run: npm run contracts:check
+
+      - name: Verify architecture boundaries
+        run: npm run verify:architecture
+
+      - name: Verify runtime behavior baseline
+        run: npm run verify:runtime-baseline
+
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Build (electron-vite)
         run: npx electron-vite build
 

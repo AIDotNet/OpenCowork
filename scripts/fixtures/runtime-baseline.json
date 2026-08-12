@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "sourceOfTruth": {
+    "runRequest": "src/renderer/src/lib/ipc/sidecar-protocol.ts#SidecarAgentRunRequest",
+    "streamEnvelope": "src/shared/agent-stream-protocol.ts#AgentStreamEnvelope",
+    "approvalReverseRequest": "src/main/ipc/sidecar-manager.ts#approval/request",
+    "runtimeSnapshot": "src/main/ipc/runtime-registry.ts#RuntimeRunSnapshot",
+    "attachReplay": "src/main/ipc/sidecar-manager.ts#agent:attach-run"
+  },
+  "runRequest": {
+    "runtimeProtocolVersion": 2,
+    "rolloutMode": "v2",
+    "messages": [
+      {
+        "id": "message-user-1",
+        "role": "user",
+        "content": "Inspect the repository",
+        "createdAt": 1775942400000
+      }
+    ],
+    "provider": {
+      "type": "openai-chat",
+      "apiKey": "fixture-not-a-secret",
+      "model": "fixture-model"
+    },
+    "tools": [
+      {
+        "name": "Read",
+        "description": "Read a file",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string"
+            }
+          },
+          "required": ["file_path"]
+        }
+      }
+    ],
+    "runId": "run-fixture-1",
+    "sessionId": "session-fixture-1",
+    "maxIterations": 20,
+    "forceApproval": false,
+    "permissionMode": "default",
+    "maxConcurrentSubAgents": 4
+  },
+  "streamEnvelope": {
+    "v": 1,
+    "runId": "run-fixture-1",
+    "sessionId": "session-fixture-1",
+    "seq": 7,
+    "events": [
+      {
+        "type": "text_delta",
+        "text": "hello"
+      },
+      {
+        "type": "tool_call_approval_needed",
+        "toolCall": {
+          "id": "tool-fixture-1",
+          "name": "Bash",
+          "input": {
+            "command": "pwd"
+          },
+          "status": "pending_approval",
+          "requiresApproval": true
+        }
+      }
+    ]
+  },
+  "approvalReverseRequest": {
+    "requestId": "sidecar-approval-fixture-1",
+    "method": "approval/request",
+    "params": {
+      "runId": "run-fixture-1",
+      "sessionId": "session-fixture-1",
+      "toolCall": {
+        "id": "tool-fixture-1",
+        "name": "Bash",
+        "input": {
+          "command": "pwd"
+        },
+        "status": "pending_approval",
+        "requiresApproval": true
+      }
+    }
+  },
+  "runtimeSnapshot": {
+    "runs": [
+      {
+        "runId": "run-fixture-1",
+        "sessionId": "session-fixture-1",
+        "status": "running",
+        "lastSeq": 7,
+        "assistantMessageId": "message-assistant-1"
+      }
+    ],
+    "approvals": [
+      {
+        "requestId": "sidecar-approval-fixture-1",
+        "sessionId": "session-fixture-1",
+        "runId": "run-fixture-1",
+        "params": {
+          "runId": "run-fixture-1",
+          "sessionId": "session-fixture-1",
+          "toolCall": {
+            "id": "tool-fixture-1",
+            "name": "Bash"
+          }
+        }
+      }
+    ]
+  },
+  "attachReplay": {
+    "request": {
+      "runId": "run-fixture-1",
+      "sinceSeq": 3,
+      "sessionId": "session-fixture-1"
+    },
+    "result": {
+      "attached": true,
+      "frames": 4,
+      "repostedApprovals": 1
+    },
+    "invariants": {
+      "replayOnlyAfterSinceSeq": true,
+      "usesNormalStreamChannel": true,
+      "addsObserverWithoutStealingPrimaryRoute": true,
+      "repostsMatchingPendingApprovals": true
+    }
+  }
+}

@@ -93,11 +93,7 @@ function moduleCandidates(basePath) {
   const extension = extname(basePath)
   if (extension === '.js' || extension === '.jsx' || extension === '.mjs' || extension === '.cjs') {
     const withoutExtension = basePath.slice(0, -extension.length)
-    candidates.push(
-      `${withoutExtension}.ts`,
-      `${withoutExtension}.tsx`,
-      `${withoutExtension}.d.ts`
-    )
+    candidates.push(`${withoutExtension}.ts`, `${withoutExtension}.tsx`, `${withoutExtension}.d.ts`)
   } else if (!extension) {
     candidates.push(`${basePath}.ts`, `${basePath}.tsx`, `${basePath}.d.ts`)
   }
@@ -414,9 +410,7 @@ let baseline
 try {
   baseline = readBaseline()
 } catch (error) {
-  console.error(
-    `[verify:architecture] ${error instanceof Error ? error.message : String(error)}`
-  )
+  console.error(`[verify:architecture] ${error instanceof Error ? error.message : String(error)}`)
   process.exit(1)
 }
 

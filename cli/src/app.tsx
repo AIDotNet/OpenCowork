@@ -1187,7 +1187,7 @@ export function CliApp({
     }
     if (isRunning) throw new Error('Wait for the active Worker operation before resuming.')
     setIsRunning(true)
-    setActivity(t('cli.runtime.resumingSession', 'Resuming session?'))
+    setActivity(t('cli.runtime.resumingSession', 'Resuming session…'))
     try {
       return await runtime.resumeSession(sessionId, signal)
     } finally {
@@ -1216,7 +1216,11 @@ export function CliApp({
     refreshConfigCatalog()
     refreshRuntimeMetrics()
     if (result.warning) appendSystem(result.warning, 'warning')
-    showNotice(`Resumed session ? ${result.session.messageCount} canonical messages`)
+    showNotice(
+      t('cli.runtime.sessionResumed', 'Resumed session · {{count}} canonical messages', {
+        count: result.session.messageCount
+      })
+    )
   }
 
   const runRewind = async (

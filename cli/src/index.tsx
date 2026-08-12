@@ -132,7 +132,11 @@ function ProviderConfigCommand({
   )
 }
 
-async function runProviderSetupCommand(options?: { deviceLogin?: boolean }): Promise<void> {
+async function runProviderSetupCommand(options?: {
+  deviceLogin?: boolean
+  /** When true, skip the standalone “provider ready” banner — caller will enter the TUI. */
+  quiet?: boolean
+}): Promise<ModelSelection | undefined> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     program.error(
       t(
@@ -155,7 +159,7 @@ async function runProviderSetupCommand(options?: { deviceLogin?: boolean }): Pro
     { exitOnCtrlC: false, patchConsole: false }
   )
   await instance.waitUntilExit()
-  if (result.selection) {
+  if (result.selection && !options?.quiet) {
     process.stdout.write(
       `${t('cli.output.providerReady', 'Provider ready: {{provider}} / {{model}}', {
         provider: result.selection.providerName,
@@ -166,6 +170,202 @@ async function runProviderSetupCommand(options?: { deviceLogin?: boolean }): Pro
           'The same configuration is now available in OpenCowork desktop.'
         )}\n`
     )
+  }
+  return result.selection
+}
+
+async function runInteractiveSession(options: CliOptions, prompt?: string): Promise<void> {
+  const maxTurns = options.maxTurns ? Number.parseInt(options.maxTurns, 10) : undefined
+  if (options.maxTurns && (!Number.isFinite(maxTurns) || (maxTurns as number) <= 0)) {
+    program.error(t('cli.errors.maxTurns', '--max-turns requires a positive integer.'), {
+      exitCode: PRINT_EXIT_CONFIG_ERROR
+    })
+  }
+  // PTY golden tests swap in a deterministic scripted runtime; everything else —
+  // option validation, screen management, Ink wiring — runs exactly as in production.
+  const fixtureRuntime = isFixtureRuntimeRequested() ? new FixtureAgentRuntime() : null
+  const workerRuntime = new OpenCoworkWorkerRuntime({
+    appVersion: pkg.version,
+    cwd: process.cwd(),
+    maxTurns,
+    model: options.model,
+    permissionMode: options.permissionMode,
+    providerId: options.provider,
+    workerPath: options.worker
+  })
+  const selectedModel = (fixtureRuntime ?? workerRuntime).getModelCatalog().active
+  if (options.provider && selectedModel?.providerId !== options.provider) {
+    await workerRuntime.dispose()
+    program.error(
+      t(
+        'cli.errors.provider',
+        'Provider “{{provider}}” is not enabled, authenticated, or configured with chat models.',
+        { provider: options.provider }
+      ),
+      { exitCode: PRINT_EXIT_CONFIG_ERROR }
+    )
+  }
+  if (options.model && selectedModel?.modelId !== options.model) {
+    await workerRuntime.dispose()
+    program.error(
+      t('cli.errors.model', 'Model “{{model}}” is not enabled{{providerSuffix}}.', {
+        model: options.model,
+        providerSuffix: options.provider ? ` for provider “${options.provider}”` : ''
+      }),
+      { exitCode: PRINT_EXIT_CONFIG_ERROR }
+    )
+  }
+
+  // Resolve --continue / --resume before any UI or print run so both entry paths
+  // start from the restored canonical history. Uses the existing Worker DB routes
+  // through resumeSession; no session-host support is required.
+  let initialResume: ResumeResult | undefined
+  if (!options.doctor && (options.continue || options.resume)) {
+    if (options.continue && options.resume) {
+      await workerRuntime.dispose()
+      program.error(t('cli.errors.continueResume', '--continue and --resume cannot be combined.'), {
+        exitCode: PRINT_EXIT_CONFIG_ERROR
+      })
+    }
+    try {
+      let sessionId = options.resume?.trim()
+      if (!sessionId) {
+        const sessions = await workerRuntime.listResumableSessions()
+        sessionId = sessions[0]?.id
+        if (!sessionId) {
+          throw new Error(
+            t('cli.errors.noResumableSession', 'No resumable CLI session found for this folder.')
+          )
+        }
+      }
+      initialResume = await workerRuntime.resumeSession(sessionId)
+    } catch (error) {
+      await workerRuntime.dispose()
+      program.error(error instanceof Error ? error.message : String(error), {
+        exitCode: PRINT_EXIT_CONFIG_ERROR
+      })
+    }
+  }
+
+  if (options.doctor) {
+    try {
+      const result = await workerRuntime.doctor()
+      process.stdout.write(
+        [
+          t('cli.output.doctorTitle', 'OpenCowork CLI doctor'),
+          `  ${t('cli.output.worker', 'Worker: {{value}}', { value: result.executable })}`,
+          `  ${t('cli.output.pid', 'PID: {{value}}', { value: result.pid })}`,
+          `  ${t('cli.output.ipcProtocol', 'IPC protocol: v{{value}}', { value: result.protocolVersion })}`,
+          `  ${t('cli.output.agentProtocol', 'Agent protocol: v{{value}}', { value: result.agentProtocolVersion })}`,
+          `  ${t('cli.output.agentRuntime', 'Agent runtime: {{runtime}} {{version}}', {
+            runtime: result.runtime,
+            version: result.runtimeVersion
+          })}`,
+          `  ${t('cli.output.routes', 'Routes: {{value}}', { value: result.routeCount })}`,
+          `  ${t('cli.output.configuredModel', 'Configured model: {{value}}', {
+            value: result.configuredModel
+          })}`,
+          ...result.checks.map((check) => {
+            const symbol = check.status === 'ok' ? '✓' : check.status === 'warn' ? '!' : '✗'
+            return `  ${symbol} ${check.label}: ${check.detail}`
+          }),
+          result.checks.some((check) => check.status === 'error')
+            ? `  ${t('cli.output.doctorIssues', 'Status: issues found')}`
+            : `  ${t('cli.output.ready', 'Status: ready')}`,
+          ''
+        ].join('\n')
+      )
+      if (result.checks.some((check) => check.status === 'error')) process.exitCode = 1
+    } finally {
+      await workerRuntime.dispose()
+    }
+    return
+  }
+
+  if (options.print) {
+    const promptText = prompt?.trim() || (!process.stdin.isTTY ? await readStdinPrompt() : '')
+    if (!promptText) {
+      await workerRuntime.dispose()
+      program.error(
+        t(
+          'cli.errors.printPrompt',
+          'Print mode needs a prompt: cowork -p "prompt" or echo "prompt" | cowork -p'
+        ),
+        { exitCode: PRINT_EXIT_CONFIG_ERROR }
+      )
+    }
+    if (!selectedModel) {
+      await workerRuntime.dispose()
+      program.error(t('cli.errors.printModel', 'No model configured. Run: cowork config'), {
+        exitCode: PRINT_EXIT_CONFIG_ERROR
+      })
+    }
+    const timeoutSeconds = options.timeout ? Number.parseFloat(options.timeout) : undefined
+    if (options.timeout && (!Number.isFinite(timeoutSeconds) || (timeoutSeconds as number) <= 0)) {
+      await workerRuntime.dispose()
+      program.error(t('cli.errors.timeout', '--timeout requires a positive number of seconds.'), {
+        exitCode: PRINT_EXIT_CONFIG_ERROR
+      })
+    }
+    let printExitCode = PRINT_EXIT_CONFIG_ERROR
+    try {
+      const result = await runPrintMode(workerRuntime, {
+        outputFormat: options.outputFormat,
+        prompt: promptText,
+        timeoutSeconds
+      })
+      printExitCode = result.exitCode
+    } finally {
+      await workerRuntime.dispose()
+    }
+    // Spawned children (MCP servers, the Native Worker) can keep handles open past
+    // dispose. A pipeline needs a deterministic exit, so flush stdout and leave.
+    await new Promise<void>((resolveFlush) => process.stdout.write('', () => resolveFlush()))
+    process.exit(printExitCode)
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    await workerRuntime.dispose()
+    program.error(
+      t(
+        'cli.errors.interactiveTty',
+        'Interactive mode requires a TTY. Run opencowork --help for options.'
+      )
+    )
+  }
+
+  const screen = new TerminalScreen(options.tui)
+
+  screen.enter()
+
+  try {
+    const instanceRef: { current?: ReturnType<typeof render> } = {}
+    const requestRedraw = (): void => {
+      instanceRef.current?.clear()
+      screen.redraw()
+    }
+    const instance = render(
+      <CliApp
+        cwd={process.cwd()}
+        initialPermissionMode={options.permissionMode}
+        initialPrompt={prompt ?? ''}
+        initialResume={initialResume}
+        onRequestRedraw={requestRedraw}
+        runtime={fixtureRuntime ?? workerRuntime}
+        tuiMode={options.tui}
+        version={pkg.version}
+      />,
+      {
+        exitOnCtrlC: false,
+        patchConsole: false
+      }
+    )
+    instanceRef.current = instance
+
+    await instance.waitUntilExit()
+  } finally {
+    await workerRuntime.dispose()
+    screen.exit()
   }
 }
 
@@ -277,10 +477,26 @@ program
 program
   .command('login')
   .description(
-    t('cli.commands.login', 'Open Routin device login in the browser and wait for credentials')
+    t(
+      'cli.commands.login',
+      'Open Routin device login in the browser, then enter the interactive CLI'
+    )
   )
   .action(async () => {
-    await runProviderSetupCommand({ deviceLogin: true })
+    const selection = await runProviderSetupCommand({ deviceLogin: true, quiet: true })
+    if (!selection) return
+    // Reuse the same interactive bootstrap as bare `cowork` so login does not dump
+    // the user back at the shell after credentials land.
+    await runInteractiveSession({
+      doctor: false,
+      maxTurns: undefined,
+      model: selection.modelId,
+      outputFormat: 'text',
+      permissionMode: 'manual',
+      print: false,
+      provider: selection.providerId,
+      tui: 'classic'
+    })
   })
 
 program
@@ -296,202 +512,7 @@ program
 `
   )
   .action(async (prompt: string | undefined, options: CliOptions) => {
-    const maxTurns = options.maxTurns ? Number.parseInt(options.maxTurns, 10) : undefined
-    if (options.maxTurns && (!Number.isFinite(maxTurns) || (maxTurns as number) <= 0)) {
-      program.error(t('cli.errors.maxTurns', '--max-turns requires a positive integer.'), {
-        exitCode: PRINT_EXIT_CONFIG_ERROR
-      })
-    }
-    // PTY golden tests swap in a deterministic scripted runtime; everything else —
-    // option validation, screen management, Ink wiring — runs exactly as in production.
-    const fixtureRuntime = isFixtureRuntimeRequested() ? new FixtureAgentRuntime() : null
-    const workerRuntime = new OpenCoworkWorkerRuntime({
-      appVersion: pkg.version,
-      cwd: process.cwd(),
-      maxTurns,
-      model: options.model,
-      permissionMode: options.permissionMode,
-      providerId: options.provider,
-      workerPath: options.worker
-    })
-    const selectedModel = (fixtureRuntime ?? workerRuntime).getModelCatalog().active
-    if (options.provider && selectedModel?.providerId !== options.provider) {
-      await workerRuntime.dispose()
-      program.error(
-        t(
-          'cli.errors.provider',
-          'Provider “{{provider}}” is not enabled, authenticated, or configured with chat models.',
-          { provider: options.provider }
-        ),
-        { exitCode: PRINT_EXIT_CONFIG_ERROR }
-      )
-    }
-    if (options.model && selectedModel?.modelId !== options.model) {
-      await workerRuntime.dispose()
-      program.error(
-        t('cli.errors.model', 'Model “{{model}}” is not enabled{{providerSuffix}}.', {
-          model: options.model,
-          providerSuffix: options.provider ? ` for provider “${options.provider}”` : ''
-        }),
-        { exitCode: PRINT_EXIT_CONFIG_ERROR }
-      )
-    }
-
-    // Resolve --continue / --resume before any UI or print run so both entry paths
-    // start from the restored canonical history. Uses the existing Worker DB routes
-    // through resumeSession; no session-host support is required.
-    let initialResume: ResumeResult | undefined
-    if (!options.doctor && (options.continue || options.resume)) {
-      if (options.continue && options.resume) {
-        await workerRuntime.dispose()
-        program.error(
-          t('cli.errors.continueResume', '--continue and --resume cannot be combined.'),
-          { exitCode: PRINT_EXIT_CONFIG_ERROR }
-        )
-      }
-      try {
-        let sessionId = options.resume?.trim()
-        if (!sessionId) {
-          const sessions = await workerRuntime.listResumableSessions()
-          sessionId = sessions[0]?.id
-          if (!sessionId) {
-            throw new Error(
-              t('cli.errors.noResumableSession', 'No resumable CLI session found for this folder.')
-            )
-          }
-        }
-        initialResume = await workerRuntime.resumeSession(sessionId)
-      } catch (error) {
-        await workerRuntime.dispose()
-        program.error(error instanceof Error ? error.message : String(error), {
-          exitCode: PRINT_EXIT_CONFIG_ERROR
-        })
-      }
-    }
-
-    if (options.doctor) {
-      try {
-        const result = await workerRuntime.doctor()
-        process.stdout.write(
-          [
-            t('cli.output.doctorTitle', 'OpenCowork CLI doctor'),
-            `  ${t('cli.output.worker', 'Worker: {{value}}', { value: result.executable })}`,
-            `  ${t('cli.output.pid', 'PID: {{value}}', { value: result.pid })}`,
-            `  ${t('cli.output.ipcProtocol', 'IPC protocol: v{{value}}', { value: result.protocolVersion })}`,
-            `  ${t('cli.output.agentProtocol', 'Agent protocol: v{{value}}', { value: result.agentProtocolVersion })}`,
-            `  ${t('cli.output.agentRuntime', 'Agent runtime: {{runtime}} {{version}}', {
-              runtime: result.runtime,
-              version: result.runtimeVersion
-            })}`,
-            `  ${t('cli.output.routes', 'Routes: {{value}}', { value: result.routeCount })}`,
-            `  ${t('cli.output.configuredModel', 'Configured model: {{value}}', {
-              value: result.configuredModel
-            })}`,
-            ...result.checks.map((check) => {
-              const symbol = check.status === 'ok' ? '✓' : check.status === 'warn' ? '!' : '✗'
-              return `  ${symbol} ${check.label}: ${check.detail}`
-            }),
-            result.checks.some((check) => check.status === 'error')
-              ? `  ${t('cli.output.doctorIssues', 'Status: issues found')}`
-              : `  ${t('cli.output.ready', 'Status: ready')}`,
-            ''
-          ].join('\n')
-        )
-        if (result.checks.some((check) => check.status === 'error')) process.exitCode = 1
-      } finally {
-        await workerRuntime.dispose()
-      }
-      return
-    }
-
-    if (options.print) {
-      const promptText = prompt?.trim() || (!process.stdin.isTTY ? await readStdinPrompt() : '')
-      if (!promptText) {
-        await workerRuntime.dispose()
-        program.error(
-          t(
-            'cli.errors.printPrompt',
-            'Print mode needs a prompt: cowork -p "prompt" or echo "prompt" | cowork -p'
-          ),
-          { exitCode: PRINT_EXIT_CONFIG_ERROR }
-        )
-      }
-      if (!selectedModel) {
-        await workerRuntime.dispose()
-        program.error(t('cli.errors.printModel', 'No model configured. Run: cowork config'), {
-          exitCode: PRINT_EXIT_CONFIG_ERROR
-        })
-      }
-      const timeoutSeconds = options.timeout ? Number.parseFloat(options.timeout) : undefined
-      if (
-        options.timeout &&
-        (!Number.isFinite(timeoutSeconds) || (timeoutSeconds as number) <= 0)
-      ) {
-        await workerRuntime.dispose()
-        program.error(t('cli.errors.timeout', '--timeout requires a positive number of seconds.'), {
-          exitCode: PRINT_EXIT_CONFIG_ERROR
-        })
-      }
-      let printExitCode = PRINT_EXIT_CONFIG_ERROR
-      try {
-        const result = await runPrintMode(workerRuntime, {
-          outputFormat: options.outputFormat,
-          prompt: promptText,
-          timeoutSeconds
-        })
-        printExitCode = result.exitCode
-      } finally {
-        await workerRuntime.dispose()
-      }
-      // Spawned children (MCP servers, the Native Worker) can keep handles open past
-      // dispose. A pipeline needs a deterministic exit, so flush stdout and leave.
-      await new Promise<void>((resolveFlush) => process.stdout.write('', () => resolveFlush()))
-      process.exit(printExitCode)
-    }
-
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
-      await workerRuntime.dispose()
-      program.error(
-        t(
-          'cli.errors.interactiveTty',
-          'Interactive mode requires a TTY. Run opencowork --help for options.'
-        )
-      )
-    }
-
-    const screen = new TerminalScreen(options.tui)
-
-    screen.enter()
-
-    try {
-      const instanceRef: { current?: ReturnType<typeof render> } = {}
-      const requestRedraw = (): void => {
-        instanceRef.current?.clear()
-        screen.redraw()
-      }
-      const instance = render(
-        <CliApp
-          cwd={process.cwd()}
-          initialPermissionMode={options.permissionMode}
-          initialPrompt={prompt ?? ''}
-          initialResume={initialResume}
-          onRequestRedraw={requestRedraw}
-          runtime={fixtureRuntime ?? workerRuntime}
-          tuiMode={options.tui}
-          version={pkg.version}
-        />,
-        {
-          exitOnCtrlC: false,
-          patchConsole: false
-        }
-      )
-      instanceRef.current = instance
-
-      await instance.waitUntilExit()
-    } finally {
-      await workerRuntime.dispose()
-      screen.exit()
-    }
+    await runInteractiveSession(options, prompt)
   })
 
 await program.parseAsync(process.argv)

@@ -967,6 +967,10 @@ export function buildWorkerTitleRequest(
   provider.maxTokens = 100
   provider.temperature = 0.3
   provider.sessionId = options.sessionId
+  provider.thinkingEnabled = false
+  delete provider.thinkingConfig
+  delete provider.reasoningEffort
+  delete provider.responseSummary
   if (provider.type === 'openai-responses') provider.responsesSessionScope = 'generate-title'
 
   return {

@@ -131,9 +131,9 @@ store。
 跳过。无法启动浏览器的环境（远程 SSH、容器、`OPENCOWORK_CLI_NO_BROWSER=1`）会保留链接并提示
 手动打开，等待页按 `Ctrl+O` 可再次尝试打开。
 
-之后可随时手动触发同一流程：`cowork login`、交互内 `/login`（或 `/provider login`）、
-provider 列表按 `L`，以及桌面端 Routin AI 设置里的「浏览器登录」。重新登录会等待共享存储中的
-Key 相对打开页面前发生变化；若只想沿用当前已保存的 Key，可在等待页按 `A`。
+之后可随时手动触发同一流程：`cowork login`（成功后直接进入交互式 CLI）、交互内 `/login`
+（或 `/provider login`）、provider 列表按 `L`，以及桌面端 Routin AI 设置里的「浏览器登录」。
+重新登录会等待共享存储中的 Key 相对打开页面前发生变化；若只想沿用当前已保存的 Key，可在等待页按 `A`。
 
 向导可更新已有的 API-key provider，也提供 Routin AI、OpenAI、Anthropic、DeepSeek、Google Gemini、
 OpenRouter、SiliconFlow、Ollama 和自定义兼容端点的入口，列表按「你的 Provider / 快速预设 /

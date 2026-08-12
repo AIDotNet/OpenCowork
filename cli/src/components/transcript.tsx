@@ -213,6 +213,18 @@ function TranscriptMessage({
             )
           }
 
+          if (segment.kind === 'image') {
+            const label = segment.image.filePath || segment.image.url || segment.image.name
+            return (
+              <Box key={`${message.id}-image-${index}`}>
+                <Text bold color={theme.primary}>
+                  ●
+                </Text>
+                <Text color={theme.muted}> {fitText(`▣ ${label}`, Math.max(8, width - 2))}</Text>
+              </Box>
+            )
+          }
+
           return (
             <Box key={`${message.id}-text-${index}`}>
               {active && !hideStreamingStatus ? (
@@ -222,7 +234,10 @@ function TranscriptMessage({
                   ●
                 </Text>
               )}
-              <Text color={theme.text}> {segment.text}</Text>
+              <Text color={theme.text} wrap="wrap">
+                {' '}
+                {segment.text}
+              </Text>
             </Box>
           )
         })}
@@ -300,7 +315,9 @@ function TranscriptMessage({
 
   return (
     <Box marginTop={1} marginLeft={2}>
-      <Text color={toneColor(message.tone)}>⎿ {message.text}</Text>
+      <Text color={toneColor(message.tone)} wrap="wrap">
+        ⎿ {message.text}
+      </Text>
     </Box>
   )
 }

@@ -115,6 +115,10 @@ function ProviderConfigCommand({
         onCancel()
         exit()
       }}
+      onReadyFromStore={async (selection) => {
+        onConfigured(selection)
+        exit()
+      }}
       onSave={async (input) => {
         const selection = persistProviderSetup(input)
         onConfigured(selection)

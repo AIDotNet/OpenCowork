@@ -15,7 +15,7 @@ export const routinAiPreset: BuiltinProviderPreset = {
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
   homepage: 'https://routin.ai',
-  apiKeyUrl: 'https://routin.ai/dashboard/api-keys',
+  apiKeyUrl: 'https://routin.ai/device/opencowork',
   defaultEnabled: true,
   defaultModel: 'deepseek-v4-flash',
   // 与 openai.ts/azure-openai.ts/codex-oauth.ts/anthropic.ts today 的清理保持一致：
@@ -1837,7 +1837,7 @@ export const routinAiPlanPreset: BuiltinProviderPreset = {
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/plan/v1',
   homepage: 'https://routin.ai',
-  apiKeyUrl: 'https://routin.ai/dashboard/api-keys',
+  apiKeyUrl: 'https://routin.ai/device/opencowork',
   defaultEnabled: true,
   defaultModel: 'gpt-5.4',
   defaultModels: ROUTIN_AI_PLAN_MODEL_ORDER.map((id) => {

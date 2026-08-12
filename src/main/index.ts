@@ -60,6 +60,7 @@ import { registerGoalRuntimeHandlers } from './ipc/goal-runtime-handlers'
 import { registerMemoryAutomationHandlers } from './ipc/memory-automation-handlers'
 import { registerConfigHandlers } from './ipc/secure-key-store'
 import { registerAiProviderHandlers } from './ipc/ai-provider-handlers'
+import { applyOpenCoworkImportUrl, findOpenCoworkImportUrl } from './lib/opencowork-import'
 import { registerExtensionHandlers } from './ipc/extension-handlers'
 import { registerChannelHandlers, autoStartChannels } from './ipc/channel-handlers'
 import { ChannelManager } from './channels/channel-manager'
@@ -1378,8 +1379,67 @@ if (!gotSingleInstanceLock) {
   app.quit()
 }
 
+/** Deep-link URL received before the app finished booting (cold start). */
+let pendingOpenCoworkImportUrl: string | null = null
+
+function registerOpenCoworkProtocolClient(): void {
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient('opencowork', process.execPath, [
+        resolve(process.argv[1] ?? '')
+      ])
+      return
+    }
+  }
+  app.setAsDefaultProtocolClient('opencowork')
+}
+
+function handleOpenCoworkImportUrl(rawUrl: string): boolean {
+  try {
+    const result = applyOpenCoworkImportUrl(rawUrl)
+    if (!result) return false
+    console.log(
+      `[OpenCoworkImport] Imported ${result.providerName} (${result.builtinId}) as active provider`
+    )
+    showMainWindow()
+    return true
+  } catch (error) {
+    console.warn(
+      `[OpenCoworkImport] Failed to import deep link: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    )
+    return false
+  }
+}
+
+function consumeOpenCoworkImportCandidate(rawUrl: string | null | undefined): boolean {
+  if (!rawUrl) return false
+  if (!rawUrl.startsWith('opencowork:')) return false
+  if (!app.isReady()) {
+    pendingOpenCoworkImportUrl = rawUrl
+    return true
+  }
+  return handleOpenCoworkImportUrl(rawUrl)
+}
+
+// macOS delivers custom-protocol opens here (including while the app is already running).
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  consumeOpenCoworkImportCandidate(url)
+})
+
 if (gotSingleInstanceLock) {
+  registerOpenCoworkProtocolClient()
+
+  // Windows/Linux cold-start: the protocol URL is in process.argv.
+  const coldStartImportUrl = findOpenCoworkImportUrl(process.argv)
+  if (coldStartImportUrl) pendingOpenCoworkImportUrl = coldStartImportUrl
+
   app.on('second-instance', (_event, commandLine) => {
+    const importUrl = findOpenCoworkImportUrl(commandLine)
+    if (importUrl && handleOpenCoworkImportUrl(importUrl)) return
+
     const shouldOpenSsh = commandLine.some((arg) => arg.includes('appView=ssh'))
     if (shouldOpenSsh) {
       showSshWindow()
@@ -1713,6 +1773,12 @@ if (gotSingleInstanceLock) {
     setMacDockIcon()
     runLoggedStartupStep('create_main_window', createWindow)
     scheduleUsageEventsStartupCleanup()
+
+    if (pendingOpenCoworkImportUrl) {
+      const pendingUrl = pendingOpenCoworkImportUrl
+      pendingOpenCoworkImportUrl = null
+      handleOpenCoworkImportUrl(pendingUrl)
+    }
 
     createTray()
 

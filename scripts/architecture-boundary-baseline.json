@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "generatedBy": "node scripts/verify-architecture-boundaries.mjs --write-baseline",
+  "violations": [
+    {
+      "rule": "renderer-view-no-agent-bridge",
+      "source": "src/renderer/src/components/chat/AssistantMessage.tsx",
+      "target": "src/renderer/src/lib/ipc/agent-bridge.ts"
+    },
+    {
+      "rule": "renderer-view-no-agent-bridge",
+      "source": "src/renderer/src/components/draw/graph/assistant/canvas-agent.ts",
+      "target": "src/renderer/src/lib/ipc/agent-bridge.ts"
+    },
+    {
+      "rule": "renderer-view-no-agent-bridge",
+      "source": "src/renderer/src/components/draw/graph/use-graph-generation 2.ts",
+      "target": "src/renderer/src/lib/ipc/agent-bridge.ts"
+    },
+    {
+      "rule": "renderer-view-no-agent-bridge",
+      "source": "src/renderer/src/components/draw/graph/use-graph-generation.ts",
+      "target": "src/renderer/src/lib/ipc/agent-bridge.ts"
+    },
+    {
+      "rule": "renderer-view-no-agent-bridge",
+      "source": "src/renderer/src/components/layout/SessionListPanel.tsx",
+      "target": "src/renderer/src/lib/ipc/agent-bridge.ts"
+    },
+    {
+      "rule": "renderer-view-no-agent-bridge",
+      "source": "src/renderer/src/components/layout/SubAgentsPanel.tsx",
+      "target": "src/renderer/src/lib/ipc/agent-bridge.ts"
+    },
+    {
+      "rule": "renderer-view-no-agent-bridge",
+      "source": "src/renderer/src/components/settings/AppPluginPanel.tsx",
+      "target": "src/renderer/src/lib/ipc/agent-bridge.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/App.tsx",
+      "target": "src/renderer/src/lib/app-plugin/index.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/App.tsx",
+      "target": "src/renderer/src/lib/extensions/extension-tools.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/App.tsx",
+      "target": "src/renderer/src/lib/tools/index.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/AssistantMessage.tsx",
+      "target": "src/renderer/src/lib/agent/sub-agents/create-tool.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/AssistantMessage.tsx",
+      "target": "src/renderer/src/lib/agent/teams/register.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/AssistantMessage.tsx",
+      "target": "src/renderer/src/lib/mcp/mcp-tools.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/execution-outline.ts",
+      "target": "src/renderer/src/lib/agent/sub-agents/create-tool.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/execution-outline.ts",
+      "target": "src/renderer/src/lib/agent/teams/register.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/execution-outline.ts",
+      "target": "src/renderer/src/lib/mcp/mcp-tools.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/ImagePluginToolCard.tsx",
+      "target": "src/renderer/src/lib/app-plugin/image-tool-retry.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/InputArea.tsx",
+      "target": "src/renderer/src/lib/tools/index.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/SkillsMenu.tsx",
+      "target": "src/renderer/src/lib/extensions/extension-tools.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/SubAgentCard.tsx",
+      "target": "src/renderer/src/lib/agent/sub-agents/create-tool.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/chat/ToolCallCard.tsx",
+      "target": "src/renderer/src/lib/mcp/mcp-tools.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/cowork/SkillsPanel.tsx",
+      "target": "src/renderer/src/lib/agent/teams/register.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/cowork/TeamPanel.tsx",
+      "target": "src/renderer/src/lib/agent/sub-agents/create-tool.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/draw/graph/assistant/canvas-agent.ts",
+      "target": "src/renderer/src/lib/mcp/mcp-tools.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/draw/graph/assistant/canvas-agent.ts",
+      "target": "src/renderer/src/lib/tools/dynamic-tool-catalog.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/layout/sub-agent-run-data.ts",
+      "target": "src/renderer/src/lib/agent/sub-agents/create-tool.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/layout/SubAgentExecutionDetail.tsx",
+      "target": "src/renderer/src/lib/agent/sub-agents/create-tool.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/settings/ExtensionPanel.tsx",
+      "target": "src/renderer/src/lib/extensions/extension-tools.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/settings/PluginPanel.tsx",
+      "target": "src/renderer/src/lib/channel/plugin-tools.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-handlers",
+      "source": "src/renderer/src/components/settings/WebSearchPanel.tsx",
+      "target": "src/renderer/src/lib/tools/web-search-tool.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-registry",
+      "source": "src/renderer/src/components/cowork/SkillsPanel.tsx",
+      "target": "src/renderer/src/lib/agent/tool-registry.ts"
+    },
+    {
+      "rule": "renderer-view-no-tool-registry",
+      "source": "src/renderer/src/components/draw/graph/assistant/canvas-agent.ts",
+      "target": "src/renderer/src/lib/agent/tool-registry.ts"
+    }
+  ]
+}

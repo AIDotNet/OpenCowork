@@ -910,6 +910,14 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private activeRunId: string | null = null
   private activeRunUsages: JsonRecord[] = []
   private lastSequence = 0
+  /** One transcript warning per gap; further out-of-order envelopes are counted silently. */
+  private sequenceGapNotified = false
+  private sequenceGapSuppressed = 0
+  /** Hold later envelopes until the missing seq arrives via live delivery or replay. */
+  private pendingEnvelopes = new Map<number, StreamEnvelope>()
+  private sequenceReplayTimer: ReturnType<typeof setTimeout> | null = null
+  private sequenceReplayInFlight = false
+  private sequenceReplayAttempts = 0
   private finished = false
   private assistantId: string | null = null
   private assistantIndex = 0
@@ -1859,7 +1867,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     const runId = `cli-run-${randomUUID()}`
     this.activeRunId = runId
     this.activeRunUsages = []
-    this.lastSequence = 0
+    this.resetStreamCursor()
     this.finished = false
     this.assistantId = null
     this.assistantIndex = 0
@@ -1962,6 +1970,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       this.notify = null
       this.historyPersistence = null
       this.activeCheckpointId = null
+      this.resetStreamCursor()
     }
   }
 
@@ -2456,6 +2465,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     if (this.activeRunId) {
       await this.client.request('agent/cancel', { runId: this.activeRunId }, 10_000).catch(() => {})
     }
+    this.resetStreamCursor()
     for (const unsubscribe of this.subscriptions.splice(0)) unsubscribe()
     await this.mcpHost.dispose().catch(() => undefined)
     await this.client.stop()
@@ -2570,7 +2580,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
 
   private resetTransientSessionState(): void {
     this.activeRunUsages = []
-    this.lastSequence = 0
+    this.resetStreamCursor()
     this.finished = false
     this.assistantId = null
     this.assistantIndex = 0
@@ -2590,6 +2600,19 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     this.sessionAllowedTools.clear()
     this.activeCodeGraphToolNames.clear()
     this.pendingReverse.clear()
+  }
+
+  private resetStreamCursor(): void {
+    if (this.sequenceReplayTimer) {
+      clearTimeout(this.sequenceReplayTimer)
+      this.sequenceReplayTimer = null
+    }
+    this.lastSequence = 0
+    this.sequenceGapNotified = false
+    this.sequenceGapSuppressed = 0
+    this.pendingEnvelopes.clear()
+    this.sequenceReplayInFlight = false
+    this.sequenceReplayAttempts = 0
   }
 
   private createSessionOptions(runId: string): WorkerSessionOptions {
@@ -3079,18 +3102,120 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       return
     }
     if (envelope.seq !== this.lastSequence + 1) {
-      this.pushSystem(
-        `Worker stream sequence gap: expected ${this.lastSequence + 1}, received ${envelope.seq}`,
-        'warning'
-      )
-      // The Event reconnect path has already requested SQLite replay. Do not
-      // apply or ACK a later batch until the missing sequence arrives.
+      // Keep later batches so a single missing seq does not discard the rest of the
+      // Task/sub-agent stream. Replay clears the Worker in-flight window and
+      // republishes from the durable outbox without requiring an Event reconnect.
+      if (this.pendingEnvelopes.size < 128) {
+        this.pendingEnvelopes.set(envelope.seq, envelope)
+      }
+      if (!this.sequenceGapNotified) {
+        this.sequenceGapNotified = true
+        this.pushSystem(
+          `Worker stream sequence gap: expected ${this.lastSequence + 1}, received ${envelope.seq} (recovering via replay)`,
+          'warning'
+        )
+      } else {
+        this.sequenceGapSuppressed += 1
+      }
+      this.scheduleSequenceReplay()
       return
     }
+    this.applyStreamEnvelope(envelope)
+    this.drainPendingEnvelopes()
+  }
+
+  private applyStreamEnvelope(envelope: StreamEnvelope): void {
+    if (this.sequenceGapNotified) {
+      const suppressed = this.sequenceGapSuppressed
+      const buffered = this.pendingEnvelopes.size
+      this.sequenceGapNotified = false
+      this.sequenceGapSuppressed = 0
+      this.sequenceReplayAttempts = 0
+      if (this.sequenceReplayTimer) {
+        clearTimeout(this.sequenceReplayTimer)
+        this.sequenceReplayTimer = null
+      }
+      if (suppressed > 0 || buffered > 0) {
+        this.pushSystem(
+          `Worker stream resumed at seq ${envelope.seq}` +
+            (suppressed > 0
+              ? ` · ${suppressed} gap notice${suppressed === 1 ? '' : 's'} suppressed`
+              : '') +
+            (buffered > 0 ? ` · ${buffered} buffered` : ''),
+          'muted'
+        )
+      }
+    }
     this.lastSequence = envelope.seq
+    this.pendingEnvelopes.delete(envelope.seq)
     for (const event of envelope.events) this.projectEvent(event)
     this.client.ackEvent(envelope.runId, envelope.seq)
     this.wake()
+  }
+
+  private drainPendingEnvelopes(): void {
+    while (true) {
+      const next = this.pendingEnvelopes.get(this.lastSequence + 1)
+      if (!next) return
+      this.pendingEnvelopes.delete(this.lastSequence + 1)
+      this.applyStreamEnvelope(next)
+    }
+  }
+
+  private scheduleSequenceReplay(delayMs = 50): void {
+    if (!this.activeRunId || this.finished) return
+    if (this.sequenceReplayTimer) return
+    this.sequenceReplayTimer = setTimeout(() => {
+      this.sequenceReplayTimer = null
+      void this.runSequenceReplay()
+    }, delayMs)
+    this.sequenceReplayTimer.unref?.()
+  }
+
+  private async runSequenceReplay(): Promise<void> {
+    const runId = this.activeRunId
+    if (!runId || this.finished || this.sequenceReplayInFlight) return
+    if (this.pendingEnvelopes.size === 0 && !this.sequenceGapNotified) return
+
+    const expected = this.lastSequence + 1
+    if (this.pendingEnvelopes.has(expected)) {
+      this.drainPendingEnvelopes()
+      return
+    }
+
+    this.sequenceReplayInFlight = true
+    this.sequenceReplayAttempts += 1
+    const attempt = this.sequenceReplayAttempts
+    try {
+      // events/replay clears Worker InFlightEvents, so a batch that was marked
+      // in-flight but never reached this host can be republished.
+      await this.client.replayEvents({
+        jobId: runId,
+        sinceSeq: this.lastSequence,
+        limit: 4096
+      })
+    } catch {
+      // Live reconnect or a later retry may still recover the cursor.
+    } finally {
+      this.sequenceReplayInFlight = false
+    }
+
+    if (this.activeRunId !== runId || this.finished) return
+    this.drainPendingEnvelopes()
+    if (this.pendingEnvelopes.has(this.lastSequence + 1) || !this.sequenceGapNotified) return
+
+    // Cap retries so a permanently missing seq cannot spin forever. Back off so
+    // Task delta storms do not stampede Control IPC with replay requests.
+    if (attempt < 6) {
+      this.scheduleSequenceReplay(Math.min(4_000, 250 * 2 ** Math.min(attempt - 1, 4)))
+      return
+    }
+    if (attempt === 6) {
+      this.pushSystem(
+        `Worker stream still missing seq ${this.lastSequence + 1} after replay; UI may lag until the turn ends`,
+        'warning'
+      )
+    }
   }
 
   private projectEvent(event: JsonRecord): void {
@@ -3444,7 +3569,8 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     ) {
       this.pendingReverse.set(id, { id, method, toolName })
       void this.completeReverse(id, { approved: true })
-      this.pushSystem(`Allowed by session policy · ${toolName}`, 'success')
+      // Tool rows already appear in the transcript; per-call policy notices flood short
+      // terminals during Task/Bash loops and force full Ink redraws.
       return
     }
 

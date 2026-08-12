@@ -5,9 +5,15 @@ import { readClipboardText } from '../lib/clipboard-text.js'
 import { openExternalUrl } from '../lib/open-url.js'
 import { consumeBracketedPaste, sanitizePastedText } from '../lib/paste.js'
 import { fitText, graphemes, hasTerminalInputControl } from '../lib/text.js'
+import { OPENCOWORK_DEVICE_LOGIN_URL, findReadyRoutinSelection } from '../runtime/provider-setup.js'
 import { containsMouseSequence } from '../terminal/mouse.js'
 import { theme } from '../theme.js'
-import type { ProviderSetupCatalog, ProviderSetupInput, ProviderSetupOption } from '../types.js'
+import type {
+  ModelSelection,
+  ProviderSetupCatalog,
+  ProviderSetupInput,
+  ProviderSetupOption
+} from '../types.js'
 import { Spinner } from './spinner.js'
 
 interface ProviderSetupPanelProps {
@@ -16,12 +22,14 @@ interface ProviderSetupPanelProps {
   /** First run with nothing configured: lead with the recommended provider instead of the list. */
   onboarding?: boolean
   onCancel(): void
+  /** Shared-store import finished (desktop deep link or prior write); close the wizard. */
+  onReadyFromStore?(selection: ModelSelection): void | Promise<void>
   onSave(input: ProviderSetupInput): Promise<void>
   width: number
 }
 
 type EditorStep = 'name' | 'endpoint' | 'apiKey' | 'model'
-type SetupStep = 'welcome' | 'provider' | EditorStep | 'review'
+type SetupStep = 'welcome' | 'waiting' | 'provider' | EditorStep | 'review'
 
 interface ProviderDraft {
   apiKey: string
@@ -77,6 +85,9 @@ function titleFor(step: SetupStep): string {
   if (step === 'model') return t('cli.provider.modelId', 'Model ID')
   if (step === 'review') return t('cli.provider.reviewTitle', 'Review and save')
   if (step === 'welcome') return t('cli.provider.welcomeTitle', 'Welcome to OpenCowork CLI')
+  if (step === 'waiting') {
+    return t('cli.provider.waitingTitle', 'Waiting for browser login')
+  }
   return t('cli.provider.configure', 'Configure provider')
 }
 
@@ -163,6 +174,7 @@ export function ProviderSetupPanel({
   maxVisible,
   onboarding = false,
   onCancel,
+  onReadyFromStore,
   onSave,
   width
 }: ProviderSetupPanelProps): React.JSX.Element {
@@ -184,6 +196,7 @@ export function ProviderSetupPanel({
   const [pasteNotice, setPasteNotice] = useState<string>()
   const pasteBufferRef = useRef<string | null>(null)
   const editorRef = useRef({ cursor: 0, value: '' })
+  const completingFromStoreRef = useRef(false)
   editorRef.current = { cursor: editorCursor, value: editor }
   const filtered = useMemo(
     () => catalog.options.filter((option) => matches(option, query)),
@@ -215,7 +228,12 @@ export function ProviderSetupPanel({
   }
 
   const goToStep = (nextStep: SetupStep, nextDraft: ProviderDraft): void => {
-    if (nextStep === 'review' || nextStep === 'provider' || nextStep === 'welcome') {
+    if (
+      nextStep === 'review' ||
+      nextStep === 'provider' ||
+      nextStep === 'welcome' ||
+      nextStep === 'waiting'
+    ) {
       setStep(nextStep)
       setError(undefined)
       return
@@ -227,6 +245,42 @@ export function ProviderSetupPanel({
     if (!target.apiKeyUrl) return
     setLinkNotice({ opened: openExternalUrl(target.apiKeyUrl), url: target.apiKeyUrl })
   }
+
+  const openDeviceLogin = (): void => {
+    const opened = openExternalUrl(OPENCOWORK_DEVICE_LOGIN_URL)
+    setLinkNotice({ opened, url: OPENCOWORK_DEVICE_LOGIN_URL })
+    setStep('waiting')
+    setError(undefined)
+  }
+
+  const tryCompleteFromStore = async (): Promise<boolean> => {
+    if (!onReadyFromStore || completingFromStoreRef.current) return false
+    const selection = findReadyRoutinSelection()
+    if (!selection) return false
+    completingFromStoreRef.current = true
+    setSaving(true)
+    setError(undefined)
+    try {
+      await onReadyFromStore(selection)
+      return true
+    } catch (readyError) {
+      completingFromStoreRef.current = false
+      setError(readyError instanceof Error ? readyError.message : String(readyError))
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  useEffect(() => {
+    if (step !== 'waiting' || !onReadyFromStore) return
+    void tryCompleteFromStore()
+    const timer = setInterval(() => {
+      void tryCompleteFromStore()
+    }, 1_500)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- poll only while waiting
+  }, [step, onReadyFromStore])
 
   const beginSetup = (selected: ProviderSetupOption, openKeyPage = false): void => {
     const nextDraft: ProviderDraft = {
@@ -302,11 +356,7 @@ export function ProviderSetupPanel({
       setError(`${titleFor(step)} is too long.`)
       return false
     }
-    const next = [
-      ...characters.slice(0, cursor),
-      ...inserted,
-      ...characters.slice(cursor)
-    ].join('')
+    const next = [...characters.slice(0, cursor), ...inserted, ...characters.slice(cursor)].join('')
     setEditor(next)
     setEditorCursor(cursor + inserted.length)
     setError(undefined)
@@ -388,10 +438,44 @@ export function ProviderSetupPanel({
         return
       }
       if (key.return && recommended) {
+        openDeviceLogin()
+        return
+      }
+      if (input.toLocaleLowerCase() === 'k' && recommended) {
         beginSetup(recommended, true)
         return
       }
       if (input.toLocaleLowerCase() === 'p' || key.downArrow || key.tab) setStep('provider')
+      return
+    }
+
+    if (step === 'waiting') {
+      if (key.escape) {
+        setStep('welcome')
+        setLinkNotice(null)
+        return
+      }
+      if (key.return) {
+        void tryCompleteFromStore().then((done) => {
+          if (!done) {
+            setPasteNotice(
+              t(
+                'cli.provider.waitingNotReady',
+                'No Routin key in the shared store yet — finish browser login or paste a key (V).'
+              )
+            )
+          }
+        })
+        return
+      }
+      if (input.toLocaleLowerCase() === 'v' && recommended) {
+        beginSetup(recommended, false)
+        return
+      }
+      if (input.toLocaleLowerCase() === 'p') setStep('provider')
+      if (key.ctrl && input === 'o') {
+        openDeviceLogin()
+      }
       return
     }
 
@@ -600,10 +684,15 @@ export function ProviderSetupPanel({
               'cli.provider.welcomeSubtitle',
               'Connect a model provider before your first turn · shared with OpenCowork desktop'
             )
-          : t(
-              'cli.panels.sharedDesktop',
-              'Shared with OpenCowork desktop · credentials are masked'
-            )}
+          : step === 'waiting'
+            ? t(
+                'cli.provider.waitingSubtitle',
+                'Complete authorization in the browser · credentials write to the shared store'
+              )
+            : t(
+                'cli.panels.sharedDesktop',
+                'Shared with OpenCowork desktop · credentials are masked'
+              )}
       </Text>
 
       {step === 'welcome' && recommended ? (
@@ -622,21 +711,71 @@ export function ProviderSetupPanel({
               contentWidth
             )}
           </Text>
-          {recommended.apiKeyUrl ? (
-            <Box marginTop={1}>
-              <Text color={theme.dim}>{t('cli.provider.keyPage', 'API keys')} </Text>
-              <Text color={theme.accent}>{fitText(recommended.apiKeyUrl, contentWidth - 10)}</Text>
-            </Box>
-          ) : null}
+          <Box marginTop={1}>
+            <Text color={theme.dim}>{t('cli.provider.deviceLogin', 'Device login')} </Text>
+            <Text color={theme.accent}>
+              {fitText(OPENCOWORK_DEVICE_LOGIN_URL, contentWidth - 14)}
+            </Text>
+          </Box>
           <Box flexDirection="column" marginTop={1}>
             <Text color={theme.text}>
-              {t('cli.provider.welcomeEnter', 'Enter  open that page and paste your API key')}
+              {t('cli.provider.welcomeEnter', 'Enter  open Routin device login in your browser')}
+            </Text>
+            <Text color={theme.muted}>
+              {t('cli.provider.welcomePaste', 'K      paste an API key manually')}
             </Text>
             <Text color={theme.muted}>
               {t('cli.provider.welcomeOther', 'P      choose a different provider')}
             </Text>
             <Text color={theme.muted}>
               {t('cli.provider.welcomeSkip', 'Esc    skip for now · run /provider anytime')}
+            </Text>
+          </Box>
+        </Box>
+      ) : step === 'waiting' ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Box>
+            <Spinner />
+            <Text color={theme.muted}>
+              {' '}
+              {t(
+                'cli.provider.waitingBody',
+                'Waiting for OpenCowork desktop import or a shared-store update…'
+              )}
+            </Text>
+          </Box>
+          <Box marginTop={1}>
+            <Text color={theme.dim}>{t('cli.provider.deviceLogin', 'Device login')} </Text>
+            <Text color={theme.accent}>
+              {fitText(OPENCOWORK_DEVICE_LOGIN_URL, contentWidth - 14)}
+            </Text>
+          </Box>
+          {linkNotice ? (
+            <Text color={linkNotice.opened ? theme.success : theme.warning} wrap="wrap">
+              {linkNotice.opened
+                ? t('cli.provider.browserOpened', 'Opened the page in your browser.')
+                : t(
+                    'cli.provider.browserFailed',
+                    'Could not open a browser here — visit the link above to create a key.'
+                  )}
+            </Text>
+          ) : null}
+          {pasteNotice ? (
+            <Text color={theme.warning} wrap="wrap">
+              {pasteNotice}
+            </Text>
+          ) : null}
+          {error ? (
+            <Text color={theme.error} wrap="wrap">
+              {error}
+            </Text>
+          ) : null}
+          <Box flexDirection="column" marginTop={1}>
+            <Text color={theme.dim}>
+              {t(
+                'cli.provider.waitingFooter',
+                'Enter refresh · V paste key · P other provider · Ctrl+O reopen · Esc back'
+              )}
             </Text>
           </Box>
         </Box>

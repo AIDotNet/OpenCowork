@@ -189,7 +189,9 @@ const englishResources = {
       planOn: 'Plan mode on · implementation waits for your approval · Shift+Tab to cycle',
       autoOn: 'Auto mode on · tools may run without confirmation · Shift+Tab to cycle',
       acceptEditsOn: 'Accept edits mode on · Shift+Tab to cycle',
-      manualOn: 'Manual approval mode · Shift+Tab to cycle'
+      manualOn: 'Manual approval mode · Shift+Tab to cycle',
+      scrollLocked: '↑ {{count}} newer · PgDn / wheel down to follow, click a tool row to expand',
+      transcriptTruncated: '… {{count}} earlier live lines hidden to fit the terminal'
     }
   }
 } as const
@@ -358,7 +360,9 @@ const chineseResources = {
       planOn: 'Plan 模式已开启 · 实现会等待你的批准 · Shift+Tab 切换',
       autoOn: '自动模式已开启 · 工具可能无需确认直接运行 · Shift+Tab 切换',
       acceptEditsOn: '接受编辑模式已开启 · Shift+Tab 切换',
-      manualOn: '手动确认模式 · Shift+Tab 切换'
+      manualOn: '手动确认模式 · Shift+Tab 切换',
+      scrollLocked: '↑ 还有 {{count}} 条更新 · PgDn / 滚轮向下跟随，点击工具行可展开',
+      transcriptTruncated: '… 已隐藏上方 {{count}} 条实时输出以适应终端高度'
     },
     shortcuts: {
       commands: '命令',
@@ -484,9 +488,16 @@ const chineseResources = {
       reviewTitle: '确认并保存',
       welcomeTitle: '欢迎使用 OpenCowork CLI',
       welcomeSubtitle: '开始第一轮对话前先连接模型 Provider · 与 OpenCowork 桌面端共享',
-      welcomeEnter: 'Enter  打开该页面并粘贴 API Key',
+      welcomeEnter: 'Enter  在浏览器中打开 Routin 设备登录',
+      welcomePaste: 'K      手动粘贴 API Key',
       welcomeOther: 'P      选择其他 Provider',
       welcomeSkip: 'Esc    暂时跳过 · 之后可运行 /provider',
+      waitingTitle: '等待浏览器登录',
+      waitingSubtitle: '请在浏览器中完成授权 · 凭据会写入共享存储',
+      waitingBody: '正在等待 OpenCowork 桌面端导入或共享存储更新…',
+      waitingNotReady: '共享存储中还没有 Routin Key — 请完成浏览器登录，或按 V 粘贴 Key。',
+      waitingFooter: 'Enter 刷新 · V 粘贴 Key · P 其他 Provider · Ctrl+O 重新打开 · Esc 返回',
+      deviceLogin: '设备登录',
       recommended: '推荐',
       routinPitch: '一把 API Key 直连 GPT、Claude、Gemini、DeepSeek 等模型',
       keyPage: 'API Key',

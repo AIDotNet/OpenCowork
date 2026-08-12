@@ -20,7 +20,7 @@ import { WelcomeCard } from './components/welcome-card.js'
 import { useTerminalSize } from './hooks/use-terminal-size.js'
 import { t } from './i18n.js'
 import { appendAssistantSegment, finalizeAssistantSegments } from './lib/assistant-content.js'
-import { computeTranscriptWindow } from './lib/message-height.js'
+import { computeTranscriptWindow, estimateChromeLines } from './lib/message-height.js'
 import { formatTokenCount, formatUsdCost } from './lib/metrics.js'
 import {
   containsMouseSequence,
@@ -81,19 +81,19 @@ const permissionModes: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'aut
 function permissionModeNotice(mode: PermissionMode): string {
   switch (mode) {
     case 'acceptEdits':
-      return t('cli.statuses.acceptEditsOn', 'Accept edits mode on ù Shift+Tab to cycle')
+      return t('cli.statuses.acceptEditsOn', 'Accept edits mode on ? Shift+Tab to cycle')
     case 'plan':
       return t(
         'cli.statuses.planOn',
-        'Plan mode on ù implementation waits for your approval ù Shift+Tab to cycle'
+        'Plan mode on ? implementation waits for your approval ? Shift+Tab to cycle'
       )
     case 'auto':
       return t(
         'cli.statuses.autoOn',
-        'Auto mode on ù tools may run without confirmation ù Shift+Tab to cycle'
+        'Auto mode on ? tools may run without confirmation ? Shift+Tab to cycle'
       )
     default:
-      return t('cli.statuses.manualOn', 'Manual approval mode ù Shift+Tab to cycle')
+      return t('cli.statuses.manualOn', 'Manual approval mode ? Shift+Tab to cycle')
   }
 }
 
@@ -186,7 +186,7 @@ export function CliApp({
       {
         id: 'startup-resume',
         kind: 'system',
-        text: t('cli.runtime.resumedSession', 'Resumed session ù {{count}} canonical messages', {
+        text: t('cli.runtime.resumedSession', 'Resumed session ? {{count}} canonical messages', {
           count: initialResume.session.messageCount
         }),
         tone: 'success'
@@ -298,9 +298,9 @@ export function CliApp({
   const committedMessages = fullscreen
     ? []
     : messages.slice(0, firstMutableMessage < 0 ? messages.length : firstMutableMessage)
-  // Fullscreen viewport: window by estimated per-message line heights instead of a flat
-  // message count, reserving the bottom chrome (turn status, prompt, status line). Open
-  // overlays claim more rows, so the transcript budget shrinks while one is visible.
+  // Window by estimated per-message line heights, reserving bottom chrome (turn status,
+  // prompt, status line). Classic also windows its dynamic frame: Ink redraws that tree
+  // every spinner tick, and letting it grow past the terminal height causes flicker/OOM.
   const bottomOverlayOpen = Boolean(
     askUserRequest ||
     permissionRequest ||
@@ -313,21 +313,40 @@ export function CliApp({
     configOpen ||
     (permissionMode === 'plan' && plan)
   )
-  const transcriptBudget = Math.max(4, rows - (bottomOverlayOpen ? 20 : 12))
-  const transcriptWindow = fullscreen
+  const chromeLines = estimateChromeLines({
+    hasTurnStatus: Boolean(turnStatus),
+    overlayOpen: bottomOverlayOpen,
+    scrollLocked: fullscreen && scrollAnchor !== null
+  })
+  const transcriptBudget = Math.max(3, rows - chromeLines)
+  const windowSource =
+    fullscreen || firstMutableMessage < 0 ? messages : messages.slice(firstMutableMessage)
+  const windowArgs = {
+    anchorIndex: fullscreen ? scrollAnchor : null,
+    expandedIds: expandedMessageIds,
+    messages: windowSource,
+    showDetails,
+    width: contentWidth
+  }
+  const preliminaryWindow = computeTranscriptWindow({
+    ...windowArgs,
+    budgetLines: transcriptBudget
+  })
+  // Classic live truncation shows a one-line hint inside the same budget; recompute so the
+  // hint cannot push the frame one row past the terminal and reintroduce flicker.
+  const classicNeedsTruncationHint =
+    !fullscreen && firstMutableMessage >= 0 && preliminaryWindow.hiddenAbove > 0
+  const transcriptWindow = classicNeedsTruncationHint
     ? computeTranscriptWindow({
-        anchorIndex: scrollAnchor,
-        budgetLines: transcriptBudget,
-        expandedIds: expandedMessageIds,
-        messages,
-        showDetails,
-        width: contentWidth
+        ...windowArgs,
+        budgetLines: Math.max(2, transcriptBudget - 1)
       })
-    : null
-  const dynamicMessages = transcriptWindow
-    ? transcriptWindow.messages
-    : messages.slice(firstMutableMessage < 0 ? messages.length : firstMutableMessage)
+    : preliminaryWindow
+  // Classic keeps committed history in <Static>; only the live tail is windowed here.
+  const dynamicMessages =
+    fullscreen || firstMutableMessage >= 0 ? transcriptWindow.messages : []
   const assistantThinking = dynamicMessages.some(isActiveThinkingMessage)
+  const hiddenAboveDynamic = classicNeedsTruncationHint ? transcriptWindow.hiddenAbove : 0
 
   useEffect(() => {
     return () => {
@@ -350,7 +369,7 @@ export function CliApp({
           kind: 'system',
           text: t(
             'cli.runtime.updateAvailable',
-            'OpenCowork {{version}} is available ù run `cowork update` to upgrade',
+            'OpenCowork {{version}} is available ? run `cowork update` to upgrade',
             { version: latest }
           ),
           tone: 'muted'
@@ -404,7 +423,6 @@ export function CliApp({
   // Maps a click row (1-based screen coordinates; the fullscreen transcript starts at
   // the top of the alt screen) onto the visible message and toggles tool detail.
   const handleTranscriptClick = (row: number): void => {
-    if (!transcriptWindow) return
     let cursor = 0
     for (let index = 0; index < transcriptWindow.messages.length; index += 1) {
       const height = transcriptWindow.heights[index] ?? 0
@@ -429,7 +447,7 @@ export function CliApp({
         }
         return
       }
-      const pageSize = Math.max(1, transcriptWindow?.messages.length ?? 3)
+      const pageSize = Math.max(1, transcriptWindow.messages.length || 3)
       if (key.pageUp) scrollTranscript(-pageSize)
       else if (key.pageDown) scrollTranscript(pageSize)
     },
@@ -545,12 +563,7 @@ export function CliApp({
     setProviderSetupReturnToConfig(false)
   }
 
-  const saveProviderSetup = async (input: ProviderSetupInput): Promise<void> => {
-    if (!runtime.configureProvider)
-      throw new Error(
-        t('cli.runtime.providerSetupUnavailable', 'Provider setup is unavailable in this runtime.')
-      )
-    const selection = await runtime.configureProvider(input)
+  const finishProviderSetup = (selection: ModelSelection): void => {
     const catalog = runtime.getModelCatalog()
     setModelCatalog(catalog)
     setModelSelection(selection)
@@ -563,11 +576,24 @@ export function CliApp({
     if (providerSetupReturnToConfig) setConfigOpen(true)
     setProviderSetupReturnToConfig(false)
     showNotice(
-      t('cli.runtime.providerReady', 'Provider ready ù {{provider}} / {{model}}', {
+      t('cli.runtime.providerReady', 'Provider ready ? {{provider}} / {{model}}', {
         provider: selection.providerName,
         model: selection.modelName
       })
     )
+  }
+
+  const saveProviderSetup = async (input: ProviderSetupInput): Promise<void> => {
+    if (!runtime.configureProvider)
+      throw new Error(
+        t('cli.runtime.providerSetupUnavailable', 'Provider setup is unavailable in this runtime.')
+      )
+    const selection = await runtime.configureProvider(input)
+    finishProviderSetup(selection)
+  }
+
+  const completeProviderSetupFromStore = async (selection: ModelSelection): Promise<void> => {
+    finishProviderSetup(selection)
   }
 
   const openAgentPanel = (): void => {
@@ -626,8 +652,8 @@ export function CliApp({
     if (event.type === 'runtime.activity') {
       setActivity(
         event.activity === 'compressing'
-          ? t('cli.statuses.compressing', 'Compressing contextù')
-          : t('cli.statuses.working', 'Workingù')
+          ? t('cli.statuses.compressing', 'Compressing context?')
+          : t('cli.statuses.working', 'Working?')
       )
       if (event.activity === 'working') {
         setTurnStatus((current) => (current ? { ...current, phase: 'requesting' } : current))
@@ -665,31 +691,31 @@ export function CliApp({
           ? `${(event.delayMs / 1_000).toFixed(event.delayMs % 1_000 === 0 ? 0 : 1)}s`
           : `${event.delayMs}ms`
       setActivity(
-        `${t('cli.runtime.retry', 'Retry')} ${event.attempt}/${event.maxAttempts}${event.statusCode ? ` ù HTTP ${event.statusCode}` : ''} ù ${t('cli.runtime.retryIn', 'in')} ${delay}${event.reason ? ` ù ${event.reason}` : ''}`
+        `${t('cli.runtime.retry', 'Retry')} ${event.attempt}/${event.maxAttempts}${event.statusCode ? ` ? HTTP ${event.statusCode}` : ''} ? ${t('cli.runtime.retryIn', 'in')} ${delay}${event.reason ? ` ? ${event.reason}` : ''}`
       )
       setTurnStatus((current) => (current ? { ...current, phase: 'requesting' } : current))
       return
     }
 
     if (event.type === 'context-compression.start') {
-      setActivity(t('cli.statuses.compressing', 'Compressing contextù'))
+      setActivity(t('cli.statuses.compressing', 'Compressing context?'))
       return
     }
 
     if (event.type === 'context-compression.done') {
-      setActivity(t('cli.statuses.working', 'Workingù'))
+      setActivity(t('cli.statuses.working', 'Working?'))
       appendSystem(
         event.summarizerFailed
           ? event.error ||
               'Context compression failed; the Native Worker preserved the original history.'
-          : `Context compressed ù ${event.originalCount} ? ${event.newCount} messages${event.messagesSummarized === undefined ? '' : ` ù ${event.messagesSummarized} summarized`}`,
+          : `Context compressed ? ${event.originalCount} ? ${event.newCount} messages${event.messagesSummarized === undefined ? '' : ` ? ${event.messagesSummarized} summarized`}`,
         event.summarizerFailed ? 'warning' : 'success'
       )
       return
     }
 
     if (event.type === 'assistant.start') {
-      setActivity(t('cli.statuses.working', 'Workingù'))
+      setActivity(t('cli.statuses.working', 'Working?'))
       setTurnStatus((current) => (current ? { ...current, phase: 'responding' } : current))
       setMessages((current) => [
         ...current,
@@ -775,7 +801,7 @@ export function CliApp({
     }
 
     if (event.type === 'tool.start') {
-      setActivity(t('cli.statuses.working', 'Workingù'))
+      setActivity(t('cli.statuses.working', 'Working?'))
       setTurnStatus((current) => (current ? { ...current, phase: 'tool-use' } : current))
       setMessages((current) => [
         ...current,
@@ -846,7 +872,23 @@ export function CliApp({
       return
     }
 
-    if (event.type === 'system') setMessages((current) => [...current, event.message])
+    if (event.type === 'system') {
+      setMessages((current) => {
+        const previous = current.at(-1)
+        // Collapse identical consecutive system lines (legacy spam / reconnect noise)
+        // so the live Ink frame stays within the terminal height budget.
+        if (
+          previous &&
+          previous.kind === 'system' &&
+          previous.text === event.message.text &&
+          previous.tone === event.message.tone
+        ) {
+          return current
+        }
+        return [...current, event.message]
+      })
+      return
+    }
   }
 
   const runPrompt = async (
@@ -855,14 +897,14 @@ export function CliApp({
     references: PromptReference[] = []
   ): Promise<void> => {
     if (isRunning) {
-      showNotice(t('cli.runtime.turnRunning', 'A turn is already running ù Esc to interrupt'))
+      showNotice(t('cli.runtime.turnRunning', 'A turn is already running ? Esc to interrupt'))
       return
     }
     if (images.length > 0 && !supportsVision) {
       showNotice(
         t(
           'cli.runtime.visionUnsupported',
-          'Current model does not support image input ù choose a vision model with Alt-P'
+          'Current model does not support image input ? choose a vision model with Alt-P'
         )
       )
       return
@@ -907,7 +949,7 @@ export function CliApp({
     const controller = new AbortController()
     abortControllerRef.current = controller
     setIsRunning(true)
-    setActivity(t('cli.statuses.working', 'Workingù'))
+    setActivity(t('cli.statuses.working', 'Working?'))
     setTurnStatus({
       activeResponseCharacters: 0,
       completedOutputTokens: 0,
@@ -997,7 +1039,7 @@ export function CliApp({
     const controller = new AbortController()
     abortControllerRef.current = controller
     setIsRunning(true)
-    setActivity(t('cli.statuses.compressing', 'Compressing contextù'))
+    setActivity(t('cli.statuses.compressing', 'Compressing context?'))
     try {
       const result = await runtime.compactContext(focusPrompt, controller.signal)
       if (result.summarizerFailed) {
@@ -1009,7 +1051,7 @@ export function CliApp({
         appendSystem('No compressible context is available yet.', 'warning')
       } else {
         appendSystem(
-          `Context compressed ù ${result.originalCount} ? ${result.newCount} messages${result.messagesSummarized === undefined ? '' : ` ù ${result.messagesSummarized} summarized`}`,
+          `Context compressed ? ${result.originalCount} ? ${result.newCount} messages${result.messagesSummarized === undefined ? '' : ` ? ${result.messagesSummarized} summarized`}`,
           'success'
         )
       }
@@ -1039,8 +1081,8 @@ export function CliApp({
     setIsRunning(true)
     setActivity(
       startNewSession
-        ? t('cli.runtime.startingSession', 'Starting new sessionù')
-        : t('cli.runtime.clearingContext', 'Clearing contextù')
+        ? t('cli.runtime.startingSession', 'Starting new session?')
+        : t('cli.runtime.clearingContext', 'Clearing context?')
     )
     try {
       await operation.call(runtime)
@@ -1071,14 +1113,14 @@ export function CliApp({
       return
     }
     setIsRunning(true)
-    setActivity(t('cli.runtime.checkingWorker', 'Checking Native Workerù'))
+    setActivity(t('cli.runtime.checkingWorker', 'Checking Native Worker?'))
     try {
       const result = await runtime.doctor()
       appendSystem(
         [
-          `Native Worker ready ù ${result.runtime} ${result.runtimeVersion}`,
-          `IPC v${result.protocolVersion} ù Agent v${result.agentProtocolVersion} ù ${result.routeCount} routes`,
-          `PID ${result.pid} ù ${result.configuredModel}`,
+          `Native Worker ready ? ${result.runtime} ${result.runtimeVersion}`,
+          `IPC v${result.protocolVersion} ? Agent v${result.agentProtocolVersion} ? ${result.routeCount} routes`,
+          `PID ${result.pid} ? ${result.configuredModel}`,
           result.executable
         ].join('\n'),
         'success'
@@ -1137,7 +1179,7 @@ export function CliApp({
     }
     if (isRunning) throw new Error('Wait for the active Worker operation before resuming.')
     setIsRunning(true)
-    setActivity(t('cli.runtime.resumingSession', 'Resuming sessionù'))
+    setActivity(t('cli.runtime.resumingSession', 'Resuming session?'))
     try {
       return await runtime.resumeSession(sessionId, signal)
     } finally {
@@ -1166,7 +1208,7 @@ export function CliApp({
     refreshConfigCatalog()
     refreshRuntimeMetrics()
     if (result.warning) appendSystem(result.warning, 'warning')
-    showNotice(`Resumed session ù ${result.session.messageCount} canonical messages`)
+    showNotice(`Resumed session ? ${result.session.messageCount} canonical messages`)
   }
 
   const runRewind = async (
@@ -1186,12 +1228,12 @@ export function CliApp({
     setIsRunning(true)
     setActivity(
       action === 'summarize-from' || action === 'summarize-up-to'
-        ? t('cli.runtime.summarizingConversation', 'Summarizing conversationù')
+        ? t('cli.runtime.summarizingConversation', 'Summarizing conversation?')
         : action === 'restore-code'
-          ? t('cli.runtime.restoringCode', 'Restoring codeù')
+          ? t('cli.runtime.restoringCode', 'Restoring code?')
           : action === 'restore-code-and-conversation'
-            ? t('cli.runtime.restoringCodeConversation', 'Restoring code and conversationù')
-            : t('cli.runtime.restoringConversation', 'Restoring conversationù')
+            ? t('cli.runtime.restoringCodeConversation', 'Restoring code and conversation?')
+            : t('cli.runtime.restoringConversation', 'Restoring conversation?')
     )
 
     try {
@@ -1235,7 +1277,7 @@ export function CliApp({
         result.summarized
           ? 'Conversation summarized'
           : result.conversationForked
-            ? `Conversation forked${result.restoredFileCount > 0 ? ` ù ${result.restoredFileCount} files restored` : ''}`
+            ? `Conversation forked${result.restoredFileCount > 0 ? ` ? ${result.restoredFileCount} files restored` : ''}`
             : `${result.restoredFileCount} tracked file${result.restoredFileCount === 1 ? '' : 's'} restored`
       )
       return result
@@ -1299,8 +1341,8 @@ export function CliApp({
         refreshConfigCatalog()
         showNotice(
           nextEffort === null
-            ? `Effort auto ù ${resolvedEffort} model default`
-            : `Effort set to ${resolvedEffort}${sessionOnly ? ' ù current session' : ''}${configuration.supportsThinking ? ' ù Thinking on' : ''}`
+            ? `Effort auto ? ${resolvedEffort} model default`
+            : `Effort set to ${resolvedEffort}${sessionOnly ? ' ? current session' : ''}${configuration.supportsThinking ? ' ? Thinking on' : ''}`
         )
       })
       .catch((error) =>
@@ -1386,10 +1428,10 @@ export function CliApp({
             : `${formatTokenCount(snapshot.estimatedTokens)} tokens`
         const ratio =
           snapshot.contextLength > 0
-            ? ` ù ${Math.round((snapshot.estimatedTokens / snapshot.contextLength) * 100)}%`
+            ? ` ? ${Math.round((snapshot.estimatedTokens / snapshot.contextLength) * 100)}%`
             : ''
         appendSystem(
-          `Context ù ${usage}${ratio}\n${snapshot.messageCount} canonical messages ù auto-compact ${snapshot.compressionEnabled ? `at ${formatTokenCount(snapshot.triggerTokens)}` : 'off'}`,
+          `Context ? ${usage}${ratio}\n${snapshot.messageCount} canonical messages ? auto-compact ${snapshot.compressionEnabled ? `at ${formatTokenCount(snapshot.triggerTokens)}` : 'off'}`,
           'success'
         )
       }
@@ -1405,7 +1447,7 @@ export function CliApp({
             ? 'pricing unavailable'
             : formatUsdCost(usage.estimatedCostUsd)
         appendSystem(
-          `Usage ù ${usage.requestCount} requests ù ${formatTokenCount(usage.inputTokens)} input ù ${formatTokenCount(usage.outputTokens)} output\nBillable input ${formatTokenCount(usage.billableInputTokens)} ù cache read ${formatTokenCount(usage.cacheReadTokens)} ù reasoning ${formatTokenCount(usage.reasoningTokens)}\nEstimated cost ${cost} ù ${usage.model}`,
+          `Usage ? ${usage.requestCount} requests ? ${formatTokenCount(usage.inputTokens)} input ? ${formatTokenCount(usage.outputTokens)} output\nBillable input ${formatTokenCount(usage.billableInputTokens)} ? cache read ${formatTokenCount(usage.cacheReadTokens)} ? reasoning ${formatTokenCount(usage.reasoningTokens)}\nEstimated cost ${cost} ? ${usage.model}`,
           'success'
         )
       }
@@ -1481,15 +1523,15 @@ export function CliApp({
         }
         const lines = status.servers.map((server) => {
           const state = server.projectBound
-            ? 'project-bound ù desktop only'
+            ? 'project-bound ? desktop only'
             : !server.enabled
               ? 'disabled'
               : server.status === 'connected'
-                ? `connected ù ${server.toolCount} tools${server.resourceCount > 0 ? ` ù ${server.resourceCount} resources` : ''}`
+                ? `connected ? ${server.toolCount} tools${server.resourceCount > 0 ? ` ? ${server.resourceCount} resources` : ''}`
                 : server.status === 'error'
-                  ? `error ù ${server.error ?? 'connection failed'}`
+                  ? `error ? ${server.error ?? 'connection failed'}`
                   : server.status
-          return `${server.name} (${server.id}) ù ${server.transport} ù ${state}`
+          return `${server.name} (${server.id}) ? ${server.transport} ? ${state}`
         })
         const hasError = status.servers.some(
           (server) => server.enabled && server.status === 'error'
@@ -1527,9 +1569,9 @@ export function CliApp({
       void runtime
         .getCodeGraphStatus()
         .then((status) => {
-          const catalog = status.toolNames.length > 0 ? ` ù ${status.toolNames.join(', ')}` : ''
+          const catalog = status.toolNames.length > 0 ? ` ? ${status.toolNames.join(', ')}` : ''
           appendSystem(
-            `${status.message} ù ${status.indexed ? 'indexed' : 'not indexed'}${catalog}`,
+            `${status.message} ? ${status.indexed ? 'indexed' : 'not indexed'}${catalog}`,
             status.enabled ? (status.indexed ? 'success' : 'warning') : 'muted'
           )
         })
@@ -1575,7 +1617,7 @@ export function CliApp({
           `${tuiMode} renderer`
         ]
           .filter(Boolean)
-          .join(' ù '),
+          .join(' ? '),
         'success'
       )
       return true
@@ -1614,7 +1656,7 @@ export function CliApp({
     ])
     setScrollAnchor(null)
     setIsRunning(true)
-    setActivity(t('cli.statuses.runningShell', 'Running shell commandù'))
+    setActivity(t('cli.statuses.runningShell', 'Running shell command?'))
     const controller = new AbortController()
     abortControllerRef.current = controller
     const child = spawn(command, { shell: true, cwd, env: process.env })
@@ -1646,7 +1688,7 @@ export function CliApp({
       const trimmed = output.replace(/\s+$/u, '')
       const detail = trimmed
         ? truncated
-          ? `${trimmed.slice(0, SHELL_OUTPUT_LIMIT)}\nù output truncated`
+          ? `${trimmed.slice(0, SHELL_OUTPUT_LIMIT)}\n? output truncated`
           : trimmed
         : undefined
       const firstLine = trimmed.split('\n', 1)[0]
@@ -1655,7 +1697,7 @@ export function CliApp({
         (interrupted
           ? t('cli.statuses.interrupted', 'Interrupted')
           : failed
-            ? `exit ${code}${firstLine ? ` ù ${firstLine}` : ''}`
+            ? `exit ${code}${firstLine ? ` ? ${firstLine}` : ''}`
             : firstLine || t('cli.statuses.completed', 'Completed'))
       setMessages((current) =>
         updateMessageById(current, id, 'tool', (message) => ({
@@ -1713,7 +1755,7 @@ export function CliApp({
       deny: 'Denied'
     }
     appendSystem(
-      `${labels[decision]} ù ${request.tool}: ${request.title}`,
+      `${labels[decision]} ? ${request.tool}: ${request.title}`,
       decision === 'deny' ? 'warning' : 'success'
     )
     void runtime.respondToPermission?.(request.id, decision)
@@ -1732,7 +1774,7 @@ export function CliApp({
   const handleAskUserCancel = (): void => {
     setAskUserRequest(null)
     abortControllerRef.current?.abort()
-    showNotice('AskUserQuestion cancelled ù turn interrupted')
+    showNotice('AskUserQuestion cancelled ? turn interrupted')
   }
 
   const handlePlanApprove = (mode: PlanApprovalMode): void => {
@@ -1746,7 +1788,7 @@ export function CliApp({
         const nextMode: PermissionMode = mode === 'auto' ? 'auto' : mode
         setPermissionMode(nextMode)
         runtime.configure?.({ permissionMode: nextMode })
-        appendSystem('Plan approved ù starting implementation in the Native Worker.', 'success')
+        appendSystem('Plan approved ? starting implementation in the Native Worker.', 'success')
         void runPrompt('Implement the approved plan.')
       })
       .catch((error) =>
@@ -1765,7 +1807,7 @@ export function CliApp({
         setPlan({ ...currentPlan, status: 'drafting', content: undefined, updatedAt: Date.now() })
         setPermissionMode('plan')
         runtime.configure?.({ permissionMode: 'plan' })
-        appendSystem('Plan revision requested ù returning to planning.', 'muted')
+        appendSystem('Plan revision requested ? returning to planning.', 'muted')
         void runPrompt(feedback)
       })
       .catch((error) =>
@@ -1861,7 +1903,7 @@ export function CliApp({
         if (modelConfigurationReturnToConfig) setConfigOpen(true)
         setModelConfigurationReturnToConfig(false)
         showNotice(
-          `Model switched to ${configuration.selection.providerName} / ${configuration.selection.modelName} ù configuration saved`
+          `Model switched to ${configuration.selection.providerName} / ${configuration.selection.modelName} ? configuration saved`
         )
       })
       .catch((error) =>
@@ -1937,7 +1979,15 @@ export function CliApp({
         justifyContent={fullscreen ? 'space-between' : 'flex-start'}
         width={contentWidth}
       >
-        <Box flexDirection="column" flexGrow={fullscreen ? 1 : 0}>
+        <Box
+          flexDirection="column"
+          flexGrow={fullscreen ? 1 : 0}
+          // Fullscreen always owns a fixed alt-screen band. Classic only clamps when the
+          // live tail was truncated; otherwise a fixed height leaves a blank gap above
+          // the prompt on short turns.
+          height={fullscreen || hiddenAboveDynamic > 0 ? transcriptBudget : undefined}
+          overflow={fullscreen || hiddenAboveDynamic > 0 ? 'hidden' : undefined}
+        >
           {agentPanelOpen ? null : !hasTranscript ? (
             <WelcomeCard
               cwd={cwd}
@@ -1946,22 +1996,33 @@ export function CliApp({
               width={contentWidth}
             />
           ) : dynamicMessages.length > 0 ? (
-            <Transcript
-              expandedMessageIds={expandedMessageIds}
-              hideStreamingStatus={Boolean(turnStatus)}
-              messages={dynamicMessages}
-              showDetails={showDetails}
-              width={contentWidth}
-            />
+            <>
+              {hiddenAboveDynamic > 0 ? (
+                <Text color={theme.dim}>
+                  {t(
+                    'cli.statuses.transcriptTruncated',
+                    '? {{count}} earlier live lines hidden to fit the terminal',
+                    { count: hiddenAboveDynamic }
+                  )}
+                </Text>
+              ) : null}
+              <Transcript
+                expandedMessageIds={expandedMessageIds}
+                hideStreamingStatus={Boolean(turnStatus)}
+                messages={dynamicMessages}
+                showDetails={showDetails}
+                width={contentWidth}
+              />
+            </>
           ) : null}
         </Box>
 
         <Box flexDirection="column" flexShrink={0}>
-          {fullscreen && scrollAnchor !== null && transcriptWindow ? (
+          {fullscreen && scrollAnchor !== null ? (
             <Text color={theme.warning}>
               {t(
                 'cli.statuses.scrollLocked',
-                '? {{count}} newer ù PgDn / wheel down to follow, click a tool row to expand',
+                '? {{count}} newer ? PgDn / wheel down to follow, click a tool row to expand',
                 { count: transcriptWindow.hiddenBelow }
               )}
             </Text>
@@ -2033,6 +2094,7 @@ export function CliApp({
               maxVisible={Math.max(4, Math.min(10, rows - 13))}
               onboarding={providerSetupOnboarding}
               onCancel={closeProviderSetup}
+              onReadyFromStore={completeProviderSetupFromStore}
               onSave={saveProviderSetup}
               width={contentWidth}
             />
@@ -2064,7 +2126,7 @@ export function CliApp({
               heading={
                 modelPickerPurpose === 'compression'
                   ? t('cli.model.selectCompression', 'Select compression model')
-                  : t('cli.model.selectStepOne', 'Select model ù Step 1 of 2')
+                  : t('cli.model.selectStepOne', 'Select model ? Step 1 of 2')
               }
               maxVisible={Math.max(4, Math.min(12, rows - 12))}
               onCancel={closeModelPicker}
@@ -2154,7 +2216,7 @@ export function CliApp({
           <StatusLine
             activity={
               turnStatus ||
-              (assistantThinking && activity === t('cli.statuses.working', 'Workingù'))
+              (assistantThinking && activity === t('cli.statuses.working', 'Working?'))
                 ? undefined
                 : activity
             }

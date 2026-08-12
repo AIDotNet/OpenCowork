@@ -3,6 +3,10 @@ productName: OpenCoWork
 directories:
   buildResources: build
 afterPack: build/after-sign-mac.cjs
+protocols:
+  name: OpenCoWork
+  schemes:
+    - opencowork
 files:
   - '!**/.vscode/*'
   - '!src/*'

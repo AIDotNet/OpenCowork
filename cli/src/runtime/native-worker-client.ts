@@ -264,6 +264,30 @@ export class NativeWorkerClient {
     )
   }
 
+  /**
+   * Clear the durable outbox in-flight window and republish batches after the
+   * consumer cursor (and optional sinceSeq). Used when the live Event socket
+   * skipped a sequence without disconnecting.
+   */
+  async replayEvents(options: {
+    jobId?: string
+    sinceSeq?: number
+    limit?: number
+  } = {}): Promise<number> {
+    if (!this.isRunning) return 0
+    const result = await this.request<{ published?: number }>(
+      'events/replay',
+      {
+        consumerId: this.hostId,
+        limit: options.limit ?? 4096,
+        ...(options.jobId ? { jobId: options.jobId } : {}),
+        ...(options.sinceSeq !== undefined ? { sinceSeq: options.sinceSeq } : {})
+      },
+      30_000
+    )
+    return typeof result.published === 'number' ? result.published : 0
+  }
+
   async ensureStarted(): Promise<void> {
     if (this.isRunning) return
     if (!this.startPromise) {

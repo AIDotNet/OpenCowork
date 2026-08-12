@@ -32,6 +32,10 @@ const SHARED_FILES = [
     source: 'src/shared/native-worker-protocol.ts',
     target: 'native-worker-protocol.ts',
     rewrites: [["'./worker-contracts/generated/contracts'", "'./worker-contracts.js'"]]
+  },
+  {
+    source: 'src/shared/routin-credential.ts',
+    target: 'routin-credential.ts'
   }
 ]
 

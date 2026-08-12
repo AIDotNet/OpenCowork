@@ -4,15 +4,30 @@ import type { Message } from '../types.js'
 /**
  * Estimated line heights for transcript messages, mirroring the layout rules in
  * components/transcript.tsx. Ink/Yoga cannot report heights before rendering, so the
- * fullscreen viewport is windowed with these estimates instead of a per-message count
- * heuristic. Estimates use the same grapheme/east-asian width logic as the renderer
- * (wrapText), so they are exact for the common single-style rows and conservative for
- * mixed-style rows.
+ * viewport is windowed with these estimates instead of a per-message count heuristic.
+ * Estimates use the same grapheme/east-asian width logic as the renderer (wrapText), so
+ * they are exact for the common single-style rows and conservative for mixed-style rows.
  */
 
 function wrappedLines(text: string, width: number): number {
   if (!text) return 0
   return wrapText(text, Math.max(1, width)).length
+}
+
+/** Rows reserved for prompt / status / turn chrome outside the scrollable transcript. */
+export function estimateChromeLines(args: {
+  hasTurnStatus: boolean
+  overlayOpen: boolean
+  scrollLocked: boolean
+}): number {
+  // Overlays replace the prompt and need a large reserved band so the transcript cannot
+  // push them off-screen and thrash the alt-screen / Ink dynamic frame.
+  if (args.overlayOpen) return 20
+  // Prompt (~3) + status metrics (~2) + trailing pad (1) + safety margin for wrap.
+  let chrome = 9
+  if (args.hasTurnStatus) chrome += 1
+  if (args.scrollLocked) chrome += 1
+  return chrome
 }
 
 export function estimateMessageLines(
@@ -48,6 +63,10 @@ export function estimateMessageLines(
         }
         continue
       }
+      if (segment.kind === 'image') {
+        lines += 1
+        continue
+      }
       lines += Math.max(1, wrappedLines(`● ${segment.text}`, width))
     }
     if (detailed && (message.model || message.timestamp)) lines += 1
@@ -77,8 +96,8 @@ export interface TranscriptWindow {
 }
 
 /**
- * Selects the fullscreen-visible message window by walking heights backwards from the
- * anchor (bottom-most visible message; null follows the tail) until the line budget is
+ * Selects the visible message window by walking heights backwards from the anchor
+ * (bottom-most visible message; null follows the tail) until the line budget is
  * exhausted. Always keeps at least the anchor message so a single oversized message
  * cannot blank the transcript.
  */
@@ -95,6 +114,7 @@ export function computeTranscriptWindow(args: {
     return { messages: [], startIndex: 0, heights: [], hiddenAbove: 0, hiddenBelow: 0 }
   }
 
+  const budget = Math.max(1, args.budgetLines)
   const anchor = Math.min(messages.length - 1, Math.max(0, args.anchorIndex ?? messages.length - 1))
   const heights: number[] = []
   let start = anchor
@@ -103,7 +123,7 @@ export function computeTranscriptWindow(args: {
     const message = messages[index]
     if (!message) break
     const height = estimateMessageLines(message, width, showDetails, expandedIds)
-    if (index !== anchor && used + height > args.budgetLines) break
+    if (index !== anchor && used + height > budget) break
     heights.unshift(height)
     used += height
     start = index

@@ -14,6 +14,16 @@ export interface PromptImageAttachment {
 
 export type PromptImageSummary = Omit<PromptImageAttachment, 'data'>
 
+/** Terminal-safe generated-image metadata. Base64 payloads never enter the UI event model. */
+export interface AssistantImage {
+  id: string
+  name: string
+  mediaType?: SupportedImageMediaType
+  size?: number
+  filePath?: string
+  url?: string
+}
+
 export interface FileReferenceCandidate {
   name: string
   path: string
@@ -49,6 +59,10 @@ export type AssistantContentSegment =
       startedAt: number
       text: string
       traceAvailable: boolean
+    }
+  | {
+      image: AssistantImage
+      kind: 'image'
     }
 
 export interface ToolDiffLine {
@@ -434,6 +448,7 @@ export type UiEvent =
   | { type: 'assistant.start'; id: string; model?: string }
   | { type: 'assistant.delta'; id: string; text: string }
   | { type: 'assistant.thinking'; id: string; thinking: string }
+  | { type: 'assistant.image'; id: string; image: AssistantImage }
   | {
       type: 'assistant.done'
       id: string

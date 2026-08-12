@@ -1,0 +1,127 @@
+export type RoutinCredentialKind = 'apiKey' | 'subscription'
+export type RoutinBuiltinId = 'routin-ai' | 'routin-ai-plan'
+
+export interface RoutinCredentialClassification {
+  baseUrl: string
+  builtinId: RoutinBuiltinId
+  kind: RoutinCredentialKind
+  name: string
+}
+
+export interface OpenCoworkImportProvider {
+  apiKey: string
+  builtinId?: string
+  kind?: RoutinCredentialKind
+}
+
+export interface OpenCoworkImportPayload {
+  providers: OpenCoworkImportProvider[]
+  source?: string
+}
+
+export const OPENCOWORK_PROTOCOL = 'opencowork'
+export const OPENCOWORK_DEVICE_LOGIN_URL = 'https://routin.ai/device/opencowork'
+
+const ROUTIN_AI_BASE_URL = 'https://api.routin.ai/v1'
+const ROUTIN_AI_PLAN_BASE_URL = 'https://api.routin.ai/plan/v1'
+
+export function classifyRoutinCredential(apiKey: string): RoutinCredentialClassification {
+  const normalized = apiKey.trim()
+  if (normalized.startsWith('plan-')) {
+    return {
+      baseUrl: ROUTIN_AI_PLAN_BASE_URL,
+      builtinId: 'routin-ai-plan',
+      kind: 'subscription',
+      name: 'Routin AI（套餐）'
+    }
+  }
+  return {
+    baseUrl: ROUTIN_AI_BASE_URL,
+    builtinId: 'routin-ai',
+    kind: 'apiKey',
+    name: 'Routin AI'
+  }
+}
+
+function decodeBase64UrlJson(encoded: string): unknown {
+  const padded = encoded
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .padEnd(Math.ceil(encoded.length / 4) * 4, '=')
+  const binary = Buffer.from(padded, 'base64').toString('binary')
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+  return JSON.parse(new TextDecoder().decode(bytes)) as unknown
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Parse `opencowork://import/provider#settings=base64url:…` (and argv forms that
+ * may drop the hash into a separate fragment on some platforms).
+ */
+export function parseOpenCoworkImportUrl(rawUrl: string): {
+  apiKey: string
+  classification: RoutinCredentialClassification
+} | null {
+  const trimmed = rawUrl.trim()
+  if (!trimmed) return null
+
+  let hash = ''
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== `${OPENCOWORK_PROTOCOL}:`) return null
+    hash = parsed.hash.startsWith('#') ? parsed.hash.slice(1) : parsed.hash
+  } catch {
+    const hashIndex = trimmed.indexOf('#')
+    if (hashIndex < 0) return null
+    if (!trimmed.startsWith(`${OPENCOWORK_PROTOCOL}:`)) return null
+    hash = trimmed.slice(hashIndex + 1)
+  }
+
+  const prefix = 'settings=base64url:'
+  if (!hash.startsWith(prefix)) return null
+  const encoded = hash.slice(prefix.length).trim()
+  if (!encoded) return null
+
+  let payload: unknown
+  try {
+    payload = decodeBase64UrlJson(encoded)
+  } catch {
+    return null
+  }
+  if (!isRecord(payload) || !Array.isArray(payload.providers) || payload.providers.length === 0) {
+    return null
+  }
+
+  const first = payload.providers[0]
+  if (!isRecord(first)) return null
+  const apiKey = typeof first.apiKey === 'string' ? first.apiKey.trim() : ''
+  if (!apiKey) return null
+
+  const classified = classifyRoutinCredential(apiKey)
+  const kindHint = first.kind === 'subscription' || first.kind === 'apiKey' ? first.kind : undefined
+  const builtinHint =
+    first.builtinId === 'routin-ai' || first.builtinId === 'routin-ai-plan'
+      ? first.builtinId
+      : undefined
+
+  if (
+    kindHint === 'subscription' ||
+    builtinHint === 'routin-ai-plan' ||
+    classified.kind === 'subscription'
+  ) {
+    return {
+      apiKey,
+      classification: {
+        baseUrl: ROUTIN_AI_PLAN_BASE_URL,
+        builtinId: 'routin-ai-plan',
+        kind: 'subscription',
+        name: 'Routin AI（套餐）'
+      }
+    }
+  }
+
+  return { apiKey, classification: classified }
+}

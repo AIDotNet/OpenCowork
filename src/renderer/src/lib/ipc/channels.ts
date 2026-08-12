@@ -98,6 +98,7 @@ export const IPC = {
   // AI provider persistence
   AI_PROVIDER_GET: 'ai-provider:get',
   AI_PROVIDER_SET: 'ai-provider:set',
+  AI_PROVIDER_IMPORTED: 'ai-provider:imported',
 
   // Input Drafts
   INPUT_DRAFT_GET: 'input-draft:get',

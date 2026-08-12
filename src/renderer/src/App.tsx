@@ -383,6 +383,21 @@ function App(): React.JSX.Element {
     })
   }, [sessionWindowView, detachedSessionId])
 
+  // Routin device-login deep links write the shared provider store in main; rehydrate
+  // so the settings UI and active model pick up the imported key without a restart.
+  useEffect(() => {
+    return ipcClient.on('ai-provider:imported', (payload) => {
+      const data = payload as { providerName?: string; builtinId?: string } | null
+      void Promise.resolve(useProviderStore.persist?.rehydrate?.()).then(() => {
+        toast.success(
+          data?.providerName
+            ? `Imported ${data.providerName}`
+            : 'Routin credentials imported from browser login'
+        )
+      })
+    })
+  }, [])
+
   useEffect(
     () =>
       installAgentRuntimeSyncListener((event: AgentRuntimeSyncEvent) => {

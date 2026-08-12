@@ -7,12 +7,18 @@ import type {
   ProviderSetupProtocol
 } from '../types.js'
 import {
+  OPENCOWORK_DEVICE_LOGIN_URL,
+  classifyRoutinCredential
+} from '../vendor/routin-credential.js'
+import {
   isRecord,
   loadOpenCoworkConfiguration,
   persistProviderStoreState,
   stringValue,
   type JsonRecord
 } from './provider-catalog.js'
+
+export { OPENCOWORK_DEVICE_LOGIN_URL }
 
 interface QuickProviderPreset {
   apiKeyUrl?: string
@@ -29,7 +35,7 @@ interface QuickProviderPreset {
 
 const quickProviderPresets: QuickProviderPreset[] = [
   {
-    apiKeyUrl: 'https://routin.ai/dashboard/api-keys',
+    apiKeyUrl: OPENCOWORK_DEVICE_LOGIN_URL,
     baseUrl: 'https://api.routin.ai/v1',
     builtinId: 'routin-ai',
     defaultModel: {
@@ -49,6 +55,24 @@ const quickProviderPresets: QuickProviderPreset[] = [
     name: 'Routin AI',
     providerType: 'openai-chat',
     recommended: true
+  },
+  {
+    apiKeyUrl: OPENCOWORK_DEVICE_LOGIN_URL,
+    baseUrl: 'https://api.routin.ai/plan/v1',
+    builtinId: 'routin-ai-plan',
+    defaultModel: {
+      id: 'gpt-5.5',
+      name: 'GPT 5.5',
+      enabled: true,
+      contextLength: 400_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      supportsThinking: true
+    },
+    description: 'Routin subscription plan · GPT and Claude models',
+    name: 'Routin AI（套餐）',
+    providerType: 'openai-chat'
   },
   {
     apiKeyUrl: 'https://platform.openai.com/api-keys',
@@ -459,10 +483,75 @@ function createModel(
   return { models: nextModels, modelName }
 }
 
+/**
+ * When the desktop deep-link (or a prior paste) already wrote a Routin provider into the
+ * shared store, return its active selection so the CLI wizard can finish without re-entry.
+ */
+export function findReadyRoutinSelection(): ModelSelection | null {
+  const configuration = loadOpenCoworkConfiguration()
+  const providers = Array.isArray(configuration.providerStore.providers)
+    ? configuration.providerStore.providers.filter(isRecord)
+    : []
+  const activeProviderId = stringValue(configuration.providerStore.activeProviderId)
+  const activeModelId = stringValue(configuration.providerStore.activeModelId)
+  const ready = providers.filter((provider) => {
+    const builtinId = stringValue(provider.builtinId)
+    if (builtinId !== 'routin-ai' && builtinId !== 'routin-ai-plan') return false
+    if (provider.enabled === false) return false
+    return Boolean(stringValue(provider.apiKey).trim())
+  })
+  if (ready.length === 0) return null
+
+  const preferred =
+    ready.find((provider) => stringValue(provider.id) === activeProviderId) ?? ready[0]
+  const model = resolveDefaultModel(
+    preferred,
+    stringValue(preferred.id) === activeProviderId ? activeModelId : ''
+  )
+  const modelId = stringValue(model?.id) || stringValue(preferred.defaultModel)
+  if (!modelId) return null
+  return {
+    providerId: stringValue(preferred.id),
+    providerName: stringValue(preferred.name) || stringValue(preferred.builtinId),
+    modelId,
+    modelName: stringValue(model?.name) || modelId
+  }
+}
+
 export function persistProviderSetup(input: ProviderSetupInput): ModelSelection {
   const catalog = loadProviderSetupCatalog()
-  const option = catalog.options.find((candidate) => candidate.key === input.optionKey)
+  let option = catalog.options.find((candidate) => candidate.key === input.optionKey)
   if (!option) throw new Error('The selected provider changed. Reopen provider setup and retry.')
+
+  const enteredApiKey = input.apiKey?.trim() ?? ''
+  // Pasted Routin credentials self-select wallet vs plan, even if the welcome flow started
+  // on the recommended wallet preset.
+  if (
+    enteredApiKey &&
+    (option.builtinId === 'routin-ai' ||
+      option.builtinId === 'routin-ai-plan' ||
+      option.key === catalog.recommendedKey)
+  ) {
+    const classified = classifyRoutinCredential(enteredApiKey)
+    const matched =
+      catalog.options.find((candidate) => candidate.builtinId === classified.builtinId) ??
+      catalog.options.find((candidate) => candidate.key === `builtin:${classified.builtinId}`)
+    if (matched) {
+      const switchedBuiltin = option.builtinId !== matched.builtinId
+      option = matched
+      input = {
+        ...input,
+        optionKey: matched.key,
+        name: matched.name,
+        baseUrl: matched.baseUrl || classified.baseUrl,
+        // When the key prefix moves us to another Routin preset, take that preset's
+        // default model instead of keeping the previous wizard draft.
+        modelId: switchedBuiltin
+          ? matched.defaultModelId || input.modelId
+          : input.modelId || matched.defaultModelId
+      }
+    }
+  }
 
   const configuration = loadOpenCoworkConfiguration()
   const providers = Array.isArray(configuration.providerStore.providers)
@@ -478,7 +567,6 @@ export function persistProviderSetup(input: ProviderSetupInput): ModelSelection 
   const modelId = validateSingleLine(input.modelId, 'Model ID', 300)
   if (/\s/u.test(modelId)) throw new Error('Model ID must not contain whitespace.')
 
-  const enteredApiKey = input.apiKey?.trim() ?? ''
   if (enteredApiKey.length > 8_192) throw new Error('API key is too long.')
   if (/\p{Cc}/u.test(enteredApiKey)) throw new Error('API key contains control characters.')
   const apiKey = enteredApiKey || stringValue(existingProvider?.apiKey).trim()

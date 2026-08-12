@@ -1,8 +1,10 @@
 import type { AssistantContentSegment } from '../types.js'
 
+type StreamableAssistantKind = Extract<AssistantContentSegment, { text: string }>['kind']
+
 export function appendAssistantSegment(
   current: AssistantContentSegment[] | undefined,
-  kind: AssistantContentSegment['kind'],
+  kind: StreamableAssistantKind,
   delta: string,
   timestamp: number
 ): AssistantContentSegment[] {
@@ -10,7 +12,7 @@ export function appendAssistantSegment(
   if (!delta) return segments
 
   const last = segments.at(-1)
-  if (last?.kind === kind) {
+  if (last?.kind === kind && 'text' in last) {
     return [
       ...segments.slice(0, -1),
       {
@@ -30,7 +32,7 @@ export function appendAssistantSegment(
           text: delta,
           traceAvailable: true
         }
-      : { kind, text: delta }
+      : { kind: 'text', text: delta }
   ]
 }
 

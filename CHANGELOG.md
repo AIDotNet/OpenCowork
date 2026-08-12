@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.7] - 2026-08-12
+
+### Added
+
+- Added Routin device-login deep-link import for desktop and CLI: browser authorization at `https://routin.ai/device/opencowork` returns credentials through `opencowork://import/provider#settings=base64url:…`, writing wallet keys (`ak-`) to `routin-ai` and plan keys (`plan-`) to `routin-ai-plan` in the shared `~/.open-cowork/ai-provider` store.
+- Registered the `opencowork` custom protocol in Electron (cold start, `open-url`, and second-instance) and notify the renderer via `ai-provider:imported` so settings rehydrate without restart.
+- Extended CLI first-run onboarding to open the Routin device-login page, wait/poll for a shared-store update, keep manual paste as fallback (`K`/`V`), and include a `routin-ai-plan` quick preset with prefix-based credential classification.
+- Added classic (non-fullscreen) transcript windowing with chrome-line budgeting, image-segment rendering, and collapse of duplicate consecutive system lines to keep the Ink live frame within the terminal height.
+- Added CLI Worker stream gap recovery: buffer out-of-order envelopes, call `events/replay`, and suppress repeated gap spam while a missing sequence is outstanding.
+- Added an architecture-boundary verification script with a ratchet baseline so shared/renderer layering regressions can be caught before they grow.
+
+### Changed
+
+- Pointed Routin AI / Routin AI（套餐） “Get API key” links at the device-login page instead of the API-keys dashboard.
+- Updated CLI provider-setup copy and docs for browser login, deep-link handoff, and CLI-only paste fallback (`OPENCOWORK_CLI_NO_BROWSER=1`).
+
+### Fixed
+
+- Fixed classic CLI sessions thrashing or growing past the terminal height by windowing the dynamic transcript frame the same way fullscreen already did.
+- Fixed CLI stream consumers dropping or double-warning on sequence gaps by holding later envelopes until replay fills the hole.
+
 ## [1.3.6] - 2026-08-12
 
 ### Fixed

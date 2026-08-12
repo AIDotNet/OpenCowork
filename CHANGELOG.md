@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.6] - 2026-08-12
+
+### Fixed
+
+- Fixed desktop agent runs that were accepted by Native Worker but never streamed to the renderer: Main now acknowledges durable `agent/stream` envelopes after journaling/delivery, falls back to a live window when routing is missing, and proactively recovers a wedged outbox instead of waiting for a false 45s `sidecar_unavailable` timeout.
+- Fixed CLI-only first installs failing with `SQLite Error 1: 'no such table: sessions'` by calling `db/initialize` during Native Worker handshake and ensuring the shared `~/.open-cowork/data.db` gets the full app schema (not Job tables only).
+
+### Changed
+
+- Replaced the hard 45s first-progress failure with recover-and-wait while a Job is still `queued`/`running`: desktop now calls `agent:recover-stream` (subscribe/replay + journal push) and only fails when the Worker is fatal/restarting or a terminal Job still has nothing to deliver.
+- Nested project sessions under the project row in the workspace sidebar so expand/collapse can animate height instead of remounting flat list siblings.
+
 ## [1.3.5] - 2026-08-12
 
 ### Added

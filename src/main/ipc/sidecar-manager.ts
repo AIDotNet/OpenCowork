@@ -978,8 +978,128 @@ export function registerSidecarHandlers(): void {
     timer: NodeJS.Timeout | null
     runId: string
     sessionId: string
+    lastSeq: number
   }
   const pendingStreamBatches = new Map<string, PendingStreamBatch>()
+
+  // Desktop owns the durable outbox cursor. Relying only on Renderer ACKs lets a
+  // missed postMessage (no mapped window, slow UI, lost invoke) pin the worker's
+  // 32-batch in-flight window and starve every later agent/stream envelope —
+  // which surfaces as "accepted but no stream event within 45s" while the worker
+  // stays ready and even finalizes the Job.
+  const acknowledgeDurableStream = (runId: string, throughSeq: number): void => {
+    if (!runId || !Number.isFinite(throughSeq) || throughSeq <= 0) return
+    void getNativeWorker()
+      .request('events/ack', { consumerId: 'desktop', jobId: runId, throughSeq }, 10_000)
+      .catch((error) => {
+        console.warn('[Sidecar] durable event ack failed', {
+          runId,
+          throughSeq,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      })
+  }
+
+  const recoverDurableEventPump = async (
+    runId?: string
+  ): Promise<{ published: number; jobState: string | null }> => {
+    if (!manager.isRunning) {
+      return { published: 0, jobState: null }
+    }
+
+    // Clearing the in-flight window + replaying unacked envelopes unsticks the
+    // outbox when Renderer ACKs were lost or Event IPC briefly stalled.
+    const subscribed = (await getNativeWorker().request(
+      'events/subscribe',
+      { consumerId: 'desktop', limit: 4096 },
+      30_000
+    )) as { published?: number }
+
+    let published = typeof subscribed.published === 'number' ? subscribed.published : 0
+    let jobState: string | null = null
+
+    if (runId) {
+      try {
+        const replayed = (await getNativeWorker().request(
+          'events/replay',
+          { consumerId: 'desktop', jobId: runId, sinceSeq: 0, limit: 4096 },
+          30_000
+        )) as { published?: number }
+        if (typeof replayed.published === 'number') {
+          published = Math.max(published, replayed.published)
+        }
+        // Replay with a job filter sticks the pump on that job; clear it.
+        await getNativeWorker().request(
+          'events/subscribe',
+          { consumerId: 'desktop', limit: 4096 },
+          30_000
+        )
+      } catch (error) {
+        console.warn('[Sidecar] durable event replay failed', {
+          runId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+
+      try {
+        const status = (await getNativeWorker().request(
+          'jobs/status',
+          { jobId: runId },
+          10_000
+        )) as { state?: string; found?: boolean }
+        if (status.found === false) {
+          jobState = 'missing'
+        } else if (typeof status.state === 'string') {
+          jobState = status.state
+          const tracked = activeRunSessions.get(runId)
+          if (tracked && (status.state === 'queued' || status.state === 'running')) {
+            activeRunSessions.set(runId, {
+              ...tracked,
+              jobState: status.state === 'running' ? 'running' : 'queued'
+            })
+          }
+        }
+      } catch (error) {
+        console.warn('[Sidecar] jobs/status during stream recovery failed', {
+          runId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+
+    return { published, jobState }
+  }
+
+  // Runs that were accepted but never received a stream frame usually mean the
+  // durable outbox is wedged — heal before the renderer first-progress timeout.
+  const STALLED_STREAM_RECOVERY_MS = 8_000
+  const stalledStreamRecoveryAt = new Map<string, number>()
+  const stalledStreamWatchdog = setInterval(() => {
+    if (!manager.isRunning || activeRunSessions.size === 0) return
+    const now = Date.now()
+    for (const [runId, info] of activeRunSessions) {
+      if (info.lastEventAt != null || info.acceptedAt == null) continue
+      if (now - info.acceptedAt < STALLED_STREAM_RECOVERY_MS) continue
+      const lastAttempt = stalledStreamRecoveryAt.get(runId) ?? 0
+      if (now - lastAttempt < STALLED_STREAM_RECOVERY_MS) continue
+      stalledStreamRecoveryAt.set(runId, now)
+      console.warn('[Sidecar] proactive stalled-stream recovery', {
+        runId,
+        sessionId: info.sessionId,
+        waitedMs: now - info.acceptedAt
+      })
+      void recoverDurableEventPump(runId).catch((error) => {
+        console.warn('[Sidecar] proactive stalled-stream recovery failed', {
+          runId,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      })
+    }
+    for (const runId of Array.from(stalledStreamRecoveryAt.keys())) {
+      if (!activeRunSessions.has(runId)) stalledStreamRecoveryAt.delete(runId)
+    }
+  }, 2_000)
+  stalledStreamWatchdog.unref?.()
 
   const flushStreamBatch = (runId: string): void => {
     const batch = pendingStreamBatches.get(runId)
@@ -987,41 +1107,70 @@ export function registerSidecarHandlers(): void {
     pendingStreamBatches.delete(runId)
     if (batch.timer !== null) clearTimeout(batch.timer)
 
-    const targetWindow = resolveRendererTargetWindow(
+    let targetWindow = resolveRendererTargetWindow(
       { runId: batch.runId, sessionId: batch.sessionId },
       runWindowIds,
       sessionWindowIds,
       { allowFallback: false }
     )
-    if (!targetWindow) return
-
-    const bytes = batch.frames.length === 1 ? batch.frames[0] : Buffer.concat(batch.frames)
-    sendAgentStreamBytes(targetWindow, bytes, {
-      source: 'native-raw',
-      runId: batch.runId,
-      sessionId: batch.sessionId,
-      frames: batch.frames.length
-    })
-
-    // Fan out to additional attached windows (reattach subscribers). Skip the
-    // primary target — it already got the frame above. Prune dead window ids.
-    const attached = attachedWindowsByRun.get(batch.runId)
-    if (attached) {
-      for (const windowId of Array.from(attached)) {
-        if (windowId === targetWindow.id) continue
-        const extraWindow = BrowserWindow.fromId(windowId)
-        if (!isUsableRendererWindow(extraWindow)) {
-          attached.delete(windowId)
-          continue
-        }
-        sendAgentStreamBytes(extraWindow, bytes, {
-          source: 'attach-fanout',
+    if (!targetWindow) {
+      // Prefer a live window over silently dropping envelopes: undelivered frames
+      // that never ACK wedge the worker outbox for all subsequent runs.
+      targetWindow = resolveRendererTargetWindow(
+        { runId: batch.runId, sessionId: batch.sessionId },
+        runWindowIds,
+        sessionWindowIds
+      )
+      if (targetWindow) {
+        console.warn('[Sidecar] agent stream using fallback renderer window', {
           runId: batch.runId,
-          sessionId: batch.sessionId
+          sessionId: batch.sessionId,
+          windowId: targetWindow.id,
+          frames: batch.frames.length
         })
       }
-      if (attached.size === 0) attachedWindowsByRun.delete(batch.runId)
     }
+
+    const bytes = batch.frames.length === 1 ? batch.frames[0] : Buffer.concat(batch.frames)
+    if (targetWindow) {
+      sendAgentStreamBytes(targetWindow, bytes, {
+        source: 'native-raw',
+        runId: batch.runId,
+        sessionId: batch.sessionId,
+        frames: batch.frames.length
+      })
+
+      // Fan out to additional attached windows (reattach subscribers). Skip the
+      // primary target — it already got the frame above. Prune dead window ids.
+      const attached = attachedWindowsByRun.get(batch.runId)
+      if (attached) {
+        for (const windowId of Array.from(attached)) {
+          if (windowId === targetWindow.id) continue
+          const extraWindow = BrowserWindow.fromId(windowId)
+          if (!isUsableRendererWindow(extraWindow)) {
+            attached.delete(windowId)
+            continue
+          }
+          sendAgentStreamBytes(extraWindow, bytes, {
+            source: 'attach-fanout',
+            runId: batch.runId,
+            sessionId: batch.sessionId
+          })
+        }
+        if (attached.size === 0) attachedWindowsByRun.delete(batch.runId)
+      }
+    } else {
+      console.warn('[Sidecar] agent stream has no renderer window; acking durable cursor', {
+        runId: batch.runId,
+        sessionId: batch.sessionId,
+        frames: batch.frames.length,
+        lastSeq: batch.lastSeq
+      })
+    }
+
+    // Advance the worker cursor after Main has journaled (recordFrame) and
+    // attempted delivery. Renderer ACKs remain idempotent MAX(through_seq).
+    acknowledgeDurableStream(batch.runId, batch.lastSeq)
   }
 
   const flushAllStreamBatches = (): void => {
@@ -1055,9 +1204,10 @@ export function registerSidecarHandlers(): void {
     }
 
     if (!frame.runId || !frame.sessionId) {
-      const targetWindow = resolveRendererTargetWindow(frame, runWindowIds, sessionWindowIds, {
-        allowFallback: false
-      })
+      const targetWindow =
+        resolveRendererTargetWindow(frame, runWindowIds, sessionWindowIds, {
+          allowFallback: false
+        }) ?? resolveRendererTargetWindow(frame, runWindowIds, sessionWindowIds)
       if (targetWindow) {
         sendAgentStreamBytes(targetWindow, frame.bytes, {
           source: 'native-raw',
@@ -1065,6 +1215,9 @@ export function registerSidecarHandlers(): void {
           sessionId: frame.sessionId,
           seq: frame.seq
         })
+      }
+      if (frame.runId && typeof frame.seq === 'number') {
+        acknowledgeDurableStream(frame.runId, frame.seq)
       }
       return
     }
@@ -1077,12 +1230,16 @@ export function registerSidecarHandlers(): void {
         byteLength: 0,
         timer: null,
         runId,
-        sessionId: frame.sessionId
+        sessionId: frame.sessionId,
+        lastSeq: 0
       }
       pendingStreamBatches.set(runId, batch)
     }
     batch.frames.push(Buffer.isBuffer(frame.bytes) ? frame.bytes : Buffer.from(frame.bytes))
     batch.byteLength += frame.byteLength
+    if (typeof frame.seq === 'number' && frame.seq > batch.lastSeq) {
+      batch.lastSeq = frame.seq
+    }
 
     const terminal = frame.hasTerminalEvent === true
     if (terminal || batch.byteLength >= STREAM_BATCH_MAX_BYTES) {
@@ -1464,7 +1621,32 @@ export function registerSidecarHandlers(): void {
 
   registerSidecarMessagePackHandler<{ runId?: string; sessionId?: string }>(
     'sidecar:diagnostics',
-    (_event, params) => buildSidecarDiagnostics(params?.runId, params?.sessionId)
+    (_event, params) => {
+      const diagnostics = buildSidecarDiagnostics(params?.runId, params?.sessionId)
+      const stream = diagnostics.stream as {
+        accepted?: boolean
+        lastEventAt?: number | null
+        journalFrames?: number
+        runId?: string | null
+      }
+      if (
+        stream.accepted === true &&
+        stream.lastEventAt == null &&
+        stream.journalFrames === 0 &&
+        manager.isRunning
+      ) {
+        const runId = stream.runId ?? params?.runId
+        console.warn('[Sidecar] stalled stream diagnostics; recovering durable event pump', {
+          runId: runId ?? null
+        })
+        void recoverDurableEventPump(runId ?? undefined).catch((error) => {
+          console.warn('[Sidecar] durable event pump recovery failed', {
+            error: error instanceof Error ? error.message : String(error)
+          })
+        })
+      }
+      return diagnostics
+    }
   )
 
   registerSidecarMessagePackHandler<undefined>('sidecar:start', async () => {
@@ -1659,6 +1841,57 @@ export function registerSidecarHandlers(): void {
       )
     }
   )
+
+  // Heal a run that was accepted but produced no renderer-visible stream yet:
+  // unstick the durable outbox, re-check Job state, and push any journalled
+  // frames to the calling window.
+  registerMessagePackInvokeHandler<unknown>('agent:recover-stream', async (event, params) => {
+    const record = normalizeRendererRequestRecord(params)
+    const runId = readNonEmptyString(record.runId)
+    const sessionId = readNonEmptyString(record.sessionId)
+    const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+
+    if (runId && isUsableRendererWindow(sourceWindow)) {
+      runWindowIds.set(runId, sourceWindow.id)
+      if (sessionId) sessionWindowIds.set(sessionId, sourceWindow.id)
+      let attached = attachedWindowsByRun.get(runId)
+      if (!attached) {
+        attached = new Set()
+        attachedWindowsByRun.set(runId, attached)
+      }
+      attached.add(sourceWindow.id)
+    }
+
+    const recovery = runId
+      ? await recoverDurableEventPump(runId)
+      : { published: 0, jobState: null as string | null }
+
+    flushAllStreamBatches()
+
+    let journalFrames = 0
+    if (runId && isUsableRendererWindow(sourceWindow)) {
+      const frames = getRuntimeRegistry().getFramesSince(runId, -1)
+      journalFrames = frames.length
+      for (const bytes of frames) {
+        sendAgentStreamBytes(sourceWindow, bytes, {
+          source: 'recover-stream-journal',
+          runId,
+          frames: frames.length
+        })
+      }
+    }
+
+    const tracked = runId ? activeRunSessions.get(runId) : undefined
+    return {
+      recovered: true,
+      runId: runId ?? null,
+      published: recovery.published,
+      jobState: recovery.jobState ?? tracked?.jobState ?? null,
+      journalFrames,
+      lastEventAt: tracked?.lastEventAt ?? null,
+      acceptedAt: tracked?.acceptedAt ?? null
+    }
+  })
 
   // Snapshot of in-flight runtime state for a (re)mounting window. Lets a
   // renderer that reloaded mid-run (Vite HMR) or a freshly-opened detached

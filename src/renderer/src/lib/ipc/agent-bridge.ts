@@ -260,6 +260,33 @@ class AgentBridgeClient {
   }
 
   /**
+   * Ask main to unstick the durable event pump for a run that was accepted but
+   * has not yet produced renderer-visible stream frames, then push any
+   * journalled envelopes to this window.
+   */
+  async recoverStream(
+    runId: string,
+    sessionId?: string
+  ): Promise<{
+    recovered: boolean
+    published: number
+    jobState: string | null
+    journalFrames: number
+    lastEventAt: number | null
+  }> {
+    return await invokeMessagePackBinary<{
+      recovered: boolean
+      published: number
+      jobState: string | null
+      journalFrames: number
+      lastEventAt: number | null
+    }>(toMessagePackChannel('agent:recover-stream'), {
+      runId,
+      ...(sessionId ? { sessionId } : {})
+    })
+  }
+
+  /**
    * Ask main to replay a run's journalled event tail (seq > sinceSeq) to this
    * window and re-route the run/session here. Replayed frames arrive on the
    * normal agent-stream channel.

@@ -189,10 +189,13 @@ Startup gates on:
 1. `worker/hello` protocol version.
 2. `worker/routes` containing route descriptors, including each route's inline/Job execution and
    direct/result/accepted result modes.
-3. Required Agent routes such as `initialize`, `agent/run`, `agent/cancel`, and
-   `agent/reverse-response`.
-4. `events/subscribe` replaying any durable Agent envelopes not yet acknowledged by this client.
-5. `initialize` returning the native Agent Runtime identity and compatibility data.
+3. Required Agent routes such as `initialize`, `db/initialize`, `db/sessions-create`, `agent/run`,
+   `agent/cancel`, and `agent/reverse-response`.
+4. `initialize` returning the native Agent Runtime identity and compatibility data.
+5. `db/initialize` creating the shared `~/.open-cowork/data.db` schema (including `sessions`)
+   before any session DAO call. Without this, a CLI-only first install can open a Job-only DB
+   and fail with `no such table: sessions`.
+6. `events/subscribe` replaying any durable Agent envelopes not yet acknowledged by this client.
 
 A 15-second heartbeat checks `worker/ping`. The client cancels timed-out or aborted request IDs,
 captures a bounded stderr tail, cleans up only its exact socket paths, and terminates its child on

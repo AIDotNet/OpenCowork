@@ -32,7 +32,20 @@ internal static class RuntimeJobStore
             }
 
             using var connection = DbConnectionFactory.OpenReadWriteCreate(DbPath);
-            DbSchemaMigrator.CreateRuntimeJobTables(connection);
+            // Isolated test/runtime DBs only need the Job outbox. The shared
+            // ~/.open-cowork/data.db must get the full app schema — otherwise a
+            // CLI-only first start creates a Job-only file and later
+            // db/sessions-* calls fail with "no such table: sessions".
+            var isolatedRuntimeDb = !string.IsNullOrEmpty(
+                Environment.GetEnvironmentVariable("OPEN_COWORK_RUNTIME_DB_PATH")?.Trim());
+            if (isolatedRuntimeDb)
+            {
+                DbSchemaMigrator.CreateRuntimeJobTables(connection);
+            }
+            else
+            {
+                DbSchemaMigrator.Initialize(connection);
+            }
             Volatile.Write(ref schemaReady, true);
         }
     }

@@ -560,6 +560,8 @@ export class NativeWorkerClient {
       }
       for (const required of [
         'initialize',
+        'db/initialize',
+        'db/sessions-create',
         'agent/run',
         'agent/cancel',
         'agent/reverse-response',
@@ -592,6 +594,17 @@ export class NativeWorkerClient {
         throw new Error(
           'OpenCowork Native Worker is missing the Agent Runtime v2 capability-snapshot contract.'
         )
+      }
+      // Desktop main calls db/initialize before any DAO traffic. Fresh CLI-only installs
+      // never hit that path: RuntimeJobStore may create ~/.open-cowork/data.db with only
+      // runtime_* tables, then db/sessions-create fails with "no such table: sessions".
+      const dbInit = await this.request<{ success?: boolean; error?: string | null }>(
+        'db/initialize',
+        {},
+        120_000
+      )
+      if (dbInit.success !== true) {
+        throw new Error(dbInit.error || 'Native DB initialization failed')
       }
       await this.request('events/subscribe', { consumerId: this.hostId, limit: 4096 }, 30_000)
       this.startHeartbeat()

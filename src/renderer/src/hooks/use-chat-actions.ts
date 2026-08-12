@@ -3645,10 +3645,15 @@ async function cancelSidecarRun(sessionId: string): Promise<void> {
   }
 }
 
-const SIDECAR_FIRST_PROGRESS_TIMEOUT_MS = 45_000
+const SIDECAR_FIRST_PROGRESS_CHECK_MS = 12_000
+const SIDECAR_FIRST_PROGRESS_GRACE_MS = 2_000
 
 function isProgressAgentEvent(event: AgentEvent): boolean {
   return event.type !== 'request_debug'
+}
+
+function isActiveWorkerJobState(jobState: string | null | undefined): boolean {
+  return jobState === 'queued' || jobState === 'running' || jobState === 'cancelling'
 }
 
 function createSidecarEventStream(options: {
@@ -3670,6 +3675,7 @@ function createSidecarEventStream(options: {
       let runId = ''
       let sawProgressEvent = false
       let firstProgressTimer: ReturnType<typeof setTimeout> | null = null
+      let firstProgressChecks = 0
 
       const wake = (): void => {
         if (!notify) return
@@ -3700,32 +3706,119 @@ function createSidecarEventStream(options: {
         clearFirstProgressTimer()
       }
 
-      const startFirstProgressTimer = (): void => {
+      const scheduleFirstProgressCheck = (delayMs = SIDECAR_FIRST_PROGRESS_CHECK_MS): void => {
         clearFirstProgressTimer()
         firstProgressTimer = setTimeout(() => {
           void (async () => {
-            const workerState = getNativeWorkerState()
-            if (finished || pendingFailure) return
+            if (finished || pendingFailure || sawProgressEvent) return
 
-            // The timer starts only after agent/run has returned. A run cannot
-            // survive a worker restart, so restarting is a failure condition,
-            // not a reason to postpone the deadline again.
-            const baseMessage =
-              workerState.state === 'fatal'
-                ? `Native Worker failed permanently: ${workerState.lastError ?? 'unknown error'}`
-                : `Native Worker accepted agent run ${runId || '(unassigned)'} but no stream event reached the renderer within ${Math.round(
-                    SIDECAR_FIRST_PROGRESS_TIMEOUT_MS / 1000
-                  )}s`
+            const workerState = getNativeWorkerState()
+            if (workerState.state === 'fatal') {
+              const error = await agentBridge.createDiagnosticError(
+                `Native Worker failed permanently: ${workerState.lastError ?? 'unknown error'}`,
+                { runId: runId || undefined, sessionId }
+              )
+              if (finished || pendingFailure || sawProgressEvent) return
+              fail(error)
+              return
+            }
+
+            // A restarted worker cannot resume this accepted run.
+            if (workerState.state === 'restarting' || workerState.state === 'starting') {
+              const error = await agentBridge.createDiagnosticError(
+                `Native Worker restarted before the first stream event for run ${
+                  runId || '(unassigned)'
+                }`,
+                { runId: runId || undefined, sessionId }
+              )
+              if (finished || pendingFailure || sawProgressEvent) return
+              fail(error)
+              return
+            }
+
+            firstProgressChecks += 1
+            let recovery: {
+              recovered: boolean
+              published: number
+              jobState: string | null
+              journalFrames: number
+              lastEventAt: number | null
+            } | null = null
+
+            if (runId) {
+              try {
+                recovery = await agentBridge.recoverStream(runId, sessionId)
+              } catch (error) {
+                console.warn('[ChatActions] Sidecar stream recovery failed', {
+                  sessionId,
+                  runId,
+                  error: error instanceof Error ? error.message : String(error)
+                })
+              }
+            }
+
+            await new Promise<void>((resolve) => setTimeout(resolve, SIDECAR_FIRST_PROGRESS_GRACE_MS))
+            if (finished || pendingFailure || sawProgressEvent) return
+
+            const jobState = recovery?.jobState ?? null
+            if (isActiveWorkerJobState(jobState) || jobState == null) {
+              // Keep waiting while the Job is alive (or status unknown). Lane
+              // backlog and outbox stalls both look like silence; a hard 45s
+              // "sidecar unavailable" here is almost always a false positive.
+              console.warn('[ChatActions] Sidecar run still waiting for first progress', {
+                sessionId,
+                runId,
+                jobState,
+                check: firstProgressChecks,
+                published: recovery?.published ?? 0,
+                journalFrames: recovery?.journalFrames ?? 0,
+                logLabel
+              })
+              if (!finished && !pendingFailure && !sawProgressEvent) {
+                scheduleFirstProgressCheck()
+              }
+              return
+            }
+
+            // Terminal Job with no frames yet: give replay a couple more beats
+            // before treating delivery as permanently lost.
+            if (
+              (recovery?.published ?? 0) > 0 ||
+              (recovery?.journalFrames ?? 0) > 0 ||
+              firstProgressChecks < 3
+            ) {
+              console.warn('[ChatActions] Sidecar terminal run awaiting recovered stream', {
+                sessionId,
+                runId,
+                jobState,
+                check: firstProgressChecks,
+                published: recovery?.published ?? 0,
+                journalFrames: recovery?.journalFrames ?? 0,
+                logLabel
+              })
+              if (!finished && !pendingFailure && !sawProgressEvent) {
+                scheduleFirstProgressCheck(SIDECAR_FIRST_PROGRESS_GRACE_MS * 2)
+              }
+              return
+            }
+
+            const waitedSec = Math.round(
+              (firstProgressChecks * SIDECAR_FIRST_PROGRESS_CHECK_MS) / 1000
+            )
+            const baseMessage = `Native Worker finished agent run ${
+              runId || '(unassigned)'
+            } without delivering stream events to the renderer (jobState=${jobState}, waited≈${waitedSec}s)`
             const error = await agentBridge.createDiagnosticError(baseMessage, {
               runId: runId || undefined,
               sessionId
             })
-            if (finished || pendingFailure) return
+            if (finished || pendingFailure || sawProgressEvent) return
             console.warn('[ChatActions] Sidecar run stalled before first progress event', {
               sessionId,
               runId,
               workerState: workerState.state,
               workerPhase: workerState.phase,
+              jobState,
               logLabel,
               diagnostics: error.details
             })
@@ -3734,7 +3827,12 @@ function createSidecarEventStream(options: {
             }
             fail(error)
           })()
-        }, SIDECAR_FIRST_PROGRESS_TIMEOUT_MS)
+        }, delayMs)
+      }
+
+      const startFirstProgressTimer = (): void => {
+        firstProgressChecks = 0
+        scheduleFirstProgressCheck()
       }
 
       const pushEvent = (normalized: AgentEvent): void => {

@@ -98,11 +98,13 @@ program.configureHelp({
 function ProviderConfigCommand({
   catalog,
   onCancel,
-  onConfigured
+  onConfigured,
+  startDeviceLogin = false
 }: {
   catalog: ProviderSetupCatalog
   onCancel(): void
   onConfigured(selection: ModelSelection): void
+  startDeviceLogin?: boolean
 }): React.JSX.Element {
   const { exit } = useApp()
   const { columns, rows } = useTerminalSize()
@@ -110,7 +112,8 @@ function ProviderConfigCommand({
     <ProviderSetupPanel
       catalog={catalog}
       maxVisible={Math.max(4, Math.min(12, rows - 12))}
-      onboarding={catalog.configuredCount === 0}
+      onboarding={!startDeviceLogin && catalog.configuredCount === 0}
+      startDeviceLogin={startDeviceLogin}
       onCancel={() => {
         onCancel()
         exit()
@@ -127,6 +130,43 @@ function ProviderConfigCommand({
       width={Math.max(35, columns - 1)}
     />
   )
+}
+
+async function runProviderSetupCommand(options?: { deviceLogin?: boolean }): Promise<void> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    program.error(
+      t(
+        'cli.errors.configTty',
+        'Provider setup requires a TTY. Run cowork config in an interactive terminal.'
+      )
+    )
+  }
+
+  const result: { selection?: ModelSelection } = {}
+  const instance = render(
+    <ProviderConfigCommand
+      catalog={loadProviderSetupCatalog()}
+      startDeviceLogin={Boolean(options?.deviceLogin)}
+      onCancel={() => undefined}
+      onConfigured={(configured) => {
+        result.selection = configured
+      }}
+    />,
+    { exitOnCtrlC: false, patchConsole: false }
+  )
+  await instance.waitUntilExit()
+  if (result.selection) {
+    process.stdout.write(
+      `${t('cli.output.providerReady', 'Provider ready: {{provider}} / {{model}}', {
+        provider: result.selection.providerName,
+        model: result.selection.modelName
+      })}\n` +
+        `${t(
+          'cli.output.sharedConfiguration',
+          'The same configuration is now available in OpenCowork desktop.'
+        )}\n`
+    )
+  }
 }
 
 program
@@ -231,39 +271,16 @@ program
   .alias('configure')
   .description(t('cli.commands.config', 'Quickly configure an AI provider in the terminal'))
   .action(async () => {
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
-      program.error(
-        t(
-          'cli.errors.configTty',
-          'Provider setup requires a TTY. Run cowork config in an interactive terminal.'
-        )
-      )
-    }
+    await runProviderSetupCommand()
+  })
 
-    const result: { selection?: ModelSelection } = {}
-    const instance = render(
-      <ProviderConfigCommand
-        catalog={loadProviderSetupCatalog()}
-        onCancel={() => undefined}
-        onConfigured={(configured) => {
-          result.selection = configured
-        }}
-      />,
-      { exitOnCtrlC: false, patchConsole: false }
-    )
-    await instance.waitUntilExit()
-    if (result.selection) {
-      process.stdout.write(
-        `${t('cli.output.providerReady', 'Provider ready: {{provider}} / {{model}}', {
-          provider: result.selection.providerName,
-          model: result.selection.modelName
-        })}\n` +
-          `${t(
-            'cli.output.sharedConfiguration',
-            'The same configuration is now available in OpenCowork desktop.'
-          )}\n`
-      )
-    }
+program
+  .command('login')
+  .description(
+    t('cli.commands.login', 'Open Routin device login in the browser and wait for credentials')
+  )
+  .action(async () => {
+    await runProviderSetupCommand({ deviceLogin: true })
   })
 
 program
@@ -271,10 +288,11 @@ program
     'after',
     `\n${t('cli.help.title', 'Interactive shortcuts:')}
   /          ${t('cli.help.commands', 'Open commands')}             ?          ${t('cli.help.shortcuts', 'Toggle shortcuts')}
-  /provider  ${t('cli.help.provider', 'Configure provider')}        /model     ${t('cli.help.model', 'Switch model')}
-  Shift+Tab  ${t('cli.help.modes', 'Cycle modes / Plan')}        Alt+P      ${t('cli.help.model', 'Switch model')}
-  Ctrl+O     ${t('cli.help.details', 'Toggle reasoning/details')}  Ctrl+T     ${t('cli.help.tasks', 'Toggle task list')}
-  Ctrl+C ×2  ${t('cli.help.exit', 'Exit')}                      Ctrl+L     ${t('cli.help.redraw', 'Redraw')}
+  /provider  ${t('cli.help.provider', 'Configure provider')}        /login     ${t('cli.help.login', 'Routin browser login')}
+  /model     ${t('cli.help.model', 'Switch model')}             Shift+Tab  ${t('cli.help.modes', 'Cycle modes / Plan')}
+  Alt+P      ${t('cli.help.model', 'Switch model')}             Ctrl+O     ${t('cli.help.details', 'Toggle reasoning/details')}
+  Ctrl+T     ${t('cli.help.tasks', 'Toggle task list')}         Ctrl+C ×2  ${t('cli.help.exit', 'Exit')}
+  Ctrl+L     ${t('cli.help.redraw', 'Redraw')}
 `
   )
   .action(async (prompt: string | undefined, options: CliOptions) => {

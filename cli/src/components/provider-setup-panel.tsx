@@ -5,7 +5,16 @@ import { readClipboardText } from '../lib/clipboard-text.js'
 import { openExternalUrl } from '../lib/open-url.js'
 import { consumeBracketedPaste, sanitizePastedText } from '../lib/paste.js'
 import { fitText, graphemes, hasTerminalInputControl } from '../lib/text.js'
-import { OPENCOWORK_DEVICE_LOGIN_URL, findReadyRoutinSelection } from '../runtime/provider-setup.js'
+import {
+  startDeviceLoginBridge,
+  type DeviceLoginBridge
+} from '../lib/device-login-bridge.js'
+import {
+  OPENCOWORK_DEVICE_LOGIN_URL,
+  applyRoutinDeviceLoginCredential,
+  findReadyRoutinSelection,
+  snapshotRoutinCredentials
+} from '../runtime/provider-setup.js'
 import { containsMouseSequence } from '../terminal/mouse.js'
 import { theme } from '../theme.js'
 import type {
@@ -21,6 +30,11 @@ interface ProviderSetupPanelProps {
   maxVisible: number
   /** First run with nothing configured: lead with the recommended provider instead of the list. */
   onboarding?: boolean
+  /**
+   * Jump straight into Routin browser device-login (manual `/login` / `cowork login`).
+   * Waits for the shared store to change relative to the credentials present at open.
+   */
+  startDeviceLogin?: boolean
   onCancel(): void
   /** Shared-store import finished (desktop deep link or prior write); close the wizard. */
   onReadyFromStore?(selection: ModelSelection): void | Promise<void>
@@ -173,17 +187,25 @@ export function ProviderSetupPanel({
   catalog,
   maxVisible,
   onboarding = false,
+  startDeviceLogin = false,
   onCancel,
   onReadyFromStore,
   onSave,
   width
 }: ProviderSetupPanelProps): React.JSX.Element {
   const recommended = useMemo(
-    () => catalog.options.find((candidate) => candidate.key === catalog.recommendedKey),
+    () =>
+      catalog.options.find((candidate) => candidate.key === catalog.recommendedKey) ??
+      catalog.options.find((candidate) => candidate.builtinId === 'routin-ai') ??
+      catalog.options.find((candidate) => candidate.builtinId === 'routin-ai-plan'),
     [catalog.options, catalog.recommendedKey]
   )
   const guided = onboarding && Boolean(recommended)
-  const [step, setStep] = useState<SetupStep>(guided ? 'welcome' : 'provider')
+  const [step, setStep] = useState<SetupStep>(() => {
+    if (startDeviceLogin) return 'waiting'
+    if (guided) return 'welcome'
+    return 'provider'
+  })
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [draft, setDraft] = useState<ProviderDraft | null>(null)
@@ -197,6 +219,10 @@ export function ProviderSetupPanel({
   const pasteBufferRef = useRef<string | null>(null)
   const editorRef = useRef({ cursor: 0, value: '' })
   const completingFromStoreRef = useRef(false)
+  const credentialBaselineRef = useRef<Record<string, string>>(snapshotRoutinCredentials())
+  const deviceLoginOpenedRef = useRef(false)
+  const deviceLoginBridgeRef = useRef<DeviceLoginBridge | null>(null)
+  const [deviceLoginUrl, setDeviceLoginUrl] = useState(OPENCOWORK_DEVICE_LOGIN_URL)
   editorRef.current = { cursor: editorCursor, value: editor }
   const filtered = useMemo(
     () => catalog.options.filter((option) => matches(option, query)),
@@ -246,22 +272,15 @@ export function ProviderSetupPanel({
     setLinkNotice({ opened: openExternalUrl(target.apiKeyUrl), url: target.apiKeyUrl })
   }
 
-  const openDeviceLogin = (): void => {
-    const opened = openExternalUrl(OPENCOWORK_DEVICE_LOGIN_URL)
-    setLinkNotice({ opened, url: OPENCOWORK_DEVICE_LOGIN_URL })
-    setStep('waiting')
-    setError(undefined)
-  }
-
-  const tryCompleteFromStore = async (): Promise<boolean> => {
+  const completeWithSelection = async (selection: ModelSelection): Promise<boolean> => {
     if (!onReadyFromStore || completingFromStoreRef.current) return false
-    const selection = findReadyRoutinSelection()
-    if (!selection) return false
     completingFromStoreRef.current = true
     setSaving(true)
     setError(undefined)
     try {
       await onReadyFromStore(selection)
+      deviceLoginBridgeRef.current?.close()
+      deviceLoginBridgeRef.current = null
       return true
     } catch (readyError) {
       completingFromStoreRef.current = false
@@ -272,15 +291,87 @@ export function ProviderSetupPanel({
     }
   }
 
+  const tryCompleteFromStore = async (options?: { acceptCurrent?: boolean }): Promise<boolean> => {
+    if (!onReadyFromStore || completingFromStoreRef.current) return false
+    const selection = findReadyRoutinSelection(
+      options?.acceptCurrent
+        ? undefined
+        : { previous: credentialBaselineRef.current, requireChange: true }
+    )
+    if (!selection) return false
+    return completeWithSelection(selection)
+  }
+
+  const openDeviceLogin = (): void => {
+    credentialBaselineRef.current = snapshotRoutinCredentials()
+    completingFromStoreRef.current = false
+    deviceLoginOpenedRef.current = true
+    setStep('waiting')
+    setError(undefined)
+    setPasteNotice(undefined)
+    void (async () => {
+      deviceLoginBridgeRef.current?.close()
+      deviceLoginBridgeRef.current = null
+      try {
+        const bridge = await startDeviceLoginBridge({
+          onCredential: (apiKey) => {
+            try {
+              const selection = applyRoutinDeviceLoginCredential(apiKey)
+              void completeWithSelection(selection)
+            } catch (applyError) {
+              setError(applyError instanceof Error ? applyError.message : String(applyError))
+            }
+          }
+        })
+        deviceLoginBridgeRef.current = bridge
+        setDeviceLoginUrl(bridge.loginUrl)
+        const opened = openExternalUrl(bridge.loginUrl)
+        setLinkNotice({ opened, url: bridge.loginUrl })
+      } catch (bridgeError) {
+        setDeviceLoginUrl(OPENCOWORK_DEVICE_LOGIN_URL)
+        const opened = openExternalUrl(OPENCOWORK_DEVICE_LOGIN_URL)
+        setLinkNotice({ opened, url: OPENCOWORK_DEVICE_LOGIN_URL })
+        setError(
+          bridgeError instanceof Error
+            ? `Local callback unavailable (${bridgeError.message}). Paste the key after browser login.`
+            : 'Local callback unavailable. Paste the key after browser login.'
+        )
+      }
+    })()
+  }
+
   useEffect(() => {
-    if (step !== 'waiting' || !onReadyFromStore) return
+    if (step !== 'waiting') return
+    // `cowork login` / `/login` mounts directly on waiting; open the browser once.
+    if (startDeviceLogin && !deviceLoginOpenedRef.current) {
+      openDeviceLogin()
+    }
+    if (!onReadyFromStore) return
     void tryCompleteFromStore()
     const timer = setInterval(() => {
       void tryCompleteFromStore()
     }, 1_500)
-    return () => clearInterval(timer)
+    return () => {
+      clearInterval(timer)
+      if (step === 'waiting') {
+        // Keep bridge alive while waiting; close only when leaving waiting.
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- poll only while waiting
-  }, [step, onReadyFromStore])
+  }, [step, onReadyFromStore, startDeviceLogin])
+
+  useEffect(() => {
+    if (step === 'waiting') return
+    deviceLoginBridgeRef.current?.close()
+    deviceLoginBridgeRef.current = null
+  }, [step])
+
+  useEffect(() => {
+    return () => {
+      deviceLoginBridgeRef.current?.close()
+      deviceLoginBridgeRef.current = null
+    }
+  }, [])
 
   const beginSetup = (selected: ProviderSetupOption, openKeyPage = false): void => {
     const nextDraft: ProviderDraft = {
@@ -451,7 +542,11 @@ export function ProviderSetupPanel({
 
     if (step === 'waiting') {
       if (key.escape) {
-        setStep('welcome')
+        if (startDeviceLogin && !guided) {
+          onCancel()
+        } else {
+          setStep(guided ? 'welcome' : 'provider')
+        }
         setLinkNotice(null)
         return
       }
@@ -461,7 +556,20 @@ export function ProviderSetupPanel({
             setPasteNotice(
               t(
                 'cli.provider.waitingNotReady',
-                'No Routin key in the shared store yet — finish browser login or paste a key (V).'
+                'Waiting for a new Routin key in the shared store — finish browser login, press A to use the current key, or V to paste.'
+              )
+            )
+          }
+        })
+        return
+      }
+      if (input.toLocaleLowerCase() === 'a') {
+        void tryCompleteFromStore({ acceptCurrent: true }).then((done) => {
+          if (!done) {
+            setPasteNotice(
+              t(
+                'cli.provider.waitingNoCurrent',
+                'No Routin key is saved yet — finish browser login or paste a key (V).'
               )
             )
           }
@@ -502,6 +610,11 @@ export function ProviderSetupPanel({
       if (key.return) {
         const selected = filtered[selectedIndex]
         if (selected) beginSetup(selected)
+        return
+      }
+      // Only when the search box is empty — otherwise “l” is part of a filter query.
+      if (!query && input.toLocaleLowerCase() === 'l') {
+        openDeviceLogin()
         return
       }
       if (key.ctrl && input === 'o') {
@@ -687,7 +800,7 @@ export function ProviderSetupPanel({
           : step === 'waiting'
             ? t(
                 'cli.provider.waitingSubtitle',
-                'Complete authorization in the browser · credentials write to the shared store'
+                'Complete authorization in the browser · CLI receives the key via localhost callback'
               )
             : t(
                 'cli.panels.sharedDesktop',
@@ -740,14 +853,14 @@ export function ProviderSetupPanel({
               {' '}
               {t(
                 'cli.provider.waitingBody',
-                'Waiting for OpenCowork desktop import or a shared-store update…'
+                'Waiting for browser login to POST the key back to this CLI…'
               )}
             </Text>
           </Box>
           <Box marginTop={1}>
             <Text color={theme.dim}>{t('cli.provider.deviceLogin', 'Device login')} </Text>
             <Text color={theme.accent}>
-              {fitText(OPENCOWORK_DEVICE_LOGIN_URL, contentWidth - 14)}
+              {fitText(deviceLoginUrl, contentWidth - 14)}
             </Text>
           </Box>
           {linkNotice ? (
@@ -774,7 +887,7 @@ export function ProviderSetupPanel({
             <Text color={theme.dim}>
               {t(
                 'cli.provider.waitingFooter',
-                'Enter refresh · V paste key · P other provider · Ctrl+O reopen · Esc back'
+                'Enter refresh · A use current · V paste · P other · Ctrl+O reopen · Esc back'
               )}
             </Text>
           </Box>
@@ -851,7 +964,7 @@ export function ProviderSetupPanel({
               : ''}
             {t(
               'cli.provider.listFooter',
-              'Type to search · ↑↓ navigate · Enter select · Esc cancel'
+              'Type to search · ↑↓ navigate · Enter select · L Routin login · Esc cancel'
             )}
             {filtered[selectedIndex]?.apiKeyUrl
               ? ` · ${t('cli.provider.openKeyPage', 'Ctrl+O open page')}`

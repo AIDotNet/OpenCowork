@@ -2608,7 +2608,9 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
                   onClick={() => void openExternal(apiKeyUrl)}
                 >
                   <ExternalLink className="size-3" />
-                  {t('provider.getApiKey')}
+                  {provider.builtinId === 'routin-ai' || provider.builtinId === 'routin-ai-plan'
+                    ? t('provider.browserLogin', 'Browser login')
+                    : t('provider.getApiKey')}
                 </Button>
               )}
             </div>

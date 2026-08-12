@@ -54,7 +54,8 @@ const englishResources = {
     },
     commands: {
       update: 'Update OpenCowork CLI to the latest version',
-      config: 'Quickly configure an AI provider in the terminal'
+      config: 'Quickly configure an AI provider in the terminal',
+      login: 'Open Routin device login in the browser and wait for credentials'
     },
     errors: {
       update: 'Update failed. Run: npm install -g @aidotnet/opencowork@latest',
@@ -92,6 +93,7 @@ const englishResources = {
       commands: 'Open commands',
       shortcuts: 'Toggle shortcuts',
       provider: 'Configure provider',
+      login: 'Routin browser login',
       model: 'Switch model',
       modes: 'Cycle modes / Plan',
       details: 'Toggle reasoning/details',
@@ -148,6 +150,7 @@ const englishResources = {
       permissions: 'View or set the session permission mode',
       plan: 'Enter, leave, or toggle plan mode',
       provider: 'Quickly configure an AI provider',
+      login: 'Sign in to Routin AI in the browser (device login)',
       rewind: 'Restore a previous conversation turn and optional tracked changes',
       resume: 'Resume a completed CLI session',
       skills: 'List skills available to the Native Worker',
@@ -222,7 +225,8 @@ const chineseResources = {
     },
     commands: {
       update: '将 OpenCowork CLI 更新到最新版本',
-      config: '在终端快速配置 AI Provider'
+      config: '在终端快速配置 AI Provider',
+      login: '在浏览器打开 Routin 设备登录并等待凭据回写'
     },
     errors: {
       update: '更新失败。请运行：npm install -g @aidotnet/opencowork@latest',
@@ -265,6 +269,7 @@ const chineseResources = {
       commands: '打开命令',
       shortcuts: '切换快捷键面板',
       provider: '配置 Provider',
+      login: 'Routin 浏览器登录',
       model: '切换模型',
       modes: '循环切换模式 / Plan',
       details: '展开思考/工具详情',
@@ -321,6 +326,7 @@ const chineseResources = {
       permissions: '查看或设置会话权限模式',
       plan: '进入、离开或切换 Plan 模式',
       provider: '快速配置 AI Provider',
+      login: '在浏览器登录 Routin AI（设备登录）',
       rewind: '恢复之前的对话轮次和可选的跟踪变更',
       resume: '恢复已完成的 CLI 会话',
       skills: '列出 Native Worker 可用的技能',
@@ -495,9 +501,12 @@ const chineseResources = {
       waitingTitle: '等待浏览器登录',
       waitingSubtitle: '请在浏览器中完成授权 · 凭据会写入共享存储',
       waitingBody: '正在等待 OpenCowork 桌面端导入或共享存储更新…',
-      waitingNotReady: '共享存储中还没有 Routin Key — 请完成浏览器登录，或按 V 粘贴 Key。',
-      waitingFooter: 'Enter 刷新 · V 粘贴 Key · P 其他 Provider · Ctrl+O 重新打开 · Esc 返回',
+      waitingNotReady:
+        '正在等待共享存储中的新 Routin Key — 请完成浏览器登录，按 A 使用当前 Key，或按 V 粘贴。',
+      waitingNoCurrent: '尚未保存 Routin Key — 请完成浏览器登录或按 V 粘贴。',
+      waitingFooter: 'Enter 刷新 · A 使用当前 · V 粘贴 · P 其他 · Ctrl+O 重新打开 · Esc 返回',
       deviceLogin: '设备登录',
+      listFooter: '输入搜索 · ↑↓ 移动 · Enter 选择 · L Routin 登录 · Esc 取消',
       recommended: '推荐',
       routinPitch: '一把 API Key 直连 GPT、Claude、Gemini、DeepSeek 等模型',
       keyPage: 'API Key',
@@ -511,7 +520,6 @@ const chineseResources = {
       endpointPending: '端点待填写',
       modelPending: '模型待填写',
       noMatches: '没有匹配“{{query}}”的 Provider。',
-      listFooter: '输入搜索 · ↑↓ 移动 · Enter 选择 · Esc 取消',
       saved: '已保存',
       notRequired: '不需要',
       savedUnder:

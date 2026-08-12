@@ -343,8 +343,7 @@ export function CliApp({
       })
     : preliminaryWindow
   // Classic keeps committed history in <Static>; only the live tail is windowed here.
-  const dynamicMessages =
-    fullscreen || firstMutableMessage >= 0 ? transcriptWindow.messages : []
+  const dynamicMessages = fullscreen || firstMutableMessage >= 0 ? transcriptWindow.messages : []
   const assistantThinking = dynamicMessages.some(isActiveThinkingMessage)
   const hiddenAboveDynamic = classicNeedsTruncationHint ? transcriptWindow.hiddenAbove : 0
 
@@ -539,7 +538,9 @@ export function CliApp({
     setConfigOpen(true)
   }
 
-  const openProviderSetup = (returnToConfig = false): void => {
+  const [providerSetupDeviceLogin, setProviderSetupDeviceLogin] = useState(false)
+
+  const openProviderSetup = (returnToConfig = false, options?: { deviceLogin?: boolean }): void => {
     if (!runtime.getProviderSetupCatalog || !runtime.configureProvider) {
       showNotice(
         t('cli.runtime.providerSetupUnavailable', 'Provider setup is unavailable in this runtime')
@@ -550,15 +551,21 @@ export function CliApp({
       setProviderSetupCatalog(runtime.getProviderSetupCatalog())
       setProviderSetupReturnToConfig(returnToConfig)
       setProviderSetupOnboarding(false)
+      setProviderSetupDeviceLogin(Boolean(options?.deviceLogin))
       setConfigOpen(false)
     } catch (error) {
       appendSystem(error instanceof Error ? error.message : String(error), 'error')
     }
   }
 
+  const openRoutinDeviceLogin = (): void => {
+    openProviderSetup(false, { deviceLogin: true })
+  }
+
   const closeProviderSetup = (): void => {
     setProviderSetupCatalog(null)
     setProviderSetupOnboarding(false)
+    setProviderSetupDeviceLogin(false)
     if (providerSetupReturnToConfig) setConfigOpen(true)
     setProviderSetupReturnToConfig(false)
   }
@@ -573,6 +580,7 @@ export function CliApp({
     refreshRuntimeMetrics()
     setProviderSetupCatalog(null)
     setProviderSetupOnboarding(false)
+    setProviderSetupDeviceLogin(false)
     if (providerSetupReturnToConfig) setConfigOpen(true)
     setProviderSetupReturnToConfig(false)
     showNotice(
@@ -1383,10 +1391,20 @@ export function CliApp({
       return true
     }
     if (name === '/provider') {
-      if (args.length > 0) {
-        appendSystem('Usage: /provider', 'warning')
+      if (args.length === 1 && ['login', 'routin'].includes(args[0].toLocaleLowerCase())) {
+        openRoutinDeviceLogin()
+      } else if (args.length > 0) {
+        appendSystem('Usage: /provider | /provider login', 'warning')
       } else {
         openProviderSetup()
+      }
+      return true
+    }
+    if (name === '/login') {
+      if (args.length > 0) {
+        appendSystem('Usage: /login', 'warning')
+      } else {
+        openRoutinDeviceLogin()
       }
       return true
     }
@@ -2093,6 +2111,7 @@ export function CliApp({
               catalog={providerSetupCatalog}
               maxVisible={Math.max(4, Math.min(10, rows - 13))}
               onboarding={providerSetupOnboarding}
+              startDeviceLogin={providerSetupDeviceLogin}
               onCancel={closeProviderSetup}
               onReadyFromStore={completeProviderSetupFromStore}
               onSave={saveProviderSetup}

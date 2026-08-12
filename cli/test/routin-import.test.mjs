@@ -43,6 +43,7 @@ test('parseOpenCoworkImportUrl classifies wallet and plan payloads', () => {
 })
 
 test('pasting a plan- key into the Routin wallet preset writes routin-ai-plan', () => {
+  const before = setup.snapshotRoutinCredentials()
   const selection = setup.persistProviderSetup({
     optionKey: 'builtin:routin-ai',
     name: 'Routin AI',
@@ -57,4 +58,13 @@ test('pasting a plan- key into the Routin wallet preset writes routin-ai-plan', 
   const ready = setup.findReadyRoutinSelection()
   assert.ok(ready)
   assert.equal(ready.providerId, selection.providerId)
+
+  assert.equal(
+    setup.findReadyRoutinSelection({ previous: setup.snapshotRoutinCredentials(), requireChange: true }),
+    null
+  )
+  assert.ok(
+    setup.findReadyRoutinSelection({ previous: before, requireChange: true }),
+    'requireChange should accept a new key relative to the pre-login snapshot'
+  )
 })

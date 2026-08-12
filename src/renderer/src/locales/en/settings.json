@@ -1058,6 +1058,7 @@
     "baseUrlPlaceholder": "https://api.example.com/v1",
     "apiKey": "API Key",
     "getApiKey": "Get API Key",
+    "browserLogin": "Browser login",
     "apiKeyPlaceholder": "sk-...",
     "showKey": "Show key",
     "hideKey": "Hide key",

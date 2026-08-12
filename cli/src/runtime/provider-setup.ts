@@ -483,11 +483,64 @@ function createModel(
   return { models: nextModels, modelName }
 }
 
+/** Fingerprint of currently saved Routin wallet/plan keys (builtinId → apiKey). */
+export function snapshotRoutinCredentials(): Record<string, string> {
+  const configuration = loadOpenCoworkConfiguration()
+  const providers = Array.isArray(configuration.providerStore.providers)
+    ? configuration.providerStore.providers.filter(isRecord)
+    : []
+  const snapshot: Record<string, string> = {}
+  for (const provider of providers) {
+    const builtinId = stringValue(provider.builtinId)
+    if (builtinId !== 'routin-ai' && builtinId !== 'routin-ai-plan') continue
+    const apiKey = stringValue(provider.apiKey).trim()
+    if (apiKey) snapshot[builtinId] = apiKey
+  }
+  return snapshot
+}
+
+function routinCredentialsChanged(
+  previous: Record<string, string> | undefined,
+  current: Record<string, string>
+): boolean {
+  if (!previous) return Object.keys(current).length > 0
+  const keys = new Set([...Object.keys(previous), ...Object.keys(current)])
+  for (const key of keys) {
+    if ((previous[key] ?? '') !== (current[key] ?? '')) return true
+  }
+  return false
+}
+
+/** Persist a Routin key received from the browser device-login localhost callback. */
+export function applyRoutinDeviceLoginCredential(apiKey: string): ModelSelection {
+  const classified = classifyRoutinCredential(apiKey)
+  const catalog = loadProviderSetupCatalog()
+  const option =
+    catalog.options.find((candidate) => candidate.builtinId === classified.builtinId) ??
+    catalog.options.find((candidate) => candidate.key === `builtin:${classified.builtinId}`)
+  if (!option) {
+    throw new Error(`Routin preset “${classified.builtinId}” is unavailable in provider setup.`)
+  }
+  return persistProviderSetup({
+    optionKey: option.key,
+    name: option.name,
+    baseUrl: option.baseUrl || classified.baseUrl,
+    modelId:
+      option.defaultModelId ||
+      (classified.builtinId === 'routin-ai-plan' ? 'gpt-5.5' : 'deepseek-v4-flash'),
+    apiKey: apiKey.trim()
+  })
+}
+
 /**
  * When the desktop deep-link (or a prior paste) already wrote a Routin provider into the
  * shared store, return its active selection so the CLI wizard can finish without re-entry.
+ * Pass `previous` from `snapshotRoutinCredentials()` when re-login must wait for a change.
  */
-export function findReadyRoutinSelection(): ModelSelection | null {
+export function findReadyRoutinSelection(options?: {
+  previous?: Record<string, string>
+  requireChange?: boolean
+}): ModelSelection | null {
   const configuration = loadOpenCoworkConfiguration()
   const providers = Array.isArray(configuration.providerStore.providers)
     ? configuration.providerStore.providers.filter(isRecord)
@@ -501,6 +554,11 @@ export function findReadyRoutinSelection(): ModelSelection | null {
     return Boolean(stringValue(provider.apiKey).trim())
   })
   if (ready.length === 0) return null
+
+  const current = snapshotRoutinCredentials()
+  if (options?.requireChange && !routinCredentialsChanged(options.previous, current)) {
+    return null
+  }
 
   const preferred =
     ready.find((provider) => stringValue(provider.id) === activeProviderId) ?? ready[0]

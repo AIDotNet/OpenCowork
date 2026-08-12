@@ -1058,6 +1058,7 @@
     "baseUrlPlaceholder": "https://api.example.com/v1",
     "apiKey": "API Key",
     "getApiKey": "获取 API Key",
+    "browserLogin": "浏览器登录",
     "apiKeyPlaceholder": "sk-...",
     "showKey": "显示密钥",
     "hideKey": "隐藏密钥",

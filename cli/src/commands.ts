@@ -48,6 +48,12 @@ const slashCommandDefinitions: SlashCommandDefinition[] = [
     local: true
   },
   {
+    name: '/login',
+    descriptionKey: 'cli.commandsMenu.login',
+    defaultDescription: 'Sign in to Routin AI in the browser (device login)',
+    local: true
+  },
+  {
     name: '/context',
     descriptionKey: 'cli.commandsMenu.context',
     defaultDescription: 'Show canonical context usage and compact trigger',
